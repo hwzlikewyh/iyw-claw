@@ -1,0 +1,142 @@
+[package]
+name = "codeg"
+version = "0.19.0"
+description = "Agent Code Generation App"
+authors = ["feitao"]
+edition = "2021"
+default-run = "codeg"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "codeg_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = ["tauri-runtime"]
+tauri-runtime = [
+    "dep:tauri",
+    "dep:tauri-plugin-opener",
+    "dep:tauri-plugin-dialog",
+    "dep:fix-path-env",
+    "dep:tauri-build",
+    "dep:tauri-plugin-window-state",
+    "dep:tauri-plugin-updater",
+    "dep:tauri-plugin-process",
+    "dep:tauri-plugin-notification",
+    "dep:tauri-plugin-single-instance",
+    "dep:keyring",
+]
+# Exposes test scaffolding (`AppState::new_for_test`, `EventEmitter::test_web_only`,
+# `ConnectionManager::insert_test_connection`, parser `with_base_dir`, the
+# `db::test_helpers` module) for integration tests in `tests/*.rs`. Without
+# this feature the items are physically uncompiled in release builds.
+test-utils = []
+
+[[bin]]
+name = "codeg"
+path = "src/main.rs"
+required-features = ["tauri-runtime"]
+
+[[bin]]
+name = "codeg-server"
+path = "src/bin/codeg_server.rs"
+required-features = []
+
+[[bin]]
+name = "codeg-mcp"
+path = "src/bin/codeg_mcp.rs"
+required-features = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [], optional = true }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"], optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+cron = "0.12"
+thiserror = "2"
+dirs = "6"
+if-addrs = "0.13"
+walkdir = "2"
+sacp = "11.0.0"
+sacp-tokio = "11.0.0"
+tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt", "net", "rt-multi-thread"] }
+uuid = { version = "1", features = ["v4"] }
+futures = "0.3"
+futures-lite = "2"
+reqwest = { version = "0.12", features = ["stream", "json", "multipart"] }
+flate2 = "1"
+bzip2 = "0.5"
+tar = "0.4"
+zip = "2"
+regex = "1"
+portable-pty = "0.8"
+urlencoding = "2"
+fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", version = "0.0.0", optional = true }
+sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
+sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
+toml = "0.8"
+serde_yaml = "0.9"
+notify = "6"
+base64 = "0.22"
+agent-client-protocol-schema = { version = "0.11", features = ["unstable_session_usage", "unstable_session_fork", "unstable_session_resume"] }
+kill_tree = { version = "0.2", features = ["tokio"] }
+which = "7"
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"], optional = true }
+axum = { version = "0.8", features = ["ws", "multipart"] }
+async_zip = { version = "0.0.18", features = ["tokio", "deflate"] }
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+tokio-util = { version = "0.7", features = ["io", "rt"] }
+prost = "0.13"
+rand = "0.8"
+qrcode = "0.14"
+image = { version = "0.25", default-features = false, features = ["png", "webp"] }
+include_dir = "0.7"
+sha2 = "0.10"
+aes-gcm = { version = "0.10", features = ["stream"] }
+argon2 = "0.5"
+tempfile = "3"
+minisign-verify = "0.2"
+semver = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt", "registry", "std"] }
+tracing-appender = "0.2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-window-state = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
+tauri-plugin-process = { version = "2", optional = true }
+tauri-plugin-notification = { version = "2", optional = true }
+tauri-plugin-single-instance = { version = "2", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mac-notification-sys = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading"] }
+junction = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+temp-env = "0.3"
+tokio = { version = "1", features = ["test-util", "macros", "rt", "sync", "time"] }
+insta = { version = "1", features = ["json", "redactions"] }
+axum-test = { version = "17", features = ["ws"] }
+
+[patch.crates-io]
+sacp-tokio = { path = "vendor/sacp-tokio" }
