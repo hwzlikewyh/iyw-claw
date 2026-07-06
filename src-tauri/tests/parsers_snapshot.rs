@@ -13,12 +13,12 @@
 use std::fs;
 use std::path::Path;
 
-use codeg_lib::parsers::{
+use insta::assert_json_snapshot;
+use iyw_claw_lib::parsers::{
     claude::ClaudeParser, cline::ClineParser, codex::CodexParser, gemini::GeminiParser,
     hermes::HermesParser, kimi_code::KimiCodeParser, openclaw::OpenClawParser,
     opencode::OpenCodeParser, AgentParser,
 };
-use insta::assert_json_snapshot;
 use serde_json::json;
 
 fn write(path: &Path, contents: &str) {
@@ -155,7 +155,7 @@ fn gemini_minimal_session_snapshot() {
     let temp = tempfile::tempdir().expect("create tempdir");
     let base = temp.path().to_path_buf();
     // Gemini layout: <base>/tmp/<project>/chats/session-*.json + .project_root
-    let project_dir = base.join("tmp").join("codeg");
+    let project_dir = base.join("tmp").join("iyw-claw");
     let chats_dir = project_dir.join("chats");
     write(
         &project_dir.join(".project_root"),
@@ -784,22 +784,22 @@ fn kimi_code_minimal_session_snapshot() {
     // The session log is the only place the real model id appears.
     write(
         &session_dir.join("logs").join("kimi-code.log"),
-        "2026-03-01T10:00:00.000Z INFO  llm config  provider=kimi model=kimi-k2.7-code modelAlias=codeg-managed\n",
+        "2026-03-01T10:00:00.000Z INFO  llm config  provider=kimi model=kimi-k2.7-code modelAlias=iyw-claw-managed\n",
     );
 
     // The wire event stream: prompt → think → Read tool → result → text, with a
     // per-step usage record for each of the two steps.
     let wire = [
         json!({"type":"metadata","protocol_version":"1.4","created_at":1772359200000i64}),
-        json!({"type":"config.update","modelAlias":"codeg-managed","thinkingLevel":"high","time":1772359200000i64}),
+        json!({"type":"config.update","modelAlias":"iyw-claw-managed","thinkingLevel":"high","time":1772359200000i64}),
         json!({"type":"turn.prompt","input":[{"type":"text","text":"build the app"}],"origin":{"kind":"user"},"time":1772359201000i64}),
         json!({"type":"context.append_message","message":{"role":"user","content":[{"type":"text","text":"<system-reminder>ignored</system-reminder>"}],"origin":{"kind":"injection"}},"time":1772359201001i64}),
         json!({"type":"context.append_loop_event","event":{"type":"content.part","part":{"type":"think","think":"inspect the entry file first"}},"time":1772359202000i64}),
         json!({"type":"context.append_loop_event","event":{"type":"tool.call","toolCallId":"Read_0","name":"Read","args":{"file_path":"/tmp/demo/app.ts"}},"time":1772359203000i64}),
         json!({"type":"context.append_loop_event","event":{"type":"tool.result","parentUuid":"Read_0","toolCallId":"Read_0","result":{"output":"   1→export const x = 1\n   2→export const y = 2"}},"time":1772359204000i64}),
-        json!({"type":"usage.record","model":"codeg-managed","usage":{"inputOther":1200,"output":40,"inputCacheRead":800,"inputCacheCreation":0},"usageScope":"turn","time":1772359204500i64}),
+        json!({"type":"usage.record","model":"iyw-claw-managed","usage":{"inputOther":1200,"output":40,"inputCacheRead":800,"inputCacheCreation":0},"usageScope":"turn","time":1772359204500i64}),
         json!({"type":"context.append_loop_event","event":{"type":"content.part","part":{"type":"text","text":"The app exports x and y."}},"time":1772359205000i64}),
-        json!({"type":"usage.record","model":"codeg-managed","usage":{"inputOther":60,"output":80,"inputCacheRead":2000,"inputCacheCreation":0},"usageScope":"turn","time":1772359205500i64}),
+        json!({"type":"usage.record","model":"iyw-claw-managed","usage":{"inputOther":60,"output":80,"inputCacheRead":2000,"inputCacheCreation":0},"usageScope":"turn","time":1772359205500i64}),
     ];
     let wire_text = wire
         .iter()

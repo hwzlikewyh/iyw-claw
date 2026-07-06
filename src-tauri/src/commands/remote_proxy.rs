@@ -1,6 +1,6 @@
 //! Remote-workspace IPC proxy.
 //!
-//! When a desktop window is opened against a remote codeg-server, every API
+//! When a desktop window is opened against a remote iyw-claw-server, every API
 //! call and WebSocket event for that connection is funnelled through Rust
 //! commands defined here. The webview never opens an HTTP/WS connection to
 //! the remote host directly — that path is blocked by the Tauri webview's
@@ -93,9 +93,9 @@ const WS_BACKOFF_MAX_SECS: u64 = 32;
 
 /// MUST match the values in `src-tauri/src/web/auth.rs` and
 /// `src/lib/transport/ws-auth.ts`. The server's auth middleware reads the
-/// `sec-websocket-protocol` header looking for `codeg-token.{base64url}`.
-const WS_EVENT_PROTOCOL: &str = "codeg-events";
-const WS_TOKEN_PROTOCOL_PREFIX: &str = "codeg-token.";
+/// `sec-websocket-protocol` header looking for `iyw-claw-token.{base64url}`.
+const WS_EVENT_PROTOCOL: &str = "iyw-claw-events";
+const WS_TOKEN_PROTOCOL_PREFIX: &str = "iyw-claw-token.";
 
 /// Internal Tauri-event channels emitted by this proxy. The frontend
 /// `RemoteDesktopTransport` reserves these names. MUST match the
@@ -264,7 +264,7 @@ impl Default for RemoteProxyState {
 
 // ─── HTTP proxy command ────────────────────────────────────────────────
 
-/// Forward an HTTP API call to the remote codeg-server identified by
+/// Forward an HTTP API call to the remote iyw-claw-server identified by
 /// `connection_id`. The frontend's `RemoteDesktopTransport.call(cmd, args)`
 /// delegates to this; it never opens a fetch from the webview.
 ///
@@ -331,7 +331,7 @@ pub async fn remote_http_call(
 
     if !status.is_success() {
         let raw_body = response.text().await.unwrap_or_default();
-        // The remote codeg-server always returns `Json(AppCommandError)`
+        // The remote iyw-claw-server always returns `Json(AppCommandError)`
         // on errors (see `web/handlers/error.rs::IntoResponse`). Try to
         // deserialize so the caller sees the original code + i18n hint.
         if let Ok(structured) = serde_json::from_str::<AppCommandError>(&raw_body) {
@@ -487,7 +487,7 @@ pub async fn read_local_file_for_upload(
 }
 
 /// Forward a multipart upload (file bytes + optional session bucket) to the
-/// remote codeg-server identified by `connection_id`. Sibling of
+/// remote iyw-claw-server identified by `connection_id`. Sibling of
 /// `remote_http_call`, but multipart-shaped — the JSON proxy can't carry
 /// binary bodies, and webview `fetch` to a plain `http://` remote is
 /// blocked by mixed-content rules, so we cannot have the frontend hit
@@ -668,7 +668,7 @@ fn guess_mime_from_path(path: &std::path::Path) -> Option<String> {
 
 // ─── Workspace file upload / download proxy ───────────────────────────
 //
-// Issue #179 follow-up: a Tauri client bound to a remote codeg-server
+// Issue #179 follow-up: a Tauri client bound to a remote iyw-claw-server
 // previously had no path to upload/download workspace files. The web
 // build hits `/api/upload_workspace_file` etc. directly, but a webview
 // against a plain `http://` remote is blocked by mixed-content rules
@@ -1325,7 +1325,7 @@ fn absolute_remote_ticket_url(base_url: &str, ticket_url: &str) -> String {
 }
 
 fn partial_download_path(save_path: &str, transfer_id: &str) -> String {
-    format!("{save_path}.codeg-download-{transfer_id}.part")
+    format!("{save_path}.iyw-claw-download-{transfer_id}.part")
 }
 
 async fn write_response_stream_to_partial<S, F>(
@@ -1655,7 +1655,9 @@ async fn run_ws_task(
         let mut socket = match connect_result {
             Ok(s) => s,
             Err(err) => {
-                tracing::error!("[RemoteProxy] WS connect failed for connection {connection_id}: {err}");
+                tracing::error!(
+                    "[RemoteProxy] WS connect failed for connection {connection_id}: {err}"
+                );
                 fail_count += 1;
                 if fail_count >= WS_RECONNECT_FAIL_THRESHOLD {
                     emit_internal(&app, &entry, &event_name, WS_UNAUTHORIZED_CHANNEL).await;
@@ -1770,7 +1772,7 @@ async fn backoff_sleep(shutdown_rx: &mut watch::Receiver<bool>, fail_count: u32)
 }
 
 /// Forward a text frame from the remote WS to all current subscribers of
-/// this connection. The remote codeg-server's `ws.rs` emits frames shaped
+/// this connection. The remote iyw-claw-server's `ws.rs` emits frames shaped
 /// `{ "channel": "...", "payload": ... }` (see `WebEventBroadcaster`).
 /// We re-emit the payload as-is into the Tauri event named
 /// `remote-ws-event-{connection_id}`, but only to webview labels listed in
@@ -1842,7 +1844,7 @@ async fn snapshot_subscribers(entry: &Arc<WsTaskEntry>) -> Vec<String> {
 /// Connect to the remote WebSocket with subprotocol-based token auth.
 /// The remote server's auth middleware (see `web/auth.rs`) accepts either
 /// `Authorization: Bearer …` or a subprotocol entry shaped
-/// `codeg-token.{base64url(token)}`. The latter is what browser
+/// `iyw-claw-token.{base64url(token)}`. The latter is what browser
 /// WebSocket clients use because browsers cannot set arbitrary headers
 /// on WS handshakes; we follow the same convention here so both transports
 /// share one server-side codepath.
@@ -1935,7 +1937,7 @@ mod tests {
     #[test]
     fn partial_download_path_is_unique_sibling() {
         let path = partial_download_path("/tmp/out.zip", "abc");
-        assert_eq!(path, "/tmp/out.zip.codeg-download-abc.part");
+        assert_eq!(path, "/tmp/out.zip.iyw-claw-download-abc.part");
     }
 
     #[tokio::test]

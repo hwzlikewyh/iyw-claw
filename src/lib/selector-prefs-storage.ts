@@ -19,7 +19,7 @@
 
 import type { SessionModeStateInfo } from "@/lib/types"
 
-const STORAGE_KEY = "codeg:selector-prefs"
+const STORAGE_KEY = "iyw-claw:selector-prefs"
 
 interface SelectorPrefs {
   modeId?: string

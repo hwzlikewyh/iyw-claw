@@ -53,17 +53,17 @@ describe("isAgentLikeToolName", () => {
   it("matches delegate_to_agent across host naming conventions", () => {
     expect(isAgentLikeToolName("delegate_to_agent")).toBe(true)
     // Claude Code style (current + legacy server names)
-    expect(isAgentLikeToolName("mcp__codeg-mcp__delegate_to_agent")).toBe(true)
-    expect(isAgentLikeToolName("mcp__codeg-delegate__delegate_to_agent")).toBe(
+    expect(isAgentLikeToolName("mcp__iyw-claw-mcp__delegate_to_agent")).toBe(true)
+    expect(isAgentLikeToolName("mcp__iyw-claw-delegate__delegate_to_agent")).toBe(
       true
     )
-    expect(isAgentLikeToolName("mcp__codeg__delegate_to_agent")).toBe(true)
+    expect(isAgentLikeToolName("mcp__iyw-claw__delegate_to_agent")).toBe(true)
     // Codex live ACP style (server/tool)
-    expect(isAgentLikeToolName("codeg-mcp/delegate_to_agent")).toBe(true)
-    expect(isAgentLikeToolName("codeg-delegate/delegate_to_agent")).toBe(true)
+    expect(isAgentLikeToolName("iyw-claw-mcp/delegate_to_agent")).toBe(true)
+    expect(isAgentLikeToolName("iyw-claw-delegate/delegate_to_agent")).toBe(true)
     // Dot- and colon-separated forms other hosts may emit
-    expect(isAgentLikeToolName("codeg-delegate.delegate_to_agent")).toBe(true)
-    expect(isAgentLikeToolName("codeg-delegate:delegate_to_agent")).toBe(true)
+    expect(isAgentLikeToolName("iyw-claw-delegate.delegate_to_agent")).toBe(true)
+    expect(isAgentLikeToolName("iyw-claw-delegate:delegate_to_agent")).toBe(true)
   })
 
   it("matches the delegation companion tools across host naming conventions", () => {
@@ -71,14 +71,14 @@ describe("isAgentLikeToolName", () => {
       // Bare canonical form (live-streaming path, post-inferLiveToolName)
       expect(isAgentLikeToolName(tool)).toBe(true)
       // Claude Code style (current + legacy server names)
-      expect(isAgentLikeToolName(`mcp__codeg-mcp__${tool}`)).toBe(true)
-      expect(isAgentLikeToolName(`mcp__codeg-delegate__${tool}`)).toBe(true)
-      expect(isAgentLikeToolName(`mcp__codeg__${tool}`)).toBe(true)
+      expect(isAgentLikeToolName(`mcp__iyw-claw-mcp__${tool}`)).toBe(true)
+      expect(isAgentLikeToolName(`mcp__iyw-claw-delegate__${tool}`)).toBe(true)
+      expect(isAgentLikeToolName(`mcp__iyw-claw__${tool}`)).toBe(true)
       // Codex live ACP + dot/colon separated forms
-      expect(isAgentLikeToolName(`codeg-mcp/${tool}`)).toBe(true)
-      expect(isAgentLikeToolName(`codeg-delegate/${tool}`)).toBe(true)
-      expect(isAgentLikeToolName(`codeg-delegate.${tool}`)).toBe(true)
-      expect(isAgentLikeToolName(`codeg-delegate:${tool}`)).toBe(true)
+      expect(isAgentLikeToolName(`iyw-claw-mcp/${tool}`)).toBe(true)
+      expect(isAgentLikeToolName(`iyw-claw-delegate/${tool}`)).toBe(true)
+      expect(isAgentLikeToolName(`iyw-claw-delegate.${tool}`)).toBe(true)
+      expect(isAgentLikeToolName(`iyw-claw-delegate:${tool}`)).toBe(true)
     }
   })
 
@@ -92,21 +92,21 @@ describe("isAgentLikeToolName", () => {
   it("matches ask_user_question across host naming conventions", () => {
     expect(isAgentLikeToolName("question")).toBe(true)
     expect(isAgentLikeToolName("ask_user_question")).toBe(true)
-    expect(isAgentLikeToolName("mcp__codeg-mcp__ask_user_question")).toBe(true)
-    expect(isAgentLikeToolName("codeg-mcp/ask_user_question")).toBe(true)
-    expect(isAgentLikeToolName("codeg-mcp.ask_user_question")).toBe(true)
-    expect(isAgentLikeToolName("codeg-mcp:ask_user_question")).toBe(true)
+    expect(isAgentLikeToolName("mcp__iyw-claw-mcp__ask_user_question")).toBe(true)
+    expect(isAgentLikeToolName("iyw-claw-mcp/ask_user_question")).toBe(true)
+    expect(isAgentLikeToolName("iyw-claw-mcp.ask_user_question")).toBe(true)
+    expect(isAgentLikeToolName("iyw-claw-mcp:ask_user_question")).toBe(true)
   })
 
   it("matches check_user_feedback across host naming conventions", () => {
     expect(isAgentLikeToolName("check_user_feedback")).toBe(true)
-    expect(isAgentLikeToolName("mcp__codeg-mcp__check_user_feedback")).toBe(
+    expect(isAgentLikeToolName("mcp__iyw-claw-mcp__check_user_feedback")).toBe(
       true
     )
-    expect(isAgentLikeToolName("mcp__codeg__check_user_feedback")).toBe(true)
-    expect(isAgentLikeToolName("codeg-mcp/check_user_feedback")).toBe(true)
-    expect(isAgentLikeToolName("codeg-mcp.check_user_feedback")).toBe(true)
-    expect(isAgentLikeToolName("codeg-mcp:check_user_feedback")).toBe(true)
+    expect(isAgentLikeToolName("mcp__iyw-claw__check_user_feedback")).toBe(true)
+    expect(isAgentLikeToolName("iyw-claw-mcp/check_user_feedback")).toBe(true)
+    expect(isAgentLikeToolName("iyw-claw-mcp.check_user_feedback")).toBe(true)
+    expect(isAgentLikeToolName("iyw-claw-mcp:check_user_feedback")).toBe(true)
   })
 
   it("does not match other tools", () => {

@@ -518,7 +518,7 @@ fn find_delegation_args(
 /// agent gets to decide both fields:
 ///
 /// * `title` is a free-form human-readable string the host composes. Some
-///   hosts copy the MCP method verbatim (`mcp__codeg-mcp__delegate_to_agent`),
+///   hosts copy the MCP method verbatim (`mcp__iyw-claw-mcp__delegate_to_agent`),
 ///   some prefix it with a verb (`Run mcp__…__delegate_to_agent`), some
 ///   rephrase it (`Delegate to codex`). We match by substring so any
 ///   form containing `delegate_to_agent` is captured.
@@ -807,11 +807,11 @@ mod delegation_title_tests {
     #[test]
     fn matches_mcp_prefixed_method_in_title() {
         assert!(is_delegation_invocation(
-            "mcp__codeg-mcp__delegate_to_agent",
+            "mcp__iyw-claw-mcp__delegate_to_agent",
             None
         ));
         assert!(is_delegation_invocation(
-            "Run mcp__codeg__delegate_to_agent",
+            "Run mcp__iyw-claw__delegate_to_agent",
             None
         ));
     }
@@ -1199,7 +1199,7 @@ mod delegation_registration_tests {
         // tc-2 registers unkeyed (tool-name title, no raw_input yet).
         register_delegation_tool_call_from_event(
             &b,
-            &tool_call_event("tc-2", "mcp__codeg-mcp__delegate_to_agent", None),
+            &tool_call_event("tc-2", "mcp__iyw-claw-mcp__delegate_to_agent", None),
         )
         .await;
         // A parallel keyed sibling sharing the queue (must not be mixed up).
@@ -1207,7 +1207,7 @@ mod delegation_registration_tests {
             &b,
             &tool_call_event(
                 "tc-sibling",
-                "mcp__codeg-mcp__delegate_to_agent",
+                "mcp__iyw-claw-mcp__delegate_to_agent",
                 Some(r#"{"agent_type":"codex","task":"sibling"}"#),
             ),
         )

@@ -39,7 +39,7 @@ export default function LoginPage() {
       })
 
       if (res.ok) {
-        localStorage.setItem("codeg_token", token)
+        localStorage.setItem("iyw-claw_token", token)
         router.replace("/workspace")
       } else if (res.status === 401) {
         setError(t("invalidToken"))

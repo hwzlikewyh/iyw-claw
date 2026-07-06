@@ -3,7 +3,7 @@ import { getTransport, isDesktop, isRemoteDesktopMode } from "./transport"
 
 // Drive the LOCAL Tauri app updater only for a genuine local desktop window.
 // A remote-desktop window IS a Tauri app (`isDesktop()` is true) but its
-// backend is a remote codeg-server, so update checks/actions must target that
+// backend is a remote iyw-claw-server, so update checks/actions must target that
 // server through the transport — otherwise the operator would check and update
 // their own local app instead of the server they are managing.
 export function usesTauriUpdater(): boolean {

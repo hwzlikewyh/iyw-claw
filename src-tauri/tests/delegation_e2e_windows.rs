@@ -11,19 +11,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use codeg_lib::acp::delegation::broker::{
+use iyw_claw_lib::acp::delegation::broker::{
     ConversationDepthLookup, DelegationBroker, DelegationConfig,
 };
-use codeg_lib::acp::delegation::listener::{
+use iyw_claw_lib::acp::delegation::listener::{
     DelegationListener, ParentSessionLookup, TokenEntry, TokenRegistry,
 };
-use codeg_lib::acp::delegation::spawner::{mock::MockSpawner, ConnectionSpawner};
-use codeg_lib::acp::delegation::transport::{
+use iyw_claw_lib::acp::delegation::spawner::{mock::MockSpawner, ConnectionSpawner};
+use iyw_claw_lib::acp::delegation::transport::{
     client_round_trip, client_status_round_trip, BrokerRequest, BrokerResponse, BrokerStatusRequest,
 };
-use codeg_lib::acp::delegation::types::{DelegationError, DelegationOutcome, DelegationSuccess};
-use codeg_lib::acp::question::{QuestionSpec, RegisteredQuestion, SessionQuestionAccess};
-use codeg_lib::models::AgentType;
+use iyw_claw_lib::acp::delegation::types::{DelegationError, DelegationOutcome, DelegationSuccess};
+use iyw_claw_lib::acp::question::{QuestionSpec, RegisteredQuestion, SessionQuestionAccess};
+use iyw_claw_lib::models::AgentType;
 use serde_json::json;
 
 struct AlwaysRoot;
@@ -45,11 +45,11 @@ impl ParentSessionLookup for FixedParent {
 /// No-op feedback access — this e2e suite exercises delegation, not feedback.
 struct NoFeedback;
 #[async_trait]
-impl codeg_lib::acp::feedback::SessionFeedbackAccess for NoFeedback {
+impl iyw_claw_lib::acp::feedback::SessionFeedbackAccess for NoFeedback {
     async fn read_pending_feedback(
         &self,
         _parent_connection_id: &str,
-    ) -> Vec<codeg_lib::acp::feedback::PendingFeedback> {
+    ) -> Vec<iyw_claw_lib::acp::feedback::PendingFeedback> {
         Vec::new()
     }
     async fn commit_feedback_delivered(&self, _parent_connection_id: &str, _ids: Vec<String>) {}
@@ -73,19 +73,19 @@ impl SessionQuestionAccess for NoQuestions {
 /// No-op session-info access — this e2e suite never drives `get_session_info`.
 struct NoSessionInfo;
 #[async_trait]
-impl codeg_lib::acp::session_info::SessionInfoAccess for NoSessionInfo {
+impl iyw_claw_lib::acp::session_info::SessionInfoAccess for NoSessionInfo {
     async fn resolve(
         &self,
         session_id: i32,
         _max_messages: u32,
-    ) -> codeg_lib::acp::session_info::SessionInfo {
-        codeg_lib::acp::session_info::SessionInfo::not_found(session_id)
+    ) -> iyw_claw_lib::acp::session_info::SessionInfo {
+        iyw_claw_lib::acp::session_info::SessionInfo::not_found(session_id)
     }
 }
 
 fn unique_pipe(tag: &str) -> String {
     format!(
-        r"\\.\pipe\codeg-e2e-{}-{}-{}",
+        r"\\.\pipe\iyw-claw-e2e-{}-{}-{}",
         tag,
         std::process::id(),
         std::time::SystemTime::now()
@@ -168,9 +168,9 @@ async fn end_to_end_named_pipe_happy_path() {
         broker.clone(),
         tokens,
         Arc::new(FixedParent(1)) as Arc<dyn ParentSessionLookup>,
-        Arc::new(NoFeedback) as Arc<dyn codeg_lib::acp::feedback::SessionFeedbackAccess>,
+        Arc::new(NoFeedback) as Arc<dyn iyw_claw_lib::acp::feedback::SessionFeedbackAccess>,
         Arc::new(NoQuestions) as Arc<dyn SessionQuestionAccess>,
-        Arc::new(NoSessionInfo) as Arc<dyn codeg_lib::acp::session_info::SessionInfoAccess>,
+        Arc::new(NoSessionInfo) as Arc<dyn iyw_claw_lib::acp::session_info::SessionInfoAccess>,
     );
 
     let pipe = unique_pipe("happy");
@@ -269,9 +269,9 @@ async fn end_to_end_named_pipe_back_to_back_requests() {
         broker.clone(),
         tokens,
         Arc::new(FixedParent(1)) as Arc<dyn ParentSessionLookup>,
-        Arc::new(NoFeedback) as Arc<dyn codeg_lib::acp::feedback::SessionFeedbackAccess>,
+        Arc::new(NoFeedback) as Arc<dyn iyw_claw_lib::acp::feedback::SessionFeedbackAccess>,
         Arc::new(NoQuestions) as Arc<dyn SessionQuestionAccess>,
-        Arc::new(NoSessionInfo) as Arc<dyn codeg_lib::acp::session_info::SessionInfoAccess>,
+        Arc::new(NoSessionInfo) as Arc<dyn iyw_claw_lib::acp::session_info::SessionInfoAccess>,
     );
 
     let pipe = unique_pipe("repeat");

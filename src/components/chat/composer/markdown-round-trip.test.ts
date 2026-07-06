@@ -181,7 +181,7 @@ describe("composer markdown engine", () => {
           refType: "session",
           id: "1",
           label,
-          uri: "codeg://session/1",
+          uri: "iyw-claw://session/1",
           meta: null,
         })
         expect(countLinks(parse(editor, md))).toBe(1)

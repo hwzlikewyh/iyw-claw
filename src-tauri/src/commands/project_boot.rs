@@ -84,7 +84,7 @@ fn validate_project_name(name: &str) -> Result<(), AppCommandError> {
         (Some(Component::Normal(_)), None)
     );
     // On Unix '\\' is a legal filename char, so the component scan won't flag
-    // "..\\x" as traversal — reject separators explicitly since codeg ships on
+    // "..\\x" as traversal — reject separators explicitly since iyw-claw ships on
     // Windows too.
     if !single_segment || name.contains('/') || name.contains('\\') {
         return Err(AppCommandError::invalid_input(
@@ -263,9 +263,9 @@ pub async fn create_shadcn_project(
 // HyperFrames (HTML-to-video) launcher
 // ---------------------------------------------------------------------------
 
-/// codeg's six supported agents, mapped to the `skills` CLI's `--agent` ids.
+/// iyw-claw's six supported agents, mapped to the `skills` CLI's `--agent` ids.
 /// The launcher only ever targets these agents (never the CLI's full 55+ agent
-/// universe via `--all`/`--agent '*'`), so installs stay scoped to tools codeg
+/// universe via `--all`/`--agent '*'`), so installs stay scoped to tools iyw-claw
 /// can actually orchestrate. Also the allowlist that validates incoming ids.
 const HYPERFRAMES_SKILL_AGENTS: [&str; 6] = [
     "claude-code",
@@ -295,7 +295,7 @@ pub struct HyperframesSkillAgent {
 const HYPERFRAMES_SKILL_PREFIX: &str = "hyperframes";
 
 /// Map a `skills` CLI `--agent` id (what the install command and the frontend
-/// speak) to codeg's internal `AgentType`, which drives skill-dir resolution.
+/// speak) to iyw-claw's internal `AgentType`, which drives skill-dir resolution.
 fn agent_type_for_skill_id(skill_agent: &str) -> Option<AgentType> {
     Some(match skill_agent {
         "claude-code" => AgentType::ClaudeCode,
@@ -310,7 +310,7 @@ fn agent_type_for_skill_id(skill_agent: &str) -> Option<AgentType> {
 }
 
 /// Whether any HyperFrames-family skill is present in the agent's GLOBAL skill
-/// directories. Reuses codeg's own skill-dir resolution + enumeration
+/// directories. Reuses iyw-claw's own skill-dir resolution + enumeration
 /// (`acp.rs`), so it matches what Settings → Skills lists by construction —
 /// including the shared `~/.agents/skills` store that the `skills` CLI's
 /// "universal" agents (codex, opencode, cline, …) read from. See
@@ -460,7 +460,9 @@ pub async fn install_hyperframes_skills(agents: Vec<String>) -> Result<(), AppCo
     // `~/.agents/skills`, so one satisfied install covers all that read it.
     for &agent in &ran_ok {
         if !hyperframes_skill_installed(agent) {
-            tracing::info!("[ProjectBoot] {agent}: install exited 0 but no HyperFrames skill detected");
+            tracing::info!(
+                "[ProjectBoot] {agent}: install exited 0 but no HyperFrames skill detected"
+            );
             failures.push(format!(
                 "{agent}: install reported success but no HyperFrames skill was detected"
             ));

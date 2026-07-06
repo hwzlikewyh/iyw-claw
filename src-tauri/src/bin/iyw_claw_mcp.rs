@@ -1,14 +1,14 @@
-//! `codeg-mcp` — the per-launch stdio MCP companion that an agent CLI runs
-//! to surface codeg's tools to its LLM: the multi-agent delegation tools
+//! `iyw-claw-mcp` — the per-launch stdio MCP companion that an agent CLI runs
+//! to surface iyw-claw's tools to its LLM: the multi-agent delegation tools
 //! (`delegate_to_agent` etc.), `check_user_feedback` (pull the user's mid-turn
 //! steering notes), `ask_user_question` (block on a multiple-choice card), and
 //! `get_session_info` (resolve a referenced session by id), gated by the
 //! `--features` groups (`delegation` / `feedback` / `ask` / `sessions`).
 //!
-//! The agent's MCP config (injected by codeg via `load_mcp_servers_for_agent`)
+//! The agent's MCP config (injected by iyw-claw via `load_mcp_servers_for_agent`)
 //! spawns this binary with three required flags:
 //!
-//!   codeg-mcp \
+//!   iyw-claw-mcp \
 //!     --parent-connection-id <uuid> \
 //!     --socket-path <abs path> \
 //!     --token <ephemeral secret>
@@ -16,7 +16,7 @@
 //! All three are required and the binary exits early if any is missing.
 //! Everything heavyweight — JSON-RPC dispatch, UDS round-trip, MCP tool
 //! schema, cancellation tracking — lives in
-//! `codeg_lib::acp::delegation::{companion, transport}` so it's
+//! `iyw_claw_lib::acp::delegation::{companion, transport}` so it's
 //! unit-testable without spawning a process.
 //!
 //! Stdin lines are dispatched concurrently: synchronous methods
@@ -30,11 +30,11 @@ use std::io::Write;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use codeg_lib::acp::delegation::companion::{
+use iyw_claw_lib::acp::delegation::companion::{
     dispatch_line, drain_and_cancel_all, CompanionContext, CompanionFeatures, InflightCalls,
     JsonRpcResponse, LineAction, SpawnResult,
 };
-use codeg_lib::acp::delegation::parent_watcher::{wait_for_parent_exit, DEFAULT_POLL_INTERVAL};
+use iyw_claw_lib::acp::delegation::parent_watcher::{wait_for_parent_exit, DEFAULT_POLL_INTERVAL};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
 use tokio::sync::Mutex;
 
@@ -42,8 +42,8 @@ struct Args {
     parent_connection_id: String,
     socket_path: String,
     token: String,
-    /// Optional PID of the codeg / codeg-server process that owns this
-    /// session. When set, codeg-mcp exits as soon as the parent is gone so
+    /// Optional PID of the iyw-claw / iyw-claw-server process that owns this
+    /// session. When set, iyw-claw-mcp exits as soon as the parent is gone so
     /// orphaned companions don't keep the binary file locked (Windows
     /// upgrade failure) or hold open a UDS / pipe nobody will ever read
     /// from. Omitted by older parents — backward compatible.
@@ -100,7 +100,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "codeg-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions]"
+                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions]"
                 );
                 std::process::exit(0);
             }
@@ -137,12 +137,12 @@ async fn write_response(
 async fn main() -> ExitCode {
     // Stderr-only subscriber: stdout is the JSON-RPC protocol channel, and
     // concurrent mcp processes share no log file. No hub/buffer/emitter.
-    let _log_guard = codeg_lib::logging::init::init_mcp();
+    let _log_guard = iyw_claw_lib::logging::init::init_mcp();
 
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
-            let _ = writeln!(std::io::stderr(), "codeg-mcp: {e}");
+            let _ = writeln!(std::io::stderr(), "iyw-claw-mcp: {e}");
             return ExitCode::from(2);
         }
     };
@@ -179,14 +179,14 @@ async fn main() -> ExitCode {
                 // Best-effort: cancel every in-flight delegation BEFORE we
                 // hard-exit so the broker doesn't park each pending row
                 // on `rx.await` waiting for a TurnComplete it can never
-                // deliver. cancel_by_parent on the codeg main side is the
+                // deliver. cancel_by_parent on the iyw-claw main side is the
                 // ultimate backstop, but firing the explicit cancels here
                 // closes the window between MCP shutdown and parent ACP
-                // disconnect detection on the codeg side.
+                // disconnect detection on the iyw-claw side.
                 drain_and_cancel_all(&ctx, &inflight, "parent process exited").await;
                 let _ = writeln!(
                     std::io::stderr(),
-                    "codeg-mcp: parent process exited, shutting down"
+                    "iyw-claw-mcp: parent process exited, shutting down"
                 );
                 // Hard exit on purpose: `tokio::io::stdin()` parks a
                 // blocking worker thread that the runtime can't cancel,
@@ -208,7 +208,7 @@ async fn main() -> ExitCode {
                         break;
                     }
                     Err(e) => {
-                        let _ = writeln!(std::io::stderr(), "codeg-mcp: read stdin: {e}");
+                        let _ = writeln!(std::io::stderr(), "iyw-claw-mcp: read stdin: {e}");
                         drain_and_cancel_all(&ctx, &inflight, "companion stdin error").await;
                         return ExitCode::from(1);
                     }
@@ -221,7 +221,7 @@ async fn main() -> ExitCode {
                 match action {
                     LineAction::Respond(resp) => {
                         if let Err(e) = write_response(&stdout, &resp).await {
-                            let _ = writeln!(std::io::stderr(), "codeg-mcp: write stdout: {e}");
+                            let _ = writeln!(std::io::stderr(), "iyw-claw-mcp: write stdout: {e}");
                             return ExitCode::from(1);
                         }
                     }
@@ -242,7 +242,7 @@ async fn main() -> ExitCode {
                             if let Err(e) = write_response(&stdout, &resp).await {
                                 let _ = writeln!(
                                     std::io::stderr(),
-                                    "codeg-mcp: write stdout: {e}"
+                                    "iyw-claw-mcp: write stdout: {e}"
                                 );
                                 // Relay failed (agent stdin gone) → skip any
                                 // post-relay action so feedback notes stay

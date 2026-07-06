@@ -111,8 +111,9 @@ impl ArchiveBuilder {
             if cancel.is_cancelled() {
                 return Err(cancelled_error());
             }
-            let entry = entry
-                .map_err(|e| AppCommandError::io_error("Failed to walk directory").with_detail(e.to_string()))?;
+            let entry = entry.map_err(|e| {
+                AppCommandError::io_error("Failed to walk directory").with_detail(e.to_string())
+            })?;
             let ft = entry.file_type();
             if !ft.is_file() {
                 // Skip directories, symlinks, and special files.
@@ -139,10 +140,14 @@ impl ArchiveBuilder {
 
     /// Write `manifest.json` (uncompressed) as the last entry and close the
     /// archive. Returns the manifest with its `entries` populated.
-    pub fn finish(mut self, mut manifest: BackupManifest) -> Result<BackupManifest, AppCommandError> {
+    pub fn finish(
+        mut self,
+        mut manifest: BackupManifest,
+    ) -> Result<BackupManifest, AppCommandError> {
         manifest.entries = std::mem::take(&mut self.entries);
-        let json = serde_json::to_vec_pretty(&manifest)
-            .map_err(|e| AppCommandError::task_execution_failed("Serialize manifest").with_detail(e.to_string()))?;
+        let json = serde_json::to_vec_pretty(&manifest).map_err(|e| {
+            AppCommandError::task_execution_failed("Serialize manifest").with_detail(e.to_string())
+        })?;
         let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
         self.writer
             .start_file(MANIFEST_ENTRY_NAME, opts)
@@ -179,7 +184,7 @@ pub fn read_manifest(zip_path: &Path) -> Result<BackupManifest, AppCommandError>
 
 /// Validate a manifest before trusting it to drive extraction: every entry
 /// path must be a safe relative path (no traversal, not absolute, not the
-/// manifest itself), paths must be unique, and a codeg backup must carry the
+/// manifest itself), paths must be unique, and a iyw-claw backup must carry the
 /// database. Rejects crafted manifests up front.
 pub fn validate_manifest(manifest: &BackupManifest) -> Result<(), AppCommandError> {
     let mut seen = HashSet::new();
@@ -196,7 +201,7 @@ pub fn validate_manifest(manifest: &BackupManifest) -> Result<(), AppCommandErro
             return Err(corrupted_error());
         }
     }
-    if !seen.contains("db/codeg.db") {
+    if !seen.contains("db/iyw-claw.db") {
         return Err(corrupted_error());
     }
     Ok(())
@@ -218,7 +223,11 @@ pub fn extract_all(
     // path -> manifest-declared size, used to bound each entry's decompressed
     // output (a decompression bomb stops at the declared size + 1 and is
     // rejected, rather than filling the disk before checksum verification).
-    let sizes: HashMap<&str, u64> = manifest.entries.iter().map(|e| (e.path.as_str(), e.size)).collect();
+    let sizes: HashMap<&str, u64> = manifest
+        .entries
+        .iter()
+        .map(|e| (e.path.as_str(), e.size))
+        .collect();
     let f = File::open(zip_path).map_err(AppCommandError::io)?;
     let mut ar = ZipArchive::new(BufReader::new(f)).map_err(|_| unknown_format_error())?;
     let mut processed = 0u64;
@@ -361,7 +370,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let mut prog = null_progress();
         let mut b = ArchiveBuilder::create(&zip_path).unwrap();
-        b.add_file("db/codeg.db", &src.join("db.bin"), &cancel, &mut prog)
+        b.add_file("db/iyw-claw.db", &src.join("db.bin"), &cancel, &mut prog)
             .unwrap();
         b.add_dir(
             "uploads",
@@ -375,10 +384,7 @@ mod tests {
 
         // Manifest captured 3 files, excluded the .tmp one.
         assert_eq!(manifest.entries.len(), 3);
-        assert!(manifest
-            .entries
-            .iter()
-            .all(|e| !e.path.contains(".tmp")));
+        assert!(manifest.entries.iter().all(|e| !e.path.contains(".tmp")));
 
         let reread = read_manifest(&zip_path).unwrap();
         assert_eq!(reread.entries.len(), 3);
@@ -407,7 +413,7 @@ mod tests {
         std::fs::write(&src, b"db").unwrap();
 
         let mut b = ArchiveBuilder::create(&zip_path).unwrap();
-        b.add_file("db/codeg.db", &src, &cancel, &mut null_progress())
+        b.add_file("db/iyw-claw.db", &src, &cancel, &mut null_progress())
             .unwrap();
         // Build a manifest that omits the smuggled entry, but write the entry
         // into the ZIP anyway (simulating a tampered payload).
@@ -426,8 +432,8 @@ mod tests {
             w.write_all(b"{\"stolen\":true}").unwrap();
             w.finish().unwrap();
         }
-        // Manifest still lists only db/codeg.db.
-        manifest.entries.retain(|e| e.path == "db/codeg.db");
+        // Manifest still lists only db/iyw-claw.db.
+        manifest.entries.retain(|e| e.path == "db/iyw-claw.db");
         let out = dir.path().join("out");
         let err = extract_all(&zip_path, &out, &manifest, &cancel, &mut null_progress());
         assert!(err.is_err(), "unmanifested file must be rejected");
@@ -438,7 +444,7 @@ mod tests {
     fn validate_manifest_rejects_traversal_dup_and_missing_db() {
         let mut m = sample_manifest();
         m.entries = vec![ManifestEntry {
-            path: "db/codeg.db".into(),
+            path: "db/iyw-claw.db".into(),
             size: 1,
             sha256: "x".into(),
         }];
@@ -465,7 +471,7 @@ mod tests {
         // Duplicate.
         let mut m4 = m.clone();
         m4.entries.push(ManifestEntry {
-            path: "db/codeg.db".into(),
+            path: "db/iyw-claw.db".into(),
             size: 1,
             sha256: "y".into(),
         });

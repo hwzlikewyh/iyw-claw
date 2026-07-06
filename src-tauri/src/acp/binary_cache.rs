@@ -16,10 +16,10 @@ static TRASH_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub(crate) fn cache_dir() -> Result<PathBuf, AcpError> {
     let base = dirs::cache_dir()
         .ok_or_else(|| AcpError::DownloadFailed("cannot determine cache directory".into()))?;
-    Ok(base.join("app.codeg").join("acp-binaries"))
+    Ok(base.join("app.iywclaw").join("acp-binaries"))
 }
 
-/// Directory where codeg caches a managed `uv` toolchain (`uv` + `uvx`),
+/// Directory where iyw-claw caches a managed `uv` toolchain (`uv` + `uvx`),
 /// downloaded on demand when the user has no system `uv` (used to launch
 /// Python ACP agents such as Hermes). Layout:
 /// `<cache_dir>/uv-tool/<platform>/{uv,uvx}`.
@@ -29,7 +29,7 @@ pub(crate) fn uv_tool_dir() -> Result<PathBuf, AcpError> {
         .join(registry::current_platform()))
 }
 
-/// Locate a codeg-managed uv tool binary (`uv` or `uvx`) if it has already
+/// Locate a iyw-claw-managed uv tool binary (`uv` or `uvx`) if it has already
 /// been downloaded into the cache. Returns `None` when not present, so
 /// callers fall back to PATH / common install locations.
 pub fn find_cached_uv_tool(tool: &str) -> Option<PathBuf> {
@@ -42,7 +42,7 @@ pub fn find_cached_uv_tool(tool: &str) -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
-/// Pinned `uv` toolchain version codeg downloads on demand when the user has no
+/// Pinned `uv` toolchain version iyw-claw downloads on demand when the user has no
 /// system `uv` (used to launch Python ACP agents such as Hermes).
 const UV_TOOL_VERSION: &str = "0.8.10";
 
@@ -62,7 +62,7 @@ fn uv_archive_url() -> Option<String> {
     ))
 }
 
-/// Download + cache the `uv` toolchain (`uv` + `uvx`) into codeg's cache when no
+/// Download + cache the `uv` toolchain (`uv` + `uvx`) into iyw-claw's cache when no
 /// system `uv` is available, so Python ACP agents work with zero prerequisites.
 /// Idempotent: returns the cached `uvx` path immediately if already present.
 pub async fn ensure_uv_tool(on_progress: impl Fn(&str)) -> Result<PathBuf, AcpError> {

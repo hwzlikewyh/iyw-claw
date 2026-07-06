@@ -4,7 +4,7 @@ version = "0.19.0"
 description = "Agent Code Generation App"
 authors = ["feitao"]
 edition = "2021"
-default-run = "codeg"
+default-run = "iyw-claw"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,7 +12,7 @@ default-run = "codeg"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "codeg_lib"
+name = "iyw_claw_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
@@ -37,18 +37,18 @@ tauri-runtime = [
 test-utils = []
 
 [[bin]]
-name = "codeg"
+name = "iyw-claw"
 path = "src/main.rs"
 required-features = ["tauri-runtime"]
 
 [[bin]]
-name = "codeg-server"
-path = "src/bin/codeg_server.rs"
+name = "iyw-claw-server"
+path = "src/bin/iyw_claw_server.rs"
 required-features = []
 
 [[bin]]
-name = "codeg-mcp"
-path = "src/bin/codeg_mcp.rs"
+name = "iyw-claw-mcp"
+path = "src/bin/iyw_claw_mcp.rs"
 required-features = []
 
 [build-dependencies]

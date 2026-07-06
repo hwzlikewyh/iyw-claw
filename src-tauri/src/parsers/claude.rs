@@ -1654,7 +1654,7 @@ mod tests {
     #[test]
     fn parse_detail_sets_claude_context_window_stats() {
         let path = std::env::temp_dir().join(format!(
-            "codeg-claude-parser-{}.jsonl",
+            "iyw-claw-claude-parser-{}.jsonl",
             uuid::Uuid::new_v4()
         ));
         let mut file = fs::File::create(&path).expect("create temp jsonl");
@@ -1716,7 +1716,7 @@ mod tests {
     #[test]
     fn parse_prefers_ai_title_over_first_user_message() {
         let path = std::env::temp_dir().join(format!(
-            "codeg-claude-aititle-{}.jsonl",
+            "iyw-claw-claude-aititle-{}.jsonl",
             uuid::Uuid::new_v4()
         ));
         let mut file = fs::File::create(&path).expect("create temp jsonl");
@@ -1774,7 +1774,7 @@ mod tests {
     #[test]
     fn parse_falls_back_to_user_message_when_ai_title_empty() {
         let path = std::env::temp_dir().join(format!(
-            "codeg-claude-aititle-empty-{}.jsonl",
+            "iyw-claw-claude-aititle-empty-{}.jsonl",
             uuid::Uuid::new_v4()
         ));
         let mut file = fs::File::create(&path).expect("create temp jsonl");
@@ -1827,7 +1827,7 @@ mod tests {
         // finished, i.e. the assistant event timestamp itself (or the
         // turn_duration system event's timestamp ≈ same instant).
         let path = std::env::temp_dir().join(format!(
-            "codeg-claude-completed-{}.jsonl",
+            "iyw-claw-claude-completed-{}.jsonl",
             uuid::Uuid::new_v4()
         ));
         let mut file = fs::File::create(&path).expect("create temp jsonl");
@@ -1915,7 +1915,7 @@ mod tests {
     #[test]
     fn synthetic_assistant_excluded_from_detail() {
         let path = std::env::temp_dir().join(format!(
-            "codeg-claude-synthetic-{}.jsonl",
+            "iyw-claw-claude-synthetic-{}.jsonl",
             uuid::Uuid::new_v4()
         ));
         let mut file = fs::File::create(&path).expect("create temp jsonl");
@@ -2087,8 +2087,10 @@ mod tests {
 
     #[test]
     fn slash_command_keeps_user_turn_between_assistant_turns() {
-        let path =
-            std::env::temp_dir().join(format!("codeg-claude-slash-{}.jsonl", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!(
+            "iyw-claw-claude-slash-{}.jsonl",
+            uuid::Uuid::new_v4()
+        ));
         let mut file = fs::File::create(&path).expect("create temp jsonl");
         // Client command /model: followed by stdout, no model turn -> stays hidden
         writeln!(

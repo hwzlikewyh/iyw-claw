@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 
 // Exercise the REAL Streamdown pipeline (no streamdown mock) so the assertion
 // covers actual rehype sanitize + harden behavior — the layer that previously
-// stripped `codeg://` hrefs and rendered them as "[blocked]". The isolated
+// stripped `iyw-claw://` hrefs and rendered them as "[blocked]". The isolated
 // MarkdownLink unit test runs after that layer, so it could not catch the
 // regression. Only the link-safety hook is stubbed (irrelevant to badges).
 vi.mock("@/components/ai-elements/link-safety", () => ({
@@ -12,11 +12,11 @@ vi.mock("@/components/ai-elements/link-safety", () => ({
 
 import { MessageResponse } from "./message"
 
-describe("MessageResponse — codeg references survive sanitization (real Streamdown)", () => {
+describe("MessageResponse — iyw-claw references survive sanitization (real Streamdown)", () => {
   it("renders an agent reference inline as a badge, not as '[blocked]'", async () => {
     const { container } = render(
       <MessageResponse softBreaks>
-        {"[@Codex CLI](codeg://agent/codex) hi"}
+        {"[@Codex CLI](iyw-claw://agent/codex) hi"}
       </MessageResponse>
     )
     await waitFor(() => {
@@ -32,7 +32,7 @@ describe("MessageResponse — codeg references survive sanitization (real Stream
   it("renders a session reference inline as a badge", async () => {
     const { container } = render(
       <MessageResponse softBreaks>
-        {"see [#42](codeg://session/claude_code_abc)"}
+        {"see [#42](iyw-claw://session/claude_code_abc)"}
       </MessageResponse>
     )
     await waitFor(() => {
@@ -49,7 +49,7 @@ describe("MessageResponse — codeg references survive sanitization (real Stream
   it("renders a commit reference inline as a badge", async () => {
     const { container } = render(
       <MessageResponse softBreaks>
-        {"[a1b2c3d](codeg://commit/%2Frepo@a1b2c3ddeadbeef)"}
+        {"[a1b2c3d](iyw-claw://commit/%2Frepo@a1b2c3ddeadbeef)"}
       </MessageResponse>
     )
     await waitFor(() => {
@@ -63,7 +63,7 @@ describe("MessageResponse — codeg references survive sanitization (real Stream
     expect(container.textContent).not.toContain("[blocked]")
   })
 
-  it("still renders a plain http link as a button (regression guard for non-codeg links)", async () => {
+  it("still renders a plain http link as a button (regression guard for non-iyw-claw links)", async () => {
     const { container } = render(
       <MessageResponse>{"[docs](https://example.com)"}</MessageResponse>
     )

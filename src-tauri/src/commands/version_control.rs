@@ -267,7 +267,7 @@ pub async fn validate_github_token(
     let response = reqwest::Client::new()
         .get(&api_url)
         .header("Authorization", format!("Bearer {trimmed_token}"))
-        .header("User-Agent", "codeg")
+        .header("User-Agent", "iyw-claw")
         .header("Accept", "application/vnd.github+json")
         .send()
         .await

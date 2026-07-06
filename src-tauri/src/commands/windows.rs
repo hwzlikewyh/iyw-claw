@@ -1133,7 +1133,7 @@ pub async fn open_pet_window(
 
     let url = WebviewUrl::App(format!("pet?petId={pet_id}").into());
     let mut builder = WebviewWindowBuilder::new(&app, PET_WINDOW_LABEL, url)
-        .title("codeg pet")
+        .title("iyw-claw pet")
         .inner_size(PET_BASE_WIDTH * scale, PET_BASE_HEIGHT * scale)
         .min_inner_size(PET_BASE_WIDTH * 0.5, PET_BASE_HEIGHT * 0.5)
         .max_inner_size(PET_BASE_WIDTH * 3.0, PET_BASE_HEIGHT * 3.0)
@@ -1466,7 +1466,7 @@ fn open_pet_panel_window(app: &AppHandle) -> Result<(), AppCommandError> {
 
     let url = WebviewUrl::App("pet-panel".into());
     let builder = WebviewWindowBuilder::new(app, PET_PANEL_LABEL, url)
-        .title("codeg sessions")
+        .title("iyw-claw sessions")
         .inner_size(PET_PANEL_WIDTH, PET_PANEL_DEFAULT_HEIGHT)
         .position(panel_x, panel_y)
         .resizable(false)
@@ -1513,7 +1513,16 @@ pub async fn resize_pet_panel(app: AppHandle, height: f64) -> Result<(), AppComm
     let panel_h = height.clamp(PET_PANEL_MIN_HEIGHT, max_h);
 
     let (panel_x, panel_y) = compute_pet_panel_origin(
-        px, py, pw, ph, mon_x, mon_y, mon_w, mon_h, PET_PANEL_WIDTH, panel_h,
+        px,
+        py,
+        pw,
+        ph,
+        mon_x,
+        mon_y,
+        mon_w,
+        mon_h,
+        PET_PANEL_WIDTH,
+        panel_h,
     );
 
     // Size before reposition so the re-anchor uses the final height. Errors are
@@ -1545,9 +1554,7 @@ pub async fn focus_conversation(
         "agent": agent,
     });
     app.emit_to("main", "workspace://focus-conversation", payload)
-        .map_err(|e| {
-            AppCommandError::window("Failed to signal main window", e.to_string())
-        })?;
+        .map_err(|e| AppCommandError::window("Failed to signal main window", e.to_string()))?;
     Ok(())
 }
 
@@ -1754,7 +1761,7 @@ fn load_macos_tray_template_icon() -> Result<tauri::image::Image<'static>, Strin
 pub const TRAY_MENU_ID_PREFIX: &str = "tray:";
 pub const TRAY_MENU_ID_SHOW: &str = "tray:show";
 pub const TRAY_MENU_ID_QUIT: &str = "tray:quit";
-pub const TRAY_ICON_ID: &str = "codeg-tray";
+pub const TRAY_ICON_ID: &str = "iyw-claw-tray";
 
 /// True after `install_tray_icon` returns `Ok`. The hide-on-close path
 /// in `lib.rs` consults this so we don't strand the user on systems
@@ -1808,43 +1815,43 @@ fn tray_labels_for(locale: crate::models::system::AppLocale) -> TrayLabels {
     match locale {
         AppLocale::ZhCn => TrayLabels {
             show_workspace: "显示工作台",
-            quit: "退出 Codeg",
+            quit: "退出 iyw-claw",
         },
         AppLocale::ZhTw => TrayLabels {
             show_workspace: "顯示工作臺",
-            quit: "退出 Codeg",
+            quit: "退出 iyw-claw",
         },
         AppLocale::Ja => TrayLabels {
             show_workspace: "ワークスペースを表示",
-            quit: "Codeg を終了",
+            quit: "iyw-claw を終了",
         },
         AppLocale::Ko => TrayLabels {
             show_workspace: "워크스페이스 표시",
-            quit: "Codeg 종료",
+            quit: "iyw-claw 종료",
         },
         AppLocale::Es => TrayLabels {
             show_workspace: "Mostrar el área de trabajo",
-            quit: "Salir de Codeg",
+            quit: "Salir de iyw-claw",
         },
         AppLocale::De => TrayLabels {
             show_workspace: "Arbeitsbereich anzeigen",
-            quit: "Codeg beenden",
+            quit: "iyw-claw beenden",
         },
         AppLocale::Fr => TrayLabels {
             show_workspace: "Afficher l'espace de travail",
-            quit: "Quitter Codeg",
+            quit: "Quitter iyw-claw",
         },
         AppLocale::Pt => TrayLabels {
             show_workspace: "Mostrar área de trabalho",
-            quit: "Sair do Codeg",
+            quit: "Sair do iyw-claw",
         },
         AppLocale::Ar => TrayLabels {
             show_workspace: "إظهار مساحة العمل",
-            quit: "إنهاء Codeg",
+            quit: "إنهاء iyw-claw",
         },
         AppLocale::En => TrayLabels {
             show_workspace: "Show Workspace",
-            quit: "Quit Codeg",
+            quit: "Quit iyw-claw",
         },
     }
 }
@@ -1877,7 +1884,7 @@ pub fn install_tray_icon(
         .build()?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ICON_ID)
-        .tooltip("Codeg")
+        .tooltip("iyw-claw")
         .menu(&menu)
         // `false` is required for `on_tray_icon_event::Click` to fire on
         // every platform we ship: the default `true` causes the OS to
@@ -2002,7 +2009,11 @@ mod pet_panel_geometry_tests {
     fn places_above_and_aligns_right_edge() {
         // Pet low on screen: the panel sits above it, gap included.
         let (x, y) = origin(1000.0, 900.0, 380.0);
-        assert_eq!(y, 900.0 - 380.0 - PET_PANEL_GAP, "panel bottom hugs pet top");
+        assert_eq!(
+            y,
+            900.0 - 380.0 - PET_PANEL_GAP,
+            "panel bottom hugs pet top"
+        );
         // Right edges align: panel_x = pet_right - panel_w.
         assert_eq!(x, (1000.0 + PET_W) - PET_PANEL_WIDTH);
     }

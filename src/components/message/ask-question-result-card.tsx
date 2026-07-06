@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * Read-only inline view of the codeg-mcp `ask_user_question` tool in the message
+ * Read-only inline view of the iyw-claw-mcp `ask_user_question` tool in the message
  * stream (historical transcripts + the in-flight tool marker).
  *
  * The answered / declined record is collapsed by default into a capsule that

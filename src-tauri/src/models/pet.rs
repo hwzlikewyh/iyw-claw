@@ -1,7 +1,7 @@
 //! Desktop-pet data model.
 //!
 //! Field shapes mirror the Codex `/pet` + `/hatch` format so a directory under
-//! `~/.codex/pets/<id>/` can be copied verbatim into `~/.codeg/pets/<id>/` and
+//! `~/.codex/pets/<id>/` can be copied verbatim into `~/.iyw-claw/pets/<id>/` and
 //! work without further translation.
 
 use std::path::PathBuf;
@@ -136,7 +136,7 @@ pub struct ImportablePet {
     pub display_name: String,
     pub description: Option<String>,
     pub source_path: PathBuf,
-    /// True when an entry of the same id already exists in `~/.codeg/pets/`.
+    /// True when an entry of the same id already exists in `~/.iyw-claw/pets/`.
     pub already_imported: bool,
 }
 
@@ -399,7 +399,7 @@ mod tests {
         let payload = PetSessionsPayload::from_entries(vec![
             session_entry(ConnectionStatus::Prompting, false), // running
             session_entry(ConnectionStatus::Prompting, true), // waiting: pending outranks prompting
-            session_entry(ConnectionStatus::Error, false),     // error
+            session_entry(ConnectionStatus::Error, false),    // error
             session_entry(ConnectionStatus::Connected, false), // idle-ish: counted nowhere
         ]);
         assert_eq!(payload.running_count, 1);
@@ -422,7 +422,10 @@ mod tests {
     fn pet_session_entry_omits_pending_when_absent() {
         let entry = session_entry(crate::acp::types::ConnectionStatus::Prompting, false);
         let v = serde_json::to_value(&entry).unwrap();
-        assert!(v.get("pending").is_none(), "pending must be omitted when None");
+        assert!(
+            v.get("pending").is_none(),
+            "pending must be omitted when None"
+        );
         assert_eq!(v["connectionId"], "c");
     }
 }

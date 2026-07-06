@@ -12,18 +12,20 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use sea_orm_migration::MigratorTrait;
 use tokio_util::sync::CancellationToken;
 
-use crate::app_error::{AppCommandError, BACKUP_I18N_KEY_NEWER_VERSION, BACKUP_I18N_KEY_UNKNOWN_FORMAT};
+use crate::app_error::{
+    AppCommandError, BACKUP_I18N_KEY_NEWER_VERSION, BACKUP_I18N_KEY_UNKNOWN_FORMAT,
+};
 use crate::db::migration::Migrator;
 use crate::web::event_bridge::{emit_event, EventEmitter};
 
 use super::archive::{self, ArchiveBuilder};
+use super::cancelled_error;
 use super::crypto;
 use super::external;
 use super::manifest::{
     BackupManifest, BackupPhase, BackupPreview, BackupProgress, BACKUP_FORMAT_VERSION, BACKUP_KIND,
     BACKUP_PROGRESS_EVENT,
 };
-use super::cancelled_error;
 
 /// Options that shape a backup.
 #[derive(Debug, Clone, Default)]
@@ -56,7 +58,7 @@ pub(crate) async fn create_backup_core(
     cancel: &CancellationToken,
 ) -> Result<BackupManifest, AppCommandError> {
     let work = tempfile::tempdir().map_err(AppCommandError::io)?;
-    let db_snapshot = work.path().join("codeg.db");
+    let db_snapshot = work.path().join("iyw-claw.db");
     let zip_tmp = work.path().join("payload.zip");
 
     // ── Phase 1: consistent DB snapshot via VACUUM INTO ──────────────────
@@ -81,7 +83,7 @@ pub(crate) async fn create_backup_core(
 
     let uploads_root = inputs.uploads_root.clone();
     let tokens_json = inputs.data_dir.join("tokens.json");
-    let prefs_json = crate::paths::codeg_home_dir().join("preferences.json");
+    let prefs_json = crate::paths::iyw_claw_home_dir().join("preferences.json");
     let include_external = options.include_external_transcripts;
 
     let zip_tmp_c = zip_tmp.clone();
@@ -91,43 +93,46 @@ pub(crate) async fn create_backup_core(
     let op_id_c = op_id.to_string();
 
     emit(emitter, op_id, BackupPhase::Archiving, 0, None, None);
-    let manifest = tokio::task::spawn_blocking(move || -> Result<BackupManifest, AppCommandError> {
-        let mut builder = ArchiveBuilder::create(&zip_tmp_c)?;
-        let mut prog = |path: &str, processed: u64| {
-            emit(
-                &emitter_c,
-                &op_id_c,
-                BackupPhase::Archiving,
-                processed,
-                None,
-                Some(path.to_string()),
-            );
-        };
-        builder.add_file("db/codeg.db", &db_snapshot_c, &cancel_c, &mut prog)?;
-        builder.add_dir(
-            "uploads",
-            &uploads_root,
-            &is_excluded_upload,
-            &cancel_c,
-            &mut prog,
-        )?;
-        if tokens_json.is_file() {
-            builder.add_file("tokens.json", &tokens_json, &cancel_c, &mut prog)?;
-        }
-        if prefs_json.is_file() {
-            builder.add_file("preferences.json", &prefs_json, &cancel_c, &mut prog)?;
-        }
-        let mut manifest = manifest_template;
-        let packed_external = if include_external {
-            external::add_external_sources(&mut builder, &cancel_c, &mut prog)?
-        } else {
-            false
-        };
-        manifest.includes_external_transcripts = packed_external;
-        builder.finish(manifest)
-    })
-    .await
-    .map_err(|e| AppCommandError::task_execution_failed("Archive task failed").with_detail(e.to_string()))??;
+    let manifest =
+        tokio::task::spawn_blocking(move || -> Result<BackupManifest, AppCommandError> {
+            let mut builder = ArchiveBuilder::create(&zip_tmp_c)?;
+            let mut prog = |path: &str, processed: u64| {
+                emit(
+                    &emitter_c,
+                    &op_id_c,
+                    BackupPhase::Archiving,
+                    processed,
+                    None,
+                    Some(path.to_string()),
+                );
+            };
+            builder.add_file("db/iyw-claw.db", &db_snapshot_c, &cancel_c, &mut prog)?;
+            builder.add_dir(
+                "uploads",
+                &uploads_root,
+                &is_excluded_upload,
+                &cancel_c,
+                &mut prog,
+            )?;
+            if tokens_json.is_file() {
+                builder.add_file("tokens.json", &tokens_json, &cancel_c, &mut prog)?;
+            }
+            if prefs_json.is_file() {
+                builder.add_file("preferences.json", &prefs_json, &cancel_c, &mut prog)?;
+            }
+            let mut manifest = manifest_template;
+            let packed_external = if include_external {
+                external::add_external_sources(&mut builder, &cancel_c, &mut prog)?
+            } else {
+                false
+            };
+            manifest.includes_external_transcripts = packed_external;
+            builder.finish(manifest)
+        })
+        .await
+        .map_err(|e| {
+            AppCommandError::task_execution_failed("Archive task failed").with_detail(e.to_string())
+        })??;
 
     // ── Phase 3: deliver (encrypt or copy) into dest_path atomically ─────
     let part = with_part_suffix(dest_path);
@@ -141,9 +146,14 @@ pub(crate) async fn create_backup_core(
             let part_c = part.clone();
             let pass = pass.to_string();
             let cancel_c = cancel.clone();
-            tokio::task::spawn_blocking(move || crypto::encrypt_file(&zip_tmp_c, &part_c, &pass, &cancel_c))
-                .await
-                .map_err(|e| AppCommandError::task_execution_failed("Encrypt task failed").with_detail(e.to_string()))??;
+            tokio::task::spawn_blocking(move || {
+                crypto::encrypt_file(&zip_tmp_c, &part_c, &pass, &cancel_c)
+            })
+            .await
+            .map_err(|e| {
+                AppCommandError::task_execution_failed("Encrypt task failed")
+                    .with_detail(e.to_string())
+            })??;
         }
         None => {
             tokio::fs::copy(&zip_tmp, &part)
@@ -151,7 +161,9 @@ pub(crate) async fn create_backup_core(
                 .map_err(super::map_disk_full)?;
         }
     }
-    tokio::fs::rename(&part, dest_path).await.map_err(AppCommandError::io)?;
+    tokio::fs::rename(&part, dest_path)
+        .await
+        .map_err(AppCommandError::io)?;
 
     let total = manifest.total_bytes();
     emit(emitter, op_id, BackupPhase::Done, total, Some(total), None);
@@ -166,10 +178,11 @@ pub(crate) async fn inspect_backup_core(
     passphrase: Option<&str>,
 ) -> Result<BackupPreview, AppCommandError> {
     let src_buf = src.to_path_buf();
-    let encrypted =
-        tokio::task::spawn_blocking(move || crypto::is_encrypted(&src_buf))
-            .await
-            .map_err(|e| AppCommandError::task_execution_failed("Inspect task failed").with_detail(e.to_string()))??;
+    let encrypted = tokio::task::spawn_blocking(move || crypto::is_encrypted(&src_buf))
+        .await
+        .map_err(|e| {
+            AppCommandError::task_execution_failed("Inspect task failed").with_detail(e.to_string())
+        })??;
 
     if encrypted && passphrase.is_none_or(|p| p.is_empty()) {
         return Ok(BackupPreview {
@@ -182,14 +195,15 @@ pub(crate) async fn inspect_backup_core(
     }
 
     let (zip_path, _guard) = obtain_plaintext_zip(src, encrypted, passphrase).await?;
-    let manifest =
-        tokio::task::spawn_blocking(move || archive::read_manifest(&zip_path))
-            .await
-            .map_err(|e| AppCommandError::task_execution_failed("Inspect task failed").with_detail(e.to_string()))??;
+    let manifest = tokio::task::spawn_blocking(move || archive::read_manifest(&zip_path))
+        .await
+        .map_err(|e| {
+            AppCommandError::task_execution_failed("Inspect task failed").with_detail(e.to_string())
+        })??;
 
     let (mut compatible, mut reject_reason) = evaluate_compat(&manifest);
     // Mirror the structural checks stage applies, so the preview never reports
-    // "compatible" for a backup that stage will reject (missing db/codeg.db,
+    // "compatible" for a backup that stage will reject (missing db/iyw-claw.db,
     // unsafe/duplicate manifest paths).
     if compatible && archive::validate_manifest(&manifest).is_err() {
         compatible = false;
@@ -214,11 +228,15 @@ pub(crate) async fn scan_external_conflicts_core(
     let src_buf = src.to_path_buf();
     let encrypted = tokio::task::spawn_blocking(move || crypto::is_encrypted(&src_buf))
         .await
-        .map_err(|e| AppCommandError::task_execution_failed("Scan task failed").with_detail(e.to_string()))??;
+        .map_err(|e| {
+            AppCommandError::task_execution_failed("Scan task failed").with_detail(e.to_string())
+        })??;
     let (zip_path, _guard) = obtain_plaintext_zip(src, encrypted, passphrase).await?;
     tokio::task::spawn_blocking(move || super::external::scan_external_conflicts(&zip_path))
         .await
-        .map_err(|e| AppCommandError::task_execution_failed("Scan task failed").with_detail(e.to_string()))?
+        .map_err(|e| {
+            AppCommandError::task_execution_failed("Scan task failed").with_detail(e.to_string())
+        })?
 }
 
 /// Run `VACUUM INTO` to produce a transactionally-consistent, defragmented
@@ -229,13 +247,17 @@ pub(crate) async fn snapshot_db_to(
 ) -> Result<(), AppCommandError> {
     // VACUUM INTO requires the destination not to exist.
     if dest.exists() {
-        tokio::fs::remove_file(dest).await.map_err(AppCommandError::io)?;
+        tokio::fs::remove_file(dest)
+            .await
+            .map_err(AppCommandError::io)?;
     }
     let dest_lit = dest.to_string_lossy().replace('\'', "''");
     let sql = format!("VACUUM INTO '{dest_lit}';");
     conn.execute(Statement::from_string(DbBackend::Sqlite, sql))
         .await
-        .map_err(|e| AppCommandError::database_error("VACUUM INTO failed").with_detail(e.to_string()))?;
+        .map_err(|e| {
+            AppCommandError::database_error("VACUUM INTO failed").with_detail(e.to_string())
+        })?;
     Ok(())
 }
 
@@ -257,7 +279,9 @@ pub(crate) async fn obtain_plaintext_zip(
     let cancel = CancellationToken::new();
     tokio::task::spawn_blocking(move || crypto::decrypt_file(&src_c, &out_c, &pass, &cancel))
         .await
-        .map_err(|e| AppCommandError::task_execution_failed("Decrypt task failed").with_detail(e.to_string()))??;
+        .map_err(|e| {
+            AppCommandError::task_execution_failed("Decrypt task failed").with_detail(e.to_string())
+        })??;
     Ok((out, Some(td)))
 }
 
@@ -285,13 +309,13 @@ fn known_migration(name: &str) -> bool {
     Migrator::migrations().iter().any(|m| m.name() == name)
 }
 
-/// Exclude upload staging dirs (`uploads/.tmp/`) and any codeg-internal
-/// `.codeg-*` directory (restore staging / safety snapshots) from the archive.
+/// Exclude upload staging dirs (`uploads/.tmp/`) and any iyw-claw-internal
+/// `.iyw-claw-*` directory (restore staging / safety snapshots) from the archive.
 fn is_excluded_upload(rel: &Path) -> bool {
     rel.components().any(|c| match c {
         std::path::Component::Normal(s) => {
             let s = s.to_string_lossy();
-            s == ".tmp" || s.starts_with(".codeg")
+            s == ".tmp" || s.starts_with(".iyw-claw")
         }
         _ => false,
     })
@@ -345,7 +369,11 @@ mod tests {
         row.try_get::<i64>("", "c").expect("count")
     }
 
-    fn inputs<'a>(conn: &'a DatabaseConnection, data_dir: &'a Path, uploads: PathBuf) -> BackupInputs<'a> {
+    fn inputs<'a>(
+        conn: &'a DatabaseConnection,
+        data_dir: &'a Path,
+        uploads: PathBuf,
+    ) -> BackupInputs<'a> {
         BackupInputs {
             conn,
             data_dir,
@@ -367,7 +395,7 @@ mod tests {
         std::fs::create_dir_all(uploads.join(".tmp")).unwrap();
         std::fs::write(uploads.join("att.txt"), b"attachment").unwrap();
         std::fs::write(uploads.join(".tmp/partial"), b"should be skipped").unwrap();
-        let dest = dir.path().join("backup.codeg.zip");
+        let dest = dir.path().join("backup.iyw-claw.zip");
 
         let cancel = CancellationToken::new();
         let manifest = create_backup_core(
@@ -382,7 +410,7 @@ mod tests {
         .unwrap();
 
         assert!(dest.exists());
-        assert!(manifest.entries.iter().any(|e| e.path == "db/codeg.db"));
+        assert!(manifest.entries.iter().any(|e| e.path == "db/iyw-claw.db"));
         assert!(manifest.entries.iter().any(|e| e.path == "uploads/att.txt"));
         assert!(!manifest.entries.iter().any(|e| e.path.contains(".tmp")));
 
@@ -393,9 +421,15 @@ mod tests {
 
         // Extract and confirm the snapshot is a real DB carrying our row.
         let out = dir.path().join("out");
-        archive::extract_all(&dest, &out, &manifest, &cancel, &mut archive::null_progress())
-            .unwrap();
-        assert_eq!(count_folders(&out.join("db/codeg.db")).await, 1);
+        archive::extract_all(
+            &dest,
+            &out,
+            &manifest,
+            &cancel,
+            &mut archive::null_progress(),
+        )
+        .unwrap();
+        assert_eq!(count_folders(&out.join("db/iyw-claw.db")).await, 1);
     }
 
     #[tokio::test]
@@ -404,7 +438,7 @@ mod tests {
         let db = fresh_disk_db(dir.path()).await;
         let uploads = dir.path().join("uploads");
         std::fs::create_dir_all(&uploads).unwrap();
-        let dest = dir.path().join("backup.codegbak");
+        let dest = dir.path().join("backup.iyw-clawbak");
 
         let cancel = CancellationToken::new();
         create_backup_core(
@@ -453,7 +487,7 @@ mod tests {
             .unwrap();
         let uploads = src_dir.path().join("uploads");
         std::fs::create_dir_all(&uploads).unwrap();
-        let dest = src_dir.path().join("backup.codeg.zip");
+        let dest = src_dir.path().join("backup.iyw-claw.zip");
 
         let cancel = CancellationToken::new();
         create_backup_core(
@@ -480,19 +514,18 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(PathBuf::from(&staged.staging_dir).join("db/codeg.db").exists());
+        assert!(PathBuf::from(&staged.staging_dir)
+            .join("db/iyw-claw.db")
+            .exists());
         assert!(restore_dir.path().join(PENDING_MARKER).is_file());
 
         // Apply on "startup" → live DB carries the two seeded folders. Inject
-        // temp uploads/preferences paths so the test never touches ~/.codeg.
+        // temp uploads/preferences paths so the test never touches ~/.iyw-claw.
         let live_uploads = restore_dir.path().join("live-uploads");
         let live_prefs = restore_dir.path().join("live-prefs.json");
-        let applied = apply_pending_restore_with_paths(
-            restore_dir.path(),
-            &live_uploads,
-            &live_prefs,
-        )
-        .unwrap();
+        let applied =
+            apply_pending_restore_with_paths(restore_dir.path(), &live_uploads, &live_prefs)
+                .unwrap();
         assert!(matches!(applied, RestoreApplied::Applied { .. }));
         let db_name = crate::db::database_file_name();
         assert_eq!(count_folders(&restore_dir.path().join(db_name)).await, 2);
@@ -511,7 +544,7 @@ mod tests {
         let db = fresh_disk_db(src_dir.path()).await;
         let empty_uploads = src_dir.path().join("uploads"); // exists, no files
         std::fs::create_dir_all(&empty_uploads).unwrap();
-        let dest = src_dir.path().join("backup.codeg.zip");
+        let dest = src_dir.path().join("backup.iyw-claw.zip");
         let cancel = CancellationToken::new();
         create_backup_core(
             inputs(&db.conn, src_dir.path(), empty_uploads),
@@ -575,8 +608,10 @@ mod tests {
         assert!(ok && reason.is_none());
 
         // A migration we don't know → newer version, rejected.
-        let (ok, reason) =
-            evaluate_compat(&manifest_with_migration("m99999999_000001_from_the_future", 1));
+        let (ok, reason) = evaluate_compat(&manifest_with_migration(
+            "m99999999_000001_from_the_future",
+            1,
+        ));
         assert!(!ok);
         assert_eq!(reason.as_deref(), Some(BACKUP_I18N_KEY_NEWER_VERSION));
 

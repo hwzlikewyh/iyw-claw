@@ -9,7 +9,7 @@
 //!   parent LLM ─┐
 //!               │ ToolUse(delegate_to_agent, ...)
 //!               ▼
-//!   parent CLI ──stdio──► codeg-mcp (per-launch companion binary)
+//!   parent CLI ──stdio──► iyw-claw-mcp (per-launch companion binary)
 //!                                 │
 //!                                 │ UDS / named pipe (token-authed)
 //!                                 ▼

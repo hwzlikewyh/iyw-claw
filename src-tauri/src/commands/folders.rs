@@ -867,7 +867,7 @@ pub async fn clone_repository(
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
     })?;
     // Resolve through the effective data dir so a custom
-    // `CODEG_DATA_DIR` reaches the git credential helper invoked by
+    // `IYW_CLAW_DATA_DIR` reaches the git credential helper invoked by
     // this subprocess.
     let data_dir = crate::paths::resolve_effective_data_dir(&data_dir);
     clone_repository_core(&url, &target_dir, credentials.as_ref(), &db, &data_dir).await
@@ -938,10 +938,7 @@ pub struct GitHeadInfo {
     pub short_sha: Option<String>,
 }
 
-async fn git_output(
-    path: &str,
-    args: &[&str],
-) -> Result<std::process::Output, AppCommandError> {
+async fn git_output(path: &str, args: &[&str]) -> Result<std::process::Output, AppCommandError> {
     crate::process::tokio_command("git")
         .args(args)
         .current_dir(path)
@@ -1178,7 +1175,7 @@ pub async fn git_pull(
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
     })?;
     // Resolve through the effective data dir so a custom
-    // `CODEG_DATA_DIR` reaches the git credential helper invoked by
+    // `IYW_CLAW_DATA_DIR` reaches the git credential helper invoked by
     // this subprocess.
     let data_dir = crate::paths::resolve_effective_data_dir(&data_dir);
     git_pull_core(&path, credentials.as_ref(), &db, &data_dir).await
@@ -1254,7 +1251,7 @@ pub async fn git_fetch(
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
     })?;
     // Resolve through the effective data dir so a custom
-    // `CODEG_DATA_DIR` reaches the git credential helper invoked by
+    // `IYW_CLAW_DATA_DIR` reaches the git credential helper invoked by
     // this subprocess.
     let data_dir = crate::paths::resolve_effective_data_dir(&data_dir);
     git_fetch_core(&path, credentials.as_ref(), &db, &data_dir).await
@@ -1417,7 +1414,7 @@ pub async fn git_push(
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
     })?;
     // Resolve through the effective data dir so a custom
-    // `CODEG_DATA_DIR` reaches the git credential helper invoked by
+    // `IYW_CLAW_DATA_DIR` reaches the git credential helper invoked by
     // this subprocess.
     let data_dir = crate::paths::resolve_effective_data_dir(&data_dir);
     let emitter = EventEmitter::Tauri(app.clone());
@@ -2331,8 +2328,7 @@ pub async fn resolve_worktree_folder_core(
     let folder_id = folders
         .into_iter()
         .find(|f| {
-            let canon =
-                std::fs::canonicalize(&f.path).unwrap_or_else(|_| PathBuf::from(&f.path));
+            let canon = std::fs::canonicalize(&f.path).unwrap_or_else(|_| PathBuf::from(&f.path));
             canon == canonical_wt
         })
         .map(|f| f.id);
@@ -2422,7 +2418,7 @@ pub async fn git_fetch_remote(
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
     })?;
     // Resolve through the effective data dir so a custom
-    // `CODEG_DATA_DIR` reaches the git credential helper invoked by
+    // `IYW_CLAW_DATA_DIR` reaches the git credential helper invoked by
     // this subprocess.
     let data_dir = crate::paths::resolve_effective_data_dir(&data_dir);
     git_fetch_remote_core(&path, &name, credentials.as_ref(), &db, &data_dir).await
@@ -2620,7 +2616,7 @@ pub async fn git_delete_remote_branch(
         AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
     })?;
     // Resolve through the effective data dir so a custom
-    // `CODEG_DATA_DIR` reaches the git credential helper invoked by
+    // `IYW_CLAW_DATA_DIR` reaches the git credential helper invoked by
     // this subprocess.
     let data_dir = crate::paths::resolve_effective_data_dir(&data_dir);
     git_delete_remote_branch_core(
@@ -2800,10 +2796,7 @@ fn unquote_git_path(path: &str) -> String {
     }
 }
 
-pub(crate) fn resolve_tree_path(
-    root: &Path,
-    rel_path: &str,
-) -> Result<PathBuf, AppCommandError> {
+pub(crate) fn resolve_tree_path(root: &Path, rel_path: &str) -> Result<PathBuf, AppCommandError> {
     let rel = Path::new(rel_path);
     if rel.is_absolute() {
         return Err(AppCommandError::invalid_input("Path must be relative"));
@@ -2933,7 +2926,7 @@ fn atomic_write_text(path: &Path, bytes: &[u8]) -> Result<(), AppCommandError> {
     }
 
     let temp_path = parent.join(format!(
-        ".codeg-edit-{}.{}.tmp",
+        ".iyw-claw-edit-{}.{}.tmp",
         std::process::id(),
         uuid::Uuid::new_v4().simple()
     ));
@@ -3451,17 +3444,14 @@ pub async fn read_workspace_file_base64(
         // read race: the original `target` symlink can't be re-resolved (we use
         // the canonical path), a final-component symlink swapped in after the
         // check makes the open fail, and metadata/read never re-look-up the path.
-        let canonical_root =
-            std::fs::canonicalize(&root).map_err(AppCommandError::io)?;
-        let canonical_target =
-            std::fs::canonicalize(&target).map_err(AppCommandError::io)?;
+        let canonical_root = std::fs::canonicalize(&root).map_err(AppCommandError::io)?;
+        let canonical_target = std::fs::canonicalize(&target).map_err(AppCommandError::io)?;
         if !canonical_target.starts_with(&canonical_root) {
             return Err(AppCommandError::invalid_input(
                 "Path is outside workspace root",
             ));
         }
-        let mut file =
-            open_no_follow(&canonical_target).map_err(AppCommandError::io)?;
+        let mut file = open_no_follow(&canonical_target).map_err(AppCommandError::io)?;
         let metadata = file.metadata().map_err(AppCommandError::io)?;
         if !metadata.is_file() {
             return Err(AppCommandError::invalid_input("Path is not a file"));
@@ -4506,17 +4496,17 @@ mod tests {
     #[tokio::test]
     async fn add_folder_to_history_core_derives_name_from_path() {
         let db = fresh_in_memory_db().await;
-        let entry = add_folder_to_history_core(&db, "/tmp/codeg-test-project".into())
+        let entry = add_folder_to_history_core(&db, "/tmp/iyw-claw-test-project".into())
             .await
             .expect("add folder");
-        assert_eq!(entry.name, "codeg-test-project");
-        assert_eq!(entry.path, "/tmp/codeg-test-project");
+        assert_eq!(entry.name, "iyw-claw-test-project");
+        assert_eq!(entry.path, "/tmp/iyw-claw-test-project");
     }
 
     #[tokio::test]
     async fn add_folder_to_history_core_upserts_on_duplicate_path() {
         let db = fresh_in_memory_db().await;
-        let path = "/tmp/codeg-dup-test".to_string();
+        let path = "/tmp/iyw-claw-dup-test".to_string();
         let first = add_folder_to_history_core(&db, path.clone())
             .await
             .expect("add 1st");
@@ -4536,7 +4526,7 @@ mod tests {
     #[tokio::test]
     async fn remove_folder_from_history_core_soft_deletes() {
         let db = fresh_in_memory_db().await;
-        let path = "/tmp/codeg-remove-test".to_string();
+        let path = "/tmp/iyw-claw-remove-test".to_string();
         add_folder_to_history_core(&db, path.clone())
             .await
             .expect("add");
@@ -4568,12 +4558,12 @@ mod tests {
     #[tokio::test]
     async fn open_worktree_folder_core_records_parent_as_root() {
         let db = fresh_in_memory_db().await;
-        let root = open_folder_core(&db, "/tmp/codeg-wt-root".into())
+        let root = open_folder_core(&db, "/tmp/iyw-claw-wt-root".into())
             .await
             .expect("open root");
         assert_eq!(root.parent_id, None, "root folder has no parent");
 
-        let wt = open_worktree_folder_core(&db, "/tmp/codeg-wt-a".into(), root.id)
+        let wt = open_worktree_folder_core(&db, "/tmp/iyw-claw-wt-a".into(), root.id)
             .await
             .expect("open worktree");
         assert_eq!(
@@ -4586,15 +4576,15 @@ mod tests {
     #[tokio::test]
     async fn open_worktree_folder_core_flattens_nested_worktrees() {
         let db = fresh_in_memory_db().await;
-        let root = open_folder_core(&db, "/tmp/codeg-wt-flat-root".into())
+        let root = open_folder_core(&db, "/tmp/iyw-claw-wt-flat-root".into())
             .await
             .expect("open root");
-        let child = open_worktree_folder_core(&db, "/tmp/codeg-wt-flat-1".into(), root.id)
+        let child = open_worktree_folder_core(&db, "/tmp/iyw-claw-wt-flat-1".into(), root.id)
             .await
             .expect("open child worktree");
         // A worktree created *from* the child must still point at the root, not
         // the intermediate child.
-        let grandchild = open_worktree_folder_core(&db, "/tmp/codeg-wt-flat-2".into(), child.id)
+        let grandchild = open_worktree_folder_core(&db, "/tmp/iyw-claw-wt-flat-2".into(), child.id)
             .await
             .expect("open grandchild worktree");
         assert_eq!(child.parent_id, Some(root.id));
@@ -4608,7 +4598,7 @@ mod tests {
     #[tokio::test]
     async fn open_worktree_folder_core_unknown_source_is_root() {
         let db = fresh_in_memory_db().await;
-        let wt = open_worktree_folder_core(&db, "/tmp/codeg-wt-orphan".into(), 0)
+        let wt = open_worktree_folder_core(&db, "/tmp/iyw-claw-wt-orphan".into(), 0)
             .await
             .expect("open worktree with no source");
         assert_eq!(
@@ -4673,15 +4663,15 @@ branch refs/heads/main";
     #[tokio::test]
     async fn open_folder_core_preserves_existing_worktree_parent() {
         let db = fresh_in_memory_db().await;
-        let root = open_folder_core(&db, "/tmp/codeg-wt-preserve-root".into())
+        let root = open_folder_core(&db, "/tmp/iyw-claw-wt-preserve-root".into())
             .await
             .expect("open root");
-        let wt = open_worktree_folder_core(&db, "/tmp/codeg-wt-preserve".into(), root.id)
+        let wt = open_worktree_folder_core(&db, "/tmp/iyw-claw-wt-preserve".into(), root.id)
             .await
             .expect("open worktree");
         assert_eq!(wt.parent_id, Some(root.id));
         // A plain reopen of the same path must not clear the recorded parent.
-        let reopened = open_folder_core(&db, "/tmp/codeg-wt-preserve".into())
+        let reopened = open_folder_core(&db, "/tmp/iyw-claw-wt-preserve".into())
             .await
             .expect("reopen plain");
         assert_eq!(
@@ -4694,10 +4684,10 @@ branch refs/heads/main";
     #[tokio::test]
     async fn open_worktree_folder_core_unknown_source_demotes_existing_to_root() {
         let db = fresh_in_memory_db().await;
-        let root = open_folder_core(&db, "/tmp/codeg-wt-demote-root".into())
+        let root = open_folder_core(&db, "/tmp/iyw-claw-wt-demote-root".into())
             .await
             .expect("open root");
-        let path = "/tmp/codeg-wt-demote".to_string();
+        let path = "/tmp/iyw-claw-wt-demote".to_string();
         let wt = open_worktree_folder_core(&db, path.clone(), root.id)
             .await
             .expect("open worktree");
@@ -4716,7 +4706,7 @@ branch refs/heads/main";
     #[tokio::test]
     async fn update_folder_color_core_roundtrips() {
         let db = fresh_in_memory_db().await;
-        let entry = add_folder_to_history_core(&db, "/tmp/codeg-color-test".into())
+        let entry = add_folder_to_history_core(&db, "/tmp/iyw-claw-color-test".into())
             .await
             .expect("add");
         let updated = update_folder_color_core(&db, entry.id, "#ff8800".into())
@@ -4730,7 +4720,7 @@ branch refs/heads/main";
     #[tokio::test]
     async fn update_folder_default_agent_core_set_then_clear() {
         let db = fresh_in_memory_db().await;
-        let entry = add_folder_to_history_core(&db, "/tmp/codeg-agent-test".into())
+        let entry = add_folder_to_history_core(&db, "/tmp/iyw-claw-agent-test".into())
             .await
             .expect("add");
         let set = update_folder_default_agent_core(&db, entry.id, Some(AgentType::ClaudeCode))
@@ -4770,8 +4760,7 @@ mod workspace_confinement_tests {
         let root = tempfile::tempdir().expect("root");
         let outside = tempfile::tempdir().expect("outside");
         std::fs::write(outside.path().join("secret"), b"top").expect("write");
-        symlink(outside.path().join("secret"), root.path().join("link"))
-            .expect("symlink");
+        symlink(outside.path().join("secret"), root.path().join("link")).expect("symlink");
         // The canonical target resolves outside the root, so the read is denied
         // even though `root/link` is lexically inside the workspace.
         let res = read_workspace_file_base64(
@@ -4780,7 +4769,10 @@ mod workspace_confinement_tests {
             None,
         )
         .await;
-        assert!(res.is_err(), "symlink escaping the workspace must be rejected");
+        assert!(
+            res.is_err(),
+            "symlink escaping the workspace must be rejected"
+        );
     }
 
     #[test]

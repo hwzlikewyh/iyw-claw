@@ -2,7 +2,7 @@
  * Parsing helpers shared by the live `AskQuestionCard` (interactive) and the
  * historical `AskQuestionResultCard` (read-only, in the message stream).
  *
- * The codeg-mcp `ask_user_question` tool serializes into a session transcript
+ * The iyw-claw-mcp `ask_user_question` tool serializes into a session transcript
  * as a generic tool call. The input is the raw `{ questions: [...] }` JSON the
  * agent sent. The output is the tool result the agent CLI persisted: in
  * practice that is the companion's structured `{ answers, declined }` envelope

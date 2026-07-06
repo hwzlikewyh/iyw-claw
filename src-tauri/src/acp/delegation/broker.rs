@@ -36,7 +36,7 @@
 //!
 //! v1 is explicitly one-shot — no session reuse.
 //!
-//! Result durability: child output is NOT stored in codeg's DB, so the broker
+//! Result durability: child output is NOT stored in iyw-claw's DB, so the broker
 //! caches the completed text in `completed` (parent-scoped, FIFO-capped). Once
 //! evicted, [`DelegationBroker::get_task_status`] falls back to the DB for the
 //! task's terminal STATUS (via [`ChildStatusLookup`]); the full output is always
@@ -100,7 +100,7 @@ pub trait ConversationDepthLookup: Send + Sync {
 
 /// Status-level facts the broker recovers from a child conversation row when a
 /// task's in-memory completed-cache entry was evicted. Carries NO result text —
-/// child output isn't stored in codeg's DB; the full result lives in the
+/// child output isn't stored in iyw-claw's DB; the full result lives in the
 /// child's own session (viewable via the frontend's child-session sheet).
 #[derive(Debug, Clone)]
 pub struct ChildStatusRecord {
@@ -1099,7 +1099,7 @@ const CLAIM_POLL_ATTEMPTS: usize = 200;
 pub struct DelegationBroker {
     spawner: Arc<dyn ConnectionSpawner>,
     depth_lookup: Arc<dyn ConversationDepthLookup>,
-    /// Writer for `meta["codeg.delegation"]` on the parent's active
+    /// Writer for `meta["iyw-claw.delegation"]` on the parent's active
     /// `delegate_to_agent` ToolCallState. Defaults to a no-op so tests
     /// that aren't exercising the meta lifecycle don't need to wire
     /// anything; production constructs the broker with the
@@ -2684,7 +2684,8 @@ impl DelegationBroker {
         for (task, duration_ms) in drained {
             // The child already disconnected/errored — disconnect-only teardown
             // (no spawner `cancel`, there's no live turn to interrupt).
-            self.teardown_canceled_child(&task, duration_ms, false).await;
+            self.teardown_canceled_child(&task, duration_ms, false)
+                .await;
         }
         self.result_notify.notify_waiters();
     }
@@ -3222,7 +3223,7 @@ impl ConversationDepthLookup for DbDepthLookup {
 }
 
 /// `ChildStatusLookup` over the live `AppDatabase`. Recovers a delegation
-/// task's terminal status (NOT its text — child output isn't in codeg's DB)
+/// task's terminal status (NOT its text — child output isn't in iyw-claw's DB)
 /// from the child conversation row once its in-memory result was evicted.
 pub struct DbChildStatusLookup {
     pub db: Arc<crate::db::AppDatabase>,
@@ -5524,7 +5525,7 @@ mod tests {
         assert_eq!(first.parent_tool_use_id, "pt-real");
         let inner_first = first
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();
@@ -5552,7 +5553,7 @@ mod tests {
         let second = &calls[1];
         let inner_second = second
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();
@@ -5595,7 +5596,7 @@ mod tests {
         assert_eq!(calls.len(), 2);
         let inner = calls[1]
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();
@@ -5678,14 +5679,14 @@ mod tests {
         assert_eq!(calls.len(), 2);
         let running = calls[0]
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();
         assert_eq!(running.get("status").unwrap().as_str().unwrap(), "running");
         let failed = calls[1]
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();
@@ -5773,14 +5774,14 @@ mod tests {
         assert_eq!(calls.len(), 2);
         let running = calls[0]
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();
         assert_eq!(running.get("status").unwrap().as_str().unwrap(), "running");
         let completed = calls[1]
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();
@@ -5952,14 +5953,14 @@ mod tests {
         assert_eq!(calls.len(), 2);
         let running = calls[0]
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();
         assert_eq!(running.get("status").unwrap().as_str().unwrap(), "running");
         let failed = calls[1]
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();
@@ -6367,7 +6368,7 @@ mod tests {
         assert_eq!(calls.len(), 2);
         let inner = calls[1]
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();
@@ -7001,7 +7002,7 @@ mod tests {
 
     #[tokio::test]
     async fn emitter_records_after_meta_write_on_complete_call() {
-        // Frontend's snapshot-recovery path reads `meta["codeg.delegation"]`
+        // Frontend's snapshot-recovery path reads `meta["iyw-claw.delegation"]`
         // first and the live event second; if the emit lands before the
         // meta write, a snapshot taken between them would see "running"
         // meta paired with a "completed" event. Enforce meta-before-emit
@@ -7049,7 +7050,7 @@ mod tests {
         assert_eq!(event_calls.len(), 1);
         let inner_second = meta_calls[1]
             .meta
-            .get("codeg.delegation")
+            .get("iyw-claw.delegation")
             .unwrap()
             .as_object()
             .unwrap();

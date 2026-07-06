@@ -1322,7 +1322,7 @@ export function FileTreeTab() {
             const ignored =
               desc.kind === "dir"
                 ? matcher.ignores(`${relativePath}/`) ||
-                  matcher.ignores(`${relativePath}/.codeg-ignore-probe`)
+                  matcher.ignores(`${relativePath}/.iyw-claw-ignore-probe`)
                 : matcher.ignores(relativePath)
             if (ignored) {
               nextIgnoredPaths.add(desc.path)

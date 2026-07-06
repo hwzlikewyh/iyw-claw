@@ -392,11 +392,11 @@ function buildClipboardResourceUri(name: string): string {
 // that uri directly (it serializes to a ResourceLink and round-trips through the
 // draft doc untouched). A path-less file (a local-desktop paste/drop carrying
 // inline bytes — an embedded resource or a `data:` link) can't live in the doc,
-// so its badge carries an inert `codeg://embedded/<uuid>` display uri
+// so its badge carries an inert `iyw-claw://embedded/<uuid>` display uri
 // (`buildEmbeddedReferenceUri`) while the real bytes-bearing block is held in the
 // `embeddedPayloadsRef` map keyed by that uri. `docToPromptBlocks` drops the
 // embedded badge from the prose; `buildDraft` appends the mapped block for every
-// embedded badge still in the document. The `codeg://` scheme is never a real
+// embedded badge still in the document. The `iyw-claw://` scheme is never a real
 // path (no collision with a genuine attachment) and survives the transcript's
 // sanitize/harden pipeline, so it renders as an inert file badge, not a blocked
 // link — see {@link buildEmbeddedReferenceUri} / {@link isEmbeddedReferenceUri}.
@@ -423,7 +423,7 @@ function editorHasFileReference(editor: Editor, uri: string): boolean {
 /** Drop embedded-attachment reference badges from a draft document before it is
  *  persisted: their bytes live only in the in-memory `embeddedPayloadsRef` map
  *  (never serialized into the draft), so a restored badge would send nothing.
- *  Identified purely by the unambiguous `codeg://embedded/…` display uri (no map
+ *  Identified purely by the unambiguous `iyw-claw://embedded/…` display uri (no map
  *  needed) — a real `file://` attachment is never matched. Stripping at save
  *  keeps the live badge visible this session but matches the pre-existing
  *  behavior where out-of-band pasted bytes don't survive a draft round-trip. */
@@ -520,7 +520,7 @@ export function MessageInput({
   const desktopMode = isDesktop()
   // Cached for the window's lifetime: `getActiveRemoteConnectionId()` is
   // configured once when a remote-workspace window is created and never
-  // mutates afterwards. A desktop window bound to a remote codeg-server
+  // mutates afterwards. A desktop window bound to a remote iyw-claw-server
   // has to behave like the web client for attachments — local OS paths
   // would be ENOENT on the remote agent. Only the truly local desktop
   // shows the native Paperclip picker.
@@ -1098,7 +1098,7 @@ export function MessageInput({
   // Insert one inline file reference badge per item, matching `@`-file mentions.
   // A genuine `file://` item uses its uri directly (deduped against the document);
   // an item carrying a `realBlock` (embedded bytes / `data:` link) gets an inert
-  // `codeg://embedded/…` display uri and its block is stashed in
+  // `iyw-claw://embedded/…` display uri and its block is stashed in
   // `embeddedPayloadsRef` for send-time reconciliation. Badges append at the doc
   // end by default; pass `atCaret` to drop them at the composer's current caret
   // (`focus()` keeps the retained selection even while the input is blurred —
@@ -2310,7 +2310,7 @@ export function MessageInput({
     // embedded badges are dropped here and re-added below from the payload map).
     const blocks: PromptInputBlock[] = editor ? docToPromptBlocks(editor) : []
     // Append the real bytes-bearing block for every embedded-attachment badge
-    // still present in the document, looked up by its `codeg://embedded/…` uri.
+    // still present in the document, looked up by its `iyw-claw://embedded/…` uri.
     // Walking the live doc (rather than a swap pass over a stored draft) means a
     // deleted badge's stale map entry is simply never emitted, and an undo that
     // resurrects a badge re-emits it — no pruning, and no orphan uri can leak.
@@ -2869,11 +2869,11 @@ export function MessageInput({
             <div
               onMouseDown={handleChromeMouseDown}
               className={cn(
-                // `codeg-composer-chrome` paints the text I-beam across the box's
+                // `iyw-claw-composer-chrome` paints the text I-beam across the box's
                 // blank areas (padding, the dead space below a short message, the
                 // action-bar gaps) so the whole input reads as clickable-to-type;
                 // interactive controls re-assert their own cursor (see globals.css).
-                "codeg-composer-chrome @container relative flex flex-col rounded-xl border border-input bg-transparent transition-colors",
+                "iyw-claw-composer-chrome @container relative flex flex-col rounded-xl border border-input bg-transparent transition-colors",
                 // Standard focus ring — always shown when the composer is
                 // focused (the plain default input style).
                 folderBranchPickerAttached
@@ -2885,7 +2885,7 @@ export function MessageInput({
                 // flow (globals.css) so the default focus ring above takes over.
                 // A lone/non-tiled session (showActiveFlow=false) and inactive
                 // tiles show the plain default border.
-                showActiveFlow && "codeg-composer-flow",
+                showActiveFlow && "iyw-claw-composer-flow",
                 !folderBranchPickerAttached &&
                   showDragActive &&
                   "ring-1 ring-primary/40",
@@ -3158,7 +3158,7 @@ export function MessageInput({
                           </div>
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
-                      {/* A custom-dir pi can't have skills managed by codeg's
+                      {/* A custom-dir pi can't have skills managed by iyw-claw's
                           default-dir store, so hide these shortcuts instead of
                           offering ones that lock with a Settings path the
                           Experts/Office matrices also hide for this agent. */}

@@ -4,7 +4,7 @@
  * Live user-feedback ("steering") settings panel — a single feature kill
  * switch persisted as `feedback.enabled` on the Rust side.
  *
- * When enabled, `codeg-mcp` exposes the `check_user_feedback` tool so an agent
+ * When enabled, `iyw-claw-mcp` exposes the `check_user_feedback` tool so an agent
  * can pull mid-turn notes/corrections the user types in the conversation view,
  * and the conversation UI shows the "send a note to the agent" bar while a turn
  * is in flight. Mounted under `/settings/general` next to the multi-agent

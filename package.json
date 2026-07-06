@@ -1,5 +1,5 @@
 {
-  "name": "codeg",
+  "name": "iyw-claw",
   "private": true,
   "version": "0.19.0",
   "packageManager": "pnpm@11.9.0",
@@ -12,8 +12,8 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "server:build": "cd src-tauri && cargo build --release --bin codeg-server --no-default-features",
-    "server:dev": "cd src-tauri && cargo run --bin codeg-server --no-default-features",
+    "server:build": "cd src-tauri && cargo build --release --bin iyw-claw-server --no-default-features",
+    "server:dev": "cd src-tauri && cargo run --bin iyw-claw-server --no-default-features",
     "tauri:prepare-sidecars": "node src-tauri/scripts/prepare-sidecars.mjs",
     "tauri:before-dev": "pnpm tauri:prepare-sidecars && pnpm dev",
     "tauri:before-build": "pnpm build && pnpm tauri:prepare-sidecars",

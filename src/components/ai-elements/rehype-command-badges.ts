@@ -2,7 +2,7 @@
 // tokens (`/review`, `$deploy`, `/code-reviewer`) — the agent CLI needs them
 // literal, so there is no link to key a badge off. This rehype plugin restores
 // the badge *for display* by scanning text nodes for `/slug` / `$slug` tokens and
-// wrapping each in a `codeg://skill/<slug>` link, which MarkdownLink renders as a
+// wrapping each in a `iyw-claw://skill/<slug>` link, which MarkdownLink renders as a
 // ReferenceBadge. It is intentionally a HEURISTIC (the token is indistinguishable
 // from typed text), so it skips the obvious false positives: file-ish paths
 // (`/a/b`), code, math, and existing links.
@@ -55,13 +55,13 @@ function isSkipElement(node: HastNode): boolean {
   )
 }
 
-/** A `codeg://skill/<slug>` link whose text keeps the literal `/`·`$` prefix. */
+/** A `iyw-claw://skill/<slug>` link whose text keeps the literal `/`·`$` prefix. */
 function badgeAnchor(token: string): HastNode {
   const slug = token.slice(1)
   return {
     type: "element",
     tagName: "a",
-    properties: { href: `codeg://skill/${encodeURIComponent(slug)}` },
+    properties: { href: `iyw-claw://skill/${encodeURIComponent(slug)}` },
     children: [{ type: "text", value: token }],
   }
 }

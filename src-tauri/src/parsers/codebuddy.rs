@@ -407,11 +407,11 @@ impl AgentParser for CodeBuddyParser {
             if is_subagent_transcript(&self.base_dir, path) {
                 continue;
             }
-            if let Ok(Some(summary)) = super::summary_cache::get_or_parse(
-                AgentType::CodeBuddy,
-                path,
-                || Ok(self.parse_summary(path)),
-            ) {
+            if let Ok(Some(summary)) =
+                super::summary_cache::get_or_parse(AgentType::CodeBuddy, path, || {
+                    Ok(self.parse_summary(path))
+                })
+            {
                 conversations.push(summary);
             }
         }
@@ -539,7 +539,10 @@ fn reasoning_text(value: &Value) -> String {
 /// `cached_tokens` to get the non-cached input.
 fn usage_from_raw(value: &Value) -> Option<TurnUsage> {
     let raw = value.get("providerData")?.get("rawUsage")?;
-    let prompt = raw.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0);
+    let prompt = raw
+        .get("prompt_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let completion = raw
         .get("completion_tokens")
         .and_then(Value::as_u64)
@@ -655,7 +658,11 @@ fn deferred_result_envelope(value: &Value) -> Option<String> {
     }
     let text = value
         .get("output")
-        .and_then(|o| o.get("text").and_then(|t| t.as_str()).or_else(|| o.as_str()))
+        .and_then(|o| {
+            o.get("text")
+                .and_then(|t| t.as_str())
+                .or_else(|| o.as_str())
+        })
         .or_else(|| tool_result.get("content").and_then(|c| c.as_str()))
         .unwrap_or("");
     let is_error = mcp_meta
@@ -686,7 +693,10 @@ fn tool_output_preview(value: &Value) -> Option<String> {
             return Some(text.to_string());
         }
     }
-    let content = value.get("providerData")?.get("toolResult")?.get("content")?;
+    let content = value
+        .get("providerData")?
+        .get("toolResult")?
+        .get("content")?;
     if let Some(text) = content.as_str() {
         Some(text.to_string())
     } else {
@@ -980,8 +990,10 @@ mod tests {
 
     #[test]
     fn empty_env_falls_back_to_home() {
-        let resolved =
-            resolve_codebuddy_config_dir_from(Some(OsString::new()), Some(PathBuf::from("/home/u")));
+        let resolved = resolve_codebuddy_config_dir_from(
+            Some(OsString::new()),
+            Some(PathBuf::from("/home/u")),
+        );
         assert_eq!(resolved, PathBuf::from("/home/u/.codebuddy"));
     }
 
@@ -991,14 +1003,18 @@ mod tests {
         let mut file =
             std::fs::File::create(dir.join(format!("{session_id}.jsonl"))).expect("create jsonl");
         for record in records {
-            writeln!(file, "{}", serde_json::to_string(record).expect("serialize"))
-                .expect("write line");
+            writeln!(
+                file,
+                "{}",
+                serde_json::to_string(record).expect("serialize")
+            )
+            .expect("write line");
         }
     }
 
     #[test]
     fn parses_item_format_text_session() {
-        let root = std::env::temp_dir().join(format!("codeg-cb-text-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("iyw-claw-cb-text-{}", uuid::Uuid::new_v4()));
         let sid = "sess-text";
         write_session(
             &root,
@@ -1035,9 +1051,9 @@ mod tests {
 
         let has_user_text = detail.turns.iter().any(|t| {
             matches!(t.role, TurnRole::User)
-                && t.blocks
-                    .iter()
-                    .any(|b| matches!(b, ContentBlock::Text { text } if text.contains("你会做什么")))
+                && t.blocks.iter().any(
+                    |b| matches!(b, ContentBlock::Text { text } if text.contains("你会做什么")),
+                )
         });
         assert!(has_user_text, "user input_text must become a User turn");
 
@@ -1050,9 +1066,9 @@ mod tests {
 
         let has_assistant_text = detail.turns.iter().any(|t| {
             matches!(t.role, TurnRole::Assistant)
-                && t.blocks.iter().any(
-                    |b| matches!(b, ContentBlock::Text { text } if text.contains("CodeBuddy")),
-                )
+                && t.blocks
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::Text { text } if text.contains("CodeBuddy")))
         });
         assert!(has_assistant_text, "assistant output_text must render");
 
@@ -1070,7 +1086,7 @@ mod tests {
 
     #[test]
     fn parses_tool_calls_with_error_detection() {
-        let root = std::env::temp_dir().join(format!("codeg-cb-tool-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("iyw-claw-cb-tool-{}", uuid::Uuid::new_v4()));
         let sid = "sess-tool";
         write_session(
             &root,
@@ -1131,7 +1147,10 @@ mod tests {
             .iter()
             .find(|(id, _, _)| id.as_deref() == Some("call_1"))
             .expect("bash result");
-        assert!(bash.1, "toolResult.error must set is_error even when status=completed");
+        assert!(
+            bash.1,
+            "toolResult.error must set is_error even when status=completed"
+        );
 
         let glob = results
             .iter()
@@ -1145,7 +1164,7 @@ mod tests {
 
     #[test]
     fn empty_session_file_is_handled() {
-        let root = std::env::temp_dir().join(format!("codeg-cb-empty-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("iyw-claw-cb-empty-{}", uuid::Uuid::new_v4()));
         let dir = root.join("Users-demo-app");
         std::fs::create_dir_all(&dir).expect("create dir");
         std::fs::File::create(dir.join("empty.jsonl")).expect("create empty");
@@ -1163,7 +1182,7 @@ mod tests {
 
     #[test]
     fn metadata_only_session_is_not_listed() {
-        let root = std::env::temp_dir().join(format!("codeg-cb-meta-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("iyw-claw-cb-meta-{}", uuid::Uuid::new_v4()));
         let sid = "sess-meta";
         write_session(
             &root,
@@ -1186,7 +1205,7 @@ mod tests {
 
     #[test]
     fn model_falls_back_to_model_id_when_request_model_name_blank() {
-        let root = std::env::temp_dir().join(format!("codeg-cb-model-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("iyw-claw-cb-model-{}", uuid::Uuid::new_v4()));
         let sid = "sess-model";
         write_session(
             &root,
@@ -1216,7 +1235,7 @@ mod tests {
 
     #[test]
     fn read_tool_output_is_structurized() {
-        let root = std::env::temp_dir().join(format!("codeg-cb-read-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("iyw-claw-cb-read-{}", uuid::Uuid::new_v4()));
         let sid = "sess-read";
         write_session(
             &root,
@@ -1262,7 +1281,7 @@ mod tests {
 
     #[test]
     fn subagent_task_is_rewritten_to_agent() {
-        let root = std::env::temp_dir().join(format!("codeg-cb-agent-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("iyw-claw-cb-agent-{}", uuid::Uuid::new_v4()));
         let sid = "sess-agent";
         write_session(
             &root,
@@ -1391,14 +1410,19 @@ mod tests {
         let mut file =
             std::fs::File::create(dir.join(format!("{agent_id}.jsonl"))).expect("create subagent");
         for record in records {
-            writeln!(file, "{}", serde_json::to_string(record).expect("serialize"))
-                .expect("write line");
+            writeln!(
+                file,
+                "{}",
+                serde_json::to_string(record).expect("serialize")
+            )
+            .expect("write line");
         }
     }
 
     #[test]
     fn subagent_tool_calls_loaded_into_agent_stats() {
-        let root = std::env::temp_dir().join(format!("codeg-cb-substats-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("iyw-claw-cb-substats-{}", uuid::Uuid::new_v4()));
         let sid = "sess-substats";
         write_session(
             &root,
@@ -1548,7 +1572,7 @@ mod tests {
 
     #[test]
     fn deferred_mcp_tool_is_unwrapped() {
-        let root = std::env::temp_dir().join(format!("codeg-cb-defer-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("iyw-claw-cb-defer-{}", uuid::Uuid::new_v4()));
         let sid = "sess-defer";
         write_session(
             &root,
@@ -1561,7 +1585,7 @@ mod tests {
                 // name + params are packed under arguments.{toolName,params}.
                 json!({"type":"function_call","timestamp":1782193811200i64,"cwd":"/Users/demo/app","sessionId":sid,
                        "name":"DeferExecuteTool","callId":"d1",
-                       "arguments":"{\"params\":{\"agent_type\":\"codex\",\"task\":\"build\",\"working_dir\":\"/Users/demo/app\"},\"toolName\":\"mcp__codeg-mcp__delegate_to_agent\"}"}),
+                       "arguments":"{\"params\":{\"agent_type\":\"codex\",\"task\":\"build\",\"working_dir\":\"/Users/demo/app\"},\"toolName\":\"mcp__iyw-claw-mcp__delegate_to_agent\"}"}),
                 // The result carries the real MCP report under providerData.toolResult.mcpMeta.
                 json!({"type":"function_call_result","timestamp":1782193811400i64,"cwd":"/Users/demo/app","sessionId":sid,
                        "name":"DeferExecuteTool","callId":"d1","status":"completed",
@@ -1570,10 +1594,10 @@ mod tests {
                          "mcpMeta":{"structuredContent":{"agent_type":"codex","child_conversation_id":15,"status":"running","task_id":"e5c9","message":"ok"}}}}}),
                 json!({"type":"function_call","timestamp":1782193811600i64,"cwd":"/Users/demo/app","sessionId":sid,
                        "name":"DeferExecuteTool","callId":"d2",
-                       "arguments":"{\"params\":{\"task_ids\":[\"e5c9\"],\"wait_ms\":60000},\"toolName\":\"mcp__codeg-mcp__get_delegation_status\"}"}),
+                       "arguments":"{\"params\":{\"task_ids\":[\"e5c9\"],\"wait_ms\":60000},\"toolName\":\"mcp__iyw-claw-mcp__get_delegation_status\"}"}),
                 json!({"type":"function_call","timestamp":1782193811700i64,"cwd":"/Users/demo/app","sessionId":sid,
                        "name":"DeferExecuteTool","callId":"d3",
-                       "arguments":"{\"params\":{\"task_id\":\"e5c9\"},\"toolName\":\"mcp__codeg-mcp__cancel_delegation\"}"}),
+                       "arguments":"{\"params\":{\"task_id\":\"e5c9\"},\"toolName\":\"mcp__iyw-claw-mcp__cancel_delegation\"}"}),
                 // A plain (non-deferred) tool must keep its name and text output.
                 json!({"type":"function_call","timestamp":1782193811800i64,"cwd":"/Users/demo/app","sessionId":sid,
                        "name":"Bash","callId":"b1","arguments":"{\"command\": \"ls\"}"}),
@@ -1619,9 +1643,9 @@ mod tests {
         };
         // Each DeferExecuteTool resolves to its inner MCP tool name; normalizeToolName
         // (frontend) then collapses the `mcp__…__` prefix to the canonical card name.
-        assert_eq!(name_of("d1"), "mcp__codeg-mcp__delegate_to_agent");
-        assert_eq!(name_of("d2"), "mcp__codeg-mcp__get_delegation_status");
-        assert_eq!(name_of("d3"), "mcp__codeg-mcp__cancel_delegation");
+        assert_eq!(name_of("d1"), "mcp__iyw-claw-mcp__delegate_to_agent");
+        assert_eq!(name_of("d2"), "mcp__iyw-claw-mcp__get_delegation_status");
+        assert_eq!(name_of("d3"), "mcp__iyw-claw-mcp__cancel_delegation");
         // Plain tool untouched.
         assert_eq!(name_of("b1"), "Bash");
 
@@ -1665,7 +1689,8 @@ mod tests {
         // inside the recursively-scanned projects tree. It must feed ONLY the
         // Agent result's agent_stats — never surface as a top-level conversation,
         // nor be openable by its own id via get_conversation.
-        let root = std::env::temp_dir().join(format!("codeg-cb-sublist-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("iyw-claw-cb-sublist-{}", uuid::Uuid::new_v4()));
         let sid = "sess-list";
         write_session(
             &root,
@@ -1747,7 +1772,8 @@ mod tests {
         // (`<projects>/subagents/<sessionId>.jsonl`, 2 components) must still be
         // listed/opened — the nested sub-agent transcript shape is one level
         // deeper (`<project>/<session>/subagents/<agent>.jsonl`, 4 components).
-        let root = std::env::temp_dir().join(format!("codeg-cb-subdir-{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("iyw-claw-cb-subdir-{}", uuid::Uuid::new_v4()));
         let sid = "sess-in-subagents-dir";
         write_session(
             &root,

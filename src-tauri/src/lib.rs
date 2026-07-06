@@ -46,17 +46,16 @@ mod tauri_app {
     use crate::acp::manager::ConnectionManager;
     use crate::chat_channel::manager::ChatChannelManager;
     use crate::commands::{
-        acp as acp_commands, app_update as app_update_commands,
-        automation as automation_commands, backup,
-        chat_channel as chat_channel_commands, conversations, delegation as delegation_commands,
-        experts as experts_commands, feedback as feedback_commands, file_io, folder_commands,
-        office_tools as office_tools_commands,
-        folders, logging as logging_commands, mcp as mcp_commands,
-        model_provider as model_provider_commands, notification, pet as pet_commands, project_boot,
+        acp as acp_commands, app_update as app_update_commands, automation as automation_commands,
+        backup, chat_channel as chat_channel_commands, conversations,
+        delegation as delegation_commands, experts as experts_commands,
+        feedback as feedback_commands, file_io, folder_commands, folders,
+        logging as logging_commands, mcp as mcp_commands,
+        model_provider as model_provider_commands, notification,
+        office_tools as office_tools_commands, pet as pet_commands, project_boot,
         question as question_commands, quick_messages as quick_messages_commands,
-        remote_proxy as remote_proxy_commands,
-        remote_workspace as remote_workspace_commands, session_info as session_info_commands,
-        system_settings, terminal as terminal_commands,
+        remote_proxy as remote_proxy_commands, remote_workspace as remote_workspace_commands,
+        session_info as session_info_commands, system_settings, terminal as terminal_commands,
         version_control, windows, workspace_state as workspace_state_commands,
     };
     use crate::terminal::manager::TerminalManager;
@@ -90,15 +89,15 @@ mod tauri_app {
             summarize_web_auto_start_error(err)
         );
         tauri::async_runtime::spawn(async move {
-            let _ =
-                notification::send_notification(app, "Codeg Web service".to_string(), body).await;
+            let _ = notification::send_notification(app, "iyw-claw Web service".to_string(), body)
+                .await;
         });
     }
 
     /// On Windows, opt-out users can disable WebView2 hardware acceleration to
     /// work around AMD/Intel GPU driver bugs that produce a black-screen
     /// webview. The flag is stored in a tiny sidecar file at
-    /// `~/.codeg/preferences.json` so it can be read **before** the Tauri
+    /// `~/.iyw-claw/preferences.json` so it can be read **before** the Tauri
     /// builder, plugins, or tokio runtime start — once a tokio worker is alive,
     /// `std::env::set_var` would race with concurrent `getenv` calls from
     /// libraries like reqwest/rustls that read `HTTP_PROXY` etc.
@@ -157,9 +156,9 @@ mod tauri_app {
         // initialization. The callback runs in the *original* process.
         //
         // Skipped in debug builds so a locally-built `cargo run` instance
-        // can run alongside an installed release build of codeg during
+        // can run alongside an installed release build of iyw-claw during
         // development. Debug desktop builds use an isolated SQLite file, but
-        // they still share other `app.codeg` data-dir artifacts with release.
+        // they still share other `app.iywclaw` data-dir artifacts with release.
         #[cfg(not(debug_assertions))]
         let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             windows::show_main_window(app);
@@ -194,7 +193,7 @@ mod tauri_app {
             .manage(windows::MergeWindowState::new())
             .manage(web::WebServerState::new())
             // Remote-workspace IPC proxy. Routes HTTP / WS for windows
-            // opened against a remote codeg-server through Rust so we
+            // opened against a remote iyw-claw-server through Rust so we
             // bypass webview mixed-content blocking and can centrally
             // manage per-window subscriptions.
             .manage(std::sync::Arc::new(
@@ -226,7 +225,7 @@ mod tauri_app {
 
                 // Unify the data root across every consumer:
                 //   * SQLite database (initialised below)
-                //   * `paths::codeg_uploads_root` / `codeg_pets_root`
+                //   * `paths::iyw_claw_uploads_root` / `iyw_claw_pets_root`
                 //   * `AppState.data_dir` and every desktop command
                 //     that injects a git credential helper / askpass
                 //     into a subprocess (terminal, ACP, folder ops)
@@ -236,13 +235,13 @@ mod tauri_app {
                 // source of truth; every desktop call site that
                 // historically read `app.path().app_data_dir()` and
                 // passed it to a credential helper has been migrated
-                // to the same helper so a pre-set `CODEG_DATA_DIR` is
+                // to the same helper so a pre-set `IYW_CLAW_DATA_DIR` is
                 // honored end-to-end.
                 //
                 // We also write the absolutized value back to the env,
                 // even when the operator pre-set it, so:
                 //   * subprocesses inherit an absolute path (a relative
-                //     `CODEG_DATA_DIR` would otherwise re-resolve
+                //     `IYW_CLAW_DATA_DIR` would otherwise re-resolve
                 //     against the subprocess CWD, which may differ
                 //     from ours), and
                 //   * any future caller that reaches for the env
@@ -254,7 +253,7 @@ mod tauri_app {
                 // main thread before any window or async runtime task
                 // reads the var, the Tauri plugins registered above
                 // (window state, opener, dialog, updater, process,
-                // notification) do not read `CODEG_DATA_DIR`, and the
+                // notification) do not read `IYW_CLAW_DATA_DIR`, and the
                 // value is never mutated again for the lifetime of the
                 // process.
                 let effective_data_dir = paths::resolve_effective_data_dir(&app_data_dir);
@@ -263,24 +262,24 @@ mod tauri_app {
                 // the `unsafe` block, mirroring the WebView2 rendering
                 // override.
                 unsafe {
-                    std::env::set_var("CODEG_DATA_DIR", &effective_data_dir);
+                    std::env::set_var("IYW_CLAW_DATA_DIR", &effective_data_dir);
                 }
 
-                // `CODEG_HOME` overrides `CODEG_DATA_DIR` inside
-                // `paths::codeg_uploads_root` / `codeg_pets_root` for
-                // backwards-compatibility with the legacy `~/.codeg/`
+                // `IYW_CLAW_HOME` overrides `IYW_CLAW_DATA_DIR` inside
+                // `paths::iyw_claw_uploads_root` / `iyw_claw_pets_root` for
+                // backwards-compatibility with the legacy `~/.iyw-claw/`
                 // layout. If both are set and point at different roots,
-                // uploads/pets land on `CODEG_HOME` while the database
-                // lands on `CODEG_DATA_DIR` — a silent split. The
+                // uploads/pets land on `IYW_CLAW_HOME` while the database
+                // lands on `IYW_CLAW_DATA_DIR` — a silent split. The
                 // backup story here is "loud warning, no automatic
                 // override": the operator likely meant one of them, but
                 // we don't know which.
-                if let Some(home) = std::env::var_os("CODEG_HOME").filter(|s| !s.is_empty()) {
+                if let Some(home) = std::env::var_os("IYW_CLAW_HOME").filter(|s| !s.is_empty()) {
                     let home_path = git_credential::absolutize(std::path::Path::new(&home));
                     if home_path != effective_data_dir {
                         tracing::warn!(
-                            "[paths][WARN] CODEG_HOME ({}) and CODEG_DATA_DIR ({}) point at different roots. \
-                             Uploads/pets follow CODEG_HOME; the database follows CODEG_DATA_DIR. \
+                            "[paths][WARN] IYW_CLAW_HOME ({}) and IYW_CLAW_DATA_DIR ({}) point at different roots. \
+                             Uploads/pets follow IYW_CLAW_HOME; the database follows IYW_CLAW_DATA_DIR. \
                              Unset one or align them to avoid split state.",
                             home_path.display(),
                             effective_data_dir.display()
@@ -342,7 +341,7 @@ mod tauri_app {
                 });
 
                 // Install bundled expert skills into the central store
-                // (`~/.codeg/skills/`). Runs in the background and does
+                // (`~/.iyw-claw/skills/`). Runs in the background and does
                 // not block startup; failures are logged but non-fatal.
                 tauri::async_runtime::spawn(async move {
                     let report = crate::commands::experts::ensure_central_experts_installed().await;
@@ -606,7 +605,7 @@ mod tauri_app {
                 // Spawn the idle sweep so connections abandoned without an
                 // explicit disconnect (e.g. window/tab closed without
                 // teardown, panic survivors) are reaped. Override the
-                // 60-second default via `CODEG_ACP_IDLE_TIMEOUT_SECS`
+                // 60-second default via `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`
                 // (set to `0` to disable).
                 if let Some(idle_timeout) = crate::acp::idle_timeout_from_env() {
                     let cm = app.state::<ConnectionManager>().clone_ref();
@@ -619,7 +618,7 @@ mod tauri_app {
 
                 // Office watch preview servers: reap dead children + ref0
                 // stragglers (live previews are never swept). Override via
-                // `CODEG_OFFICE_WATCH_IDLE_TIMEOUT_SECS` (`0` disables).
+                // `IYW_CLAW_OFFICE_WATCH_IDLE_TIMEOUT_SECS` (`0` disables).
                 if let Some(idle_timeout) = crate::office_watch::idle_timeout_from_env() {
                     tauri::async_runtime::spawn(crate::office_watch::office_watch_idle_sweep_task(
                         idle_timeout,
@@ -629,7 +628,7 @@ mod tauri_app {
 
                 // Automation engine: drives manual + scheduled fires, settles
                 // runs off the event bus, reconciles, and recovers on boot. One
-                // per process; mirrored in `bin/codeg_server.rs`.
+                // per process; mirrored in `bin/iyw_claw_server.rs`.
                 if let Some(engine) = crate::automation::build_engine(
                     crate::db::AppDatabase {
                         conn: app.state::<crate::db::AppDatabase>().conn.clone(),
@@ -651,7 +650,7 @@ mod tauri_app {
                 if app.get_webview_window("main").is_none() {
                     let url = tauri::WebviewUrl::App("workspace".into());
                     let builder = tauri::WebviewWindowBuilder::new(app, "main", url)
-                        .title("Codeg")
+                        .title("iyw-claw")
                         .inner_size(1260.0, 860.0)
                         .min_inner_size(400.0, 600.0);
                     if let Ok(w) = windows::apply_platform_window_style(builder).build() {

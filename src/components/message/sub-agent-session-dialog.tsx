@@ -9,7 +9,7 @@
  * user can scroll the transcript without driving the child's turns. The
  * interactions it hosts are the child's blocking prompts that resolve
  * WITHOUT driving a new turn: the permission request (the child runs at
- * the user's configured permission level), and the codeg-mcp
+ * the user's configured permission level), and the iyw-claw-mcp
  * `ask_user_question` multiple-choice card. Both are answered through the
  * CHILD connection id; the backend routes the response to the child's
  * parked tool call. The parent card itself stays non-interactive (it only
@@ -330,7 +330,7 @@ function SubAgentSessionBody({
     [childConnectionId, respondPermission]
   )
 
-  // The child may also call the codeg-mcp `ask_user_question` tool, raising the
+  // The child may also call the iyw-claw-mcp `ask_user_question` tool, raising the
   // interactive multiple-choice card. Mirror the permission path: surface the
   // live `pendingAskQuestion` from the CHILD connection and route the answer
   // back through the same child connection id. `answerQuestion` rejects on

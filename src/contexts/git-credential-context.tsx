@@ -193,7 +193,7 @@ export function GitCredentialProvider({ children }: { children: ReactNode }) {
     const host = remoteHost || "github.com"
     const base = `https://${host}`
     const params = new URLSearchParams({
-      description: "codeg",
+      description: "iyw-claw",
       scopes: "repo,read:org,workflow,gist,read:user,user:email",
     })
     try {

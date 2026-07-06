@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react"
 import type { BeforeMount } from "@monaco-editor/react"
 
-export const MONACO_LIGHT_THEME = "codeg-light"
-export const MONACO_DARK_THEME = "codeg-dark"
+export const MONACO_LIGHT_THEME = "iyw-claw-light"
+export const MONACO_DARK_THEME = "iyw-claw-dark"
 
 export const monacoTokenRules = {
   light: [

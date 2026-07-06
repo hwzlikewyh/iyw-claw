@@ -12,7 +12,7 @@ export function ReferenceView({ node }: ReactNodeViewProps) {
   return (
     <NodeViewWrapper
       as="span"
-      className="codeg-reference"
+      className="iyw-claw-reference"
       contentEditable={false}
     >
       <ReferenceBadge data={attrs} />

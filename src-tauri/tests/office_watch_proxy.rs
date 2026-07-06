@@ -12,10 +12,10 @@ use std::sync::{Arc, Mutex};
 use axum::extract::RawQuery;
 use axum::http::header;
 use axum_test::TestServer;
-use codeg_lib::app_state::AppState;
-use codeg_lib::db::test_helpers::fresh_in_memory_db;
-use codeg_lib::web::router::build_router;
-use codeg_lib::web::shutdown::ShutdownSignal;
+use iyw_claw_lib::app_state::AppState;
+use iyw_claw_lib::db::test_helpers::fresh_in_memory_db;
+use iyw_claw_lib::web::router::build_router;
+use iyw_claw_lib::web::shutdown::ShutdownSignal;
 
 const TEST_TOKEN: &str = "ow-proxy-test-token";
 const TEST_CAP: &str = "cap-deadbeefcafef00d";
@@ -46,31 +46,29 @@ async fn spawn_fake_upstream() -> (u16, Arc<AtomicBool>, Arc<Mutex<String>>) {
     let last_query = Arc::new(Mutex::new(String::new()));
     let leaked_h = leaked.clone();
     let last_q_h = last_query.clone();
-    let app = axum::Router::new().fallback(
-        move |uri: axum::http::Uri, RawQuery(q): RawQuery| {
-            let leaked = leaked_h.clone();
-            let last_q = last_q_h.clone();
-            async move {
-                let query = q.unwrap_or_default();
-                if query.split('&').any(|s| s.split('=').next() == Some("cap")) {
-                    leaked.store(true, Ordering::SeqCst);
-                }
-                *last_q.lock().unwrap() = query;
-                if uri.path().ends_with("/page") {
-                    axum::response::Response::builder()
-                        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-                        .body(axum::body::Body::from(
-                            "<html><head><title>doc</title></head><body>hi</body></html>",
-                        ))
-                        .unwrap()
-                } else {
-                    axum::response::Response::builder()
-                        .body(axum::body::Body::from("upstream-body"))
-                        .unwrap()
-                }
+    let app = axum::Router::new().fallback(move |uri: axum::http::Uri, RawQuery(q): RawQuery| {
+        let leaked = leaked_h.clone();
+        let last_q = last_q_h.clone();
+        async move {
+            let query = q.unwrap_or_default();
+            if query.split('&').any(|s| s.split('=').next() == Some("cap")) {
+                leaked.store(true, Ordering::SeqCst);
             }
-        },
-    );
+            *last_q.lock().unwrap() = query;
+            if uri.path().ends_with("/page") {
+                axum::response::Response::builder()
+                    .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+                    .body(axum::body::Body::from(
+                        "<html><head><title>doc</title></head><body>hi</body></html>",
+                    ))
+                    .unwrap()
+            } else {
+                axum::response::Response::builder()
+                    .body(axum::body::Body::from("upstream-body"))
+                    .unwrap()
+            }
+        }
+    });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
@@ -90,11 +88,11 @@ async fn proxy_rejects_missing_cap() {
 async fn proxy_rejects_wrong_cap() {
     let (server, _data, _static) = build_proxy_server().await;
     let (port, _leaked, _q) = spawn_fake_upstream().await;
-    codeg_lib::office_watch::insert_known_port_for_test(port, TEST_CAP);
+    iyw_claw_lib::office_watch::insert_known_port_for_test(port, TEST_CAP);
     let resp = server
         .get(&format!("/api/office-watch-proxy/{port}?cap=wrong"))
         .await;
-    codeg_lib::office_watch::remove_known_port_for_test(port);
+    iyw_claw_lib::office_watch::remove_known_port_for_test(port);
     assert_eq!(resp.status_code(), 401);
 }
 
@@ -112,7 +110,7 @@ async fn proxy_rejects_unknown_port() {
 async fn proxy_forwards_with_valid_cap_without_leaking_cap() {
     let (server, _data, _static) = build_proxy_server().await;
     let (port, leaked, last_query) = spawn_fake_upstream().await;
-    codeg_lib::office_watch::insert_known_port_for_test(port, TEST_CAP);
+    iyw_claw_lib::office_watch::insert_known_port_for_test(port, TEST_CAP);
 
     let resp = server
         .get(&format!(
@@ -120,7 +118,7 @@ async fn proxy_forwards_with_valid_cap_without_leaking_cap() {
         ))
         .await;
 
-    codeg_lib::office_watch::remove_known_port_for_test(port);
+    iyw_claw_lib::office_watch::remove_known_port_for_test(port);
 
     assert_eq!(resp.status_code(), 200);
     assert_eq!(resp.text(), "upstream-body");
@@ -141,13 +139,15 @@ async fn proxy_forwards_with_valid_cap_without_leaking_cap() {
 async fn proxy_injects_path_rewriting_shim_into_html() {
     let (server, _data, _static) = build_proxy_server().await;
     let (port, _leaked, _q) = spawn_fake_upstream().await;
-    codeg_lib::office_watch::insert_known_port_for_test(port, TEST_CAP);
+    iyw_claw_lib::office_watch::insert_known_port_for_test(port, TEST_CAP);
 
     let resp = server
-        .get(&format!("/api/office-watch-proxy/{port}/page?cap={TEST_CAP}"))
+        .get(&format!(
+            "/api/office-watch-proxy/{port}/page?cap={TEST_CAP}"
+        ))
         .await;
 
-    codeg_lib::office_watch::remove_known_port_for_test(port);
+    iyw_claw_lib::office_watch::remove_known_port_for_test(port);
 
     assert_eq!(resp.status_code(), 200);
     let body = resp.text();

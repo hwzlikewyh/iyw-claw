@@ -1279,7 +1279,7 @@ mod tests {
     #[test]
     fn parses_openclaw_conversation_detail_with_tree() {
         let path = std::env::temp_dir().join(format!(
-            "codeg-openclaw-tree-{}.jsonl",
+            "iyw-claw-openclaw-tree-{}.jsonl",
             uuid::Uuid::new_v4()
         ));
         let mut file = fs::File::create(&path).expect("create temp jsonl");
@@ -1340,7 +1340,7 @@ mod tests {
         //   u1 → a1 → u2 → a2  (branch 1: "Hello" conversation)
         //              ↘ u3 → a3  (branch 2: "Bye" conversation, forked from a1)
         let path = std::env::temp_dir().join(format!(
-            "codeg-openclaw-branches-{}.jsonl",
+            "iyw-claw-openclaw-branches-{}.jsonl",
             uuid::Uuid::new_v4()
         ));
         let mut file = fs::File::create(&path).expect("create temp jsonl");

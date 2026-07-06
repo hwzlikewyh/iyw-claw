@@ -726,7 +726,7 @@
     },
     "hermes": {
       "configManagement": "Hermes 設定",
-      "configDescription": "Hermes は認証情報を ~/.hermes/.env に、設定を ~/.hermes/config.yaml に独自に管理します。プロバイダーを選択し、API キーとモデルを設定してください。codeg が両方のファイルを書き込みます。",
+      "configDescription": "Hermes は認証情報を ~/.hermes/.env に、設定を ~/.hermes/config.yaml に独自に管理します。プロバイダーを選択し、API キーとモデルを設定してください。iyw-claw が両方のファイルを書き込みます。",
       "providerLabel": "プロバイダー",
       "providerHint": "プロバイダーによって、Hermes が使用する API キー変数と model.provider が決まります。OAuth プロバイダーは下のターミナルセットアップから設定します。",
       "groupApiKey": "API キー プロバイダー",
@@ -768,14 +768,14 @@
     },
     "kimiCode": {
       "configManagement": "Kimi Code Configuration",
-      "configDescription": "`kimi acp` only authenticates with a stored login token and rejects API keys on their own. To use an API key, codeg writes a managed ~/.kimi-code/config.toml provider AND seeds a local gate token so the session opens — inference still runs on your key.",
-      "gateReadyApiKey": "Authenticated via API key (codeg seeded the local gate token).",
+      "configDescription": "`kimi acp` only authenticates with a stored login token and rejects API keys on their own. To use an API key, iyw-claw writes a managed ~/.kimi-code/config.toml provider AND seeds a local gate token so the session opens — inference still runs on your key.",
+      "gateReadyApiKey": "Authenticated via API key (iyw-claw seeded the local gate token).",
       "gateReadyLogin": "Authenticated via a Kimi account login.",
       "gateNotReady": "Not authenticated yet — save an API key below (or sign in) to open Kimi sessions.",
       "authModeLabel": "Authentication method",
       "authModeApiKey": "API key",
       "authModeLogin": "Kimi account login (subscription)",
-      "authModeHint": "“API key” writes a codeg-managed config.toml provider and seeds a gate token. “Login” clears that and uses a real `kimi login` session (requires a Kimi subscription).",
+      "authModeHint": "“API key” writes a iyw-claw-managed config.toml provider and seeds a gate token. “Login” clears that and uses a real `kimi login` session (requires a Kimi subscription).",
       "interfaceTypeLabel": "Provider type",
       "interfaceTypeHint": "The provider protocol Kimi speaks (config.toml `type`). Use Kimi / Moonshot for a Moonshot / platform.kimi.com key.",
       "endpointLabel": "Endpoint",
@@ -803,10 +803,10 @@
       "fetchModelsNeedsKey": "Enter an API key and endpoint first",
       "maxContextLabel": "Max context size (optional)",
       "maxContextHint": "Tokens, e.g. 262144. Leave blank to use the model default.",
-      "loginHint": "Run `kimi login` in a terminal to sign in with a Kimi subscription account (device-code OAuth). codeg stores nothing and reuses Kimi’s own login. Saving here removes codeg’s API-key gate token.",
+      "loginHint": "Run `kimi login` in a terminal to sign in with a Kimi subscription account (device-code OAuth). iyw-claw stores nothing and reuses Kimi’s own login. Saving here removes iyw-claw’s API-key gate token.",
       "rawEditorLabel": "Advanced: edit config.toml directly",
-      "rawEditorHint": "Written verbatim (comments preserved) and validated as TOML. codeg also seeds the gate token so the session opens.",
-      "rawEditorPlaceholder": "[providers.codeg]\ntype = \"kimi\"\nbase_url = \"https://api.moonshot.cn/v1\"\napi_key = \"sk-...\""
+      "rawEditorHint": "Written verbatim (comments preserved) and validated as TOML. iyw-claw also seeds the gate token so the session opens.",
+      "rawEditorPlaceholder": "[providers.iyw-claw]\ntype = \"kimi\"\nbase_url = \"https://api.moonshot.cn/v1\"\napi_key = \"sk-...\""
     },
     "authModeOfficialSubscription": "公式サブスクリプション",
     "authModeCustomEndpoint": "カスタムエンドポイント",
@@ -1001,7 +1001,7 @@
       "installing": "インストール中…",
       "recheck": "再確認",
       "trustTitle": "開いたワークスペースを自動的に信頼",
-      "trustDescription": "codeg が pi をフォルダーに接続する際、そのフォルダーを信頼済みとして登録し、別途の確認なしにプロジェクトのローカル設定とスキルを読み込めるようにします。",
+      "trustDescription": "iyw-claw が pi をフォルダーに接続する際、そのフォルダーを信頼済みとして登録し、別途の確認なしにプロジェクトのローカル設定とスキルを読み込めるようにします。",
       "trustHint": "信頼されるのはここで開いたフォルダーのみで、マシン全体ではありません。また影響するのは設定の読み込みだけで、pi が実行できる内容には影響しません。",
       "configDirSkillsNote": "カスタム設定ディレクトリを指定すると、設定画面で管理するスキル・エキスパート・オフィスツールはこの pi に適用されません。スキルはそのフォルダー内で直接管理してください。"
     }
@@ -1039,8 +1039,8 @@
     "loadFailed": "読み込みに失敗しました: {message}"
   },
   "LoginPage": {
-    "documentTitle": "ログイン - codeg",
-    "brand": "Codeg",
+    "documentTitle": "ログイン - iyw-claw",
+    "brand": "iyw-claw",
     "subtitle": "デスクトップアプリに接続するためのアクセストークンを入力してください",
     "tokenPlaceholder": "アクセストークン",
     "connect": "接続",
@@ -2193,7 +2193,7 @@
           "shortcutsAuxPanel": "<shortcut>{toggleAuxPanel}</shortcut> で右側パネルを開き、このセッションで変更したファイルや Git の差分を確認できます",
           "shortcutsTerminalSidebar": "<shortcut>{toggleTerminal}</shortcut> で内蔵ターミナル、<shortcut>{toggleSidebar}</shortcut> でサイドバーを切り替えできます",
           "customShortcuts": "すべてのショートカットは「設定 → ショートカット」で自由に変更できます",
-          "webService": "「設定 → Web サービス」を有効にすると、チームメンバーが同じ codeg にブラウザでアクセスできます",
+          "webService": "「設定 → Web サービス」を有効にすると、チームメンバーが同じ iyw-claw にブラウザでアクセスできます",
           "fusionMode": "ファイルや差分を開くと、会話の横に自動で表示されます。",
           "quickMessages": "入力欄横の + ボタンから「クイックメッセージ」を選ぶと、保存済みのスニペットを一発で挿入できます（「設定 → クイックメッセージ」で管理）",
           "experts": "+ ボタンの「エキスパートスキル」メニューから、デバッグや計画などのプリセットロールをワンクリックで読み込めます"
@@ -2735,11 +2735,11 @@
   "WebServiceSettings": {
     "addressSwitchHint": "切り替えても、ここに表示され開くアドレスが変わるだけです。サービスはすべてのインターフェースで待ち受けており、どのアドレスからもアクセスできます。",
     "sectionTitle": "Webサービス",
-    "sectionDescription": "有効にするとブラウザからCodegにリモートアクセスできます",
+    "sectionDescription": "有効にするとブラウザからiyw-clawにリモートアクセスできます",
     "port": "ポート",
     "status": "ステータス",
     "autoStart": "自動起動",
-    "autoStartHint": "Codeg の起動時に Web サービスを開始",
+    "autoStartHint": "iyw-claw の起動時に Web サービスを開始",
     "running": "実行中",
     "stopped": "停止中",
     "processing": "処理中...",
@@ -2754,7 +2754,7 @@
     "copy": "コピー",
     "qrcode": "QRコード",
     "qrcodeTitle": "スキャンして開く",
-    "qrcodeHint": "スマートフォンでスキャンして、ブラウザで Codeg を開きます",
+    "qrcodeHint": "スマートフォンでスキャンして、ブラウザで iyw-claw を開きます",
     "addressLabel": "アクセスアドレス",
     "tokenLabel": "アクセストークン",
     "tokenHint": "Webクライアントの初回アクセス時にこのトークンを入力してください",
@@ -2762,7 +2762,7 @@
     "regenerate": "再生成",
     "stalePortOccupiedTitle": "ポート {port} は他のプロセスに使用されています",
     "stalePortUnknownTitle": "ポート {port} の状態を確認できません",
-    "stalePortHint": "ポートが解放されるまで Codeg はバインドできません。上のポートを変更するか、占有しているプロセスを終了してください。",
+    "stalePortHint": "ポートが解放されるまで iyw-claw はバインドできません。上のポートを変更するか、占有しているプロセスを終了してください。",
     "errors": {
       "alreadyRunning": "Web サービスはすでに起動しています",
       "invalidAddress": "ホストまたはポートの形式が無効です",
@@ -2996,7 +2996,7 @@
     },
     "confirm": {
       "disableTitle": "これらのリンクを無効化しますか？",
-      "disableBody": "codeg が管理する {count} 件のスキルリンクを削除します。カスタムディレクトリを占有しているスキルはそのまま残ります。いつでも再び有効化できます。",
+      "disableBody": "iyw-claw が管理する {count} 件のスキルリンクを削除します。カスタムディレクトリを占有しているスキルはそのまま残ります。いつでも再び有効化できます。",
       "cancel": "キャンセル",
       "confirm": "無効化"
     },
@@ -3017,7 +3017,7 @@
   },
   "ExpertsSettings": {
     "title": "エキスパートスキル",
-    "description": "AI コーディングエージェント向けに、厳選され実戦で検証されたスキルワークフローを有効にします。各エキスパートは superpowers プロジェクトの独立したスキルで、codeg が中央コピーを管理し、選択したエージェントにリンクします。",
+    "description": "AI コーディングエージェント向けに、厳選され実戦で検証されたスキルワークフローを有効にします。各エキスパートは superpowers プロジェクトの独立したスキルで、iyw-claw が中央コピーを管理し、選択したエージェントにリンクします。",
     "loading": "エキスパートを読み込み中…",
     "loadingContent": "コンテンツを読み込み中…",
     "emptyExperts": "利用可能なエキスパートがありません。アプリケーションログを確認してください。",
@@ -3026,7 +3026,7 @@
     "searchPlaceholder": "名前、ID、または説明でエキスパートを検索",
     "enableForAgents": "エージェントで有効化",
     "noAgents": "ACP エージェントが検出されません。",
-    "copyModeWarning": "コピー済み（リンクなし）。codeg 更新後に最新版を取得するには再度有効化してください。",
+    "copyModeWarning": "コピー済み（リンクなし）。iyw-claw 更新後に最新版を取得するには再度有効化してください。",
     "previewTitle": "SKILL.md プレビュー",
     "categories": {
       "discovery": "発見と設計",
@@ -3039,7 +3039,7 @@
     },
     "states": {
       "not_linked": "未有効",
-      "linked_to_codeg": "有効",
+      "linked_to_iyw_claw": "有効",
       "linked_elsewhere": "ブロック — 別のリンクが存在",
       "blocked_by_real_directory": "ブロック — カスタムスキルがこの名前を占有",
       "broken": "壊れたリンク"
@@ -3092,7 +3092,7 @@
     },
     "states": {
       "not_linked": "無効",
-      "linked_to_codeg": "有効",
+      "linked_to_iyw_claw": "有効",
       "linked_elsewhere": "ブロック — 他のリンクが存在します",
       "blocked_by_real_directory": "ブロック — カスタムスキルがこの名前を使用しています",
       "broken": "リンク切れ"
@@ -3326,7 +3326,7 @@
   },
   "BackupSettings": {
     "title": "バックアップと復元",
-    "description": "codeg データのポータブルなバックアップを書き出すか、バックアップから復元します。",
+    "description": "iyw-claw データのポータブルなバックアップを書き出すか、バックアップから復元します。",
     "tabs": {
       "backup": "バックアップ",
       "restore": "復元"
@@ -3356,9 +3356,9 @@
         "incompatible": "互換なし",
         "createdAt": "作成日時: {value}",
         "appVersion": "アプリのバージョン: {value}",
-        "incompatibleHint": "このバックアップは新しいバージョンの codeg で作成されており、復元できません。"
+        "incompatibleHint": "このバックアップは新しいバージョンの iyw-claw で作成されており、復元できません。"
       },
-      "replaceWarning": "復元すると現在の codeg データ（データベースとアップロード）がすべて置き換えられます。現在のデータは先にスナップショットされ、復旧できます。",
+      "replaceWarning": "復元すると現在の iyw-claw データ（データベースとアップロード）がすべて置き換えられます。現在のデータは先にスナップショットされ、復旧できます。",
       "keyringNote": "デスクトップの GitHub/チャットのトークンは OS のキーチェーンに保存され、含まれません。復元後に再入力してください。",
       "button": "復元",
       "staging": "復元を準備中…",
@@ -3367,7 +3367,7 @@
       "restartTimeout": "サーバーが時間内に復帰しませんでした。起動後にページを再読み込みしてください。",
       "externalSideLocation": "会話履歴を {path} に復元しました",
       "confirmTitle": "すべてのデータを置き換えますか？",
-      "confirmBody": "現在の codeg データベースとアップロードをバックアップで置き換えてから再起動します。現在のデータは先にスナップショットされます。",
+      "confirmBody": "現在の iyw-claw データベースとアップロードをバックアップで置き換えてから再起動します。現在のデータは先にスナップショットされます。",
       "cancel": "キャンセル",
       "confirmAction": "置き換えて再起動",
       "external": {
@@ -3385,15 +3385,15 @@
       },
       "restartFailed": "復元は準備できましたが、サーバーを再起動できませんでした。手動で再起動して復元を適用してください。"
     },
-    "remoteUnsupported": "バックアップと復元は codeg を実行しているマシンのデータを対象とします。現在リモートワークスペースに接続中です。そのサーバー上で直接バックアップを管理してください。"
+    "remoteUnsupported": "バックアップと復元は iyw-claw を実行しているマシンのデータを対象とします。現在リモートワークスペースに接続中です。そのサーバー上で直接バックアップを管理してください。"
   },
   "backup": {
     "restore": {
       "error": {
         "badPassphrase": "パスフレーズが正しくないか、バックアップが破損しています。",
         "corrupted": "バックアップアーカイブが破損しています。",
-        "unknownFormat": "このファイルは認識可能な codeg バックアップではありません。",
-        "newerVersion": "このバックアップは codeg {backupVersion} で作成されており、現在のバージョン（{appVersion}）より新しいです。",
+        "unknownFormat": "このファイルは認識可能な iyw-claw バックアップではありません。",
+        "newerVersion": "このバックアップは iyw-claw {backupVersion} で作成されており、現在のバージョン（{appVersion}）より新しいです。",
         "alreadyPending": "適用待ちの復元が既にあります。先に再起動して適用してから、新しい復元を準備してください。"
       }
     },
@@ -3501,9 +3501,9 @@
     "filesEmpty": "ログファイルはまだありません。",
     "download": "ダウンロード",
     "downloadTruncated": "ファイルが大きいため、最新の {size} をダウンロードしました。完全なファイルはログディレクトリにあります。",
-    "captureEnvLocked": "ログレベルは RUST_LOG / CODEG_LOG 環境変数で制御されています。変更はそちらで行ってください。",
+    "captureEnvLocked": "ログレベルは RUST_LOG / IYW_CLAW_LOG 環境変数で制御されています。変更はそちらで行ってください。",
     "targetsTitle": "モジュール別オーバーライド",
-    "targetsDescription": "グローバルレベルを変えずに、特定モジュール（例: codeg_lib::acp）のレベルを個別に設定します。",
+    "targetsDescription": "グローバルレベルを変えずに、特定モジュール（例: iyw_claw_lib::acp）のレベルを個別に設定します。",
     "targetsAdd": "追加",
     "targetsRemove": "オーバーライドを削除",
     "toggleDetails": "詳細を切り替え"

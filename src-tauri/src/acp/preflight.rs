@@ -319,7 +319,7 @@ async fn check_uv_environment(
 
     // Fallback: the agent's own CLI is already installed on PATH (e.g. a user
     // who ran the official installer has `hermes` available). The agent is
-    // launchable as-is, but installing uv unlocks codeg's managed install /
+    // launchable as-is, but installing uv unlocks iyw-claw's managed install /
     // upgrade flow, so offer it as a non-blocking action.
     if let Some((cmd, _)) = system_cmd {
         if crate::commands::acp::resolve_command_on_path(cmd).is_some() {
@@ -374,12 +374,18 @@ async fn run_uv_version(uvx_path: &std::path::Path) -> Option<String> {
 /// `Warn` (not `Fail`): recent uv releases are backward compatible for the
 /// `uvx --from <pkg>==<ver>` invocation, so an old uv should not hard-block.
 fn build_uv_version_check(current: Option<&str>, required: &str) -> CheckItem {
-    match (current.and_then(parse_node_version), parse_node_version(required)) {
+    match (
+        current.and_then(parse_node_version),
+        parse_node_version(required),
+    ) {
         (Some(cur), Some(req)) if cur >= req => CheckItem {
             check_id: "uv_version".into(),
             label: "uv version".into(),
             status: CheckStatus::Pass,
-            message: format!("uv {} meets the minimum requirement (>={required})", current.unwrap_or("")),
+            message: format!(
+                "uv {} meets the minimum requirement (>={required})",
+                current.unwrap_or("")
+            ),
             fixes: vec![],
         },
         (Some(_), Some(_)) => CheckItem {

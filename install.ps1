@@ -1,33 +1,33 @@
 #
-# Codeg Server installer for Windows
+# iyw-claw Server installer for Windows
 # Usage:
-#   irm https://raw.githubusercontent.com/xintaofei/codeg/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/xintaofei/iyw-claw/main/install.ps1 | iex
 #   .\install.ps1 -Version v0.5.0
 #
 
 param(
     [string]$Version = "",
-    [string]$InstallDir = "$env:LOCALAPPDATA\codeg",
+    [string]$InstallDir = "$env:LOCALAPPDATA\iyw-claw",
     [switch]$NoCleanup
 )
 
 $ErrorActionPreference = "Stop"
-$Repo = "xintaofei/codeg"
-$Artifact = "codeg-server-windows-x64"
+$Repo = "xintaofei/iyw-claw"
+$Artifact = "iyw-claw-server-windows-x64"
 
-# Names of binaries this installer manages. codeg-server is the user-facing
-# entry point; codeg-mcp is the stdio MCP companion that the server's ACP
+# Names of binaries this installer manages. iyw-claw-server is the user-facing
+# entry point; iyw-claw-mcp is the stdio MCP companion that the server's ACP
 # layer spawns per session for delegation. Both must live in the same
-# directory — `locate_codeg_mcp_binary()` in src-tauri/src/acp/connection.rs
+# directory — `locate_iyw_claw_mcp_binary()` in src-tauri/src/acp/connection.rs
 # resolves the companion as a sibling of the running server executable.
-$ManagedBins = @("codeg-server", "codeg-mcp")
+$ManagedBins = @("iyw-claw-server", "iyw-claw-mcp")
 
-# Stale codeg-server / codeg-mcp binaries elsewhere in PATH are removed by
-# default so the user's `codeg-server` command always runs the freshly
+# Stale iyw-claw-server / iyw-claw-mcp binaries elsewhere in PATH are removed by
+# default so the user's `iyw-claw-server` command always runs the freshly
 # installed binary AND the runtime locates the matching companion via the
-# exe-sibling lookup. Pass -NoCleanup (or set CODEG_NO_CLEANUP=1) to disable.
+# exe-sibling lookup. Pass -NoCleanup (or set IYW_CLAW_NO_CLEANUP=1) to disable.
 $Cleanup = -not $NoCleanup
-if ($env:CODEG_NO_CLEANUP -eq "1") {
+if ($env:IYW_CLAW_NO_CLEANUP -eq "1") {
     $Cleanup = $false
 }
 
@@ -42,8 +42,8 @@ function Get-CanonicalPath([string]$Path) {
 
 function Read-BinVersion([string]$BinPath) {
     if (-not (Test-Path -LiteralPath $BinPath)) { return "" }
-    $stdout = Join-Path $env:TEMP ("codeg-ver-" + [Guid]::NewGuid().ToString() + ".txt")
-    $stderr = Join-Path $env:TEMP ("codeg-vererr-" + [Guid]::NewGuid().ToString() + ".txt")
+    $stdout = Join-Path $env:TEMP ("iyw-claw-ver-" + [Guid]::NewGuid().ToString() + ".txt")
+    $stderr = Join-Path $env:TEMP ("iyw-claw-vererr-" + [Guid]::NewGuid().ToString() + ".txt")
     try {
         $proc = Start-Process -FilePath $BinPath -ArgumentList "--version" `
             -NoNewWindow -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
@@ -76,18 +76,18 @@ if (-not $Version) {
 
 $TargetVer = $Version -replace '^v', ''
 
-# ── Scan PATH for codeg-server binaries that shadow the target install ──
+# ── Scan PATH for iyw-claw-server binaries that shadow the target install ──
 #
 # A binary "shadows" the install if it appears in PATH BEFORE the destination
-# directory: that's the binary `Get-Command codeg-server` returns after install.
+# directory: that's the binary `Get-Command iyw-claw-server` returns after install.
 # Unlike install.sh (which doesn't modify PATH), this script appends
 # `$InstallDir` to user PATH below when it's missing, so any pre-existing
-# codeg-server in PATH ends up before the destination after install and must be
+# iyw-claw-server in PATH ends up before the destination after install and must be
 # cleaned. We therefore collect conflicts even when the destination isn't on
 # PATH yet: stop the walk at the destination if present, otherwise scan to the
 # end (post-install, the destination will be at the tail).
 
-$DestBin = Join-Path $InstallDir "codeg-server.exe"
+$DestBin = Join-Path $InstallDir "iyw-claw-server.exe"
 $DestBinReal = Get-CanonicalPath $DestBin
 $InstallDirReal = Get-CanonicalPath $InstallDir
 
@@ -95,9 +95,9 @@ $PathConflicts = @()
 $seenReal = @{}
 $pathDirs = @()
 if ($env:Path) { $pathDirs = $env:Path.Split(';') }
-# Scan PATH for both managed binaries — a stale `codeg-mcp.exe` in an earlier
+# Scan PATH for both managed binaries — a stale `iyw-claw-mcp.exe` in an earlier
 # PATH entry would be picked by the runtime's `which` fallback once
-# `codeg-server.exe` was upgraded out from under it, breaking delegation in
+# `iyw-claw-server.exe` was upgraded out from under it, breaking delegation in
 # subtle ways. Track conflicts uniformly for cleanup.
 foreach ($dir in $pathDirs) {
     if (-not $dir) { continue }
@@ -120,9 +120,9 @@ foreach ($dir in $pathDirs) {
     }
 }
 
-# What does `codeg-server` actually resolve to in the current PATH?
+# What does `iyw-claw-server` actually resolve to in the current PATH?
 $ActiveBin = ""
-$resolved = Get-Command codeg-server -ErrorAction SilentlyContinue
+$resolved = Get-Command iyw-claw-server -ErrorAction SilentlyContinue
 if ($resolved) { $ActiveBin = $resolved.Source }
 
 # ── Version detection — prefer the binary the user actually invokes ──
@@ -145,21 +145,21 @@ if ($VersionCheckBin) {
 if ($CurrentVersion -and ($CurrentVersion -eq $TargetVer) `
         -and ($PathConflicts.Count -eq 0) `
         -and (Test-Path -LiteralPath $DestBin)) {
-    Write-Host "codeg-server is already at version $TargetVer, nothing to do."
+    Write-Host "iyw-claw-server is already at version $TargetVer, nothing to do."
     exit 0
 }
 
 if ($CurrentVersion) {
-    Write-Host "Upgrading codeg-server: $CurrentVersion -> $TargetVer..."
+    Write-Host "Upgrading iyw-claw-server: $CurrentVersion -> $TargetVer..."
 } else {
-    Write-Host "Installing codeg-server $Version (windows/x64)..."
+    Write-Host "Installing iyw-claw-server $Version (windows/x64)..."
 }
 
-# ── Warn about codeg-server binaries shadowing the target install ──
+# ── Warn about iyw-claw-server binaries shadowing the target install ──
 
 if ($PathConflicts.Count -gt 0) {
     Write-Host ""
-    Write-Host "Found other codeg-server binaries in PATH that may shadow ${DestBin}:"
+    Write-Host "Found other iyw-claw-server binaries in PATH that may shadow ${DestBin}:"
     foreach ($c in $PathConflicts) {
         $cv = Read-BinVersion $c
         if ($cv) {
@@ -172,39 +172,39 @@ if ($PathConflicts.Count -gt 0) {
         Write-Host "These will be removed after installation. Pass -NoCleanup to keep them."
     } else {
         Write-Host "Keeping them (-NoCleanup). You may need to remove them manually so that"
-        Write-Host "typing 'codeg-server' runs the new install at $DestBin."
+        Write-Host "typing 'iyw-claw-server' runs the new install at $DestBin."
     }
     Write-Host ""
 }
 
 # ── Stop running service before upgrade ──
 #
-# codeg-mcp.exe is the stdio MCP companion spawned per ACP session.
+# iyw-claw-mcp.exe is the stdio MCP companion spawned per ACP session.
 # On Windows, Copy-Item -Force fails with a sharing violation if the
 # target .exe is currently running (the OS holds an exclusive write
 # lock on executable images). Stop both binaries before overwriting.
 
-$ServerProcesses = Get-Process -Name "codeg-server" -ErrorAction SilentlyContinue
+$ServerProcesses = Get-Process -Name "iyw-claw-server" -ErrorAction SilentlyContinue
 if ($ServerProcesses) {
-    Write-Host "Stopping running codeg-server process(es)..."
+    Write-Host "Stopping running iyw-claw-server process(es)..."
     $WasRunning = $true
     $ServerProcesses | Stop-Process -Force
     Start-Sleep -Seconds 2
     # Verify stopped
-    $StillRunning = Get-Process -Name "codeg-server" -ErrorAction SilentlyContinue
+    $StillRunning = Get-Process -Name "iyw-claw-server" -ErrorAction SilentlyContinue
     if ($StillRunning) {
         $StillRunning | Stop-Process -Force
         Start-Sleep -Seconds 1
     }
-    Write-Host "codeg-server stopped."
+    Write-Host "iyw-claw-server stopped."
 }
 
-$McpProcesses = Get-Process -Name "codeg-mcp" -ErrorAction SilentlyContinue
+$McpProcesses = Get-Process -Name "iyw-claw-mcp" -ErrorAction SilentlyContinue
 if ($McpProcesses) {
-    Write-Host "Stopping running codeg-mcp companion process(es)..."
+    Write-Host "Stopping running iyw-claw-mcp companion process(es)..."
     $McpProcesses | Stop-Process -Force
     Start-Sleep -Seconds 1
-    $StillRunning = Get-Process -Name "codeg-mcp" -ErrorAction SilentlyContinue
+    $StillRunning = Get-Process -Name "iyw-claw-mcp" -ErrorAction SilentlyContinue
     if ($StillRunning) {
         $StillRunning | Stop-Process -Force
         Start-Sleep -Seconds 1
@@ -214,7 +214,7 @@ if ($McpProcesses) {
 # ── Download and extract ──
 
 $Url = "https://github.com/$Repo/releases/download/$Version/$Artifact.zip"
-$TmpDir = Join-Path $env:TEMP "codeg-install-$(Get-Random)"
+$TmpDir = Join-Path $env:TEMP "iyw-claw-install-$(Get-Random)"
 New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null
 $ZipPath = Join-Path $TmpDir "$Artifact.zip"
 
@@ -272,7 +272,7 @@ if ($UserPath -notlike "*$InstallDir*") {
     Write-Host "Added $InstallDir to user PATH (restart terminal to take effect)"
 }
 # Mirror the change into the current process so the post-install verification
-# below can resolve `codeg-server`. Without this, the first-time install would
+# below can resolve `iyw-claw-server`. Without this, the first-time install would
 # always exit non-zero on Windows because Get-Command runs against the in-process
 # $env:Path that does not yet include $InstallDir.
 if ($env:Path -notlike "*$InstallDir*") {
@@ -289,13 +289,13 @@ $ExitStatus = 0
 
 if ($Cleanup -and $PathConflicts.Count -gt 0) {
     Write-Host ""
-    Write-Host "Removing stale codeg-server binaries..."
+    Write-Host "Removing stale iyw-claw-server binaries..."
     foreach ($c in $PathConflicts) {
         try {
             Remove-Item -LiteralPath $c -Force -ErrorAction Stop
             Write-Host "  removed $c"
         } catch {
-            Write-Host "  failed to remove $c (remove it manually so 'codeg-server' resolves to the new install) — $($_.Exception.Message)"
+            Write-Host "  failed to remove $c (remove it manually so 'iyw-claw-server' resolves to the new install) — $($_.Exception.Message)"
             $ExitStatus = 1
         }
     }
@@ -305,29 +305,29 @@ if ($Cleanup -and $PathConflicts.Count -gt 0) {
 
 if ($WasRunning) {
     Write-Host ""
-    Write-Host "Note: codeg-server was stopped for the upgrade."
-    Write-Host "Please restart it manually to ensure your environment variables (CODEG_PORT, CODEG_TOKEN, etc.) are preserved:"
-    Write-Host "  `$env:CODEG_STATIC_DIR=`"$WebDir`"; codeg-server"
+    Write-Host "Note: iyw-claw-server was stopped for the upgrade."
+    Write-Host "Please restart it manually to ensure your environment variables (IYW_CLAW_PORT, IYW_CLAW_TOKEN, etc.) are preserved:"
+    Write-Host "  `$env:IYW_CLAW_STATIC_DIR=`"$WebDir`"; iyw-claw-server"
 }
 
 # ── Done ──
 
 $InstalledVer = ""
 try {
-    $InstalledVer = (& (Join-Path $InstallDir "codeg-server.exe") --version 2>$null).Trim()
+    $InstalledVer = (& (Join-Path $InstallDir "iyw-claw-server.exe") --version 2>$null).Trim()
 } catch {}
 if (-not $InstalledVer) { $InstalledVer = $TargetVer }
 
 Write-Host ""
-Write-Host "codeg-server installed to $InstallDir\codeg-server.exe"
-Write-Host "codeg-mcp    installed to $InstallDir\codeg-mcp.exe"
+Write-Host "iyw-claw-server installed to $InstallDir\iyw-claw-server.exe"
+Write-Host "iyw-claw-mcp    installed to $InstallDir\iyw-claw-mcp.exe"
 Write-Host "Version: $InstalledVer"
 
-# Final smoke: codeg-mcp.exe must exist next to codeg-server.exe so the
-# runtime's `locate_codeg_mcp_binary()` exe-sibling lookup hits. A failure
+# Final smoke: iyw-claw-mcp.exe must exist next to iyw-claw-server.exe so the
+# runtime's `locate_iyw_claw_mcp_binary()` exe-sibling lookup hits. A failure
 # here means the zip was malformed or a previous Copy-Item was silently
 # blocked — surface it loudly rather than ship a half-broken install.
-$McpPath = Join-Path $InstallDir "codeg-mcp.exe"
+$McpPath = Join-Path $InstallDir "iyw-claw-mcp.exe"
 if (-not (Test-Path -LiteralPath $McpPath)) {
     Write-Host ""
     Write-Host "Error: $McpPath missing after install."
@@ -335,9 +335,9 @@ if (-not (Test-Path -LiteralPath $McpPath)) {
     $ExitStatus = 1
 }
 
-# Verify the user's `codeg-server` command actually resolves to the new binary.
+# Verify the user's `iyw-claw-server` command actually resolves to the new binary.
 $ActiveBinAfter = ""
-$resolvedAfter = Get-Command codeg-server -ErrorAction SilentlyContinue
+$resolvedAfter = Get-Command iyw-claw-server -ErrorAction SilentlyContinue
 if ($resolvedAfter) { $ActiveBinAfter = $resolvedAfter.Source }
 $ActiveBinAfterReal = Get-CanonicalPath $ActiveBinAfter
 
@@ -349,7 +349,7 @@ if (-not $ActiveBinAfter) {
     $ExitStatus = 1
 } elseif ($ActiveBinAfterReal -ne $DestBinReal) {
     Write-Host ""
-    Write-Host "Warning: typing 'codeg-server' still runs $ActiveBinAfter, not $DestBin."
+    Write-Host "Warning: typing 'iyw-claw-server' still runs $ActiveBinAfter, not $DestBin."
     Write-Host "Another binary earlier in PATH is shadowing the new install. To fix, either:"
     Write-Host "  - re-run without -NoCleanup (the default removes shadowing binaries), or"
     Write-Host "  - remove the stale binary manually: Remove-Item '$ActiveBinAfter', or"
@@ -359,9 +359,9 @@ if (-not $ActiveBinAfter) {
 
 Write-Host ""
 Write-Host "Quick start:"
-Write-Host "  `$env:CODEG_STATIC_DIR=`"$WebDir`"; codeg-server"
+Write-Host "  `$env:IYW_CLAW_STATIC_DIR=`"$WebDir`"; iyw-claw-server"
 Write-Host ""
 Write-Host "Or with custom settings:"
-Write-Host "  `$env:CODEG_PORT=`"3080`"; `$env:CODEG_TOKEN=`"your-secret`"; `$env:CODEG_STATIC_DIR=`"$WebDir`"; codeg-server"
+Write-Host "  `$env:IYW_CLAW_PORT=`"3080`"; `$env:IYW_CLAW_TOKEN=`"your-secret`"; `$env:IYW_CLAW_STATIC_DIR=`"$WebDir`"; iyw-claw-server"
 
 exit $ExitStatus

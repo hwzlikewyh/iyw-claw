@@ -726,7 +726,7 @@
     },
     "hermes": {
       "configManagement": "Configuração do Hermes",
-      "configDescription": "O Hermes gerencia suas próprias credenciais em ~/.hermes/.env e as configurações em ~/.hermes/config.yaml. Escolha um provedor e, em seguida, defina a chave de API e o modelo — o codeg grava os dois arquivos para você.",
+      "configDescription": "O Hermes gerencia suas próprias credenciais em ~/.hermes/.env e as configurações em ~/.hermes/config.yaml. Escolha um provedor e, em seguida, defina a chave de API e o modelo — o iyw-claw grava os dois arquivos para você.",
       "providerLabel": "Provedor",
       "providerHint": "O provedor determina qual variável de chave de API e qual model.provider o Hermes usa. Provedores OAuth são configurados pela configuração de terminal abaixo.",
       "groupApiKey": "Provedores com chave de API",
@@ -768,14 +768,14 @@
     },
     "kimiCode": {
       "configManagement": "Kimi Code Configuration",
-      "configDescription": "`kimi acp` only authenticates with a stored login token and rejects API keys on their own. To use an API key, codeg writes a managed ~/.kimi-code/config.toml provider AND seeds a local gate token so the session opens — inference still runs on your key.",
-      "gateReadyApiKey": "Authenticated via API key (codeg seeded the local gate token).",
+      "configDescription": "`kimi acp` only authenticates with a stored login token and rejects API keys on their own. To use an API key, iyw-claw writes a managed ~/.kimi-code/config.toml provider AND seeds a local gate token so the session opens — inference still runs on your key.",
+      "gateReadyApiKey": "Authenticated via API key (iyw-claw seeded the local gate token).",
       "gateReadyLogin": "Authenticated via a Kimi account login.",
       "gateNotReady": "Not authenticated yet — save an API key below (or sign in) to open Kimi sessions.",
       "authModeLabel": "Authentication method",
       "authModeApiKey": "API key",
       "authModeLogin": "Kimi account login (subscription)",
-      "authModeHint": "“API key” writes a codeg-managed config.toml provider and seeds a gate token. “Login” clears that and uses a real `kimi login` session (requires a Kimi subscription).",
+      "authModeHint": "“API key” writes a iyw-claw-managed config.toml provider and seeds a gate token. “Login” clears that and uses a real `kimi login` session (requires a Kimi subscription).",
       "interfaceTypeLabel": "Provider type",
       "interfaceTypeHint": "The provider protocol Kimi speaks (config.toml `type`). Use Kimi / Moonshot for a Moonshot / platform.kimi.com key.",
       "endpointLabel": "Endpoint",
@@ -803,10 +803,10 @@
       "fetchModelsNeedsKey": "Enter an API key and endpoint first",
       "maxContextLabel": "Max context size (optional)",
       "maxContextHint": "Tokens, e.g. 262144. Leave blank to use the model default.",
-      "loginHint": "Run `kimi login` in a terminal to sign in with a Kimi subscription account (device-code OAuth). codeg stores nothing and reuses Kimi’s own login. Saving here removes codeg’s API-key gate token.",
+      "loginHint": "Run `kimi login` in a terminal to sign in with a Kimi subscription account (device-code OAuth). iyw-claw stores nothing and reuses Kimi’s own login. Saving here removes iyw-claw’s API-key gate token.",
       "rawEditorLabel": "Advanced: edit config.toml directly",
-      "rawEditorHint": "Written verbatim (comments preserved) and validated as TOML. codeg also seeds the gate token so the session opens.",
-      "rawEditorPlaceholder": "[providers.codeg]\ntype = \"kimi\"\nbase_url = \"https://api.moonshot.cn/v1\"\napi_key = \"sk-...\""
+      "rawEditorHint": "Written verbatim (comments preserved) and validated as TOML. iyw-claw also seeds the gate token so the session opens.",
+      "rawEditorPlaceholder": "[providers.iyw-claw]\ntype = \"kimi\"\nbase_url = \"https://api.moonshot.cn/v1\"\napi_key = \"sk-...\""
     },
     "authModeOfficialSubscription": "Assinatura oficial",
     "authModeCustomEndpoint": "Endpoint personalizado",
@@ -1001,7 +1001,7 @@
       "installing": "Instalando…",
       "recheck": "Verificar novamente",
       "trustTitle": "Confiar automaticamente nos espaços de trabalho abertos",
-      "trustDescription": "Quando o codeg conecta o pi a uma pasta, marca essa pasta como confiável para que o pi carregue a configuração e as habilidades locais do projeto sem uma confirmação separada.",
+      "trustDescription": "Quando o iyw-claw conecta o pi a uma pasta, marca essa pasta como confiável para que o pi carregue a configuração e as habilidades locais do projeto sem uma confirmação separada.",
       "trustHint": "Apenas as pastas que você abre aqui são confiáveis, nunca a máquina inteira — e isso afeta somente o carregamento da configuração, não o que o pi pode executar.",
       "configDirSkillsNote": "Com um diretório de configuração personalizado, as habilidades, os especialistas e as ferramentas de escritório gerenciados nas Configurações não se aplicam a este pi — gerencie as habilidades dele diretamente nessa pasta."
     }
@@ -1039,8 +1039,8 @@
     "loadFailed": "Falha ao carregar: {message}"
   },
   "LoginPage": {
-    "documentTitle": "Entrar - codeg",
-    "brand": "Codeg",
+    "documentTitle": "Entrar - iyw-claw",
+    "brand": "iyw-claw",
     "subtitle": "Digite seu token de acesso para conectar ao aplicativo de desktop",
     "tokenPlaceholder": "Token de acesso",
     "connect": "Conectar",
@@ -2193,7 +2193,7 @@
           "shortcutsAuxPanel": "<shortcut>{toggleAuxPanel}</shortcut> alterna o painel direito para ver os arquivos tocados e as mudanças do Git desta sessão.",
           "shortcutsTerminalSidebar": "<shortcut>{toggleTerminal}</shortcut> abre o terminal integrado, <shortcut>{toggleSidebar}</shortcut> alterna a barra lateral.",
           "customShortcuts": "Todos os atalhos podem ser reatribuídos em Configurações → Atalhos.",
-          "webService": "Ative Configurações → Serviço web para que sua equipe acesse o mesmo codeg pelo navegador.",
+          "webService": "Ative Configurações → Serviço web para que sua equipe acesse o mesmo iyw-claw pelo navegador.",
           "fusionMode": "Abra um arquivo ou diff para exibi-lo automaticamente ao lado da conversa.",
           "quickMessages": "Abra o botão + ao lado da entrada e escolha Mensagens rápidas para inserir um trecho salvo (gerencie-os em Configurações → Mensagens rápidas).",
           "experts": "O botão + tem um menu Habilidades de especialista — carregue papéis como Depuração ou Planejamento com um clique."
@@ -2735,11 +2735,11 @@
   "WebServiceSettings": {
     "addressSwitchHint": "Alternar muda apenas o endereço mostrado e aberto aqui; o serviço escuta em todas as interfaces e continua acessível em cada endereço.",
     "sectionTitle": "Serviço Web",
-    "sectionDescription": "Ativar para acessar o Codeg remotamente pelo navegador",
+    "sectionDescription": "Ativar para acessar o iyw-claw remotamente pelo navegador",
     "port": "Porta",
     "status": "Status",
     "autoStart": "Início automático",
-    "autoStartHint": "Iniciar o serviço Web ao abrir o Codeg",
+    "autoStartHint": "Iniciar o serviço Web ao abrir o iyw-claw",
     "running": "Em execução",
     "stopped": "Parado",
     "processing": "Processando...",
@@ -2754,7 +2754,7 @@
     "copy": "Copiar",
     "qrcode": "Código QR",
     "qrcodeTitle": "Escanear para abrir",
-    "qrcodeHint": "Escaneie com seu telefone para abrir o Codeg no navegador",
+    "qrcodeHint": "Escaneie com seu telefone para abrir o iyw-claw no navegador",
     "addressLabel": "Endereço de acesso",
     "tokenLabel": "Token de acesso",
     "tokenHint": "Insira este token ao acessar o cliente Web pela primeira vez",
@@ -2762,7 +2762,7 @@
     "regenerate": "Regenerar",
     "stalePortOccupiedTitle": "A porta {port} está em uso por outro processo",
     "stalePortUnknownTitle": "Estado da porta {port} é incerto",
-    "stalePortHint": "O Codeg não consegue vincular até a porta ser liberada. Altere a porta acima ou feche o processo que a retém.",
+    "stalePortHint": "O iyw-claw não consegue vincular até a porta ser liberada. Altere a porta acima ou feche o processo que a retém.",
     "errors": {
       "alreadyRunning": "O serviço Web já está em execução",
       "invalidAddress": "Formato de host ou porta inválido",
@@ -2996,7 +2996,7 @@
     },
     "confirm": {
       "disableTitle": "Desativar estes links?",
-      "disableBody": "Isto remove {count} links de habilidades gerenciados pelo codeg. Habilidades que ocupam um diretório personalizado não são afetadas. Você pode reativá-las a qualquer momento.",
+      "disableBody": "Isto remove {count} links de habilidades gerenciados pelo iyw-claw. Habilidades que ocupam um diretório personalizado não são afetadas. Você pode reativá-las a qualquer momento.",
       "cancel": "Cancelar",
       "confirm": "Desativar"
     },
@@ -3017,7 +3017,7 @@
   },
   "ExpertsSettings": {
     "title": "Habilidades de Especialista",
-    "description": "Ative fluxos de trabalho de habilidades selecionados e comprovados em campo para seus agentes de codificação de IA. Cada especialista é uma habilidade independente do projeto superpowers — o codeg gerencia a cópia central e a vincula aos agentes escolhidos.",
+    "description": "Ative fluxos de trabalho de habilidades selecionados e comprovados em campo para seus agentes de codificação de IA. Cada especialista é uma habilidade independente do projeto superpowers — o iyw-claw gerencia a cópia central e a vincula aos agentes escolhidos.",
     "loading": "Carregando especialistas…",
     "loadingContent": "Carregando conteúdo…",
     "emptyExperts": "Nenhum especialista disponível. Verifique os logs da aplicação.",
@@ -3026,7 +3026,7 @@
     "searchPlaceholder": "Pesquisar especialistas por nome, ID ou descrição",
     "enableForAgents": "Ativar para agentes",
     "noAgents": "Nenhum agente ACP detectado.",
-    "copyModeWarning": "Copiado (não vinculado). Reative após as atualizações do codeg para obter a versão mais recente.",
+    "copyModeWarning": "Copiado (não vinculado). Reative após as atualizações do iyw-claw para obter a versão mais recente.",
     "previewTitle": "Prévia do SKILL.md",
     "categories": {
       "discovery": "Descoberta e Design",
@@ -3039,7 +3039,7 @@
     },
     "states": {
       "not_linked": "Não ativado",
-      "linked_to_codeg": "Ativado",
+      "linked_to_iyw_claw": "Ativado",
       "linked_elsewhere": "Bloqueado — outro vínculo existe",
       "blocked_by_real_directory": "Bloqueado — uma habilidade personalizada ocupa este nome",
       "broken": "Vínculo quebrado"
@@ -3092,7 +3092,7 @@
     },
     "states": {
       "not_linked": "Não ativado",
-      "linked_to_codeg": "Ativado",
+      "linked_to_iyw_claw": "Ativado",
       "linked_elsewhere": "Bloqueado — existe outro link",
       "blocked_by_real_directory": "Bloqueado — uma habilidade personalizada ocupa este nome",
       "broken": "Link quebrado"
@@ -3326,7 +3326,7 @@
   },
   "BackupSettings": {
     "title": "Backup e restauração",
-    "description": "Exporte um backup portátil dos seus dados do codeg ou restaure a partir de um.",
+    "description": "Exporte um backup portátil dos seus dados do iyw-claw ou restaure a partir de um.",
     "tabs": {
       "backup": "Backup",
       "restore": "Restauração"
@@ -3356,9 +3356,9 @@
         "incompatible": "Incompatível",
         "createdAt": "Criado: {value}",
         "appVersion": "Versão do app: {value}",
-        "incompatibleHint": "Este backup foi criado por uma versão mais recente do codeg e não pode ser restaurado."
+        "incompatibleHint": "Este backup foi criado por uma versão mais recente do iyw-claw e não pode ser restaurado."
       },
-      "replaceWarning": "Restaurar substitui todos os dados atuais do codeg (banco de dados e uploads). Seus dados atuais são salvos em um snapshot primeiro, para que possam ser recuperados.",
+      "replaceWarning": "Restaurar substitui todos os dados atuais do iyw-claw (banco de dados e uploads). Seus dados atuais são salvos em um snapshot primeiro, para que possam ser recuperados.",
       "keyringNote": "Os tokens de GitHub/chat do desktop ficam no chaveiro do sistema e não são incluídos; insira-os novamente após restaurar.",
       "button": "Restaurar",
       "staging": "Preparando a restauração…",
@@ -3367,7 +3367,7 @@
       "restartTimeout": "O servidor não voltou a tempo. Recarregue a página quando ele estiver ativo.",
       "externalSideLocation": "As transcrições de conversas foram restauradas em {path}",
       "confirmTitle": "Substituir todos os dados?",
-      "confirmBody": "Isto substituirá seu banco de dados e uploads atuais do codeg pelo backup e, em seguida, reiniciará. Seus dados atuais são salvos em um snapshot primeiro.",
+      "confirmBody": "Isto substituirá seu banco de dados e uploads atuais do iyw-claw pelo backup e, em seguida, reiniciará. Seus dados atuais são salvos em um snapshot primeiro.",
       "cancel": "Cancelar",
       "confirmAction": "Substituir e reiniciar",
       "external": {
@@ -3385,15 +3385,15 @@
       },
       "restartFailed": "Restauração preparada, mas o servidor não conseguiu reiniciar. Reinicie-o manualmente para aplicá-la."
     },
-    "remoteUnsupported": "O backup e a restauração atuam sobre os dados da máquina que executa o codeg. Você está conectado a um espaço de trabalho remoto — gerencie os backups dele diretamente nesse servidor."
+    "remoteUnsupported": "O backup e a restauração atuam sobre os dados da máquina que executa o iyw-claw. Você está conectado a um espaço de trabalho remoto — gerencie os backups dele diretamente nesse servidor."
   },
   "backup": {
     "restore": {
       "error": {
         "badPassphrase": "Senha incorreta ou backup corrompido.",
         "corrupted": "O arquivo de backup está corrompido.",
-        "unknownFormat": "Este arquivo não é um backup do codeg reconhecido.",
-        "newerVersion": "Este backup foi criado pelo codeg {backupVersion}, mais recente que esta versão ({appVersion}).",
+        "unknownFormat": "Este arquivo não é um backup do iyw-claw reconhecido.",
+        "newerVersion": "Este backup foi criado pelo iyw-claw {backupVersion}, mais recente que esta versão ({appVersion}).",
         "alreadyPending": "Já existe uma restauração preparada. Reinicie para aplicá-la antes de preparar outra."
       }
     },
@@ -3501,9 +3501,9 @@
     "filesEmpty": "Ainda não há arquivos de registro.",
     "download": "Baixar",
     "downloadTruncated": "O arquivo é grande; foram baixados os {size} mais recentes. O arquivo completo está no diretório de logs.",
-    "captureEnvLocked": "O nível de registro é controlado pela variável de ambiente RUST_LOG / CODEG_LOG; altere-a lá para ter efeito.",
+    "captureEnvLocked": "O nível de registro é controlado pela variável de ambiente RUST_LOG / IYW_CLAW_LOG; altere-a lá para ter efeito.",
     "targetsTitle": "Substituições por módulo",
-    "targetsDescription": "Defina um nível diferente para módulos específicos (ex.: codeg_lib::acp) sem alterar o nível global.",
+    "targetsDescription": "Defina um nível diferente para módulos específicos (ex.: iyw_claw_lib::acp) sem alterar o nível global.",
     "targetsAdd": "Adicionar",
     "targetsRemove": "Remover substituição",
     "toggleDetails": "Alternar detalhes"

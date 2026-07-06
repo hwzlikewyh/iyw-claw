@@ -750,7 +750,7 @@ export function buildStreamingTurnsFromLiveMessage(
           tool_name: toolName,
           input_preview: resolveLiveToolInput(toolName, block.info),
           // Forward the ACP `meta` field downstream so the renderer can
-          // read delegation state (`meta["codeg.delegation"]`) for
+          // read delegation state (`meta["iyw-claw.delegation"]`) for
           // pre-binding / post-refresh fallback rendering of
           // <DelegatedSubThread>. Opaque pass-through — adapter layer
           // does not interpret.

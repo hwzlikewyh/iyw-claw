@@ -195,7 +195,7 @@ export function BackupSettings() {
     const { open } = await import("@tauri-apps/plugin-dialog")
     const picked = await open({
       multiple: false,
-      filters: [{ name: "Codeg backup", extensions: ["codegbak", "zip"] }],
+      filters: [{ name: "iyw-claw backup", extensions: ["iyw-clawbak", "zip"] }],
     })
     if (typeof picked !== "string") return
     const name = picked.split(/[\\/]/).pop() ?? picked
@@ -476,7 +476,7 @@ export function BackupSettings() {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".codegbak,.zip,application/zip"
+                  accept=".iyw-clawbak,.zip,application/zip"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0]

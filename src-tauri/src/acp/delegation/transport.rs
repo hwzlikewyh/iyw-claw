@@ -1,4 +1,4 @@
-//! Wire format for `codeg-mcp` companion ↔ main process round-trip over UDS
+//! Wire format for `iyw-claw-mcp` companion ↔ main process round-trip over UDS
 //! (Unix) or named pipe (Windows).
 //!
 //! The frame is dead simple: a little-endian `u32` byte length followed by
@@ -37,11 +37,11 @@
 //!
 //! ### Version coupling
 //!
-//! The companion (`codeg-mcp`) and the listener (inside the codeg main
+//! The companion (`iyw-claw-mcp`) and the listener (inside the iyw-claw main
 //! process) ship in the SAME release artifact — the Tauri bundle, the
 //! server Docker image, and the standalone binary tree all install both
 //! binaries at the same path. The MCP config pointing the agent CLI at
-//! `codeg-mcp` uses an absolute path that is replaced atomically by the
+//! `iyw-claw-mcp` uses an absolute path that is replaced atomically by the
 //! upgrade, so an old-version companion talking to a new-version listener
 //! is not a supported configuration. As a consequence this protocol does
 //! NOT carry a version field and the tagged-enum cutover from the older
@@ -66,7 +66,7 @@ pub struct BrokerRequest {
     /// the agent passes it through to the companion via `--token`. Rejects
     /// anything else.
     pub token: String,
-    /// codeg-internal ACP connection UUID for the parent session.
+    /// iyw-claw-internal ACP connection UUID for the parent session.
     pub parent_connection_id: String,
     /// The MCP `tool_use_id` for the LLM-issued `delegate_to_agent` call.
     /// Used to bind the eventual child outcome back to the parent's
@@ -165,16 +165,16 @@ pub struct BrokerAskRequest {
     pub questions: Vec<QuestionSpec>,
 }
 
-/// Resolve a session the user referenced (`codeg://session/<id>`) into its
+/// Resolve a session the user referenced (`iyw-claw://session/<id>`) into its
 /// metadata + stats, optionally with its recent messages. Backs the
 /// `get_session_info` MCP tool. Authenticated by the same per-launch `token`; the
-/// lookup is by codeg's internal conversation id (the number in the reference),
+/// lookup is by iyw-claw's internal conversation id (the number in the reference),
 /// so — unlike the delegation arms — it is NOT scoped to the parent connection
 /// (any non-deleted session the user references can be read).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrokerSessionRequest {
     pub token: String,
-    /// codeg's internal conversation PK (the number in `codeg://session/<id>`).
+    /// iyw-claw's internal conversation PK (the number in `iyw-claw://session/<id>`).
     pub session_id: i32,
     /// How many of the most recent turns to include as compacted text. `None` /
     /// `0` → metadata only (no transcript parse); a positive value is clamped to
@@ -510,7 +510,7 @@ mod tests {
         // PID + nanosecond suffix keeps the pipe name unique across parallel
         // tests and avoids collisions with a live listener on the same box.
         let pipe_name = format!(
-            r"\\.\pipe\codeg-mcp-test-{}-{}",
+            r"\\.\pipe\iyw-claw-mcp-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -558,7 +558,7 @@ mod tests {
         use tokio::net::UnixListener;
 
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("codeg-mcp.sock");
+        let path = dir.path().join("iyw-claw-mcp.sock");
         let listener = UnixListener::bind(&path).unwrap();
         let server_path = path.to_string_lossy().to_string();
 

@@ -1,5 +1,5 @@
-export const CODEG_WS_PROTOCOL = "codeg-events"
-const CODEG_WS_TOKEN_PROTOCOL_PREFIX = "codeg-token."
+export const IYW_CLAW_WS_PROTOCOL = "iyw-claw-events"
+const IYW_CLAW_WS_TOKEN_PROTOCOL_PREFIX = "iyw-claw-token."
 
 function base64UrlEncode(value: string): string {
   const bytes = new TextEncoder().encode(value)
@@ -13,11 +13,11 @@ function base64UrlEncode(value: string): string {
     .replace(/=+$/g, "")
 }
 
-export function buildCodegWebSocketProtocols(token: string): string[] {
+export function buildIywClawWebSocketProtocols(token: string): string[] {
   const trimmed = token.trim()
-  if (!trimmed) return [CODEG_WS_PROTOCOL]
+  if (!trimmed) return [IYW_CLAW_WS_PROTOCOL]
   return [
-    CODEG_WS_PROTOCOL,
-    `${CODEG_WS_TOKEN_PROTOCOL_PREFIX}${base64UrlEncode(trimmed)}`,
+    IYW_CLAW_WS_PROTOCOL,
+    `${IYW_CLAW_WS_TOKEN_PROTOCOL_PREFIX}${base64UrlEncode(trimmed)}`,
   ]
 }

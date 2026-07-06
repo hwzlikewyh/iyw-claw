@@ -105,7 +105,7 @@ pub enum ContentBlock {
         input_preview: Option<String>,
         /// ACP extensibility metadata associated with the tool call. The
         /// `delegate_to_agent` lifecycle writes
-        /// `meta["codeg.delegation"] = { status, child_connection_id,
+        /// `meta["iyw-claw.delegation"] = { status, child_connection_id,
         /// child_conversation_id, error_code? }` here so a snapshot or DB
         /// re-fetch can re-bind the parent UI to the child conversation
         /// without depending on the live event stream having survived.

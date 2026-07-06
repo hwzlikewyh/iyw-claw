@@ -15,7 +15,7 @@ import { isEmbeddedReferenceUri } from "./reference-uri"
  *
  * - **file** references render as an inline `[label](file://uri)` Markdown link
  *   at the exact position they were typed. They are deliberately *not* lifted
- *   into trailing `resource_link` blocks: codeg keeps no copy of the user's
+ *   into trailing `resource_link` blocks: iyw-claw keeps no copy of the user's
  *   prompt, so on cold reload the message is reparsed from the agent's own
  *   session file — and only what stays inline in the text survives at its
  *   original position. A trailing ResourceLink ends up stored/reparsed at the
@@ -25,9 +25,9 @@ import { isEmbeddedReferenceUri } from "./reference-uri"
  *   fixes that for every agent. For a local `file://` an ACP ResourceLink only
  *   conveys the path anyway — identical information to the inline link — so
  *   nothing is lost on the agent side.
- * - **session / commit** references (a `codeg://` uri the agent can't fetch) and
+ * - **session / commit** references (a `iyw-claw://` uri the agent can't fetch) and
  *   **agent / skill** references stay inline as their text/link form, unchanged.
- * - **embedded** references (a `codeg://embedded/…` display uri for path-less
+ * - **embedded** references (a `iyw-claw://embedded/…` display uri for path-less
  *   pasted bytes) are dropped from the prose: their real bytes-bearing block is
  *   appended separately by the host's `buildDraft` (keyed on the same uri via the
  *   send-time payload map), so emitting their synthetic display link here would
@@ -44,7 +44,7 @@ export function docToPromptBlocks(editor: Editor): PromptInputBlock[] {
   return text ? [{ type: "text", text }] : []
 }
 
-/** A display-only embedded-attachment reference (`codeg://embedded/…`): dropped
+/** A display-only embedded-attachment reference (`iyw-claw://embedded/…`): dropped
  *  from the prose here, its bytes appended out of band by the host. The
  *  synthetic uri points at no fetchable target, so it must never reach the
  *  agent — neither inline nor as a ResourceLink. */

@@ -59,14 +59,14 @@ export function isAgentLikeToolName(toolName: string): boolean {
     name === "cancel_delegation" ||
     name === "create_goal" ||
     name === "update_goal" ||
-    // codeg-mcp ask_user_question — owns the AskQuestionResultCard, so it must
+    // iyw-claw-mcp ask_user_question — owns the AskQuestionResultCard, so it must
     // break the run and render standalone rather than fold into a tool-group.
     // "question" is the canonical name (live path); the bare raw name plus the
     // suffix RE below cover the historical `mcp__<server>__ask_user_question`
     // forms, since this runs pre-normalize.
     name === "question" ||
     name === "ask_user_question" ||
-    // codeg-mcp check_user_feedback — owns the FeedbackCheckResultCard capsule,
+    // iyw-claw-mcp check_user_feedback — owns the FeedbackCheckResultCard capsule,
     // so the (visible) ones must break the run and render standalone rather than
     // fold into a tool-group. The no-op polls are dropped upstream by
     // `dropHiddenFeedbackChecks`, so only received-feedback checks reach here.

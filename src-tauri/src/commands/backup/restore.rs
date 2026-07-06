@@ -1,11 +1,11 @@
 //! Restore: stage-then-swap-on-startup.
 //!
-//! The DB connection pool holds `codeg.db` open (WAL sidecars), so swapping it
+//! The DB connection pool holds `iyw-claw.db` open (WAL sidecars), so swapping it
 //! under a live connection risks corruption (and fails outright on Windows).
 //! Restore therefore runs in two phases:
 //!
 //! 1. **Stage** (while running) — decrypt + extract + checksum-verify the
-//!    archive into `<data_dir>/.codeg-restore-staging/<op_id>/`, then write a
+//!    archive into `<data_dir>/.iyw-claw-restore-staging/<op_id>/`, then write a
 //!    pending-restore marker. Live data is untouched until this fully succeeds.
 //! 2. **Swap** (next startup) — [`apply_pending_restore_on_startup`] runs as the
 //!    first step of `db::init_database`, before any connection is opened: it
@@ -30,18 +30,18 @@ use super::manifest::{BackupManifest, BackupPhase, BackupProgress, BACKUP_PROGRE
 use crate::web::event_bridge::{emit_event, EventEmitter};
 
 /// Marker committing a staged restore; consumed on next startup.
-pub const PENDING_MARKER: &str = ".codeg-restore-pending.json";
+pub const PENDING_MARKER: &str = ".iyw-claw-restore-pending.json";
 /// Root for staged (extracted, verified, not-yet-applied) restore payloads.
-pub const STAGING_DIR: &str = ".codeg-restore-staging";
+pub const STAGING_DIR: &str = ".iyw-claw-restore-staging";
 /// Root for pre-restore safety snapshots of the previous live data.
-pub const SAFETY_DIR: &str = ".codeg-restore-backup";
+pub const SAFETY_DIR: &str = ".iyw-claw-restore-backup";
 /// Side location external transcripts are restored to (never clobbers the
 /// live CLI dirs without explicit conflict resolution — see M7).
 pub const RESTORED_TRANSCRIPTS_DIR: &str = "restored-transcripts";
 /// Transient dir (server mode) holding export archives awaiting download.
-pub const EXPORT_TMP_DIR: &str = ".codeg-backup-tmp";
+pub const EXPORT_TMP_DIR: &str = ".iyw-claw-backup-tmp";
 /// Transient dir (server mode) holding uploaded archives awaiting inspect/stage.
-pub const UPLOAD_TMP_DIR: &str = ".codeg-restore-upload";
+pub const UPLOAD_TMP_DIR: &str = ".iyw-claw-restore-upload";
 
 /// How conflicting files are handled when restoring external transcripts back
 /// to their original CLI locations. Never silent: the UI forces an explicit
@@ -148,7 +148,13 @@ pub(crate) async fn stage_restore_core(
     let manifest_c = manifest.clone();
     let cancel_c = cancel.clone();
     tokio::task::spawn_blocking(move || -> Result<(), AppCommandError> {
-        archive::extract_all(&zip_c, &staging_c, &manifest_c, &cancel_c, &mut archive::null_progress())?;
+        archive::extract_all(
+            &zip_c,
+            &staging_c,
+            &manifest_c,
+            &cancel_c,
+            &mut archive::null_progress(),
+        )?;
         archive::verify_checksums(&staging_c, &manifest_c, &cancel_c)
     })
     .await
@@ -217,14 +223,12 @@ pub fn cleanup_transient_dirs(data_dir: &Path) {
 /// Resolves the live uploads root + preferences path via the env-aware
 /// `paths::*` resolvers (production), then delegates to
 /// [`apply_pending_restore_with_paths`]. Tests call the inner fn with temp
-/// paths so they never touch the real `~/.codeg`.
-pub fn apply_pending_restore_on_startup(
-    data_dir: &Path,
-) -> Result<RestoreApplied, std::io::Error> {
+/// paths so they never touch the real `~/.iyw-claw`.
+pub fn apply_pending_restore_on_startup(data_dir: &Path) -> Result<RestoreApplied, std::io::Error> {
     apply_pending_restore_with_paths(
         data_dir,
-        &crate::paths::codeg_uploads_root(),
-        &crate::paths::codeg_home_dir().join("preferences.json"),
+        &crate::paths::iyw_claw_uploads_root(),
+        &crate::paths::iyw_claw_home_dir().join("preferences.json"),
     )
 }
 
@@ -256,7 +260,8 @@ pub(crate) fn apply_pending_restore_with_paths(
 
     tracing::info!(
         "[RESTORE] applying staged restore (backup app_version={}, migration={})",
-        pending.app_version, pending.latest_migration
+        pending.app_version,
+        pending.latest_migration
     );
 
     // Safety snapshot of the current live data, then swap staged files in.
@@ -265,7 +270,7 @@ pub(crate) fn apply_pending_restore_with_paths(
 
     let db_name = crate::db::database_file_name();
     swap_in(
-        &staging.join("db").join("codeg.db"),
+        &staging.join("db").join("iyw-claw.db"),
         &data_dir.join(db_name),
         &backup_dir.join(db_name),
     )?;
@@ -294,7 +299,11 @@ pub(crate) fn apply_pending_restore_with_paths(
 
     let staged_prefs = staging.join("preferences.json");
     if staged_prefs.is_file() {
-        swap_in(&staged_prefs, preferences_path, &backup_dir.join("preferences.json"))?;
+        swap_in(
+            &staged_prefs,
+            preferences_path,
+            &backup_dir.join("preferences.json"),
+        )?;
     }
 
     // Commit only after a fully successful swap. On a mid-swap crash we return
@@ -325,7 +334,7 @@ fn swap_in(staged: &Path, live: &Path, backup: &Path) -> std::io::Result<()> {
 }
 
 /// Rename `src` → `dst`, falling back to recursive copy + remove across
-/// filesystem boundaries (CODEG_HOME / CODEG_DATA_DIR may differ).
+/// filesystem boundaries (IYW_CLAW_HOME / IYW_CLAW_DATA_DIR may differ).
 fn move_path(src: &Path, dst: &Path) -> std::io::Result<()> {
     if let Some(parent) = dst.parent() {
         std::fs::create_dir_all(parent)?;
@@ -425,15 +434,21 @@ fn write_pending_marker(
         app_version: manifest.app_version.clone(),
         latest_migration: manifest.latest_migration.clone(),
     };
-    let json = serde_json::to_vec_pretty(&pending)
-        .map_err(|e| AppCommandError::task_execution_failed("Serialize restore marker").with_detail(e.to_string()))?;
+    let json = serde_json::to_vec_pretty(&pending).map_err(|e| {
+        AppCommandError::task_execution_failed("Serialize restore marker")
+            .with_detail(e.to_string())
+    })?;
     let marker = data_dir.join(PENDING_MARKER);
     // Atomic, no-clobber claim: `create_new` lets exactly one concurrent stage
     // commit. A second one fails with AlreadyExists rather than racing a rename
     // and silently committing a different staging dir. A crash mid-write leaves
     // a partial marker, which `apply_pending_restore_*` treats as malformed and
     // discards (its staging is then reaped by `cleanup_transient_dirs`).
-    let mut f = match OpenOptions::new().write(true).create_new(true).open(&marker) {
+    let mut f = match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&marker)
+    {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             return Err(already_pending_error())
@@ -477,7 +492,11 @@ fn sanitize_stamp(rfc3339: &str) -> String {
 }
 
 fn emit(emitter: &EventEmitter, op_id: &str, phase: BackupPhase) {
-    emit_event(emitter, BACKUP_PROGRESS_EVENT, BackupProgress::phase(op_id, phase));
+    emit_event(
+        emitter,
+        BACKUP_PROGRESS_EVENT,
+        BackupProgress::phase(op_id, phase),
+    );
 }
 
 fn spawn_err(e: tokio::task::JoinError) -> AppCommandError {
@@ -537,7 +556,7 @@ mod tests {
         std::fs::write(data_dir.join(db_name), b"OLD-DB").unwrap();
         let staging = data_dir.join(STAGING_DIR).join("op1");
         std::fs::create_dir_all(staging.join("db")).unwrap();
-        std::fs::write(staging.join("db").join("codeg.db"), b"NEW-DB").unwrap();
+        std::fs::write(staging.join("db").join("iyw-claw.db"), b"NEW-DB").unwrap();
 
         let marker = PendingRestore {
             staging_dir: staging.to_string_lossy().into_owned(),

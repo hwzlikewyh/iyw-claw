@@ -23,7 +23,7 @@ function run(tree: Node): Node {
   return tree
 }
 
-/** All `codeg://skill/…` anchors anywhere in the tree. */
+/** All `iyw-claw://skill/…` anchors anywhere in the tree. */
 function skillAnchors(node: Node): Node[] {
   const out: Node[] = []
   const walk = (n: Node) => {
@@ -31,7 +31,7 @@ function skillAnchors(node: Node): Node[] {
       n.type === "element" &&
       n.tagName === "a" &&
       typeof n.properties?.href === "string" &&
-      n.properties.href.startsWith("codeg://skill/")
+      n.properties.href.startsWith("iyw-claw://skill/")
     ) {
       out.push(n)
     }
@@ -49,7 +49,7 @@ describe("rehypeCommandBadges", () => {
     const tree = run(root([el("p", [text("run /review please")])]))
     const anchors = skillAnchors(tree)
     expect(anchors).toHaveLength(1)
-    expect(anchors[0].properties?.href).toBe("codeg://skill/review")
+    expect(anchors[0].properties?.href).toBe("iyw-claw://skill/review")
     expect(anchorText(anchors[0])).toBe("/review")
   })
 
@@ -57,7 +57,7 @@ describe("rehypeCommandBadges", () => {
     const tree = run(root([el("p", [text("$deploy now")])]))
     const anchors = skillAnchors(tree)
     expect(anchors).toHaveLength(1)
-    expect(anchors[0].properties?.href).toBe("codeg://skill/deploy")
+    expect(anchors[0].properties?.href).toBe("iyw-claw://skill/deploy")
     expect(anchorText(anchors[0])).toBe("$deploy")
   })
 
@@ -100,7 +100,7 @@ describe("rehypeCommandBadges", () => {
         el("p", [el("a", [text("/review")], { href: "https://example.com" })]),
       ])
     )
-    // Only the original non-codeg link remains; no codeg://skill anchor added.
+    // Only the original non-iyw-claw link remains; no iyw-claw://skill anchor added.
     expect(skillAnchors(tree)).toEqual([])
   })
 

@@ -47,7 +47,7 @@ const PI_COMMAND_ENV = "PI_ACP_PI_COMMAND"
 const PI_SESSION_DIR_ENV = "PI_CODING_AGENT_SESSION_DIR"
 /**
  * Per-agent `env_json` flag gating launch-time workspace-trust seeding. Absent or
- * any value other than `"0"` ⇒ enabled (default on): when codeg connects pi to a
+ * any value other than `"0"` ⇒ enabled (default on): when iyw-claw connects pi to a
  * folder, the backend marks that folder trusted in pi's `trust.json` so pi loads
  * the project's local config/skills without a separate prompt. `"0"` disables.
  * Read by `seed_pi_workspace_trust` in the Rust launch path.
@@ -58,7 +58,7 @@ const PI_TRUST_WORKSPACE_ENV = "PI_ACP_TRUST_WORKSPACE"
  * Reserved env keys the structured pi UI owns. pi-acp reads `PI_ACP_PI_COMMAND`
  * to pick which `pi` binary to spawn, and forwards `PI_CODING_AGENT_DIR` /
  * `PI_CODING_AGENT_SESSION_DIR` to it; `PI_ACP_TRUST_WORKSPACE` is consumed by
- * codeg's own launch path (never the child). These persist through the same
+ * iyw-claw's own launch path (never the child). These persist through the same
  * per-agent `env_json` path every other env var uses, so the structured UI needs
  * no bespoke storage — the launch pipeline already injects env_json.
  */
@@ -997,7 +997,7 @@ export function PiConfigPanel({
         </div>
       </div>
 
-      {/* Workspace trust — auto-trust the folder codeg launches pi into */}
+      {/* Workspace trust — auto-trust the folder iyw-claw launches pi into */}
       <div className="space-y-2 rounded-md border bg-muted/10 p-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

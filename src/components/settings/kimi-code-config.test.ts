@@ -100,7 +100,7 @@ describe("kimiInitialMode", () => {
     expect(
       kimiInitialMode({ credentialPresent: true, credentialSynthetic: false })
     ).toBe("login")
-    // codeg's own synthetic gate token is not a "login" → default to api-key.
+    // iyw-claw's own synthetic gate token is not a "login" → default to api-key.
     expect(
       kimiInitialMode({ credentialPresent: true, credentialSynthetic: true })
     ).toBe("apikey")

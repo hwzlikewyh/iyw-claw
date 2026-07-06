@@ -5,8 +5,8 @@
 
 use std::sync::Arc;
 
-use codeg_lib::db::test_helpers::fresh_in_memory_db;
-use codeg_lib::web::event_bridge::{EventEmitter, WebEventBroadcaster};
+use iyw_claw_lib::db::test_helpers::fresh_in_memory_db;
+use iyw_claw_lib::web::event_bridge::{EventEmitter, WebEventBroadcaster};
 
 #[tokio::test]
 async fn in_memory_db_boots_and_runs_migrations() {

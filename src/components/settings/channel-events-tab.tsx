@@ -99,7 +99,7 @@ const PAYLOAD_EXAMPLES: Record<(typeof ALL_EVENT_TYPES)[number]["id"], string> =
   "body": "Please refactor the auth module",
   "fields": [],
   "connection_id": "conn-abc",
-  "source": "codeg"
+  "source": "iyw-claw"
 }`,
     turn_complete: `{
   "event": "turn_complete",
@@ -108,7 +108,7 @@ const PAYLOAD_EXAMPLES: Record<(typeof ALL_EVENT_TYPES)[number]["id"], string> =
   "body": "Claude Code finished its turn.",
   "fields": [{ "label": "Stop Reason", "value": "End Turn" }],
   "connection_id": "conn-abc",
-  "source": "codeg"
+  "source": "iyw-claw"
 }`,
     error: `{
   "event": "error",
@@ -117,7 +117,7 @@ const PAYLOAD_EXAMPLES: Record<(typeof ALL_EVENT_TYPES)[number]["id"], string> =
   "body": "Claude Code encountered an error.",
   "fields": [{ "label": "Error", "value": "connection reset" }],
   "connection_id": "conn-abc",
-  "source": "codeg"
+  "source": "iyw-claw"
 }`,
     permission_request: `{
   "event": "permission_request",
@@ -126,16 +126,16 @@ const PAYLOAD_EXAMPLES: Record<(typeof ALL_EVENT_TYPES)[number]["id"], string> =
   "body": "An agent is waiting for approval.",
   "fields": [{ "label": "Operation", "value": "Bash: npm test" }],
   "connection_id": "conn-abc",
-  "source": "codeg"
+  "source": "iyw-claw"
 }`,
     question_request: `{
   "event": "question_request",
   "level": "warning",
   "title": "Agent Question",
-  "body": "An agent is asking a question. Answer it in Codeg.",
+  "body": "An agent is asking a question. Answer it in iyw-claw.",
   "fields": [{ "label": "Approach", "value": "Which approach should we take?\\n• MVP first\\n• Risk first" }],
   "connection_id": "conn-abc",
-  "source": "codeg"
+  "source": "iyw-claw"
 }`,
   }
 

@@ -99,7 +99,7 @@ docker run -d -p 3080:3080 -v iyw-claw-data:/data iyw-claw
 docker build -t iyw-claw .
 docker run -d -p 3080:3080 \
   -v iyw-claw-data:/data \
-  -e CODEG_TOKEN=your-secret-token \
+  -e IYW_CLAW_TOKEN=your-secret-token \
   iyw-claw
 ```
 
@@ -136,17 +136,17 @@ cargo clippy --all-targets --features test-utils -- -D warnings
 
 ```bash
 cd src-tauri
-cargo check --no-default-features --bin codeg-server
-cargo test --no-default-features --bin codeg-server --lib
-cargo clippy --no-default-features --bin codeg-server --lib -- -D warnings
+cargo check --no-default-features --bin iyw-claw-server
+cargo test --no-default-features --bin iyw-claw-server --lib
+cargo clippy --no-default-features --bin iyw-claw-server --lib -- -D warnings
 ```
 
 MCP sidecar 检查：
 
 ```bash
 cd src-tauri
-cargo check --no-default-features --bin codeg-mcp
-cargo clippy --no-default-features --bin codeg-mcp -- -D warnings
+cargo check --no-default-features --bin iyw-claw-mcp
+cargo clippy --no-default-features --bin iyw-claw-mcp -- -D warnings
 ```
 
 ## 服务端配置
@@ -155,13 +155,13 @@ cargo clippy --no-default-features --bin codeg-mcp -- -D warnings
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `CODEG_PORT` | `3080` | HTTP 端口 |
-| `CODEG_HOST` | `0.0.0.0` | 监听地址 |
-| `CODEG_TOKEN` | 随机生成 | Web 访问 Token |
-| `CODEG_DATA_DIR` | 系统默认数据目录 | 数据库和上传文件目录 |
-| `CODEG_STATIC_DIR` | `./web` 或 `./out` | 前端静态资源目录 |
-| `CODEG_MCP_BIN` | 未设置 | `codeg-mcp` 可执行文件路径 |
-| `CODEG_SKIP_SIDECAR` | 未设置 | 跳过 sidecar 构建 |
+| `IYW_CLAW_PORT` | `3080` | HTTP 端口 |
+| `IYW_CLAW_HOST` | `0.0.0.0` | 监听地址 |
+| `IYW_CLAW_TOKEN` | 随机生成 | Web 访问 Token |
+| `IYW_CLAW_DATA_DIR` | 系统默认数据目录 | 数据库和上传文件目录 |
+| `IYW_CLAW_STATIC_DIR` | `./web` 或 `./out` | 前端静态资源目录 |
+| `IYW_CLAW_MCP_BIN` | 未设置 | `iyw-claw-mcp` 可执行文件路径 |
+| `IYW_CLAW_SKIP_SIDECAR` | 未设置 | 跳过 sidecar 构建 |
 
 ## 目录结构
 

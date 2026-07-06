@@ -726,7 +726,7 @@
     },
     "hermes": {
       "configManagement": "Hermes 配置",
-      "configDescription": "Hermes 在 ~/.hermes/.env 中管理自己的凭据，在 ~/.hermes/config.yaml 中管理设置。选择一个供应商，然后设置 API 密钥和模型——codeg 会替你写入这两个文件。",
+      "configDescription": "Hermes 在 ~/.hermes/.env 中管理自己的凭据，在 ~/.hermes/config.yaml 中管理设置。选择一个供应商，然后设置 API 密钥和模型——iyw-claw 会替你写入这两个文件。",
       "providerLabel": "供应商",
       "providerHint": "供应商决定 Hermes 使用哪个 API 密钥变量和 model.provider。OAuth 供应商通过下方的终端设置进行配置。",
       "groupApiKey": "API 密钥提供商",
@@ -768,8 +768,8 @@
     },
     "kimiCode": {
       "configManagement": "Kimi Code 配置",
-      "configDescription": "`kimi acp` 仅凭已存储的登录令牌鉴权，单独的 API Key 不被接受。为支持 API Key，codeg 会写入受管的 ~/.kimi-code/config.toml 供应商，并在本地播种一个门控令牌以打开会话——推理仍走你的 Key。",
-      "gateReadyApiKey": "已通过 API Key 鉴权（codeg 已播种本地门控令牌）。",
+      "configDescription": "`kimi acp` 仅凭已存储的登录令牌鉴权，单独的 API Key 不被接受。为支持 API Key，iyw-claw 会写入受管的 ~/.kimi-code/config.toml 供应商，并在本地播种一个门控令牌以打开会话——推理仍走你的 Key。",
+      "gateReadyApiKey": "已通过 API Key 鉴权（iyw-claw 已播种本地门控令牌）。",
       "gateReadyLogin": "已通过 Kimi 账号登录鉴权。",
       "gateNotReady": "尚未鉴权——请在下方保存 API Key（或登录）以打开 Kimi 会话。",
       "authModeLabel": "鉴权方式",
@@ -803,10 +803,10 @@
       "fetchModelsNeedsKey": "请先填写 API Key 和接入点",
       "maxContextLabel": "最大上下文长度（可选）",
       "maxContextHint": "Token 数，例如 262144。留空则使用模型默认值。",
-      "loginHint": "在终端运行 `kimi login`，用 Kimi 订阅账号登录（设备码 OAuth）。codeg 不存储任何凭据，复用 Kimi 自己的登录。在此保存会移除 codeg 的 API Key 门控令牌。",
+      "loginHint": "在终端运行 `kimi login`，用 Kimi 订阅账号登录（设备码 OAuth）。iyw-claw 不存储任何凭据，复用 Kimi 自己的登录。在此保存会移除 iyw-claw 的 API Key 门控令牌。",
       "rawEditorLabel": "高级：直接编辑 config.toml",
-      "rawEditorHint": "逐字写入（保留注释）并按 TOML 校验。codeg 同时会播种门控令牌以打开会话。",
-      "rawEditorPlaceholder": "[providers.codeg]\ntype = \"kimi\"\nbase_url = \"https://api.moonshot.cn/v1\"\napi_key = \"sk-...\""
+      "rawEditorHint": "逐字写入（保留注释）并按 TOML 校验。iyw-claw 同时会播种门控令牌以打开会话。",
+      "rawEditorPlaceholder": "[providers.iyw-claw]\ntype = \"kimi\"\nbase_url = \"https://api.moonshot.cn/v1\"\napi_key = \"sk-...\""
     },
     "authModeOfficialSubscription": "官网订阅",
     "authModeCustomEndpoint": "自定义接口",
@@ -1001,7 +1001,7 @@
       "installing": "安装中…",
       "recheck": "重新检测",
       "trustTitle": "自动信任打开的工作区",
-      "trustDescription": "codeg 连接 pi 到某个目录时，将该目录标记为受信任，使 pi 无需单独确认即可加载该项目的本地配置与技能。",
+      "trustDescription": "iyw-claw 连接 pi 到某个目录时，将该目录标记为受信任，使 pi 无需单独确认即可加载该项目的本地配置与技能。",
       "trustHint": "仅信任你在此打开的目录，绝不涉及整台机器；且只影响配置加载，不影响 pi 能执行什么。",
       "configDirSkillsNote": "设置了自定义配置目录后，设置页中管理的技能、专家与办公工具将不会作用于该 pi；请直接在该目录中管理其技能。"
     }
@@ -1039,8 +1039,8 @@
     "loadFailed": "加载失败：{message}"
   },
   "LoginPage": {
-    "documentTitle": "登录 - codeg",
-    "brand": "Codeg",
+    "documentTitle": "登录 - iyw-claw",
+    "brand": "iyw-claw",
     "subtitle": "输入访问 Token 以连接到桌面端",
     "tokenPlaceholder": "Access Token",
     "connect": "连接",
@@ -2193,7 +2193,7 @@
           "shortcutsAuxPanel": "<shortcut>{toggleAuxPanel}</shortcut> 切换右侧面板，查看本次会话改动的文件与 Git 变更",
           "shortcutsTerminalSidebar": "<shortcut>{toggleTerminal}</shortcut> 打开内置终端，<shortcut>{toggleSidebar}</shortcut> 切换侧边栏",
           "customShortcuts": "所有快捷键都可在「设置 → 快捷键」中自定义",
-          "webService": "开启「设置 → Web 服务」后，团队成员可从浏览器接入同一台 codeg",
+          "webService": "开启「设置 → Web 服务」后，团队成员可从浏览器接入同一台 iyw-claw",
           "fusionMode": "打开文件或差异后，会自动与会话并排显示",
           "quickMessages": "点输入框旁的 + 按钮选择「快捷消息」，可一键插入预存片段（在「设置 → 快捷消息」中管理）",
           "experts": "通过 + 按钮里的「专家技能」可一键加载预设角色（调试 / 规划等）"
@@ -2735,11 +2735,11 @@
   "WebServiceSettings": {
     "addressSwitchHint": "切换只改变这里显示和打开的地址；服务监听所有网卡，每个地址都可访问。",
     "sectionTitle": "Web 服务",
-    "sectionDescription": "启用后可通过浏览器远程访问 Codeg",
+    "sectionDescription": "启用后可通过浏览器远程访问 iyw-claw",
     "port": "端口",
     "status": "状态",
     "autoStart": "自动启动",
-    "autoStartHint": "Codeg 启动时自动开启 Web 服务",
+    "autoStartHint": "iyw-claw 启动时自动开启 Web 服务",
     "running": "运行中",
     "stopped": "已停止",
     "processing": "处理中...",
@@ -2754,7 +2754,7 @@
     "copy": "复制",
     "qrcode": "二维码",
     "qrcodeTitle": "扫码打开",
-    "qrcodeHint": "用手机扫描，在浏览器中打开 Codeg",
+    "qrcodeHint": "用手机扫描，在浏览器中打开 iyw-claw",
     "addressLabel": "访问地址",
     "tokenLabel": "访问 Token",
     "tokenHint": "Web 客户端首次访问时需输入此 Token",
@@ -2762,7 +2762,7 @@
     "regenerate": "重新生成",
     "stalePortOccupiedTitle": "端口 {port} 已被其他进程占用",
     "stalePortUnknownTitle": "端口 {port} 状态未知",
-    "stalePortHint": "在端口释放前 Codeg 无法绑定。可以更换上方的端口，或结束占用该端口的进程。",
+    "stalePortHint": "在端口释放前 iyw-claw 无法绑定。可以更换上方的端口，或结束占用该端口的进程。",
     "errors": {
       "alreadyRunning": "Web 服务已在运行",
       "invalidAddress": "主机或端口格式无效",
@@ -3008,7 +3008,7 @@
     },
     "confirm": {
       "disableTitle": "禁用这些链接？",
-      "disableBody": "这将移除 {count} 个由 codeg 管理的技能链接。占用自定义目录的技能不受影响。你可以随时重新启用。",
+      "disableBody": "这将移除 {count} 个由 iyw-claw 管理的技能链接。占用自定义目录的技能不受影响。你可以随时重新启用。",
       "cancel": "取消",
       "confirm": "禁用"
     },
@@ -3029,7 +3029,7 @@
   },
   "ExpertsSettings": {
     "title": "专家技能",
-    "description": "为 AI 编码代理启用精心挑选、经过实战验证的技能工作流。每个专家都是 superpowers 项目中的独立技能 —— codeg 维护中央副本，并将其软链接到你选择的代理目录。",
+    "description": "为 AI 编码代理启用精心挑选、经过实战验证的技能工作流。每个专家都是 superpowers 项目中的独立技能 —— iyw-claw 维护中央副本，并将其软链接到你选择的代理目录。",
     "loading": "正在加载专家列表…",
     "loadingContent": "正在加载内容…",
     "emptyExperts": "当前没有可用的专家，请查看应用日志。",
@@ -3038,7 +3038,7 @@
     "searchPlaceholder": "按名称、ID 或描述搜索专家",
     "enableForAgents": "为代理启用",
     "noAgents": "未检测到 ACP 代理。",
-    "copyModeWarning": "已复制(非软链接)。codeg 更新后需要重新启用以获取最新版本。",
+    "copyModeWarning": "已复制(非软链接)。iyw-claw 更新后需要重新启用以获取最新版本。",
     "previewTitle": "SKILL.md 预览",
     "categories": {
       "discovery": "发现与设计",
@@ -3051,7 +3051,7 @@
     },
     "states": {
       "not_linked": "未启用",
-      "linked_to_codeg": "已启用",
+      "linked_to_iyw_claw": "已启用",
       "linked_elsewhere": "冲突 — 已有其他链接",
       "blocked_by_real_directory": "冲突 — 已有同名的自定义 skill 占用",
       "broken": "链接损坏"
@@ -3104,7 +3104,7 @@
     },
     "states": {
       "not_linked": "未启用",
-      "linked_to_codeg": "已启用",
+      "linked_to_iyw_claw": "已启用",
       "linked_elsewhere": "已阻止——存在其他链接",
       "blocked_by_real_directory": "已阻止——自定义技能占用此名称",
       "broken": "链接已损坏"
@@ -3326,7 +3326,7 @@
   },
   "BackupSettings": {
     "title": "备份与恢复",
-    "description": "导出一份可移植的 codeg 数据备份，或从备份中恢复。",
+    "description": "导出一份可移植的 iyw-claw 数据备份，或从备份中恢复。",
     "tabs": {
       "backup": "备份",
       "restore": "恢复"
@@ -3356,9 +3356,9 @@
         "incompatible": "不兼容",
         "createdAt": "创建时间：{value}",
         "appVersion": "应用版本：{value}",
-        "incompatibleHint": "该备份由更新版本的 codeg 创建，无法恢复。"
+        "incompatibleHint": "该备份由更新版本的 iyw-claw 创建，无法恢复。"
       },
-      "replaceWarning": "恢复将替换当前全部 codeg 数据（数据库与上传文件）。当前数据会先做快照以便回退。",
+      "replaceWarning": "恢复将替换当前全部 iyw-claw 数据（数据库与上传文件）。当前数据会先做快照以便回退。",
       "keyringNote": "桌面端的 GitHub/聊天 token 存于系统钥匙串，不包含在备份中；恢复后需重新填写。",
       "button": "恢复",
       "staging": "正在准备恢复…",
@@ -3367,7 +3367,7 @@
       "restartTimeout": "服务未能及时恢复。待其启动后请刷新页面。",
       "externalSideLocation": "会话记录已恢复到 {path}",
       "confirmTitle": "替换全部数据？",
-      "confirmBody": "这将用备份替换当前的 codeg 数据库与上传文件，然后重启。当前数据会先做快照。",
+      "confirmBody": "这将用备份替换当前的 iyw-claw 数据库与上传文件，然后重启。当前数据会先做快照。",
       "cancel": "取消",
       "confirmAction": "替换并重启",
       "external": {
@@ -3385,15 +3385,15 @@
       },
       "restartFailed": "恢复已就绪，但服务未能重启。请手动重启以应用此次恢复。"
     },
-    "remoteUnsupported": "备份与恢复作用于运行 codeg 的那台机器上的数据。你当前连接的是远程工作区——请直接在该服务器上管理其备份。"
+    "remoteUnsupported": "备份与恢复作用于运行 iyw-claw 的那台机器上的数据。你当前连接的是远程工作区——请直接在该服务器上管理其备份。"
   },
   "backup": {
     "restore": {
       "error": {
         "badPassphrase": "口令错误或备份已损坏。",
         "corrupted": "备份归档已损坏。",
-        "unknownFormat": "该文件不是可识别的 codeg 备份。",
-        "newerVersion": "该备份由 codeg {backupVersion} 创建，比当前版本（{appVersion}）更新。",
+        "unknownFormat": "该文件不是可识别的 iyw-claw 备份。",
+        "newerVersion": "该备份由 iyw-claw {backupVersion} 创建，比当前版本（{appVersion}）更新。",
         "alreadyPending": "已有一个恢复在等待生效。请先重启应用它，再暂存新的恢复。"
       }
     },
@@ -3501,9 +3501,9 @@
     "filesEmpty": "暂无日志文件。",
     "download": "下载",
     "downloadTruncated": "文件较大，已下载最新的 {size}。完整文件请在日志目录中查看。",
-    "captureEnvLocked": "日志级别由 RUST_LOG / CODEG_LOG 环境变量控制；请在该处修改以生效。",
+    "captureEnvLocked": "日志级别由 RUST_LOG / IYW_CLAW_LOG 环境变量控制；请在该处修改以生效。",
     "targetsTitle": "按模块覆盖",
-    "targetsDescription": "为特定模块（如 codeg_lib::acp）单独设置级别，不影响全局级别。",
+    "targetsDescription": "为特定模块（如 iyw_claw_lib::acp）单独设置级别，不影响全局级别。",
     "targetsAdd": "添加",
     "targetsRemove": "移除覆盖",
     "toggleDetails": "切换详情"

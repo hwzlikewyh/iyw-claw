@@ -1,4 +1,4 @@
-# Codeg 项目安全审计报告
+# iyw-claw 项目安全审计报告
 
 **审计日期**: 2026-07-04  
 **审计范围**: 代码库中的高风险操作
@@ -7,7 +7,7 @@
 
 ## 执行摘要
 
-本报告对 Codeg 项目进行了全面的安全审计，重点关注以下高风险操作：
+本报告对 iyw-claw 项目进行了全面的安全审计，重点关注以下高风险操作：
 - 文件系统读写操作
 - 子进程执行
 - Shell 命令执行
@@ -98,7 +98,7 @@ fn shell_single_quote(value: &str) -> String {
 
 **文件**: `src-tauri/src/supervise.rs`
 
-**功能**: `codeg-server --supervise` 自监管和重启
+**功能**: `iyw-claw-server --supervise` 自监管和重启
 
 **风险分析**:
 - ✅ 仅执行自身二进制
@@ -300,7 +300,7 @@ fn ensure_path_in_workspace(root: &Path, target: &Path) -> Result<(), AppCommand
 
 ## 8. 结论
 
-Codeg 项目整体安全状况良好，安全架构设计合理：
+iyw-claw 项目整体安全状况良好，安全架构设计合理：
 
 1. **文件系统操作**: ✅ 良好的边界防护和规范化处理
 2. **子进程执行**: ⚠️ 功能复杂但有适当防护

@@ -11,13 +11,13 @@ use std::time::Duration;
 
 use axum_test::TestServer;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use codeg_lib::acp::types::{AcpEvent, EventEnvelope};
-use codeg_lib::app_state::AppState;
-use codeg_lib::db::test_helpers::fresh_in_memory_db;
-use codeg_lib::models::agent::AgentType;
-use codeg_lib::web::event_bridge::emit_with_state;
-use codeg_lib::web::router::build_router;
-use codeg_lib::web::shutdown::ShutdownSignal;
+use iyw_claw_lib::acp::types::{AcpEvent, EventEnvelope};
+use iyw_claw_lib::app_state::AppState;
+use iyw_claw_lib::db::test_helpers::fresh_in_memory_db;
+use iyw_claw_lib::models::agent::AgentType;
+use iyw_claw_lib::web::event_bridge::emit_with_state;
+use iyw_claw_lib::web::router::build_router;
+use iyw_claw_lib::web::shutdown::ShutdownSignal;
 use serde_json::{json, Value};
 
 const SEC_WEBSOCKET_PROTOCOL: &str = "sec-websocket-protocol";
@@ -56,7 +56,7 @@ async fn build_ws_server() -> (
 
 fn ws_auth_protocol(token: &str) -> String {
     let encoded = URL_SAFE_NO_PAD.encode(token);
-    format!("codeg-events, codeg-token.{encoded}")
+    format!("iyw-claw-events, iyw-claw-token.{encoded}")
 }
 
 /// Receive the next text frame, with a hard timeout so a missing frame fails

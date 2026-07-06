@@ -160,8 +160,8 @@ describe("MessageInput (RichComposer integration)", () => {
     const card = container.querySelector('[class~="@container"]') as HTMLElement
     expect(card).not.toBeNull()
     // The same box paints the text I-beam across its blank chrome (see the
-    // `.codeg-composer-chrome` rule in globals.css).
-    expect(card.className).toContain("codeg-composer-chrome")
+    // `.iyw-claw-composer-chrome` rule in globals.css).
+    expect(card.className).toContain("iyw-claw-composer-chrome")
     expect(fireEvent.mouseDown(card)).toBe(false)
   })
 })

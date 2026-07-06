@@ -5,7 +5,7 @@
 //! [`crate::acp::session_state::SessionState`] (in-memory, turn-scoped — they
 //! are real-time steering, not durable history, so they are intentionally NOT
 //! persisted) and are pulled by the agent through the `check_user_feedback`
-//! MCP tool exposed by `codeg-mcp`.
+//! MCP tool exposed by `iyw-claw-mcp`.
 //!
 //! This module holds the pieces shared across layers so the manager, the
 //! delegation listener, the MCP companion plumbing, and the settings command
@@ -143,10 +143,7 @@ pub trait SessionFeedbackAccess: Send + Sync {
     /// per-launch token) WITHOUT marking it delivered. Returns an immediate
     /// snapshot. Read-only: abandoning it (peer-close) leaves state untouched.
     /// Empty when the connection is gone or nothing is pending.
-    async fn read_pending_feedback(
-        &self,
-        parent_connection_id: &str,
-    ) -> Vec<PendingFeedback>;
+    async fn read_pending_feedback(&self, parent_connection_id: &str) -> Vec<PendingFeedback>;
 
     /// Mark the named notes `Delivered` and broadcast the consumption. Called by
     /// the listener ONLY after the tool response was written to the companion.
@@ -156,7 +153,7 @@ pub trait SessionFeedbackAccess: Send + Sync {
 
 /// The hot-swappable feature config read at MCP injection time. Kept tiny and
 /// separate from `DelegationConfig` so the two features toggle independently —
-/// `codeg-mcp` is injected when EITHER is enabled, and each tool is listed only
+/// `iyw-claw-mcp` is injected when EITHER is enabled, and each tool is listed only
 /// when its own feature is on.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FeedbackConfig {

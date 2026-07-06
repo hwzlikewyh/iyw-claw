@@ -54,7 +54,7 @@ pub struct PlatformBinary {
 pub struct AcpAgentMeta {
     pub agent_type: AgentType,
     /// 是否经 ACP 线缆（session/new 的 `mcpServers` 字段）向该 agent 转发 MCP
-    /// 服务器——既包括用户配置的服务器，也包括内置 codeg-mcp 伴生进程。
+    /// 服务器——既包括用户配置的服务器，也包括内置 iyw-claw-mcp 伴生进程。
     /// OpenClaw 拒绝 `mcpServers` 中的任何服务器条目（会使 session/new 失败），
     /// 故置 false。注意空列表 `[]` 仍会按 ACP schema 序列化、OpenClaw 可接受——
     /// 闸门只是保证该列表对 OpenClaw 恒为空（不含任何条目）。
@@ -176,7 +176,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             // agentclientprotocol org (TypeScript rewrite, npx-distributed).
             // 1.1.0 bundles `@openai/codex` 0.142.5 and drives `codex
             // app-server`; since 1.0.1 it also resolves the resumed
-            // `model_provider` from `~/.codex/config.toml` (#224), so codeg no
+            // `model_provider` from `~/.codex/config.toml` (#224), so iyw-claw no
             // longer injects `MODEL_PROVIDER` to keep resumed sessions on the
             // custom provider. 1.1.0 (#263) also reports `/goal` transitions as a
             // structured `session_info_update` (`_meta.codex.goal`) rather than
@@ -207,7 +207,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
         AgentType::OpenClaw => AcpAgentMeta {
             agent_type,
             // OpenClaw 拒绝 `mcpServers` 中的任何服务器条目（会使 session/new 失败），
-            // 故不向其转发任何 MCP 条目（含 codeg-mcp 伴生进程）。详见 supports_mcp 字段注释。
+            // 故不向其转发任何 MCP 条目（含 iyw-claw-mcp 伴生进程）。详见 supports_mcp 字段注释。
             supports_mcp: false,
             name: "OpenClaw",
             description: "OpenClaw is a personal AI assistant you run on your own devices.",
@@ -329,7 +329,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             // `true` only to satisfy the `only_openclaw_opts_out_of_mcp`
             // invariant — actual wire forwarding is short-circuited in
             // `connection.rs` (see the skip-list), so neither user servers nor
-            // the codeg-mcp companion are futilely forwarded.
+            // the iyw-claw-mcp companion are futilely forwarded.
             supports_mcp: true,
             name: "Pi",
             description: "Self-extensible coding agent (ACP via pi-acp)",
@@ -476,7 +476,11 @@ mod tests {
             None,
         );
         assert_npx_version(AgentType::Pi, "0.0.31", "pi-acp@0.0.31", Some("22.0.0"));
-        assert_binary_version(AgentType::OpenCode, "1.17.13", "/releases/download/v1.17.13/");
+        assert_binary_version(
+            AgentType::OpenCode,
+            "1.17.13",
+            "/releases/download/v1.17.13/",
+        );
         assert_uvx_version(
             AgentType::Hermes,
             "0.18.0",

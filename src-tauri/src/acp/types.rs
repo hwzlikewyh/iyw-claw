@@ -241,7 +241,7 @@ pub enum AcpEvent {
         agent_type: crate::models::agent::AgentType,
         result: DelegationResultSummary,
     },
-    /// A human submitted a prompt from the Codeg conversation UI (desktop or
+    /// A human submitted a prompt from the iyw-claw conversation UI (desktop or
     /// web). Synthetic, notification-only event: it mutates no `SessionState`
     /// field and exists purely to drive the chat-channel "user message" push.
     /// Emitted by `send_prompt_linked` on the genuine UI path only
@@ -302,10 +302,7 @@ pub enum AcpEvent {
     /// clear its "restart to apply" banner. Carried into `SessionState` so a
     /// snapshot attach (web reconnect, window refresh, new tile) recovers the
     /// staleness the one-shot event won't replay for it.
-    SessionConfigStale {
-        stale: bool,
-        kind: ConfigStaleKind,
-    },
+    SessionConfigStale { stale: bool, kind: ConfigStaleKind },
 }
 
 /// Which settings surface drifted, so the frontend can word the

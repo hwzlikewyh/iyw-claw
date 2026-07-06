@@ -14,7 +14,7 @@ export function joinFsPath(basePath: string, relPath: string): string {
  * i.e. the path is already a root (`/`, `C:\`, `\\server\share`) or empty.
  *
  * The server file browser navigates Windows and POSIX paths transparently
- * depending on which OS the remote codeg-server runs on, so a single
+ * depending on which OS the remote iyw-claw-server runs on, so a single
  * `split("/")` would silently break Windows roots like `C:\Users\foo`.
  *
  * UNC paths (`\\server\share\...`) are treated specially: the share root

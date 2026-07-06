@@ -1,36 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <!-- 代码符号渐变 -->
-    <linearGradient id="code" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#dcdfe9"/>
-      <stop offset="100%" style="stop-color:#cdd1e2"/>
-    </linearGradient>
-    <!-- 色料三元色 -->
-    <linearGradient id="bubble1" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#ff4081"/>
-      <stop offset="100%" style="stop-color:#e91e63"/>
-    </linearGradient>
-    <linearGradient id="bubble2" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#ffeb3b"/>
-      <stop offset="100%" style="stop-color:#fdd835"/>
-    </linearGradient>
-    <linearGradient id="bubble3" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#29b6f6"/>
-      <stop offset="100%" style="stop-color:#03a9f4"/>
-    </linearGradient>
-  </defs>
-
-  <!-- 圆角矩形背景 -->
-  <rect x="0" y="0" width="512" height="512" rx="90" ry="90" fill="#1a1a2e"/>
-
-  <!-- 代码尖括号 < > -->
-  <polyline points="180,186 100,256 180,326"
-    fill="none" stroke="url(#code)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
-  <polyline points="332,186 412,256 332,326"
-    fill="none" stroke="url(#code)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
-
-  <!-- 中间三个圆点（横排） -->
-  <circle cx="206" cy="256" r="30" fill="url(#bubble1)" opacity="0.95"/>
-  <circle cx="256" cy="256" r="36" fill="url(#bubble2)" opacity="0.95"/>
-  <circle cx="306" cy="256" r="30" fill="url(#bubble3)" opacity="0.95"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="32px" height="32px" viewBox="0 0 32 32" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>32x32</title>
+    <g id="控件" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="32x32">
+            <rect id="矩形" x="0" y="0" width="32" height="32"></rect>
+            <path d="M17.3566269,6.00584429 L12.9619149,22.1994615 C12.3464502,24.4469454 10.2971578,26.0060525 7.95841134,26.0060525 L12.3537035,9.81195363 C12.9690715,7.56485504 15.0181705,6.00584429 17.3566269,6.00584429 Z M7.10882054,6.00584429 C9.10356831,6.00584429 10.5522894,7.89517188 10.0274423,9.81204996 L8.14023647,16.7048734 C6.14539199,16.7048734 4.69667089,14.8156422 5.22151798,12.8986677 L7.10882054,6.00584429 Z M21.1460867,6.00584429 C22.4050621,6.00584429 23.3202322,7.19696935 22.9913203,8.4074568 L20.7365184,16.7048734 L16.7753589,16.7048734 L19.3008531,7.41236406 C19.5264784,6.58228524 20.2827534,6.00584429 21.1460867,6.00584429 Z M0.820616594,6.00584429 C2.81497752,6.00584429 4.26292495,7.89526821 3.73711075,9.81147198 L3.31671084,11.3434139 C1.32234991,11.3434139 -0.125597513,9.45398997 0.400216683,7.53788253 L0.820616594,6.00584429 Z M31.6448177,8.22977543 C31.953227,7.10386604 31.1023693,5.99394749 29.9306267,5.99394749 C27.5928473,5.99452547 25.5454891,7.55565549 24.9345698,9.80333206 L23.0620639,16.6928803 C25.3998433,16.6928803 27.4473949,15.1320393 28.0582175,12.884459 L28.2915796,12.0258664 C28.6491178,10.7098972 29.8474558,9.79572196 31.2161007,9.79475866 L31.6448177,8.22977543 Z" id="形状结合" fill="#2757F7"></path>
+        </g>
+    </g>
 </svg>

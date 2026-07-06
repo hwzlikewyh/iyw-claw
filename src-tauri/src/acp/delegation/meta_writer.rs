@@ -1,6 +1,6 @@
 //! `DelegationMetaWriter` — broker capability that attaches the live
 //! delegation state onto the parent's active `delegate_to_agent`
-//! tool-call. The shape written under `meta["codeg.delegation"]`
+//! tool-call. The shape written under `meta["iyw-claw.delegation"]`
 //! follows the convention documented at
 //! [`crate::acp::session_state::ToolCallState::meta`].
 //!
@@ -28,9 +28,9 @@ use crate::web::event_bridge::emit_with_state;
 /// Top-level key under which delegation state lives on a tool call's
 /// `meta` object. Single source of truth — both the writer and the
 /// frontend reader must spell it the same way.
-pub const DELEGATION_META_KEY: &str = "codeg.delegation";
+pub const DELEGATION_META_KEY: &str = "iyw-claw.delegation";
 
-/// Capability the broker uses to patch `meta["codeg.delegation"]` on
+/// Capability the broker uses to patch `meta["iyw-claw.delegation"]` on
 /// the parent connection's active `delegate_to_agent` tool call.
 ///
 /// Errors are swallowed at the impl boundary: a missing parent
@@ -159,7 +159,7 @@ pub mod mock {
     }
 }
 
-/// Helper to construct the canonical `meta["codeg.delegation"]` value.
+/// Helper to construct the canonical `meta["iyw-claw.delegation"]` value.
 /// Keeps the schema in one place so the writer impls and the broker
 /// callsites can't drift apart on field naming.
 pub fn build_delegation_meta(
@@ -272,7 +272,14 @@ mod tests {
 
     #[test]
     fn build_meta_includes_duration_on_terminal_write() {
-        let v = build_delegation_meta("completed", Some("conn-1"), Some(42), None, None, Some(1234));
+        let v = build_delegation_meta(
+            "completed",
+            Some("conn-1"),
+            Some(42),
+            None,
+            None,
+            Some(1234),
+        );
         let inner = v.get(DELEGATION_META_KEY).unwrap().as_object().unwrap();
         assert_eq!(inner.get("duration_ms").unwrap().as_u64().unwrap(), 1234);
     }

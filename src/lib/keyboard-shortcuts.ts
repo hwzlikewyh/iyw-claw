@@ -94,7 +94,7 @@ export const DEFAULT_SHORTCUTS: ShortcutSettings = {
 }
 
 export const SHORTCUTS_STORAGE_KEY = "settings:shortcuts:v1"
-export const SHORTCUTS_UPDATED_EVENT = "codeg:shortcuts-updated"
+export const SHORTCUTS_UPDATED_EVENT = "iyw-claw:shortcuts-updated"
 
 const FUNCTION_KEY_PATTERN = /^f\d{1,2}$/
 const MODIFIER_KEY_SET = new Set(["shift", "meta", "control", "alt"])

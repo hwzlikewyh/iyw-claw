@@ -7,7 +7,7 @@
  *   * "General" — feature kill switch + chain depth limit. Persisted as
  *     `delegation.enabled` / `delegation.depth_limit` on the Rust side.
  *   * "Agent defaults" — per-agent overrides (mode + config_values) that
- *     codeg-mcp uses when spawning a subagent for a `delegate_to_agent`
+ *     iyw-claw-mcp uses when spawning a subagent for a `delegate_to_agent`
  *     call. Persisted as `delegation.agent_defaults` (one JSON blob).
  *
  * Cancellation is handled out-of-band via MCP `notifications/cancelled`

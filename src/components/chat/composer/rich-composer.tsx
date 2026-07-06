@@ -280,7 +280,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       autofocus: autoFocus ? "end" : false,
       editorProps: {
         attributes: {
-          class: "codeg-composer-content",
+          class: "iyw-claw-composer-content",
           role: "textbox",
           "aria-multiline": "true",
           ...(ariaLabel ? { "aria-label": ariaLabel } : {}),
@@ -557,13 +557,13 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
 
     return (
       <div
-        className={cn("codeg-composer flex min-h-0 flex-col", className)}
+        className={cn("iyw-claw-composer flex min-h-0 flex-col", className)}
         style={style}
         data-disabled={disabled || undefined}
       >
         <EditorContent
           editor={editor}
-          className="codeg-composer-scroll min-h-0 flex-1 overflow-y-auto px-3 py-2 text-base md:text-sm"
+          className="iyw-claw-composer-scroll min-h-0 flex-1 overflow-y-auto px-3 py-2 text-base md:text-sm"
         />
         {referenceSearch && mentionState && (
           <SuggestionPopup

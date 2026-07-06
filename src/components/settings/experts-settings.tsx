@@ -104,8 +104,8 @@ export function ExpertsSettings() {
       switch (state) {
         case "not_linked":
           return t("states.not_linked")
-        case "linked_to_codeg":
-          return t("states.linked_to_codeg")
+        case "linked_to_iyw_claw":
+          return t("states.linked_to_iyw_claw")
         case "linked_elsewhere":
           return t("states.linked_elsewhere")
         case "blocked_by_real_directory":
@@ -142,7 +142,7 @@ export function ExpertsSettings() {
       if (isDesktop() && getActiveRemoteConnectionId() === null) {
         // Desktop: reveal the central skills folder. `revealItemInDir` (not
         // `openPath`) is used deliberately — the opener plugin's path scope
-        // rejects `openPath` for the hidden `~/.codeg/...` path.
+        // rejects `openPath` for the hidden `~/.iyw-claw/...` path.
         await revealItemInDir(path)
       } else {
         await openFolder(path)

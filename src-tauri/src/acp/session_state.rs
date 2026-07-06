@@ -60,9 +60,9 @@ pub struct ToolCallState {
     /// extraction. `None` if the agent didn't supply it. Same partial-update
     /// preservation semantic as `locations`.
     ///
-    /// Convention used by codeg's multi-agent delegation (the `delegate_to_agent`
+    /// Convention used by iyw-claw's multi-agent delegation (the `delegate_to_agent`
     /// MCP tool) — `DelegationBroker` writes the following object under
-    /// `meta["codeg.delegation"]` on the parent's active tool call:
+    /// `meta["iyw-claw.delegation"]` on the parent's active tool call:
     ///
     /// ```jsonc
     /// {
@@ -169,7 +169,7 @@ pub struct UsageInfo {
 ///
 /// Completed delegations are recovered without this field: a live page keeps the
 /// binding in `DelegationProvider` for its lifetime, and a cold load / refresh
-/// rebuilds `meta["codeg.delegation"]` (status + child id) from the child's
+/// rebuilds `meta["iyw-claw.delegation"]` (status + child id) from the child's
 /// persisted DB row via `commands::conversations::inject_delegation_meta`
 /// (authoritative, uncapped). The snapshot only has to recover the *running*
 /// binding, which the transient `DelegationStarted` event cannot supply on the
@@ -307,7 +307,7 @@ pub struct SessionState {
     pub(crate) recent_events: RecentEventsBuffer,
 
     /// Per-launch token registered with the delegation broker's
-    /// `TokenRegistry` when `codeg-mcp` is injected at init.
+    /// `TokenRegistry` when `iyw-claw-mcp` is injected at init.
     /// Revoked when the connection tears down so a leaked binary can't
     /// keep round-tripping after the parent session ends.
     pub delegation_token: Option<String>,

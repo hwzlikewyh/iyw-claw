@@ -100,9 +100,9 @@ describe("groupConsecutiveDelegationStatus", () => {
 
   it("matches host-prefixed historical names", () => {
     const out = groupConsecutiveDelegationStatus([
-      poll("mcp__codeg-mcp__get_delegation_status", "t1"),
-      poll("mcp__codeg-delegate__get_delegation_status", "t1"),
-      poll("codeg-delegate/get_delegation_status", "t1"),
+      poll("mcp__iyw-claw-mcp__get_delegation_status", "t1"),
+      poll("mcp__iyw-claw-delegate__get_delegation_status", "t1"),
+      poll("iyw-claw-delegate/get_delegation_status", "t1"),
     ])
     expect(out).toHaveLength(1)
     expect(pollsOf(out[0])).toHaveLength(3)
@@ -1040,32 +1040,32 @@ describe("adaptMessageTurn — image tool results", () => {
   })
 })
 
-describe("extractUserResourcesFromText — codeg references stay inline", () => {
-  it("keeps a codeg://agent link inline (the @-prefixed label no longer lifts it to a chip)", () => {
-    const input = "ask [@Codex](codeg://agent/codex) to review"
+describe("extractUserResourcesFromText — iyw-claw references stay inline", () => {
+  it("keeps a iyw-claw://agent link inline (the @-prefixed label no longer lifts it to a chip)", () => {
+    const input = "ask [@Codex](iyw-claw://agent/codex) to review"
     const { text, resources } = extractUserResourcesFromText(input)
     expect(resources).toEqual([])
     expect(text).toBe(input)
   })
 
-  it("keeps codeg://session and codeg://commit links inline", () => {
+  it("keeps iyw-claw://session and iyw-claw://commit links inline", () => {
     const session = extractUserResourcesFromText(
-      "see [#42](codeg://session/claude_code_abc)"
+      "see [#42](iyw-claw://session/claude_code_abc)"
     )
     expect(session.resources).toEqual([])
-    expect(session.text).toBe("see [#42](codeg://session/claude_code_abc)")
+    expect(session.text).toBe("see [#42](iyw-claw://session/claude_code_abc)")
 
     const commit = extractUserResourcesFromText(
-      "from [a1b2c3d](codeg://commit/%2Frepo@a1b2c3ddeadbeef)"
+      "from [a1b2c3d](iyw-claw://commit/%2Frepo@a1b2c3ddeadbeef)"
     )
     expect(commit.resources).toEqual([])
     expect(commit.text).toBe(
-      "from [a1b2c3d](codeg://commit/%2Frepo@a1b2c3ddeadbeef)"
+      "from [a1b2c3d](iyw-claw://commit/%2Frepo@a1b2c3ddeadbeef)"
     )
   })
 
-  it("keeps a codeg://session link inline even when its label starts with @ (a session titled '@…')", () => {
-    const input = "ping [@周报](codeg://session/codex_99)"
+  it("keeps a iyw-claw://session link inline even when its label starts with @ (a session titled '@…')", () => {
+    const input = "ping [@周报](iyw-claw://session/codex_99)"
     const { text, resources } = extractUserResourcesFromText(input)
     expect(resources).toEqual([])
     expect(text).toBe(input)
@@ -1197,14 +1197,14 @@ describe("extractUserResourcesFromText — codeg references stay inline", () => 
     expect(text).toBe("raw <file:///x/@foo [blocked].txt> ok")
   })
 
-  it("chips a codeg://embedded attachment while keeping its inert badge inline", () => {
+  it("chips a iyw-claw://embedded attachment while keeping its inert badge inline", () => {
     const { text, resources } = extractUserResourcesFromText(
-      "here [report.pdf](codeg://embedded/abc-123) ok"
+      "here [report.pdf](iyw-claw://embedded/abc-123) ok"
     )
     expect(resources).toEqual([
-      { name: "report.pdf", uri: "codeg://embedded/abc-123", mime_type: null },
+      { name: "report.pdf", uri: "iyw-claw://embedded/abc-123", mime_type: null },
     ])
-    expect(text).toBe("here [report.pdf](codeg://embedded/abc-123) ok")
+    expect(text).toBe("here [report.pdf](iyw-claw://embedded/abc-123) ok")
   })
 
   it("still lifts blocked @-mentions to the resource list", () => {
@@ -1218,12 +1218,12 @@ describe("extractUserResourcesFromText — codeg references stay inline", () => 
 
   it("keeps both file:// and session links inline; only the file is also chipped", () => {
     const { text, resources } = extractUserResourcesFromText(
-      "compare [foo.ts](file:///x/foo.ts) with [#42](codeg://session/codex_abc)"
+      "compare [foo.ts](file:///x/foo.ts) with [#42](iyw-claw://session/codex_abc)"
     )
     expect(resources).toEqual([
       { name: "foo.ts", uri: "file:///x/foo.ts", mime_type: null },
     ])
-    expect(text).toContain("[#42](codeg://session/codex_abc)")
+    expect(text).toContain("[#42](iyw-claw://session/codex_abc)")
     expect(text).toContain("[foo.ts](file:///x/foo.ts)")
   })
 
@@ -1260,7 +1260,7 @@ describe("adaptMessageTurn — user reference resources", () => {
         role: "user",
         timestamp: "2026-06-11T00:00:00.000Z",
         blocks: [
-          { type: "text", text: "ask [@Codex](codeg://agent/codex) to review" },
+          { type: "text", text: "ask [@Codex](iyw-claw://agent/codex) to review" },
         ],
       },
       msgText
@@ -1270,7 +1270,7 @@ describe("adaptMessageTurn — user reference resources", () => {
     expect(adapted.content).toHaveLength(1)
     const part = adapted.content[0]
     if (part.type !== "text") throw new Error("expected a text part")
-    expect(part.text).toContain("[@Codex](codeg://agent/codex)")
+    expect(part.text).toContain("[@Codex](iyw-claw://agent/codex)")
   })
 
   it("chips a folded file link AND keeps it inline as a badge; session stays inline", () => {
@@ -1285,7 +1285,7 @@ describe("adaptMessageTurn — user reference resources", () => {
         blocks: [
           {
             type: "text",
-            text: "compare these [#42](codeg://session/codex_abc)",
+            text: "compare these [#42](iyw-claw://session/codex_abc)",
           },
           { type: "text", text: "[foo.ts](file:///x/foo.ts)" },
         ],
@@ -1299,7 +1299,7 @@ describe("adaptMessageTurn — user reference resources", () => {
     const joined = adapted.content
       .map((p) => (p.type === "text" ? p.text : ""))
       .join("\n")
-    expect(joined).toContain("[#42](codeg://session/codex_abc)")
+    expect(joined).toContain("[#42](iyw-claw://session/codex_abc)")
     expect(joined).toContain("[foo.ts](file:///x/foo.ts)")
   })
 })

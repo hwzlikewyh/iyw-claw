@@ -104,8 +104,8 @@ struct ResolvedCwd {
 /// exclusive engine lock. So the engine runs *only* while provably the sole
 /// engine on the DB (`engine()` stays unset otherwise, and manual run/cancel
 /// return a clean "engine not running" error). `None` happens when another live
-/// codeg process already holds the lock (e.g. a desktop app and a server pointed
-/// at the same `CODEG_DATA_DIR`), or — rarely — when the lock can't be
+/// iyw-claw process already holds the lock (e.g. a desktop app and a server pointed
+/// at the same `IYW_CLAW_DATA_DIR`), or — rarely — when the lock can't be
 /// established at all (a real IO error on the lock file, e.g. a filesystem
 /// without lock support): we never start a lockless engine, since its other
 /// guards (`automation_locks`, `root_locks`) are process-local, not cross-process.
@@ -120,7 +120,7 @@ pub fn build_engine(
         Ownership::Exclusive(file) => file,
         Ownership::Taken => {
             tracing::info!(
-                "[automation] another codeg process owns the automation engine for {}; \
+                "[automation] another iyw-claw process owns the automation engine for {}; \
                  this process will not drive automations",
                 data_dir.display()
             );
@@ -166,7 +166,7 @@ enum Ownership {
 
 /// Path of the per-DB engine lock: the DB filename plus a `.lock` suffix, so it
 /// contends exactly when the `automation_run` table is shared — a debug desktop's
-/// isolated `codeg-dev.db` never blocks a release `codeg.db`, and vice versa.
+/// isolated `iyw-claw-dev.db` never blocks a release `iyw-claw.db`, and vice versa.
 fn engine_lock_path(data_dir: &Path) -> PathBuf {
     data_dir.join(format!("{}.lock", crate::db::database_file_name()))
 }
@@ -213,7 +213,7 @@ fn acquire_engine_ownership(data_dir: &Path) -> Ownership {
 /// Long-running engine driver: boot recovery, then a single select loop over the
 /// completion event stream + the reconcile interval. Spawn once per process in
 /// each boot path (`lib.rs` setup via `tauri::async_runtime::spawn`, and
-/// `bin/codeg_server.rs` via `tokio::spawn`).
+/// `bin/iyw_claw_server.rs` via `tokio::spawn`).
 pub async fn run_automation_engine(engine: Arc<AutomationEngine>) {
     // Boot recovery: a fresh process has no live connections, so any run still
     // `running` in the DB is an interruption — fail it (never re-fire here). This
@@ -222,7 +222,9 @@ pub async fn run_automation_engine(engine: Arc<AutomationEngine>) {
     // holding the exclusive data-dir lock (see `build_engine`), so a process
     // sharing the data dir never reaches this point against another's live runs.
     match automation_service::boot_reconcile_interrupted(&engine.db.conn).await {
-        Ok(n) if n > 0 => tracing::info!("[automation] boot reconcile failed {n} interrupted run(s)"),
+        Ok(n) if n > 0 => {
+            tracing::info!("[automation] boot reconcile failed {n} interrupted run(s)")
+        }
         Ok(_) => {}
         Err(e) => tracing::warn!("[automation] boot reconcile error: {e}"),
     }
@@ -309,16 +311,21 @@ impl AutomationEngine {
             .await
             .map_err(|e| e.to_string())?
         {
-            let _ =
-                automation_service::record_skipped_run(&self.db.conn, automation_id, trigger, scheduled_for)
-                    .await;
+            let _ = automation_service::record_skipped_run(
+                &self.db.conn,
+                automation_id,
+                trigger,
+                scheduled_for,
+            )
+            .await;
             self.emit(AutomationChange::Upsert { id: automation_id });
             return Err("previous run still active".to_string());
         }
 
-        let run = automation_service::start_run(&self.db.conn, automation_id, trigger, scheduled_for)
-            .await
-            .map_err(|e| e.to_string())?;
+        let run =
+            automation_service::start_run(&self.db.conn, automation_id, trigger, scheduled_for)
+                .await
+                .map_err(|e| e.to_string())?;
         // Broadcast the running row immediately so every client sees it the
         // instant it exists — `launch` can take seconds (worktree add + agent
         // spawn) before it re-emits RunStarted with the live "View conversation"
@@ -429,7 +436,8 @@ impl AutomationEngine {
         // Create the conversation row, then adopt it in send_prompt (Branch A).
         let title = first_chars(&cfg.display_text, 80);
         let conversation_id =
-            match create_conversation_core(&self.db.conn, cwd.folder_id, agent_type, Some(title)).await
+            match create_conversation_core(&self.db.conn, cwd.folder_id, agent_type, Some(title))
+                .await
             {
                 Ok(id) => id,
                 Err(e) => {
@@ -1006,7 +1014,10 @@ mod tests {
     fn worktree_names_carry_ids() {
         assert_eq!(basename("/home/me/repo"), "repo");
         assert_eq!(basename("/home/me/repo/"), "repo");
-        assert_eq!(sibling_path("/home/me/repo", "repo-automation-3-run-7"), "/home/me/repo-automation-3-run-7");
+        assert_eq!(
+            sibling_path("/home/me/repo", "repo-automation-3-run-7"),
+            "/home/me/repo-automation-3-run-7"
+        );
     }
 
     #[test]

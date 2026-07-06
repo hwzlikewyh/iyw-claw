@@ -14,9 +14,9 @@ use crate::parsers::codex::CodexParser;
 use crate::parsers::gemini::GeminiParser;
 use crate::parsers::hermes::HermesParser;
 use crate::parsers::kimi_code::KimiCodeParser;
-use crate::parsers::pi::PiParser;
 use crate::parsers::openclaw::OpenClawParser;
 use crate::parsers::opencode::OpenCodeParser;
+use crate::parsers::pi::PiParser;
 use crate::parsers::{path_eq_for_matching, AgentParser};
 
 /// Import (and refresh the titles of) the local agent sessions under
@@ -85,7 +85,14 @@ pub async fn import_local_conversations(
         }
     }
 
-    Ok((ImportResult { imported, updated, skipped }, updated_ids))
+    Ok((
+        ImportResult {
+            imported,
+            updated,
+            skipped,
+        },
+        updated_ids,
+    ))
 }
 
 /// Outcome of reconciling a single parsed session against the DB.
@@ -140,7 +147,8 @@ async fn import_one(
             .map(str::trim)
             .filter(|t| !t.is_empty())
         {
-            if conversation_service::refresh_auto_title(conn, existing.id, title.to_string()).await?
+            if conversation_service::refresh_auto_title(conn, existing.id, title.to_string())
+                .await?
             {
                 return Ok(ImportOutcome::Updated(existing.id));
             }
@@ -186,7 +194,7 @@ mod tests {
         ConversationSummary {
             id: id.to_string(),
             agent_type: AgentType::ClaudeCode,
-            folder_path: Some("/tmp/codeg-import".to_string()),
+            folder_path: Some("/tmp/iyw-claw-import".to_string()),
             folder_name: None,
             title: title.map(|t| t.to_string()),
             started_at: Utc::now(),
@@ -213,12 +221,17 @@ mod tests {
     #[tokio::test]
     async fn reimport_refreshes_a_changed_title() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-import").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-import").await;
         let at = AgentType::ClaudeCode;
 
-        let first = import_one(&db.conn, folder, &at, &summary("ext-1", Some("first prompt")))
-            .await
-            .expect("import");
+        let first = import_one(
+            &db.conn,
+            folder,
+            &at,
+            &summary("ext-1", Some("first prompt")),
+        )
+        .await
+        .expect("import");
         assert_eq!(first, ImportOutcome::Imported);
 
         let id = find_id(&db.conn, "ext-1").await;
@@ -239,7 +252,7 @@ mod tests {
     #[tokio::test]
     async fn reimport_skips_an_unchanged_title() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-import-same").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-import-same").await;
         let at = AgentType::ClaudeCode;
         let s = summary("ext-1", Some("same title"));
 
@@ -258,12 +271,17 @@ mod tests {
     #[tokio::test]
     async fn reimport_never_clobbers_a_manual_rename() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-import-lock").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-import-lock").await;
         let at = AgentType::ClaudeCode;
 
-        import_one(&db.conn, folder, &at, &summary("ext-1", Some("first prompt")))
-            .await
-            .expect("import");
+        import_one(
+            &db.conn,
+            folder,
+            &at,
+            &summary("ext-1", Some("first prompt")),
+        )
+        .await
+        .expect("import");
         let id = find_id(&db.conn, "ext-1").await;
         conversation_service::update_title(&db.conn, id, "User Pick".into())
             .await
@@ -287,7 +305,7 @@ mod tests {
     #[tokio::test]
     async fn reimport_with_no_title_keeps_the_existing_one() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-import-empty").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-import-empty").await;
         let at = AgentType::ClaudeCode;
 
         import_one(&db.conn, folder, &at, &summary("ext-1", Some("kept title")))
@@ -318,7 +336,7 @@ mod tests {
     #[tokio::test]
     async fn reimport_skips_a_soft_deleted_conversation() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-import-deleted").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-import-deleted").await;
         let at = AgentType::ClaudeCode;
 
         import_one(&db.conn, folder, &at, &summary("ext-1", Some("original")))
@@ -347,7 +365,7 @@ mod tests {
     #[tokio::test]
     async fn reimport_skips_a_delegation_child() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-import-child").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-import-child").await;
         let at = AgentType::ClaudeCode;
         let at_str = serde_json::to_value(at)
             .expect("ser")
@@ -356,9 +374,14 @@ mod tests {
             .to_string();
 
         // A root conversation to parent the child.
-        import_one(&db.conn, folder, &at, &summary("parent-ext", Some("parent")))
-            .await
-            .expect("import parent");
+        import_one(
+            &db.conn,
+            folder,
+            &at,
+            &summary("parent-ext", Some("parent")),
+        )
+        .await
+        .expect("import parent");
         let parent_id = find_id(&db.conn, "parent-ext").await;
 
         // A delegation child carrying its own external_id, as a parser would
@@ -388,9 +411,14 @@ mod tests {
         .await
         .expect("insert child");
 
-        let outcome = import_one(&db.conn, folder, &at, &summary("child-ext", Some("AI Summary")))
-            .await
-            .expect("re-import child");
+        let outcome = import_one(
+            &db.conn,
+            folder,
+            &at,
+            &summary("child-ext", Some("AI Summary")),
+        )
+        .await
+        .expect("re-import child");
         assert_eq!(
             outcome,
             ImportOutcome::Skipped,

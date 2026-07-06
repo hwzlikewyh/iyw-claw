@@ -16,10 +16,10 @@
 use std::sync::Arc;
 
 use axum_test::TestServer;
-use codeg_lib::app_state::AppState;
-use codeg_lib::db::test_helpers::fresh_in_memory_db;
-use codeg_lib::web::router::build_router;
-use codeg_lib::web::shutdown::ShutdownSignal;
+use iyw_claw_lib::app_state::AppState;
+use iyw_claw_lib::db::test_helpers::fresh_in_memory_db;
+use iyw_claw_lib::web::router::build_router;
+use iyw_claw_lib::web::shutdown::ShutdownSignal;
 use serde_json::{json, Value};
 
 const TEST_TOKEN: &str = "integration-test-token";
@@ -126,7 +126,7 @@ async fn open_folder_then_list_open_folders_shows_it() {
     let open_resp = server
         .post("/api/open_folder")
         .add_header("authorization", format!("Bearer {TEST_TOKEN}"))
-        .json(&json!({"path": "/tmp/codeg-test-folder"}))
+        .json(&json!({"path": "/tmp/iyw-claw-test-folder"}))
         .await;
     assert_eq!(
         open_resp.status_code(),

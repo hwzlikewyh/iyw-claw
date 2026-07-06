@@ -16,7 +16,7 @@ use std::sync::OnceLock;
 
 /// A root of external agent-CLI transcript data, archived under
 /// `external/<agent>/` by the optional "include conversation content" toggle.
-/// These paths are owned by the respective CLIs — codeg only reads them.
+/// These paths are owned by the respective CLIs — iyw-claw only reads them.
 #[derive(Clone)]
 pub struct ExternalSource {
     /// Stable directory name inside the archive (`external/<agent>/`).
@@ -251,7 +251,10 @@ fn is_markdown_whitespace(c: char) -> bool {
 /// lets a backslash escape whitespace, so `\` + whitespace ENDS (not extends) a
 /// label/destination scan — only `\` + a non-whitespace char is a real escape.
 fn reference_escapes_next(chars: &[char], k: usize) -> bool {
-    chars.get(k) == Some(&'\\') && chars.get(k + 1).is_some_and(|c| !is_markdown_whitespace(*c))
+    chars.get(k) == Some(&'\\')
+        && chars
+            .get(k + 1)
+            .is_some_and(|c| !is_markdown_whitespace(*c))
 }
 
 /// If a well-formed `(destination)` begins at `start`, return the index just
@@ -1063,9 +1066,9 @@ mod tests {
             fold_reference_links("看看 [README.md](file:///Users/x/README.md) 这是什么"),
             "看看 README.md 这是什么"
         );
-        // codeg:// links fold too; an agent mention keeps its `@`.
+        // iyw-claw:// links fold too; an agent mention keeps its `@`.
         assert_eq!(
-            fold_reference_links("调用 [@Codex CLI](codeg://agent/codex) 执行"),
+            fold_reference_links("调用 [@Codex CLI](iyw-claw://agent/codex) 执行"),
             "调用 @Codex CLI 执行"
         );
         // Multiple links in one string.
@@ -1235,12 +1238,12 @@ mod tests {
     #[test]
     fn path_matching_handles_separator_differences() {
         assert!(path_eq_for_matching(
-            "/Users/demo/workspace/codeg",
-            "/Users/demo/workspace/codeg/"
+            "/Users/demo/workspace/iyw-claw",
+            "/Users/demo/workspace/iyw-claw/"
         ));
         assert!(path_eq_for_matching(
-            "C:\\Users\\demo\\workspace\\codeg",
-            "C:/Users/demo/workspace/codeg"
+            "C:\\Users\\demo\\workspace\\iyw-claw",
+            "C:/Users/demo/workspace/iyw-claw"
         ));
     }
 }

@@ -5,18 +5,18 @@
 // What it does:
 //   1. Resolves the target triple — `--target <triple>` arg, or
 //      `TAURI_TARGET_TRIPLE` env, or the host's `rustc -vV` host triple.
-//   2. Runs `cargo build --release --bin codeg-mcp --no-default-features`
+//   2. Runs `cargo build --release --bin iyw-claw-mcp --no-default-features`
 //      for that triple from `src-tauri/`.
 //   3. Copies the produced binary to
-//      `src-tauri/binaries/codeg-mcp-<triple>{.exe}` so Tauri's externalBin
-//      bundler picks it up under the bare name `codeg-mcp` at install time.
+//      `src-tauri/binaries/iyw-claw-mcp-<triple>{.exe}` so Tauri's externalBin
+//      bundler picks it up under the bare name `iyw-claw-mcp` at install time.
 //
 // Why a separate script (not inline in beforeBuildCommand / GitHub Actions):
 //   - Cross-compile in release.yml passes `--target <triple>` so we honour
 //     the matrix triple rather than rebuilding for the host.
 //   - Local `pnpm tauri dev` / `pnpm tauri build` invoke it without args and
 //     get a host-triple build, so the externalBin lookup still finds a file.
-//   - Skippable: set `CODEG_SKIP_SIDECAR=1` when iterating on the frontend
+//   - Skippable: set `IYW_CLAW_SKIP_SIDECAR=1` when iterating on the frontend
 //     and you don't care about delegation.
 //
 // Intentionally Node-only (no shell): runs identically on macOS, Linux,
@@ -31,7 +31,7 @@ import process from "node:process"
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SRC_TAURI = resolve(SCRIPT_DIR, "..")
 const BINARIES_DIR = join(SRC_TAURI, "binaries")
-const BIN_NAME = "codeg-mcp"
+const BIN_NAME = "iyw-claw-mcp"
 
 function log(msg) {
   console.log(`[prepare-sidecars] ${msg}`)
@@ -67,8 +67,8 @@ function resolveHostTriple() {
 }
 
 function main() {
-  if (process.env.CODEG_SKIP_SIDECAR === "1") {
-    log("CODEG_SKIP_SIDECAR=1 — skipping sidecar preparation")
+  if (process.env.IYW_CLAW_SKIP_SIDECAR === "1") {
+    log("IYW_CLAW_SKIP_SIDECAR=1 — skipping sidecar preparation")
     return
   }
 
@@ -83,7 +83,7 @@ function main() {
 
   // cargo build needs to run from src-tauri so it resolves the local manifest
   // and shares the swatinem/rust-cache key with other cargo invocations.
-  // `--no-default-features` keeps codeg-mcp free of the Tauri runtime deps —
+  // `--no-default-features` keeps iyw-claw-mcp free of the Tauri runtime deps —
   // the bin's required-features is empty, so this just enables cross-compile
   // without dragging in macOS-private-api / Linux WebKit / Windows WebView2.
   execFileSync(

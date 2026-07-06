@@ -111,7 +111,7 @@ describe("parseAskQuestionInput", () => {
     // CodexToolCallMapper.ts::createMcpToolCallUpdate. The questions live under
     // `arguments`, not the top level.
     const input = JSON.stringify({
-      server: "codeg-mcp",
+      server: "iyw-claw-mcp",
       tool: "ask_user_question",
       arguments: {
         questions: [

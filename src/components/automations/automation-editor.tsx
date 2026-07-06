@@ -370,13 +370,13 @@ export function AutomationEditor({
         // prompt, the config-bar gaps) focuses the editor at the click point —
         // same affordance as the chat composer. Interactive controls, badges and
         // the editor surface exclude themselves via NON_CHROME_SELECTOR;
-        // `codeg-composer-chrome` paints the text I-beam over the dead space.
+        // `iyw-claw-composer-chrome` paints the text I-beam over the dead space.
         onMouseDown={(e) => {
           if (!isComposerChromeClick(e.target)) return
           e.preventDefault()
           editorRef.current?.focusAtCoords(e.clientX, e.clientY)
         }}
-        className="codeg-composer-chrome relative rounded-xl border border-input bg-background transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring/50"
+        className="iyw-claw-composer-chrome relative rounded-xl border border-input bg-background transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring/50"
       >
         <ComposerInvocationsPopup inv={invocations} />
         <RichComposer

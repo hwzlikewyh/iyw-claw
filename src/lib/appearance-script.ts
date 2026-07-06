@@ -4,29 +4,29 @@
  * Storage keys for appearance preferences.
  * 与 Provider 共享，确保 inline 脚本和 React 层读写同一份数据。
  */
-export const STORAGE_KEY_THEME_COLOR = "codeg-theme-color"
-export const STORAGE_KEY_ZOOM_LEVEL = "codeg-zoom-level"
+export const STORAGE_KEY_THEME_COLOR = "iyw-claw-theme-color"
+export const STORAGE_KEY_ZOOM_LEVEL = "iyw-claw-zoom-level"
 
 // 新会话欢迎页「模式选择区域」（代码开发 / 日常办公 快捷卡片）是否显示。
 // 缺省即回退为开启（保持历史行为）；仅在欢迎态客户端渲染，无需预水合。
-export const STORAGE_KEY_WELCOME_QUICK_ACTIONS = "codeg-welcome-quick-actions"
+export const STORAGE_KEY_WELCOME_QUICK_ACTIONS = "iyw-claw-welcome-quick-actions"
 
 // 字体偏好（界面 / 编辑器 / 终端）。
 // 只有界面字体需要 *_STACK（已解析的 CSS font-family 栈），供 inline 脚本零依赖地
 // 预水合写入 --font-sans；编辑器/终端字体只走各自的 Monaco/xterm 选项，水合后才挂载，
 // 无需预水合，也不写任何全局 CSS 变量。*_FONT 存 id、*_CUSTOM 存自定义族名供回显。
-export const STORAGE_KEY_UI_FONT = "codeg-ui-font"
-export const STORAGE_KEY_UI_FONT_CUSTOM = "codeg-ui-font-custom"
-export const STORAGE_KEY_UI_FONT_STACK = "codeg-ui-font-stack"
-export const STORAGE_KEY_EDITOR_FONT = "codeg-editor-font"
-export const STORAGE_KEY_EDITOR_FONT_CUSTOM = "codeg-editor-font-custom"
-export const STORAGE_KEY_EDITOR_FONT_SIZE = "codeg-editor-font-size"
-export const STORAGE_KEY_EDITOR_LIGATURES = "codeg-editor-ligatures"
-export const STORAGE_KEY_EDITOR_WORD_WRAP = "codeg-editor-word-wrap"
-export const STORAGE_KEY_TERMINAL_FONT = "codeg-terminal-font"
-export const STORAGE_KEY_TERMINAL_FONT_CUSTOM = "codeg-terminal-font-custom"
-export const STORAGE_KEY_TERMINAL_FONT_SIZE = "codeg-terminal-font-size"
-export const STORAGE_KEY_TERMINAL_LIGATURES = "codeg-terminal-ligatures"
+export const STORAGE_KEY_UI_FONT = "iyw-claw-ui-font"
+export const STORAGE_KEY_UI_FONT_CUSTOM = "iyw-claw-ui-font-custom"
+export const STORAGE_KEY_UI_FONT_STACK = "iyw-claw-ui-font-stack"
+export const STORAGE_KEY_EDITOR_FONT = "iyw-claw-editor-font"
+export const STORAGE_KEY_EDITOR_FONT_CUSTOM = "iyw-claw-editor-font-custom"
+export const STORAGE_KEY_EDITOR_FONT_SIZE = "iyw-claw-editor-font-size"
+export const STORAGE_KEY_EDITOR_LIGATURES = "iyw-claw-editor-ligatures"
+export const STORAGE_KEY_EDITOR_WORD_WRAP = "iyw-claw-editor-word-wrap"
+export const STORAGE_KEY_TERMINAL_FONT = "iyw-claw-terminal-font"
+export const STORAGE_KEY_TERMINAL_FONT_CUSTOM = "iyw-claw-terminal-font-custom"
+export const STORAGE_KEY_TERMINAL_FONT_SIZE = "iyw-claw-terminal-font-size"
+export const STORAGE_KEY_TERMINAL_LIGATURES = "iyw-claw-terminal-ligatures"
 
 /**
  * 同步执行的 inline 脚本，由 layout.tsx 通过 dangerouslySetInnerHTML 注入。
@@ -55,7 +55,7 @@ const SCRIPT = `
     document.documentElement.style.fontSize = (16 * zoom / 100) + "px";
 
     // 界面字体：预水合写入 --font-sans（普通组件与会话消息区都跟随它）。
-    // stack 只是「显式选择」的缓存，不是偏好本身：仅当存在显式 id（codeg-ui-font）
+    // stack 只是「显式选择」的缓存，不是偏好本身：仅当存在显式 id（iyw-claw-ui-font）
     // 时才应用它。无显式选择的用户（含从旧默认升级、Provider 仅缓存过 stack 的用户）
     // 跳过，落到 :root 的 --font-sans 兜底（= 当前默认界面字体 Inter 栈），避免升级首屏闪字。
     // 无需在脚本里复制字体目录；空/超长/含越界字符同样跳过走默认。

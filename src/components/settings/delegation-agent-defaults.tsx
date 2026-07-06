@@ -6,7 +6,7 @@
  *
  * Isolation guarantees (critical — see the v2 plan):
  *   1. Options come from a LIVE probe (`describeAgentOptions`), not from the
- *      chat-side `selectorsCache`. What the user sees here is what codeg-mcp
+ *      chat-side `selectorsCache`. What the user sees here is what iyw-claw-mcp
  *      will actually receive when it spawns a subagent.
  *   2. Saving a value here does NOT call `acpSetConfigOption` or write to
  *      `selector-prefs-storage.ts` localStorage. The chat input's own
@@ -43,9 +43,9 @@ import { toErrorMessage } from "@/lib/app-error"
 // Sentinel `value` slot used by the top "Default" Select item in mode +
 // config-option rows. Picking it clears the override (sets it back to
 // `null`) so the agent's own default takes effect at runtime. Must not
-// collide with any real option id any agent could emit — the codeg
+// collide with any real option id any agent could emit — the iyw-claw
 // prefix makes a collision implausible.
-const DEFAULT_SENTINEL = "__codeg_default__"
+const DEFAULT_SENTINEL = "__iyw_claw_default__"
 
 // Tab-switch debounce. Without this, rapid clicks across the agent
 // buttons would each kick off a real probe (which on the backend now

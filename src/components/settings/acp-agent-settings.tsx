@@ -1348,7 +1348,7 @@ interface CodexImportantValues {
   serviceTierFast: boolean
 }
 
-const CODEX_DEFAULT_MODEL_PROVIDER = "codeg"
+const CODEX_DEFAULT_MODEL_PROVIDER = "iyw-claw"
 
 const CODEX_AUTH_MODES = [
   "api_key",
@@ -2091,19 +2091,19 @@ function ensureCodexProviderDefaults(
   }
   let next = configTomlText
   const current = extractCodexTomlImportantValues(next)
-  const codegBaseUrl =
+  const iywClawBaseUrl =
     current.providerBaseUrls[CODEX_DEFAULT_MODEL_PROVIDER] ?? ""
   next = patchCodexProviderField(
     next,
     CODEX_DEFAULT_MODEL_PROVIDER,
     "base_url",
-    `base_url = ${JSON.stringify(codegBaseUrl)}`
+    `base_url = ${JSON.stringify(iywClawBaseUrl)}`
   )
   next = patchCodexProviderField(
     next,
     CODEX_DEFAULT_MODEL_PROVIDER,
     "name",
-    'name = "codeg"'
+    'name = "iyw-claw"'
   )
   next = patchCodexProviderField(
     next,
@@ -3009,7 +3009,7 @@ const KIMI_BASE_URL_CHINA = "https://api.moonshot.cn/v1"
 const KIMI_MODEL_PLACEHOLDER = "kimi-k2.7-code"
 
 /**
- * Kimi credential mode. `apikey` writes a codeg-managed config.toml provider/model
+ * Kimi credential mode. `apikey` writes a iyw-claw-managed config.toml provider/model
  * block AND seeds a synthetic gate token, so the API key actually authenticates
  * `kimi acp` — whose session gate only checks for a stored token and rejects an
  * API key on its own. `login` clears the managed block and removes our synthetic
@@ -3130,7 +3130,7 @@ export interface KimiManagedConfig {
   hasManagedBlock?: boolean
   /** Whether `kimi acp`'s session gate is satisfied (a token file is present). */
   credentialPresent?: boolean
-  /** Whether that gate token is codeg's synthetic one (vs a real OAuth login). */
+  /** Whether that gate token is iyw-claw's synthetic one (vs a real OAuth login). */
   credentialSynthetic?: boolean
   rawConfigToml?: string
 }
@@ -3147,7 +3147,7 @@ export function parseKimiManagedConfig(
 }
 
 /**
- * Initial panel mode: the codeg-managed API-key block wins; otherwise, when a
+ * Initial panel mode: the iyw-claw-managed API-key block wins; otherwise, when a
  * real (non-synthetic) OAuth login is already present, show login; else default
  * to the API-key form.
  */
@@ -3161,12 +3161,12 @@ export function kimiInitialMode(config: KimiManagedConfig): KimiAuthMode {
  * Settings panel for Kimi Code (Moonshot AI).
  *
  * `kimi acp` gates every session on a stored OAuth-style token and rejects API
- * keys on their own, so to support API-key users codeg manages BOTH a
+ * keys on their own, so to support API-key users iyw-claw manages BOTH a
  * `~/.kimi-code/config.toml` provider/model block (routing inference to the key)
  * AND a synthetic gate token under `credentials/` (so the session opens). The
  * panel keeps exactly one source authoritative (enforced server-side by
  * `acpUpdateKimiCodeConfig`):
- *   • apikey — write the codeg-managed config.toml block (any of the six
+ *   • apikey — write the iyw-claw-managed config.toml block (any of the six
  *     interface types) + seed the gate token. The working path for a plain key.
  *   • login — clear the managed block + remove our synthetic token, so a real
  *     OAuth login (`kimi login`, needs a Kimi subscription) governs.
@@ -3191,7 +3191,7 @@ function KimiCodeConfigPanel({
   const [saving, setSaving] = useState(false)
   const [showKey, setShowKey] = useState(false)
 
-  // api-key mode (codeg-managed config.toml provider + model)
+  // api-key mode (iyw-claw-managed config.toml provider + model)
   const [interfaceType, setInterfaceType] = useState<KimiInterfaceType>(
     () => config.interfaceType ?? "kimi"
   )
@@ -6393,7 +6393,7 @@ export function AcpAgentSettings() {
         return
       }
 
-      // "api_key" or "model_provider": ensure model_provider = "codeg" in toml
+      // "api_key" or "model_provider": ensure model_provider = "iyw-claw" in toml
       const nextConfigTomlText = patchCodexConfigTomlText(
         selectedDraft.codexConfigTomlText,
         { modelProvider: CODEX_DEFAULT_MODEL_PROVIDER }
@@ -7458,12 +7458,12 @@ export function AcpAgentSettings() {
                         placeholder={`disable_response_storage = true
 model = "gpt-5"
 model_reasoning_effort = "high"
-model_provider = "codeg"
+model_provider = "iyw-claw"
 
 [features]
 responses_websockets_v2 = true
 
-[model_providers.codeg]
+[model_providers.iyw-claw]
 base_url = "https://api.openai.com/v1"
 supports_websockets = true`}
                         className="min-h-40 max-h-80 font-mono text-xs"

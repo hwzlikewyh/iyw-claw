@@ -31,7 +31,7 @@ import {
 import remarkBreaks from "remark-breaks"
 import { markdownLinkComponents } from "./markdown-link"
 import { rehypeCommandBadges } from "./rehype-command-badges"
-import { rehypePluginsAllowingCodeg } from "./rehype-allow-codeg"
+import { rehypePluginsAllowingIywClaw } from "./rehype-allow-iyw-claw"
 import { remarkRewriteFileUriLinks } from "./remark-file-uri-links"
 import { useStreamdownPlugins } from "./streamdown-plugins"
 
@@ -369,13 +369,13 @@ const remarkPlugins = [
 // User messages opt in to this set so single newlines render as <br>.
 const remarkPluginsWithBreaks = [...remarkPlugins, remarkBreaks]
 
-// Streamdown's default rehype pipeline strips `codeg://` reference hrefs in
+// Streamdown's default rehype pipeline strips `iyw-claw://` reference hrefs in
 // sanitization (rendering them as "[blocked]"); re-derive it so they survive to
-// MarkdownLink → ReferenceBadge. See rehype-allow-codeg for the full rationale.
-const rehypePlugins = rehypePluginsAllowingCodeg(defaultRehypePlugins)
+// MarkdownLink → ReferenceBadge. See rehype-allow-iyw-claw for the full rationale.
+const rehypePlugins = rehypePluginsAllowingIywClaw(defaultRehypePlugins)
 
 // User messages additionally badge bare `/slash` / `$skill` invocation tokens.
-// Appended AFTER harden so the injected `codeg://skill/…` links aren't stripped,
+// Appended AFTER harden so the injected `iyw-claw://skill/…` links aren't stripped,
 // and it runs before Streamdown's math (katex) rehype plugin so `$x$` math (by
 // then a `.math` element) is skipped, not mistaken for a `$skill` token.
 const rehypePluginsForUser = [...rehypePlugins, rehypeCommandBadges]

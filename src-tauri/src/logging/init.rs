@@ -10,7 +10,7 @@
 //!    hub::LogHub`], and returns a [`LogGuard`] the caller holds for the
 //!    process lifetime so buffered file lines flush on a graceful exit.
 //! 2. **Phase 2** — [`apply_persisted_level`], once the DB is open: overrides
-//!    the default level from the `logging.level` KV value (unless `CODEG_LOG` /
+//!    the default level from the `logging.level` KV value (unless `IYW_CLAW_LOG` /
 //!    `RUST_LOG` is set, which wins).
 //! 3. **Phase 3** — `LogHub::set_emitter`, once `AppState` exists: starts
 //!    `logs://appended` delivery to the viewer.
@@ -56,7 +56,7 @@ pub fn build_env_filter(settings: &LogSettings) -> EnvFilter {
             directives.push_str(&format!(",{}={}", target, t.level.directive()));
         }
     }
-    directives.push_str(",codeg_lib::logging=off");
+    directives.push_str(",iyw_claw_lib::logging=off");
     EnvFilter::builder().parse_lossy(directives)
 }
 
@@ -66,14 +66,14 @@ pub fn build_env_filter(settings: &LogSettings) -> EnvFilter {
 /// recursion backstop.
 fn is_valid_target(target: &str) -> bool {
     if target.is_empty()
-        || target == "codeg_lib::logging"
-        || target.starts_with("codeg_lib::logging::")
+        || target == "iyw_claw_lib::logging"
+        || target.starts_with("iyw_claw_lib::logging::")
     {
         return false;
     }
-    target.split("::").all(|seg| {
-        !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-    })
+    target
+        .split("::")
+        .all(|seg| !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
 }
 
 /// Build a reload handle not attached to any installed subscriber, for tests
@@ -88,9 +88,9 @@ pub fn detached_reload_handle() -> ReloadHandle {
 
 /// Retention for rotated daily files. A disk-bound necessity (daily files would
 /// otherwise accumulate forever), not a functional cap; generous default,
-/// overridable via `CODEG_LOG_MAX_FILES`.
+/// overridable via `IYW_CLAW_LOG_MAX_FILES`.
 fn file_retention() -> usize {
-    std::env::var("CODEG_LOG_MAX_FILES")
+    std::env::var("IYW_CLAW_LOG_MAX_FILES")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
@@ -98,12 +98,12 @@ fn file_retention() -> usize {
 }
 
 /// The env-override directive, or `None`: the first non-empty (trimmed) value of
-/// `CODEG_LOG` then `RUST_LOG`. Single source of truth for env-level precedence,
+/// `IYW_CLAW_LOG` then `RUST_LOG`. Single source of truth for env-level precedence,
 /// so the startup filter and the env-lock checks can't diverge — e.g. an empty
-/// `CODEG_LOG` must not mask a valid `RUST_LOG` (a `var().or_else(var)` would
+/// `IYW_CLAW_LOG` must not mask a valid `RUST_LOG` (a `var().or_else(var)` would
 /// treat the empty `Ok("")` as present and skip `RUST_LOG`).
 fn env_level_override() -> Option<String> {
-    ["CODEG_LOG", "RUST_LOG"].iter().find_map(|key| {
+    ["IYW_CLAW_LOG", "RUST_LOG"].iter().find_map(|key| {
         std::env::var(key)
             .ok()
             .map(|v| v.trim().to_string())
@@ -111,7 +111,7 @@ fn env_level_override() -> Option<String> {
     })
 }
 
-/// Whether an explicit `CODEG_LOG` / `RUST_LOG` is set (and non-empty). When
+/// Whether an explicit `IYW_CLAW_LOG` / `RUST_LOG` is set (and non-empty). When
 /// true the env var owns the live level: startup skips the persisted level and
 /// the Settings UI locks the control (so it can't silently diverge).
 pub fn env_level_is_set() -> bool {
@@ -147,7 +147,7 @@ fn init_file_writer(dir: &Path, prefix: &str) -> Option<(NonBlocking, WorkerGuar
     Some(tracing_appender::non_blocking(appender))
 }
 
-/// Build and install the subscriber. `file_dir` is `None` for `codeg-mcp`
+/// Build and install the subscriber. `file_dir` is `None` for `iyw-claw-mcp`
 /// (stderr only). Returns the reload handle and the appender guard.
 fn build_subscriber(
     initial: LogLevel,
@@ -159,7 +159,7 @@ fn build_subscriber(
     // same `env_level_override` precedence as `env_level_is_set`, so a level
     // applied here is exactly the one the UI reports as env-locked.
     let initial_filter = match env_level_override() {
-        Some(s) => EnvFilter::builder().parse_lossy(format!("{s},codeg_lib::logging=off")),
+        Some(s) => EnvFilter::builder().parse_lossy(format!("{s},iyw_claw_lib::logging=off")),
         // Phase 1 has no DB yet, so no persisted per-target overrides; just the
         // default level. Phase 2 (apply_persisted_level) rebuilds with targets.
         None => build_env_filter(&LogSettings {
@@ -170,7 +170,7 @@ fn build_subscriber(
     let (filter_layer, reload_handle) = reload::Layer::new(initial_filter);
 
     // stderr fmt layer — MUST target stderr (not the default stdout): in
-    // codeg-mcp stdout is the JSON-RPC channel, and elsewhere the migrated
+    // iyw-claw-mcp stdout is the JSON-RPC channel, and elsewhere the migrated
     // eprintln! all went to stderr.
     let file = file_dir.and_then(|dir| init_file_writer(dir, file_prefix));
 
@@ -201,21 +201,21 @@ fn build_subscriber(
     (reload_handle, guard)
 }
 
-/// Phase 1 for the desktop `codeg` binary: stderr + file (`codeg.<date>.log`) +
+/// Phase 1 for the desktop `iyw-claw` binary: stderr + file (`iyw-claw.<date>.log`) +
 /// buffer. Default level is env-or-`info`; [`apply_persisted_level`] refines it
 /// once the DB is open.
 pub fn init_desktop() -> LogGuard {
-    init_with_file("codeg")
+    init_with_file("iyw-claw")
 }
 
-/// Phase 1 for `codeg-server`: stderr + file (`codeg-server.<date>.log`) +
+/// Phase 1 for `iyw-claw-server`: stderr + file (`iyw-claw-server.<date>.log`) +
 /// buffer.
 pub fn init_server() -> LogGuard {
-    init_with_file("codeg-server")
+    init_with_file("iyw-claw-server")
 }
 
 fn init_with_file(prefix: &str) -> LogGuard {
-    let dir = crate::paths::codeg_logs_root();
+    let dir = crate::paths::iyw_claw_logs_root();
     let (reload, guard) = build_subscriber(LogLevel::default(), Some(&dir), prefix);
     LogHub::install(reload);
     LogGuard { _guard: guard }
@@ -223,11 +223,11 @@ fn init_with_file(prefix: &str) -> LogGuard {
 
 /// Install a **stderr-only** subscriber (no file / buffer / hub / emitter) for
 /// process modes that run before — or instead of — the full logging stack:
-/// `codeg-mcp`, the `--supervise` supervisor, and the `--credential-helper`
+/// `iyw-claw-mcp`, the `--supervise` supervisor, and the `--credential-helper`
 /// subprocess. Without an installed subscriber, `tracing` calls on those paths
 /// are silently dropped (unlike the old `eprintln!`, which always hit stderr).
 ///
-/// stderr (not stdout) is mandatory: in `codeg-mcp` and the credential helper,
+/// stderr (not stdout) is mandatory: in `iyw-claw-mcp` and the credential helper,
 /// stdout is a protocol channel. No file appender: those modes are short-lived
 /// or multi-process and must not clobber a shared rolling file. No hub: nothing
 /// to buffer/emit, so `BufferEmitLayer` short-circuits.
@@ -236,13 +236,13 @@ pub fn init_stderr_only() -> LogGuard {
     LogGuard { _guard: guard }
 }
 
-/// Phase 1 for `codeg-mcp`. See [`init_stderr_only`].
+/// Phase 1 for `iyw-claw-mcp`. See [`init_stderr_only`].
 pub fn init_mcp() -> LogGuard {
     init_stderr_only()
 }
 
 /// Phase 2: override the default level from the persisted `logging.level` KV
-/// value, unless an explicit `CODEG_LOG` / `RUST_LOG` is set (env wins). No-op
+/// value, unless an explicit `IYW_CLAW_LOG` / `RUST_LOG` is set (env wins). No-op
 /// when no hub is installed (mcp) or the value is absent/unparseable.
 pub async fn apply_persisted_level(conn: &sea_orm::DatabaseConnection) {
     if env_level_is_set() {
@@ -271,7 +271,7 @@ mod tests {
             level: LogLevel::Info,
             targets: vec![
                 TargetDirective {
-                    target: "codeg_lib::acp".into(),
+                    target: "iyw_claw_lib::acp".into(),
                     level: LogLevel::Debug,
                 },
                 // Whitespace-only target is skipped, not emitted as a bare "=trace".
@@ -280,22 +280,22 @@ mod tests {
                     level: LogLevel::Trace,
                 },
                 TargetDirective {
-                    target: "codeg_lib::web".into(),
+                    target: "iyw_claw_lib::web".into(),
                     level: LogLevel::Warn,
                 },
             ],
         };
         let rendered = build_env_filter(&settings).to_string();
         assert!(
-            rendered.contains("codeg_lib::acp=debug"),
+            rendered.contains("iyw_claw_lib::acp=debug"),
             "missing acp override: {rendered}"
         );
         assert!(
-            rendered.contains("codeg_lib::web=warn"),
+            rendered.contains("iyw_claw_lib::web=warn"),
             "missing web override: {rendered}"
         );
         assert!(
-            rendered.contains("codeg_lib::logging=off"),
+            rendered.contains("iyw_claw_lib::logging=off"),
             "missing backstop: {rendered}"
         );
         assert!(
@@ -314,27 +314,30 @@ mod tests {
                     level: LogLevel::Trace,
                 },
                 TargetDirective {
-                    target: "codeg_lib::logging".into(), // backstop override attempt → dropped
+                    target: "iyw_claw_lib::logging".into(), // backstop override attempt → dropped
                     level: LogLevel::Trace,
                 },
                 TargetDirective {
-                    target: "codeg_lib::acp".into(),
+                    target: "iyw_claw_lib::acp".into(),
                     level: LogLevel::Debug,
                 },
             ],
         };
         let rendered = build_env_filter(&settings).to_string();
-        assert!(rendered.contains("codeg_lib::acp=debug"), "{rendered}");
+        assert!(rendered.contains("iyw_claw_lib::acp=debug"), "{rendered}");
         assert!(!rendered.contains("bad-target"), "{rendered}");
         // The logging module stays off; the override attempt is dropped.
-        assert!(rendered.contains("codeg_lib::logging=off"), "{rendered}");
-        assert!(!rendered.contains("codeg_lib::logging=trace"), "{rendered}");
+        assert!(rendered.contains("iyw_claw_lib::logging=off"), "{rendered}");
+        assert!(
+            !rendered.contains("iyw_claw_lib::logging=trace"),
+            "{rendered}"
+        );
     }
 
     #[test]
     fn is_valid_target_grammar() {
-        assert!(is_valid_target("codeg_lib::acp"));
-        assert!(is_valid_target("codeg_lib::acp::delegation"));
+        assert!(is_valid_target("iyw_claw_lib::acp"));
+        assert!(is_valid_target("iyw_claw_lib::acp::delegation"));
         assert!(is_valid_target("a"));
         assert!(!is_valid_target(""));
         assert!(!is_valid_target("bad-target"));
@@ -342,23 +345,23 @@ mod tests {
         assert!(!is_valid_target("trailing::"));
         assert!(!is_valid_target("a:::b"));
         assert!(!is_valid_target("has space"));
-        assert!(!is_valid_target("codeg_lib::logging"));
-        assert!(!is_valid_target("codeg_lib::logging::hub"));
+        assert!(!is_valid_target("iyw_claw_lib::logging"));
+        assert!(!is_valid_target("iyw_claw_lib::logging::hub"));
     }
 
     #[test]
     fn env_level_override_precedence() {
         // Both unset → no override.
         temp_env::with_vars(
-            [("CODEG_LOG", None::<&str>), ("RUST_LOG", None::<&str>)],
+            [("IYW_CLAW_LOG", None::<&str>), ("RUST_LOG", None::<&str>)],
             || {
                 assert_eq!(env_level_override(), None);
                 assert!(!env_level_is_set());
             },
         );
-        // Empty CODEG_LOG must NOT mask a valid RUST_LOG (the bug Codex caught).
+        // Empty IYW_CLAW_LOG must NOT mask a valid RUST_LOG (the bug Codex caught).
         temp_env::with_vars(
-            [("CODEG_LOG", Some("")), ("RUST_LOG", Some("debug"))],
+            [("IYW_CLAW_LOG", Some("")), ("RUST_LOG", Some("debug"))],
             || {
                 assert_eq!(env_level_override().as_deref(), Some("debug"));
                 assert!(env_level_is_set());
@@ -366,15 +369,15 @@ mod tests {
         );
         // Both empty / whitespace-only → no override.
         temp_env::with_vars(
-            [("CODEG_LOG", Some("  ")), ("RUST_LOG", Some(""))],
+            [("IYW_CLAW_LOG", Some("  ")), ("RUST_LOG", Some(""))],
             || {
                 assert_eq!(env_level_override(), None);
                 assert!(!env_level_is_set());
             },
         );
-        // CODEG_LOG wins when both are non-empty.
+        // IYW_CLAW_LOG wins when both are non-empty.
         temp_env::with_vars(
-            [("CODEG_LOG", Some("trace")), ("RUST_LOG", Some("debug"))],
+            [("IYW_CLAW_LOG", Some("trace")), ("RUST_LOG", Some("debug"))],
             || {
                 assert_eq!(env_level_override().as_deref(), Some("trace"));
             },

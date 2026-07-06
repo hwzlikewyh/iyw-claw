@@ -238,8 +238,8 @@ export function OfficeToolsSettings() {
       switch (state) {
         case "not_linked":
           return t("states.not_linked")
-        case "linked_to_codeg":
-          return t("states.linked_to_codeg")
+        case "linked_to_iyw_claw":
+          return t("states.linked_to_iyw_claw")
         case "linked_elsewhere":
           return t("states.linked_elsewhere")
         case "blocked_by_real_directory":

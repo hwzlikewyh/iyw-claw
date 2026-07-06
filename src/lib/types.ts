@@ -143,7 +143,7 @@ export type ContentBlock =
        * ACP extensibility metadata for this tool call. Opaque pass-through
        * — both the live snapshot (`ToolCallState.meta`) and the persisted
        * message-row variant carry the same shape. Delegation writes
-       * `meta["codeg.delegation"] = { status, child_connection_id,
+       * `meta["iyw-claw.delegation"] = { status, child_connection_id,
        * child_conversation_id, error_code? }` here.
        */
       meta?: Record<string, unknown> | null
@@ -490,7 +490,7 @@ export const MODEL_PROVIDER_AGENT_TYPES: AgentType[] = [
 
 /**
  * How a Hermes provider's credentials are supplied:
- * - `apiKey`: codeg writes the key to `~/.hermes/.env`.
+ * - `apiKey`: iyw-claw writes the key to `~/.hermes/.env`.
  * - `oauth`: set through the terminal `--setup` flow (no API-key field).
  * - `aws`: resolved from the AWS SDK credential chain (no API-key field).
  */
@@ -514,7 +514,7 @@ export interface HermesProviderOption {
 }
 
 export const HERMES_PROVIDERS: HermesProviderOption[] = [
-  // API-key providers — codeg writes the key var to ~/.hermes/.env.
+  // API-key providers — iyw-claw writes the key var to ~/.hermes/.env.
   {
     id: "openrouter",
     label: "OpenRouter",
@@ -1535,7 +1535,7 @@ export interface AgentSkillContent {
 
 /**
  * Built-in expert skills, sourced from obra/superpowers and bundled into
- * the codeg binary. Experts live in a central store at `~/.codeg/skills/`
+ * the iyw-claw binary. Experts live in a central store at `~/.iyw-claw/skills/`
  * and are linked into agent skill directories on demand.
  */
 export interface ExpertMetadata {
@@ -1557,7 +1557,7 @@ export interface ExpertListItem {
 
 export type ExpertLinkState =
   | "not_linked"
-  | "linked_to_codeg"
+  | "linked_to_iyw_claw"
   | "linked_elsewhere"
   | "blocked_by_real_directory"
   | "broken"
@@ -1663,7 +1663,7 @@ export interface SystemRenderingSettings {
 
 export type LogLevel = "off" | "error" | "warn" | "info" | "debug" | "trace"
 
-/** A per-target level override, e.g. `codeg_lib::acp` at `debug` while the
+/** A per-target level override, e.g. `iyw_claw_lib::acp` at `debug` while the
  * global level stays `info`. `target` is a tracing target (a Rust module path). */
 export interface TargetDirective {
   target: string
@@ -1677,7 +1677,7 @@ export interface LogSettings {
 }
 
 /** What the Logs settings UI reads: the persisted level + per-target overrides,
- * plus whether an env var (CODEG_LOG/RUST_LOG) currently locks the controls
+ * plus whether an env var (IYW_CLAW_LOG/RUST_LOG) currently locks the controls
  * (env owns the live level). */
 export interface LogSettingsView {
   level: LogLevel

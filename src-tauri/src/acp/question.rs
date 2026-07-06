@@ -2,7 +2,7 @@
 //!
 //! Mid-turn an agent can ask the user one or more multiple-choice questions and
 //! BLOCK until the user answers — the `ask_user_question` MCP tool exposed by
-//! `codeg-mcp`. Unlike live-feedback ([`crate::acp::feedback`]), which is a
+//! `iyw-claw-mcp`. Unlike live-feedback ([`crate::acp::feedback`]), which is a
 //! non-blocking pull the user pushes into, a question PAUSES the agent's tool
 //! call: the questions render as an interactive card above the conversation
 //! input box (driven by [`crate::acp::session_state::SessionState`], in-memory
@@ -331,7 +331,9 @@ pub fn validate_specs(specs: &[QuestionSpec]) -> Result<(), String> {
         let mut seen_labels = std::collections::HashSet::new();
         for (oi, o) in q.options.iter().enumerate() {
             if o.label.trim().is_empty() {
-                return Err(format!("questions[{qi}].options[{oi}] has an empty `label`"));
+                return Err(format!(
+                    "questions[{qi}].options[{oi}] has an empty `label`"
+                ));
             }
             if o.label.chars().count() > MAX_QUESTION_TEXT_CHARS {
                 return Err(format!(
@@ -423,7 +425,7 @@ pub fn build_outcome(questions: &[QuestionSpec], answer: &QuestionAnswer) -> Que
 
 /// The hot-swappable feature config read at MCP injection time. Kept tiny and
 /// separate from `FeedbackConfig` / `DelegationConfig` so the three features
-/// toggle independently — `codeg-mcp` is injected when ANY is enabled, and each
+/// toggle independently — `iyw-claw-mcp` is injected when ANY is enabled, and each
 /// tool is listed only when its own feature is on.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct QuestionConfig {
@@ -529,7 +531,10 @@ mod tests {
             validate_specs(&[spec("ok", 2, MAX_QUESTION_TEXT_CHARS + 1)]).is_err(),
             "oversized option label"
         );
-        assert!(validate_specs(&[spec("   ", 2, 0)]).is_err(), "blank question");
+        assert!(
+            validate_specs(&[spec("   ", 2, 0)]).is_err(),
+            "blank question"
+        );
 
         // Duplicate question id across the set (spec() hardcodes id "q") — answer
         // routing + UI state key on id, so duplicates must be rejected.
@@ -669,7 +674,13 @@ mod tests {
                 labels: vec!["x".into()],
             });
         }
-        let outcome = build_outcome(&qs, &QuestionAnswer { answers: items, declined: false });
+        let outcome = build_outcome(
+            &qs,
+            &QuestionAnswer {
+                answers: items,
+                declined: false,
+            },
+        );
         assert_eq!(outcome.answers.len(), 1);
         // Cap = options.len() + 1 = 3 (every real option plus one "Other"); the
         // FIRST three are kept (early break — labels past the cap and the 10k

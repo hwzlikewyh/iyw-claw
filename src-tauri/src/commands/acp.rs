@@ -199,7 +199,7 @@ pub(crate) fn resolve_command_on_path(cmd: &str) -> Option<PathBuf> {
 
 /// Resolve the `uvx` (uv tool runner) executable used to launch Python ACP
 /// agents (e.g. Hermes). Checks PATH first (respecting a user's own `uv`),
-/// then codeg's managed uv cache, then the common install locations the
+/// then iyw-claw's managed uv cache, then the common install locations the
 /// official `uv` installer / cargo use (`~/.local/bin`, `~/.cargo/bin`).
 pub(crate) fn resolve_uvx_command() -> Option<PathBuf> {
     if let Some(path) = resolve_command_on_path("uvx") {
@@ -210,7 +210,10 @@ pub(crate) fn resolve_uvx_command() -> Option<PathBuf> {
     }
     let exe = if cfg!(windows) { "uvx.exe" } else { "uvx" };
     let home = home_dir_or_default();
-    for dir in [home.join(".local").join("bin"), home.join(".cargo").join("bin")] {
+    for dir in [
+        home.join(".local").join("bin"),
+        home.join(".cargo").join("bin"),
+    ] {
         let cand = dir.join(exe);
         if cand.is_file() {
             return Some(cand);
@@ -220,7 +223,7 @@ pub(crate) fn resolve_uvx_command() -> Option<PathBuf> {
 }
 
 /// Whether a `Uvx` agent can actually be launched on this machine right now:
-/// the `uvx` runner is resolvable (codeg auto-provisions it on install, so this
+/// the `uvx` runner is resolvable (iyw-claw auto-provisions it on install, so this
 /// holds post-prepare), or the agent's own CLI is on PATH (system fallback).
 /// The connect gate (`verify_agent_installed`) and the Settings status/list
 /// paths all use this so they agree on readiness. Note: the prepared-version
@@ -482,7 +485,7 @@ pub(crate) async fn verify_agent_installed(agent_type: AgentType) -> Result<(), 
             Ok(())
         }
         registry::AgentDistribution::Uvx { system_cmd, .. } => {
-            // Launchable when uvx is resolvable (codeg auto-provisions it on
+            // Launchable when uvx is resolvable (iyw-claw auto-provisions it on
             // install, so this holds post-prepare) or the agent's own CLI is on
             // PATH. Kept consistent with the Settings status/list paths via the
             // shared helper, so connect and the UI never disagree on readiness.
@@ -502,7 +505,7 @@ pub(crate) async fn verify_agent_installed(agent_type: AgentType) -> Result<(), 
 /// `npm list -g <package_name> --json` and parsing the JSON output.
 ///
 /// Checks both the system global prefix and the user-local prefix
-/// (`~/.codeg/npm-global/`) so packages installed via the EACCES fallback are
+/// (`~/.iyw-claw/npm-global/`) so packages installed via the EACCES fallback are
 /// found as well.
 async fn detect_npm_global_version(package_name: &str) -> Option<String> {
     let npm_path = which::which("npm").ok()?;
@@ -671,7 +674,13 @@ async fn install_npm_global_package_streaming(
     );
 
     let (success, stderr) = run_npm_streaming(
-        &["install", "-g", NPM_INCLUDE_OPTIONAL, &registry_arg, package],
+        &[
+            "install",
+            "-g",
+            NPM_INCLUDE_OPTIONAL,
+            &registry_arg,
+            package,
+        ],
         task_id,
         emitter,
     )
@@ -751,7 +760,7 @@ async fn install_npm_global_package_streaming(
     Ok(())
 }
 
-/// Fallback: install an npm package into a user-local prefix (`~/.codeg/npm-global/`)
+/// Fallback: install an npm package into a user-local prefix (`~/.iyw-claw/npm-global/`)
 /// when the system global prefix is not writable (EACCES).
 async fn install_npm_to_user_prefix_streaming(
     package: &str,
@@ -900,7 +909,7 @@ async fn uninstall_npm_global_package(package: &str) -> Result<(), AcpError> {
     Ok(())
 }
 
-/// Uninstall an npm package from the user-local prefix (`~/.codeg/npm-global/`).
+/// Uninstall an npm package from the user-local prefix (`~/.iyw-claw/npm-global/`).
 async fn uninstall_npm_from_user_prefix(package_name: &str) -> Result<(), AcpError> {
     let prefix = match crate::process::user_npm_prefix() {
         Some(p) if p.exists() => p,
@@ -1015,11 +1024,11 @@ fn codex_auth_json_path() -> PathBuf {
 
 /// OpenCode reads config from `$XDG_CONFIG_HOME/opencode` (falling back to
 /// `~/.config/opencode`) and credentials from `$XDG_DATA_HOME/opencode`
-/// (falling back to `~/.local/share/opencode`) on every platform. codeg must
+/// (falling back to `~/.local/share/opencode`) on every platform. iyw-claw must
 /// write where OpenCode reads, so these reuse the same XDG resolution as
 /// `opencode_plugins` (config) and `parsers::opencode` (data) — otherwise a
 /// user with XDG dirs set would get credentials written where OpenCode never
-/// looks, and codeg's own plugin/connect paths would diverge.
+/// looks, and iyw-claw's own plugin/connect paths would diverge.
 fn opencode_config_dir() -> PathBuf {
     crate::acp::opencode_plugins::xdg_config_home()
         .unwrap_or_else(|| home_dir_or_default().join(".config"))
@@ -1521,7 +1530,7 @@ fn persist_codex_local_config(config_patch_json: Option<&str>) -> Result<(), Acp
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| "codeg".to_string());
+        .unwrap_or_else(|| "iyw-claw".to_string());
     table.insert(
         "model_provider".to_string(),
         toml::Value::String(provider_name.clone()),
@@ -1553,8 +1562,11 @@ fn persist_codex_local_config(config_patch_json: Option<&str>) -> Result<(), Acp
             provider_table.remove("base_url");
         }
     }
-    if provider_name == "codeg" {
-        provider_table.insert("name".to_string(), toml::Value::String("codeg".to_string()));
+    if provider_name == "iyw-claw" {
+        provider_table.insert(
+            "name".to_string(),
+            toml::Value::String("iyw-claw".to_string()),
+        );
         provider_table.insert(
             "wire_api".to_string(),
             toml::Value::String("responses".to_string()),
@@ -1700,35 +1712,35 @@ fn persist_opencode_auth_json(raw_auth: &str) -> Result<(), AcpError> {
 // required`. The only advertised ACP auth method is a terminal device-code login
 // (`kimi acp --login`), which requires a Kimi *subscription* account.
 //
-// To support plain API-key users, codeg therefore manages BOTH halves:
-//   1. `config.toml` — a codeg-managed `[providers."codeg"]` + `[models."codeg-managed"]`
+// To support plain API-key users, iyw-claw therefore manages BOTH halves:
+//   1. `config.toml` — a iyw-claw-managed `[providers."iyw-claw"]` + `[models."iyw-claw-managed"]`
 //      + `default_model` block that ROUTES INFERENCE to the user's API key
 //      (any of the six native interface types: kimi / openai / openai_responses /
 //      anthropic / google-genai / vertexai).
-//   2. `credentials/kimi-code.json` — a synthetic gate token codeg seeds so the
+//   2. `credentials/kimi-code.json` — a synthetic gate token iyw-claw seeds so the
 //      ACP session opens. It is purely local: because `default_model` points at
 //      the API-key provider, the managed/OAuth endpoint is never called and this
-//      token is never transmitted. It carries a `_codeg_synthetic` marker so we
+//      token is never transmitted. It carries a `_iyw_claw_synthetic` marker so we
 //      only ever remove OUR token, never a real login the user performed.
 //
-// The codeg-managed block is keyed by the fixed names `codeg` / `codeg-managed`
+// The iyw-claw-managed block is keyed by the fixed names `iyw-claw` / `iyw-claw-managed`
 // so it is recognizable and removable without disturbing any provider/model the
 // user added by hand. The raw config.toml editor is the comment/format escape
 // hatch. A stale `KIMI_MODEL_*` env override would silently win over config.toml,
 // so every save also clears it.
 // ---------------------------------------------------------------------------
 
-const KIMI_MANAGED_PROVIDER: &str = "codeg";
-const KIMI_MANAGED_MODEL_ALIAS: &str = "codeg-managed";
+const KIMI_MANAGED_PROVIDER: &str = "iyw-claw";
+const KIMI_MANAGED_MODEL_ALIAS: &str = "iyw-claw-managed";
 const KIMI_MODEL_API_KEY_ENV: &str = "KIMI_MODEL_API_KEY";
 const KIMI_MODEL_BASE_URL_ENV: &str = "KIMI_MODEL_BASE_URL";
 const KIMI_MODEL_NAME_ENV: &str = "KIMI_MODEL_NAME";
-/// Sentinel `access_token` value (and `_codeg_synthetic` marker) identifying the
-/// gate token codeg seeds, so we never clobber a real OAuth login.
-const KIMI_SYNTHETIC_TOKEN_ACCESS: &str = "codeg-local-gate";
+/// Sentinel `access_token` value (and `_iyw_claw_synthetic` marker) identifying the
+/// gate token iyw-claw seeds, so we never clobber a real OAuth login.
+const KIMI_SYNTHETIC_TOKEN_ACCESS: &str = "iyw-claw-local-gate";
 /// Fallback context window for the managed model. Kimi's config schema **requires**
 /// `[models.<alias>].max_context_size` to be a positive integer — omitting it makes
-/// kimi discard the whole model block ("Ignored invalid config … models.codeg-managed"),
+/// kimi discard the whole model block ("Ignored invalid config … models.iyw-claw-managed"),
 /// which leaves `default_model` dangling and every prompt ends with no reply. So we
 /// always write one, defaulting to the kimi-k2 256K window when the user leaves it blank.
 const KIMI_DEFAULT_MAX_CONTEXT_SIZE: i64 = 262_144;
@@ -1767,21 +1779,21 @@ fn kimi_provider_key_env_var(interface_type: &str) -> Option<&'static str> {
     }
 }
 
-/// The resolved codeg-managed provider/model block to write into config.toml.
+/// The resolved iyw-claw-managed provider/model block to write into config.toml.
 struct KimiManagedSpec {
     interface_type: String,
     base_url: Option<String>,
     /// Direct `api_key` field (when the user picks "direct key" auth).
     api_key: Option<String>,
-    /// `[providers.codeg.env]` sub-table entries — the env-sub-table API key, or
+    /// `[providers.iyw-claw.env]` sub-table entries — the env-sub-table API key, or
     /// Vertex's `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION`.
     env: BTreeMap<String, String>,
     model: String,
     max_context_size: Option<i64>,
 }
 
-/// Upsert (`Some`) or remove (`None`) the codeg-managed `[providers.codeg]` +
-/// `[models.codeg-managed]` block in a parsed config.toml document, preserving
+/// Upsert (`Some`) or remove (`None`) the iyw-claw-managed `[providers.iyw-claw]` +
+/// `[models.iyw-claw-managed]` block in a parsed config.toml document, preserving
 /// every other section the user authored. Removal also resets `default_model`
 /// only when it points at our managed alias.
 fn apply_kimi_managed_block(
@@ -1805,10 +1817,20 @@ fn apply_kimi_managed_block(
                 "type".to_string(),
                 toml::Value::String(spec.interface_type.clone()),
             );
-            if let Some(url) = spec.base_url.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some(url) = spec
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
                 provider_table.insert("base_url".to_string(), toml::Value::String(url.to_string()));
             }
-            if let Some(key) = spec.api_key.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some(key) = spec
+                .api_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
                 provider_table.insert("api_key".to_string(), toml::Value::String(key.to_string()));
             }
             if !spec.env.is_empty() {
@@ -1861,8 +1883,9 @@ fn apply_kimi_managed_block(
             );
         }
         None => {
-            let providers_empty = if let Some(providers) =
-                table.get_mut("providers").and_then(toml::Value::as_table_mut)
+            let providers_empty = if let Some(providers) = table
+                .get_mut("providers")
+                .and_then(toml::Value::as_table_mut)
             {
                 providers.remove(KIMI_MANAGED_PROVIDER);
                 providers.is_empty()
@@ -1872,18 +1895,18 @@ fn apply_kimi_managed_block(
             if providers_empty {
                 table.remove("providers");
             }
-            let models_empty = if let Some(models) =
-                table.get_mut("models").and_then(toml::Value::as_table_mut)
-            {
-                models.remove(KIMI_MANAGED_MODEL_ALIAS);
-                models.is_empty()
-            } else {
-                false
-            };
+            let models_empty =
+                if let Some(models) = table.get_mut("models").and_then(toml::Value::as_table_mut) {
+                    models.remove(KIMI_MANAGED_MODEL_ALIAS);
+                    models.is_empty()
+                } else {
+                    false
+                };
             if models_empty {
                 table.remove("models");
             }
-            if table.get("default_model").and_then(toml::Value::as_str) == Some(KIMI_MANAGED_MODEL_ALIAS)
+            if table.get("default_model").and_then(toml::Value::as_str)
+                == Some(KIMI_MANAGED_MODEL_ALIAS)
             {
                 table.remove("default_model");
             }
@@ -1893,7 +1916,7 @@ fn apply_kimi_managed_block(
 }
 
 /// Read-modify-write `config.toml`, upserting (`Some`) or clearing (`None`) the
-/// codeg-managed block. A clear on a non-existent file is a no-op (never creates
+/// iyw-claw-managed block. A clear on a non-existent file is a no-op (never creates
 /// an empty file). Reuses the existing `toml` crate: data in other sections is
 /// preserved; comments/formatting are not (the raw editor covers that).
 fn mutate_kimi_config_toml(spec: Option<&KimiManagedSpec>) -> Result<(), AcpError> {
@@ -1933,15 +1956,17 @@ fn read_kimi_token() -> Option<serde_json::Value> {
     read_kimi_token_at(&kimi_code_credentials_token_path())
 }
 
-/// Whether a token document is codeg's synthetic gate token (vs a real OAuth
+/// Whether a token document is iyw-claw's synthetic gate token (vs a real OAuth
 /// login the user performed via `kimi login`). Matches either the sentinel
-/// `access_token` or the explicit `_codeg_synthetic` marker.
+/// `access_token` or the explicit `_iyw_claw_synthetic` marker.
 fn kimi_token_is_synthetic(token: &serde_json::Value) -> bool {
     token
-        .get("_codeg_synthetic")
+        .get("_iyw_claw_synthetic")
         .and_then(serde_json::Value::as_bool)
         == Some(true)
-        || token.get("access_token").and_then(serde_json::Value::as_str)
+        || token
+            .get("access_token")
+            .and_then(serde_json::Value::as_str)
             == Some(KIMI_SYNTHETIC_TOKEN_ACCESS)
 }
 
@@ -1957,17 +1982,19 @@ fn kimi_token_has_access(token: &serde_json::Value) -> bool {
 
 /// Whether any usable credential (real or synthetic) is present.
 fn kimi_credential_present() -> bool {
-    read_kimi_token().map(|t| kimi_token_has_access(&t)).unwrap_or(false)
+    read_kimi_token()
+        .map(|t| kimi_token_has_access(&t))
+        .unwrap_or(false)
 }
 
-/// Whether the present credential is codeg's synthetic gate token.
+/// Whether the present credential is iyw-claw's synthetic gate token.
 fn kimi_credential_is_synthetic() -> bool {
     read_kimi_token()
         .map(|t| kimi_token_is_synthetic(&t))
         .unwrap_or(false)
 }
 
-/// Seed codeg's synthetic gate token at `path` so `kimi acp` treats the session
+/// Seed iyw-claw's synthetic gate token at `path` so `kimi acp` treats the session
 /// as authenticated. No-op (preserves) when a REAL OAuth login token is already
 /// present — that already satisfies the gate and must never be clobbered.
 fn seed_kimi_synthetic_credential_at(path: &Path) -> Result<(), AcpError> {
@@ -1983,7 +2010,7 @@ fn seed_kimi_synthetic_credential_at(path: &Path) -> Result<(), AcpError> {
         "expires_in": 9_999_999i64,
         "scope": "",
         "token_type": "Bearer",
-        "_codeg_synthetic": true,
+        "_iyw_claw_synthetic": true,
     });
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
@@ -2001,7 +2028,7 @@ fn seed_kimi_synthetic_credential() -> Result<(), AcpError> {
     seed_kimi_synthetic_credential_at(&kimi_code_credentials_token_path())
 }
 
-/// Remove the gate token at `path` ONLY when it is codeg's synthetic one —
+/// Remove the gate token at `path` ONLY when it is iyw-claw's synthetic one —
 /// leaving any real OAuth login the user performed untouched.
 fn remove_kimi_synthetic_credential_if_ours_at(path: &Path) -> Result<(), AcpError> {
     match read_kimi_token_at(path) {
@@ -2015,7 +2042,7 @@ fn remove_kimi_synthetic_credential_if_ours() -> Result<(), AcpError> {
     remove_kimi_synthetic_credential_if_ours_at(&kimi_code_credentials_token_path())
 }
 
-/// Project the codeg-managed config.toml block into a flat JSON object for the
+/// Project the iyw-claw-managed config.toml block into a flat JSON object for the
 /// settings panel, plus the raw file text for the advanced editor. Uses keys
 /// (`baseUrl` / `key` / `modelId`, never `apiBaseUrl` / `apiKey` / `model` /
 /// `env`) that do NOT match `AgentRuntimeConfig`, so `build_runtime_env_from_setting`
@@ -2055,33 +2082,48 @@ fn project_kimi_managed_config(value: &toml::Value) -> serde_json::Map<String, s
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            merged.insert("key".to_string(), serde_json::Value::String(key.to_string()));
+            merged.insert(
+                "key".to_string(),
+                serde_json::Value::String(key.to_string()),
+            );
             merged.insert(
                 "authType".to_string(),
                 serde_json::Value::String("api_key".to_string()),
             );
         }
         if let Some(env) = provider.get("env").and_then(toml::Value::as_table) {
-            if let Some(project) = env.get("GOOGLE_CLOUD_PROJECT").and_then(toml::Value::as_str) {
+            if let Some(project) = env
+                .get("GOOGLE_CLOUD_PROJECT")
+                .and_then(toml::Value::as_str)
+            {
                 merged.insert(
                     "vertexProject".to_string(),
                     serde_json::Value::String(project.to_string()),
                 );
             }
-            if let Some(location) = env.get("GOOGLE_CLOUD_LOCATION").and_then(toml::Value::as_str) {
+            if let Some(location) = env
+                .get("GOOGLE_CLOUD_LOCATION")
+                .and_then(toml::Value::as_str)
+            {
                 merged.insert(
                     "vertexLocation".to_string(),
                     serde_json::Value::String(location.to_string()),
                 );
             }
-            if let Some(var) = interface_type.as_deref().and_then(kimi_provider_key_env_var) {
+            if let Some(var) = interface_type
+                .as_deref()
+                .and_then(kimi_provider_key_env_var)
+            {
                 if let Some(key) = env
                     .get(var)
                     .and_then(toml::Value::as_str)
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                 {
-                    merged.insert("key".to_string(), serde_json::Value::String(key.to_string()));
+                    merged.insert(
+                        "key".to_string(),
+                        serde_json::Value::String(key.to_string()),
+                    );
                     merged.insert(
                         "authType".to_string(),
                         serde_json::Value::String("env".to_string()),
@@ -2106,7 +2148,10 @@ fn project_kimi_managed_config(value: &toml::Value) -> serde_json::Map<String, s
                 serde_json::Value::String(model_id.to_string()),
             );
         }
-        if let Some(ctx) = model.get("max_context_size").and_then(toml::Value::as_integer) {
+        if let Some(ctx) = model
+            .get("max_context_size")
+            .and_then(toml::Value::as_integer)
+        {
             merged.insert(
                 "maxContextSize".to_string(),
                 serde_json::Value::Number(ctx.into()),
@@ -2115,22 +2160,31 @@ fn project_kimi_managed_config(value: &toml::Value) -> serde_json::Map<String, s
     }
 
     let has_managed = merged.contains_key("interfaceType");
-    merged.insert("hasManagedBlock".to_string(), serde_json::Value::Bool(has_managed));
+    merged.insert(
+        "hasManagedBlock".to_string(),
+        serde_json::Value::Bool(has_managed),
+    );
     merged
 }
 
 fn load_kimi_code_config_json() -> Option<String> {
     let raw = fs::read_to_string(kimi_code_config_toml_path()).ok();
-    let mut merged = match raw.as_deref().and_then(|text| text.parse::<toml::Value>().ok()) {
+    let mut merged = match raw
+        .as_deref()
+        .and_then(|text| text.parse::<toml::Value>().ok())
+    {
         Some(value) => project_kimi_managed_config(&value),
         None => {
             let mut m = serde_json::Map::new();
-            m.insert("hasManagedBlock".to_string(), serde_json::Value::Bool(false));
+            m.insert(
+                "hasManagedBlock".to_string(),
+                serde_json::Value::Bool(false),
+            );
             m
         }
     };
     // Surface the gate-credential state so the panel can show whether `kimi acp`
-    // is currently authenticated and whether that came from codeg's synthetic
+    // is currently authenticated and whether that came from iyw-claw's synthetic
     // token or a real OAuth login.
     merged.insert(
         "credentialPresent".to_string(),
@@ -2147,7 +2201,7 @@ fn load_kimi_code_config_json() -> Option<String> {
 }
 
 /// Structured Kimi Code config update from the settings UI. `mode` is one of:
-/// `apikey` — write the codeg-managed `config.toml` provider/model block AND seed
+/// `apikey` — write the iyw-claw-managed `config.toml` provider/model block AND seed
 /// the synthetic gate token, so the API key actually authenticates `kimi acp`;
 /// `login` — clear the managed block + remove our synthetic token so a real OAuth
 /// login governs; `raw` — write a verbatim config.toml then seed the gate token.
@@ -2169,7 +2223,11 @@ pub(crate) struct KimiCodeConfigUpdate {
 
 /// Validate + resolve a `native`-mode update into the managed block to write.
 fn build_kimi_managed_spec(update: &KimiCodeConfigUpdate) -> Result<KimiManagedSpec, AcpError> {
-    let interface_type = update.interface_type.as_deref().map(str::trim).unwrap_or("");
+    let interface_type = update
+        .interface_type
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("");
     if !KIMI_INTERFACE_TYPES.contains(&interface_type) {
         return Err(AcpError::protocol(format!(
             "unknown kimi interface type: '{interface_type}'"
@@ -2190,7 +2248,9 @@ fn build_kimi_managed_spec(update: &KimiCodeConfigUpdate) -> Result<KimiManagedS
         .map(str::to_string);
     if let Some(url) = &base_url {
         if url.contains(['\n', '\r']) {
-            return Err(AcpError::protocol("kimi base url must not contain newlines"));
+            return Err(AcpError::protocol(
+                "kimi base url must not contain newlines",
+            ));
         }
     }
 
@@ -2252,7 +2312,7 @@ fn build_kimi_managed_spec(update: &KimiCodeConfigUpdate) -> Result<KimiManagedS
 /// Clear any `KIMI_MODEL_*` env override from the DB `env_json`, preserving every
 /// other env key and the agent's enabled/provider state. `kimi acp` reads that
 /// env family BEFORE config.toml, so a stale entry would silently override the
-/// codeg-managed provider; every save clears it to keep config.toml authoritative.
+/// iyw-claw-managed provider; every save clears it to keep config.toml authoritative.
 /// Ensures the settings row exists first. No-op fast path when nothing to clear.
 async fn clear_kimi_model_env(db: &AppDatabase) -> Result<(), AcpError> {
     let default = agent_setting_service::AgentDefaultInput {
@@ -2329,7 +2389,9 @@ pub(crate) async fn acp_update_kimi_code_config_core(
             (FileAction::Raw(raw.to_string()), CredentialAction::Seed)
         }
         other => {
-            return Err(AcpError::protocol(format!("unknown kimi config mode: '{other}'")));
+            return Err(AcpError::protocol(format!(
+                "unknown kimi config mode: '{other}'"
+            )));
         }
     };
 
@@ -2441,7 +2503,7 @@ pub(crate) async fn acp_fetch_kimi_models_core(
 // model selection from `~/.pi/agent/settings.json` (`defaultProvider`,
 // `defaultModel`, `defaultThinkingLevel` — plain strings) and its API keys from
 // `~/.pi/agent/auth.json` (`{ "<provider>": { "type": "api_key", "key": ... } }`).
-// codeg manages both NATIVE files directly (merge-writes that preserve every
+// iyw-claw manages both NATIVE files directly (merge-writes that preserve every
 // other key), mirroring how it manages Codex's `auth.json`/`config.toml`. The
 // agent dir honors `PI_CODING_AGENT_DIR` so a custom pi install can be targeted.
 // ---------------------------------------------------------------------------
@@ -2474,7 +2536,7 @@ fn pi_models_json_path() -> PathBuf {
 /// Like [`pi_agent_dir`], but resolves `PI_CODING_AGENT_DIR` from a per-agent
 /// `runtime_env` map first (the BYO-pi override path) before falling back to the
 /// process env / `~/.pi/agent`. Launch-time trust seeding only has the per-agent
-/// env (the override never lands in codeg's own process env), so it must consult
+/// env (the override never lands in iyw-claw's own process env), so it must consult
 /// `runtime_env` to target the same agent dir pi-acp will spawn pi against.
 fn pi_agent_dir_for_env(runtime_env: &BTreeMap<String, String>) -> PathBuf {
     match runtime_env
@@ -2491,12 +2553,12 @@ fn pi_agent_dir_for_env(runtime_env: &BTreeMap<String, String>) -> PathBuf {
 /// Absent or any value other than `"0"` ⇒ enabled (default on); `"0"` disables.
 pub(crate) const PI_TRUST_WORKSPACE_ENV: &str = "PI_ACP_TRUST_WORKSPACE";
 
-/// Seed pi's `trust.json` so the workspace codeg is launching pi into is trusted.
+/// Seed pi's `trust.json` so the workspace iyw-claw is launching pi into is trusted.
 ///
 /// pi stores trust as a flat `{ "<canonical-dir>": true|false|null }` map and the
 /// nearest-ancestor entry decides whether it loads a project's local `.pi/*`
 /// config and `.agents/skills`. This gates ONLY config/skill loading, never tool
-/// execution — codeg has already authorized full execution in `cwd` by connecting
+/// execution — iyw-claw has already authorized full execution in `cwd` by connecting
 /// an agent there, so trusting the same folder for config loading is consistent
 /// and removes a redundant, mid-connection trust prompt.
 ///
@@ -2529,7 +2591,7 @@ pub(crate) fn seed_pi_workspace_trust(cwd: &Path, runtime_env: &BTreeMap<String,
 
     // Read pi's file strictly: a missing file is fine (we create one), but a file
     // that exists yet doesn't parse to a JSON object must NOT be overwritten —
-    // that would destroy decisions codeg can't see.
+    // that would destroy decisions iyw-claw can't see.
     let mut obj = match fs::read_to_string(&path) {
         Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
             Ok(serde_json::Value::Object(map)) => map,
@@ -2576,7 +2638,7 @@ pub(crate) struct PiConfigUpdate {
 
 /// Read a JSON file into an owned object map, returning an empty map when the
 /// file is absent, unreadable, or does not parse to a JSON object. Pi's native
-/// files are small and codeg-owned; corruption shouldn't abort a save (we
+/// files are small and iyw-claw-owned; corruption shouldn't abort a save (we
 /// re-author the managed keys and preserve whatever else parses).
 fn read_json_object_or_empty(path: &Path) -> serde_json::Map<String, serde_json::Value> {
     fs::read_to_string(path)
@@ -2936,7 +2998,7 @@ fn probe_pi_version(resolved: &Path) -> Option<String> {
 //
 // Hermes self-manages credentials in `~/.hermes/.env` (secrets) and general
 // settings in `~/.hermes/config.yaml` (the `model:` section), reading them with
-// its own runtime resolver. codeg manages those two files directly — mirroring
+// its own runtime resolver. iyw-claw manages those two files directly — mirroring
 // how it manages Codex's `auth.json` + `config.toml` — rather than injecting
 // process env. The provider choice drives the linkage: it selects which `.env`
 // var holds the API key and which `model.provider` / `model.base_url` go into
@@ -2964,14 +3026,14 @@ struct HermesProvider {
     key_env_var: &'static str,
     needs_base_url: bool,
     /// The `.env` variable Hermes reads for a user-supplied endpoint URL. When
-    /// set (only `openai-api` today), codeg mirrors the structured base URL into
+    /// set (only `openai-api` today), iyw-claw mirrors the structured base URL into
     /// both this var and config.yaml `model.base_url`, because Hermes' own
     /// resolution paths disagree on which one wins — keeping them in sync makes
     /// the saved endpoint authoritative under either path.
     base_url_env_var: &'static str,
 }
 
-/// Curated subset of Hermes providers codeg edits via structured fields, keyed
+/// Curated subset of Hermes providers iyw-claw edits via structured fields, keyed
 /// by the canonical `model.provider` id and `.env` key var from Hermes'
 /// `hermes_cli/auth.py` PROVIDER_REGISTRY (the single source of truth its own
 /// setup uses). The long tail and any exotic credential layout go through the
@@ -3467,8 +3529,10 @@ fn shell_quote_arg_for(arg: &str, windows: bool) -> String {
     } else {
         "[](){}'\"$&;|<>*?`\\!#~"
     };
-    let needs_quoting =
-        arg.is_empty() || arg.chars().any(|c| c.is_whitespace() || special.contains(c));
+    let needs_quoting = arg.is_empty()
+        || arg
+            .chars()
+            .any(|c| c.is_whitespace() || special.contains(c));
     if !needs_quoting {
         return arg.to_string();
     }
@@ -3679,7 +3743,7 @@ pub(crate) struct HermesConfigUpdate {
 fn hermes_skip_chmod() -> bool {
     // Match Hermes' Python truthiness (`os.environ.get(...)` — an empty value is
     // falsy): only a NON-EMPTY opt-out enables skip, so a blank `HERMES_SKIP_CHMOD=`
-    // does not (and codeg still performs the 0644→0600 repair Hermes would).
+    // does not (and iyw-claw still performs the 0644→0600 repair Hermes would).
     let truthy = |key: &str| std::env::var(key).map(|v| !v.is_empty()).unwrap_or(false);
     if truthy("HERMES_CONTAINER")
         || truthy("HERMES_SKIP_CHMOD")
@@ -3708,7 +3772,7 @@ fn parse_hermes_home_mode(raw: Option<&str>) -> u32 {
 }
 
 /// Create the Hermes home directory if needed. On Unix, tighten it to
-/// `HERMES_HOME_MODE` (or `0700`) **only when codeg just created it** and Hermes
+/// `HERMES_HOME_MODE` (or `0700`) **only when iyw-claw just created it** and Hermes
 /// itself would chmod (not a container/managed deployment). An existing
 /// `HERMES_HOME` is left untouched — it may be a NixOS-managed `0750`, a
 /// UID-mapped Docker volume, or otherwise deliberately group-accessible, and
@@ -3733,7 +3797,7 @@ pub(crate) fn ensure_hermes_home_secure(home: &Path) -> Result<(), AcpError> {
 /// A brand-new secret — a path whose resolved target does not exist yet, whether
 /// `path` itself is absent or a symlink to a missing target — is created
 /// owner-only (`0600` on Unix) so it is never world-readable under the process
-/// umask, the one real exposure for a first-time codeg-driven setup. An EXISTING
+/// umask, the one real exposure for a first-time iyw-claw-driven setup. An EXISTING
 /// target is written through in place, which preserves everything that identifies
 /// it: its inode, mode, owner/group, POSIX ACL and xattrs, and any symlink (a
 /// dotfile-manager or secret-manager `~/.hermes/.env` keeps pointing at its real
@@ -3780,7 +3844,7 @@ pub(crate) fn write_hermes_secret_file(
     {
         use std::os::unix::fs::PermissionsExt;
         // Repair an accidentally WORLD-accessible secret (e.g. a `0644` left by an
-        // older codeg build or by the pre-fix dangling-symlink path) back to
+        // older iyw-claw build or by the pre-fix dangling-symlink path) back to
         // owner-only `0600`: a world-readable API key is a leak, and tightening it
         // to `0640` would still expose it to a broad group like `staff`. A file
         // with no "other" bits — including a deliberately group-shared managed
@@ -3886,7 +3950,7 @@ fn plan_hermes_write(
         // `custom` provider IS handled (its key/endpoint live inline in
         // config.yaml — see `hermes_inlines_api_key`), but unknown ids (the
         // legacy `openai` pseudo-provider, user-defined `custom:` slugs, or
-        // anything outside the table) have no credential layout codeg can map —
+        // anything outside the table) have no credential layout iyw-claw can map —
         // reject them and steer the user to the raw config.yaml editor, which
         // stays the escape hatch.
         let meta = hermes_provider(provider).ok_or_else(|| {
@@ -3997,7 +4061,7 @@ fn base_url_eq(a: &str, b: &str) -> bool {
 /// var, so auxiliary tasks (title generation, compression, …) silently fall
 /// back to the provider's registry-default host and 401 against the wrong
 /// endpoint. The settings panel already mirrors both on save; this covers
-/// configs authored outside codeg.
+/// configs authored outside iyw-claw.
 ///
 /// Scope is the single ACTIVE provider's own base-URL var, never another
 /// provider's. Returns `Some((env_var, value))` to write — `value` is the
@@ -4057,7 +4121,7 @@ fn plan_hermes_base_url_reconcile(
 /// used VERBATIM (`Path(val)` — Hermes does NOT expand `~`); a blank value falls
 /// back to the default `~/.hermes` (it does NOT re-inherit the parent). With no
 /// override the child inherits the parent env, so defer to `hermes_home_dir()`
-/// (codeg's existing resolution, shared with the settings panel).
+/// (iyw-claw's existing resolution, shared with the settings panel).
 fn hermes_home_for_launch(runtime_env: &BTreeMap<String, String>) -> PathBuf {
     match runtime_env.get("HERMES_HOME") {
         Some(raw) => {
@@ -4336,13 +4400,13 @@ pub(crate) fn skill_storage_spec(agent_type: AgentType) -> Option<SkillStorageSp
         AgentType::KimiCode => Some(SkillStorageSpec {
             kind: SkillStorageKind::SkillDirectoryOnly,
             global_dirs: vec![
-                crate::parsers::kimi_code::resolve_kimi_code_home_dir().join("skills"),
+                crate::parsers::kimi_code::resolve_kimi_code_home_dir().join("skills")
             ],
             project_rel_dirs: vec![".kimi-code/skills"],
         }),
         // pi auto-loads skills from `~/.pi/agent/skills` and the shared
         // `~/.agents/skills` store (both global), plus project-local
-        // `.pi/skills` / `.agents/skills` once the workspace is trusted (codeg
+        // `.pi/skills` / `.agents/skills` once the workspace is trusted (iyw-claw
         // seeds that trust on connect). `~/.pi/agent/skills` additionally
         // accepts standalone `.md` files, so this mirrors Codex's spec shape.
         // The pi-native dir comes first so toggling pi links into its own dir
@@ -4551,7 +4615,7 @@ fn skill_content_path(layout: AgentSkillLayout, skill_path: &Path) -> PathBuf {
 /// recursively and files are unlinked. This prevents `remove_dir_all` from
 /// accidentally wiping the contents of a symlink target — which is critical
 /// for the Experts feature where agent skill dirs may contain symlinks into
-/// the central `~/.codeg/skills/` store.
+/// the central `~/.iyw-claw/skills/` store.
 pub(crate) fn remove_skill_entry(path: &Path) -> std::io::Result<()> {
     let meta = fs::symlink_metadata(path)?;
     let file_type = meta.file_type();
@@ -4745,7 +4809,11 @@ fn agent_env_keys(agent_type: AgentType) -> (&'static str, &'static str, &'stati
         // Kimi Code does NOT read shell KIMI_API_KEY/OPENAI_API_KEY; the only
         // non-interactive credential path is the `KIMI_MODEL_*` family, which
         // also takes priority over `~/.kimi-code/config.toml`.
-        AgentType::KimiCode => ("KIMI_MODEL_BASE_URL", "KIMI_MODEL_API_KEY", "KIMI_MODEL_NAME"),
+        AgentType::KimiCode => (
+            "KIMI_MODEL_BASE_URL",
+            "KIMI_MODEL_API_KEY",
+            "KIMI_MODEL_NAME",
+        ),
         _ => ("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL"),
     }
 }
@@ -4970,7 +5038,7 @@ fn cascade_update_agent_config(
         }
         AgentType::Hermes => {
             // Hermes self-manages credentials in ~/.hermes/.env via
-            // `hermes model` / `hermes setup`; codeg writes no provider creds.
+            // `hermes model` / `hermes setup`; iyw-claw writes no provider creds.
         }
         AgentType::Codex => {
             let auth_path = codex_auth_json_path();
@@ -5010,7 +5078,7 @@ fn cascade_update_agent_config(
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
-                .unwrap_or_else(|| "codeg".to_string());
+                .unwrap_or_else(|| "iyw-claw".to_string());
             table.insert(
                 "model_provider".to_string(),
                 toml::Value::String(provider_name.clone()),
@@ -5042,8 +5110,11 @@ fn cascade_update_agent_config(
                     toml::Value::String(api_url.to_string()),
                 );
             }
-            if provider_name == "codeg" {
-                provider_table.insert("name".to_string(), toml::Value::String("codeg".to_string()));
+            if provider_name == "iyw-claw" {
+                provider_table.insert(
+                    "name".to_string(),
+                    toml::Value::String("iyw-claw".to_string()),
+                );
                 provider_table.insert(
                     "wire_api".to_string(),
                     toml::Value::String("responses".to_string()),
@@ -5362,7 +5433,14 @@ pub(crate) async fn acp_update_agent_env_and_refresh(
     emitter: &EventEmitter,
 ) -> Result<usize, AcpError> {
     acp_update_agent_env_core(agent_type, enabled, env, model_provider_id, db, emitter).await?;
-    Ok(refresh_config_staleness(manager, db, data_dir, &[agent_type], ConfigStaleKind::AgentConfig).await)
+    Ok(refresh_config_staleness(
+        manager,
+        db,
+        data_dir,
+        &[agent_type],
+        ConfigStaleKind::AgentConfig,
+    )
+    .await)
 }
 
 /// `acp_update_agent_preferences_core` followed by a staleness refresh. Shared
@@ -5394,7 +5472,14 @@ pub(crate) async fn acp_update_agent_preferences_and_refresh(
         emitter,
     )
     .await?;
-    Ok(refresh_config_staleness(manager, db, data_dir, &[agent_type], ConfigStaleKind::AgentConfig).await)
+    Ok(refresh_config_staleness(
+        manager,
+        db,
+        data_dir,
+        &[agent_type],
+        ConfigStaleKind::AgentConfig,
+    )
+    .await)
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -5411,7 +5496,7 @@ pub async fn acp_connect(
     app_handle: tauri::AppHandle,
     window: tauri::WebviewWindow,
 ) -> Result<String, AcpError> {
-    // Resolve through the effective data dir so a custom `CODEG_DATA_DIR`
+    // Resolve through the effective data dir so a custom `IYW_CLAW_DATA_DIR`
     // reaches the credential helper script the agent's git subprocess
     // will execute. `acp_connect` may be called before the app data dir
     // exists on disk (first launch); fall back to a sentinel that the
@@ -5496,7 +5581,7 @@ pub async fn acp_set_config_option(
 /// read whatever `SessionConfigOptions` / `SessionModes` the agent advertises,
 /// and tear it down. The returned snapshot drives the delegation-settings UI
 /// so the user picks from the exact option set the agent will accept when
-/// codeg-mcp later spawns a subagent.
+/// iyw-claw-mcp later spawns a subagent.
 ///
 /// Does NOT touch the chat-side `selectorsCache`, `localStorage` preferences,
 /// or any active connection state — see `ConnectionManager::probe_agent_options`
@@ -5899,7 +5984,7 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
         // Hermes is self-managed: project its own ~/.hermes/.env + config.yaml
         // into config_json (read-only) and attach the raw config.yaml for the
         // advanced editor. The env-merge block above is skipped because
-        // `load_agent_local_config_json` returns None for Hermes (no codeg
+        // `load_agent_local_config_json` returns None for Hermes (no iyw-claw
         // local config path), so no Hermes credential leaks into process env.
         let (config_json, hermes_config_yaml) = if agent_type == AgentType::Hermes {
             (
@@ -6024,10 +6109,7 @@ pub(crate) async fn acp_update_agent_preferences_core(
     }
 
     if agent_type == AgentType::OpenCode {
-        persist_opencode_native_config(
-            opencode_auth_json.as_deref(),
-            config_json.as_deref(),
-        )?;
+        persist_opencode_native_config(opencode_auth_json.as_deref(), config_json.as_deref())?;
         emit_acp_agents_updated(emitter, "preferences_updated", Some(agent_type));
         return Ok(());
     }
@@ -6168,7 +6250,11 @@ pub(crate) async fn acp_update_agent_env_core(
         // below; Gemini's analogous config.env gap is pre-existing and out of
         // scope here. Only Claude needs the local-config cascade on bind.
         if agent_type == AgentType::ClaudeCode {
-            claude_local_cascade = Some((provider.api_url.clone(), provider.api_key.clone(), model_env));
+            claude_local_cascade = Some((
+                provider.api_url.clone(),
+                provider.api_key.clone(),
+                model_env,
+            ));
         }
     }
 
@@ -6192,7 +6278,9 @@ pub(crate) async fn acp_update_agent_env_core(
             &model_env,
             &CodexModelAction::NoOp,
         ) {
-            eprintln!("[acp_update_agent_env] cascade_update_agent_config({agent_type}) failed: {e}");
+            eprintln!(
+                "[acp_update_agent_env] cascade_update_agent_config({agent_type}) failed: {e}"
+            );
         }
     }
 
@@ -6339,10 +6427,7 @@ pub(crate) async fn acp_update_agent_config_core(
     }
 
     if agent_type == AgentType::OpenCode {
-        persist_opencode_native_config(
-            opencode_auth_json.as_deref(),
-            config_json.as_deref(),
-        )?;
+        persist_opencode_native_config(opencode_auth_json.as_deref(), config_json.as_deref())?;
         emit_acp_agents_updated(emitter, "config_updated", Some(agent_type));
         return Ok(());
     }
@@ -6392,7 +6477,14 @@ pub(crate) async fn acp_update_agent_config_and_refresh(
         emitter,
     )
     .await?;
-    Ok(refresh_config_staleness(manager, db, data_dir, &[agent_type], ConfigStaleKind::AgentConfig).await)
+    Ok(refresh_config_staleness(
+        manager,
+        db,
+        data_dir,
+        &[agent_type],
+        ConfigStaleKind::AgentConfig,
+    )
+    .await)
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -6606,9 +6698,8 @@ fn open_external_terminal_impl(command: &str, cwd: Option<&str>) -> Result<(), A
         // literal (backslashes first, then double-quotes).
         let shell_cmd = format!("cd {} && {}", shell_single_quote(&dir), command);
         let escaped = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
-        let osa = format!(
-            "tell application \"Terminal\"\nactivate\ndo script \"{escaped}\"\nend tell"
-        );
+        let osa =
+            format!("tell application \"Terminal\"\nactivate\ndo script \"{escaped}\"\nend tell");
         Command::new("osascript")
             .arg("-e")
             .arg(osa)
@@ -6657,7 +6748,9 @@ fn open_external_terminal_impl(command: &str, cwd: Option<&str>) -> Result<(), A
     }
 
     #[allow(unreachable_code)]
-    Err(AcpError::protocol("unsupported platform for terminal launch"))
+    Err(AcpError::protocol(
+        "unsupported platform for terminal launch",
+    ))
 }
 
 /// Quote a string for a single-quoted POSIX shell argument.
@@ -6794,7 +6887,7 @@ pub async fn acp_download_agent_binary(
     acp_download_agent_binary_core(agent_type, version, task_id, &emitter).await
 }
 
-/// Provision ONLY the uv toolchain (uvx) into codeg's cache — independent of
+/// Provision ONLY the uv toolchain (uvx) into iyw-claw's cache — independent of
 /// installing any `Uvx` agent's package. Streams progress over the shared
 /// agent-install event stream so the Settings page shows a live log. Backs the
 /// uv preflight check's "Install uv" fix. After this succeeds,
@@ -6845,10 +6938,7 @@ pub(crate) async fn acp_install_uv_tool_core(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn acp_install_uv_tool(
-    task_id: String,
-    app: tauri::AppHandle,
-) -> Result<(), AcpError> {
+pub async fn acp_install_uv_tool(task_id: String, app: tauri::AppHandle) -> Result<(), AcpError> {
     let emitter = EventEmitter::Tauri(app);
     acp_install_uv_tool_core(task_id, &emitter).await
 }
@@ -7203,10 +7293,7 @@ pub(crate) async fn acp_install_pi_binary_core(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn acp_install_pi_binary(
-    task_id: String,
-    app: tauri::AppHandle,
-) -> Result<(), AcpError> {
+pub async fn acp_install_pi_binary(task_id: String, app: tauri::AppHandle) -> Result<(), AcpError> {
     let emitter = EventEmitter::Tauri(app);
     acp_install_pi_binary_core(task_id, &emitter).await
 }
@@ -8026,11 +8113,11 @@ mod tests {
         // endpoint is unchanged. codex-acp 1.0.1 reads `model_provider` from
         // config.toml directly, so it is no longer pinned into the launch env
         // where the fingerprint previously caught it incidentally.
-        let codeg = r#"
+        let iyw_claw = r#"
 model = "gpt-5-codex"
-model_provider = "codeg"
+model_provider = "iyw-claw"
 
-[model_providers.codeg]
+[model_providers.iyw-claw]
 base_url = "https://gateway.example/v1"
 wire_api = "responses"
 
@@ -8038,36 +8125,36 @@ wire_api = "responses"
 base_url = "https://gateway.example/v1"
 wire_api = "chat"
 "#;
-        let other = codeg.replace(
-            "model_provider = \"codeg\"",
+        let other = iyw_claw.replace(
+            "model_provider = \"iyw-claw\"",
             "model_provider = \"other\"",
         );
 
-        let p_codeg = codex_config_projection_from_toml(codeg);
+        let p_iyw_claw = codex_config_projection_from_toml(iyw_claw);
         let p_other = codex_config_projection_from_toml(&other);
 
         assert_eq!(
-            p_codeg.get("modelProvider").and_then(|v| v.as_str()),
-            Some("codeg")
+            p_iyw_claw.get("modelProvider").and_then(|v| v.as_str()),
+            Some("iyw-claw")
         );
         assert_eq!(
             p_other.get("modelProvider").and_then(|v| v.as_str()),
             Some("other")
         );
         // Same endpoint resolved for both providers...
-        assert_eq!(p_codeg.get("apiBaseUrl"), p_other.get("apiBaseUrl"));
+        assert_eq!(p_iyw_claw.get("apiBaseUrl"), p_other.get("apiBaseUrl"));
         // ...yet the projections differ, so the launch-config fingerprint does too.
-        assert_ne!(p_codeg, p_other);
+        assert_ne!(p_iyw_claw, p_other);
 
         // Deterministic for identical input.
-        assert_eq!(codex_config_projection_from_toml(codeg), p_codeg);
+        assert_eq!(codex_config_projection_from_toml(iyw_claw), p_iyw_claw);
 
         // `modelProvider` must NOT be an AgentRuntimeConfig key, or
         // build_runtime_env_from_setting would mirror it back into a runtime env
         // var (reintroducing the very MODEL_PROVIDER pin we removed).
         assert!(
             serde_json::from_value::<AgentRuntimeConfig>(serde_json::Value::Object(
-                p_codeg.clone()
+                p_iyw_claw.clone()
             ))
             .is_ok()
         );
@@ -8077,22 +8164,25 @@ wire_api = "chat"
         // behavior; the bare `model` still projects.
         let bare = codex_config_projection_from_toml("model = \"gpt-5-codex\"\n");
         assert!(!bare.contains_key("modelProvider"));
-        assert_eq!(bare.get("model").and_then(|v| v.as_str()), Some("gpt-5-codex"));
+        assert_eq!(
+            bare.get("model").and_then(|v| v.as_str()),
+            Some("gpt-5-codex")
+        );
 
         // Malformed TOML must not panic — yields an empty projection.
         assert!(codex_config_projection_from_toml("model_provider = ").is_empty());
     }
 
     fn unique_test_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("codeg-acp-{name}-{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("iyw-claw-acp-{name}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create test directory");
         dir
     }
 
     #[test]
     fn kimi_code_skill_storage_spec_targets_kimi_home() {
-        let spec =
-            skill_storage_spec(AgentType::KimiCode).expect("Kimi Code supports skills");
+        let spec = skill_storage_spec(AgentType::KimiCode).expect("Kimi Code supports skills");
         assert_eq!(spec.kind, SkillStorageKind::SkillDirectoryOnly);
         assert_eq!(spec.project_rel_dirs, vec![".kimi-code/skills"]);
         let expected = crate::parsers::kimi_code::resolve_kimi_code_home_dir().join("skills");
@@ -8137,7 +8227,10 @@ wire_api = "chat"
             out.get("ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"),
             Some(&Some("via gateway".to_string()))
         );
-        assert_eq!(out.get("ANTHROPIC_MODEL"), Some(&Some("gw/opus".to_string())));
+        assert_eq!(
+            out.get("ANTHROPIC_MODEL"),
+            Some(&Some("gw/opus".to_string()))
+        );
 
         // Omitted custom keys are authoritative clears (None => remove from env),
         // matching the five model fields' overwrite semantics.
@@ -8632,8 +8725,14 @@ wire_api = "chat"
     fn parse_env_file_ignores_comments_and_strips_quotes() {
         let raw = "# comment\n\nexport OPENROUTER_API_KEY=\"sk-or-123\"\nOPENAI_BASE_URL='https://x.test/v1'\nBARE=plain\n=novalue\n";
         let map = parse_env_file(raw);
-        assert_eq!(map.get("OPENROUTER_API_KEY").map(String::as_str), Some("sk-or-123"));
-        assert_eq!(map.get("OPENAI_BASE_URL").map(String::as_str), Some("https://x.test/v1"));
+        assert_eq!(
+            map.get("OPENROUTER_API_KEY").map(String::as_str),
+            Some("sk-or-123")
+        );
+        assert_eq!(
+            map.get("OPENAI_BASE_URL").map(String::as_str),
+            Some("https://x.test/v1")
+        );
         assert_eq!(map.get("BARE").map(String::as_str), Some("plain"));
         assert!(!map.contains_key(""));
     }
@@ -8643,9 +8742,18 @@ wire_api = "chat"
         let existing = "# secrets\nOPENROUTER_API_KEY=old\n\nOTHER_TOKEN=keep\n";
         let out = patch_env_text(existing, &[("OPENROUTER_API_KEY", "new")]);
         assert!(out.contains("# secrets"), "comment preserved: {out}");
-        assert!(out.contains("OPENROUTER_API_KEY=new"), "key replaced: {out}");
-        assert!(!out.contains("OPENROUTER_API_KEY=old"), "old value gone: {out}");
-        assert!(out.contains("OTHER_TOKEN=keep"), "unrelated key preserved: {out}");
+        assert!(
+            out.contains("OPENROUTER_API_KEY=new"),
+            "key replaced: {out}"
+        );
+        assert!(
+            !out.contains("OPENROUTER_API_KEY=old"),
+            "old value gone: {out}"
+        );
+        assert!(
+            out.contains("OTHER_TOKEN=keep"),
+            "unrelated key preserved: {out}"
+        );
         // Replacement happens in place, not appended at the end.
         assert_eq!(out.matches("OPENROUTER_API_KEY=").count(), 1);
         assert!(out.ends_with('\n'));
@@ -8657,13 +8765,22 @@ wire_api = "chat"
         // last-occurrence-wins, so a stale second line would shadow the update.
         let existing = "OPENAI_API_KEY=old1\nKEEP=1\nOPENAI_API_KEY=old2\n";
         let out = patch_env_text(existing, &[("OPENAI_API_KEY", "new")]);
-        assert_eq!(out.matches("OPENAI_API_KEY=").count(), 1, "single key: {out}");
+        assert_eq!(
+            out.matches("OPENAI_API_KEY=").count(),
+            1,
+            "single key: {out}"
+        );
         assert!(out.contains("OPENAI_API_KEY=new"));
-        assert!(!out.contains("old1") && !out.contains("old2"), "stale gone: {out}");
+        assert!(
+            !out.contains("old1") && !out.contains("old2"),
+            "stale gone: {out}"
+        );
         assert!(out.contains("KEEP=1"));
         // And a reader of the result sees the new value, not a stale shadow.
         assert_eq!(
-            parse_env_file(&out).get("OPENAI_API_KEY").map(String::as_str),
+            parse_env_file(&out)
+                .get("OPENAI_API_KEY")
+                .map(String::as_str),
             Some("new")
         );
     }
@@ -8694,7 +8811,8 @@ wire_api = "chat"
 
     #[test]
     fn merge_hermes_model_config_sets_model_and_keeps_other_keys() {
-        let existing = "terminal:\n  backend: local\nmodel:\n  default: old-model\n  provider: openai\n";
+        let existing =
+            "terminal:\n  backend: local\nmodel:\n  default: old-model\n  provider: openai\n";
         let merged = merge_hermes_model_config(
             Some(existing),
             "openrouter",
@@ -8705,14 +8823,20 @@ wire_api = "chat"
         .expect("merge");
         let value: serde_yaml::Value = serde_yaml::from_str(&merged).expect("parse merged");
         let model = value.get("model").expect("model section");
-        assert_eq!(model.get("provider").and_then(|v| v.as_str()), Some("openrouter"));
+        assert_eq!(
+            model.get("provider").and_then(|v| v.as_str()),
+            Some("openrouter")
+        );
         assert_eq!(
             model.get("default").and_then(|v| v.as_str()),
             Some("moonshotai/kimi-k2")
         );
         // Unrelated top-level keys survive the targeted merge.
         assert_eq!(
-            value.get("terminal").and_then(|t| t.get("backend")).and_then(|v| v.as_str()),
+            value
+                .get("terminal")
+                .and_then(|t| t.get("backend"))
+                .and_then(|v| v.as_str()),
             Some("local")
         );
         // No base_url was requested, so none is written.
@@ -8731,7 +8855,10 @@ wire_api = "chat"
         .expect("merge with base");
         let value: serde_yaml::Value = serde_yaml::from_str(&with_base).expect("parse");
         assert_eq!(
-            value.get("model").and_then(|m| m.get("base_url")).and_then(|v| v.as_str()),
+            value
+                .get("model")
+                .and_then(|m| m.get("base_url"))
+                .and_then(|v| v.as_str()),
             Some("https://api.test/v1")
         );
         // Set("") clears the field (user emptied the API URL input).
@@ -8757,7 +8884,10 @@ wire_api = "chat"
         .expect("merge preserve");
         let value: serde_yaml::Value = serde_yaml::from_str(&kept).expect("parse");
         assert_eq!(
-            value.get("model").and_then(|m| m.get("base_url")).and_then(|v| v.as_str()),
+            value
+                .get("model")
+                .and_then(|m| m.get("base_url"))
+                .and_then(|v| v.as_str()),
             Some("https://api.test/v1")
         );
     }
@@ -8778,8 +8908,14 @@ wire_api = "chat"
         .expect("merge custom");
         let value: serde_yaml::Value = serde_yaml::from_str(&with_key).expect("parse");
         let model = value.get("model").expect("model section");
-        assert_eq!(model.get("provider").and_then(|v| v.as_str()), Some("custom"));
-        assert_eq!(model.get("api_key").and_then(|v| v.as_str()), Some("sk-abc"));
+        assert_eq!(
+            model.get("provider").and_then(|v| v.as_str()),
+            Some("custom")
+        );
+        assert_eq!(
+            model.get("api_key").and_then(|v| v.as_str()),
+            Some("sk-abc")
+        );
         assert_eq!(
             model.get("base_url").and_then(|v| v.as_str()),
             Some("https://endpoint.test/v1")
@@ -8802,7 +8938,8 @@ wire_api = "chat"
 
         // custom→custom re-save with scrub_mode=false preserves a raw-editor
         // `api_mode`; switching in with scrub_mode=true drops it.
-        let with_mode = "model:\n  provider: custom\n  default: m\n  api_mode: anthropic_messages\n";
+        let with_mode =
+            "model:\n  provider: custom\n  default: m\n  api_mode: anthropic_messages\n";
         let resaved = merge_hermes_model_config(
             Some(with_mode),
             "custom",
@@ -8852,15 +8989,22 @@ wire_api = "chat"
         .expect("merge switch");
         let value: serde_yaml::Value = serde_yaml::from_str(&switched).expect("parse");
         let model = value.get("model").expect("model section");
-        assert!(model.get("api_key").is_none(), "stale inline key must be scrubbed");
-        assert!(model.get("api_mode").is_none(), "stale api_mode must be scrubbed");
+        assert!(
+            model.get("api_key").is_none(),
+            "stale inline key must be scrubbed"
+        );
+        assert!(
+            model.get("api_mode").is_none(),
+            "stale api_mode must be scrubbed"
+        );
     }
 
     #[test]
     fn plan_hermes_write_preserves_base_url_for_fixed_endpoint_provider() {
         // Anthropic (needsBaseUrl: false) behind a proxy: a structured save that
         // doesn't touch the hidden API URL field must keep the existing endpoint.
-        let existing = "model:\n  provider: anthropic\n  default: old\n  base_url: https://my-proxy/v1\n";
+        let existing =
+            "model:\n  provider: anthropic\n  default: old\n  base_url: https://my-proxy/v1\n";
         let (yaml, env) = plan_hermes_write(
             "anthropic",
             Some("sk-ant"),
@@ -8872,7 +9016,10 @@ wire_api = "chat"
         .expect("plan");
         let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("yaml");
         assert_eq!(
-            value.get("model").and_then(|m| m.get("base_url")).and_then(|v| v.as_str()),
+            value
+                .get("model")
+                .and_then(|m| m.get("base_url"))
+                .and_then(|v| v.as_str()),
             Some("https://my-proxy/v1"),
             "out-of-band base_url must survive a structured save"
         );
@@ -8898,7 +9045,10 @@ wire_api = "chat"
         .expect("plan");
         let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("yaml");
         assert_eq!(
-            value.get("model").and_then(|m| m.get("provider")).and_then(|v| v.as_str()),
+            value
+                .get("model")
+                .and_then(|m| m.get("provider"))
+                .and_then(|v| v.as_str()),
             Some("anthropic")
         );
         assert!(
@@ -8926,8 +9076,8 @@ wire_api = "chat"
             assert!(!env.iter().any(|(k, _)| *k == "OPENROUTER_API_KEY"));
         }
         // A provided key is written alongside the neutralization.
-        let (_, env) = plan_hermes_write("openrouter", Some("sk-or"), "m", None, None, None)
-            .expect("keyed");
+        let (_, env) =
+            plan_hermes_write("openrouter", Some("sk-or"), "m", None, None, None).expect("keyed");
         assert!(env.contains(&("OPENROUTER_API_KEY", "sk-or".to_string())));
         assert!(env.contains(&("OPENAI_API_KEY", String::new())));
     }
@@ -8974,7 +9124,11 @@ wire_api = "chat"
         let inode_before = fs::metadata(&env_path).unwrap().ino();
         write_hermes_secret_file(&env_path, "OPENROUTER_API_KEY=sk-2\n", ".env")
             .expect("rewrite env");
-        assert_eq!(mode_of(&env_path), 0o640, "existing managed mode must be preserved");
+        assert_eq!(
+            mode_of(&env_path),
+            0o640,
+            "existing managed mode must be preserved"
+        );
         assert_eq!(
             fs::metadata(&env_path).unwrap().ino(),
             inode_before,
@@ -9001,7 +9155,10 @@ wire_api = "chat"
         write_hermes_secret_file(&link, "model:\n  provider: anthropic\n", "config.yaml")
             .expect("write through symlink");
         assert!(
-            fs::symlink_metadata(&link).unwrap().file_type().is_symlink(),
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
             "the symlink must be preserved, not replaced by a regular file"
         );
         assert_eq!(
@@ -9021,7 +9178,10 @@ wire_api = "chat"
         let real = dir.join("vault-hermes.env");
         let link = dir.join(".env");
         std::os::unix::fs::symlink(&real, &link).unwrap();
-        assert!(fs::metadata(&link).is_err(), "precondition: dangling symlink");
+        assert!(
+            fs::metadata(&link).is_err(),
+            "precondition: dangling symlink"
+        );
 
         write_hermes_secret_file(&link, "OPENROUTER_API_KEY=sk\n", ".env").expect("write");
         // The target is created THROUGH the symlink and is owner-only (0600), not
@@ -9031,9 +9191,15 @@ wire_api = "chat"
             0o600,
             "a freshly created symlink target must be 0600"
         );
-        assert_eq!(fs::read_to_string(&real).unwrap(), "OPENROUTER_API_KEY=sk\n");
+        assert_eq!(
+            fs::read_to_string(&real).unwrap(),
+            "OPENROUTER_API_KEY=sk\n"
+        );
         assert!(
-            fs::symlink_metadata(&link).unwrap().file_type().is_symlink(),
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
             "the symlink itself must be preserved"
         );
     }
@@ -9058,7 +9224,11 @@ wire_api = "chat"
         fs::write(&env_path, "OPENROUTER_API_KEY=old\n").unwrap();
         fs::set_permissions(&env_path, fs::Permissions::from_mode(0o644)).unwrap();
         write_hermes_secret_file(&env_path, "OPENROUTER_API_KEY=new\n", ".env").unwrap();
-        assert_eq!(mode_of(&env_path), 0o600, "a world-readable 0644 secret → 0600");
+        assert_eq!(
+            mode_of(&env_path),
+            0o600,
+            "a world-readable 0644 secret → 0600"
+        );
         assert_eq!(
             fs::read_to_string(&env_path).unwrap(),
             "OPENROUTER_API_KEY=new\n"
@@ -9069,7 +9239,11 @@ wire_api = "chat"
         fs::write(&managed, "K=1\n").unwrap();
         fs::set_permissions(&managed, fs::Permissions::from_mode(0o640)).unwrap();
         write_hermes_secret_file(&managed, "K=2\n", ".env").unwrap();
-        assert_eq!(mode_of(&managed), 0o640, "managed group-shared mode preserved");
+        assert_eq!(
+            mode_of(&managed),
+            0o640,
+            "managed group-shared mode preserved"
+        );
     }
 
     #[cfg(unix)]
@@ -9106,7 +9280,11 @@ wire_api = "chat"
         fs::create_dir_all(&managed).unwrap();
         fs::set_permissions(&managed, fs::Permissions::from_mode(0o755)).unwrap();
         ensure_hermes_home_secure(&managed).expect("ensure managed");
-        assert_eq!(mode_of(&managed), 0o755, "existing hermes home mode preserved");
+        assert_eq!(
+            mode_of(&managed),
+            0o755,
+            "existing hermes home mode preserved"
+        );
     }
 
     // ── Hermes base-URL reconcile (auxiliary/main endpoint parity) ──────────
@@ -9137,11 +9315,19 @@ wire_api = "chat"
     fn plan_hermes_base_url_reconcile_ignores_trailing_slash() {
         // Trailing-slash-only differences must not churn .env (both directions).
         assert_eq!(
-            plan_hermes_base_url_reconcile("openai-api", Some("https://x/v1/"), Some("https://x/v1")),
+            plan_hermes_base_url_reconcile(
+                "openai-api",
+                Some("https://x/v1/"),
+                Some("https://x/v1")
+            ),
             None
         );
         assert_eq!(
-            plan_hermes_base_url_reconcile("openai-api", Some("https://x/v1"), Some("https://x/v1/")),
+            plan_hermes_base_url_reconcile(
+                "openai-api",
+                Some("https://x/v1"),
+                Some("https://x/v1/")
+            ),
             None
         );
     }
@@ -9159,9 +9345,18 @@ wire_api = "chat"
     #[test]
     fn plan_hermes_base_url_reconcile_no_op_when_both_empty() {
         // Absent var and explicitly-empty var both → no-op (no redundant `KEY=`).
-        assert_eq!(plan_hermes_base_url_reconcile("openai-api", None, None), None);
-        assert_eq!(plan_hermes_base_url_reconcile("openai-api", None, Some("")), None);
-        assert_eq!(plan_hermes_base_url_reconcile("openai-api", Some("  "), Some("")), None);
+        assert_eq!(
+            plan_hermes_base_url_reconcile("openai-api", None, None),
+            None
+        );
+        assert_eq!(
+            plan_hermes_base_url_reconcile("openai-api", None, Some("")),
+            None
+        );
+        assert_eq!(
+            plan_hermes_base_url_reconcile("openai-api", Some("  "), Some("")),
+            None
+        );
     }
 
     #[test]
@@ -9192,7 +9387,10 @@ wire_api = "chat"
     fn plan_hermes_base_url_reconcile_openrouter_only_touches_its_own_var() {
         // openrouter never returns an OPENAI_BASE_URL write (that would re-pollute
         // the panel's neutralization); it only reconciles OPENROUTER_BASE_URL.
-        assert_eq!(plan_hermes_base_url_reconcile("openrouter", None, None), None);
+        assert_eq!(
+            plan_hermes_base_url_reconcile("openrouter", None, None),
+            None
+        );
         assert_eq!(
             plan_hermes_base_url_reconcile("openrouter", Some("https://or/api/v1"), None),
             Some(("OPENROUTER_BASE_URL", "https://or/api/v1".to_string()))
@@ -9334,7 +9532,10 @@ wire_api = "chat"
         .unwrap();
         reconcile_hermes_runtime_env_in(home).expect("reconcile");
         let env = fs::read_to_string(home.join(".env")).unwrap();
-        assert!(env.contains("OPENAI_BASE_URL=\n"), "stale base url cleared: {env:?}");
+        assert!(
+            env.contains("OPENAI_BASE_URL=\n"),
+            "stale base url cleared: {env:?}"
+        );
         assert!(env.contains("OPENAI_API_KEY=sk"), "key preserved: {env:?}");
     }
 
@@ -9370,11 +9571,17 @@ wire_api = "chat"
         // either (both an absolute path and a literal `~/…` path are passed as-is).
         let mut abs = BTreeMap::new();
         abs.insert("HERMES_HOME".to_string(), "/tmp/hermes-alt".to_string());
-        assert_eq!(hermes_home_for_launch(&abs), PathBuf::from("/tmp/hermes-alt"));
+        assert_eq!(
+            hermes_home_for_launch(&abs),
+            PathBuf::from("/tmp/hermes-alt")
+        );
 
         let mut tilde = BTreeMap::new();
         tilde.insert("HERMES_HOME".to_string(), "~/alt-hermes".to_string());
-        assert_eq!(hermes_home_for_launch(&tilde), PathBuf::from("~/alt-hermes"));
+        assert_eq!(
+            hermes_home_for_launch(&tilde),
+            PathBuf::from("~/alt-hermes")
+        );
 
         // A blank override REPLACES the parent value in the child, and Hermes then
         // falls back to the default `~/.hermes` — not the parent's HERMES_HOME.
@@ -9385,7 +9592,7 @@ wire_api = "chat"
             home_dir_or_default().join(".hermes")
         );
 
-        // No override → the child inherits the parent env (codeg's resolution).
+        // No override → the child inherits the parent env (iyw-claw's resolution).
         assert_eq!(hermes_home_for_launch(&BTreeMap::new()), hermes_home_dir());
     }
 
@@ -9449,10 +9656,7 @@ wire_api = "chat"
     fn hermes_skip_chmod_requires_a_non_empty_opt_out() {
         // A non-empty opt-out enables skip.
         temp_env::with_vars(
-            [
-                ("HERMES_SKIP_CHMOD", Some("1")),
-                ("HERMES_CONTAINER", None),
-            ],
+            [("HERMES_SKIP_CHMOD", Some("1")), ("HERMES_CONTAINER", None)],
             || assert!(hermes_skip_chmod(), "non-empty HERMES_SKIP_CHMOD skips"),
         );
         // An EMPTY opt-out must NOT skip (Hermes' Python truthiness treats `` as
@@ -9497,9 +9701,14 @@ wire_api = "chat"
         assert_eq!(openai_api.key_env_var, "OPENAI_API_KEY");
         assert!(openai_api.needs_base_url);
         // Hermes' first-priority key var per provider (auth.py PROVIDER_REGISTRY).
-        assert_eq!(hermes_provider("zai").expect("zai").key_env_var, "GLM_API_KEY");
         assert_eq!(
-            hermes_provider("kimi-coding").expect("kimi-coding").key_env_var,
+            hermes_provider("zai").expect("zai").key_env_var,
+            "GLM_API_KEY"
+        );
+        assert_eq!(
+            hermes_provider("kimi-coding")
+                .expect("kimi-coding")
+                .key_env_var,
             "KIMI_API_KEY"
         );
         // OAuth + AWS providers carry no API-key env var (set via terminal --setup
@@ -9608,7 +9817,10 @@ wire_api = "chat"
         assert_eq!(env, vec![("ANTHROPIC_API_KEY", "sk-ant-1".to_string())]);
         let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("yaml");
         assert_eq!(
-            value.get("model").and_then(|m| m.get("provider")).and_then(|v| v.as_str()),
+            value
+                .get("model")
+                .and_then(|m| m.get("provider"))
+                .and_then(|v| v.as_str()),
             Some("anthropic")
         );
     }
@@ -9628,9 +9840,18 @@ wire_api = "chat"
         assert!(env.is_empty(), "custom must not write any .env var");
         let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("yaml");
         let model = value.get("model").expect("model section");
-        assert_eq!(model.get("provider").and_then(|v| v.as_str()), Some("custom"));
-        assert_eq!(model.get("default").and_then(|v| v.as_str()), Some("gpt-5.5"));
-        assert_eq!(model.get("api_key").and_then(|v| v.as_str()), Some("sk-custom-1"));
+        assert_eq!(
+            model.get("provider").and_then(|v| v.as_str()),
+            Some("custom")
+        );
+        assert_eq!(
+            model.get("default").and_then(|v| v.as_str()),
+            Some("gpt-5.5")
+        );
+        assert_eq!(
+            model.get("api_key").and_then(|v| v.as_str()),
+            Some("sk-custom-1")
+        );
         assert_eq!(
             model.get("base_url").and_then(|v| v.as_str()),
             Some("https://endpoint.test/v1")
@@ -9648,7 +9869,8 @@ wire_api = "chat"
 
         // Switching TO custom from another provider that carried an `api_mode`
         // scrubs the stale mode (it must not bleed into the custom endpoint).
-        let prior = "model:\n  provider: openai-api\n  default: gpt\n  api_mode: chat_completions\n";
+        let prior =
+            "model:\n  provider: openai-api\n  default: gpt\n  api_mode: chat_completions\n";
         let (yaml, _env) = plan_hermes_write(
             "custom",
             Some("sk-2"),
@@ -9679,21 +9901,23 @@ wire_api = "chat"
         )
         .expect("plan");
         assert!(env.is_empty(), "raw mode must not write .env");
-        assert!(yaml.contains("anthropic"), "raw yaml written verbatim: {yaml}");
+        assert!(
+            yaml.contains("anthropic"),
+            "raw yaml written verbatim: {yaml}"
+        );
     }
 
     #[test]
     fn plan_hermes_write_oauth_and_blank_key_produce_no_env() {
         // OAuth provider (empty key var) → no .env update.
-        let (_, env) = plan_hermes_write("nous", Some("ignored"), "m", None, None, None)
-            .expect("oauth");
+        let (_, env) =
+            plan_hermes_write("nous", Some("ignored"), "m", None, None, None).expect("oauth");
         assert!(env.is_empty());
         // Blank key on a keyed provider with no base-URL var → nothing touched.
-        let (_, env) = plan_hermes_write("anthropic", Some("   "), "m", None, None, None)
-            .expect("blank");
-        assert!(env.is_empty());
         let (_, env) =
-            plan_hermes_write("anthropic", None, "m", None, None, None).expect("none");
+            plan_hermes_write("anthropic", Some("   "), "m", None, None, None).expect("blank");
+        assert!(env.is_empty());
+        let (_, env) = plan_hermes_write("anthropic", None, "m", None, None, None).expect("none");
         assert!(env.is_empty());
     }
 
@@ -9704,8 +9928,15 @@ wire_api = "chat"
             "newline in key must be rejected"
         );
         assert!(
-            plan_hermes_write("openai-api", None, "m", None, Some("model: [unterminated"), None)
-                .is_err(),
+            plan_hermes_write(
+                "openai-api",
+                None,
+                "m",
+                None,
+                Some("model: [unterminated"),
+                None
+            )
+            .is_err(),
             "invalid raw yaml must be rejected"
         );
     }
@@ -9732,13 +9963,16 @@ wire_api = "chat"
         );
         let value: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("yaml");
         assert_eq!(
-            value.get("model").and_then(|m| m.get("base_url")).and_then(|v| v.as_str()),
+            value
+                .get("model")
+                .and_then(|m| m.get("base_url"))
+                .and_then(|v| v.as_str()),
             Some("https://api.test/v1")
         );
         // Clearing the base URL writes an empty override so a stale `.env` value
         // can't shadow the default endpoint.
-        let (_, env) = plan_hermes_write("openai-api", None, "m", None, None, None)
-            .expect("clear base");
+        let (_, env) =
+            plan_hermes_write("openai-api", None, "m", None, None, None).expect("clear base");
         assert_eq!(env, vec![("OPENAI_BASE_URL", String::new())]);
     }
 
@@ -9767,7 +10001,10 @@ wire_api = "chat"
     fn project_hermes_key_and_base_falls_back_to_env_base_url() {
         let mut env = BTreeMap::new();
         env.insert("OPENAI_API_KEY".to_string(), "sk-1".to_string());
-        env.insert("OPENAI_BASE_URL".to_string(), "https://proxy/v1".to_string());
+        env.insert(
+            "OPENAI_BASE_URL".to_string(),
+            "https://proxy/v1".to_string(),
+        );
         // No YAML base_url → the panel still sees the endpoint from `.env`, so a
         // later save won't clear it (regression guard for the dual-write change).
         let (key, base) = project_hermes_key_and_base("openai-api", &env, None, None);
@@ -9813,7 +10050,7 @@ wire_api = "chat"
         // leading double-quoted string makes PowerShell parse the line as a
         // string expression and fail with "Unexpected token" instead of running
         // uvx; an unquoted bare path runs in both cmd and PowerShell.
-        let path = r"C:\Users\Administrator\AppData\Local\app.codeg\acp-binaries\uv-tool\windows-x86_64\uvx.exe";
+        let path = r"C:\Users\Administrator\AppData\Local\app.iywclaw\acp-binaries\uv-tool\windows-x86_64\uvx.exe";
         assert_eq!(shell_quote_arg_for(path, true), path);
         // On POSIX the backslash is the escape char, so it still forces quoting.
         assert_eq!(shell_quote_arg_for(path, false), format!("'{path}'"));
@@ -9890,7 +10127,10 @@ wire_api = "chat"
         let serialized = toml::to_string_pretty(&doc).expect("serialize");
         let reparsed: toml::Value = serialized.parse().expect("valid toml");
         let t = reparsed.as_table().unwrap();
-        assert_eq!(t.get("telemetry").and_then(toml::Value::as_bool), Some(true));
+        assert_eq!(
+            t.get("telemetry").and_then(toml::Value::as_bool),
+            Some(true)
+        );
         assert_eq!(
             t.get("default_model").and_then(toml::Value::as_str),
             Some(KIMI_MANAGED_MODEL_ALIAS)
@@ -9922,7 +10162,9 @@ wire_api = "chat"
             Some("claude-opus-4-7")
         );
         assert_eq!(
-            model.get("max_context_size").and_then(toml::Value::as_integer),
+            model
+                .get("max_context_size")
+                .and_then(toml::Value::as_integer),
             Some(200_000)
         );
     }
@@ -9964,14 +10206,14 @@ wire_api = "chat"
     fn kimi_managed_block_clear_preserves_user_sections() {
         let mut doc: toml::Value = r#"
 default_model = "mine"
-[providers.codeg]
+[providers.iyw-claw]
 type = "openai"
 api_key = "sk"
 [providers.mine]
 type = "openai"
 api_key = "sk-user"
-[models.codeg-managed]
-provider = "codeg"
+[models.iyw-claw-managed]
+provider = "iyw-claw"
 model = "x"
 [models.mine]
 provider = "mine"
@@ -9997,11 +10239,11 @@ model = "gpt"
     #[test]
     fn kimi_managed_block_clear_resets_our_default_and_empties() {
         let mut doc: toml::Value = r#"
-default_model = "codeg-managed"
-[providers.codeg]
+default_model = "iyw-claw-managed"
+[providers.iyw-claw]
 type = "kimi"
-[models.codeg-managed]
-provider = "codeg"
+[models.iyw-claw-managed]
+provider = "iyw-claw"
 model = "kimi-for-coding"
 "#
         .parse()
@@ -10090,13 +10332,13 @@ model = "kimi-for-coding"
         // config.toml values back into the KIMI_MODEL_* runtime env, defeating the
         // single-source-of-truth between env override and config.toml.
         let value: toml::Value = r#"
-default_model = "codeg-managed"
-[providers.codeg]
+default_model = "iyw-claw-managed"
+[providers.iyw-claw]
 type = "anthropic"
 base_url = "https://api.anthropic.com"
 api_key = "sk-ant"
-[models.codeg-managed]
-provider = "codeg"
+[models.iyw-claw-managed]
+provider = "iyw-claw"
 model = "claude-opus-4-7"
 max_context_size = 200000
 "#
@@ -10112,7 +10354,10 @@ max_context_size = 200000
             Some("https://api.anthropic.com")
         );
         assert_eq!(proj.get("key").and_then(|v| v.as_str()), Some("sk-ant"));
-        assert_eq!(proj.get("authType").and_then(|v| v.as_str()), Some("api_key"));
+        assert_eq!(
+            proj.get("authType").and_then(|v| v.as_str()),
+            Some("api_key")
+        );
         assert_eq!(
             proj.get("modelId").and_then(|v| v.as_str()),
             Some("claude-opus-4-7")
@@ -10121,7 +10366,10 @@ max_context_size = 200000
             proj.get("maxContextSize").and_then(|v| v.as_i64()),
             Some(200000)
         );
-        assert_eq!(proj.get("hasManagedBlock"), Some(&serde_json::Value::Bool(true)));
+        assert_eq!(
+            proj.get("hasManagedBlock"),
+            Some(&serde_json::Value::Bool(true))
+        );
         for forbidden in [
             "apiKey",
             "apiBaseUrl",
@@ -10140,12 +10388,12 @@ max_context_size = 200000
     #[test]
     fn kimi_project_managed_config_env_subtable_surfaces_as_env_auth() {
         let value: toml::Value = r#"
-[providers.codeg]
+[providers.iyw-claw]
 type = "openai"
-[providers.codeg.env]
+[providers.iyw-claw.env]
 OPENAI_API_KEY = "sk-x"
-[models.codeg-managed]
-provider = "codeg"
+[models.iyw-claw-managed]
+provider = "iyw-claw"
 model = "gpt"
 "#
         .parse()

@@ -10,7 +10,7 @@ use crate::app_error::{
     AppCommandError, UPLOAD_I18N_KEY_QUOTA_EXCEEDED, UPLOAD_I18N_KEY_TOO_LARGE,
 };
 use crate::commands::folders as folder_commands;
-use crate::paths::codeg_uploads_root;
+use crate::paths::iyw_claw_uploads_root;
 
 use super::upload_jail;
 
@@ -209,17 +209,17 @@ pub const UPLOAD_MAX_BYTES: u64 = 2 * 1024 * 1024;
 /// is effectively a hard ceiling: concurrent admits cannot accumulate
 /// past `cap` because each one decrements the in-flight headroom seen
 /// by the next.
-const UPLOAD_TOTAL_BYTES_ENV: &str = "CODEG_UPLOAD_MAX_TOTAL_BYTES";
+const UPLOAD_TOTAL_BYTES_ENV: &str = "IYW_CLAW_UPLOAD_MAX_TOTAL_BYTES";
 
 /// Opt-in fail-closed mode for the quota config. When truthy and
-/// `CODEG_UPLOAD_MAX_TOTAL_BYTES` parses as `Invalid`, startup aborts
+/// `IYW_CLAW_UPLOAD_MAX_TOTAL_BYTES` parses as `Invalid`, startup aborts
 /// with a `FATAL` line instead of falling through to fail-open. Default
 /// (unset / "0" / "false") preserves the prior fail-open posture so a
 /// typo doesn't take down a production process unless the operator
 /// explicitly asks for that behavior.
-const UPLOAD_STRICT_ENV: &str = "CODEG_UPLOAD_QUOTA_STRICT";
+const UPLOAD_STRICT_ENV: &str = "IYW_CLAW_UPLOAD_QUOTA_STRICT";
 
-/// Outcome of parsing `CODEG_UPLOAD_MAX_TOTAL_BYTES`. Carries enough
+/// Outcome of parsing `IYW_CLAW_UPLOAD_MAX_TOTAL_BYTES`. Carries enough
 /// context that the startup banner can distinguish "operator turned it
 /// off" from "operator typo silently disabled the cap".
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -362,12 +362,12 @@ pub fn log_upload_quota_config_at_startup() {
     }
 }
 
-/// Strict-mode validation: returns `Err` when `CODEG_UPLOAD_QUOTA_STRICT`
+/// Strict-mode validation: returns `Err` when `IYW_CLAW_UPLOAD_QUOTA_STRICT`
 /// is truthy and the quota value is `Invalid`. Every other combination
 /// (unset, disabled, enabled, or invalid-but-strict-off) returns `Ok`.
 ///
 /// Callers choose the failure mode:
-///   * `codeg-server` (single-purpose process) — call early in `main`
+///   * `iyw-claw-server` (single-purpose process) — call early in `main`
 ///     and `process::exit(2)` on `Err`.
 ///   * Desktop web-service start — call before `persist_web_service_config`
 ///     and surface `Err` as an `AppCommandError` so the toggle fails
@@ -393,14 +393,14 @@ pub fn validate_upload_quota_config() -> Result<(), UploadQuotaStrictError> {
 /// disk, not the counter — and a uniform reservation size keeps the
 /// CAS loop and the cleanup path symmetric.
 ///
-/// **Scope:** this counter is process-local. Multiple `codeg-server`
+/// **Scope:** this counter is process-local. Multiple `iyw-claw-server`
 /// processes sharing the same `uploads_root` (horizontally-scaled
 /// deployments mounted on the same volume) will each maintain their
-/// own counter and can collectively exceed the cap. codeg is designed
+/// own counter and can collectively exceed the cap. iyw-claw is designed
 /// for single-process deployments; multi-process coordination would
 /// require an external mechanism (file lock, Redis, reverse-proxy
 /// quota) that this codebase does not provide. See the doc on
-/// `paths::codeg_uploads_root` for the operator-facing version of
+/// `paths::iyw_claw_uploads_root` for the operator-facing version of
 /// this contract.
 static UPLOAD_IN_FLIGHT_BYTES: AtomicU64 = AtomicU64::new(0);
 
@@ -706,7 +706,7 @@ async fn ensure_path_inside(
 /// expected case on a fresh install, and permission issues should not block
 /// the server from starting.
 pub async fn purge_upload_staging() {
-    let tmp_dir = codeg_uploads_root().join(".tmp");
+    let tmp_dir = iyw_claw_uploads_root().join(".tmp");
     match tokio::fs::remove_dir_all(&tmp_dir).await {
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -723,7 +723,7 @@ pub async fn purge_upload_staging() {
 pub async fn upload_attachment(
     mut multipart: Multipart,
 ) -> Result<Json<UploadAttachmentResult>, AppCommandError> {
-    let uploads_root = codeg_uploads_root();
+    let uploads_root = iyw_claw_uploads_root();
     // Ensure root exists before canonicalize/ensure_path_inside can compare.
     tokio::fs::create_dir_all(&uploads_root)
         .await
@@ -1108,7 +1108,7 @@ mod tests {
     // ─── parse_upload_quota_config ────────────────────────────────────
     //
     // Tests the pure parser, NOT the env reader — mutating
-    // `CODEG_UPLOAD_MAX_TOTAL_BYTES` from a test would race the harness's
+    // `IYW_CLAW_UPLOAD_MAX_TOTAL_BYTES` from a test would race the harness's
     // parallel runner.
 
     #[test]
@@ -1159,8 +1159,8 @@ mod tests {
             raw_value: "10GB".to_string(),
         };
         let msg = err.to_string();
-        assert!(msg.contains("CODEG_UPLOAD_MAX_TOTAL_BYTES"));
-        assert!(msg.contains("CODEG_UPLOAD_QUOTA_STRICT"));
+        assert!(msg.contains("IYW_CLAW_UPLOAD_MAX_TOTAL_BYTES"));
+        assert!(msg.contains("IYW_CLAW_UPLOAD_QUOTA_STRICT"));
         assert!(msg.contains("10GB"));
     }
 

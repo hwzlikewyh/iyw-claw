@@ -8,7 +8,7 @@
 //! Encryption metadata is deliberately NOT carried here — it is purely an
 //! outer-envelope concern fully described by [`crate::commands::backup::crypto::EnvelopeHeader`].
 //! Keeping the manifest crypto-agnostic means the same archive bytes are
-//! self-describing whether or not they end up wrapped in the `.codegbak`
+//! self-describing whether or not they end up wrapped in the `.iyw-clawbak`
 //! envelope.
 
 use serde::{Deserialize, Serialize};
@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 pub const BACKUP_FORMAT_VERSION: u32 = 1;
 
 /// Magic discriminator stored in every manifest so a stray ZIP can't be
-/// mistaken for a codeg backup.
-pub const BACKUP_KIND: &str = "codeg-backup";
+/// mistaken for a iyw-claw backup.
+pub const BACKUP_KIND: &str = "iyw-claw-backup";
 
 /// Fixed entry name of the manifest inside the archive.
 pub const MANIFEST_ENTRY_NAME: &str = "manifest.json";
@@ -118,7 +118,7 @@ impl BackupProgress {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupPreview {
-    /// The archive is wrapped in the encrypted `.codegbak` envelope.
+    /// The archive is wrapped in the encrypted `.iyw-clawbak` envelope.
     pub encrypted: bool,
     /// Encrypted, but no (or no usable) passphrase was supplied, so the
     /// manifest could not be read yet. The UI should prompt for a passphrase.

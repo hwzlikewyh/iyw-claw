@@ -191,7 +191,7 @@ function getAllowedExternalProtocol(rawUrl: string): string | null {
 
 /**
  * True when the current window has no access to the Tauri opener plugin
- * (pure web, or a Tauri window bound to a remote codeg-server).
+ * (pure web, or a Tauri window bound to a remote iyw-claw-server).
  */
 function isWebOpenerEnvironment(): boolean {
   return !isDesktop() || getActiveRemoteConnectionId() !== null

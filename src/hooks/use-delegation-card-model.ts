@@ -3,7 +3,7 @@
 /**
  * Resolves a unified "delegation card model" — agent type, task, status,
  * child ids — from a `delegate_to_agent` tool call, in priority order:
- *   live `DelegationContext` binding → persisted `meta["codeg.delegation"]`
+ *   live `DelegationContext` binding → persisted `meta["iyw-claw.delegation"]`
  *   → parsed tool input/output. The same model drives both the inline
  *   `DelegatedSubThread` card and the live status-row sub-agent popover, so
  *   they never disagree on what a sub-agent is doing.

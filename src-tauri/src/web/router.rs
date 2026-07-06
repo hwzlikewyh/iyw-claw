@@ -381,7 +381,7 @@ pub fn build_router(
         )
         // ─── Workspace files (web upload/download) ───
         //
-        // Issue #179: when codeg runs in server mode the user has no
+        // Issue #179: when iyw-claw runs in server mode the user has no
         // native file dialog, so they need HTTP endpoints to move files
         // between the browser and the workspace. The upload handler
         // streams to a same-dir staging file then renames into place;
@@ -1005,7 +1005,10 @@ pub fn build_router(
             "/automation_list",
             post(handlers::automation::automation_list),
         )
-        .route("/automation_get", post(handlers::automation::automation_get))
+        .route(
+            "/automation_get",
+            post(handlers::automation::automation_get),
+        )
         .route(
             "/automation_runs",
             post(handlers::automation::automation_runs),

@@ -6,7 +6,7 @@ import {
   isRemoteDesktopMode,
   notifyRemoteDesktopUnauthorized,
 } from "./transport"
-import { getCodegToken } from "./transport/web-auth"
+import { getIywClawToken } from "./transport/web-auth"
 import { notifyWebUnauthorized } from "./transport/web-connection-store"
 import { getCurrentEffectiveAppLocale } from "./i18n"
 import { TurnBusyError, isTurnInProgressRejection } from "./turn-busy"
@@ -444,7 +444,7 @@ export async function acpUpdateHermesConfig(params: {
 
 /**
  * Persist a Kimi Code config update, keeping exactly one source authoritative.
- * `mode` "apikey" writes the codeg-managed ~/.kimi-code/config.toml provider/model
+ * `mode` "apikey" writes the iyw-claw-managed ~/.kimi-code/config.toml provider/model
  * block AND seeds a synthetic gate token so the API key authenticates `kimi acp`
  * (its session gate only checks for a stored token); "login" clears the managed
  * block + removes our synthetic token so a real OAuth login governs; "raw" writes
@@ -1785,7 +1785,7 @@ export async function createShadcnProject(params: {
 }
 
 /**
- * Detect, per codeg-supported agent, whether the HyperFrames skills are already
+ * Detect, per iyw-claw-supported agent, whether the HyperFrames skills are already
  * installed globally. Cheap filesystem check, so no long timeout is needed.
  */
 export async function detectHyperframesSkills(): Promise<
@@ -2167,7 +2167,7 @@ export async function uploadAttachment(
   if (file.size === 0) {
     // Skip empty files at the entry — both the web and remote-desktop
     // transports would otherwise dutifully POST a zero-byte multipart part
-    // (the server records it under `~/.codeg/uploads/<bucket>/...`), and
+    // (the server records it under `~/.iyw-claw/uploads/<bucket>/...`), and
     // we'd attach a ResourceLink to an empty file. Throw the sentinel and
     // let the pool's catch block log + continue.
     throw new EmptyAttachmentError(file.name)
@@ -2191,7 +2191,7 @@ export async function uploadAttachment(
     )
   }
 
-  const token = getCodegToken()
+  const token = getIywClawToken()
   const form = new FormData()
   form.append("file", file, file.name)
   if (sessionId) form.append("session_id", sessionId)
@@ -2216,7 +2216,7 @@ export async function uploadAttachment(
 }
 
 // Upload a file picked from the desktop machine's filesystem to the remote
-// codeg-server bound to the current window. The Tauri-native drag-drop event
+// iyw-claw-server bound to the current window. The Tauri-native drag-drop event
 // hands us OS paths (not `File` objects), so we read the bytes via Rust,
 // then reuse the same `remote_upload_attachment` channel. Only callable from
 // a window that has a remote workspace attached; non-remote callers should
@@ -2291,7 +2291,7 @@ async function workspaceFileFetch(
   body: BodyInit,
   isMultipart: boolean
 ): Promise<Response> {
-  const token = getCodegToken()
+  const token = getIywClawToken()
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
   }
@@ -2359,7 +2359,7 @@ export async function uploadWorkspaceFile(
   }
 
   return new Promise<UploadWorkspaceFileResult>((resolve, reject) => {
-    const token = getCodegToken()
+    const token = getIywClawToken()
     const xhr = new XMLHttpRequest()
     xhr.open("POST", `${window.location.origin}/api/upload_workspace_file`)
     xhr.setRequestHeader("Authorization", `Bearer ${token}`)
@@ -3118,7 +3118,7 @@ export interface DelegationSettings {
   /** Per-parent byte budget (in MB) for the broker's in-memory cache of
    * completed sub-agent result text. `0` = unlimited. */
   completed_cache_max_mb: number
-  /** Optional per-agent overrides applied when codeg-mcp spawns a subagent.
+  /** Optional per-agent overrides applied when iyw-claw-mcp spawns a subagent.
    * Keyed by `agent_type`. Missing entries mean "use agent defaults." */
   agent_defaults?: Partial<Record<AgentType, AgentDelegationDefaults>>
 }
@@ -3203,7 +3203,7 @@ export async function setSessionInfoSettings(
 /** Live probe — opens a transient ACP connection to `agent_type`, reads what
  * it advertises (modes / config_options), and tears down. Used by the
  * delegation-settings UI so the option set on screen matches exactly what
- * codeg-mcp will receive when a subagent is spawned for delegation.
+ * iyw-claw-mcp will receive when a subagent is spawned for delegation.
  *
  * Does NOT touch chat-side `selectorsCache` or `localStorage` preferences. */
 export async function describeAgentOptions(
@@ -3315,11 +3315,11 @@ export async function exportBackupDesktop(
 ): Promise<BackupManifest | null> {
   const { save } = await import("@tauri-apps/plugin-dialog")
   const encrypted = !!opts.passphrase
-  const ext = encrypted ? "codegbak" : "codeg.zip"
+  const ext = encrypted ? "iyw-clawbak" : "iyw-claw.zip"
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")
   const destPath = await save({
-    defaultPath: `codeg-backup-${stamp}.${ext}`,
-    filters: [{ name: "Codeg backup", extensions: [ext] }],
+    defaultPath: `iyw-claw-backup-${stamp}.${ext}`,
+    filters: [{ name: "iyw-claw backup", extensions: [ext] }],
   })
   if (!destPath) return null
   return getTransport().call<BackupManifest>("backup_create", {
@@ -3363,7 +3363,7 @@ export async function uploadBackupWeb(
   onProgress?: (loaded: number, total: number) => void
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
-    const token = getCodegToken()
+    const token = getIywClawToken()
     const xhr = new XMLHttpRequest()
     xhr.open("POST", `${window.location.origin}/api/backup_upload`)
     xhr.setRequestHeader("Authorization", `Bearer ${token}`)

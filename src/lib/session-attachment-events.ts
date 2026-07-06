@@ -1,4 +1,4 @@
-export const ATTACH_FILE_TO_SESSION_EVENT = "codeg:attach-file-to-session"
+export const ATTACH_FILE_TO_SESSION_EVENT = "iyw-claw:attach-file-to-session"
 
 export interface AttachFileToSessionDetail {
   tabId: string
@@ -23,7 +23,7 @@ export function emitAttachFileToSession(
   )
 }
 
-export const APPEND_TEXT_TO_SESSION_EVENT = "codeg:append-text-to-session"
+export const APPEND_TEXT_TO_SESSION_EVENT = "iyw-claw:append-text-to-session"
 
 export interface AppendTextToSessionDetail {
   tabId: string

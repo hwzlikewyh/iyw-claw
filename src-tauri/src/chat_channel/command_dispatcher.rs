@@ -68,7 +68,9 @@ pub fn spawn_command_dispatcher(
             let text = cmd.command_text.trim();
             tracing::info!(
                 "[ChatChannel] received command from channel={} sender={}: {:?}",
-                cmd.channel_id, cmd.sender_id, text
+                cmd.channel_id,
+                cmd.sender_id,
+                text
             );
 
             // Log inbound command
@@ -112,7 +114,8 @@ pub fn spawn_command_dispatcher(
                 Err(e) => {
                     tracing::error!(
                         "[ChatChannel] failed to send response for {:?} to channel {}: {e}",
-                        text, cmd.channel_id
+                        text,
+                        cmd.channel_id
                     );
                     ("failed", Some(e.to_string()))
                 }

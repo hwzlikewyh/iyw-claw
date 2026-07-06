@@ -4,7 +4,7 @@
  * Ask-user-question settings panel — a single feature kill switch persisted as
  * `question.enabled` on the Rust side.
  *
- * When enabled (the default), `codeg-mcp` exposes the `ask_user_question` tool so
+ * When enabled (the default), `iyw-claw-mcp` exposes the `ask_user_question` tool so
  * an agent can block on a multiple-choice question rendered as an interactive
  * card above the conversation input box. Mounted under `/settings/general` next
  * to the live-feedback section, because it's a global feature, not per-agent.

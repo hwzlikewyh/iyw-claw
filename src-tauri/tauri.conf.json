@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "codeg",
+  "productName": "iyw-claw",
   "version": "0.19.0",
-  "identifier": "app.codeg",
+  "identifier": "app.iywclaw",
   "build": {
     "beforeDevCommand": "pnpm tauri:before-dev",
     "devUrl": "http://localhost:3000",
@@ -30,7 +30,7 @@
     "resources": {
       "../out": "web/"
     },
-    "externalBin": ["binaries/codeg-mcp"],
+    "externalBin": ["binaries/iyw-claw-mcp"],
     "windows": {
       "nsis": {
         "installerHooks": "./windows/installer-hooks.nsh"
@@ -41,7 +41,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ4OEM3NkMyMTVENjdBODgKUldTSWV0WVZ3bmFNU0NnSzhpdFg2bXFmMHFidWd1eWpuZ2Y2WmU5QmVXdWVrU0ZpOCt2dnd6WW4K",
       "endpoints": [
-        "https://github.com/xintaofei/codeg/releases/latest/download/latest.json"
+        "https://github.com/xintaofei/iyw-claw/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

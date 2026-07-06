@@ -81,7 +81,7 @@ function PushPageInner() {
   const pageTitle = folder ? `${t("title")} · ${folder.name}` : t("title")
 
   useEffect(() => {
-    document.title = `${pageTitle} - codeg`
+    document.title = `${pageTitle} - iyw-claw`
   }, [pageTitle])
 
   return (

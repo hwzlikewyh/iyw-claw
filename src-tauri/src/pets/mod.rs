@@ -2,7 +2,7 @@
 //!
 //! All access is synchronous I/O wrapped in `tokio::task::spawn_blocking` by
 //! callers when needed. The repository reads from / writes to
-//! `paths::codeg_pets_root()` and is **decoupled from Tauri** so the same
+//! `paths::iyw_claw_pets_root()` and is **decoupled from Tauri** so the same
 //! routines back the desktop and standalone-server runtimes.
 //!
 //! Format mirrors Codex `/pet`:
@@ -31,7 +31,7 @@ use crate::models::pet::{
     NewPetInput, PetDetail, PetManifest, PetMetaPatch, PetSpriteAsset, PetSummary,
     PET_MANIFEST_FILENAME, SPRITESHEET_FILENAME, SPRITE_SHEET_HEIGHT, SPRITE_SHEET_WIDTH,
 };
-use crate::paths::codeg_pets_root;
+use crate::paths::iyw_claw_pets_root;
 
 /// Smallest plausible sprite-sheet payload; rejecting tiny inputs early
 /// avoids decoding random files.
@@ -142,7 +142,7 @@ pub fn validate_pet_id(id: &str) -> Result<(), AppCommandError> {
 
 fn pet_dir(id: &str) -> Result<PathBuf, AppCommandError> {
     validate_pet_id(id)?;
-    Ok(codeg_pets_root().join(id))
+    Ok(iyw_claw_pets_root().join(id))
 }
 
 fn ensure_pets_root() -> Result<PathBuf, AppCommandError> {
@@ -152,7 +152,7 @@ fn ensure_pets_root() -> Result<PathBuf, AppCommandError> {
 /// Public alias used by `codex_import` to share the same create-if-missing
 /// behaviour without exposing the rest of the module's private helpers.
 pub(crate) fn ensure_pets_root_or_create() -> Result<PathBuf, AppCommandError> {
-    let root = codeg_pets_root();
+    let root = iyw_claw_pets_root();
     if !root.exists() {
         fs::create_dir_all(&root).map_err(AppCommandError::io)?;
     }
@@ -162,7 +162,7 @@ pub(crate) fn ensure_pets_root_or_create() -> Result<PathBuf, AppCommandError> {
 /// Snapshot of pet ids currently on disk. Exposed for `codex_import` to
 /// detect collisions before copying.
 pub(crate) fn list_existing_ids() -> Result<std::collections::HashSet<String>, AppCommandError> {
-    let root = codeg_pets_root();
+    let root = iyw_claw_pets_root();
     if !root.is_dir() {
         return Ok(std::collections::HashSet::new());
     }
@@ -227,7 +227,7 @@ fn decode_base64_payload(b64: &str) -> Result<Vec<u8>, AppCommandError> {
 /// malformed manifests) are skipped silently so a single corrupt directory
 /// cannot break the picker. The bad entries get logged for diagnosis.
 pub fn list_pets() -> Result<Vec<PetSummary>, AppCommandError> {
-    let root = codeg_pets_root();
+    let root = iyw_claw_pets_root();
     if !root.exists() {
         return Ok(Vec::new());
     }
@@ -423,7 +423,7 @@ pub fn delete_pet(id: &str) -> Result<(), AppCommandError> {
 mod tests {
     use super::*;
 
-    // Filesystem-touching tests rely on `CODEG_HOME`, which is shared global
+    // Filesystem-touching tests rely on `IYW_CLAW_HOME`, which is shared global
     // state. Cargo runs tests in parallel, so we'd need cross-binary
     // serialization (e.g. `serial_test`) to make them reliable. Instead, we
     // exercise the validation surface directly here — the disk path is

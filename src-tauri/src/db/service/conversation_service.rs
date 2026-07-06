@@ -70,7 +70,10 @@ pub async fn create_with_delegation(
     } else {
         ConversationKind::Regular
     };
-    create_inner(conn, folder_id, agent_type, title, git_branch, delegation, kind).await
+    create_inner(
+        conn, folder_id, agent_type, title, git_branch, delegation, kind,
+    )
+    .await
 }
 
 async fn create_inner(
@@ -567,7 +570,7 @@ mod tests {
     #[tokio::test]
     async fn list_all_excludes_children_by_default() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-list-children-default").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-list-children-default").await;
         let (parent, _child) = seed_parent_with_child(&db.conn, folder).await;
 
         let rows = list_all(&db.conn, None, None, None, None, None, false)
@@ -586,7 +589,7 @@ mod tests {
     #[tokio::test]
     async fn list_all_includes_children_when_requested() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-list-children-on").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-list-children-on").await;
         let (parent, child) = seed_parent_with_child(&db.conn, folder).await;
 
         let rows = list_all(&db.conn, None, None, None, None, None, true)
@@ -602,7 +605,7 @@ mod tests {
     #[tokio::test]
     async fn list_children_returns_only_matching_parent() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-list-children-only").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-list-children-only").await;
         let (parent_a, child_a) = seed_parent_with_child(&db.conn, folder).await;
         let (_parent_b, _child_b) = seed_parent_with_child(&db.conn, folder).await;
 
@@ -620,7 +623,7 @@ mod tests {
     #[tokio::test]
     async fn child_count_reflects_direct_children() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-child-count-direct").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-child-count-direct").await;
         let (parent, child) = seed_parent_with_child(&db.conn, folder).await;
 
         // The root listing carries the parent's direct-child count so the
@@ -640,7 +643,7 @@ mod tests {
     #[tokio::test]
     async fn child_count_counts_grandchildren_for_nested_chevron() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-child-count-nested").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-child-count-nested").await;
         let (parent, child) = seed_parent_with_child(&db.conn, folder).await;
 
         // Delegate a grandchild from the child so the child itself becomes
@@ -671,10 +674,12 @@ mod tests {
     #[tokio::test]
     async fn child_count_excludes_soft_deleted_children() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-child-count-deleted").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-child-count-deleted").await;
         let (parent, child) = seed_parent_with_child(&db.conn, folder).await;
 
-        soft_delete(&db.conn, child).await.expect("soft delete child");
+        soft_delete(&db.conn, child)
+            .await
+            .expect("soft delete child");
 
         // A removed sub-session must not keep the parent's chevron alive: the
         // aggregate filters deleted_at IS NULL, matching list_children.
@@ -691,10 +696,16 @@ mod tests {
     #[tokio::test]
     async fn update_pin_sets_and_clears_without_bumping_updated_at() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-update-pin").await;
-        let conv = create(&db.conn, folder, AgentType::ClaudeCode, Some("c".into()), None)
-            .await
-            .expect("create");
+        let folder = seed_folder(&db, "/tmp/iyw-claw-update-pin").await;
+        let conv = create(
+            &db.conn,
+            folder,
+            AgentType::ClaudeCode,
+            Some("c".into()),
+            None,
+        )
+        .await
+        .expect("create");
 
         // Freshly created rows are unpinned, and the summary projection carries
         // the field through (conv_to_summary mapping).
@@ -709,7 +720,10 @@ mod tests {
         // preference, not activity).
         update_pin(&db.conn, conv.id, true).await.expect("pin");
         let pinned = get_by_id(&db.conn, conv.id).await.expect("get pinned");
-        assert!(pinned.pinned_at.is_some(), "pinned_at must be set after pin");
+        assert!(
+            pinned.pinned_at.is_some(),
+            "pinned_at must be set after pin"
+        );
         assert_eq!(
             pinned.updated_at, updated_at_before,
             "pinning must not bump updated_at"
@@ -731,7 +745,7 @@ mod tests {
     #[tokio::test]
     async fn list_children_excludes_soft_deleted() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-list-children-soft-del").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-list-children-soft-del").await;
         let (parent, child) = seed_parent_with_child(&db.conn, folder).await;
 
         soft_delete(&db.conn, child).await.expect("soft delete");
@@ -746,18 +760,27 @@ mod tests {
     #[tokio::test]
     async fn create_leaves_title_unlocked() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-title-unlocked").await;
-        let row = create(&db.conn, folder, AgentType::ClaudeCode, Some("hi".into()), None)
-            .await
-            .expect("create");
+        let folder = seed_folder(&db, "/tmp/iyw-claw-title-unlocked").await;
+        let row = create(
+            &db.conn,
+            folder,
+            AgentType::ClaudeCode,
+            Some("hi".into()),
+            None,
+        )
+        .await
+        .expect("create");
         let summary = get_by_id(&db.conn, row.id).await.expect("get");
-        assert!(!summary.title_locked, "new conversation must start unlocked");
+        assert!(
+            !summary.title_locked,
+            "new conversation must start unlocked"
+        );
     }
 
     #[tokio::test]
     async fn update_title_locks_the_title() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-title-lock").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-title-lock").await;
         let row = create(&db.conn, folder, AgentType::ClaudeCode, None, None)
             .await
             .expect("create");
@@ -772,7 +795,7 @@ mod tests {
     #[tokio::test]
     async fn refresh_auto_title_writes_when_unlocked_and_changed() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-title-auto").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-title-auto").await;
         let row = create(
             &db.conn,
             folder,
@@ -799,7 +822,7 @@ mod tests {
     #[tokio::test]
     async fn refresh_auto_title_skips_when_unchanged_or_empty() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-title-auto-skip").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-title-auto-skip").await;
         let row = create(
             &db.conn,
             folder,
@@ -827,7 +850,7 @@ mod tests {
     #[tokio::test]
     async fn refresh_auto_title_never_clobbers_a_locked_title() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-title-auto-locked").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-title-auto-locked").await;
         let row = create(&db.conn, folder, AgentType::ClaudeCode, None, None)
             .await
             .expect("create");
@@ -847,7 +870,7 @@ mod tests {
     #[tokio::test]
     async fn refresh_auto_title_does_not_bump_updated_at() {
         let db = fresh_in_memory_db().await;
-        let folder = seed_folder(&db, "/tmp/codeg-title-no-bump").await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-title-no-bump").await;
         let row = create(
             &db.conn,
             folder,

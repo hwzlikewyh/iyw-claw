@@ -13,8 +13,8 @@ const DOC: JSONContent = {
   content: [{ type: "paragraph", content: [{ type: "text", text: "hello" }] }],
 }
 
-const V1 = (k: string) => `codeg:message-input-draft:v1:${k}`
-const V2 = (k: string) => `codeg:message-input-draft:v2:${k}`
+const V1 = (k: string) => `iyw-claw:message-input-draft:v1:${k}`
+const V2 = (k: string) => `iyw-claw:message-input-draft:v2:${k}`
 
 beforeEach(() => {
   localStorage.clear()
@@ -78,7 +78,7 @@ describe("message-input-draft v2", () => {
     const setItem = vi
       .spyOn(Storage.prototype, "setItem")
       .mockImplementation((key: string) => {
-        if (key.startsWith("codeg:message-input-draft:v2:")) {
+        if (key.startsWith("iyw-claw:message-input-draft:v2:")) {
           throw new Error("quota exceeded")
         }
       })

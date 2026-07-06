@@ -1,7 +1,7 @@
 //! Optional passphrase encryption for backup archives.
 //!
 //! When a passphrase is supplied, the plaintext ZIP payload is wrapped in a
-//! `.codegbak` envelope: an unencrypted header (magic + KDF params + salt +
+//! `.iyw-clawbak` envelope: an unencrypted header (magic + KDF params + salt +
 //! nonce prefix) followed by the ZIP encrypted with AES-256-GCM in a chunked
 //! STREAM construction. The header is plaintext because the salt/nonce must be
 //! readable before the key can be derived; the GCM tag on the first chunk is
@@ -28,7 +28,7 @@ use crate::app_error::{AppCommandError, BACKUP_I18N_KEY_BAD_PASSPHRASE};
 use super::cancelled_error;
 
 /// First 8 bytes of an encrypted backup.
-pub const ENVELOPE_MAGIC: &[u8; 8] = b"CODEGBAK";
+pub const ENVELOPE_MAGIC: &[u8; 8] = b"IYWCLAWB";
 /// First 4 bytes of a plaintext ZIP (`PK\x03\x04`), used to disambiguate.
 pub const ZIP_MAGIC: &[u8; 4] = b"PK\x03\x04";
 pub const ENVELOPE_HEADER_VERSION: u8 = 1;
@@ -81,7 +81,7 @@ impl Default for KdfParams {
     }
 }
 
-/// Cleartext header at the front of a `.codegbak` file. Carries everything
+/// Cleartext header at the front of a `.iyw-clawbak` file. Carries everything
 /// needed to re-derive the key and decrypt — it is the single source of truth
 /// for crypto parameters (the in-archive manifest stays crypto-agnostic).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,9 +103,14 @@ pub fn is_encrypted(path: &Path) -> Result<bool, AppCommandError> {
     Ok(n >= ENVELOPE_MAGIC.len() && &head[..ENVELOPE_MAGIC.len()] == ENVELOPE_MAGIC)
 }
 
-fn derive_key(passphrase: &str, salt: &[u8], params: &KdfParams) -> Result<[u8; 32], AppCommandError> {
-    let p = Params::new(params.m_cost, params.t_cost, params.p_cost, Some(32))
-        .map_err(|e| AppCommandError::task_execution_failed("Invalid KDF parameters").with_detail(e.to_string()))?;
+fn derive_key(
+    passphrase: &str,
+    salt: &[u8],
+    params: &KdfParams,
+) -> Result<[u8; 32], AppCommandError> {
+    let p = Params::new(params.m_cost, params.t_cost, params.p_cost, Some(32)).map_err(|e| {
+        AppCommandError::task_execution_failed("Invalid KDF parameters").with_detail(e.to_string())
+    })?;
     let version = if params.version == 0x10 {
         Version::V0x10
     } else {
@@ -115,11 +120,14 @@ fn derive_key(passphrase: &str, salt: &[u8], params: &KdfParams) -> Result<[u8; 
     let mut key = [0u8; 32];
     argon2
         .hash_password_into(passphrase.as_bytes(), salt, &mut key)
-        .map_err(|e| AppCommandError::task_execution_failed("Key derivation failed").with_detail(e.to_string()))?;
+        .map_err(|e| {
+            AppCommandError::task_execution_failed("Key derivation failed")
+                .with_detail(e.to_string())
+        })?;
     Ok(key)
 }
 
-/// Encrypt the plaintext ZIP at `src` into a `.codegbak` envelope at `dest`.
+/// Encrypt the plaintext ZIP at `src` into a `.iyw-clawbak` envelope at `dest`.
 /// Synchronous — run under `spawn_blocking`.
 pub fn encrypt_file(
     src: &Path,
@@ -151,14 +159,19 @@ pub fn encrypt_file(
 
     // Write the cleartext header.
     out.write_all(ENVELOPE_MAGIC).map_err(AppCommandError::io)?;
-    out.write_all(&[ENVELOPE_HEADER_VERSION]).map_err(AppCommandError::io)?;
-    let header_json = serde_json::to_vec(&header)
-        .map_err(|e| AppCommandError::task_execution_failed("Serialize envelope header").with_detail(e.to_string()))?;
-    out.write_all(&(header_json.len() as u32).to_le_bytes()).map_err(AppCommandError::io)?;
+    out.write_all(&[ENVELOPE_HEADER_VERSION])
+        .map_err(AppCommandError::io)?;
+    let header_json = serde_json::to_vec(&header).map_err(|e| {
+        AppCommandError::task_execution_failed("Serialize envelope header")
+            .with_detail(e.to_string())
+    })?;
+    out.write_all(&(header_json.len() as u32).to_le_bytes())
+        .map_err(AppCommandError::io)?;
     out.write_all(&header_json).map_err(AppCommandError::io)?;
 
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| AppCommandError::task_execution_failed("Cipher init failed").with_detail(e.to_string()))?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| {
+        AppCommandError::task_execution_failed("Cipher init failed").with_detail(e.to_string())
+    })?;
     let nonce = GenericArray::from_slice(&nonce_prefix);
     let mut enc = EncryptorBE32::from_aead(cipher, nonce);
 
@@ -186,7 +199,7 @@ pub fn encrypt_file(
     Ok(())
 }
 
-/// Decrypt a `.codegbak` envelope at `src` into a plaintext ZIP at `dest`.
+/// Decrypt a `.iyw-clawbak` envelope at `src` into a plaintext ZIP at `dest`.
 /// A wrong passphrase (or tampering) surfaces as an authentication error.
 pub fn decrypt_file(
     src: &Path,
@@ -217,8 +230,9 @@ pub fn decrypt_file(
     }
 
     let key = derive_key(passphrase, &salt, &header.kdf_params)?;
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|e| AppCommandError::task_execution_failed("Cipher init failed").with_detail(e.to_string()))?;
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| {
+        AppCommandError::task_execution_failed("Cipher init failed").with_detail(e.to_string())
+    })?;
     let nonce = GenericArray::from_slice(&nonce_prefix);
     let mut dec = DecryptorBE32::from_aead(cipher, nonce);
 
@@ -339,7 +353,7 @@ mod tests {
     fn roundtrip(plain: &[u8]) {
         let dir = tempfile::tempdir().unwrap();
         let src = write_tmp(dir.path(), "plain.zip", plain);
-        let enc = dir.path().join("out.codegbak");
+        let enc = dir.path().join("out.iyw-clawbak");
         let dec = dir.path().join("back.zip");
         let cancel = CancellationToken::new();
 
@@ -398,12 +412,15 @@ mod tests {
     fn wrong_passphrase_fails_authentication() {
         let dir = tempfile::tempdir().unwrap();
         let src = write_tmp(dir.path(), "plain.zip", b"secret payload");
-        let enc = dir.path().join("out.codegbak");
+        let enc = dir.path().join("out.iyw-clawbak");
         let dec = dir.path().join("back.zip");
         let cancel = CancellationToken::new();
 
         encrypt_file(&src, &enc, "correct horse", &cancel).unwrap();
         let err = decrypt_file(&enc, &dec, "battery staple", &cancel).unwrap_err();
-        assert_eq!(err.i18n_key.as_deref(), Some(BACKUP_I18N_KEY_BAD_PASSPHRASE));
+        assert_eq!(
+            err.i18n_key.as_deref(),
+            Some(BACKUP_I18N_KEY_BAD_PASSPHRASE)
+        );
     }
 }

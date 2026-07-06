@@ -2375,7 +2375,7 @@ const ToolCallPart = memo(function ToolCallPart({
     )
   }
 
-  // codeg-mcp ask_user_question: render the asked question(s) and the user's
+  // iyw-claw-mcp ask_user_question: render the asked question(s) and the user's
   // selection as a dedicated read-only card instead of the generic tool shell.
   // The live interactive answering is handled separately by the pinned
   // AskQuestionCard; this is the in-stream record (historical + in-flight).
@@ -2390,7 +2390,7 @@ const ToolCallPart = memo(function ToolCallPart({
     )
   }
 
-  // codeg-mcp check_user_feedback: render the received steering notes as a
+  // iyw-claw-mcp check_user_feedback: render the received steering notes as a
   // capsule. The no-op polls (count: 0) and in-flight checks are dropped upstream
   // by `dropHiddenFeedbackChecks`, so reaching here means there is feedback to
   // show (or, rarely, an error).

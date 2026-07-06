@@ -1,5 +1,5 @@
 //! Download → verify → extract → atomic swap of the server bundle
-//! (`codeg-server` + `codeg-mcp` + `web/`).
+//! (`iyw-claw-server` + `iyw-claw-mcp` + `web/`).
 //!
 //! The running worker performs the swap, keeping a `.bak` of each artifact,
 //! then exits so the supervisor (or a re-exec) brings up the new version.
@@ -48,11 +48,11 @@ pub struct InstallOutcome {
 pub fn asset_basename() -> Option<&'static str> {
     use std::env::consts::{ARCH, OS};
     Some(match (OS, ARCH) {
-        ("linux", "x86_64") => "codeg-server-linux-x64",
-        ("linux", "aarch64") => "codeg-server-linux-arm64",
-        ("macos", "x86_64") => "codeg-server-darwin-x64",
-        ("macos", "aarch64") => "codeg-server-darwin-arm64",
-        ("windows", "x86_64") => "codeg-server-windows-x64",
+        ("linux", "x86_64") => "iyw-claw-server-linux-x64",
+        ("linux", "aarch64") => "iyw-claw-server-linux-arm64",
+        ("macos", "x86_64") => "iyw-claw-server-darwin-x64",
+        ("macos", "aarch64") => "iyw-claw-server-darwin-arm64",
+        ("windows", "x86_64") => "iyw-claw-server-windows-x64",
         _ => return None,
     })
 }
@@ -67,17 +67,17 @@ fn archive_ext() -> &'static str {
 
 fn server_bin_filename() -> &'static str {
     if cfg!(windows) {
-        "codeg-server.exe"
+        "iyw-claw-server.exe"
     } else {
-        "codeg-server"
+        "iyw-claw-server"
     }
 }
 
 fn mcp_bin_filename() -> &'static str {
     if cfg!(windows) {
-        "codeg-mcp.exe"
+        "iyw-claw-mcp.exe"
     } else {
-        "codeg-mcp"
+        "iyw-claw-mcp"
     }
 }
 
@@ -96,14 +96,14 @@ fn resolve_targets() -> Result<Targets, AppCommandError> {
     let mcp_bin = bindir.join(mcp_bin_filename());
 
     // Resolve the `web/` *update target* deterministically — this is distinct
-    // from "where to serve static files from right now". When CODEG_STATIC_DIR
+    // from "where to serve static files from right now". When IYW_CLAW_STATIC_DIR
     // is set (the Docker image sets it to /app/web), the bundle lives there by
     // definition, so target it even if it is momentarily absent (e.g. a prior
     // web swap was interrupted mid-rename). Routing this through the serving
     // fallback would silently retarget a *different* directory when index.html
     // is missing, so a retry could update the wrong path and never repair the
     // real one.
-    let web_dir = match std::env::var("CODEG_STATIC_DIR")
+    let web_dir = match std::env::var("IYW_CLAW_STATIC_DIR")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -137,7 +137,7 @@ fn resolve_targets() -> Result<Targets, AppCommandError> {
 fn upgrade_marker_path() -> Option<PathBuf> {
     crate::update::runtime::self_exe()
         .parent()
-        .map(|d| d.join(".codeg-upgrade-staged"))
+        .map(|d| d.join(".iyw-claw-upgrade-staged"))
 }
 
 /// True if a swapped-but-not-yet-applied upgrade is staged.
@@ -224,7 +224,7 @@ fn preflight_writable(targets: &Targets) -> Result<(), AppCommandError> {
 }
 
 fn check_writable(dir: &Path) -> Result<(), AppCommandError> {
-    let probe = dir.join(format!(".codeg-write-probe-{}", std::process::id()));
+    let probe = dir.join(format!(".iyw-claw-write-probe-{}", std::process::id()));
     match std::fs::File::create(&probe) {
         Ok(_) => {
             let _ = std::fs::remove_file(&probe);
@@ -304,7 +304,7 @@ pub async fn perform_update(
 
     // 3. Extract into a scratch dir on the data volume.
     on_progress(UpdatePhase::Extracting, 0, None);
-    let staging = data_dir.join(format!(".codeg-update-{}", std::process::id()));
+    let staging = data_dir.join(format!(".iyw-claw-update-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging).map_err(AppCommandError::io)?;
     let _cleanup = ScopedDir(staging.clone());
@@ -320,7 +320,7 @@ pub async fn perform_update(
     if !new_server.is_file() || !new_mcp.is_file() || !new_web.is_dir() {
         return Err(AppCommandError::new(
             crate::app_error::AppErrorCode::TaskExecutionFailed,
-            "Downloaded update is incomplete (expected codeg-server, codeg-mcp and a web/ directory)",
+            "Downloaded update is incomplete (expected iyw-claw-server, iyw-claw-mcp and a web/ directory)",
         ));
     }
 
@@ -502,7 +502,7 @@ fn extract_tar_gz(bytes: &[u8], dest: &Path, max: u64) -> Result<(), AppCommandE
                 ));
             }
             extracted += written;
-            // Preserve unix mode so +x on codeg-server / codeg-mcp survives.
+            // Preserve unix mode so +x on iyw-claw-server / iyw-claw-mcp survives.
             #[cfg(unix)]
             if let Some(mode) = mode {
                 use std::os::unix::fs::PermissionsExt;
@@ -867,8 +867,7 @@ fn swap_dir_via_copy(target: &Path, staged: &Path, bak: &Path) -> Result<(), App
     }
     std::fs::rename(&bak_tmp, bak).map_err(AppCommandError::io)?;
 
-    let swap =
-        std::fs::remove_dir_all(target).and_then(|_| std::fs::rename(staged, target));
+    let swap = std::fs::remove_dir_all(target).and_then(|_| std::fs::rename(staged, target));
     if let Err(e) = swap {
         // Best-effort restore from the backup made above (pure upper, so its
         // rename is permitted even on overlayfs). Consumes `.bak`, matching
@@ -951,8 +950,8 @@ mod tests {
 
     #[test]
     fn sanitize_keeps_normal_paths() {
-        let p = sanitize_entry_path(Path::new("codeg-server-linux-x64/web/index.html")).unwrap();
-        assert_eq!(p, PathBuf::from("codeg-server-linux-x64/web/index.html"));
+        let p = sanitize_entry_path(Path::new("iyw-claw-server-linux-x64/web/index.html")).unwrap();
+        assert_eq!(p, PathBuf::from("iyw-claw-server-linux-x64/web/index.html"));
     }
 
     /// Build a gzip'd tar with the given (path, bytes) regular-file entries.
@@ -997,7 +996,7 @@ mod tests {
     #[test]
     fn replace_file_keeps_backup_and_swaps() {
         let dir = tempfile::tempdir().unwrap();
-        let target = dir.path().join("codeg-server");
+        let target = dir.path().join("iyw-claw-server");
         std::fs::write(&target, b"old").unwrap();
         let src = dir.path().join("new-bin");
         std::fs::write(&src, b"new").unwrap();
@@ -1057,7 +1056,10 @@ mod tests {
         swap_dir_via_copy(&target, &staged, &bak).unwrap();
 
         assert_eq!(std::fs::read(target.join("index.html")).unwrap(), b"new");
-        assert_eq!(std::fs::read(target.join("assets/app.js")).unwrap(), b"new-js");
+        assert_eq!(
+            std::fs::read(target.join("assets/app.js")).unwrap(),
+            b"new-js"
+        );
         assert_eq!(std::fs::read(bak.join("index.html")).unwrap(), b"old");
         assert!(!staged.exists());
         // The backup staging dir must not survive (it became `.bak`).
@@ -1081,7 +1083,9 @@ mod tests {
         assert!(is_exdev(&std::io::Error::from(
             std::io::ErrorKind::CrossesDevices
         )));
-        assert!(!is_exdev(&std::io::Error::from(std::io::ErrorKind::NotFound)));
+        assert!(!is_exdev(&std::io::Error::from(
+            std::io::ErrorKind::NotFound
+        )));
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]

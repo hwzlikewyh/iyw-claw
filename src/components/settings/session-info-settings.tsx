@@ -4,9 +4,9 @@
  * Get-session-info settings panel — a single feature kill switch persisted as
  * `session_info.enabled` on the Rust side.
  *
- * When enabled (the default), `codeg-mcp` exposes the read-only `get_session_info`
+ * When enabled (the default), `iyw-claw-mcp` exposes the read-only `get_session_info`
  * tool so an agent can resolve a session the user referenced in the composer
- * (`codeg://session/<id>`) into its title, agent, status, workspace, token usage,
+ * (`iyw-claw://session/<id>`) into its title, agent, status, workspace, token usage,
  * and recent messages. Mounted under `/settings/general` next to the other
  * MCP-tool feature toggles, because it's a global feature, not per-agent.
  */

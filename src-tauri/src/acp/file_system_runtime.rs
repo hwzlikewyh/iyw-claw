@@ -261,7 +261,7 @@ fn atomic_write_text(path: &Path, bytes: &[u8]) -> Result<(), FileSystemRuntimeE
     }
 
     let temp_path = parent.join(format!(
-        ".codeg-fs-{}.{}.tmp",
+        ".iyw-claw-fs-{}.{}.tmp",
         std::process::id(),
         uuid::Uuid::new_v4().simple()
     ));
@@ -436,7 +436,7 @@ mod tests {
     use std::fs;
 
     fn temp_workspace() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("codeg-fs-test-{}", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("iyw-claw-fs-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&path).expect("create test workspace");
         path
     }
@@ -503,7 +503,7 @@ mod tests {
                 entry
                     .file_name()
                     .to_string_lossy()
-                    .starts_with(".codeg-fs-")
+                    .starts_with(".iyw-claw-fs-")
             });
         assert!(!leaked_tmp, "temporary file should be cleaned up");
 

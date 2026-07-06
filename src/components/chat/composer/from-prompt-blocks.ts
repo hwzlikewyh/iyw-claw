@@ -2,7 +2,7 @@ import type { PromptInputBlock } from "@/lib/types"
 import { randomUUID } from "@/lib/utils"
 
 import type { InputAttachment } from "../message-input-attachments"
-import { parseCodegReferenceUri as parseReferenceUri } from "./reference-uri"
+import { parseIywClawReferenceUri as parseReferenceUri } from "./reference-uri"
 import type { ReferenceAttrs } from "./types"
 
 /**
@@ -18,7 +18,7 @@ import type { ReferenceAttrs } from "./types"
  *   links `[name](file://…)` (which `docToPromptBlocks` now keeps inline) and
  *   session/commit/agent/skill references alike replay as inline links/text, not
  *   re-hydrated badges — consistent across every reference kind on a queue-edit.
- * - `resource_link` blocks whose uri is a composer scheme (`file:` / `codeg:`)
+ * - `resource_link` blocks whose uri is a composer scheme (`file:` / `iyw-claw:`)
  *   → reference badge segments. `docToPromptBlocks` no longer emits file
  *   resource_links (files stay inline above), but this branch still restores any
  *   composer-scheme resource_link the host appended out of band (e.g. an embedded
@@ -100,7 +100,7 @@ export function blocksToRestoredDraft(
   return { segments, attachments }
 }
 
-// The reference uri grammar (file:/codeg: → ReferenceAttrs) now lives in
+// The reference uri grammar (file:/iyw-claw: → ReferenceAttrs) now lives in
 // ./reference-uri, shared with transcript badge rendering. Re-exported here
 // under its historical name so existing importers (tests, queue-edit restore)
 // keep working.

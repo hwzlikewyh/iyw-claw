@@ -170,7 +170,7 @@ export interface ConnectionState {
    *  the runtime as a synthesized user turn; `null` outside an active turn. */
   pendingUserMessage: PendingUserMessage | null
   pendingQuestion: PendingQuestion | null
-  /** Awaiting-answer multiple-choice `ask_user_question` (the codeg-mcp blocking
+  /** Awaiting-answer multiple-choice `ask_user_question` (the iyw-claw-mcp blocking
    *  tool). Set from a `question_request` event or a snapshot's
    *  `pending_question`; cleared on `question_resolved` or turn end. Distinct
    *  from the free-text `pendingQuestion` above. */
@@ -2716,7 +2716,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             if (nc) {
               const agentLabel = AGENT_LABELS[nc.agentType]
               const fn = folderNameRef.current
-              const title = fn ? `${fn} - Codeg` : "Codeg"
+              const title = fn ? `${fn} - iyw-claw` : "iyw-claw"
               sendSystemNotification(
                 title,
                 `${agentLabel}: ${tChat("permissionDialog.subtitle")}`
@@ -2889,7 +2889,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             if (nc) {
               const agentLabel = AGENT_LABELS[nc.agentType]
               const fn = folderNameRef.current
-              const title = fn ? `${fn} - Codeg` : "Codeg"
+              const title = fn ? `${fn} - iyw-claw` : "iyw-claw"
               sendSystemNotification(
                 title,
                 t("notificationTurnComplete", { agent: agentLabel })
@@ -2960,7 +2960,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           // Send OS notification for agent errors
           if (nc) {
             const fn = folderNameRef.current
-            const title = fn ? `${fn} - Codeg` : "Codeg"
+            const title = fn ? `${fn} - iyw-claw` : "iyw-claw"
             sendSystemNotification(
               title,
               t("notificationError", {
@@ -3282,7 +3282,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   // ── Backend keepalive timer ──
   // Frontend is the only side that knows which conversation tabs the
   // user has open. Without this, the backend's idle sweep
-  // (CODEG_ACP_IDLE_TIMEOUT_SECS, default 180s) would reap connections
+  // (IYW_CLAW_ACP_IDLE_TIMEOUT_SECS, default 180s) would reap connections
   // backing visible tabs whenever the user was just reading without
   // sending — forcing them to re-spawn the agent on next message.
   // Touching only bumps last_activity_at; it does not emit any event.

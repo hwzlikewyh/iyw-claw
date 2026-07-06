@@ -11,9 +11,9 @@ use sacp::schema::{
     ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest, ReleaseTerminalResponse,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, ResourceLink,
     ResumeSessionRequest, ResumeSessionResponse, SelectedPermissionOutcome, SessionConfigKind,
-    SessionConfigOption, SessionConfigOptionCategory,
-    SessionConfigSelectGroup, SessionConfigSelectOption, SessionConfigSelectOptions, SessionId,
-    SessionModeState, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+    SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectGroup,
+    SessionConfigSelectOption, SessionConfigSelectOptions, SessionId, SessionModeState,
+    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionConfigOptionResponse, SetSessionModeRequest, StopReason, TerminalExitStatus,
     TerminalOutputRequest, TerminalOutputResponse, TextContent, TextResourceContents,
     ToolCallContent, WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
@@ -71,7 +71,7 @@ fn merge_agent_env(
     }
 
     // Ensure agent-invoked `officecli …` (from an enabled office skill) resolves
-    // even when codeg installed the binary outside the user's shell PATH — the
+    // even when iyw-claw installed the binary outside the user's shell PATH — the
     // Windows self-managed dir, or `~/.local/bin` under a GUI launch.
     prepend_officecli_path(&mut merged);
 
@@ -128,7 +128,7 @@ fn prepend_dir_to_path_env(
     env.insert(key, new_path);
 }
 
-/// Prepend codeg's known OfficeCLI install dir to `env`'s PATH when officecli is
+/// Prepend iyw-claw's known OfficeCLI install dir to `env`'s PATH when officecli is
 /// installed there but not yet on the live PATH (see
 /// `office_tools::officecli_agent_path_dir`). Applied to both the agent process
 /// env (`merge_agent_env`) and the ACP terminal runtime's base env, so an
@@ -177,7 +177,7 @@ pub enum ConnectionCommand {
 /// Sentinel string embedded in a `sacp::Error` when the Initialize
 /// handshake times out. Converted back to `AcpError::InitializeTimeout`
 /// by the outer `.map_err(...)` in `run_connection`.
-const INIT_TIMEOUT_SENTINEL: &str = "__codeg_init_timeout__";
+const INIT_TIMEOUT_SENTINEL: &str = "__iyw_claw_init_timeout__";
 
 /// RAII guard that removes the `AgentConnection` entry from the manager
 /// map when dropped. Runs on both normal task exit AND task panic, so a
@@ -258,13 +258,13 @@ impl AgentConnection {
 /// Directory handed to codex-acp via `APP_SERVER_LOGS` so its adapter-side
 /// (ACP ↔ Codex app-server translation) logs land on disk for support.
 ///
-/// Roots under the same `<cache>/app.codeg` tree as
+/// Roots under the same `<cache>/app.iywclaw` tree as
 /// [`binary_cache::cache_dir`] for consistency. Returns `None` — and the
 /// caller injects nothing — when the system cache dir is unknown or the
 /// directory can't be created: diagnostics must never block a connection.
 fn codex_app_server_log_dir() -> Option<String> {
     let dir = dirs::cache_dir()?
-        .join("app.codeg")
+        .join("app.iywclaw")
         .join("acp-logs")
         .join("codex-acp");
     std::fs::create_dir_all(&dir).ok()?;
@@ -320,7 +320,7 @@ async fn build_agent(
                 if let Some(message) = pi_launch_preflight(runtime_env) {
                     return Err(AcpError::SdkNotInstalled(message));
                 }
-                // Trust the workspace codeg is launching pi into (default on, via
+                // Trust the workspace iyw-claw is launching pi into (default on, via
                 // the PI_ACP_TRUST_WORKSPACE env_json key) so pi loads the
                 // project's local config/skills without a redundant prompt. Gates
                 // config loading only, never execution; scoped, additive, and
@@ -329,11 +329,11 @@ async fn build_agent(
             }
             let mut merged_env = merge_agent_env(env, runtime_env);
             // codex-acp 1.0.0 honors APP_SERVER_LOGS as a directory for its
-            // adapter-side logs. Surface it only under CODEG_ACP_DEBUG so
+            // adapter-side logs. Surface it only under IYW_CLAW_ACP_DEBUG so
             // default runs are unchanged; a directory-creation failure silently
             // skips injection (diagnostics must never block a connect).
             let want_codex_logs = agent_type == AgentType::Codex
-                && std::env::var("CODEG_ACP_DEBUG")
+                && std::env::var("IYW_CLAW_ACP_DEBUG")
                     .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                     .unwrap_or(false);
             if want_codex_logs {
@@ -482,13 +482,13 @@ async fn build_agent(
             //   contents, and permission-response payloads — all of
             //   which may contain API keys pasted by users or file
             //   contents the agent is editing. They are gated behind
-            //   the `CODEG_ACP_DEBUG=1` env var so production builds
+            //   the `IYW_CLAW_ACP_DEBUG=1` env var so production builds
             //   don't persist user content into OS-level log files
             //   (Console.app on macOS, journald on Linux).
             // - Max line length is kept short so what does get logged
             //   captures the JSON-RPC envelope (method, id) rather
             //   than large payload bodies.
-            let stdio_debug_enabled = std::env::var("CODEG_ACP_DEBUG")
+            let stdio_debug_enabled = std::env::var("IYW_CLAW_ACP_DEBUG")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false);
             let agent_name = meta.name.to_string();
@@ -558,7 +558,8 @@ async fn build_agent(
                 // than provisioned through uvx.
                 tracing::warn!(
                     "[ACP][{}] uvx unavailable; falling back to system command {:?}",
-                    meta.name, sys_path
+                    meta.name,
+                    sys_path
                 );
                 // `system_cmd` is a complete launch recipe for the PATH binary;
                 // the uvx entry-script `args` don't necessarily apply to it
@@ -592,7 +593,7 @@ async fn build_agent(
     }?;
 
     // Run the agent subprocess in the session's working directory rather than
-    // codeg's own process cwd (a desktop app launched from the Dock often
+    // iyw-claw's own process cwd (a desktop app launched from the Dock often
     // inherits "/"). A coding agent belongs in its project root. This is
     // required for Hermes, whose local terminal backend force-exports
     // TERMINAL_CWD = os.getcwd() at import (clobbering any inherited value)
@@ -673,7 +674,7 @@ pub async fn spawn_agent_connection(
     let launch_cwd = resolve_working_dir(working_dir.as_deref());
     let agent = build_agent(agent_type, &runtime_env, &launch_cwd).await?;
 
-    // Forward only the codeg git credential helper keys into the terminal
+    // Forward only the iyw-claw git credential helper keys into the terminal
     // runtime — not the agent's API tokens or model provider credentials.
     // This makes `git fetch`/`git push` issued through the ACP
     // `terminal/create` tool authenticate via the same helper path the
@@ -684,7 +685,7 @@ pub async fn spawn_agent_connection(
         .filter(|(k, _)| k.starts_with("GIT_CONFIG_"))
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    // Also surface a codeg-installed OfficeCLI on the terminal's PATH: agents run
+    // Also surface a iyw-claw-installed OfficeCLI on the terminal's PATH: agents run
     // office skills' `officecli …` through this `terminal/create` tool, not as a
     // child of the agent process, so the agent-env injection alone wouldn't reach
     // them right after install (before install.ps1's User-PATH change lands).
@@ -701,8 +702,7 @@ pub async fn spawn_agent_connection(
     // Derived from the same `runtime_env` we hand the agent (minus per-launch
     // volatile keys) plus the agent's native config file content, so a later
     // settings save can be compared against it to detect a stale running session.
-    let config_fingerprint =
-        crate::commands::acp::fingerprint_config(agent_type, &runtime_env);
+    let config_fingerprint = crate::commands::acp::fingerprint_config(agent_type, &runtime_env);
 
     // Insert the entry BEFORE spawning the background task so that a
     // fast-failing `run_connection` can never remove it before it was
@@ -1131,7 +1131,7 @@ fn build_resume_session_request(
 /// reply into `ResumeSessionResponse`.
 ///
 /// `sacp` 11.0.0 ships no `JsonRpcRequest` impl for `ResumeSessionRequest`, and
-/// the orphan rule blocks codeg from adding one, so we send via `UntypedMessage`
+/// the orphan rule blocks iyw-claw from adding one, so we send via `UntypedMessage`
 /// — the same in-tree pattern `set_session_config_option_inner` already uses for
 /// `session/set_config_option`. On a JSON-RPC error the agent returns,
 /// `block_task()` yields `Err(sacp::Error)` with `.code` / `.to_string()`
@@ -1141,25 +1141,23 @@ async fn send_resume_session(
     cx: &ConnectionTo<Agent>,
     req: ResumeSessionRequest,
 ) -> Result<ResumeSessionResponse, sacp::Error> {
-    let untyped_req = UntypedMessage::new("session/resume", req).map_err(|e| {
-        sacp::util::internal_error(format!("Failed to build resume request: {e}"))
-    })?;
+    let untyped_req = UntypedMessage::new("session/resume", req)
+        .map_err(|e| sacp::util::internal_error(format!("Failed to build resume request: {e}")))?;
 
     let raw_response = cx.send_request_to(Agent, untyped_req).block_task().await?;
-    serde_json::from_value(raw_response).map_err(|e| {
-        sacp::util::internal_error(format!("Failed to parse resume response: {e}"))
-    })
+    serde_json::from_value(raw_response)
+        .map_err(|e| sacp::util::internal_error(format!("Failed to parse resume response: {e}")))
 }
 
 /// Whether MCP servers forwarded over the ACP wire (`session/new.mcpServers`)
 /// actually reach the agent's model. Almost all adapters deliver them; pi-acp
 /// (0.0.31) accepts the `mcpServers` field but DROPS it — it never forwards MCP
 /// to the inner `pi --mode rpc` process, and pi has no native MCP. So forwarding
-/// either user servers or the built-in codeg-mcp companion to pi is futile, and
-/// injecting codeg-mcp would falsely mark delegation/feedback/ask as available
+/// either user servers or the built-in iyw-claw-mcp companion to pi is futile, and
+/// injecting iyw-claw-mcp would falsely mark delegation/feedback/ask as available
 /// (`feedback_tool_available`, a registered delegation token pi can never use).
 /// `supports_mcp` stays `true` for pi (session/new tolerates the field), so this
-/// is a separate, narrower gate. Gate codeg-mcp injection on it.
+/// is a separate, narrower gate. Gate iyw-claw-mcp injection on it.
 fn agent_delivers_wire_mcp(agent_type: AgentType) -> bool {
     !matches!(agent_type, AgentType::Pi)
 }
@@ -1171,10 +1169,10 @@ fn load_mcp_servers_for_agent(agent_type: AgentType) -> Vec<McpServer> {
     // Hermes and Kimi Code each read their own native MCP config at launch —
     // Hermes from `~/.hermes/config.yaml` (`mcp_servers`, registered as
     // `mcp-<name>` toolsets), Kimi Code from `~/.kimi-code/mcp.json`
-    // (`mcpServers`). codeg manages those files directly via the MCP settings
+    // (`mcpServers`). iyw-claw manages those files directly via the MCP settings
     // UI, so forwarding the same servers over the ACP wire here would
-    // double-register them — skip it. (The built-in `codeg-mcp` companion is
-    // injected separately by `inject_codeg_mcp`, so it still reaches them.)
+    // double-register them — skip it. (The built-in `iyw-claw-mcp` companion is
+    // injected separately by `inject_iyw_claw_mcp`, so it still reaches them.)
     if matches!(agent_type, AgentType::Hermes | AgentType::KimiCode) {
         return Vec::new();
     }
@@ -1204,7 +1202,7 @@ fn load_mcp_servers_for_agent(agent_type: AgentType) -> Vec<McpServer> {
     out
 }
 
-/// Context the connection layer needs to inject the built-in `codeg-mcp`
+/// Context the connection layer needs to inject the built-in `iyw-claw-mcp`
 /// MCP entry. Built once per `run_connection` from the live AppState pieces
 /// (broker config, token registry, UDS path) and passed through.
 ///
@@ -1216,17 +1214,17 @@ pub struct DelegationInjection {
     pub tokens: Arc<crate::acp::delegation::listener::TokenRegistry>,
     pub socket_path: PathBuf,
     /// Hot-swappable "is live-feedback enabled?" flag. Read at injection time
-    /// alongside the broker's delegation flag so `codeg-mcp` is injected when
+    /// alongside the broker's delegation flag so `iyw-claw-mcp` is injected when
     /// EITHER feature is on, and the companion is told which tool groups to
     /// expose. Shares the same `tokens` registry and UDS socket as delegation.
     pub feedback: crate::acp::feedback::FeedbackRuntimeConfig,
     /// Hot-swappable "is ask-user-question enabled?" flag. Read at injection
-    /// time alongside delegation + feedback so `codeg-mcp` is injected when ANY
+    /// time alongside delegation + feedback so `iyw-claw-mcp` is injected when ANY
     /// of the three is on, and the companion's `--features` lists `ask` to expose
     /// the `ask_user_question` tool.
     pub ask: crate::acp::question::QuestionRuntimeConfig,
     /// Hot-swappable "is get-session-info enabled?" flag. Read at injection time
-    /// alongside the other three so `codeg-mcp` is injected when ANY of the four
+    /// alongside the other three so `iyw-claw-mcp` is injected when ANY of the four
     /// is on, and the companion's `--features` lists `sessions` to expose the
     /// `get_session_info` tool. No teardown handle (the lookup is stateless).
     pub sessions: crate::acp::session_info::SessionInfoRuntimeConfig,
@@ -1238,19 +1236,19 @@ pub struct DelegationInjection {
     pub questions: Arc<dyn crate::acp::question::SessionQuestionAccess>,
 }
 
-/// Locate the `codeg-mcp` companion binary across the supported deployment
+/// Locate the `iyw-claw-mcp` companion binary across the supported deployment
 /// shapes:
 ///
-/// 1. `CODEG_MCP_BIN` env override — explicit absolute path. Lets dev shells,
+/// 1. `IYW_CLAW_MCP_BIN` env override — explicit absolute path. Lets dev shells,
 ///    custom installs, and integration tests point at a freshly compiled
 ///    binary without touching the install layout.
 /// 2. Sibling of the running executable — the production layout for every
-///    shipping target. Tauri sidecar (`Contents/MacOS/codeg-mcp` on macOS,
-///    next to `codeg.exe` on Windows, next to the unix binary on Linux
-///    deb/rpm), `install.sh`/`install.ps1` (drops `codeg-mcp` next to
-///    `codeg-server`), Docker image (`/usr/local/bin/codeg-mcp` next to
-///    `codeg-server`), and `cargo build` dev output
-///    (`target/<profile>/codeg-mcp`).
+///    shipping target. Tauri sidecar (`Contents/MacOS/iyw-claw-mcp` on macOS,
+///    next to `iyw-claw.exe` on Windows, next to the unix binary on Linux
+///    deb/rpm), `install.sh`/`install.ps1` (drops `iyw-claw-mcp` next to
+///    `iyw-claw-server`), Docker image (`/usr/local/bin/iyw-claw-mcp` next to
+///    `iyw-claw-server`), and `cargo build` dev output
+///    (`target/<profile>/iyw-claw-mcp`).
 /// 3. `PATH` lookup — last-resort for atypical layouts where ops moved the
 ///    two binaries apart but kept both reachable on `PATH`.
 ///
@@ -1259,14 +1257,14 @@ pub struct DelegationInjection {
 /// injection — never paper over with a phantom path, because that fails
 /// inside the agent's MCP spawn loop and may take the entire ACP session
 /// down on stricter agents.
-fn locate_codeg_mcp_binary() -> Option<PathBuf> {
+fn locate_iyw_claw_mcp_binary() -> Option<PathBuf> {
     let filename = if cfg!(windows) {
-        "codeg-mcp.exe"
+        "iyw-claw-mcp.exe"
     } else {
-        "codeg-mcp"
+        "iyw-claw-mcp"
     };
 
-    if let Some(raw) = std::env::var_os("CODEG_MCP_BIN") {
+    if let Some(raw) = std::env::var_os("IYW_CLAW_MCP_BIN") {
         let candidate = PathBuf::from(raw);
         if is_executable_file(&candidate) {
             return Some(candidate);
@@ -1305,7 +1303,7 @@ fn is_executable_file(path: &Path) -> bool {
     true
 }
 
-/// Append the built-in `codeg-mcp` MCP entry if delegation is enabled
+/// Append the built-in `iyw-claw-mcp` MCP entry if delegation is enabled
 /// AND the companion binary is present on disk. Returns the per-launch token
 /// that was registered, or `None` when injection was skipped (disabled by
 /// config, or binary missing).
@@ -1316,7 +1314,7 @@ fn is_executable_file(path: &Path) -> bool {
 /// new ACP session ship a guaranteed-to-fail MCP server entry: stricter
 /// agents (Claude Code) refuse the whole session; lax agents lose the
 /// delegate tool silently. Skipping leaves the agent fully functional minus
-/// `delegate_to_agent`, which is the right degradation when codeg-mcp didn't
+/// `delegate_to_agent`, which is the right degradation when iyw-claw-mcp didn't
 /// make it into the install.
 /// The `--features` value for a companion launch given the four feature flags,
 /// or `None` when none is enabled (the companion isn't injected at all).
@@ -1347,7 +1345,7 @@ fn companion_features_arg(
     Some(features.join(","))
 }
 
-/// Outcome of injecting the `codeg-mcp` companion: the per-launch token to
+/// Outcome of injecting the `iyw-claw-mcp` companion: the per-launch token to
 /// stash for revocation, plus whether the `check_user_feedback` tool was exposed
 /// to this agent (so the session can gate submit + UI on its real capability).
 struct CompanionInjection {
@@ -1355,13 +1353,13 @@ struct CompanionInjection {
     feedback_available: bool,
 }
 
-async fn inject_codeg_mcp(
+async fn inject_iyw_claw_mcp(
     servers: &mut Vec<McpServer>,
     injection: &DelegationInjection,
     parent_connection_id: &str,
     working_dir: &Path,
 ) -> Option<CompanionInjection> {
-    // codeg-mcp carries BOTH the delegation tools and the live-feedback tool.
+    // iyw-claw-mcp carries BOTH the delegation tools and the live-feedback tool.
     // Inject it when EITHER feature is enabled; the `--features` arg tells the
     // companion which tool groups to expose so a disabled feature's tools never
     // surface to the LLM. (Historically this was gated on delegation alone.)
@@ -1376,12 +1374,12 @@ async fn inject_codeg_mcp(
         ask_enabled,
         sessions_enabled,
     )?;
-    let Some(binary_path) = locate_codeg_mcp_binary() else {
+    let Some(binary_path) = locate_iyw_claw_mcp_binary() else {
         tracing::warn!(
-            "[delegation][WARN] codeg-mcp companion binary not found (checked CODEG_MCP_BIN, \
+            "[delegation][WARN] iyw-claw-mcp companion binary not found (checked IYW_CLAW_MCP_BIN, \
              exe sibling, and PATH); skipping delegate_to_agent / check_user_feedback / \
              ask_user_question / get_session_info tool injection for connection \
-             {parent_connection_id}. Reinstall codeg or set CODEG_MCP_BIN to fix."
+             {parent_connection_id}. Reinstall iyw-claw or set IYW_CLAW_MCP_BIN to fix."
         );
         return None;
     };
@@ -1396,7 +1394,7 @@ async fn inject_codeg_mcp(
             },
         )
         .await;
-    let mut server = McpServerStdio::new("codeg-mcp", binary_path);
+    let mut server = McpServerStdio::new("iyw-claw-mcp", binary_path);
     server = server.args(vec![
         "--parent-connection-id".to_string(),
         parent_connection_id.to_string(),
@@ -1404,7 +1402,7 @@ async fn inject_codeg_mcp(
         injection.socket_path.to_string_lossy().to_string(),
         "--token".to_string(),
         token.clone(),
-        // Self-cleanup watchdog: codeg-mcp exits when this PID is gone so
+        // Self-cleanup watchdog: iyw-claw-mcp exits when this PID is gone so
         // orphaned companions can't keep the binary file locked across an
         // installer upgrade (Windows) or hold a stale broker connection
         // (any platform).
@@ -1550,7 +1548,7 @@ async fn run_connection(
     let cwd = resolve_working_dir(working_dir.as_deref());
     // Default terminals to the session working directory so an agent that calls
     // `terminal/create` without a `cwd` (e.g. CodeBuddy) runs in the folder the
-    // conversation runs in rather than codeg's own process cwd.
+    // conversation runs in rather than iyw-claw's own process cwd.
     let terminal_runtime = Arc::new(
         TerminalRuntime::with_base_env(terminal_base_env).with_default_cwd(Some(cwd.clone())),
     );
@@ -1564,7 +1562,7 @@ async fn run_connection(
 
     Client
         .builder()
-        .name("codeg")
+        .name("iyw-claw")
         .on_receive_request(
             {
                 let emitter_inner = emitter_clone.clone();
@@ -1724,7 +1722,7 @@ async fn run_connection(
                         "[ACP][{agent_name_for_log}] Initialize TIMED OUT after {:?} \
                          — the agent never answered the handshake. Check the \
                          [stderr] lines above for agent-side errors. For a full \
-                         JSON-RPC trace, re-launch with CODEG_ACP_DEBUG=1.",
+                         JSON-RPC trace, re-launch with IYW_CLAW_ACP_DEBUG=1.",
                         init_started.elapsed()
                     );
                     return Err(sacp::util::internal_error(INIT_TIMEOUT_SENTINEL));
@@ -1755,7 +1753,7 @@ async fn run_connection(
             // Whether this agent accepts MCP server entries over the ACP wire
             // (`session/new`'s `mcpServers`). Almost all do; OpenClaw rejects
             // any server entry and fails session creation, so it must receive
-            // NONE — neither user-configured servers nor the built-in codeg-mcp
+            // NONE — neither user-configured servers nor the built-in iyw-claw-mcp
             // companion. (The `mcpServers` key itself is always serialized as
             // `[]` by the ACP schema and OpenClaw tolerates the empty list; the
             // gate only guarantees the list stays empty for it.) This is the
@@ -1800,20 +1798,20 @@ async fn run_connection(
                     .collect()
             } else {
                 tracing::info!(
-                    "[ACP][{}] supports_mcp=false: skipping all MCP wire forwarding (user servers + codeg-mcp companion)",
+                    "[ACP][{}] supports_mcp=false: skipping all MCP wire forwarding (user servers + iyw-claw-mcp companion)",
                     agent_type
                 );
                 Vec::new()
             };
 
-            // Inject the built-in `codeg-mcp` MCP server. Stdio is
+            // Inject the built-in `iyw-claw-mcp` MCP server. Stdio is
             // unconditionally supported by the ACP wire — no `mcp_caps`
             // filter needed. The returned token is stashed on the session
             // state so connection teardown can revoke it. Skipped entirely
             // for agents that don't accept MCP over the wire (above).
             let delegate_injection = if agent_supports_mcp && agent_delivers_wire_mcp(agent_type) {
                 if let Some(inj) = delegation_injection.as_ref() {
-                    inject_codeg_mcp(&mut mcp_servers, inj, &conn_id, &cwd).await
+                    inject_iyw_claw_mcp(&mut mcp_servers, inj, &conn_id, &cwd).await
                 } else {
                     None
                 }
@@ -2512,7 +2510,9 @@ async fn apply_preferred_session_options(
             .unwrap_or(false);
         if needs_apply {
             if let Err(e) = set_session_mode(session, state, emitter, pref_mode.to_string()).await {
-                tracing::error!("[ACP] failed to apply preferred mode '{pref_mode}' on connect: {e}");
+                tracing::error!(
+                    "[ACP] failed to apply preferred mode '{pref_mode}' on connect: {e}"
+                );
             }
         }
     }
@@ -3047,7 +3047,8 @@ async fn poll_tracked_terminal_tool_calls(
                 Err(err) => {
                     tracing::error!(
                         "[ACP] Failed to poll terminal output for tool call {}: {:?}",
-                        tool_call_id, err
+                        tool_call_id,
+                        err
                     );
                     continue;
                 }
@@ -3170,7 +3171,8 @@ async fn handle_fork_or_exit(
 
     tracing::info!(
         "[ACP] Fork transition: attaching to forked session {} (original: {})",
-        new_sid, fork_info.original_session_id
+        new_sid,
+        fork_info.original_session_id
     );
 
     // Reply protocol-level result to manager.fork_session, which will combine
@@ -3963,7 +3965,8 @@ async fn run_conversation_loop<'a>(
                 let sid = session.session_id().clone();
                 tracing::info!(
                     "[ACP] Sending session/fork for session_id={} cwd={}",
-                    sid.0, cwd
+                    sid.0,
+                    cwd
                 );
                 let result = crate::acp::fork::fork_session(&cx, &sid, cwd).await;
                 match result {
@@ -4001,10 +4004,7 @@ async fn run_conversation_loop<'a>(
 /// (doubling the event) and the hunkless full-file `--- /+++` blob stays in the
 /// tool `output`, where `extractEditLineChangeStats` mis-counts it as full-file
 /// +/- totals in the card header even though the body shows the compact diff.
-fn serialize_tool_call_content(
-    content: &[ToolCallContent],
-    include_diffs: bool,
-) -> Option<String> {
+fn serialize_tool_call_content(content: &[ToolCallContent], include_diffs: bool) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     for item in content {
         match item {
@@ -4132,10 +4132,7 @@ fn build_new_file_diff(path: &str, new_text: &str) -> String {
     // it keeps the trailing empty segment from a final newline, so the `+N`
     // count and the trailing `+` addition line match exactly.
     let lines: Vec<&str> = new_text.split('\n').collect();
-    let mut out = format!(
-        "--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@",
-        lines.len()
-    );
+    let mut out = format!("--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@", lines.len());
     for line in lines {
         out.push('\n');
         out.push('+');
@@ -4285,7 +4282,10 @@ fn is_subagent_invocation(agent_type: AgentType, raw_input: &Option<String>) -> 
 /// historical unwrap in `parsers/codebuddy.rs`. `raw_input` is left untouched
 /// (the cards peel `params` themselves, and that keeps `inferFromInput` from
 /// misclassifying `cancel_delegation`'s `{task_id}` as a generic task).
-fn codebuddy_deferred_tool_name(agent_type: AgentType, raw_input: &Option<String>) -> Option<String> {
+fn codebuddy_deferred_tool_name(
+    agent_type: AgentType,
+    raw_input: &Option<String>,
+) -> Option<String> {
     if agent_type != AgentType::CodeBuddy {
         return None;
     }
@@ -4353,7 +4353,11 @@ fn codebuddy_meta_marks_subagent(
     if meta.get("codebuddy.ai/toolName").and_then(|v| v.as_str()) == Some("Agent") {
         return true;
     }
-    if meta.get("codebuddy.ai/isSubagent").and_then(|v| v.as_bool()) == Some(true) {
+    if meta
+        .get("codebuddy.ai/isSubagent")
+        .and_then(|v| v.as_bool())
+        == Some(true)
+    {
         return true;
     }
     meta.get("codebuddy.ai/subagentType")
@@ -4394,7 +4398,11 @@ fn codebuddy_chunk_marks_subagent(
     let Some(meta) = meta else {
         return false;
     };
-    if meta.get("codebuddy.ai/isSubagent").and_then(|v| v.as_bool()) == Some(true) {
+    if meta
+        .get("codebuddy.ai/isSubagent")
+        .and_then(|v| v.as_bool())
+        == Some(true)
+    {
         return true;
     }
     meta.get("codebuddy.ai/parentToolCallId")
@@ -4726,16 +4734,14 @@ async fn emit_conversation_update(
             // `Diff` from `content` — it's the same edit re-serialized hunklessly,
             // which would otherwise double the event and skew the header +/- stats.
             // Blank raw_input is treated as absent (matches the frontend guard).
-            let own_raw_input =
-                json_value_to_text(&tc.raw_input).filter(|t| !t.trim().is_empty());
+            let own_raw_input = json_value_to_text(&tc.raw_input).filter(|t| !t.trim().is_empty());
             let synthesized_edit = if own_raw_input.is_none() {
                 synthesize_edit_input_from_diffs(&tc.content)
             } else {
                 None
             };
-            let content =
-                serialize_tool_call_content(&tc.content, synthesized_edit.is_none())
-                    .map(|c| unwrap_codebuddy_deferred_output(agent_type, &c).unwrap_or(c));
+            let content = serialize_tool_call_content(&tc.content, synthesized_edit.is_none())
+                .map(|c| unwrap_codebuddy_deferred_output(agent_type, &c).unwrap_or(c));
             let images = extract_tool_call_images(&tc.content);
             let raw_input = synthesized_edit
                 .or(own_raw_input)
@@ -4758,7 +4764,8 @@ async fn emit_conversation_update(
             // `meta_marks_background` keeps a concurrent sub-agent out of the
             // suppression window (see fn docs).
             let meta_marks_subagent = codebuddy_meta_marks_subagent(agent_type, tc.meta.as_ref());
-            let meta_marks_background = codebuddy_meta_marks_background(agent_type, tc.meta.as_ref());
+            let meta_marks_background =
+                codebuddy_meta_marks_background(agent_type, tc.meta.as_ref());
             let meta = tc.meta.map(serde_json::Value::Object);
             let status = format!("{:?}", tc.status).to_lowercase();
             raw_output_cache.remove_if_final(&tool_call_id, Some(status.as_str()));
@@ -4862,7 +4869,8 @@ async fn emit_conversation_update(
                 .filter(|l| !l.is_empty())
                 .and_then(|l| serde_json::to_value(l).ok());
             let meta_marks_subagent = codebuddy_meta_marks_subagent(agent_type, tcu.meta.as_ref());
-            let meta_marks_background = codebuddy_meta_marks_background(agent_type, tcu.meta.as_ref());
+            let meta_marks_background =
+                codebuddy_meta_marks_background(agent_type, tcu.meta.as_ref());
             let meta = tcu.meta.clone().map(serde_json::Value::Object);
             let status = tcu.fields.status.map(|s| format!("{:?}", s).to_lowercase());
             raw_output_cache.remove_if_final(&tool_call_id, status.as_deref());
@@ -4974,7 +4982,7 @@ async fn emit_conversation_update(
         SessionUpdate::SessionInfoUpdate(info) => {
             // codex-acp v1.1.0 (#263) reports `/goal` transitions as structured
             // session metadata instead of live "Goal updated (…)" agent text:
-            // the goal object rides under `_meta.codex.goal`. Map it onto codeg's
+            // the goal object rides under `_meta.codex.goal`. Map it onto iyw-claw's
             // canonical create_goal/update_goal synthetic tool call so the
             // existing goal-card pipeline (groupGoalRuns/GoalCard) renders it —
             // byte-identical to the history path (parsers/codex.rs). Non-Codex
@@ -5175,8 +5183,10 @@ mod tests {
             true,
         );
         // Exactly one PATH-ish key, the original casing preserved, value prepended.
-        let path_keys: Vec<&String> =
-            env.keys().filter(|k| k.eq_ignore_ascii_case("PATH")).collect();
+        let path_keys: Vec<&String> = env
+            .keys()
+            .filter(|k| k.eq_ignore_ascii_case("PATH"))
+            .collect();
         assert_eq!(path_keys.len(), 1, "{env:?}");
         assert_eq!(
             env.get("Path").unwrap(),
@@ -5187,9 +5197,17 @@ mod tests {
     #[test]
     fn prepend_path_windows_seeds_from_fallback_with_semicolon() {
         let mut env = BTreeMap::new();
-        prepend_dir_to_path_env(&mut env, r"C:\OfficeCLI", r"C:\Windows;C:\Windows\System32", true);
+        prepend_dir_to_path_env(
+            &mut env,
+            r"C:\OfficeCLI",
+            r"C:\Windows;C:\Windows\System32",
+            true,
+        );
         // No prior key → default `Path` casing on Windows.
-        assert_eq!(env.get("Path").unwrap(), r"C:\OfficeCLI;C:\Windows;C:\Windows\System32");
+        assert_eq!(
+            env.get("Path").unwrap(),
+            r"C:\OfficeCLI;C:\Windows;C:\Windows\System32"
+        );
     }
 
     #[test]
@@ -5202,9 +5220,15 @@ mod tests {
         env.insert("PATH".to_string(), r"C:\a".to_string());
         env.insert("Path".to_string(), r"C:\b".to_string());
         prepend_dir_to_path_env(&mut env, r"C:\OfficeCLI", "ignored-fallback", true);
-        let path_keys: Vec<&String> =
-            env.keys().filter(|k| k.eq_ignore_ascii_case("PATH")).collect();
-        assert_eq!(path_keys.len(), 1, "exactly one PATH-ish key must remain: {env:?}");
+        let path_keys: Vec<&String> = env
+            .keys()
+            .filter(|k| k.eq_ignore_ascii_case("PATH"))
+            .collect();
+        assert_eq!(
+            path_keys.len(),
+            1,
+            "exactly one PATH-ish key must remain: {env:?}"
+        );
         assert_eq!(env.get("Path").unwrap(), r"C:\OfficeCLI;C:\b");
     }
 
@@ -5283,7 +5307,7 @@ mod tests {
 
     #[test]
     fn build_new_session_request_sets_claude_raw_meta() {
-        let cwd = std::path::PathBuf::from("/tmp/codeg");
+        let cwd = std::path::PathBuf::from("/tmp/iyw-claw");
         let req = build_new_session_request(AgentType::ClaudeCode, &cwd, Vec::new());
 
         assert_eq!(
@@ -5298,7 +5322,7 @@ mod tests {
 
     #[test]
     fn build_load_session_request_skips_meta_for_non_claude() {
-        let cwd = std::path::PathBuf::from("/tmp/codeg");
+        let cwd = std::path::PathBuf::from("/tmp/iyw-claw");
         let req = build_load_session_request(
             AgentType::Codex,
             SessionId::new("abc".to_string()),
@@ -5314,13 +5338,13 @@ mod tests {
     // that field on NewSessionRequest/LoadSessionRequest, so it always
     // serializes as `[]`; every agent (OpenClaw included) already receives
     // `mcpServers: []` on a fresh install with no servers configured and
-    // codeg-mcp off — the known-good payload. The connection-layer gate
+    // iyw-claw-mcp off — the known-good payload. The connection-layer gate
     // (`supports_mcp == false`) forces OpenClaw onto that empty payload
     // unconditionally. This pins the wire contract: both builders emit an
     // empty list, so no server entry can ever reach OpenClaw.
     #[test]
     fn openclaw_session_requests_carry_no_mcp_servers() {
-        let cwd = std::path::PathBuf::from("/tmp/codeg");
+        let cwd = std::path::PathBuf::from("/tmp/iyw-claw");
 
         let new_req = build_new_session_request(AgentType::OpenClaw, &cwd, Vec::new());
         assert!(
@@ -5354,7 +5378,7 @@ mod tests {
 
     #[test]
     fn build_resume_session_request_sets_claude_raw_meta() {
-        let cwd = std::path::PathBuf::from("/tmp/codeg");
+        let cwd = std::path::PathBuf::from("/tmp/iyw-claw");
         let req = build_resume_session_request(
             AgentType::ClaudeCode,
             SessionId::new("abc".to_string()),
@@ -5374,7 +5398,7 @@ mod tests {
 
     #[test]
     fn build_resume_session_request_skips_meta_for_non_claude() {
-        let cwd = std::path::PathBuf::from("/tmp/codeg");
+        let cwd = std::path::PathBuf::from("/tmp/iyw-claw");
         let req = build_resume_session_request(
             AgentType::Codex,
             SessionId::new("abc".to_string()),
@@ -5395,7 +5419,7 @@ mod tests {
     // documented wire-shape divergence here.
     #[test]
     fn openclaw_resume_request_carries_no_mcp_servers() {
-        let cwd = std::path::PathBuf::from("/tmp/codeg");
+        let cwd = std::path::PathBuf::from("/tmp/iyw-claw");
         let req = build_resume_session_request(
             AgentType::OpenClaw,
             SessionId::new("openclaw-session".to_string()),
@@ -5788,10 +5812,7 @@ mod tests {
         // returns false. Regression guard against any future "optimisation"
         // that conflates the substring check with the field check.
         let input = Some(r#"{"description":"use subagent_type=foo"}"#.to_string());
-        assert!(!is_subagent_invocation(
-            AgentType::OpenCode,
-            &input
-        ));
+        assert!(!is_subagent_invocation(AgentType::OpenCode, &input));
     }
 
     #[test]
@@ -5812,33 +5833,34 @@ mod tests {
     fn deferred_unwraps_codebuddy_mcp_tool_name() {
         // CodeBuddy wraps MCP calls as `{toolName, params}` via DeferExecuteTool.
         let input = Some(
-            r#"{"params":{"agent_type":"codex","task":"build"},"toolName":"mcp__codeg-mcp__delegate_to_agent"}"#
+            r#"{"params":{"agent_type":"codex","task":"build"},"toolName":"mcp__iyw-claw-mcp__delegate_to_agent"}"#
                 .to_string(),
         );
         assert_eq!(
             codebuddy_deferred_tool_name(AgentType::CodeBuddy, &input).as_deref(),
-            Some("mcp__codeg-mcp__delegate_to_agent")
+            Some("mcp__iyw-claw-mcp__delegate_to_agent")
         );
     }
 
     #[test]
     fn deferred_gates_on_codebuddy_and_shape() {
         let wrapped = Some(
-            r#"{"params":{"task_id":"a"},"toolName":"mcp__codeg-mcp__cancel_delegation"}"#
+            r#"{"params":{"task_id":"a"},"toolName":"mcp__iyw-claw-mcp__cancel_delegation"}"#
                 .to_string(),
         );
         // Only CodeBuddy is unwrapped.
         assert!(codebuddy_deferred_tool_name(AgentType::OpenCode, &wrapped).is_none());
         // Missing `params`, missing/blank `toolName`, or non-wrapper shapes → None.
         for raw in [
-            r#"{"toolName":"mcp__codeg-mcp__delegate_to_agent"}"#, // no params
-            r#"{"params":{"x":1},"toolName":""}"#,                 // blank toolName
-            r#"{"params":{"x":1}}"#,                               // no toolName
-            r#"{"command":"ls"}"#,                                 // plain tool
+            r#"{"toolName":"mcp__iyw-claw-mcp__delegate_to_agent"}"#, // no params
+            r#"{"params":{"x":1},"toolName":""}"#,                    // blank toolName
+            r#"{"params":{"x":1}}"#,                                  // no toolName
+            r#"{"command":"ls"}"#,                                    // plain tool
             "not json",
         ] {
             assert!(
-                codebuddy_deferred_tool_name(AgentType::CodeBuddy, &Some(raw.to_string())).is_none(),
+                codebuddy_deferred_tool_name(AgentType::CodeBuddy, &Some(raw.to_string()))
+                    .is_none(),
                 "expected None for raw_input={raw}"
             );
         }
@@ -5898,48 +5920,97 @@ mod tests {
         );
         // Initial event carrying the subagent marker → "agent", recorded.
         assert_eq!(
-            resolve_rewritten_title(AgentType::CodeBuddy, &subagent, "tc1", false, false, &mut overrides)
-                .as_deref(),
+            resolve_rewritten_title(
+                AgentType::CodeBuddy,
+                &subagent,
+                "tc1",
+                false,
+                false,
+                &mut overrides
+            )
+            .as_deref(),
             Some("agent")
         );
         // The bug: a later status-only update lost the marker (raw_input None).
         // The override must be RE-ASSERTED, not downgraded to the event's title.
         assert_eq!(
-            resolve_rewritten_title(AgentType::CodeBuddy, &None, "tc1", true, false, &mut overrides)
-                .as_deref(),
+            resolve_rewritten_title(
+                AgentType::CodeBuddy,
+                &None,
+                "tc1",
+                true,
+                false,
+                &mut overrides
+            )
+            .as_deref(),
             Some("agent"),
             "a status-only update must not downgrade the Agent card mid-stream"
         );
         // Even an update whose raw_input looks like a different tool keeps it.
         let bash = Some(r#"{"command":"ls"}"#.to_string());
         assert_eq!(
-            resolve_rewritten_title(AgentType::CodeBuddy, &bash, "tc1", true, false, &mut overrides)
-                .as_deref(),
+            resolve_rewritten_title(
+                AgentType::CodeBuddy,
+                &bash,
+                "tc1",
+                true,
+                false,
+                &mut overrides
+            )
+            .as_deref(),
             Some("agent")
         );
         // A never-classified tool call returns None → caller uses its own title.
         assert_eq!(
-            resolve_rewritten_title(AgentType::CodeBuddy, &None, "tc2", true, false, &mut overrides),
+            resolve_rewritten_title(
+                AgentType::CodeBuddy,
+                &None,
+                "tc2",
+                true,
+                false,
+                &mut overrides
+            ),
             None
         );
         // Deferred MCP tool: inner name recorded, then re-asserted on a bare update.
         let deferred = Some(
-            r#"{"params":{"agent_type":"codex","task":"x"},"toolName":"mcp__codeg-mcp__delegate_to_agent"}"#
+            r#"{"params":{"agent_type":"codex","task":"x"},"toolName":"mcp__iyw-claw-mcp__delegate_to_agent"}"#
                 .to_string(),
         );
         assert_eq!(
-            resolve_rewritten_title(AgentType::CodeBuddy, &deferred, "tc3", false, false, &mut overrides)
-                .as_deref(),
-            Some("mcp__codeg-mcp__delegate_to_agent")
+            resolve_rewritten_title(
+                AgentType::CodeBuddy,
+                &deferred,
+                "tc3",
+                false,
+                false,
+                &mut overrides
+            )
+            .as_deref(),
+            Some("mcp__iyw-claw-mcp__delegate_to_agent")
         );
         assert_eq!(
-            resolve_rewritten_title(AgentType::CodeBuddy, &None, "tc3", true, false, &mut overrides)
-                .as_deref(),
-            Some("mcp__codeg-mcp__delegate_to_agent")
+            resolve_rewritten_title(
+                AgentType::CodeBuddy,
+                &None,
+                "tc3",
+                true,
+                false,
+                &mut overrides
+            )
+            .as_deref(),
+            Some("mcp__iyw-claw-mcp__delegate_to_agent")
         );
         // Non-CodeBuddy agent with no prior classification: never rewritten.
         assert_eq!(
-            resolve_rewritten_title(AgentType::OpenCode, &None, "tc9", true, false, &mut overrides),
+            resolve_rewritten_title(
+                AgentType::OpenCode,
+                &None,
+                "tc9",
+                true,
+                false,
+                &mut overrides
+            ),
             None
         );
     }
@@ -5983,21 +6054,35 @@ mod tests {
         // Frame 1: `raw_input` has NO `subagent_type` yet, but `_meta` already
         // marks it (the early, reliable signal). Title must already be "agent".
         assert_eq!(
-            resolve_rewritten_title(AgentType::CodeBuddy, &None, "tc1", false, true, &mut overrides)
-                .as_deref(),
+            resolve_rewritten_title(
+                AgentType::CodeBuddy,
+                &None,
+                "tc1",
+                false,
+                true,
+                &mut overrides
+            )
+            .as_deref(),
             Some("agent")
         );
         // Later sparse frames carry NEITHER signal — the override is re-asserted,
         // so the pill never flickers back to a generic tool mid-stream.
         assert_eq!(
-            resolve_rewritten_title(AgentType::CodeBuddy, &None, "tc1", true, false, &mut overrides)
-                .as_deref(),
+            resolve_rewritten_title(
+                AgentType::CodeBuddy,
+                &None,
+                "tc1",
+                true,
+                false,
+                &mut overrides
+            )
+            .as_deref(),
             Some("agent"),
             "meta-classified Agent pill must stay 'agent' across signal-less frames"
         );
         // DeferExecuteTool still wins over the meta path (distinct mechanism).
         let deferred = Some(
-            r#"{"params":{"agent_type":"codex","task":"x"},"toolName":"mcp__codeg-mcp__delegate_to_agent"}"#
+            r#"{"params":{"agent_type":"codex","task":"x"},"toolName":"mcp__iyw-claw-mcp__delegate_to_agent"}"#
                 .to_string(),
         );
         assert_eq!(
@@ -6010,7 +6095,7 @@ mod tests {
                 &mut overrides
             )
             .as_deref(),
-            Some("mcp__codeg-mcp__delegate_to_agent")
+            Some("mcp__iyw-claw-mcp__delegate_to_agent")
         );
     }
 
@@ -6021,7 +6106,7 @@ mod tests {
         let mut open: HashSet<String> = HashSet::new();
         let mut closed: HashSet<String> = HashSet::new();
         let fg = false; // foreground (not background)
-        // A non-final foreground agent frame opens the window.
+                        // A non-final foreground agent frame opens the window.
         track_subagent_window(
             AgentType::CodeBuddy,
             true,
@@ -6122,7 +6207,11 @@ mod tests {
         // the parent model is suspended — so every chunk in the window is the
         // sub-agent's, never main-agent output (background sub-agents, which could
         // interleave main output, are excluded from the window upstream).
-        assert!(should_suppress_subagent_chunk(AgentType::CodeBuddy, true, None));
+        assert!(should_suppress_subagent_chunk(
+            AgentType::CodeBuddy,
+            true,
+            None
+        ));
         // Window closed and no chunk meta → emit (e.g. main-agent text before the
         // sub-agent opens or after it closes).
         assert!(!should_suppress_subagent_chunk(
@@ -6142,7 +6231,11 @@ mod tests {
             ));
         }
         // Other agents never suppress, even inside a (spurious) open window.
-        assert!(!should_suppress_subagent_chunk(AgentType::OpenCode, true, None));
+        assert!(!should_suppress_subagent_chunk(
+            AgentType::OpenCode,
+            true,
+            None
+        ));
     }
 
     #[test]
@@ -6165,17 +6258,17 @@ mod tests {
         ));
     }
 
-    // ─── inject_codeg_mcp: enabled=false short-circuit ──────────
+    // ─── inject_iyw_claw_mcp: enabled=false short-circuit ──────────
     //
     // Guards the "default off" product contract: when the broker config has
     // `enabled: false` (the new production default for fresh installs), the
     // delegate-MCP injection must not push a server entry and must not
     // register a per-launch token. The early return at the top of
-    // `inject_codeg_mcp` is the single chokepoint that keeps a
-    // codeg-mcp stdio MCP out of every ACP session until the user
+    // `inject_iyw_claw_mcp` is the single chokepoint that keeps a
+    // iyw-claw-mcp stdio MCP out of every ACP session until the user
     // opts in via the settings panel.
     #[tokio::test]
-    async fn inject_codeg_delegate_skipped_when_broker_disabled() {
+    async fn inject_IYW_CLAW_delegate_skipped_when_broker_disabled() {
         use crate::acp::delegation::broker::{ConversationDepthLookup, DelegationBroker};
         use crate::acp::delegation::listener::TokenRegistry;
         use crate::acp::delegation::spawner::{mock::MockSpawner, ConnectionSpawner};
@@ -6214,7 +6307,7 @@ mod tests {
         let injection = DelegationInjection {
             broker,
             tokens: Arc::new(TokenRegistry::default()),
-            socket_path: std::path::PathBuf::from("/tmp/codeg-mcp.sock"),
+            socket_path: std::path::PathBuf::from("/tmp/iyw-claw-mcp.sock"),
             feedback: crate::acp::feedback::FeedbackRuntimeConfig::new(),
             ask: crate::acp::question::QuestionRuntimeConfig::new(),
             sessions: crate::acp::session_info::SessionInfoRuntimeConfig::new(),
@@ -6223,7 +6316,7 @@ mod tests {
         };
 
         let mut servers: Vec<McpServer> = Vec::new();
-        let result = inject_codeg_mcp(
+        let result = inject_iyw_claw_mcp(
             &mut servers,
             &injection,
             "parent-conn",

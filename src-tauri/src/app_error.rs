@@ -38,7 +38,7 @@ pub const UPLOAD_I18N_KEY_TOO_LARGE: &str = "errors.upload.tooLarge";
 pub const UPLOAD_I18N_KEY_NOT_A_FILE: &str = "errors.upload.notAFile";
 
 /// Error key emitted when accepting one more upload would push the
-/// `uploads_root/` directory past `CODEG_UPLOAD_MAX_TOTAL_BYTES`. The
+/// `uploads_root/` directory past `IYW_CLAW_UPLOAD_MAX_TOTAL_BYTES`. The
 /// per-file 2 MiB cap protects against one big payload; this cap
 /// protects against an attacker accumulating many small ones.
 /// Frontend params: `used`, `limit` (both byte counts as strings).
@@ -55,7 +55,7 @@ pub const UPLOAD_I18N_KEY_QUOTA_EXCEEDED: &str = "errors.upload.quotaExceeded";
 pub const BACKUP_I18N_KEY_BAD_PASSPHRASE: &str = "backup.restore.error.badPassphrase";
 /// A backup entry's bytes did not match the manifest checksum.
 pub const BACKUP_I18N_KEY_CORRUPTED: &str = "backup.restore.error.corrupted";
-/// The file is not a codeg backup, or its `format_version` is newer than this
+/// The file is not a iyw-claw backup, or its `format_version` is newer than this
 /// binary understands.
 pub const BACKUP_I18N_KEY_UNKNOWN_FORMAT: &str = "backup.restore.error.unknownFormat";
 /// The backup was taken by a newer app version whose DB schema this binary

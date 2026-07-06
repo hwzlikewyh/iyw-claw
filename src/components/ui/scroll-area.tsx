@@ -26,7 +26,7 @@ type ScrollAreaProps = {
 
 const BASE_OPTIONS: OverlayScrollbarsComponentProps["options"] = {
   scrollbars: {
-    theme: "os-theme-codeg",
+    theme: "os-theme-iyw-claw",
     autoHide: "leave",
     clickScroll: true,
   },

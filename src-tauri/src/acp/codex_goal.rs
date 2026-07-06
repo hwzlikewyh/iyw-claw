@@ -1,4 +1,4 @@
-//! Shared mapping of Codex's structured goal object into codeg's canonical
+//! Shared mapping of Codex's structured goal object into iyw-claw's canonical
 //! `create_goal`/`update_goal` synthetic tool-call representation.
 //!
 //! codex-acp v1.1.0 (#263) stopped emitting `/goal` transitions as live
@@ -20,7 +20,7 @@
 
 use serde_json::{json, Value};
 
-/// A Codex goal object mapped to codeg's canonical synthetic goal marker.
+/// A Codex goal object mapped to iyw-claw's canonical synthetic goal marker.
 ///
 /// The live path (`crate::acp::connection`) builds an `AcpEvent::ToolCall` from
 /// `title` and `output_json`, letting the frontend backfill the input from the
@@ -234,10 +234,7 @@ mod tests {
         });
         let m = goal_marker(&goal).expect("goal marker");
         assert_eq!(m.tool_name, "update_goal");
-        assert_eq!(
-            m.title,
-            "Goal updated (budget_limited): Fix the login bug"
-        );
+        assert_eq!(m.title, "Goal updated (budget_limited): Fix the login bug");
         let out: Value = serde_json::from_str(&m.output_json).unwrap();
         assert_eq!(out["goal"]["status"], "budget_limited");
         assert_eq!(out["goal"]["tokensUsed"], 5200);
@@ -288,9 +285,11 @@ mod tests {
     #[test]
     fn active_then_clear_closes_one_card_with_objective() {
         let mut open = None;
-        let create =
-            next_goal_marker(&mut open, &json!({ "objective": "Ship it", "status": "active" }))
-                .unwrap();
+        let create = next_goal_marker(
+            &mut open,
+            &json!({ "objective": "Ship it", "status": "active" }),
+        )
+        .unwrap();
         assert_eq!(create.tool_name, "create_goal");
         assert_eq!(open.as_deref(), Some("Ship it"));
 
@@ -307,9 +306,11 @@ mod tests {
         // a no-op (no stray standalone "complete" card).
         let mut open = None;
         next_goal_marker(&mut open, &json!({ "objective": "Y", "status": "active" })).unwrap();
-        let terminal =
-            next_goal_marker(&mut open, &json!({ "objective": "Y", "status": "budgetLimited" }))
-                .unwrap();
+        let terminal = next_goal_marker(
+            &mut open,
+            &json!({ "objective": "Y", "status": "budgetLimited" }),
+        )
+        .unwrap();
         assert_eq!(terminal.tool_name, "update_goal");
         assert_eq!(status_of(&terminal), "budget_limited");
         assert_eq!(open, None);

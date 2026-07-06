@@ -75,7 +75,7 @@ fn resolve_kimi_code_home_from(
 /// (and carry `origin.kind == "injection"` system reminders), so they are skipped
 /// to avoid duplicate / noise messages. The working directory is recovered from
 /// `session_index.jsonl` (state.json has none); the model name from the session's
-/// own `logs/kimi-code.log` (the wire only stores the codeg-managed model alias).
+/// own `logs/kimi-code.log` (the wire only stores the iyw-claw-managed model alias).
 pub struct KimiCodeParser {
     base_dir: PathBuf,
 }
@@ -283,7 +283,7 @@ struct WireParse {
     messages: Vec<UnifiedMessage>,
     first_ts: Option<DateTime<Utc>>,
     last_ts: Option<DateTime<Utc>>,
-    /// The codeg-managed model alias from a `config.update` record (fallback only;
+    /// The iyw-claw-managed model alias from a `config.update` record (fallback only;
     /// the real model name is recovered from the session log).
     model_alias: Option<String>,
     /// First user prompt, already truncated for use as a fallback title.
@@ -347,7 +347,11 @@ fn parse_wire(path: &Path, agents_dir: Option<&Path>) -> WireParse {
                 }
             }
             "turn.prompt" => {
-                flush_usage(&mut wp.messages, &mut pending_usage, &mut last_assistant_idx);
+                flush_usage(
+                    &mut wp.messages,
+                    &mut pending_usage,
+                    &mut last_assistant_idx,
+                );
                 let text = collect_prompt_text(&value);
                 if text.trim().is_empty() {
                     continue;
@@ -497,7 +501,11 @@ fn parse_wire(path: &Path, agents_dir: Option<&Path>) -> WireParse {
         }
     }
 
-    flush_usage(&mut wp.messages, &mut pending_usage, &mut last_assistant_idx);
+    flush_usage(
+        &mut wp.messages,
+        &mut pending_usage,
+        &mut last_assistant_idx,
+    );
     wp
 }
 
@@ -665,8 +673,9 @@ fn parse_kimi_subagent_tool_calls(path: &Path) -> Vec<AgentToolCall> {
             "tool.result" => {
                 if let Some(id) = event.get("toolCallId").and_then(Value::as_str) {
                     let result = event.get("result");
-                    let output =
-                        result.and_then(tool_result_preview).map(|s| truncate_str(&s, 500));
+                    let output = result
+                        .and_then(tool_result_preview)
+                        .map(|s| truncate_str(&s, 500));
                     let is_error = result
                         .and_then(|r| r.get("isError"))
                         .and_then(Value::as_bool)
@@ -771,12 +780,7 @@ fn add_usage(a: TurnUsage, b: TurnUsage) -> TurnUsage {
     }
 }
 
-fn text_message(
-    id: String,
-    role: MessageRole,
-    text: String,
-    ts: DateTime<Utc>,
-) -> UnifiedMessage {
+fn text_message(id: String, role: MessageRole, text: String, ts: DateTime<Utc>) -> UnifiedMessage {
     block_message(id, role, ContentBlock::Text { text }, ts)
 }
 
@@ -816,8 +820,8 @@ fn resolve_title(state_title: Option<String>, first_user_text: Option<String>) -
 }
 
 /// Best-effort real model name from the session's own log
-/// (`… llm config … model=kimi-k2.7-code modelAlias=codeg-managed …`). The wire
-/// only stores the (codeg-managed) alias, so the log is the sole place the actual
+/// (`… llm config … model=kimi-k2.7-code modelAlias=iyw-claw-managed …`). The wire
+/// only stores the (iyw-claw-managed) alias, so the log is the sole place the actual
 /// model id appears. `modelAlias=` does not collide: only the exact `model=`
 /// token is matched.
 fn read_session_log_model(session_dir: &Path) -> Option<String> {
@@ -1003,8 +1007,12 @@ mod tests {
         .expect("write state.json");
         let mut file = std::fs::File::create(main.join("wire.jsonl")).expect("create wire.jsonl");
         for record in wire {
-            writeln!(file, "{}", serde_json::to_string(record).expect("serialize"))
-                .expect("write line");
+            writeln!(
+                file,
+                "{}",
+                serde_json::to_string(record).expect("serialize")
+            )
+            .expect("write line");
         }
     }
 
@@ -1025,7 +1033,7 @@ mod tests {
 
     fn unique_root(tag: &str) -> PathBuf {
         std::env::temp_dir()
-            .join(format!("codeg-kimi-{tag}-{}", uuid::Uuid::new_v4()))
+            .join(format!("iyw-claw-kimi-{tag}-{}", uuid::Uuid::new_v4()))
             .join(".kimi-code")
             .join("sessions")
     }
@@ -1036,7 +1044,7 @@ mod tests {
         vec![
             json!({"type":"metadata","protocol_version":"1.4","created_at":1782276644193i64}),
             json!({"type":"config.update","profileName":"agent","systemPrompt":"…","time":1782276644193i64}),
-            json!({"type":"config.update","modelAlias":"codeg-managed","thinkingLevel":"high","time":1782276644194i64}),
+            json!({"type":"config.update","modelAlias":"iyw-claw-managed","thinkingLevel":"high","time":1782276644194i64}),
             json!({"type":"turn.prompt","input":[{"type":"text","text":"执行一下pnpm build"}],"origin":{"kind":"user"},"time":1782276649227i64}),
             // append_message echoes the prompt + a system-reminder injection — both must be ignored.
             json!({"type":"context.append_message","message":{"role":"user","content":[{"type":"text","text":"执行一下pnpm build"}],"origin":{"kind":"user"}},"time":1782276649228i64}),
@@ -1046,9 +1054,9 @@ mod tests {
             json!({"type":"context.append_loop_event","event":{"type":"tool.call","uuid":"Bash_0","turnId":"0","step":1,"toolCallId":"Bash_0","name":"Bash","args":{"command":"pnpm build","cwd":"/Users/demo/my-app","timeout":300},"description":"Running: pnpm build"},"time":1782276651425i64}),
             json!({"type":"context.append_loop_event","event":{"type":"tool.result","parentUuid":"Bash_0","toolCallId":"Bash_0","result":{"output":"✓ Compiled successfully"}},"time":1782276660973i64}),
             json!({"type":"context.append_loop_event","event":{"type":"step.end","uuid":"s1","turnId":"0","step":1,"usage":{"inputOther":7962,"output":37,"inputCacheRead":9472,"inputCacheCreation":0},"finishReason":"tool_use"},"time":1782276660973i64}),
-            json!({"type":"usage.record","model":"codeg-managed","usage":{"inputOther":7962,"output":37,"inputCacheRead":9472,"inputCacheCreation":0},"usageScope":"turn","time":1782276660974i64}),
+            json!({"type":"usage.record","model":"iyw-claw-managed","usage":{"inputOther":7962,"output":37,"inputCacheRead":9472,"inputCacheCreation":0},"usageScope":"turn","time":1782276660974i64}),
             json!({"type":"context.append_loop_event","event":{"type":"content.part","uuid":"p1","turnId":"0","step":2,"part":{"type":"text","text":"构建完成，没有错误。"}},"time":1782276664343i64}),
-            json!({"type":"usage.record","model":"codeg-managed","usage":{"inputOther":265,"output":36,"inputCacheRead":17408,"inputCacheCreation":0},"usageScope":"turn","time":1782276664500i64}),
+            json!({"type":"usage.record","model":"iyw-claw-managed","usage":{"inputOther":265,"output":36,"inputCacheRead":17408,"inputCacheCreation":0},"usageScope":"turn","time":1782276664500i64}),
         ]
     }
 
@@ -1063,10 +1071,7 @@ mod tests {
             &json!({"title":"执行一下pnpm build","createdAt":"2026-06-24T04:50:44.154Z"}),
             &sample_wire(),
         );
-        write_session_index(
-            &root,
-            &[(sid, "ignored", "/Users/demo/my-app")],
-        );
+        write_session_index(&root, &[(sid, "ignored", "/Users/demo/my-app")]);
 
         let parser = KimiCodeParser::with_base_dir(root.clone());
 
@@ -1084,9 +1089,9 @@ mod tests {
 
         let has_user = detail.turns.iter().any(|t| {
             matches!(t.role, TurnRole::User)
-                && t.blocks
-                    .iter()
-                    .any(|b| matches!(b, ContentBlock::Text { text } if text.contains("pnpm build")))
+                && t.blocks.iter().any(
+                    |b| matches!(b, ContentBlock::Text { text } if text.contains("pnpm build")),
+                )
         });
         assert!(has_user, "turn.prompt becomes a User turn");
 
@@ -1109,13 +1114,19 @@ mod tests {
             t.blocks.iter().any(|b| matches!(b, ContentBlock::ToolUse { tool_name, input_preview, .. }
                 if tool_name == "Bash" && input_preview.as_deref().unwrap_or_default().contains("pnpm build")))
         });
-        assert!(has_tool_use, "tool.call becomes ToolUse with serialized args");
+        assert!(
+            has_tool_use,
+            "tool.call becomes ToolUse with serialized args"
+        );
 
         let has_tool_result = detail.turns.iter().any(|t| {
             t.blocks.iter().any(|b| matches!(b, ContentBlock::ToolResult { output_preview, is_error, .. }
                 if !*is_error && output_preview.as_deref().unwrap_or_default().contains("Compiled successfully")))
         });
-        assert!(has_tool_result, "tool.result becomes a successful ToolResult");
+        assert!(
+            has_tool_result,
+            "tool.result becomes a successful ToolResult"
+        );
 
         let has_assistant_text = detail.turns.iter().any(|t| {
             matches!(t.role, TurnRole::Assistant)
@@ -1123,7 +1134,10 @@ mod tests {
                     .iter()
                     .any(|b| matches!(b, ContentBlock::Text { text } if text.contains("构建完成")))
         });
-        assert!(has_assistant_text, "content.part type=text becomes assistant Text");
+        assert!(
+            has_assistant_text,
+            "content.part type=text becomes assistant Text"
+        );
 
         // Per-step usage records are summed across the turn (37+36 output, etc.).
         let usage = detail
@@ -1154,9 +1168,11 @@ mod tests {
 
         let parser = KimiCodeParser::with_base_dir(root.clone());
         let detail = parser.get_conversation(sid).expect("detail");
-        let errored = detail.turns.iter().flat_map(|t| &t.blocks).any(
-            |b| matches!(b, ContentBlock::ToolResult { is_error, .. } if *is_error),
-        );
+        let errored = detail
+            .turns
+            .iter()
+            .flat_map(|t| &t.blocks)
+            .any(|b| matches!(b, ContentBlock::ToolResult { is_error, .. } if *is_error));
         assert!(errored, "result.isError=true must set is_error");
 
         // "New Session" placeholder title falls back to the first user prompt.
@@ -1174,7 +1190,7 @@ mod tests {
             &[
                 json!({"type":"metadata","protocol_version":"1.4","created_at":1782276644193i64}),
                 json!({"type":"config.update","systemPrompt":"big system prompt","time":1782276644193i64}),
-                json!({"type":"config.update","modelAlias":"codeg-managed","time":1782276644194i64}),
+                json!({"type":"config.update","modelAlias":"iyw-claw-managed","time":1782276644194i64}),
             ],
         );
 
@@ -1241,8 +1257,12 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("create subagent dir");
         let mut file = std::fs::File::create(dir.join("wire.jsonl")).expect("create wire.jsonl");
         for record in wire {
-            writeln!(file, "{}", serde_json::to_string(record).expect("serialize"))
-                .expect("write line");
+            writeln!(
+                file,
+                "{}",
+                serde_json::to_string(record).expect("serialize")
+            )
+            .expect("write line");
         }
     }
 
@@ -1284,7 +1304,7 @@ mod tests {
             "agent-0",
             &[
                 json!({"type":"metadata","protocol_version":"1.4","created_at":1782276651000i64}),
-                json!({"type":"config.update","profileName":"coder","modelAlias":"codeg-managed","time":1782276651000i64}),
+                json!({"type":"config.update","profileName":"coder","modelAlias":"iyw-claw-managed","time":1782276651000i64}),
                 json!({"type":"turn.prompt","input":[{"type":"text","text":"run pnpm build"}],"origin":{"kind":"user"},"time":1782276651500i64}),
                 json!({"type":"context.append_loop_event","event":{"type":"tool.call","toolCallId":"s1","name":"Bash","args":{"command":"pnpm build","cwd":"/Users/demo/my-app"}},"time":1782276652000i64}),
                 json!({"type":"context.append_loop_event","event":{"type":"tool.result","toolCallId":"s1","result":{"output":"Exited with code 0"}},"time":1782276658000i64}),
@@ -1338,7 +1358,10 @@ mod tests {
 
         let read = &stats.tool_calls[1];
         assert_eq!(read.tool_name, "Read");
-        assert!(read.is_error, "result.isError=true marks the nested Read failed");
+        assert!(
+            read.is_error,
+            "result.isError=true marks the nested Read failed"
+        );
 
         // A delegation whose transcript directory is missing degrades to no stats.
         let missing = results
@@ -1355,7 +1378,10 @@ mod tests {
             .iter()
             .find(|(id, _)| id.as_deref() == Some("Bash_0"))
             .expect("plain tool result");
-        assert!(plain.1.is_none(), "non-Agent results never carry agent_stats");
+        assert!(
+            plain.1.is_none(),
+            "non-Agent results never carry agent_stats"
+        );
 
         // A non-Agent result with a real `agent_id:` header is still gated out by
         // the call-side classification.
