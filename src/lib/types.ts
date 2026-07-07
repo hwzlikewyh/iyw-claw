@@ -1659,6 +1659,33 @@ export interface SystemRenderingSettings {
   disable_hardware_acceleration: boolean
 }
 
+// --- iyw Account ---
+
+export interface IywAccountProfile {
+  logged_in: boolean
+  user_id: string | null
+  name: string | null
+  nick_name: string | null
+  phone: string | null
+  avatar_url: string | null
+  org_name: string | null
+  org_logo_url: string | null
+  balance_points: number | null
+  balance_expiry_time: string | null
+}
+
+export interface IywWechatQrcode {
+  qrcode_url: string
+  qr_token: string
+}
+
+export type IywWechatPollingStatus = "pending" | "success"
+
+export interface IywWechatPollingResult {
+  status: IywWechatPollingStatus
+  profile: IywAccountProfile | null
+}
+
 // --- Logging ---
 
 export type LogLevel = "off" | "error" | "warn" | "info" | "debug" | "trace"

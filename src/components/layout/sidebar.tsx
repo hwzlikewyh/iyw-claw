@@ -7,13 +7,11 @@ import {
   Crosshair,
   FolderOpenDot,
   Funnel,
-  Settings,
   SquarePen,
   Zap,
   type LucideIcon,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { useRouter } from "next/navigation"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useSidebarContext } from "@/contexts/sidebar-context"
 import { useTabActions } from "@/contexts/tab-context"
@@ -23,7 +21,7 @@ import {
   SidebarConversationList,
   type SidebarConversationListHandle,
 } from "@/components/conversations/sidebar-conversation-list"
-import { SidebarWebAccess } from "@/components/layout/sidebar-web-access"
+import { SidebarAccountSettings } from "@/components/layout/sidebar-account-settings"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -129,9 +127,6 @@ function SidebarNavButton({
 
 export function Sidebar() {
   const t = useTranslations("Folder.sidebar")
-  const tTitleBar = useTranslations("Folder.folderTitleBar")
-  const tSettings = useTranslations("SettingsShell")
-  const router = useRouter()
   const { isOpen, toggle } = useSidebarContext()
   const { activeFolder } = useActiveFolder()
   const { openNewConversationTab, openChatModeTab } = useTabActions()
@@ -158,10 +153,6 @@ export function Sidebar() {
   const toggleExpandLabel = allExpanded
     ? t("collapseAllGroups")
     : t("expandAllGroups")
-  const openSettingsLabel = tTitleBar("withShortcut", {
-    label: tTitleBar("openSettings"),
-    shortcut: formatShortcutLabel(shortcuts.open_settings, isMac),
-  })
   const activeFolderName = getFolderName(activeFolder?.path)
 
   useEffect(() => {
@@ -213,11 +204,6 @@ export function Sidebar() {
     }
     openNewConversationTab(activeFolder.id, activeFolder.path)
   }, [activeFolder, openChatModeTab, openNewConversationTab, openConversations])
-
-  const handleOpenSettings = useCallback(() => {
-    const search = typeof window === "undefined" ? "" : window.location.search
-    router.push(`/settings/appearance${search}`)
-  }, [router])
 
   if (!isOpen) return null
 
@@ -369,19 +355,8 @@ export function Sidebar() {
         />
       </div>
 
-      <div className="flex shrink-0 flex-col gap-1.5 border-t border-sidebar-border/70 bg-sidebar/95 px-2 py-2">
-        <SidebarWebAccess />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 w-full justify-start gap-2 rounded-lg px-2 text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-          onClick={handleOpenSettings}
-          title={openSettingsLabel}
-          aria-label={openSettingsLabel}
-        >
-          <Settings aria-hidden="true" className="h-3.5 w-3.5" />
-          <span>{tSettings("title")}</span>
-        </Button>
+      <div className="flex shrink-0 flex-col border-t border-sidebar-border/70 bg-sidebar/95 px-2 py-2">
+        <SidebarAccountSettings />
       </div>
     </aside>
   )

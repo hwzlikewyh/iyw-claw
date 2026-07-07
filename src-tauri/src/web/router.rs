@@ -33,6 +33,24 @@ pub fn build_router(
 
     let api = Router::new()
         .route("/health", post(health_check))
+        // ─── iyw account ───
+        .route(
+            "/iyw_account_get_wechat_qrcode",
+            post(handlers::iyw_account::get_wechat_qrcode),
+        )
+        .route(
+            "/iyw_account_poll_wechat_login",
+            post(handlers::iyw_account::poll_wechat_login),
+        )
+        .route(
+            "/iyw_account_login_with_password",
+            post(handlers::iyw_account::login_with_password),
+        )
+        .route(
+            "/iyw_account_get_profile",
+            post(handlers::iyw_account::get_profile),
+        )
+        .route("/iyw_account_logout", post(handlers::iyw_account::logout))
         // Debug endpoint: operator-facing snapshot of `EventBusMetrics`
         // (emit volume, lag/eviction counts, attach decision counts).
         // Sits behind the same auth middleware as every other route.

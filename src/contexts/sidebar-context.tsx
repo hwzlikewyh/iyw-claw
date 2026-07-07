@@ -16,7 +16,8 @@ import {
 
 const STORAGE_KEY = "workspace:left-sidebar"
 
-const DEFAULT_WIDTH = 320
+const DEFAULT_WIDTH = 200
+const LEGACY_DEFAULT_WIDTH = 320
 const MIN_WIDTH = 200
 const MAX_WIDTH = 600
 const DEFAULT_IS_OPEN = true
@@ -45,6 +46,12 @@ function clampWidth(width: number) {
   return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width))
 }
 
+function resolveStoredWidth(width: number | undefined) {
+  if (width === undefined) return DEFAULT_WIDTH
+  if (Math.abs(width - LEGACY_DEFAULT_WIDTH) < 1) return DEFAULT_WIDTH
+  return clampWidth(width)
+}
+
 interface SidebarProviderProps {
   children: ReactNode
 }
@@ -69,7 +76,7 @@ export function SidebarProvider({ children }: SidebarProviderProps) {
     // Hydrate from localStorage after mount to keep SSR/CSR markup consistent.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsOpen(isMobileViewport ? false : (stored?.isOpen ?? defaultOpen))
-    setWidthState(clampWidth(stored?.width ?? DEFAULT_WIDTH))
+    setWidthState(resolveStoredWidth(stored?.width))
     setRestored(true)
   }, [storageKey])
 

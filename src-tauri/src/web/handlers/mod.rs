@@ -13,6 +13,7 @@ pub mod files;
 pub mod folder_commands;
 pub mod folders;
 pub mod git;
+pub mod iyw_account;
 pub mod logging;
 pub mod mcp;
 pub mod model_provider;

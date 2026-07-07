@@ -78,6 +78,9 @@ import type {
   GitLogResult,
   AvailableTerminalShells,
   SystemLanguageSettings,
+  IywAccountProfile,
+  IywWechatPollingResult,
+  IywWechatQrcode,
   SystemProxySettings,
   SystemRenderingSettings,
   SystemTerminalSettings,
@@ -2801,6 +2804,36 @@ export async function probeWebServicePort(
   return getTransport().call("probe_web_service_port", {
     port: port ?? null,
   })
+}
+
+// ── iyw Account ──
+
+export async function iywAccountGetProfile(): Promise<IywAccountProfile> {
+  return getTransport().call("iyw_account_get_profile")
+}
+
+export async function iywAccountGetWechatQrcode(): Promise<IywWechatQrcode> {
+  return getTransport().call("iyw_account_get_wechat_qrcode")
+}
+
+export async function iywAccountPollWechatLogin(
+  qrToken: string
+): Promise<IywWechatPollingResult> {
+  return getTransport().call("iyw_account_poll_wechat_login", { qrToken })
+}
+
+export async function iywAccountLoginWithPassword(params: {
+  username: string
+  password: string
+}): Promise<IywAccountProfile> {
+  return getTransport().call("iyw_account_login_with_password", {
+    username: params.username,
+    password: params.password,
+  })
+}
+
+export async function iywAccountLogout(): Promise<void> {
+  return getTransport().call("iyw_account_logout")
 }
 
 // ─── Chat Channels ───
