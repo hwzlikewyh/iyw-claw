@@ -22,14 +22,12 @@ import {
   ChevronRight,
   Download,
   ExternalLink,
-  FolderGit2,
   FolderOpen,
   FolderOpenDot,
   ListChecks,
   Loader2,
   MoreHorizontal,
   Palette,
-  Rocket,
   SquarePen,
   XCircle,
 } from "lucide-react"
@@ -43,7 +41,6 @@ import { useThemeColor, useZoomLevel } from "@/hooks/use-appearance"
 import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
 import {
   importLocalConversations,
-  openProjectBootWindow,
   updateConversationTitle,
   updateConversationStatus,
   updateConversationPinned,
@@ -106,7 +103,6 @@ import {
 import { useSubsessionSync } from "@/hooks/use-subsession-sync"
 import { SidebarSectionHeader } from "./sidebar-section-header"
 import { ConversationManageDialog } from "./conversation-manage-dialog"
-import { CloneDialog } from "@/components/layout/clone-dialog"
 import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -244,11 +240,11 @@ const FolderHeader = memo(function FolderHeader({
             onPointerDown={(e) => onGripPointerDown?.(folderId, e)}
             className={cn(
               "group flex h-[1.9375rem] w-full items-center",
-              "rounded-full",
+              "rounded-lg",
               "transition-colors duration-150",
               isDragging
                 ? "cursor-grabbing"
-                : "cursor-grab hover:bg-[color-mix(in_oklab,var(--sidebar-accent),var(--sidebar-foreground)_2%)]"
+                : "cursor-grab hover:bg-sidebar-accent/55"
             )}
           >
             <button
@@ -258,7 +254,7 @@ const FolderHeader = memo(function FolderHeader({
               aria-expanded={expanded}
               className={cn(
                 "relative flex h-full min-w-0 flex-1 items-center pr-[0.5rem] outline-none",
-                "rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                "rounded-lg focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                 "text-sidebar-foreground",
                 isDragging ? "cursor-grabbing" : "cursor-grab"
               )}
@@ -286,7 +282,7 @@ const FolderHeader = memo(function FolderHeader({
               <div className="flex min-w-0 flex-1 items-center gap-[0.5rem]">
                 <span
                   className={cn(
-                    "min-w-0 flex-shrink truncate text-left text-[0.875rem] font-normal text-sidebar-foreground/75"
+                    "min-w-0 flex-shrink truncate text-left text-[0.8125rem] font-medium text-sidebar-foreground/85"
                   )}
                 >
                   {folderName}
@@ -294,9 +290,9 @@ const FolderHeader = memo(function FolderHeader({
                 <span
                   className={cn(
                     "inline-flex shrink-0 items-center justify-center",
-                    "h-[0.9375rem] min-w-[1rem] rounded-[0.3125rem] px-[0.25rem]",
+                    "h-[0.9375rem] min-w-[1rem] rounded-[0.3125rem] border border-sidebar-border/60 px-[0.25rem]",
                     "text-[0.625rem] font-semibold leading-none tabular-nums",
-                    "bg-primary/10 text-primary"
+                    "bg-sidebar-accent/60 text-muted-foreground"
                   )}
                 >
                   {count}
@@ -707,7 +703,6 @@ export function SidebarConversationList({
     folderId: number
     folderName: string
   } | null>(null)
-  const [cloneOpen, setCloneOpen] = useState(false)
   const [browserOpen, setBrowserOpen] = useState(false)
   const [dragging, setDragging] = useState<number | null>(null)
   const [reordering, setReordering] = useState(false)
@@ -1776,11 +1771,6 @@ export function SidebarConversationList({
     }
   }, [openFolder])
 
-  // Stable trigger for the Clone Repository dialog, passed to the memoized
-  // Folders section header. Empty deps (setCloneOpen is a stable setter) so the
-  // header doesn't re-render on every parent render.
-  const handleOpenCloneDialog = useCallback(() => setCloneOpen(true), [])
-
   const handleBrowserSelect = useCallback(
     (path: string) => {
       openFolder(path).catch((err) => {
@@ -1789,15 +1779,6 @@ export function SidebarConversationList({
     },
     [openFolder]
   )
-
-  const handleProjectBoot = useCallback(() => {
-    openProjectBootWindow().catch((err) => {
-      console.error(
-        "[SidebarConversationList] failed to open project boot:",
-        err
-      )
-    })
-  }, [])
 
   const showEmptyWorkspaceActions =
     folders.length === 0 && conversations.length === 0
@@ -1875,14 +1856,8 @@ export function SidebarConversationList({
           // entry point, reachable even when empty). `openChatModeTab` is a stable
           // context callback, so the memo holds.
           onNewChat={row.section === "chats" ? openChatModeTab : undefined}
-          // The folders section gets two right-edge hover actions mirroring the
-          // top-of-page NewFolderDropdown: Open Folder and Clone Repository.
-          // Both handlers are stable, so the memo holds.
           onOpenFolder={
             row.section === "folders" ? handleOpenFolderAction : undefined
-          }
-          onCloneRepository={
-            row.section === "folders" ? handleOpenCloneDialog : undefined
           }
           // Every section header carries a top gap: it separates "Folders" from
           // the "Pinned" section above it, and — now that a fixed New chat /
@@ -2013,34 +1988,25 @@ export function SidebarConversationList({
           </p>
         </div>
       ) : showEmptyWorkspaceActions ? (
-        <div className="flex-1 flex flex-col items-center justify-center px-3 gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full max-w-[14rem] justify-start"
-            onClick={handleOpenFolderAction}
-          >
-            <FolderOpenDot className="h-3.5 w-3.5 mr-1.5" />
-            {tFolderDropdown("openFolder")}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full max-w-[14rem] justify-start"
-            onClick={() => setCloneOpen(true)}
-          >
-            <FolderGit2 className="h-3.5 w-3.5 mr-1.5" />
-            {tFolderDropdown("cloneRepository")}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full max-w-[14rem] justify-start"
-            onClick={handleProjectBoot}
-          >
-            <Rocket className="h-3.5 w-3.5 mr-1.5" />
-            {tFolderDropdown("projectBoot")}
-          </Button>
+        <div className="flex-1 px-3 py-3">
+          <div className="rounded-2xl border border-dashed border-sidebar-border/80 bg-sidebar-accent/35 p-3">
+            <div className="mb-2 flex items-center gap-2 text-[0.75rem] font-semibold text-sidebar-foreground/85">
+              <FolderOpenDot className="h-3.5 w-3.5" aria-hidden />
+              {t("sectionFolders")}
+            </div>
+            <p className="mb-3 text-[0.75rem] leading-5 text-muted-foreground">
+              {t("emptyFolderHint")}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-full justify-start rounded-lg bg-sidebar text-[0.8125rem]"
+              onClick={handleOpenFolderAction}
+            >
+              <FolderOpenDot className="h-3.5 w-3.5 mr-1.5" />
+              {tFolderDropdown("openFolder")}
+            </Button>
+          </div>
         </div>
       ) : (
         <ContextMenu>
@@ -2144,14 +2110,6 @@ export function SidebarConversationList({
               <FolderOpenDot className="h-4 w-4" />
               {tFolderDropdown("openFolder")}
             </ContextMenuItem>
-            <ContextMenuItem onSelect={() => setCloneOpen(true)}>
-              <FolderGit2 className="h-4 w-4" />
-              {tFolderDropdown("cloneRepository")}
-            </ContextMenuItem>
-            <ContextMenuItem onSelect={handleProjectBoot}>
-              <Rocket className="h-4 w-4" />
-              {tFolderDropdown("projectBoot")}
-            </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
       )}
@@ -2187,7 +2145,6 @@ export function SidebarConversationList({
         />
       )}
 
-      <CloneDialog open={cloneOpen} onOpenChange={setCloneOpen} />
       <DirectoryBrowserDialog
         open={browserOpen}
         onOpenChange={setBrowserOpen}

@@ -77,8 +77,8 @@ export function AppWorkspaceProvider({ children }: AppWorkspaceProviderProps) {
   // headlessly (e.g. an automation per-run worktree) lands in this client's
   // workspace list in real time — without it, a conversation produced in that
   // worktree has no known folder to group under and never renders in the sidebar.
-  // Only upserts the list (+ seeds its branch); unlike WorkspaceOpenFolderListener
-  // it never opens/focuses a tab, so a background emitter can't steal focus.
+  // Only upserts the list (+ seeds its branch); it never opens/focuses a tab,
+  // so a background emitter can't steal focus.
   useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined

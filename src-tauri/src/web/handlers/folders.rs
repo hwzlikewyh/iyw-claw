@@ -95,19 +95,6 @@ pub async fn resolve_worktree_folder(
     ))
 }
 
-/// Open a folder into the workspace and broadcast it to workspace clients so
-/// the (separate) launcher tab's handoff lands. See
-/// `open_folder_in_workspace_core`.
-pub async fn open_folder_in_workspace(
-    Extension(state): Extension<Arc<AppState>>,
-    Json(params): Json<AddFolderParams>,
-) -> Result<Json<FolderDetail>, AppCommandError> {
-    let emitter = state.emitter.clone();
-    Ok(Json(
-        folder_commands::open_folder_in_workspace_core(&emitter, &state.db, params.path).await?,
-    ))
-}
-
 // --- New workspace handlers ---
 
 pub async fn list_open_folder_details(

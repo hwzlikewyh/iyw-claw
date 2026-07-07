@@ -600,18 +600,6 @@ export async function createFolderDirectory(path: string): Promise<void> {
   return invoke("create_folder_directory", { path })
 }
 
-export async function cloneRepository(
-  url: string,
-  targetDir: string,
-  credentials?: GitCredentials | null
-): Promise<void> {
-  return invoke("clone_repository", {
-    url,
-    targetDir,
-    credentials: credentials ?? null,
-  })
-}
-
 export async function getGitBranch(path: string): Promise<string | null> {
   return invoke("get_git_branch", { path })
 }

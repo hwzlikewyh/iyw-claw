@@ -5,6 +5,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Crosshair,
+  FolderOpenDot,
   Funnel,
   Settings,
   SquarePen,
@@ -50,6 +51,12 @@ import {
 } from "@/lib/sidebar-view-mode-storage"
 import { cn } from "@/lib/utils"
 
+function getFolderName(path: string | undefined) {
+  if (!path) return ""
+  const normalized = path.replace(/\\/g, "/")
+  return normalized.split("/").filter(Boolean).pop() ?? normalized
+}
+
 // Keyboard-shortcut hint at the trailing edge of fixed sidebar rows.
 // Mirrors the folder count badge exactly — same chip (0.9375rem height,
 // 0.3125rem radius, bg-primary/10, text-primary, 0.625rem text) per the request
@@ -59,8 +66,8 @@ import { cn } from "@/lib/utils"
 // row is a `group`); font-mono renders the shortcut glyphs cleanly.
 const SHORTCUT_BADGE_CLASS = cn(
   "ml-auto inline-flex h-[0.9375rem] shrink-0 items-center justify-center",
-  "rounded-[0.3125rem] bg-primary/10 px-[0.25rem]",
-  "font-mono text-[0.625rem] font-medium leading-none text-primary",
+  "rounded-[0.3125rem] border border-sidebar-border/60 bg-sidebar-accent/60 px-[0.25rem]",
+  "font-mono text-[0.625rem] font-medium leading-none text-muted-foreground",
   "opacity-0 transition-opacity duration-150",
   "group-hover:opacity-100 group-focus-visible:opacity-100"
 )
@@ -78,13 +85,17 @@ function SidebarNavButton({
   onClick,
   active,
   trailing,
+  tone = "default",
 }: {
   icon: LucideIcon
   label: string
   onClick: () => void
   active?: boolean
   trailing?: ReactNode
+  tone?: "default" | "primary"
 }) {
+  const isPrimary = tone === "primary"
+
   return (
     <button
       type="button"
@@ -92,15 +103,25 @@ function SidebarNavButton({
       title={label}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group flex h-8 w-full items-center gap-[0.4375rem] rounded-full pl-[0.4375rem] pr-1.5",
-        "text-[0.875rem] text-sidebar-foreground outline-none",
+        "group flex w-full items-center gap-2.5 rounded-xl px-3",
+        "text-[0.875rem] outline-none",
         "transition-colors duration-150 hover:bg-sidebar-accent",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        active && "bg-sidebar-primary/8"
+        isPrimary
+          ? "h-10 bg-sidebar-foreground text-sidebar hover:bg-sidebar-foreground/90"
+          : "h-9 text-sidebar-foreground/80",
+        active && "bg-sidebar-accent text-sidebar-foreground"
       )}
     >
-      <Icon className="h-[0.875rem] w-[0.875rem] shrink-0 text-muted-foreground" />
-      <span className="truncate">{label}</span>
+      <Icon
+        className={cn(
+          "h-[0.875rem] w-[0.875rem] shrink-0",
+          isPrimary ? "text-sidebar" : "text-muted-foreground"
+        )}
+      />
+      <span className={cn("truncate", isPrimary && "font-medium")}>
+        {label}
+      </span>
       {trailing}
     </button>
   )
@@ -141,6 +162,7 @@ export function Sidebar() {
     label: tTitleBar("openSettings"),
     shortcut: formatShortcutLabel(shortcuts.open_settings, isMac),
   })
+  const activeFolderName = getFolderName(activeFolder?.path)
 
   useEffect(() => {
     // Hydrate from localStorage after mount to keep SSR/CSR markup consistent.
@@ -200,18 +222,27 @@ export function Sidebar() {
   if (!isOpen) return null
 
   return (
-    <aside className="@container/sidebar flex h-full min-h-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground select-none">
-      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border pl-4 pr-2">
-        <div className="flex min-w-0 items-center gap-4">
-          <h2 className="truncate text-[0.875rem] font-bold tracking-[-0.00625rem] text-sidebar-foreground">
-            {t("title")}
-          </h2>
+    <aside className="@container/sidebar flex h-full min-h-0 flex-col overflow-hidden border-r border-sidebar-border/70 bg-sidebar text-sidebar-foreground select-none">
+      <div className="shrink-0 border-b border-sidebar-border/70 px-3 pb-3 pt-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sidebar-foreground text-[0.8125rem] font-semibold text-sidebar shadow-sm">
+            N
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[0.8125rem] font-semibold text-sidebar-foreground">
+              iyw-claw
+            </div>
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
+              <FolderOpenDot className="h-3 w-3 shrink-0" aria-hidden />
+              <span className="truncate">{activeFolderName || t("title")}</span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-0.5">
+        <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-sidebar-accent/45 p-1">
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 shrink-0 text-muted-foreground"
+            className="h-8 w-full shrink-0 rounded-lg text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground"
             onClick={() => listRef.current?.scrollToActive()}
             title={t("locateActiveConversation")}
             aria-label={t("locateActiveConversation")}
@@ -221,7 +252,7 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 shrink-0 text-muted-foreground"
+            className="h-8 w-full shrink-0 rounded-lg text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground"
             onClick={handleToggleExpandAll}
             title={toggleExpandLabel}
             aria-label={toggleExpandLabel}
@@ -237,7 +268,7 @@ export function Sidebar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 shrink-0 text-muted-foreground"
+                className="h-8 w-full shrink-0 rounded-lg text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground"
                 title={viewOptionsLabel}
                 aria-label={viewOptionsLabel}
               >
@@ -282,19 +313,12 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Fixed actions above the scrollable list. `shrink-0` keeps them pinned —
-          they never scroll with the conversation list. Rows are `rounded-full`
-          like the conversation pills, and the icon/text geometry matches the
-          folder header: a 0.875rem icon + 0.875rem label at a 0.4375rem gap, with
-          the row's pl-[0.4375rem] (atop the container's px-1.5) placing the icon
-          center on the same 0.875rem rail axis as the folder/conversation icons in
-          the list below. Each row is a `group` so its shortcut hint reveals on
-          hover / keyboard focus. */}
-      <div className="flex shrink-0 flex-col gap-0.5 px-1.5 pt-1.5">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-sidebar-border/60 px-3 py-3">
         <SidebarNavButton
           icon={SquarePen}
           label={t("newChat")}
           onClick={handleNewConversation}
+          tone="primary"
           trailing={
             newConversationShortcutLabel ? (
               <kbd className={SHORTCUT_BADGE_CLASS}>
@@ -303,24 +327,29 @@ export function Sidebar() {
             ) : null
           }
         />
-        <SidebarNavButton
-          icon={Zap}
-          label={t("automations")}
-          active={routeId === "automations"}
-          onClick={() => setRoute("automations")}
-          trailing={
-            unseenFailures > 0 ? (
-              <span className="ml-auto inline-flex h-[0.9375rem] min-w-[0.9375rem] shrink-0 items-center justify-center rounded-full bg-destructive/15 px-1 font-mono text-[0.625rem] font-medium leading-none text-destructive">
-                {unseenFailures}
-              </span>
-            ) : null
-          }
-        />
+        <div className="pt-1">
+          <div className="mb-1.5 px-1 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            {t("title")}
+          </div>
+          <SidebarNavButton
+            icon={Zap}
+            label={t("automations")}
+            active={routeId === "automations"}
+            onClick={() => setRoute("automations")}
+            trailing={
+              unseenFailures > 0 ? (
+                <span className="ml-auto inline-flex h-[0.9375rem] min-w-[0.9375rem] shrink-0 items-center justify-center rounded-full bg-destructive/15 px-1 font-mono text-[0.625rem] font-medium leading-none text-destructive">
+                  {unseenFailures}
+                </span>
+              ) : null
+            }
+          />
+        </div>
       </div>
 
       {/* On mobile, clicking a conversation card auto-closes the Sheet */}
       <div
-        className="flex flex-col flex-1 min-h-0 overflow-hidden pt-1.5"
+        className="flex flex-col flex-1 min-h-0 overflow-hidden"
         onClick={
           isMobile
             ? (e) => {
@@ -340,12 +369,12 @@ export function Sidebar() {
         />
       </div>
 
-      <div className="flex shrink-0 flex-col gap-2 border-t border-border/70 px-2 py-2">
+      <div className="flex shrink-0 flex-col gap-1.5 border-t border-sidebar-border/70 bg-sidebar/95 px-2 py-2">
         <SidebarWebAccess />
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 w-full justify-start rounded-md px-2 text-muted-foreground hover:text-sidebar-foreground"
+          className="h-8 w-full justify-start gap-2 rounded-lg px-2 text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
           onClick={handleOpenSettings}
           title={openSettingsLabel}
           aria-label={openSettingsLabel}

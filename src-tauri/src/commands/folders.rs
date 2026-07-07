@@ -73,30 +73,6 @@ async fn prepare_remote_git_cmd_with_remote(
     }
 }
 
-/// Same as `prepare_remote_git_cmd` but for clone (URL only, no repo yet).
-async fn prepare_remote_git_cmd_for_url(
-    cmd: &mut tokio::process::Command,
-    clone_url: &str,
-    credentials: Option<&GitCredentials>,
-    db: &AppDatabase,
-    data_dir: &std::path::Path,
-) {
-    cmd.env("GIT_TERMINAL_PROMPT", "0").stdin(Stdio::null());
-
-    if let Some(creds) = credentials {
-        if let Ok(askpass) = crate::git_credential::ensure_askpass_script(data_dir) {
-            crate::git_credential::inject_credentials(
-                cmd,
-                &creds.username,
-                &creds.password,
-                &askpass,
-            );
-        }
-    } else {
-        crate::git_credential::try_inject_for_url(cmd, clone_url, &db.conn, data_dir).await;
-    }
-}
-
 /// Classify a git remote command error, detecting authentication failures.
 fn classify_remote_git_error(operation: &str, stderr: &[u8]) -> AppCommandError {
     let msg = String::from_utf8_lossy(stderr).trim().to_string();
@@ -477,8 +453,8 @@ pub async fn get_folder_core(db: &AppDatabase, folder_id: i32) -> Result<FolderD
 /// the folder is already persisted, so a dropped event reconciles on the next
 /// refresh / WS reconnect.
 ///
-/// Unlike [`open_folder_in_workspace_core`], this ONLY syncs the folder list — it
-/// never opens or focuses a tab — so a background emitter can't steal focus.
+/// This ONLY syncs the folder list — it never opens or focuses a tab — so a
+/// background emitter can't steal focus.
 pub(crate) fn emit_folder_upsert(emitter: &EventEmitter, detail: FolderDetail) {
     crate::web::event_bridge::emit_event(
         emitter,
@@ -576,23 +552,6 @@ pub async fn open_worktree_folder_core(
         .await
         .map_err(AppCommandError::from)?
         .ok_or_else(|| AppCommandError::not_found("Folder not found after add"))
-}
-
-/// Open a folder into the workspace and announce it so the workspace window
-/// can surface it. Used by the project launcher, which lives in its own
-/// window/tab and can't reach the workspace's React state directly. Emitting
-/// through the shared `EventEmitter` routes the signal correctly in every
-/// runtime — Tauri events (desktop), the WebSocket broadcaster (server), and
-/// the remote server's broadcaster (remote desktop) — so only windows talking
-/// to this same backend react.
-pub async fn open_folder_in_workspace_core(
-    emitter: &EventEmitter,
-    db: &AppDatabase,
-    path: String,
-) -> Result<FolderDetail, AppCommandError> {
-    let detail = open_folder_core(db, path).await?;
-    crate::web::event_bridge::emit_event(emitter, "folder://open-in-workspace", &detail);
-    Ok(detail)
 }
 
 pub async fn open_folder_by_id_core(
@@ -759,17 +718,6 @@ pub async fn open_worktree_folder(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn open_folder_in_workspace(
-    app: tauri::AppHandle,
-    db: tauri::State<'_, AppDatabase>,
-    path: String,
-) -> Result<FolderDetail, AppCommandError> {
-    let emitter = EventEmitter::Tauri(app);
-    open_folder_in_workspace_core(&emitter, &db, path).await
-}
-
-#[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn open_folder_by_id(
     db: tauri::State<'_, AppDatabase>,
     folder_id: i32,
@@ -819,106 +767,6 @@ pub async fn update_folder_default_agent(
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn create_folder_directory(path: String) -> Result<(), AppCommandError> {
     std::fs::create_dir_all(&path).map_err(AppCommandError::io)
-}
-
-pub(crate) async fn clone_repository_core(
-    url: &str,
-    target_dir: &str,
-    credentials: Option<&GitCredentials>,
-    db: &AppDatabase,
-    data_dir: &std::path::Path,
-) -> Result<(), AppCommandError> {
-    if url.trim().is_empty() || target_dir.trim().is_empty() {
-        return Err(AppCommandError::invalid_input(
-            "Repository URL and target directory are required",
-        ));
-    }
-
-    let mut cmd = crate::process::tokio_command("git");
-    cmd.args(["clone", url, target_dir]);
-    prepare_remote_git_cmd_for_url(&mut cmd, url, credentials, db, data_dir).await;
-
-    let output = cmd.output().await.map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            AppCommandError::dependency_missing("Git is not installed. Please install Git first.")
-                .with_detail("https://git-scm.com")
-        } else {
-            AppCommandError::external_command("Failed to run git clone", e.to_string())
-        }
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(classify_git_clone_error(stderr.trim()));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn clone_repository(
-    url: String,
-    target_dir: String,
-    credentials: Option<GitCredentials>,
-    db: tauri::State<'_, AppDatabase>,
-    app_handle: tauri::AppHandle,
-) -> Result<(), AppCommandError> {
-    let data_dir = app_handle.path().app_data_dir().map_err(|e| {
-        AppCommandError::external_command("Failed to resolve app data dir", e.to_string())
-    })?;
-    // Resolve through the effective data dir so a custom
-    // `IYW_CLAW_DATA_DIR` reaches the git credential helper invoked by
-    // this subprocess.
-    let data_dir = crate::paths::resolve_effective_data_dir(&data_dir);
-    clone_repository_core(&url, &target_dir, credentials.as_ref(), &db, &data_dir).await
-}
-
-fn classify_git_clone_error(stderr: &str) -> AppCommandError {
-    let normalized = stderr.to_lowercase();
-
-    if normalized.contains("already exists and is not an empty directory") {
-        return AppCommandError::already_exists("Target directory already exists and is not empty")
-            .with_detail(stderr.to_string());
-    }
-
-    if normalized.contains("repository not found") {
-        return AppCommandError::not_found(
-            "Repository not found. Check URL and access permissions.",
-        )
-        .with_detail(stderr.to_string());
-    }
-
-    if normalized.contains("could not resolve host")
-        || normalized.contains("network is unreachable")
-        || normalized.contains("connection timed out")
-        || normalized.contains("failed to connect")
-    {
-        return AppCommandError::network("Network is unavailable while cloning repository")
-            .with_detail(stderr.to_string());
-    }
-
-    if normalized.contains("authentication failed")
-        || normalized.contains("could not read username")
-        || normalized.contains("could not read password")
-        || normalized.contains("logon failed")
-        || normalized.contains("terminal prompts disabled")
-        || normalized.contains("the requested url returned error: 401")
-        || normalized.contains("the requested url returned error: 403")
-        || normalized.contains("http basic: access denied")
-        || normalized.contains("permission denied (publickey)")
-    {
-        return AppCommandError::authentication_failed(
-            "Authentication failed while cloning repository",
-        )
-        .with_detail(stderr.to_string());
-    }
-
-    if normalized.contains("permission denied") {
-        return AppCommandError::permission_denied("Permission denied while cloning repository")
-            .with_detail(stderr.to_string());
-    }
-
-    AppCommandError::external_command("Git clone failed", stderr.to_string())
 }
 
 /// The state of a working tree's `HEAD`. The legacy `get_git_branch` contract

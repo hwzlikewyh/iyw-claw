@@ -30,7 +30,7 @@ function CopyButton({ value, label }: { value: string | null; label: string }) {
       type="button"
       variant="ghost"
       size="icon-xs"
-      className="h-5 w-5 rounded-md text-muted-foreground hover:text-sidebar-foreground disabled:opacity-35"
+      className="h-5 w-5 rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground disabled:opacity-35"
       onClick={handleCopy}
       disabled={!value}
       title={label}
@@ -59,10 +59,10 @@ function InfoRow({
   copyLabel: string
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
+    <div className="flex min-w-0 items-center gap-1.5 px-1">
       <Icon
         aria-hidden="true"
-        className="h-3 w-3 shrink-0 text-muted-foreground"
+        className="h-3 w-3 shrink-0 text-muted-foreground/80"
       />
       <span className="sr-only">{label}</span>
       <code className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-muted-foreground">
@@ -117,7 +117,7 @@ export function SidebarWebAccess() {
   const copyTokenLabel = useMemo(() => `${t("copy")} ${t("tokenLabel")}`, [t])
 
   return (
-    <div className="rounded-md border border-border/70 bg-sidebar-accent/35 px-2 py-2">
+    <div className="rounded-lg bg-sidebar-accent/35 px-2 py-2">
       <div className="flex min-w-0 items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
@@ -126,7 +126,7 @@ export function SidebarWebAccess() {
               isRunning ? "bg-green-500" : "bg-muted-foreground/35"
             }`}
           />
-          <span className="truncate text-xs font-medium text-sidebar-foreground">
+          <span className="truncate text-[0.75rem] font-medium text-sidebar-foreground/85">
             {t("sectionTitle")}
           </span>
         </div>

@@ -1,12 +1,7 @@
 "use client"
 
 import { memo } from "react"
-import {
-  ChevronRight,
-  FolderGit2,
-  FolderOpenDot,
-  SquarePen,
-} from "lucide-react"
+import { ChevronRight, FolderOpenDot, SquarePen } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn } from "@/lib/utils"
 
@@ -30,7 +25,6 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
   onToggle,
   onNewChat,
   onOpenFolder,
-  onCloneRepository,
   topGap = false,
 }: {
   section: "pinned" | "folders" | "chats"
@@ -45,15 +39,12 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
    */
   onNewChat?: () => void
   /**
-   * When provided on the "folders" section, render two right-edge action
-   * buttons — Open Folder and Clone Repository — the same "add a folder"
-   * actions as the top-of-page NewFolderDropdown, revealed on hover/focus (and
-   * always on touch). Siblings of — not nested in — the toggle button, so
-   * clicking never toggles the section. Must be referentially stable to
-   * preserve the memo.
+   * When provided on the "folders" section, render the right-edge Open Folder
+   * action, revealed on hover/focus (and always on touch). Sibling of — not
+   * nested in — the toggle button, so clicking never toggles the section. Must
+   * be referentially stable to preserve the memo.
    */
   onOpenFolder?: () => void
-  onCloneRepository?: () => void
   /**
    * Adds breathing room above the header so the "Folders" section reads as
    * visually separated from the "Pinned" section above it. Implemented as
@@ -64,10 +55,9 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
   topGap?: boolean
 }) {
   const t = useTranslations("Folder.sidebar")
-  // Tooltips/aria-labels for the folders-section actions reuse the existing
-  // top-of-page dropdown strings (Open Folder / Clone Repository), so no new
-  // locale keys are introduced. Owned here (not received) to preserve the memo,
-  // same as `t`.
+  // Tooltips/aria-labels for the folders-section action reuse the existing
+  // top-of-page Open Folder string, so no new locale key is introduced. Owned
+  // here (not received) to preserve the memo, same as `t`.
   const tDropdown = useTranslations("Folder.folderNameDropdown")
   const label =
     section === "pinned"
@@ -76,13 +66,9 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
         ? t("sectionChats")
         : t("sectionFolders")
   const showNewChat = section === "chats" && onNewChat != null
-  // The folders section mirrors the chats section's right-edge affordance, but
-  // with two buttons (Open Folder / Clone Repository) — the same "add a folder"
-  // actions the top-of-page NewFolderDropdown offers.
-  const showFolderActions =
-    section === "folders" && (onOpenFolder != null || onCloneRepository != null)
+  const showFolderActions = section === "folders" && onOpenFolder != null
   // Shared styling for the right-edge hover-revealed action buttons (New chat on
-  // the chats section; Open Folder / Clone Repository on the folders section).
+  // the chats section; Open Folder on the folders section).
   // Revealed only while the row is hovered (group/header lives on the row
   // container, NOT the toggle button — so moving onto a button to click it keeps
   // the row hovered and the button from flickering). Stays shown on keyboard
@@ -94,7 +80,7 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
   // conversation time / shortcut badges (which fill to their own right edge),
   // breaking the shared 0.75rem right alignment.
   const actionButtonClassName = cn(
-    "flex h-6 w-6 items-center justify-end rounded-[0.375rem]",
+    "flex h-6 w-6 items-center justify-end rounded-md",
     "cursor-pointer text-muted-foreground/90 outline-none",
     "opacity-0 group-hover/header:opacity-100 focus-visible:opacity-100",
     "[@media(hover:none)]:opacity-100",
@@ -102,15 +88,15 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
     "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
   )
   return (
-    <div className={cn(topGap && "pt-[0.75rem]")}>
-      <div className="group/header relative h-[2rem]">
+    <div className={cn(topGap && "pt-2")}>
+      <div className="group/header relative h-7">
         <button
           type="button"
           onClick={() => onToggle(section)}
           aria-expanded={expanded}
           className={cn(
-            "group flex h-full w-full items-center gap-[0.375rem] px-[0.5rem]",
-            "rounded-md outline-none select-none",
+            "group flex h-full w-full items-center gap-1.5 px-2",
+            "rounded-lg outline-none select-none",
             // Lighter than the folder name, but on the SAME base token
             // (`sidebar-foreground`) — not `muted-foreground`. Both labels are
             // 0.875rem/normal, so an earlier "looks a different size" was pure
@@ -125,12 +111,14 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
             // asked for lighter still and accepted the 3:1 tradeoff. Don't drop
             // below /45 (~3.1:1) without revisiting — that breaches 3:1 too. Hover
             // deepens to /80 for a clear interactive affordance.
-            "text-sidebar-foreground/50 transition-colors duration-150",
-            "hover:text-sidebar-foreground/80",
+            "text-muted-foreground transition-colors duration-150",
+            "hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
             "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
           )}
         >
-          <span className="text-[0.875rem] font-normal">{label}</span>
+          <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.04em]">
+            {label}
+          </span>
           <ChevronRight
             aria-hidden
             className={cn(
@@ -158,7 +146,7 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
             // (`h-[0.875rem]`, 14px) so the two affordances read as one family —
             // a hair smaller than the default `h-4` glyph.
             className={cn(
-              "absolute top-1/2 right-[0.375rem] -translate-y-1/2",
+              "absolute top-1/2 right-1.5 -translate-y-1/2",
               actionButtonClassName
             )}
           >
@@ -166,23 +154,7 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
           </button>
         )}
         {showFolderActions && (
-          <div className="absolute top-1/2 right-[0.375rem] flex -translate-y-1/2 items-center gap-px">
-            {onCloneRepository != null && (
-              <button
-                type="button"
-                // Sibling of the toggle button, so it never toggles the section;
-                // stop propagation defensively anyway.
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onCloneRepository()
-                }}
-                title={tDropdown("cloneRepository")}
-                aria-label={tDropdown("cloneRepository")}
-                className={actionButtonClassName}
-              >
-                <FolderGit2 className="h-[0.875rem] w-[0.875rem]" />
-              </button>
-            )}
+          <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-px">
             {onOpenFolder != null && (
               <button
                 type="button"

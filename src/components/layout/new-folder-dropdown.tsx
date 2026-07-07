@@ -1,26 +1,17 @@
 "use client"
 
 import { useState } from "react"
-import { FolderGit2, FolderOpenDot, FolderPlus, Rocket } from "lucide-react"
+import { FolderPlus } from "lucide-react"
 import { useTranslations } from "next-intl"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
-import { openProjectBootWindow } from "@/lib/api"
 import { isDesktop, openFileDialog } from "@/lib/platform"
 import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
-import { CloneDialog } from "@/components/layout/clone-dialog"
 import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
 
 export function NewFolderDropdown() {
   const t = useTranslations("Folder.folderNameDropdown")
   const openFolder = useAppWorkspaceStore((s) => s.openFolder)
-  const [cloneOpen, setCloneOpen] = useState(false)
   const [browserOpen, setBrowserOpen] = useState(false)
 
   async function handleOpenFolder() {
@@ -44,33 +35,16 @@ export function NewFolderDropdown() {
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 hover:text-foreground/80"
-            title={t("openFolder")}
-          >
-            <FolderPlus className="h-3.5 w-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="min-w-56" align="start">
-          <DropdownMenuItem onSelect={handleOpenFolder}>
-            <FolderOpenDot className="h-3.5 w-3.5 shrink-0" />
-            {t("openFolder")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setCloneOpen(true)}>
-            <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
-            {t("cloneRepository")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => openProjectBootWindow()}>
-            <Rocket className="h-3.5 w-3.5 shrink-0" />
-            {t("projectBoot")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <CloneDialog open={cloneOpen} onOpenChange={setCloneOpen} />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 hover:text-foreground/80"
+        title={t("openFolder")}
+        aria-label={t("openFolder")}
+        onClick={handleOpenFolder}
+      >
+        <FolderPlus className="h-3.5 w-3.5" />
+      </Button>
       <DirectoryBrowserDialog
         open={browserOpen}
         onOpenChange={setBrowserOpen}

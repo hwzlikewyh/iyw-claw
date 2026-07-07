@@ -13,7 +13,6 @@ import enMessages from "@/i18n/messages/en.json"
 const onToggle = vi.fn()
 const onNewChat = vi.fn()
 const onOpenFolder = vi.fn()
-const onCloneRepository = vi.fn()
 
 function renderWithIntl(ui: ReactElement) {
   return render(
@@ -27,22 +26,19 @@ beforeEach(() => {
   onToggle.mockClear()
   onNewChat.mockClear()
   onOpenFolder.mockClear()
-  onCloneRepository.mockClear()
 })
 
 describe("SidebarSectionHeader folders-section actions", () => {
-  it("renders Open Folder and Clone Repository buttons on the folders section", () => {
+  it("renders the Open Folder button on the folders section", () => {
     const { getByLabelText } = renderWithIntl(
       <SidebarSectionHeader
         section="folders"
         expanded
         onToggle={onToggle}
         onOpenFolder={onOpenFolder}
-        onCloneRepository={onCloneRepository}
       />
     )
     expect(getByLabelText("Open Folder")).not.toBeNull()
-    expect(getByLabelText("Clone Repository")).not.toBeNull()
   })
 
   it("invokes the matching handler without toggling the section", () => {
@@ -52,32 +48,22 @@ describe("SidebarSectionHeader folders-section actions", () => {
         expanded
         onToggle={onToggle}
         onOpenFolder={onOpenFolder}
-        onCloneRepository={onCloneRepository}
       />
     )
 
     fireEvent.click(getByLabelText("Open Folder"))
     expect(onOpenFolder).toHaveBeenCalledTimes(1)
 
-    fireEvent.click(getByLabelText("Clone Repository"))
-    expect(onCloneRepository).toHaveBeenCalledTimes(1)
-
     // The actions are siblings of the toggle button (never nested), so clicking
     // them never collapses/expands the section.
     expect(onToggle).not.toHaveBeenCalled()
   })
 
-  it("renders only the actions whose callbacks are provided", () => {
-    const { getByLabelText, queryByLabelText } = renderWithIntl(
-      <SidebarSectionHeader
-        section="folders"
-        expanded
-        onToggle={onToggle}
-        onOpenFolder={onOpenFolder}
-      />
+  it("renders no folder action when no callback is provided", () => {
+    const { queryByLabelText } = renderWithIntl(
+      <SidebarSectionHeader section="folders" expanded onToggle={onToggle} />
     )
-    expect(getByLabelText("Open Folder")).not.toBeNull()
-    expect(queryByLabelText("Clone Repository")).toBeNull()
+    expect(queryByLabelText("Open Folder")).toBeNull()
   })
 
   it("still toggles the section when the header label is clicked", () => {
@@ -87,7 +73,6 @@ describe("SidebarSectionHeader folders-section actions", () => {
         expanded
         onToggle={onToggle}
         onOpenFolder={onOpenFolder}
-        onCloneRepository={onCloneRepository}
       />
     )
     fireEvent.click(getByText("Folders"))
@@ -97,7 +82,7 @@ describe("SidebarSectionHeader folders-section actions", () => {
 
 describe("SidebarSectionHeader action gating by section", () => {
   it("offers only New chat on the chats section, never the folder actions", () => {
-    // Pass the folder callbacks too: they must be gated by `section`, not merely
+    // Pass the folder callback too: it must be gated by `section`, not merely
     // by callback presence.
     const { getByLabelText, queryByLabelText } = renderWithIntl(
       <SidebarSectionHeader
@@ -106,12 +91,10 @@ describe("SidebarSectionHeader action gating by section", () => {
         onToggle={onToggle}
         onNewChat={onNewChat}
         onOpenFolder={onOpenFolder}
-        onCloneRepository={onCloneRepository}
       />
     )
     expect(getByLabelText("New chat")).not.toBeNull()
     expect(queryByLabelText("Open Folder")).toBeNull()
-    expect(queryByLabelText("Clone Repository")).toBeNull()
   })
 
   it("offers no action buttons on the pinned section", () => {
@@ -122,11 +105,9 @@ describe("SidebarSectionHeader action gating by section", () => {
         onToggle={onToggle}
         onNewChat={onNewChat}
         onOpenFolder={onOpenFolder}
-        onCloneRepository={onCloneRepository}
       />
     )
     expect(queryByLabelText("New chat")).toBeNull()
     expect(queryByLabelText("Open Folder")).toBeNull()
-    expect(queryByLabelText("Clone Repository")).toBeNull()
   })
 })

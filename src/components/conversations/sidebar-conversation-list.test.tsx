@@ -135,8 +135,8 @@ vi.mock("virtua", () => ({
 
 // FolderHeader renders exactly one of FolderClosed/FolderOpen in its body →
 // folder re-render probe. Every other icon stays real. (The Folders section
-// header's Open Folder / Clone Repository actions use FolderOpenDot / FolderGit2,
-// which are NOT mocked here, so they never inflate this probe.)
+// header's Open Folder action uses FolderOpenDot, which is NOT mocked here, so
+// it never inflates this probe.)
 vi.mock("lucide-react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("lucide-react")>()
   return {
@@ -232,7 +232,6 @@ vi.mock("@/contexts/workbench-route-context", () => {
 vi.mock("./conversation-manage-dialog", () => ({
   ConversationManageDialog: () => null,
 }))
-vi.mock("@/components/layout/clone-dialog", () => ({ CloneDialog: () => null }))
 // The sub-session realtime sync hook reaches @/lib/platform (transport), which
 // these tests don't load; stub it to a no-op — it has its own unit tests.
 vi.mock("@/hooks/use-subsession-sync", () => ({ useSubsessionSync: () => {} }))

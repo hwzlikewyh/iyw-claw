@@ -616,27 +616,3 @@ pub async fn git_fetch_remote(
     .await?;
     Ok(Json(result))
 }
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CloneRepositoryParams {
-    pub url: String,
-    pub target_dir: String,
-    pub credentials: Option<GitCredentials>,
-}
-
-pub async fn clone_repository(
-    Extension(state): Extension<Arc<AppState>>,
-    Json(params): Json<CloneRepositoryParams>,
-) -> Result<Json<()>, AppCommandError> {
-    let db = &state.db;
-    folder_commands::clone_repository_core(
-        &params.url,
-        &params.target_dir,
-        params.credentials.as_ref(),
-        db,
-        &state.data_dir,
-    )
-    .await?;
-    Ok(Json(()))
-}

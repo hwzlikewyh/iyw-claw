@@ -419,7 +419,6 @@ struct WindowTitles {
     merge: &'static str,
     stash: &'static str,
     push: &'static str,
-    project_boot: &'static str,
 }
 
 fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
@@ -431,7 +430,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             merge: "解决冲突",
             stash: "储藏",
             push: "推送",
-            project_boot: "项目启动器",
         },
         AppLocale::ZhTw => WindowTitles {
             settings: "設定",
@@ -439,7 +437,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             merge: "解決衝突",
             stash: "暫存",
             push: "推送",
-            project_boot: "專案啟動器",
         },
         AppLocale::Ja => WindowTitles {
             settings: "設定",
@@ -447,7 +444,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             merge: "コンフリクトの解決",
             stash: "スタッシュ",
             push: "プッシュ",
-            project_boot: "プロジェクトブート",
         },
         AppLocale::Ko => WindowTitles {
             settings: "설정",
@@ -455,7 +451,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             merge: "충돌 해결",
             stash: "스태시",
             push: "푸시",
-            project_boot: "프로젝트 부트",
         },
         AppLocale::Es => WindowTitles {
             settings: "Configuración",
@@ -463,7 +458,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             merge: "Resolver conflictos",
             stash: "Reserva",
             push: "Enviar",
-            project_boot: "Inicio de Proyecto",
         },
         AppLocale::De => WindowTitles {
             settings: "Einstellungen",
@@ -471,7 +465,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             merge: "Konflikte lösen",
             stash: "Stash",
             push: "Push",
-            project_boot: "Projekt-Starter",
         },
         AppLocale::Fr => WindowTitles {
             settings: "Paramètres",
@@ -479,7 +472,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             merge: "Résoudre les conflits",
             stash: "Réserve",
             push: "Pousser",
-            project_boot: "Lanceur de projet",
         },
         AppLocale::Pt => WindowTitles {
             settings: "Configurações",
@@ -487,7 +479,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             merge: "Resolver conflitos",
             stash: "Stash",
             push: "Enviar",
-            project_boot: "Inicializador de Projeto",
         },
         AppLocale::Ar => WindowTitles {
             settings: "الإعدادات",
@@ -495,7 +486,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             merge: "حل التعارضات",
             stash: "إخفاء",
             push: "دفع",
-            project_boot: "مُنشئ المشروع",
         },
         AppLocale::En => WindowTitles {
             settings: "Settings",
@@ -503,7 +493,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             merge: "Resolve Conflicts",
             stash: "Stash",
             push: "Push",
-            project_boot: "Project Boot",
         },
     }
 }
@@ -533,16 +522,11 @@ pub async fn open_folder_window(
     db: tauri::State<'_, AppDatabase>,
     path: String,
 ) -> Result<FolderDetail, AppCommandError> {
-    // Single-window workspace: upsert the folder (is_open = true), close any
-    // legacy project-boot window, and return the full detail for the frontend
-    // to add to its workspace state.
+    // Single-window workspace: upsert the folder (is_open = true), and return
+    // the full detail for the frontend to add to its workspace state.
     let entry = crate::db::service::folder_service::add_folder(&db.conn, &path)
         .await
         .map_err(AppCommandError::from)?;
-
-    if let Some(w) = app.get_webview_window("project-boot") {
-        let _ = w.close();
-    }
 
     let folder = crate::db::service::folder_service::get_folder_by_id(&db.conn, entry.id)
         .await
@@ -993,47 +977,6 @@ pub async fn open_push_window(
         .map_err(|e| AppCommandError::window("Failed to open push window", e.to_string()))?;
     register_remote_window_cleanup(&app, &push_window, remote_window_id.as_deref());
     post_window_setup(&push_window);
-
-    Ok(())
-}
-
-#[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn open_project_boot_window(
-    app: AppHandle,
-    db: tauri::State<'_, AppDatabase>,
-    source: Option<String>,
-    locale: Option<crate::models::system::AppLocale>,
-    remote_connection_id: Option<i32>,
-) -> Result<(), AppCommandError> {
-    let _ = source;
-    let label = match remote_connection_id {
-        Some(id) => format!("remote-project-boot-{id}"),
-        None => "project-boot".to_string(),
-    };
-    if let Some(existing) = app.get_webview_window(&label) {
-        post_window_setup(&existing);
-        let _ = existing.unminimize();
-        existing.set_focus().map_err(|e| {
-            AppCommandError::window("Failed to focus project boot window", e.to_string())
-        })?;
-        return Ok(());
-    }
-
-    let titles = resolve_window_titles(&db.conn, locale).await;
-    let (url_str, remote_window_id) =
-        route_with_new_remote_window("project-boot".to_string(), remote_connection_id);
-    let url = WebviewUrl::App(url_str.into());
-    let builder = WebviewWindowBuilder::new(&app, &label, url)
-        .title(titles.project_boot)
-        .inner_size(1400.0, 900.0)
-        .min_inner_size(1100.0, 700.0)
-        .center();
-    let window = apply_platform_window_style(builder).build().map_err(|e| {
-        AppCommandError::window("Failed to open project boot window", e.to_string())
-    })?;
-    register_remote_window_cleanup(&app, &window, remote_window_id.as_deref());
-    post_window_setup(&window);
 
     Ok(())
 }

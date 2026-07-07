@@ -171,10 +171,6 @@ pub fn build_router(
             post(handlers::folders::resolve_worktree_folder),
         )
         .route(
-            "/open_folder_in_workspace",
-            post(handlers::folders::open_folder_in_workspace),
-        )
-        .route(
             "/open_folder_by_id",
             post(handlers::folders::open_folder_by_id),
         )
@@ -334,7 +330,6 @@ pub fn build_router(
             "/git_delete_remote_branch",
             post(handlers::git::git_delete_remote_branch),
         )
-        .route("/clone_repository", post(handlers::git::clone_repository))
         // ─── Files ───
         .route(
             "/read_file_preview",
@@ -808,27 +803,6 @@ pub fn build_router(
         .route(
             "/stop_office_watch",
             post(handlers::office_tools::stop_office_watch),
-        )
-        // ─── Project boot ───
-        .route(
-            "/detect_package_manager",
-            post(handlers::project_boot::detect_package_manager),
-        )
-        .route(
-            "/create_shadcn_project",
-            post(handlers::project_boot::create_shadcn_project),
-        )
-        .route(
-            "/detect_hyperframes_skills",
-            post(handlers::project_boot::detect_hyperframes_skills),
-        )
-        .route(
-            "/install_hyperframes_skills",
-            post(handlers::project_boot::install_hyperframes_skills),
-        )
-        .route(
-            "/create_hyperframes_project",
-            post(handlers::project_boot::create_hyperframes_project),
         )
         // ─── Web Server ───
         .route(
