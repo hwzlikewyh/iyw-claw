@@ -3590,6 +3590,7 @@
     "organization": "Organization",
     "emptyValue": "-",
     "logout": "Sign out",
-    "signedInWithBalance": "Signed in · {balance}"
+    "signedInWithBalance": "Signed in · {balance}",
+    "openSettings": "Settings"
   }
 }

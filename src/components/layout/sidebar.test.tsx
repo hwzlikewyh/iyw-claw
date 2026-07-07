@@ -3,6 +3,7 @@ import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { Sidebar } from "./sidebar"
+import { normalizeAvatarUrl } from "./sidebar-account-settings"
 import enMessages from "@/i18n/messages/en.json"
 
 // Stable spies + mutable active-folder, referenced from the hoisted mock
@@ -12,6 +13,7 @@ const spies = vi.hoisted(() => ({
   openChatModeTab: vi.fn(),
   setRoute: vi.fn(),
   openConversations: vi.fn(),
+  routerPush: vi.fn(),
 }))
 const apiMocks = vi.hoisted(() => ({
   getWebServerStatus: vi.fn(),
@@ -59,7 +61,7 @@ vi.mock("@/contexts/workbench-route-context", () => ({
   }),
 }))
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: spies.routerPush }),
 }))
 vi.mock("@/hooks/use-is-mac", () => ({ useIsMac: () => false }))
 vi.mock("@/hooks/use-shortcut-settings", () => ({
@@ -97,6 +99,7 @@ describe("Sidebar — fixed action region", () => {
     spies.openChatModeTab.mockClear()
     spies.setRoute.mockClear()
     spies.openConversations.mockClear()
+    spies.routerPush.mockClear()
     mockState.activeFolder = { id: 7, path: "/x" }
     apiMocks.getWebServerStatus.mockReset()
     apiMocks.getWebServiceConfig.mockReset()
@@ -141,7 +144,7 @@ describe("Sidebar — fixed action region", () => {
       name: "Test User",
       nick_name: null,
       phone: "123",
-      avatar_url: null,
+      avatar_url: "https://account.iyw.cn/static/avatar/default.png",
       org_name: null,
       org_logo_url: null,
       balance_points: 4228,
@@ -193,6 +196,16 @@ describe("Sidebar — fixed action region", () => {
     expect(queryByText("Web Service")).toBeNull()
   })
 
+  it("opens the full settings page from the settings button", async () => {
+    const { findByLabelText, findByText, queryByText } = renderSidebar()
+    await findByText("Not signed in")
+
+    fireEvent.click(await findByLabelText("Settings"))
+
+    expect(spies.routerPush).toHaveBeenCalledWith("/settings/appearance")
+    expect(queryByText("iyw Account")).toBeNull()
+  })
+
   it("signs in with account password from the dialog", async () => {
     const { findByLabelText, findByText, getByText, queryByText } =
       renderSidebar()
@@ -219,6 +232,17 @@ describe("Sidebar — fixed action region", () => {
     })
     expect(await findByText("Test User")).toBeTruthy()
     expect(await findByText("4228")).toBeTruthy()
+  })
+
+  it("normalizes iyw default avatar urls to the OSS avatar", () => {
+    expect(
+      normalizeAvatarUrl("https://account.iyw.cn/static/avatar/default.png")
+    ).toContain(
+      "chdesign.oss-cn-shanghai.aliyuncs.com/static/avatar/default.png"
+    )
+    expect(normalizeAvatarUrl("static/avatar/default.png")).toContain(
+      "chdesign.oss-cn-shanghai.aliyuncs.com/static/avatar/default.png"
+    )
   })
 
   it("falls back to chat mode (never disabled) when no folder is active", async () => {

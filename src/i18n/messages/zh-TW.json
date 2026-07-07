@@ -3590,6 +3590,7 @@
     "organization": "組織",
     "emptyValue": "-",
     "logout": "登出",
-    "signedInWithBalance": "已登入 · {balance}"
+    "signedInWithBalance": "已登入 · {balance}",
+    "openSettings": "設定"
   }
 }

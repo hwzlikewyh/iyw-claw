@@ -10,6 +10,7 @@ import {
 } from "react"
 import { Loader2, LogOut, RefreshCw, Settings, UserRound } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { useRouter } from "next/navigation"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -70,6 +71,21 @@ function avatarFallback(profile: IywAccountProfile | null) {
   return name.trim().slice(0, 1).toUpperCase() || "I"
 }
 
+export function normalizeAvatarUrl(value: string | null | undefined) {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
+
+  const withoutQuery = trimmed.split("?")[0] ?? ""
+  const normalizedPath = withoutQuery
+    .replace(/^https?:\/\/account\.iyw\.cn\//i, "")
+    .replace(/^\/+/, "")
+  if (normalizedPath === "static/avatar/default.png") {
+    return DEFAULT_AVATAR_URL
+  }
+
+  return trimmed
+}
+
 function AccountAvatar({
   profile,
   className,
@@ -78,7 +94,7 @@ function AccountAvatar({
   className?: string
 }) {
   const avatarUrl =
-    profile?.avatar_url?.trim() ||
+    normalizeAvatarUrl(profile?.avatar_url) ||
     (profile?.logged_in ? DEFAULT_AVATAR_URL : "")
 
   return (
@@ -351,6 +367,7 @@ function InfoRow({
 
 export function SidebarAccountSettings() {
   const t = useTranslations("SidebarAccount")
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loginMode, setLoginMode] = useState<LoginMode>("wechat")
   const [profile, setProfile] = useState<IywAccountProfile | null>(null)
@@ -509,6 +526,12 @@ export function SidebarAccountSettings() {
     [password, stopPolling, username]
   )
 
+  const handleOpenSettings = useCallback(() => {
+    const search = typeof window === "undefined" ? "" : window.location.search
+    setOpen(false)
+    router.push(`/settings/appearance${search}`)
+  }, [router])
+
   const title = displayName(profile, t("notSignedIn"))
   const subtitle = profile?.logged_in
     ? balancePoints(profile, t("balanceUnknown"))
@@ -567,15 +590,14 @@ export function SidebarAccountSettings() {
 
         <button
           type="button"
-          aria-label={t("dialogTitle")}
-          aria-haspopup="dialog"
+          aria-label={t("openSettings")}
           className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
             "border border-sidebar-border/70 bg-sidebar text-sidebar-foreground shadow-sm",
             "transition-colors hover:bg-background",
             "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
           )}
-          onClick={() => setOpen(true)}
+          onClick={handleOpenSettings}
         >
           <Settings className="h-3.5 w-3.5" aria-hidden="true" />
         </button>

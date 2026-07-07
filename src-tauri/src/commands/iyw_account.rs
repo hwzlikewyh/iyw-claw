@@ -12,6 +12,8 @@ use crate::db::AppDatabase;
 const IYW_ACCOUNT_SESSION_KEY: &str = "iyw_account_session";
 const ACCOUNT_BASE_URL: &str = "https://account.iyw.cn";
 const GATEWAY_BASE_URL: &str = "https://gateway.iyw.cn";
+const DEFAULT_AVATAR_URL: &str =
+    "https://chdesign.oss-cn-shanghai.aliyuncs.com/static/avatar/default.png";
 const T34_AUTH_CODE: &str = "T34";
 const AUTH_CODES: [&str; 15] = [
     "T33", "T34", "A1", "A2", "T29", "I6", "I1", "I2", "I5", "I8", "I3", "I10", "I11", "S2", "I12",
@@ -190,6 +192,9 @@ fn normalize_asset_url(value: Option<String>) -> Option<String> {
         return Some(format!(
             "https://chdesign.oss-cn-shanghai.aliyuncs.com{value}"
         ));
+    }
+    if value.trim_start_matches('/') == "static/avatar/default.png" {
+        return Some(DEFAULT_AVATAR_URL.to_string());
     }
     Some(format!(
         "{ACCOUNT_BASE_URL}/{}",
