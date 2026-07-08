@@ -180,4 +180,30 @@ describe("AgentSelector", () => {
     const lastCall = calls[calls.length - 1]?.[0]
     expect(lastCall).toEqual([codex])
   })
+
+  it("settings variant shows the current agent and routes switching to settings", () => {
+    mockUseAcpAgents.mockReturnValue({
+      agents: [agent("codex"), agent("hermes")],
+      fresh: true,
+      refresh: async () => {},
+    })
+    const onSelect = vi.fn()
+    const onOpenSettings = vi.fn()
+    renderWithIntl(
+      <AgentSelector
+        defaultAgentType="codex"
+        onSelect={onSelect}
+        onOpenAgentsSettings={onOpenSettings}
+        variant="settings"
+      />
+    )
+
+    expect(screen.getByText("Codex", { selector: "span" })).toBeInTheDocument()
+    expect(screen.getAllByRole("button")).toHaveLength(1)
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Agents settings" })
+    )
+    expect(onOpenSettings).toHaveBeenCalledTimes(1)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
 })

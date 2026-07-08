@@ -161,6 +161,14 @@ describe("Sidebar — fixed action region", () => {
     expect(spies.setRoute).toHaveBeenCalledWith("automations")
   })
 
+  it("Skill Market navigates to the skills route", async () => {
+    const { findByText, getByText } = renderSidebar()
+    await findByText("Not signed in")
+
+    fireEvent.click(getByText("Skill Market"))
+    expect(spies.setRoute).toHaveBeenCalledWith("skills")
+  })
+
   it("New chat returns to the conversation workspace", async () => {
     const { findByText, getByText } = renderSidebar()
     await findByText("Not signed in")

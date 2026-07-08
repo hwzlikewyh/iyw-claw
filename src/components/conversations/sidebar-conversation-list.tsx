@@ -649,6 +649,21 @@ export function SidebarConversationList({
     openTabKeysRef.current = reused
     return reused
   }, [tabs])
+  const openTabInfoByKey = useMemo(() => {
+    const next = new Map<
+      string,
+      { contextKey: string; runtimeConversationId: number | null }
+    >()
+    for (const tab of tabs) {
+      if (tab.conversationId == null) continue
+      next.set(`${tab.agentType}:${tab.conversationId}`, {
+        contextKey: tab.id,
+        runtimeConversationId:
+          tab.runtimeConversationId ?? tab.conversationId ?? null,
+      })
+    }
+    return next
+  }, [tabs])
 
   const [importing, setImporting] = useState(false)
   const { sortedTypes: availableAgents, fresh: availableAgentsFresh } =
@@ -1925,6 +1940,7 @@ export function SidebarConversationList({
       )
     }
     const conv = row.conversation
+    const openTabInfo = openTabInfoByKey.get(`${conv.agent_type}:${conv.id}`)
     // Worktree child folders render under their parent group, so theme the row
     // by the display group (parent) for a unified look.
     const groupId = childToParent.get(conv.folder_id) ?? conv.folder_id
@@ -1937,6 +1953,8 @@ export function SidebarConversationList({
           selectedConversation?.id === conv.id
         }
         isOpenInTab={openTabKeys.has(`${conv.agent_type}:${conv.id}`)}
+        openContextKey={openTabInfo?.contextKey ?? null}
+        runtimeConversationId={openTabInfo?.runtimeConversationId ?? null}
         timeLabel={formatRelative(
           sortMode === "updated" ? conv.updated_at : conv.created_at,
           now

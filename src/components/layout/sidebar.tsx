@@ -7,6 +7,7 @@ import {
   Crosshair,
   FolderOpenDot,
   Funnel,
+  PackageCheck,
   SquarePen,
   Zap,
   type LucideIcon,
@@ -329,6 +330,12 @@ export function Sidebar() {
                 </span>
               ) : null
             }
+          />
+          <SidebarNavButton
+            icon={PackageCheck}
+            label={t("skillsMarket")}
+            active={routeId === "skills"}
+            onClick={() => setRoute("skills")}
           />
         </div>
       </div>

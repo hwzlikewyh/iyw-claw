@@ -6,7 +6,9 @@ import { X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn, handleMiddleClickClose } from "@/lib/utils"
 import type { ConversationStatus } from "@/lib/types"
+import { useConversationRuntimeStore } from "@/stores/conversation-runtime-store"
 import { ConversationStatusDot } from "@/components/conversations/conversation-status-dot"
+import { SessionUsageChip } from "@/components/layout/status-bar-tokens"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -54,6 +56,12 @@ export const TabItem = memo(function TabItem({
 }: TabItemProps) {
   const t = useTranslations("Folder.tabs")
   const itemRef = useRef<HTMLDivElement>(null)
+  const runtimeConversationId = tab.runtimeConversationId ?? tab.conversationId
+  const sessionStats = useConversationRuntimeStore((s) =>
+    runtimeConversationId != null
+      ? (s.byConversationId.get(runtimeConversationId)?.sessionStats ?? null)
+      : null
+  )
 
   const resolvedFolderName = folderName ?? String(tab.folderId)
   const tooltip = folderBranch
@@ -148,6 +156,11 @@ export const TabItem = memo(function TabItem({
             >
               {tab.title}
             </span>
+            <SessionUsageChip
+              contextKey={tab.id}
+              sessionStats={sessionStats}
+              className="shrink-0 border-border/60 bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground"
+            />
             <button
               type="button"
               className={cn(

@@ -448,13 +448,13 @@ export const STATUS_COLORS: Record<ConversationStatus, string> = {
 
 export const AGENT_DISPLAY_ORDER: AgentType[] = [
   "codex",
-  "claude_code",
-  "open_code",
-  "gemini",
-  "open_claw",
-  "cline",
   "hermes",
+  "open_code",
+  "open_claw",
   "code_buddy",
+  "claude_code",
+  "gemini",
+  "cline",
   "kimi_code",
   "pi",
 ]
@@ -470,14 +470,14 @@ export function compareAgentType(a: AgentType, b: AgentType): number {
 }
 
 export const ALL_AGENT_TYPES: AgentType[] = [
-  "claude_code",
   "codex",
-  "open_code",
-  "gemini",
-  "open_claw",
-  "cline",
   "hermes",
+  "open_code",
+  "open_claw",
   "code_buddy",
+  "claude_code",
+  "gemini",
+  "cline",
   "kimi_code",
   "pi",
 ]

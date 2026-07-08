@@ -103,14 +103,14 @@ pub fn current_platform() -> &'static str {
 
 pub fn all_acp_agents() -> Vec<AgentType> {
     vec![
-        AgentType::ClaudeCode,
         AgentType::Codex,
-        AgentType::Gemini,
-        AgentType::OpenClaw,
-        AgentType::OpenCode,
-        AgentType::Cline,
         AgentType::Hermes,
+        AgentType::OpenCode,
+        AgentType::OpenClaw,
         AgentType::CodeBuddy,
+        AgentType::ClaudeCode,
+        AgentType::Gemini,
+        AgentType::Cline,
         AgentType::KimiCode,
         AgentType::Pi,
     ]
@@ -434,6 +434,25 @@ mod tests {
                 panic!("expected binary distribution for {agent_type:?}, got {other:?}");
             }
         }
+    }
+
+    #[test]
+    fn all_acp_agents_uses_product_default_order() {
+        assert_eq!(
+            all_acp_agents(),
+            vec![
+                AgentType::Codex,
+                AgentType::Hermes,
+                AgentType::OpenCode,
+                AgentType::OpenClaw,
+                AgentType::CodeBuddy,
+                AgentType::ClaudeCode,
+                AgentType::Gemini,
+                AgentType::Cline,
+                AgentType::KimiCode,
+                AgentType::Pi,
+            ]
+        );
     }
 
     #[test]

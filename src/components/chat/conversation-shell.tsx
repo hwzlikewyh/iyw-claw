@@ -212,7 +212,7 @@ export function ConversationShell({
           to the input width. */}
       <div>
         {pendingAskQuestion && pendingAskQuestion.questions.length > 0 && (
-          <div className="mx-auto w-full max-w-3xl px-4">
+          <div className="mx-auto w-full max-w-4xl px-4">
             <AskQuestionCard
               question={pendingAskQuestion}
               onAnswer={onAnswerAskQuestion}
@@ -221,11 +221,11 @@ export function ConversationShell({
         )}
 
         {!hideInput && feedbackList && (
-          <div className="mx-auto w-full max-w-3xl px-4">{feedbackList}</div>
+          <div className="mx-auto w-full max-w-4xl px-4">{feedbackList}</div>
         )}
 
         {!hideInput && (
-          <div className="mx-auto w-full max-w-3xl">
+          <div className="mx-auto w-full max-w-4xl">
             <ChatInput
               status={status}
               promptCapabilities={promptCapabilities}

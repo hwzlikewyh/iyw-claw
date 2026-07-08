@@ -39,7 +39,7 @@ interface VirtualizedMessageThreadProps<T> {
   gap?: number
   /** Vertical padding before the first / after the last item. @default 16 */
   padding?: number
-  /** Extra className on every item's inner wrapper (the `max-w-3xl` div). */
+  /** Extra className on every item's inner wrapper (the `max-w-4xl` div). */
   className?: string
   /** Extra className on the MessageThreadContent shell. */
   contentClassName?: string
@@ -163,7 +163,7 @@ function VirtualizedMessageThreadImpl<T>({
                 key={getItemKey(item, index)}
                 style={itemStyle(index, items.length)}
               >
-                <div className={cn("mx-auto max-w-3xl px-4", className)}>
+                <div className={cn("mx-auto max-w-4xl px-4", className)}>
                   {renderItem(item, index)}
                 </div>
               </div>

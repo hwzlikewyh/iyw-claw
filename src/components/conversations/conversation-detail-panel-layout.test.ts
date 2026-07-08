@@ -109,7 +109,7 @@ describe("ConversationDetailPanel new conversation layout", () => {
 
   it("keeps ordinary chat input constrained to the message column width", () => {
     expect(conversationShellSource).toContain(
-      'className="mx-auto w-full max-w-3xl"'
+      'className="mx-auto w-full max-w-4xl"'
     )
     // Ordinary (active) chat input keeps its own px-4 gutter to align with the
     // sibling cards in conversation-shell; only the welcome input drops it via
@@ -121,7 +121,7 @@ describe("ConversationDetailPanel new conversation layout", () => {
     expect(chatInputSource).not.toContain("containerClassName")
     expect(source).not.toContain("containerClassName")
     expect(conversationShellSource).not.toContain("containerClassName")
-    expect(source).toContain("mx-auto flex w-full max-w-3xl")
+    expect(source).toContain("mx-auto flex w-full max-w-4xl")
   })
 })
 

@@ -330,6 +330,79 @@
   "SkillsSettings": {
     "title": "Skills",
     "description": "左侧选择 Skill，右侧默认预览 Markdown，点击编辑后可修改并保存。",
+    "market": {
+      "title": "技能市场",
+      "description": "安装、导入和生成可供 Agent 调用的 Skills。",
+      "target": "目标：{target}",
+      "noTarget": "先在“已安装”中选择目标",
+      "tabs": {
+        "installed": "已安装",
+        "official": "官方市场",
+        "import": "导入技能",
+        "generate": "生成技能"
+      },
+      "official": {
+        "title": "官方市场",
+        "description": "选择常用的官方模板，安装后会进入已安装列表并可继续编辑。",
+        "install": "安装",
+        "viewInstalled": "查看已安装",
+        "installedBadge": "已安装",
+        "items": {
+          "code-review": {
+            "title": "代码审查",
+            "description": "检查变更中的风险、回归、缺失测试和可维护性问题。",
+            "content": "---\nname: code-review\ndescription: Use this skill to review code changes for bugs, regressions, missing tests, and maintainability risks.\n---\n\n# Code Review\n\n## When to use\n\nUse this skill before merging or shipping code changes.\n\n## Instructions\n\n1. Inspect the changed files and identify behavior risks first.\n2. Prioritize findings by severity with file and line references.\n3. Call out missing tests or verification gaps.\n4. Keep summaries brief and put findings first.\n"
+          },
+          "test-writer": {
+            "title": "测试补充",
+            "description": "为新行为、边界条件和错误路径补充有针对性的测试。",
+            "content": "---\nname: test-writer\ndescription: Use this skill to add focused tests for new behavior, edge cases, and error paths.\n---\n\n# Test Writer\n\n## When to use\n\nUse this skill when a change needs targeted regression coverage.\n\n## Instructions\n\n1. Identify the behavior contract under test.\n2. Cover the happy path, important edge cases, and failure paths.\n3. Keep assertions specific and deterministic.\n4. Prefer existing test helpers and local patterns.\n"
+          },
+          "docs-polish": {
+            "title": "文档润色",
+            "description": "把实现细节、使用步骤和注意事项整理成清晰文档。",
+            "content": "---\nname: docs-polish\ndescription: Use this skill to turn technical notes into clear documentation and usage guidance.\n---\n\n# Docs Polish\n\n## When to use\n\nUse this skill when README, guides, or release notes need clearer structure.\n\n## Instructions\n\n1. Lead with the practical outcome.\n2. Use concrete commands, paths, and examples.\n3. Remove vague phrasing and duplicated text.\n4. Keep sections short and scannable.\n"
+          },
+          "ui-ux-review": {
+            "title": "UI/UX 评审",
+            "description": "评估界面层级、状态、响应式布局和可用性细节。",
+            "content": "---\nname: ui-ux-review\ndescription: Use this skill to review interface hierarchy, states, responsiveness, and usability details.\n---\n\n# UI/UX Review\n\n## When to use\n\nUse this skill before finalizing frontend screens or interaction changes.\n\n## Instructions\n\n1. Check information hierarchy, spacing, and alignment.\n2. Verify empty, loading, disabled, and error states.\n3. Inspect mobile and desktop behavior.\n4. Flag text overflow, overlapping elements, and unclear actions.\n"
+          }
+        }
+      },
+      "import": {
+        "title": "导入技能",
+        "description": "粘贴已有 Skill Markdown，保存到当前目标的 Skills 目录。",
+        "formTitle": "导入到当前目标",
+        "formDescription": "支持包含 YAML front matter 的完整 Skill 文本。",
+        "idPlaceholder": "Skill ID，例如 code-review",
+        "normalizedId": "将保存为：{id}",
+        "invalidId": "无效 ID",
+        "contentPlaceholder": "粘贴 SKILL.md 或 Markdown 内容...",
+        "submit": "导入并保存"
+      },
+      "generate": {
+        "title": "生成技能",
+        "description": "填写目标、触发场景和步骤，生成一个可编辑的 Skill。",
+        "formTitle": "生成配置",
+        "titlePlaceholder": "Skill 名称，例如 Release Checklist",
+        "idPlaceholder": "可选：自定义 Skill ID",
+        "descriptionPlaceholder": "什么时候应该使用这个 Skill？",
+        "instructionsPlaceholder": "输入执行步骤，每行一个要点或编号步骤...",
+        "previewTitle": "生成预览",
+        "submit": "生成并保存"
+      },
+      "toasts": {
+        "noTarget": "请先选择可用的 Agent 和 Skill 范围",
+        "contentRequired": "Skill ID 和内容不能为空",
+        "installed": "官方 Skill 已安装",
+        "installFailed": "安装官方 Skill 失败",
+        "imported": "Skill 已导入",
+        "importFailed": "导入 Skill 失败",
+        "generated": "Skill 已生成",
+        "generateFailed": "生成 Skill 失败"
+      }
+    },
     "loadingAgents": "正在加载支持 Skills 的 Agent...",
     "emptyNoManageableAgents": "当前没有可管理 Skills 的 Agent。",
     "managedTarget": "管理对象",
@@ -1204,6 +1277,7 @@
       "noChats": "没有聊天",
       "newChatAction": "新建聊天",
       "automations": "自动化",
+      "skillsMarket": "技能市场",
       "loadingSubsessions": "正在加载子会话…"
     },
     "conversation": {

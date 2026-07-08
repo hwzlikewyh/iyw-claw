@@ -1960,6 +1960,10 @@ export interface ConnectionStoreApi {
 
 const ConnectionStoreContext = createContext<ConnectionStoreApi | null>(null)
 
+export function useOptionalConnectionStore(): ConnectionStoreApi | null {
+  return useContext(ConnectionStoreContext)
+}
+
 export function useConnectionStore(): ConnectionStoreApi {
   const ctx = useContext(ConnectionStoreContext)
   if (!ctx) {

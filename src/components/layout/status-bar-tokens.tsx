@@ -4,9 +4,11 @@ import { useCallback, useSyncExternalStore } from "react"
 import { Coins } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useSessionStats } from "@/contexts/session-stats-context"
-import { useConnectionStore } from "@/contexts/acp-connections-context"
+import { useOptionalConnectionStore } from "@/contexts/acp-connections-context"
 import { formatTokenCount } from "@/lib/token-format"
 import { formatContextWindowPercent } from "@/lib/context-window"
+import type { SessionStats } from "@/lib/types"
+import { cn } from "@/lib/utils"
 import {
   Popover,
   PopoverContent,
@@ -18,33 +20,72 @@ const ICON_CENTER = 8
 const ICON_VIEWBOX = 16
 const ICON_CIRCUMFERENCE = 2 * Math.PI * ICON_RADIUS
 
-export function StatusBarTokens() {
-  const t = useTranslations("Folder.statusBar.tokens")
-  const store = useConnectionStore()
-  const { sessionStats } = useSessionStats()
+type TokenRowKey = "input" | "output" | "cacheRead" | "cacheWrite" | "total"
+
+interface SessionUsageData {
+  contextUsed: number | null
+  contextMax: number | null
+  contextPercent: number | null
+  dashOffset: number
+  rows: { key: TokenRowKey; value: number }[]
+  total: number | null
+  hasContext: boolean
+  hasUsage: boolean
+  hasTokenSection: boolean
+}
+
+interface SessionUsageSourceProps {
+  contextKey?: string | null
+  sessionStats?: SessionStats | null
+}
+
+interface SessionUsageButtonProps extends SessionUsageSourceProps {
+  variant?: "status" | "chip"
+  className?: string
+  popoverSide?: "top" | "right" | "bottom" | "left"
+  stopPropagation?: boolean
+  showIcon?: boolean
+}
+
+function useSessionUsageData({
+  contextKey,
+  sessionStats: sessionStatsOverride,
+}: SessionUsageSourceProps): SessionUsageData | null {
+  const store = useOptionalConnectionStore()
+  const { sessionStats: contextSessionStats } = useSessionStats()
+  const sessionStats =
+    sessionStatsOverride !== undefined
+      ? sessionStatsOverride
+      : contextSessionStats
   const usage = sessionStats?.total_usage
 
+  const shouldUseActiveKey = contextKey === undefined
   const subscribeActiveKey = useCallback(
-    (cb: () => void) => store.subscribeActiveKey(cb),
-    [store]
+    (cb: () => void) =>
+      shouldUseActiveKey && store ? store.subscribeActiveKey(cb) : () => {},
+    [store, shouldUseActiveKey]
   )
-  const getActiveKey = useCallback(() => store.getActiveKey(), [store])
+  const getActiveKey = useCallback(
+    () => (shouldUseActiveKey && store ? store.getActiveKey() : null),
+    [store, shouldUseActiveKey]
+  )
   const activeKey = useSyncExternalStore(
     subscribeActiveKey,
     getActiveKey,
     getActiveKey
   )
+  const targetKey = contextKey === undefined ? activeKey : contextKey
 
   const subscribeConn = useCallback(
     (cb: () => void) => {
-      if (!activeKey) return () => {}
-      return store.subscribeKey(activeKey, cb)
+      if (!targetKey || !store) return () => {}
+      return store.subscribeKey(targetKey, cb)
     },
-    [store, activeKey]
+    [store, targetKey]
   )
   const getConnSnapshot = useCallback(
-    () => (activeKey ? store.getConnection(activeKey) : undefined),
-    [store, activeKey]
+    () => (targetKey && store ? store.getConnection(targetKey) : undefined),
+    [store, targetKey]
   )
   const activeConn = useSyncExternalStore(
     subscribeConn,
@@ -88,10 +129,7 @@ export function StatusBarTokens() {
 
   const dashOffset = ICON_CIRCUMFERENCE * (1 - (contextPercent ?? 0) / 100)
 
-  const rows: {
-    key: "input" | "output" | "cacheRead" | "cacheWrite" | "total"
-    value: number
-  }[] = []
+  const rows: { key: TokenRowKey; value: number }[] = []
   if (hasUsage) {
     rows.push(
       { key: "input", value: usage.input_tokens },
@@ -108,54 +146,121 @@ export function StatusBarTokens() {
 
   if (!hasContext && !hasTokenSection) return null
 
+  return {
+    contextUsed,
+    contextMax,
+    contextPercent,
+    dashOffset,
+    rows,
+    total,
+    hasContext,
+    hasUsage,
+    hasTokenSection,
+  }
+}
+
+function SessionUsageButton({
+  contextKey,
+  sessionStats,
+  variant = "status",
+  className,
+  popoverSide = "top",
+  stopPropagation = false,
+  showIcon = true,
+}: SessionUsageButtonProps) {
+  const t = useTranslations("Folder.statusBar.tokens")
+  const data = useSessionUsageData({ contextKey, sessionStats })
+
+  if (!data) return null
+
+  const {
+    contextUsed,
+    contextMax,
+    contextPercent,
+    dashOffset,
+    rows,
+    total,
+    hasContext,
+    hasUsage,
+    hasTokenSection,
+  } = data
+
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button className="flex items-center gap-1 hover:text-foreground transition-colors">
+        <button
+          type="button"
+          onMouseDown={(event) => {
+            if (stopPropagation) event.stopPropagation()
+          }}
+          onClick={(event) => {
+            if (stopPropagation) event.stopPropagation()
+          }}
+          onDoubleClick={(event) => {
+            if (stopPropagation) event.stopPropagation()
+          }}
+          className={cn(
+            "transition-colors",
+            variant === "status"
+              ? "flex items-center gap-1 hover:text-foreground"
+              : "inline-flex h-[1.125rem] items-center gap-1 rounded-[0.375rem] border border-sidebar-border/60 bg-sidebar-accent/55 px-1.5 text-[0.625rem] font-medium leading-none text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-sidebar-foreground",
+            className
+          )}
+        >
           {hasContext ? (
             <>
-              <svg
-                aria-label={t("contextWindowUsageAria")}
-                className="size-3.5"
-                viewBox={`0 0 ${ICON_VIEWBOX} ${ICON_VIEWBOX}`}
-              >
-                <circle
-                  cx={ICON_CENTER}
-                  cy={ICON_CENTER}
-                  r={ICON_RADIUS}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  opacity="0.25"
-                />
-                <circle
-                  cx={ICON_CENTER}
-                  cy={ICON_CENTER}
-                  r={ICON_RADIUS}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeDasharray={`${ICON_CIRCUMFERENCE} ${ICON_CIRCUMFERENCE}`}
-                  strokeDashoffset={dashOffset}
-                  style={{
-                    transformOrigin: "center",
-                    transform: "rotate(-90deg)",
-                  }}
-                  opacity="0.75"
-                />
-              </svg>
+              {showIcon ? (
+                <svg
+                  aria-label={t("contextWindowUsageAria")}
+                  className={variant === "status" ? "size-3.5" : "size-3"}
+                  viewBox={`0 0 ${ICON_VIEWBOX} ${ICON_VIEWBOX}`}
+                >
+                  <circle
+                    cx={ICON_CENTER}
+                    cy={ICON_CENTER}
+                    r={ICON_RADIUS}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    opacity="0.25"
+                  />
+                  <circle
+                    cx={ICON_CENTER}
+                    cy={ICON_CENTER}
+                    r={ICON_RADIUS}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeDasharray={`${ICON_CIRCUMFERENCE} ${ICON_CIRCUMFERENCE}`}
+                    strokeDashoffset={dashOffset}
+                    style={{
+                      transformOrigin: "center",
+                      transform: "rotate(-90deg)",
+                    }}
+                    opacity="0.75"
+                  />
+                </svg>
+              ) : null}
               <span>{formatContextWindowPercent(contextPercent)}</span>
             </>
           ) : (
             <>
-              <Coins className="size-3.5" />
+              {showIcon ? (
+                <Coins
+                  className={variant === "status" ? "size-3.5" : "size-3"}
+                />
+              ) : null}
               <span>{formatTokenCount(total ?? 0)}</span>
             </>
           )}
         </button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" className="w-56 gap-2 p-3 text-xs">
+      <PopoverContent
+        side={popoverSide}
+        align="end"
+        className="w-56 gap-2 p-3 text-xs"
+      >
         {hasContext ? (
           <div
             className={`space-y-1 ${
@@ -210,5 +315,32 @@ export function StatusBarTokens() {
         ) : null}
       </PopoverContent>
     </Popover>
+  )
+}
+
+export function StatusBarTokens(props: SessionUsageSourceProps) {
+  return <SessionUsageButton {...props} variant="status" />
+}
+
+export function SessionUsageChip({
+  className,
+  popoverSide = "bottom",
+  stopPropagation = true,
+  showIcon = true,
+  ...props
+}: SessionUsageSourceProps &
+  Pick<
+    SessionUsageButtonProps,
+    "className" | "popoverSide" | "stopPropagation" | "showIcon"
+  >) {
+  return (
+    <SessionUsageButton
+      {...props}
+      variant="chip"
+      className={className}
+      popoverSide={popoverSide}
+      stopPropagation={stopPropagation}
+      showIcon={showIcon}
+    />
   )
 }

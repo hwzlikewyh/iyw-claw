@@ -15,7 +15,6 @@ import { useRouter } from "next/navigation"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { Sidebar } from "@/components/layout/sidebar"
-import { StatusBar } from "@/components/layout/status-bar"
 import {
   AppWorkspaceProvider,
   ConversationStatusEventBridge,
@@ -840,7 +839,7 @@ function DesktopWorkspaceCornerControls() {
   if (sidebarOpen) return null
 
   return (
-    <div className="absolute bottom-10 left-2 z-40 flex flex-col gap-1 rounded-lg border border-border/80 bg-background/95 p-1 shadow-sm backdrop-blur">
+    <div className="absolute bottom-2 left-2 z-40 flex flex-col gap-1 rounded-lg border border-border/80 bg-background/95 p-1 shadow-sm backdrop-blur">
       <Button
         variant="ghost"
         size="icon"
@@ -882,7 +881,6 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
         <FolderWorkspaceShell>{children}</FolderWorkspaceShell>
       )}
       {!isMobile && <DesktopWorkspaceCornerControls />}
-      <StatusBar />
       <AppToaster
         position="bottom-right"
         duration={TOAST_DURATION_MS}

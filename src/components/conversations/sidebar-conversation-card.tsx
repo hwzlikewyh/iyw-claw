@@ -51,6 +51,8 @@ import { Input } from "@/components/ui/input"
 import { ConversationStatusDot } from "./conversation-status-dot"
 import { SessionDetailsDialog } from "./session-details-dialog"
 import { AgentIcon } from "@/components/agent-icon"
+import { SessionUsageChip } from "@/components/layout/status-bar-tokens"
+import { useConversationRuntimeStore } from "@/stores/conversation-runtime-store"
 
 /**
  * Horizontal indent added per delegation-nesting level. Chosen so a child's
@@ -112,6 +114,8 @@ interface SidebarConversationCardProps {
   onStatusChange: (id: number, status: ConversationStatus) => Promise<void>
   onNewConversation?: (folderId: number) => void
   onTogglePin?: (id: number, nextPinned: boolean) => void
+  openContextKey?: string | null
+  runtimeConversationId?: number | null
   /** Delegation-tree nesting depth (0 = root). Drives the per-level indent. */
   depth?: number
   /** True when `child_count > 0`: the conversation has delegation children, so
@@ -135,6 +139,8 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
   onStatusChange,
   onNewConversation,
   onTogglePin,
+  openContextKey,
+  runtimeConversationId,
   depth = 0,
   hasChildren = false,
   expanded = false,
@@ -361,6 +367,13 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
                   />
                 </button>
               )}
+
+              {openContextKey ? (
+                <SidebarConversationUsageChip
+                  contextKey={openContextKey}
+                  runtimeConversationId={runtimeConversationId}
+                />
+              ) : null}
 
               {/* Right slot: sizes to its content — the time / status badge
                   normally, the two quick-action buttons (pin, done) on hover —
@@ -606,3 +619,27 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
     </>
   )
 })
+
+function SidebarConversationUsageChip({
+  contextKey,
+  runtimeConversationId,
+}: {
+  contextKey: string
+  runtimeConversationId?: number | null
+}) {
+  const sessionStats = useConversationRuntimeStore((s) =>
+    runtimeConversationId != null
+      ? (s.byConversationId.get(runtimeConversationId)?.sessionStats ?? null)
+      : null
+  )
+
+  return (
+    <SessionUsageChip
+      contextKey={contextKey}
+      sessionStats={sessionStats}
+      popoverSide="right"
+      showIcon={false}
+      className="mr-1 shrink-0"
+    />
+  )
+}

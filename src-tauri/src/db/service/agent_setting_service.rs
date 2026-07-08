@@ -25,20 +25,8 @@ pub struct AgentSettingsUpdate {
     pub model_provider_id: Option<i32>,
 }
 
-fn default_enabled(agent_type: AgentType) -> bool {
-    matches!(
-        agent_type,
-        AgentType::ClaudeCode
-            | AgentType::Codex
-            | AgentType::Gemini
-            | AgentType::OpenCode
-            | AgentType::OpenClaw
-            | AgentType::Cline
-            | AgentType::Hermes
-            | AgentType::CodeBuddy
-            | AgentType::KimiCode
-            | AgentType::Pi
-    )
+pub(crate) fn default_enabled(agent_type: AgentType) -> bool {
+    matches!(agent_type, AgentType::Codex)
 }
 
 pub async fn ensure_defaults(
@@ -185,6 +173,68 @@ pub async fn reorder(conn: &DatabaseConnection, agent_types: &[AgentType]) -> Re
     }
 }
 
+pub async fn reorder_if_current_order_matches(
+    conn: &DatabaseConnection,
+    current_order: &[AgentType],
+    next_order: &[AgentType],
+) -> Result<bool, DbError> {
+    if current_order == next_order || current_order.is_empty() || next_order.is_empty() {
+        return Ok(false);
+    }
+
+    let rows = list(conn).await?;
+    let mut sort_by_agent = HashMap::new();
+    for row in rows {
+        if let Ok(agent_type) = serde_json::from_str::<AgentType>(&row.agent_type) {
+            sort_by_agent.insert(agent_type, row.sort_order);
+        }
+    }
+
+    if current_order
+        .iter()
+        .any(|agent_type| !sort_by_agent.contains_key(agent_type))
+    {
+        return Ok(false);
+    }
+
+    let mut sorted_current = current_order.to_vec();
+    sorted_current
+        .sort_by_key(|agent_type| sort_by_agent.get(agent_type).copied().unwrap_or(i32::MAX));
+    if sorted_current != current_order {
+        return Ok(false);
+    }
+
+    reorder(conn, next_order).await?;
+    Ok(true)
+}
+
+pub async fn reset_enabled_to_defaults(
+    conn: &DatabaseConnection,
+    agent_types: &[AgentType],
+) -> Result<(), DbError> {
+    let now = Utc::now();
+    for agent_type in agent_types {
+        let agent_type_str = serde_json::to_string(agent_type)
+            .map_err(|e| DbError::Migration(format!("agent_type serialize failed: {e}")))?;
+        let Some(model) = agent_setting::Entity::find()
+            .filter(agent_setting::Column::AgentType.eq(agent_type_str))
+            .one(conn)
+            .await?
+        else {
+            continue;
+        };
+        let enabled = default_enabled(*agent_type);
+        if model.enabled == enabled {
+            continue;
+        }
+        let mut active = model.into_active_model();
+        active.enabled = Set(enabled);
+        active.updated_at = Set(now);
+        active.update(conn).await?;
+    }
+    Ok(())
+}
+
 async fn reorder_once(conn: &DatabaseConnection, agent_types: &[AgentType]) -> Result<(), DbError> {
     let now = Utc::now();
     for (index, agent_type) in agent_types.iter().enumerate() {
@@ -223,4 +273,128 @@ pub async fn find_by_model_provider_id(
 fn is_sqlite_full_error(err: &DbError) -> bool {
     let message = err.to_string();
     message.contains("database or disk is full") || message.contains("(code: 13)")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::test_helpers::fresh_in_memory_db;
+
+    fn defaults_for(order: &[AgentType]) -> Vec<AgentDefaultInput> {
+        order
+            .iter()
+            .enumerate()
+            .map(|(index, agent_type)| AgentDefaultInput {
+                agent_type: *agent_type,
+                registry_id: format!("{agent_type:?}"),
+                default_sort_order: index as i32,
+            })
+            .collect()
+    }
+
+    async fn ordered_types(conn: &DatabaseConnection) -> Vec<AgentType> {
+        list(conn)
+            .await
+            .expect("list agent settings")
+            .into_iter()
+            .map(|row| serde_json::from_str::<AgentType>(&row.agent_type).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn default_enabled_is_codex_only() {
+        for agent_type in [
+            AgentType::ClaudeCode,
+            AgentType::Codex,
+            AgentType::OpenCode,
+            AgentType::Gemini,
+            AgentType::OpenClaw,
+            AgentType::Cline,
+            AgentType::Hermes,
+            AgentType::CodeBuddy,
+            AgentType::KimiCode,
+            AgentType::Pi,
+        ] {
+            assert_eq!(default_enabled(agent_type), agent_type == AgentType::Codex);
+        }
+    }
+
+    #[tokio::test]
+    async fn ensure_defaults_enables_only_codex_for_new_rows() {
+        let db = fresh_in_memory_db().await;
+        let order = [AgentType::Codex, AgentType::Hermes, AgentType::OpenCode];
+
+        ensure_defaults(&db.conn, &defaults_for(&order))
+            .await
+            .expect("ensure defaults");
+
+        let rows = list_map_by_agent_type(&db.conn).await.expect("list map");
+        assert!(rows.get(&AgentType::Codex).unwrap().enabled);
+        assert!(!rows.get(&AgentType::Hermes).unwrap().enabled);
+        assert!(!rows.get(&AgentType::OpenCode).unwrap().enabled);
+    }
+
+    #[tokio::test]
+    async fn reorder_if_current_order_matches_updates_legacy_defaults() {
+        let db = fresh_in_memory_db().await;
+        let legacy = [AgentType::ClaudeCode, AgentType::Codex, AgentType::Hermes];
+        let next = [AgentType::Codex, AgentType::Hermes, AgentType::ClaudeCode];
+        ensure_defaults(&db.conn, &defaults_for(&legacy))
+            .await
+            .expect("ensure legacy defaults");
+
+        let migrated = reorder_if_current_order_matches(&db.conn, &legacy, &next)
+            .await
+            .expect("migrate legacy order");
+
+        assert!(migrated);
+        assert_eq!(ordered_types(&db.conn).await, next.to_vec());
+    }
+
+    #[tokio::test]
+    async fn reorder_if_current_order_matches_preserves_manual_order() {
+        let db = fresh_in_memory_db().await;
+        let legacy = [AgentType::ClaudeCode, AgentType::Codex, AgentType::Hermes];
+        let manual = [AgentType::Hermes, AgentType::Codex, AgentType::ClaudeCode];
+        let next = [AgentType::Codex, AgentType::Hermes, AgentType::ClaudeCode];
+        ensure_defaults(&db.conn, &defaults_for(&legacy))
+            .await
+            .expect("ensure legacy defaults");
+        reorder(&db.conn, &manual).await.expect("manual reorder");
+
+        let migrated = reorder_if_current_order_matches(&db.conn, &legacy, &next)
+            .await
+            .expect("skip manual order");
+
+        assert!(!migrated);
+        assert_eq!(ordered_types(&db.conn).await, manual.to_vec());
+    }
+
+    #[tokio::test]
+    async fn reset_enabled_to_defaults_keeps_only_codex_enabled() {
+        let db = fresh_in_memory_db().await;
+        let order = [AgentType::Codex, AgentType::Hermes];
+        ensure_defaults(&db.conn, &defaults_for(&order))
+            .await
+            .expect("ensure defaults");
+        update(
+            &db.conn,
+            AgentType::Hermes,
+            AgentSettingsUpdate {
+                enabled: true,
+                env_json: None,
+                model_provider_id: None,
+            },
+        )
+        .await
+        .expect("enable hermes");
+
+        reset_enabled_to_defaults(&db.conn, &order)
+            .await
+            .expect("reset enabled");
+
+        let rows = list_map_by_agent_type(&db.conn).await.expect("list map");
+        assert!(rows.get(&AgentType::Codex).unwrap().enabled);
+        assert!(!rows.get(&AgentType::Hermes).unwrap().enabled);
+    }
 }

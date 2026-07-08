@@ -40,7 +40,7 @@ import { useFeedbackEnabled } from "@/hooks/use-feedback-enabled"
 import { useSessionFeedback } from "@/hooks/use-session-feedback"
 import { AgentSelector } from "@/components/chat/agent-selector"
 import { ChatInput } from "@/components/chat/chat-input"
-import { WelcomeHero, WelcomeTip } from "@/components/chat/welcome-hero"
+import { WelcomeHero } from "@/components/chat/welcome-hero"
 import { QuickActions } from "@/components/chat/quick-actions"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -1419,14 +1419,14 @@ const ConversationTabView = memo(function ConversationTabView({
     >
       {isWelcomeMode ? (
         <div className="relative isolate flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto">
-          <div className="flex-1" />
-          <div className="mx-auto flex w-full max-w-3xl shrink-0 flex-col gap-6 px-4 py-4">
+          <div className="flex-[1.18]" />
+          <div className="mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-6 px-4 py-4">
             <WelcomeHero />
             <QuickActions
               onSelect={handleQuickAction}
               agentType={selectedAgent}
             />
-            <div className="flex justify-center">
+            <div className="hidden" aria-hidden="true">
               <AgentSelector
                 defaultAgentType={selectedAgent}
                 onSelect={handleAgentSelect}
@@ -1440,6 +1440,7 @@ const ConversationTabView = memo(function ConversationTabView({
                 }}
                 onOpenAgentsSettings={handleOpenAgentsSettings}
                 disabled={isConnecting || dbConversationId != null}
+                variant="settings"
               />
             </div>
             {autoConnectError || agentConnectError ? (
@@ -1491,10 +1492,7 @@ const ConversationTabView = memo(function ConversationTabView({
               tall
             />
           </div>
-          <div className="flex-1" />
-          <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pb-6">
-            <WelcomeTip />
-          </div>
+          <div className="flex-[0.82]" />
         </div>
       ) : showDraftHeader ? (
         <div className="flex h-full min-h-0 flex-col">
@@ -1512,6 +1510,7 @@ const ConversationTabView = memo(function ConversationTabView({
               }}
               onOpenAgentsSettings={handleOpenAgentsSettings}
               disabled={isConnecting || dbConversationId != null}
+              variant="settings"
             />
             {autoConnectError || agentConnectError ? (
               <button

@@ -5886,6 +5886,45 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
     agent_setting_service::ensure_defaults(&db.conn, &defaults)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
+    let legacy_backend_order = [
+        AgentType::ClaudeCode,
+        AgentType::Codex,
+        AgentType::Gemini,
+        AgentType::OpenClaw,
+        AgentType::OpenCode,
+        AgentType::Cline,
+        AgentType::Hermes,
+        AgentType::CodeBuddy,
+        AgentType::KimiCode,
+        AgentType::Pi,
+    ];
+    let legacy_frontend_order = [
+        AgentType::Codex,
+        AgentType::ClaudeCode,
+        AgentType::OpenCode,
+        AgentType::Gemini,
+        AgentType::OpenClaw,
+        AgentType::Cline,
+        AgentType::Hermes,
+        AgentType::CodeBuddy,
+        AgentType::KimiCode,
+        AgentType::Pi,
+    ];
+    for legacy_order in [&legacy_backend_order[..], &legacy_frontend_order[..]] {
+        let migrated = agent_setting_service::reorder_if_current_order_matches(
+            &db.conn,
+            legacy_order,
+            &agent_types,
+        )
+        .await
+        .map_err(|e| AcpError::protocol(e.to_string()))?;
+        if migrated {
+            agent_setting_service::reset_enabled_to_defaults(&db.conn, &agent_types)
+                .await
+                .map_err(|e| AcpError::protocol(e.to_string()))?;
+            break;
+        }
+    }
     let settings_map = agent_setting_service::list_map_by_agent_type(&db.conn)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
@@ -6003,7 +6042,9 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
             description: meta.description.to_string(),
             available,
             distribution_type: dist_type.to_string(),
-            enabled: setting.map(|m| m.enabled).unwrap_or(true),
+            enabled: setting
+                .map(|m| m.enabled)
+                .unwrap_or_else(|| agent_setting_service::default_enabled(agent_type)),
             sort_order,
             installed_version: local_installed_version,
             env,

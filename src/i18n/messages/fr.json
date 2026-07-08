@@ -330,6 +330,79 @@
   "SkillsSettings": {
     "title": "Skills",
     "description": "Sélectionnez une Skill à gauche. À droite, un aperçu Markdown s’affiche par défaut ; passez en édition pour modifier et enregistrer.",
+    "market": {
+      "title": "Skill Market",
+      "description": "Install, import, and generate Skills that agents can invoke.",
+      "target": "Target: {target}",
+      "noTarget": "Choose a target in Installed first",
+      "tabs": {
+        "installed": "Installed",
+        "official": "Official Market",
+        "import": "Import Skill",
+        "generate": "Generate Skill"
+      },
+      "official": {
+        "title": "Official Market",
+        "description": "Pick common official templates. Installed skills appear in Installed and remain editable.",
+        "install": "Install",
+        "viewInstalled": "View installed",
+        "installedBadge": "Installed",
+        "items": {
+          "code-review": {
+            "title": "Code Review",
+            "description": "Review changes for risks, regressions, missing tests, and maintainability issues.",
+            "content": "---\nname: code-review\ndescription: Use this skill to review code changes for bugs, regressions, missing tests, and maintainability risks.\n---\n\n# Code Review\n\n## When to use\n\nUse this skill before merging or shipping code changes.\n\n## Instructions\n\n1. Inspect the changed files and identify behavior risks first.\n2. Prioritize findings by severity with file and line references.\n3. Call out missing tests or verification gaps.\n4. Keep summaries brief and put findings first.\n"
+          },
+          "test-writer": {
+            "title": "Test Writer",
+            "description": "Add targeted tests for new behavior, edge cases, and error paths.",
+            "content": "---\nname: test-writer\ndescription: Use this skill to add focused tests for new behavior, edge cases, and error paths.\n---\n\n# Test Writer\n\n## When to use\n\nUse this skill when a change needs targeted regression coverage.\n\n## Instructions\n\n1. Identify the behavior contract under test.\n2. Cover the happy path, important edge cases, and failure paths.\n3. Keep assertions specific and deterministic.\n4. Prefer existing test helpers and local patterns.\n"
+          },
+          "docs-polish": {
+            "title": "Docs Polish",
+            "description": "Turn implementation notes, setup steps, and caveats into clear documentation.",
+            "content": "---\nname: docs-polish\ndescription: Use this skill to turn technical notes into clear documentation and usage guidance.\n---\n\n# Docs Polish\n\n## When to use\n\nUse this skill when README, guides, or release notes need clearer structure.\n\n## Instructions\n\n1. Lead with the practical outcome.\n2. Use concrete commands, paths, and examples.\n3. Remove vague phrasing and duplicated text.\n4. Keep sections short and scannable.\n"
+          },
+          "ui-ux-review": {
+            "title": "UI/UX Review",
+            "description": "Review hierarchy, states, responsive layout, and usability details.",
+            "content": "---\nname: ui-ux-review\ndescription: Use this skill to review interface hierarchy, states, responsiveness, and usability details.\n---\n\n# UI/UX Review\n\n## When to use\n\nUse this skill before finalizing frontend screens or interaction changes.\n\n## Instructions\n\n1. Check information hierarchy, spacing, and alignment.\n2. Verify empty, loading, disabled, and error states.\n3. Inspect mobile and desktop behavior.\n4. Flag text overflow, overlapping elements, and unclear actions.\n"
+          }
+        }
+      },
+      "import": {
+        "title": "Import Skill",
+        "description": "Paste existing Skill Markdown and save it to the current target Skills directory.",
+        "formTitle": "Import to current target",
+        "formDescription": "Supports full Skill text with YAML front matter.",
+        "idPlaceholder": "Skill ID, e.g. code-review",
+        "normalizedId": "Will save as: {id}",
+        "invalidId": "invalid ID",
+        "contentPlaceholder": "Paste SKILL.md or Markdown content...",
+        "submit": "Import and save"
+      },
+      "generate": {
+        "title": "Generate Skill",
+        "description": "Fill in the purpose, trigger, and steps to generate an editable Skill.",
+        "formTitle": "Generation config",
+        "titlePlaceholder": "Skill name, e.g. Release Checklist",
+        "idPlaceholder": "Optional: custom Skill ID",
+        "descriptionPlaceholder": "When should this Skill be used?",
+        "instructionsPlaceholder": "Enter execution steps, one bullet or numbered step per line...",
+        "previewTitle": "Generated preview",
+        "submit": "Generate and save"
+      },
+      "toasts": {
+        "noTarget": "Choose an available agent and Skill scope first",
+        "contentRequired": "Skill ID and content are required",
+        "installed": "Official Skill installed",
+        "installFailed": "Failed to install official Skill",
+        "imported": "Skill imported",
+        "importFailed": "Failed to import Skill",
+        "generated": "Skill generated",
+        "generateFailed": "Failed to generate Skill"
+      }
+    },
     "loadingAgents": "Chargement des agents qui prennent en charge les Skills...",
     "emptyNoManageableAgents": "Aucun agent disponible pour la gestion des Skills.",
     "managedTarget": "Cible gérée",
@@ -1204,6 +1277,7 @@
       "noChats": "Aucune discussion",
       "newChatAction": "Nouvelle discussion",
       "automations": "Automatisations",
+      "skillsMarket": "Skill Market",
       "loadingSubsessions": "Chargement des sous-conversations…"
     },
     "conversation": {
