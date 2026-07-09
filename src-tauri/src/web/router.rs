@@ -704,8 +704,16 @@ pub fn build_router(
             post(handlers::acp::acp_read_agent_skill),
         )
         .route(
+            "/acp_take_over_agent_skill",
+            post(handlers::acp::acp_take_over_agent_skill),
+        )
+        .route(
             "/acp_save_agent_skill",
             post(handlers::acp::acp_save_agent_skill),
+        )
+        .route(
+            "/acp_set_agent_skill_enabled",
+            post(handlers::acp::acp_set_agent_skill_enabled),
         )
         .route(
             "/acp_delete_agent_skill",

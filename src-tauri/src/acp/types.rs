@@ -532,6 +532,19 @@ pub enum AgentSkillLayout {
     SkillDirectory,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentSkillSyncMode {
+    Symlink,
+    Copy,
+}
+
+impl Default for AgentSkillSyncMode {
+    fn default() -> Self {
+        Self::Symlink
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentSkillLocation {
     pub scope: AgentSkillScope,
@@ -549,6 +562,12 @@ pub struct AgentSkillItem {
     /// Best-effort `description:` extracted from the SKILL.md YAML
     /// frontmatter. `None` when there is no frontmatter or no key.
     pub description: Option<String>,
+    /// False when iyw-claw has moved the skill into the per-directory disabled
+    /// store so agents no longer discover it automatically.
+    pub enabled: bool,
+    /// True when the skill is published to an agent by copying instead of a
+    /// link/junction. Updates to the central source require re-publishing.
+    pub copy_mode: bool,
     /// True for skills bundled by the agent CLI itself (e.g. Codex's
     /// `~/.codex/skills/.system/*`). Surfaced so the UI can show them but
     /// refuse to edit or delete; the backend also refuses such writes.

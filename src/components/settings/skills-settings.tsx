@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   BookOpenText,
   Eye,
+  LockKeyhole,
   Loader2,
   PackageCheck,
   Pencil,
@@ -43,13 +44,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -64,21 +58,20 @@ import {
   acpDeleteAgentSkill,
   acpListAgents,
   acpListAgentSkills,
-  loadFolderHistory,
   openFolder,
   acpReadAgentSkill,
   acpSaveAgentSkill,
+  acpSetAgentSkillEnabled,
 } from "@/lib/api"
 import { invalidateAgentSkillsCache } from "@/hooks/use-agent-skills"
 import { piUsesCustomAgentDir } from "@/lib/pi-config"
+import { Switch } from "@/components/ui/switch"
 import type {
   AcpAgentInfo,
   AgentSkillItem,
-  AgentSkillLayout,
   AgentSkillLocation,
   AgentSkillScope,
   AgentType,
-  FolderHistoryEntry,
 } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
 
@@ -104,47 +97,6 @@ function defaultSkillContent(
   }
 
   return t("templates.default")
-}
-
-function defaultSkillLayoutForAgent(
-  agentType: AgentType,
-  existingLayout?: AgentSkillLayout | null
-): AgentSkillLayout | null {
-  if (existingLayout) return existingLayout
-  if (agentType === "claude_code") return "skill_directory"
-  if (agentType === "open_code") return "skill_directory"
-  if (agentType === "codex") return "skill_directory"
-  if (agentType === "gemini") return "skill_directory"
-  if (agentType === "open_claw") return "skill_directory"
-  if (agentType === "cline") return "skill_directory"
-  if (agentType === "hermes") return "skill_directory"
-  if (agentType === "code_buddy") return "skill_directory"
-  return null
-}
-
-function pathJoin(base: string, suffix: string): string {
-  if (base.endsWith("/") || base.endsWith("\\")) {
-    return `${base}${suffix}`
-  }
-  return `${base}/${suffix}`
-}
-
-function buildDraftPathPreview(params: {
-  location: AgentSkillLocation | null
-  id: string
-  layout: AgentSkillLayout | null
-  selectedSkillPath: string | null
-  isExisting: boolean
-}): string | null {
-  const { location, id, layout, selectedSkillPath, isExisting } = params
-  if (isExisting && selectedSkillPath) return selectedSkillPath
-  if (!location || !id.trim()) return null
-
-  const trimmedId = id.trim()
-  if (layout === "skill_directory") {
-    return pathJoin(location.path, `${trimmedId}/SKILL.md`)
-  }
-  return pathJoin(location.path, `${trimmedId}.md`)
 }
 
 function dirname(path: string): string {
@@ -249,21 +201,8 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
   const [skillItems, setSkillItems] = useState<AgentSkillItem[]>([])
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null)
 
-  // Scope: "global" = ~/.claude/skills etc; "folder" = {folder}/.claude/skills
-  // etc. Folder-scope maps to the backend's `project` AgentSkillScope — no new
-  // scope type, just threading the folder path through as `workspacePath`.
-  const [skillsScope, setSkillsScope] = useState<"global" | "folder">("global")
-  // Only folders registered in the DB (opened at least once via iyw-claw).
-  // loadFolderHistory() is O(folders), while listFolders() aggregates from
-  // every conversation — slow on large histories.
-  const [folderList, setFolderList] = useState<FolderHistoryEntry[]>([])
-  const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(
-    null
-  )
-  const workspacePathForRequest =
-    skillsScope === "folder" ? selectedFolderPath : null
-  const backendScope: AgentSkillScope =
-    skillsScope === "folder" ? "project" : "global"
+  const workspacePathForRequest = null
+  const backendScope: AgentSkillScope = "global"
 
   const [skillDraftId, setSkillDraftId] = useState("")
   const [skillDraftContent, setSkillDraftContent] = useState("")
@@ -272,6 +211,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
   const [skillReading, setSkillReading] = useState(false)
   const [skillSaving, setSkillSaving] = useState(false)
   const [skillDeletingId, setSkillDeletingId] = useState<string | null>(null)
+  const [skillTogglingId, setSkillTogglingId] = useState<string | null>(null)
   const [deleteTargetSkill, setDeleteTargetSkill] =
     useState<AgentSkillItem | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -324,50 +264,14 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
 
   const marketTargetName = useMemo(() => {
     if (!selectedAgent) return null
-    const scopeLabel = t(`scope.${skillsScope}`)
-    if (skillsScope === "folder" && selectedFolderPath) {
-      return `${selectedAgent.name} · ${scopeLabel}`
-    }
-    return `${selectedAgent.name} · ${scopeLabel}`
-  }, [selectedAgent, selectedFolderPath, skillsScope, t])
+    return t("allPlatformsTarget")
+  }, [selectedAgent, t])
 
   const marketTargetDisabled =
-    !selectedAgent ||
-    !skillLocation ||
-    !skillsSupported ||
-    (skillsScope === "folder" && !selectedFolderPath)
+    !selectedAgent || !skillLocation || !skillsSupported
 
   const isEditingExisting = Boolean(
     selectedSkill && skillDraftId.trim() === selectedSkill.id
-  )
-
-  const resolvedLayout = useMemo(
-    () =>
-      selectedAgent
-        ? defaultSkillLayoutForAgent(
-            selectedAgent.agent_type,
-            selectedSkill?.layout
-          )
-        : null,
-    [selectedAgent, selectedSkill?.layout]
-  )
-
-  const draftPathPreview = useMemo(
-    () =>
-      buildDraftPathPreview({
-        location: skillLocation,
-        id: skillDraftId,
-        layout: resolvedLayout,
-        selectedSkillPath: selectedSkill?.path ?? null,
-        isExisting: isEditingExisting,
-      }),
-    [
-      isEditingExisting,
-      resolvedLayout,
-      selectedSkill?.path,
-      skillDraftId,
-      skillLocation,
-    ]
   )
 
   const parsedPreviewContent = useMemo(
@@ -417,17 +321,6 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
 
   const loadSkills = useCallback(
     async (agentType: AgentType) => {
-      // Folder scope but no folder chosen → skip the fetch; UI prompts the
-      // user to pick one. We still clear previous results so list doesn't
-      // show stale items from another folder.
-      if (skillsScope === "folder" && !workspacePathForRequest) {
-        setSkillsError(null)
-        setSkillsSupported(true)
-        setSkillLocation(null)
-        setSkillItems([])
-        return null
-      }
-
       setSkillsLoading(true)
       setSkillsError(null)
 
@@ -435,6 +328,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         const result = await acpListAgentSkills({
           agentType,
           workspacePath: workspacePathForRequest,
+          includeDisabled: true,
         })
         setSkillsSupported(result.supported)
         setSkillLocation(
@@ -457,7 +351,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         setSkillsLoading(false)
       }
     },
-    [backendScope, skillsScope, workspacePathForRequest]
+    [backendScope, workspacePathForRequest]
   )
 
   const refreshAgents = useCallback(async () => {
@@ -540,6 +434,38 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
     setDeleteDialogOpen(true)
   }, [])
 
+  const handleToggleSkillEnabled = useCallback(
+    async (skill: AgentSkillItem, enabled: boolean) => {
+      if (!selectedAgent) return
+      setSkillTogglingId(skill.id)
+      try {
+        const updated = await acpSetAgentSkillEnabled({
+          agentType: selectedAgent.agent_type,
+          scope: skill.scope,
+          skillId: skill.id,
+          workspacePath: null,
+          enabled,
+          syncMode: null,
+        })
+
+        invalidateAgentSkillsCache(selectedAgent.agent_type)
+        setSkillItems((prev) =>
+          prev.map((item) =>
+            item.id === skill.id && item.scope === skill.scope ? updated : item
+          )
+        )
+        await loadSkills(selectedAgent.agent_type)
+        toast.success(t(enabled ? "toasts.enabled" : "toasts.disabled"))
+      } catch (err) {
+        const message = toErrorMessage(err)
+        toast.error(t("toasts.toggleFailed"), { description: message })
+      } finally {
+        setSkillTogglingId(null)
+      }
+    },
+    [loadSkills, selectedAgent, t]
+  )
+
   const handleResetDraft = useCallback(() => {
     if (!selectedAgent) return
     if (selectedSkill && isEditingExisting) {
@@ -583,7 +509,8 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         skillId: trimmedId,
         content: skillDraftContent,
         workspacePath: workspacePathForRequest,
-        layout: resolvedLayout,
+        layout: "skill_directory",
+        syncMode: null,
       })
 
       // Drop any stale in-memory skill list so running sessions (message
@@ -609,7 +536,6 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
     isEditingExisting,
     loadSkills,
     openSkill,
-    resolvedLayout,
     selectedAgent,
     skillDraftContent,
     skillDraftId,
@@ -642,7 +568,8 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         skillId: trimmedId,
         content: request.content,
         workspacePath: workspacePathForRequest,
-        layout: resolvedLayout,
+        layout: "skill_directory",
+        syncMode: null,
       })
 
       invalidateAgentSkillsCache(selectedAgent.agent_type)
@@ -657,7 +584,6 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
       backendScope,
       loadSkills,
       openSkill,
-      resolvedLayout,
       selectedAgent,
       skillLocation,
       t,
@@ -735,8 +661,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
           agentType: selectedAgent.agent_type,
           scope: skill.scope,
           skillId: skill.id,
-          workspacePath:
-            skill.scope === "project" ? workspacePathForRequest : null,
+          workspacePath: null,
         })
 
         invalidateAgentSkillsCache(selectedAgent.agent_type)
@@ -768,15 +693,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         setDeleteTargetSkill(null)
       }
     },
-    [
-      backendScope,
-      loadSkills,
-      openSkill,
-      selectedAgent,
-      selectedSkillId,
-      t,
-      workspacePathForRequest,
-    ]
+    [backendScope, loadSkills, openSkill, selectedAgent, selectedSkillId, t]
   )
 
   const handleConfirmDelete = useCallback(async () => {
@@ -898,27 +815,6 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
     backendScope,
     workspacePathForRequest,
   ])
-
-  // Lazy-load the folder list when the user first switches to Folder scope.
-  // Uses loadFolderHistory (direct `folder` table query) instead of
-  // listFolders, which aggregates from every conversation and can be slow
-  // on large histories.
-  useEffect(() => {
-    if (skillsScope !== "folder") return
-    if (folderList.length > 0) return
-    let cancelled = false
-    loadFolderHistory()
-      .then((list) => {
-        if (cancelled) return
-        setFolderList(list)
-      })
-      .catch((err) => {
-        console.error("[SkillsSettings] loadFolderHistory failed:", err)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [skillsScope, folderList.length])
 
   if (loadingAgents) {
     return (
@@ -1052,115 +948,21 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
             >
               <div className="min-h-0 h-full min-w-0 rounded-lg border bg-card flex flex-col overflow-hidden lg:rounded-r-none">
                 <div className="border-b p-3 space-y-2.5">
-                  <div className="text-xs font-medium text-muted-foreground">
-                    {t("managedTarget")}
+                  <div>
+                    <div className="text-xs font-medium">
+                      {t("allPlatformsTitle")}
+                    </div>
+                    <div className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                      {t("allPlatformsDescription")}
+                    </div>
                   </div>
-                  <Select
-                    value={selectedAgentType ?? ""}
-                    onValueChange={(value) => {
-                      setSelectedAgentType(value as AgentType)
+                  <Input
+                    value={searchQuery}
+                    onChange={(event) => {
+                      setSearchQuery(event.target.value)
                     }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={t("selectAgentPlaceholder")} />
-                    </SelectTrigger>
-                    <SelectContent align="start">
-                      {sortedAgents.map((agent) => (
-                        <SelectItem
-                          key={agent.agent_type}
-                          value={agent.agent_type}
-                        >
-                          {agent.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  {/* Scope selector: global vs per-folder (project-scoped) */}
-                  <div className="inline-flex w-full rounded-md border p-0.5 text-xs bg-muted/20">
-                    {(["global", "folder"] as const).map((scope) => (
-                      <button
-                        key={scope}
-                        type="button"
-                        className={cn(
-                          "flex-1 rounded px-2 py-1 transition-colors",
-                          skillsScope === scope
-                            ? "bg-background shadow-sm font-medium"
-                            : "text-muted-foreground hover:text-foreground"
-                        )}
-                        onClick={() => {
-                          if (skillsScope === scope) return
-                          setSkillsScope(scope)
-                          // Drop any in-flight draft/selection since the list
-                          // about to render belongs to a different scope.
-                          setSelectedSkillId(null)
-                          setSkillDraftId("")
-                          setSkillDraftContent("")
-                          setIsContentEditing(false)
-                          setIsDrafting(false)
-                          setSearchQuery("")
-                        }}
-                      >
-                        {t(`scope.${scope}`)}
-                      </button>
-                    ))}
-                  </div>
-
-                  {skillsScope === "folder" && (
-                    <Select
-                      value={selectedFolderPath ?? ""}
-                      onValueChange={(value) => {
-                        setSelectedFolderPath(value || null)
-                        setSelectedSkillId(null)
-                        setSkillDraftId("")
-                        setSkillDraftContent("")
-                        setIsContentEditing(false)
-                        setIsDrafting(false)
-                      }}
-                    >
-                      <SelectTrigger className="w-full justify-between text-left">
-                        <SelectValue
-                          placeholder={t("scope.selectFolderPlaceholder")}
-                        />
-                      </SelectTrigger>
-                      <SelectContent align="start">
-                        {folderList.length === 0 ? (
-                          <div className="px-2 py-1.5 text-xs text-muted-foreground text-left">
-                            {t("scope.noFolders")}
-                          </div>
-                        ) : (
-                          folderList.map((folder) => (
-                            <SelectItem key={folder.path} value={folder.path}>
-                              {/* name + trailing path for disambiguation when
-                                  multiple folders share a name. line-clamp-1
-                                  on the trigger keeps the selected view on a
-                                  single row. */}
-                              <span className="flex items-center gap-2 min-w-0 text-left">
-                                <span className="text-xs font-medium shrink-0">
-                                  {folder.name}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground truncate">
-                                  {folder.path}
-                                </span>
-                              </span>
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                  )}
-
-                  {/* Search only applies to the global list — folder scope
-                      already narrows the set via the picker above. */}
-                  {skillsScope === "global" && (
-                    <Input
-                      value={searchQuery}
-                      onChange={(event) => {
-                        setSearchQuery(event.target.value)
-                      }}
-                      placeholder={t("searchPlaceholder")}
-                    />
-                  )}
+                    placeholder={t("searchPlaceholder")}
+                  />
                 </div>
 
                 <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground flex items-center justify-between gap-2">
@@ -1192,9 +994,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                     skillsSupported &&
                     filteredSkills.length === 0 && (
                       <div className="text-xs text-muted-foreground px-1">
-                        {skillsScope === "folder" && !selectedFolderPath
-                          ? t("scope.pickFolderHint")
-                          : t("emptySkills")}
+                        {t("emptySkills")}
                       </div>
                     )}
 
@@ -1203,51 +1003,92 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                     filteredSkills.map((skill) => {
                       const isActive = skill.id === selectedSkillId
                       const deleting = skillDeletingId === skill.id
+                      const toggling = skillTogglingId === skill.id
 
                       return (
                         <ContextMenu key={skill.id}>
                           <ContextMenuTrigger asChild>
-                            <button
-                              type="button"
+                            <div
                               className={cn(
-                                "w-full rounded-md border px-2 py-1.5 text-left transition-colors",
+                                "w-full rounded-md border px-2 py-1.5 transition-colors",
                                 isActive
                                   ? "border-primary/60 bg-primary/5"
-                                  : "hover:bg-muted/30"
+                                  : "hover:bg-muted/30",
+                                !skill.enabled &&
+                                  !isActive &&
+                                  "border-dashed bg-muted/20 opacity-75"
                               )}
-                              onClick={() => {
-                                handlePreviewSkill(skill).catch((err) => {
-                                  console.error(
-                                    "[SkillsSettings] preview skill failed:",
-                                    err
-                                  )
-                                })
-                              }}
                             >
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="text-xs font-medium truncate">
-                                  {skill.name}
-                                </span>
-                                <Badge
-                                  variant="outline"
-                                  className="h-6 px-2 inline-flex items-center gap-1 text-xs leading-none shrink-0 border-blue-500/40 bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                              <div className="flex items-start gap-2 min-w-0">
+                                <button
+                                  type="button"
+                                  className="min-w-0 flex-1 text-left"
+                                  onClick={() => {
+                                    handlePreviewSkill(skill).catch((err) => {
+                                      console.error(
+                                        "[SkillsSettings] preview skill failed:",
+                                        err
+                                      )
+                                    })
+                                  }}
                                 >
-                                  {skill.scope}
-                                </Badge>
-                                {skill.read_only && (
-                                  <Badge
-                                    variant="outline"
-                                    title={t("systemHint")}
-                                    className="h-6 px-2 inline-flex items-center gap-1 text-xs leading-none shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                                  >
-                                    {t("systemBadge")}
-                                  </Badge>
-                                )}
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="text-xs font-medium truncate">
+                                      {skill.name}
+                                    </span>
+                                    {!skill.enabled && (
+                                      <Badge
+                                        variant="outline"
+                                        className="h-6 px-2 inline-flex items-center gap-1 text-xs leading-none shrink-0 text-muted-foreground"
+                                      >
+                                        {t("disabledBadge")}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </button>
+                                <div className="shrink-0 flex items-center gap-1 pt-0.5">
+                                  {skill.read_only ? (
+                                    <Badge
+                                      variant="outline"
+                                      title={t("systemSkill.description")}
+                                      className="h-6 px-2 inline-flex items-center gap-1 text-xs leading-none text-muted-foreground"
+                                    >
+                                      <LockKeyhole className="h-3 w-3" />
+                                      {t("systemSkill.readOnly")}
+                                    </Badge>
+                                  ) : (
+                                    <>
+                                      {toggling && (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                      )}
+                                      <Switch
+                                        checked={skill.enabled}
+                                        disabled={
+                                          skillSaving ||
+                                          skillReading ||
+                                          deleting ||
+                                          toggling
+                                        }
+                                        aria-label={t("enableSwitch.aria", {
+                                          name: skill.name,
+                                        })}
+                                        onCheckedChange={(checked) => {
+                                          handleToggleSkillEnabled(
+                                            skill,
+                                            checked
+                                          ).catch((err) => {
+                                            console.error(
+                                              "[SkillsSettings] toggle skill failed:",
+                                              err
+                                            )
+                                          })
+                                        }}
+                                      />
+                                    </>
+                                  )}
+                                </div>
                               </div>
-                              <div className="text-[11px] text-muted-foreground truncate mt-1">
-                                {skill.path}
-                              </div>
-                            </button>
+                            </div>
                           </ContextMenuTrigger>
                           <ContextMenuContent>
                             <ContextMenuItem
@@ -1274,6 +1115,24 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                               }}
                             >
                               {t("actions.edit")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              disabled={skill.read_only || toggling}
+                              onSelect={() => {
+                                handleToggleSkillEnabled(
+                                  skill,
+                                  !skill.enabled
+                                ).catch((err) => {
+                                  console.error(
+                                    "[SkillsSettings] context toggle skill failed:",
+                                    err
+                                  )
+                                })
+                              }}
+                            >
+                              {skill.enabled
+                                ? t("actions.disable")
+                                : t("actions.enable")}
                             </ContextMenuItem>
                             <ContextMenuItem
                               onSelect={() => {
@@ -1336,10 +1195,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                     size="sm"
                     className="flex-1"
                     onClick={handleCreateDraft}
-                    disabled={
-                      !selectedAgent ||
-                      (skillsScope === "folder" && !selectedFolderPath)
-                    }
+                    disabled={!selectedAgent}
                   >
                     <Plus className="h-3.5 w-3.5" />
                     {t("actions.newSkill")}
@@ -1360,13 +1216,12 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                           <h3 className="text-sm font-semibold truncate">
                             {skillDraftId.trim() || t("newSkillTitle")}
                           </h3>
-                          {selectedSkill?.read_only && (
+                          {selectedSkill && !selectedSkill.enabled && (
                             <Badge
                               variant="outline"
-                              title={t("systemHint")}
-                              className="h-5 px-1.5 text-[10px] leading-none shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                              className="h-5 px-1.5 text-[10px] leading-none shrink-0 text-muted-foreground"
                             >
-                              {t("systemBadge")}
+                              {t("disabledBadge")}
                             </Badge>
                           )}
                         </div>
@@ -1432,22 +1287,6 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                             // edits don't silently fork a new skill.
                             disabled={Boolean(selectedSkill)}
                           />
-
-                          {skillsScope === "folder" && !selectedFolderPath ? (
-                            <div className="text-[11px] text-muted-foreground break-all">
-                              {t("scope.pickFolderHint")}
-                            </div>
-                          ) : draftPathPreview ? (
-                            <div className="text-[11px] text-muted-foreground break-all">
-                              {t("skillsDirectoryWithPath", {
-                                path: draftPathPreview,
-                              })}
-                            </div>
-                          ) : (
-                            <div className="text-[11px] text-muted-foreground break-all">
-                              {t("skillsDirectoryNeedId")}
-                            </div>
-                          )}
                         </div>
 
                         <div className="rounded-md border p-3 space-y-2">

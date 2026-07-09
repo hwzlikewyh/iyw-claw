@@ -1,12 +1,15 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import {
   Check,
+  Info,
   Loader2,
   PackageCheck,
+  Search,
   Sparkles,
   Store,
+  Tag,
   Upload,
   WandSparkles,
   type LucideIcon,
@@ -104,10 +107,10 @@ function PanelShell({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 sm:p-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground">
               <Icon className="size-5" aria-hidden="true" />
             </span>
             <div className="min-w-0">
@@ -149,6 +152,38 @@ export function OfficialSkillMarketPanel({
   onInstall: (request: SkillContentRequest) => void
 }) {
   const t = useMarketTranslations()
+  const [query, setQuery] = useState("")
+  const [selectedTag, setSelectedTag] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState(OFFICIAL_SKILL_TEMPLATES[0]?.id)
+
+  const allTags = useMemo(
+    () =>
+      Array.from(
+        new Set(OFFICIAL_SKILL_TEMPLATES.flatMap((template) => template.tags))
+      ).sort((a, b) => a.localeCompare(b)),
+    []
+  )
+  const filteredTemplates = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return OFFICIAL_SKILL_TEMPLATES.filter((template) => {
+      if (selectedTag && !template.tags.includes(selectedTag)) return false
+      if (!needle) return true
+      const title = t(`official.items.${template.id}.title`).toLowerCase()
+      const description = t(
+        `official.items.${template.id}.description`
+      ).toLowerCase()
+      return (
+        template.id.includes(needle) ||
+        title.includes(needle) ||
+        description.includes(needle) ||
+        template.tags.some((tag) => tag.includes(needle))
+      )
+    })
+  }, [query, selectedTag, t])
+  const selectedTemplate =
+    filteredTemplates.find((template) => template.id === selectedId) ??
+    filteredTemplates[0] ??
+    null
 
   return (
     <PanelShell
@@ -157,36 +192,134 @@ export function OfficialSkillMarketPanel({
       description={t("official.description")}
       targetName={targetName}
     >
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {OFFICIAL_SKILL_TEMPLATES.map((template) => {
-          const isInstalled = installedIds.has(template.id)
-          const key = `official:${template.id}`
-          const isBusy = busyKey === key
+      <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <section className="min-w-0 space-y-3">
+          <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t("official.searchPlaceholder")}
+                className="pl-8"
+              />
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md border px-2 py-1 text-xs transition-colors",
+                  selectedTag == null
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => setSelectedTag(null)}
+              >
+                {t("official.allTags")}
+              </button>
+              {allTags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors",
+                    selectedTag === tag
+                      ? "border-primary/40 bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                  onClick={() => setSelectedTag(tag)}
+                >
+                  <Tag className="size-3" aria-hidden="true" />
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
 
-          return (
-            <article
-              key={template.id}
-              className="flex min-h-[15rem] flex-col rounded-xl border border-border bg-card p-4"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <PackageCheck
-                  className="size-5 shrink-0 text-primary"
-                  aria-hidden="true"
-                />
-                {isInstalled ? (
-                  <Badge variant="outline" className="text-[0.6875rem]">
+          {filteredTemplates.length === 0 ? (
+            <div className="rounded-lg border border-dashed bg-muted/10 px-4 py-8 text-center">
+              <div className="text-sm font-medium">
+                {t("official.noResultsTitle")}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {t("official.noResultsDescription")}
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {filteredTemplates.map((template) => {
+                const isInstalled = installedIds.has(template.id)
+                const isSelected = selectedTemplate?.id === template.id
+
+                return (
+                  <button
+                    key={template.id}
+                    type="button"
+                    className={cn(
+                      "flex min-w-0 items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors",
+                      isSelected
+                        ? "border-primary/50 bg-primary/5"
+                        : "hover:border-foreground/20 hover:bg-muted/20"
+                    )}
+                    onClick={() => setSelectedId(template.id)}
+                  >
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-background text-primary">
+                      <PackageCheck className="size-4" aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-sm font-medium">
+                          {t(`official.items.${template.id}.title`)}
+                        </span>
+                        {isInstalled ? (
+                          <Badge
+                            variant="outline"
+                            className="h-5 shrink-0 px-1.5 text-[0.625rem]"
+                          >
+                            {t("official.installedBadge")}
+                          </Badge>
+                        ) : null}
+                      </span>
+                      <span className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                        {t(`official.items.${template.id}.description`)}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </section>
+
+        <aside className="min-w-0 rounded-lg border border-border bg-card p-4 lg:sticky lg:top-4 lg:self-start">
+          {selectedTemplate ? (
+            <>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">
+                    {t(`official.items.${selectedTemplate.id}.title`)}
+                  </div>
+                  <div className="mt-1 text-[0.6875rem] text-muted-foreground">
+                    {selectedTemplate.id}
+                  </div>
+                </div>
+                {installedIds.has(selectedTemplate.id) ? (
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 text-[0.6875rem]"
+                  >
                     {t("official.installedBadge")}
                   </Badge>
                 ) : null}
               </div>
-              <h3 className="mt-3 text-sm font-semibold">
-                {t(`official.items.${template.id}.title`)}
-              </h3>
-              <p className="mt-2 flex-1 text-xs leading-5 text-muted-foreground">
-                {t(`official.items.${template.id}.description`)}
+              <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                {t(`official.items.${selectedTemplate.id}.description`)}
               </p>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {template.tags.map((tag) => (
+              <div className="mt-4 flex flex-wrap gap-1.5">
+                {selectedTemplate.tags.map((tag) => (
                   <Badge
                     key={tag}
                     variant="outline"
@@ -196,32 +329,55 @@ export function OfficialSkillMarketPanel({
                   </Badge>
                 ))}
               </div>
+              <div className="mt-4 rounded-md border bg-muted/10 px-3 py-2">
+                <div className="flex items-center gap-1.5 text-xs font-medium">
+                  <Info className="size-3.5 text-muted-foreground" />
+                  {t("official.installTargetTitle")}
+                </div>
+                <div className="mt-1 text-[0.6875rem] leading-5 text-muted-foreground">
+                  {targetName
+                    ? t("official.installTargetDescription", {
+                        target: targetName,
+                      })
+                    : t("noTarget")}
+                </div>
+              </div>
               <Button
                 size="sm"
-                variant={isInstalled ? "outline" : "default"}
+                variant={
+                  installedIds.has(selectedTemplate.id) ? "outline" : "default"
+                }
                 className="mt-4 w-full"
-                disabled={disabled || (busyKey != null && !isBusy)}
+                disabled={
+                  disabled ||
+                  (busyKey != null &&
+                    busyKey !== `official:${selectedTemplate.id}`)
+                }
                 onClick={() =>
                   onInstall({
-                    id: template.id,
-                    content: t(`official.items.${template.id}.content`),
+                    id: selectedTemplate.id,
+                    content: t(`official.items.${selectedTemplate.id}.content`),
                   })
                 }
               >
-                {isBusy ? (
+                {busyKey === `official:${selectedTemplate.id}` ? (
                   <Loader2 className="size-3.5 animate-spin" />
-                ) : isInstalled ? (
+                ) : installedIds.has(selectedTemplate.id) ? (
                   <Check className="size-3.5" />
                 ) : (
                   <Sparkles className="size-3.5" />
                 )}
-                {isInstalled
+                {installedIds.has(selectedTemplate.id)
                   ? t("official.viewInstalled")
                   : t("official.install")}
               </Button>
-            </article>
-          )
-        })}
+            </>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              {t("official.noResultsDescription")}
+            </div>
+          )}
+        </aside>
       </div>
     </PanelShell>
   )

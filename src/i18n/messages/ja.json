@@ -347,6 +347,12 @@
         "install": "Install",
         "viewInstalled": "View installed",
         "installedBadge": "Installed",
+        "searchPlaceholder": "Search skill name, ID, description, or tag...",
+        "allTags": "All",
+        "noResultsTitle": "No matching skills",
+        "noResultsDescription": "Try a different keyword or tag.",
+        "installTargetTitle": "Install target",
+        "installTargetDescription": "Installs to {target} and appears in Installed.",
         "items": {
           "code-review": {
             "title": "Code Review",
@@ -406,6 +412,9 @@
     "loadingAgents": "Skill対応エージェントを読み込み中...",
     "emptyNoManageableAgents": "Skillを管理できるエージェントがありません。",
     "managedTarget": "管理対象",
+    "allPlatformsTitle": "Global Skills",
+    "allPlatformsDescription": "Published to all supported platforms by default. Agents read the same central Skill through their native directories.",
+    "allPlatformsTarget": "All platforms · Global",
     "selectAgentPlaceholder": "エージェントを選択",
     "searchPlaceholder": "名前 / ID / パスで検索...",
     "skillsList": "Skill一覧",
@@ -429,6 +438,29 @@
     "noSelectionHint": "左側から Skill を選択するか、「新規 Skill」をクリックして作成してください。",
     "systemBadge": "システム",
     "systemHint": "CLI 組み込み Skill・読み取り専用",
+    "systemSkill": {
+      "title": "Built-in system Skill",
+      "description": "This Skill comes from the agent CLI's built-in directory. Click \"Take over\" to copy it into the central store and publish it to the current agent so iyw-claw manages it going forward.",
+      "readOnly": "Read-only",
+      "takeOverHint": "Copy into ~/.iyw-claw/skills and publish to current agent"
+    },
+    "disabledBadge": "無効",
+    "copyModeBadge": "コピー",
+    "copyModeWarning": "この Skill は agent ディレクトリにコピーされています。中央の最新版を同期するには保存または再有効化してください。",
+    "syncMode": {
+      "title": "Skills 同期方法",
+      "description": "グローバル Skills を選択中 agent のネイティブ Skills ディレクトリへ公開する方法を選びます。",
+      "symlink": "シンボリックリンク",
+      "copy": "ファイルコピー",
+      "symlinkHint": "~/.iyw-claw/skills の更新がすぐ agent に反映されるよう、ディレクトリリンク/ジャンクションを使います。",
+      "copyHint": "Skill を agent ディレクトリへコピーします。中央側を変更した後は保存または再有効化してコピーを更新してください。"
+    },
+    "enableSwitch": {
+      "title": "この Skill を使用",
+      "enabledHint": "有効な Skill はエージェントの Skills ディレクトリに保持されます。",
+      "disabledHint": "無効な Skill は iyw-claw に保持されますが、エージェントからは隠されます。",
+      "aria": "Skill {name} を切り替え"
+    },
     "scope": {
       "global": "グローバル",
       "folder": "フォルダ",
@@ -442,8 +474,12 @@
       "openInWindow": "新しいウィンドウで開く",
       "delete": "削除",
       "deleting": "削除中...",
+      "enable": "有効化",
+      "disable": "無効化",
       "refresh": "更新",
       "newSkill": "新規Skill",
+      "takeOver": "Take over",
+      "takingOver": "Taking over...",
       "reset": "リセット",
       "save": "保存",
       "saving": "保存中...",
@@ -463,6 +499,11 @@
       "updated": "Skillを更新しました",
       "created": "Skillを作成しました",
       "saveFailed": "Skillの保存に失敗しました",
+      "enabled": "Skillを有効化しました",
+      "disabled": "Skillを無効化しました",
+      "toggleFailed": "Skillの状態更新に失敗しました",
+      "takenOver": "Skill taken over by iyw-claw",
+      "takeOverFailed": "Failed to take over skill",
       "deleted": "Skillを削除しました",
       "deleteFailed": "Skillの削除に失敗しました"
     },

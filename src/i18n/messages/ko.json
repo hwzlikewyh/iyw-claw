@@ -347,6 +347,12 @@
         "install": "Install",
         "viewInstalled": "View installed",
         "installedBadge": "Installed",
+        "searchPlaceholder": "Search skill name, ID, description, or tag...",
+        "allTags": "All",
+        "noResultsTitle": "No matching skills",
+        "noResultsDescription": "Try a different keyword or tag.",
+        "installTargetTitle": "Install target",
+        "installTargetDescription": "Installs to {target} and appears in Installed.",
         "items": {
           "code-review": {
             "title": "Code Review",
@@ -406,6 +412,9 @@
     "loadingAgents": "Skill을 지원하는 에이전트를 불러오는 중...",
     "emptyNoManageableAgents": "Skill을 관리할 수 있는 에이전트가 없습니다.",
     "managedTarget": "관리 대상",
+    "allPlatformsTitle": "Global Skills",
+    "allPlatformsDescription": "Published to all supported platforms by default. Agents read the same central Skill through their native directories.",
+    "allPlatformsTarget": "All platforms · Global",
     "selectAgentPlaceholder": "에이전트 선택",
     "searchPlaceholder": "이름 / ID / 경로로 검색...",
     "skillsList": "Skill 목록",
@@ -429,6 +438,29 @@
     "noSelectionHint": "왼쪽에서 Skill을 선택하거나 \"새 Skill\"을 클릭하여 만드세요.",
     "systemBadge": "시스템",
     "systemHint": "CLI 내장 Skill · 읽기 전용",
+    "systemSkill": {
+      "title": "Built-in system Skill",
+      "description": "This Skill comes from the agent CLI's built-in directory. Click \"Take over\" to copy it into the central store and publish it to the current agent so iyw-claw manages it going forward.",
+      "readOnly": "Read-only",
+      "takeOverHint": "Copy into ~/.iyw-claw/skills and publish to current agent"
+    },
+    "disabledBadge": "비활성화됨",
+    "copyModeBadge": "복사됨",
+    "copyModeWarning": "이 Skill은 agent 디렉터리에 복사되어 있습니다. 중앙 최신 버전을 동기화하려면 저장하거나 다시 활성화하세요.",
+    "syncMode": {
+      "title": "Skills 동기화 방식",
+      "description": "전역 Skills를 선택한 agent의 기본 Skills 디렉터리에 게시하는 방식을 선택합니다.",
+      "symlink": "심볼릭 링크",
+      "copy": "파일 복사",
+      "symlinkHint": "~/.iyw-claw/skills의 변경 사항이 agent에 즉시 보이도록 디렉터리 링크/정션을 사용합니다.",
+      "copyHint": "Skill을 agent 디렉터리에 복사합니다. 중앙 저장소가 변경되면 저장하거나 다시 활성화해 복사본을 새로 고치세요."
+    },
+    "enableSwitch": {
+      "title": "이 Skill 사용",
+      "enabledHint": "활성화된 Skill은 에이전트의 Skills 디렉터리에 유지됩니다.",
+      "disabledHint": "비활성화된 Skill은 iyw-claw가 보관하지만 에이전트에는 숨겨집니다.",
+      "aria": "Skill {name} 전환"
+    },
     "scope": {
       "global": "전역",
       "folder": "폴더",
@@ -442,8 +474,12 @@
       "openInWindow": "새 창에서 열기",
       "delete": "삭제",
       "deleting": "삭제 중...",
+      "enable": "활성화",
+      "disable": "비활성화",
       "refresh": "새로고침",
       "newSkill": "새 Skill",
+      "takeOver": "Take over",
+      "takingOver": "Taking over...",
       "reset": "초기화",
       "save": "저장",
       "saving": "저장 중...",
@@ -463,6 +499,11 @@
       "updated": "Skill이 업데이트되었습니다",
       "created": "Skill이 생성되었습니다",
       "saveFailed": "Skill 저장에 실패했습니다",
+      "enabled": "Skill이 활성화되었습니다",
+      "disabled": "Skill이 비활성화되었습니다",
+      "toggleFailed": "Skill 상태 업데이트에 실패했습니다",
+      "takenOver": "Skill taken over by iyw-claw",
+      "takeOverFailed": "Failed to take over skill",
       "deleted": "Skill이 삭제되었습니다",
       "deleteFailed": "Skill 삭제에 실패했습니다"
     },

@@ -241,6 +241,10 @@ fn find_skill_def(id: &str) -> Option<&'static SkillDef> {
     skill_defs().iter().find(|s| s.id == id)
 }
 
+pub(crate) fn is_officecli_skill_id(id: &str) -> bool {
+    find_skill_def(id).is_some()
+}
+
 fn skill_def_to_metadata(def: &SkillDef) -> OfficecliSkill {
     let mut display_name = BTreeMap::new();
     display_name.insert("en".to_string(), def.en_name.to_string());

@@ -347,6 +347,12 @@
         "install": "安装",
         "viewInstalled": "查看已安装",
         "installedBadge": "已安装",
+        "searchPlaceholder": "搜索 Skill 名称、ID、描述或标签...",
+        "allTags": "全部",
+        "noResultsTitle": "没有匹配的 Skill",
+        "noResultsDescription": "换一个关键词或标签试试。",
+        "installTargetTitle": "安装目标",
+        "installTargetDescription": "将安装到 {target}，并出现在已安装列表中。",
         "items": {
           "code-review": {
             "title": "代码审查",
@@ -406,6 +412,9 @@
     "loadingAgents": "正在加载支持 Skills 的 Agent...",
     "emptyNoManageableAgents": "当前没有可管理 Skills 的 Agent。",
     "managedTarget": "管理对象",
+    "allPlatformsTitle": "全局 Skills",
+    "allPlatformsDescription": "默认发布到全部支持的平台，Agent 会通过各自原生目录读取同一份中心库 Skill。",
+    "allPlatformsTarget": "全部平台 · 全局",
     "selectAgentPlaceholder": "请选择 Agent",
     "searchPlaceholder": "搜索名称 / ID / 路径...",
     "skillsList": "Skills 列表",
@@ -429,6 +438,29 @@
     "noSelectionHint": "从左侧选择一个 Skill，或点击“新建 Skill”创建。",
     "systemBadge": "系统",
     "systemHint": "CLI 内置 Skill · 只读",
+    "systemSkill": {
+      "title": "系统内置 Skill",
+      "description": "这个 Skill 来自 Agent CLI 的内置目录。iyw-claw 会在加载时自动复制到中心库并发布到全部支持的平台；如果仍显示只读，说明自动接管未完成。",
+      "readOnly": "只读",
+      "takeOverHint": "复制到 ~/.iyw-claw/skills 并发布到当前 Agent"
+    },
+    "disabledBadge": "已停用",
+    "copyModeBadge": "复制",
+    "copyModeWarning": "当前 Agent 端是复制件。中心库更新后，请保存或重新启用以同步最新内容。",
+    "syncMode": {
+      "title": "Skills 同步方式",
+      "description": "选择全局 Skills 发布到当前 Agent 原生目录时的文件同步策略。",
+      "symlink": "软链接",
+      "copy": "文件复制",
+      "symlinkHint": "使用目录链接/联接，~/.iyw-claw/skills 更新会立即被 Agent 看到。",
+      "copyHint": "复制一份到 Agent 目录；中心库变化后需要保存或重新启用来刷新复制件。"
+    },
+    "enableSwitch": {
+      "title": "使用这个 Skill",
+      "enabledHint": "启用后会保留在 Agent 可发现的 Skills 目录中。",
+      "disabledHint": "停用后由 iyw-claw 保留，但 Agent 不会再发现它。",
+      "aria": "切换 Skill {name}"
+    },
     "scope": {
       "global": "全局",
       "folder": "文件夹",
@@ -442,8 +474,12 @@
       "openInWindow": "在新窗口打开",
       "delete": "删除",
       "deleting": "删除中...",
+      "enable": "启用",
+      "disable": "停用",
       "refresh": "刷新",
       "newSkill": "新建 Skill",
+      "takeOver": "接管",
+      "takingOver": "接管中...",
       "reset": "重置",
       "save": "保存",
       "saving": "保存中...",
@@ -463,6 +499,11 @@
       "updated": "Skill 已更新",
       "created": "Skill 已创建",
       "saveFailed": "保存 Skill 失败",
+      "enabled": "Skill 已启用",
+      "disabled": "Skill 已停用",
+      "toggleFailed": "更新 Skill 状态失败",
+      "takenOver": "Skill 已由 iyw-claw 接管",
+      "takeOverFailed": "接管 Skill 失败",
       "deleted": "Skill 已删除",
       "deleteFailed": "删除 Skill 失败"
     },
@@ -2228,7 +2269,9 @@
             },
             "switch": {
               "on": "开启",
-              "off": "关闭"
+              "onDescription": "1.5 倍速度，用量增加",
+              "off": "关闭",
+              "offDescription": "默认速度，正常用量"
             }
           }
         }

@@ -347,6 +347,12 @@
         "install": "Install",
         "viewInstalled": "View installed",
         "installedBadge": "Installed",
+        "searchPlaceholder": "Search skill name, ID, description, or tag...",
+        "allTags": "All",
+        "noResultsTitle": "No matching skills",
+        "noResultsDescription": "Try a different keyword or tag.",
+        "installTargetTitle": "Install target",
+        "installTargetDescription": "Installs to {target} and appears in Installed.",
         "items": {
           "code-review": {
             "title": "Code Review",
@@ -406,6 +412,9 @@
     "loadingAgents": "Agenten mit Skill-Unterstützung werden geladen...",
     "emptyNoManageableAgents": "Keine Agenten für Skill-Verwaltung verfügbar.",
     "managedTarget": "Verwaltetes Ziel",
+    "allPlatformsTitle": "Global Skills",
+    "allPlatformsDescription": "Published to all supported platforms by default. Agents read the same central Skill through their native directories.",
+    "allPlatformsTarget": "All platforms · Global",
     "selectAgentPlaceholder": "Agent auswählen",
     "searchPlaceholder": "Nach Name / ID / Pfad suchen...",
     "skillsList": "Skill-Liste",
@@ -429,6 +438,29 @@
     "noSelectionHint": "Wählen Sie links einen Skill oder klicken Sie auf „Neuer Skill“, um einen zu erstellen.",
     "systemBadge": "System",
     "systemHint": "Integrierter CLI-Skill · schreibgeschützt",
+    "systemSkill": {
+      "title": "Built-in system Skill",
+      "description": "This Skill comes from the agent CLI's built-in directory. Click \"Take over\" to copy it into the central store and publish it to the current agent so iyw-claw manages it going forward.",
+      "readOnly": "Read-only",
+      "takeOverHint": "Copy into ~/.iyw-claw/skills and publish to current agent"
+    },
+    "disabledBadge": "Deaktiviert",
+    "copyModeBadge": "Kopiert",
+    "copyModeWarning": "Dieser Skill wurde in das Agent-Verzeichnis kopiert. Speichern oder erneut aktivieren, um die neueste zentrale Version zu synchronisieren.",
+    "syncMode": {
+      "title": "Skills-Synchronisierung",
+      "description": "Wähle, wie globale Skills in das native Skills-Verzeichnis des ausgewählten Agents veröffentlicht werden.",
+      "symlink": "Symlink",
+      "copy": "Dateikopie",
+      "symlinkHint": "Verwendet einen Verzeichnislink/Junction, damit Updates in ~/.iyw-claw/skills sofort für den Agent sichtbar sind.",
+      "copyHint": "Kopiert den Skill in das Agent-Verzeichnis. Nach zentralen Änderungen speichern oder erneut aktivieren, um die Kopie zu aktualisieren."
+    },
+    "enableSwitch": {
+      "title": "Diesen Skill verwenden",
+      "enabledHint": "Aktivierte Skills bleiben im Skills-Verzeichnis des Agenten.",
+      "disabledHint": "Deaktivierte Skills werden von iyw-claw behalten, aber vor dem Agenten verborgen.",
+      "aria": "Skill {name} umschalten"
+    },
     "scope": {
       "global": "Global",
       "folder": "Ordner",
@@ -442,8 +474,12 @@
       "openInWindow": "In neuem Fenster öffnen",
       "delete": "Löschen",
       "deleting": "Wird gelöscht...",
+      "enable": "Aktivieren",
+      "disable": "Deaktivieren",
       "refresh": "Aktualisieren",
       "newSkill": "Neuer Skill",
+      "takeOver": "Take over",
+      "takingOver": "Taking over...",
       "reset": "Zurücksetzen",
       "save": "Speichern",
       "saving": "Wird gespeichert...",
@@ -463,6 +499,11 @@
       "updated": "Skill aktualisiert",
       "created": "Skill erstellt",
       "saveFailed": "Skill konnte nicht gespeichert werden",
+      "enabled": "Skill aktiviert",
+      "disabled": "Skill deaktiviert",
+      "toggleFailed": "Skill-Status konnte nicht aktualisiert werden",
+      "takenOver": "Skill taken over by iyw-claw",
+      "takeOverFailed": "Failed to take over skill",
       "deleted": "Skill gelöscht",
       "deleteFailed": "Skill konnte nicht gelöscht werden"
     },

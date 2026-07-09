@@ -347,6 +347,12 @@
         "install": "Install",
         "viewInstalled": "View installed",
         "installedBadge": "Installed",
+        "searchPlaceholder": "Search skill name, ID, description, or tag...",
+        "allTags": "All",
+        "noResultsTitle": "No matching skills",
+        "noResultsDescription": "Try a different keyword or tag.",
+        "installTargetTitle": "Install target",
+        "installTargetDescription": "Installs to {target} and appears in Installed.",
         "items": {
           "code-review": {
             "title": "Code Review",
@@ -406,6 +412,9 @@
     "loadingAgents": "جارٍ تحميل الوكلاء الذين يدعمون Skills...",
     "emptyNoManageableAgents": "لا توجد وكلاء متاحة لإدارة Skills.",
     "managedTarget": "الهدف المُدار",
+    "allPlatformsTitle": "Global Skills",
+    "allPlatformsDescription": "Published to all supported platforms by default. Agents read the same central Skill through their native directories.",
+    "allPlatformsTarget": "All platforms · Global",
     "selectAgentPlaceholder": "اختر وكيلًا",
     "searchPlaceholder": "ابحث بالاسم / المعرّف / المسار...",
     "skillsList": "قائمة Skills",
@@ -429,6 +438,29 @@
     "noSelectionHint": "اختر Skill من اليسار، أو انقر على \"Skill جديد\" لإنشاء واحد.",
     "systemBadge": "نظام",
     "systemHint": "Skill مدمج في CLI · للقراءة فقط",
+    "systemSkill": {
+      "title": "Built-in system Skill",
+      "description": "This Skill comes from the agent CLI's built-in directory. Click \"Take over\" to copy it into the central store and publish it to the current agent so iyw-claw manages it going forward.",
+      "readOnly": "Read-only",
+      "takeOverHint": "Copy into ~/.iyw-claw/skills and publish to current agent"
+    },
+    "disabledBadge": "معطلة",
+    "copyModeBadge": "منسوخ",
+    "copyModeWarning": "تم نسخ هذا الـ Skill إلى مجلد الوكيل. احفظه أو فعّله من جديد لمزامنة أحدث نسخة مركزية.",
+    "syncMode": {
+      "title": "طريقة مزامنة Skills",
+      "description": "اختر كيف تُنشر Skills العامة إلى مجلد Skills الأصلي للوكيل المحدد.",
+      "symlink": "رابط رمزي",
+      "copy": "نسخ الملفات",
+      "symlinkHint": "يستخدم رابط مجلد/junction حتى تظهر تحديثات ~/.iyw-claw/skills للوكيل فورًا.",
+      "copyHint": "ينسخ الـ Skill إلى مجلد الوكيل. بعد تغييرات المصدر المركزي، احفظ أو أعد التفعيل لتحديث النسخة."
+    },
+    "enableSwitch": {
+      "title": "استخدام هذه Skill",
+      "enabledHint": "تبقى Skills المفعلة في دليل Skills الخاص بالوكيل.",
+      "disabledHint": "تحتفظ iyw-claw بالـ Skills المعطلة، لكنها تخفيها عن الوكيل.",
+      "aria": "تبديل Skill {name}"
+    },
     "scope": {
       "global": "عام",
       "folder": "مجلد",
@@ -442,8 +474,12 @@
       "openInWindow": "فتح في نافذة جديدة",
       "delete": "حذف",
       "deleting": "جارٍ الحذف...",
+      "enable": "تفعيل",
+      "disable": "تعطيل",
       "refresh": "تحديث",
       "newSkill": "Skill جديدة",
+      "takeOver": "Take over",
+      "takingOver": "Taking over...",
       "reset": "إعادة تعيين",
       "save": "حفظ",
       "saving": "جارٍ الحفظ...",
@@ -463,6 +499,11 @@
       "updated": "تم تحديث Skill",
       "created": "تم إنشاء Skill",
       "saveFailed": "فشل حفظ Skill",
+      "enabled": "تم تفعيل Skill",
+      "disabled": "تم تعطيل Skill",
+      "toggleFailed": "فشل تحديث حالة Skill",
+      "takenOver": "Skill taken over by iyw-claw",
+      "takeOverFailed": "Failed to take over skill",
       "deleted": "تم حذف Skill",
       "deleteFailed": "فشل حذف Skill"
     },

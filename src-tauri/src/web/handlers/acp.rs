@@ -8,8 +8,8 @@ use crate::acp::error::AcpError;
 use crate::acp::opencode_plugins::PluginCheckSummary;
 use crate::acp::preflight::PreflightResult;
 use crate::acp::types::{
-    AcpAgentInfo, AcpAgentStatus, AgentSkillContent, AgentSkillLayout, AgentSkillScope,
-    AgentSkillsListResult, ConnectionInfo, ForkResultInfo,
+    AcpAgentInfo, AcpAgentStatus, AgentSkillContent, AgentSkillItem, AgentSkillLayout,
+    AgentSkillScope, AgentSkillSyncMode, AgentSkillsListResult, ConnectionInfo, ForkResultInfo,
 };
 use crate::app_error::{AppCommandError, AppErrorCode};
 use crate::app_state::AppState;
@@ -202,14 +202,19 @@ pub async fn acp_clear_binary_cache(
 pub struct AcpListAgentSkillsParams {
     pub agent_type: AgentType,
     pub workspace_path: Option<String>,
+    pub include_disabled: Option<bool>,
 }
 
 pub async fn acp_list_agent_skills(
     Json(params): Json<AcpListAgentSkillsParams>,
 ) -> Result<Json<AgentSkillsListResult>, AppCommandError> {
-    let result = acp_commands::acp_list_agent_skills(params.agent_type, params.workspace_path)
-        .await
-        .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+    let result = acp_commands::acp_list_agent_skills(
+        params.agent_type,
+        params.workspace_path,
+        params.include_disabled,
+    )
+    .await
+    .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
     Ok(Json(result))
 }
 
@@ -238,6 +243,27 @@ pub async fn acp_read_agent_skill(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AcpTakeOverAgentSkillParams {
+    pub agent_type: AgentType,
+    pub skill_id: String,
+    pub sync_mode: Option<AgentSkillSyncMode>,
+}
+
+pub async fn acp_take_over_agent_skill(
+    Json(params): Json<AcpTakeOverAgentSkillParams>,
+) -> Result<Json<AgentSkillItem>, AppCommandError> {
+    let result = acp_commands::acp_take_over_agent_skill(
+        params.agent_type,
+        params.skill_id,
+        params.sync_mode,
+    )
+    .await
+    .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+    Ok(Json(result))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AcpSaveAgentSkillParams {
     pub agent_type: AgentType,
     pub scope: AgentSkillScope,
@@ -245,22 +271,51 @@ pub struct AcpSaveAgentSkillParams {
     pub content: String,
     pub workspace_path: Option<String>,
     pub layout: Option<AgentSkillLayout>,
+    pub sync_mode: Option<AgentSkillSyncMode>,
 }
 
 pub async fn acp_save_agent_skill(
     Json(params): Json<AcpSaveAgentSkillParams>,
-) -> Result<Json<()>, AppCommandError> {
-    acp_commands::acp_save_agent_skill(
+) -> Result<Json<AgentSkillItem>, AppCommandError> {
+    let result = acp_commands::acp_save_agent_skill(
         params.agent_type,
         params.scope,
         params.skill_id,
         params.content,
         params.workspace_path,
         params.layout,
+        params.sync_mode,
     )
     .await
     .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
-    Ok(Json(()))
+    Ok(Json(result))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSetAgentSkillEnabledParams {
+    pub agent_type: AgentType,
+    pub scope: AgentSkillScope,
+    pub skill_id: String,
+    pub workspace_path: Option<String>,
+    pub enabled: bool,
+    pub sync_mode: Option<AgentSkillSyncMode>,
+}
+
+pub async fn acp_set_agent_skill_enabled(
+    Json(params): Json<AcpSetAgentSkillEnabledParams>,
+) -> Result<Json<AgentSkillItem>, AppCommandError> {
+    let result = acp_commands::acp_set_agent_skill_enabled(
+        params.agent_type,
+        params.scope,
+        params.skill_id,
+        params.workspace_path,
+        params.enabled,
+        params.sync_mode,
+    )
+    .await
+    .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]

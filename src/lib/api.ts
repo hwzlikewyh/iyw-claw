@@ -33,6 +33,7 @@ import type {
   AcpAgentStatus,
   AgentSkillScope,
   AgentSkillLayout,
+  AgentSkillSyncMode,
   AgentSkillItem,
   AgentSkillsListResult,
   AgentSkillContent,
@@ -657,10 +658,12 @@ export async function opencodeUninstallPlugin(
 export async function acpListAgentSkills(params: {
   agentType: AgentType
   workspacePath?: string | null
+  includeDisabled?: boolean | null
 }): Promise<AgentSkillsListResult> {
   return getTransport().call("acp_list_agent_skills", {
     agentType: params.agentType,
     workspacePath: params.workspacePath ?? null,
+    includeDisabled: params.includeDisabled ?? null,
   })
 }
 
@@ -678,6 +681,18 @@ export async function acpReadAgentSkill(params: {
   })
 }
 
+export async function acpTakeOverAgentSkill(params: {
+  agentType: AgentType
+  skillId: string
+  syncMode?: AgentSkillSyncMode | null
+}): Promise<AgentSkillItem> {
+  return getTransport().call("acp_take_over_agent_skill", {
+    agentType: params.agentType,
+    skillId: params.skillId,
+    syncMode: params.syncMode ?? null,
+  })
+}
+
 export async function acpSaveAgentSkill(params: {
   agentType: AgentType
   scope: AgentSkillScope
@@ -685,6 +700,7 @@ export async function acpSaveAgentSkill(params: {
   content: string
   workspacePath?: string | null
   layout?: AgentSkillLayout | null
+  syncMode?: AgentSkillSyncMode | null
 }): Promise<AgentSkillItem> {
   return getTransport().call("acp_save_agent_skill", {
     agentType: params.agentType,
@@ -693,6 +709,25 @@ export async function acpSaveAgentSkill(params: {
     content: params.content,
     workspacePath: params.workspacePath ?? null,
     layout: params.layout ?? null,
+    syncMode: params.syncMode ?? null,
+  })
+}
+
+export async function acpSetAgentSkillEnabled(params: {
+  agentType: AgentType
+  scope: AgentSkillScope
+  skillId: string
+  workspacePath?: string | null
+  enabled: boolean
+  syncMode?: AgentSkillSyncMode | null
+}): Promise<AgentSkillItem> {
+  return getTransport().call("acp_set_agent_skill_enabled", {
+    agentType: params.agentType,
+    scope: params.scope,
+    skillId: params.skillId,
+    workspacePath: params.workspacePath ?? null,
+    enabled: params.enabled,
+    syncMode: params.syncMode ?? null,
   })
 }
 

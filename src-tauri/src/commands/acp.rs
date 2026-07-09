@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -15,10 +16,14 @@ use crate::acp::preflight::{self, PreflightResult};
 use crate::acp::registry;
 use crate::acp::types::{
     AcpAgentInfo, AgentSkillContent, AgentSkillItem, AgentSkillLayout, AgentSkillLocation,
-    AgentSkillScope, AgentSkillsListResult, ConfigStaleKind, ConnectionStatus,
+    AgentSkillScope, AgentSkillSyncMode, AgentSkillsListResult, ConfigStaleKind, ConnectionStatus,
 };
 #[cfg(feature = "tauri-runtime")]
 use crate::acp::types::{ConnectionInfo, ForkResultInfo, PromptInputBlock};
+use crate::commands::experts::{
+    central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, read_link_target,
+    ExpertLinkState,
+};
 use crate::db::service::agent_setting_service;
 use crate::db::service::model_provider_service;
 use crate::db::AppDatabase;
@@ -27,7 +32,6 @@ use crate::web::event_bridge::EventEmitter;
 
 const ACP_AGENTS_UPDATED_EVENT: &str = "app://acp-agents-updated";
 const NPM_PREFIX_TIMEOUT: Duration = Duration::from_millis(1500);
-
 static NPM_GLOBAL_PREFIX_CACHE: tokio::sync::OnceCell<PathBuf> = tokio::sync::OnceCell::const_new();
 
 #[derive(Serialize, Clone)]
@@ -4578,6 +4582,7 @@ fn build_skill_item(
     scope: AgentSkillScope,
     layout: AgentSkillLayout,
     path: PathBuf,
+    enabled: bool,
 ) -> AgentSkillItem {
     let description = read_skill_description(&skill_content_path(layout, &path));
     AgentSkillItem {
@@ -4587,8 +4592,440 @@ fn build_skill_item(
         layout,
         path: path.to_string_lossy().to_string(),
         description,
+        enabled,
+        copy_mode: false,
         read_only: false,
     }
+}
+
+const DISABLED_SKILLS_DIR: &str = ".iyw-claw-disabled";
+const SHARED_SKILL_COPY_MARKER: &str = ".iyw-claw-managed-copy.json";
+
+fn disabled_skills_dir(dir: &Path) -> PathBuf {
+    dir.join(DISABLED_SKILLS_DIR)
+}
+
+fn shared_skills_dir() -> PathBuf {
+    central_experts_dir()
+}
+
+fn shared_skill_path(skill_id: &str) -> PathBuf {
+    shared_skills_dir().join(skill_id)
+}
+
+fn is_reserved_shared_skill_id(skill_id: &str) -> bool {
+    is_bundled_expert_id(skill_id) || crate::commands::office_tools::is_officecli_skill_id(skill_id)
+}
+
+fn ensure_shared_skill_writable(skill_id: &str) -> Result<(), AcpError> {
+    if is_reserved_shared_skill_id(skill_id) {
+        return Err(AcpError::protocol(format!(
+            "skill '{skill_id}' is managed by iyw-claw and cannot be modified here"
+        )));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SharedSkillCopyMarker {
+    skill_id: String,
+    source_path: String,
+}
+
+fn shared_copy_marker_path(path: &Path) -> PathBuf {
+    path.join(SHARED_SKILL_COPY_MARKER)
+}
+
+fn shared_copy_marker_matches(path: &Path, source: &Path, skill_id: &str) -> bool {
+    let Ok(content) = fs::read_to_string(shared_copy_marker_path(path)) else {
+        return false;
+    };
+    let Ok(marker) = serde_json::from_str::<SharedSkillCopyMarker>(&content) else {
+        return false;
+    };
+    marker.skill_id == skill_id && marker.source_path == source.to_string_lossy().as_ref()
+}
+
+fn write_shared_copy_marker(path: &Path, source: &Path, skill_id: &str) -> Result<(), AcpError> {
+    let marker = SharedSkillCopyMarker {
+        skill_id: skill_id.to_string(),
+        source_path: source.to_string_lossy().to_string(),
+    };
+    let serialized = serde_json::to_string_pretty(&marker)
+        .map_err(|e| AcpError::protocol(format!("failed to serialize copy marker: {e}")))?;
+    fs::write(shared_copy_marker_path(path), serialized)
+        .map_err(|e| AcpError::protocol(format!("failed to write copy marker: {e}")))
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ft.is_dir() {
+            copy_dir_recursive(&from, &to)?;
+        } else if ft.is_file() {
+            fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+fn shared_skill_publish_dirs(agent_type: AgentType) -> Result<Vec<PathBuf>, AcpError> {
+    scoped_skill_dirs(agent_type, AgentSkillScope::Global, None)
+}
+
+fn preferred_shared_skill_publish_path(
+    agent_type: AgentType,
+    skill_id: &str,
+) -> Result<PathBuf, AcpError> {
+    preferred_scope_skill_dir(agent_type, AgentSkillScope::Global, None)
+        .map(|dir| dir.join(skill_id))
+}
+
+fn shared_skill_publish_status(
+    agent_type: AgentType,
+    source: &Path,
+    skill_id: &str,
+) -> Result<(bool, bool), AcpError> {
+    for dir in shared_skill_publish_dirs(agent_type)? {
+        let candidate = dir.join(skill_id);
+        if !path_entry_exists(&candidate) {
+            continue;
+        }
+        if classify_link(&candidate, source) == ExpertLinkState::LinkedToIywClaw {
+            return Ok((true, false));
+        }
+        if shared_copy_marker_matches(&candidate, source, skill_id) {
+            return Ok((true, true));
+        }
+    }
+    Ok((false, false))
+}
+
+fn build_shared_skill_item_for_agent(
+    agent_type: AgentType,
+    skill_id: String,
+) -> Result<AgentSkillItem, AcpError> {
+    let source = shared_skill_path(&skill_id);
+    let mut skill = locate_existing_skill(
+        &shared_skills_dir(),
+        SkillStorageKind::SkillDirectoryOnly,
+        &skill_id,
+        AgentSkillScope::Global,
+        false,
+    )
+    .ok_or_else(|| AcpError::protocol(format!("skill not found: {skill_id}")))?;
+    let (enabled, copy_mode) = shared_skill_publish_status(agent_type, &source, &skill_id)?;
+    skill.enabled = enabled;
+    skill.copy_mode = copy_mode;
+    skill.read_only = is_reserved_shared_skill_id(&skill_id);
+    Ok(skill)
+}
+
+fn list_shared_skills_for_agent(
+    agent_type: AgentType,
+    include_unpublished: bool,
+) -> Result<Vec<AgentSkillItem>, AcpError> {
+    let mut skills = list_skills_from_dir(
+        AgentSkillScope::Global,
+        &shared_skills_dir(),
+        SkillStorageKind::SkillDirectoryOnly,
+        false,
+    )?;
+    skills.retain(|skill| !is_reserved_shared_skill_id(&skill.id));
+    for skill in &mut skills {
+        let source = PathBuf::from(&skill.path);
+        let (enabled, copy_mode) = shared_skill_publish_status(agent_type, &source, &skill.id)?;
+        skill.enabled = enabled;
+        skill.copy_mode = copy_mode;
+    }
+    if !include_unpublished {
+        skills.retain(|skill| skill.enabled);
+    }
+    Ok(skills)
+}
+
+fn list_read_only_global_native_skills(
+    agent_type: AgentType,
+    spec: &SkillStorageSpec,
+) -> Result<Vec<AgentSkillItem>, AcpError> {
+    let mut out = Vec::new();
+    for dir in &spec.global_dirs {
+        for mut skill in list_skills_from_dir(AgentSkillScope::Global, dir, spec.kind, false)? {
+            if !is_read_only_skill_path(agent_type, Path::new(&skill.path)) {
+                continue;
+            }
+            skill.enabled = true;
+            skill.copy_mode = false;
+            skill.read_only = true;
+            out.push(skill);
+        }
+    }
+    Ok(out)
+}
+
+fn locate_read_only_global_native_skill(
+    agent_type: AgentType,
+    spec: &SkillStorageSpec,
+    skill_id: &str,
+) -> Option<AgentSkillItem> {
+    for dir in &spec.global_dirs {
+        let Some(mut skill) =
+            locate_existing_skill(dir, spec.kind, skill_id, AgentSkillScope::Global, false)
+        else {
+            continue;
+        };
+        set_skill_read_only(agent_type, &mut skill);
+        if skill.read_only {
+            return Some(skill);
+        }
+    }
+    None
+}
+
+fn import_native_skill_to_shared_source(
+    skill: &AgentSkillItem,
+    skill_id: &str,
+) -> Result<(), AcpError> {
+    let target = shared_skill_path(skill_id);
+    if target.join("SKILL.md").is_file() {
+        return Ok(());
+    }
+    if path_entry_exists(&target) {
+        return Err(AcpError::protocol(format!(
+            "shared skill target already exists and is not a valid skill: {}",
+            target.to_string_lossy()
+        )));
+    }
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            AcpError::protocol(format!("failed to create shared skills directory: {e}"))
+        })?;
+    }
+
+    let source_path = PathBuf::from(&skill.path);
+    match skill.layout {
+        AgentSkillLayout::SkillDirectory => {
+            copy_dir_recursive(&source_path, &target)
+                .map_err(|e| AcpError::protocol(format!("failed to import skill: {e}")))?;
+        }
+        AgentSkillLayout::MarkdownFile => {
+            fs::create_dir_all(&target)
+                .map_err(|e| AcpError::protocol(format!("failed to create skill: {e}")))?;
+            let content_path = skill_content_path(skill.layout, &source_path);
+            fs::copy(&content_path, target.join("SKILL.md"))
+                .map_err(|e| AcpError::protocol(format!("failed to import skill: {e}")))?;
+        }
+    }
+
+    if !target.join("SKILL.md").is_file() {
+        return Err(AcpError::protocol(format!(
+            "imported skill does not contain SKILL.md: {skill_id}"
+        )));
+    }
+    Ok(())
+}
+
+fn skill_capable_agent_types() -> [AgentType; 10] {
+    [
+        AgentType::ClaudeCode,
+        AgentType::Codex,
+        AgentType::OpenCode,
+        AgentType::Gemini,
+        AgentType::OpenClaw,
+        AgentType::Cline,
+        AgentType::Hermes,
+        AgentType::CodeBuddy,
+        AgentType::KimiCode,
+        AgentType::Pi,
+    ]
+}
+
+fn take_over_read_only_global_native_skill(
+    agent_type: AgentType,
+    spec: &SkillStorageSpec,
+    skill_id: &str,
+    sync_mode: AgentSkillSyncMode,
+) -> Result<AgentSkillItem, AcpError> {
+    ensure_shared_skill_writable(skill_id)?;
+
+    let source = shared_skill_path(skill_id);
+    if !source.join("SKILL.md").is_file() {
+        let native = locate_read_only_global_native_skill(agent_type, spec, skill_id)
+            .ok_or_else(|| AcpError::protocol(format!("built-in skill not found: {skill_id}")))?;
+        import_native_skill_to_shared_source(&native, skill_id)?;
+    }
+
+    publish_shared_skill_to_all_agents(agent_type, skill_id, sync_mode)
+}
+
+fn auto_take_over_read_only_global_native_skills(
+    agent_type: AgentType,
+    spec: &SkillStorageSpec,
+) -> Result<(), AcpError> {
+    for skill in list_read_only_global_native_skills(agent_type, spec)? {
+        if is_reserved_shared_skill_id(&skill.id) {
+            continue;
+        }
+        let source = shared_skill_path(&skill.id);
+        if source.join("SKILL.md").is_file() {
+            continue;
+        }
+        take_over_read_only_global_native_skill(
+            agent_type,
+            spec,
+            &skill.id,
+            AgentSkillSyncMode::default(),
+        )?;
+    }
+    Ok(())
+}
+
+fn auto_take_over_read_only_global_native_skills_for_all_agents() -> Result<(), AcpError> {
+    for agent_type in skill_capable_agent_types() {
+        let Some(spec) = skill_storage_spec(agent_type) else {
+            continue;
+        };
+        auto_take_over_read_only_global_native_skills(agent_type, &spec)?;
+    }
+    Ok(())
+}
+
+fn ensure_shared_publish_target_available(
+    target: &Path,
+    source: &Path,
+    skill_id: &str,
+) -> Result<(), AcpError> {
+    if !path_entry_exists(target) {
+        return Ok(());
+    }
+    if classify_link(target, source) == ExpertLinkState::LinkedToIywClaw {
+        remove_skill_entry(target)
+            .map_err(|e| AcpError::protocol(format!("failed to replace existing link: {e}")))?;
+        return Ok(());
+    }
+    if shared_copy_marker_matches(target, source, skill_id) {
+        remove_skill_entry(target)
+            .map_err(|e| AcpError::protocol(format!("failed to replace existing copy: {e}")))?;
+        return Ok(());
+    }
+    let found = read_link_target(target)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| target.to_string_lossy().to_string());
+    Err(AcpError::protocol(format!(
+        "skill target already exists and is not managed by iyw-claw: {found}"
+    )))
+}
+
+fn publish_shared_skill_to_agent(
+    agent_type: AgentType,
+    skill_id: &str,
+    sync_mode: AgentSkillSyncMode,
+) -> Result<AgentSkillItem, AcpError> {
+    let source = shared_skill_path(skill_id);
+    if !source.join("SKILL.md").is_file() {
+        return Err(AcpError::protocol(format!("skill not found: {skill_id}")));
+    }
+    let target = preferred_shared_skill_publish_path(agent_type, skill_id)?;
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| {
+            AcpError::protocol(format!("failed to create agent skills directory: {e}"))
+        })?;
+    }
+    ensure_shared_publish_target_available(&target, &source, skill_id)?;
+
+    let copy_mode = match sync_mode {
+        AgentSkillSyncMode::Symlink => match create_link_raw(&source, &target) {
+            Ok(is_copy) => {
+                if is_copy {
+                    write_shared_copy_marker(&target, &source, skill_id)?;
+                }
+                is_copy
+            }
+            Err(err) => {
+                return Err(AcpError::protocol(format!(
+                    "failed to link skill into agent directory: {err}"
+                )));
+            }
+        },
+        AgentSkillSyncMode::Copy => {
+            copy_dir_recursive(&source, &target)
+                .map_err(|e| AcpError::protocol(format!("failed to copy skill: {e}")))?;
+            write_shared_copy_marker(&target, &source, skill_id)?;
+            true
+        }
+    };
+
+    let mut skill = build_shared_skill_item_for_agent(agent_type, skill_id.to_string())?;
+    skill.enabled = true;
+    skill.copy_mode = copy_mode;
+    Ok(skill)
+}
+
+fn publish_shared_skill_to_all_agents(
+    primary_agent_type: AgentType,
+    skill_id: &str,
+    sync_mode: AgentSkillSyncMode,
+) -> Result<AgentSkillItem, AcpError> {
+    let mut primary = None;
+    for agent_type in skill_capable_agent_types() {
+        let published = publish_shared_skill_to_agent(agent_type, skill_id, sync_mode)?;
+        if agent_type == primary_agent_type {
+            primary = Some(published);
+        }
+    }
+    primary.ok_or_else(|| {
+        AcpError::protocol(format!(
+            "{primary_agent_type} skills are not supported in Settings yet"
+        ))
+    })
+}
+
+fn publish_existing_shared_skills_to_all_agents() -> Result<(), AcpError> {
+    let skills = list_skills_from_dir(
+        AgentSkillScope::Global,
+        &shared_skills_dir(),
+        SkillStorageKind::SkillDirectoryOnly,
+        false,
+    )?;
+    for skill in skills {
+        if is_reserved_shared_skill_id(&skill.id) {
+            continue;
+        }
+        publish_shared_skill_to_all_agents(
+            AgentType::Codex,
+            &skill.id,
+            AgentSkillSyncMode::default(),
+        )?;
+    }
+    Ok(())
+}
+
+fn remove_shared_skill_publications(skill_id: &str) -> Result<(), AcpError> {
+    let source = shared_skill_path(skill_id);
+    for agent in skill_capable_agent_types() {
+        let Ok(dirs) = shared_skill_publish_dirs(agent) else {
+            continue;
+        };
+        for dir in dirs {
+            let candidate = dir.join(skill_id);
+            if !path_entry_exists(&candidate) {
+                continue;
+            }
+            let linked = classify_link(&candidate, &source) == ExpertLinkState::LinkedToIywClaw;
+            let copied = shared_copy_marker_matches(&candidate, &source, skill_id);
+            if linked || copied {
+                remove_skill_entry(&candidate).map_err(|e| {
+                    AcpError::protocol(format!("failed to remove published skill: {e}"))
+                })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Codex ships a handful of built-in skills under `~/.codex/skills/.system/`
@@ -4660,19 +5097,47 @@ pub(crate) fn remove_skill_entry(path: &Path) -> std::io::Result<()> {
     fs::remove_file(path)
 }
 
-pub(crate) fn list_skills_from_dir(
+fn path_entry_exists(path: &Path) -> bool {
+    path.exists() || fs::symlink_metadata(path).is_ok()
+}
+
+fn move_skill_entry(source: &Path, target: &Path) -> Result<(), AcpError> {
+    if !path_entry_exists(source) {
+        return Err(AcpError::protocol("skill entry does not exist"));
+    }
+    if path_entry_exists(target) {
+        return Err(AcpError::protocol(format!(
+            "target skill entry already exists: {}",
+            target.display()
+        )));
+    }
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| AcpError::protocol(format!("failed to create skill directory: {e}")))?;
+    }
+    fs::rename(source, target).map_err(|e| {
+        AcpError::protocol(format!(
+            "failed to move skill entry from '{}' to '{}': {e}",
+            source.display(),
+            target.display()
+        ))
+    })
+}
+
+fn collect_skills_from_dir(
     scope: AgentSkillScope,
     dir: &Path,
     kind: SkillStorageKind,
-) -> Result<Vec<AgentSkillItem>, AcpError> {
+    enabled: bool,
+    by_id: &mut BTreeMap<String, AgentSkillItem>,
+) -> Result<(), AcpError> {
     if !dir.exists() {
-        return Ok(Vec::new());
+        return Ok(());
     }
 
     let entries = fs::read_dir(dir)
         .map_err(|e| AcpError::protocol(format!("failed to read skills directory: {e}")))?;
 
-    let mut by_id: BTreeMap<String, AgentSkillItem> = BTreeMap::new();
     for entry in entries {
         let entry = match entry {
             Ok(value) => value,
@@ -4693,9 +5158,12 @@ pub(crate) fn list_skills_from_dir(
             if !skill_doc.is_file() {
                 continue;
             }
+            if by_id.contains_key(&id) {
+                continue;
+            }
             by_id.insert(
                 id.clone(),
-                build_skill_item(id, scope, AgentSkillLayout::SkillDirectory, path),
+                build_skill_item(id, scope, AgentSkillLayout::SkillDirectory, path, enabled),
             );
             continue;
         }
@@ -4714,11 +5182,25 @@ pub(crate) fn list_skills_from_dir(
             }
             by_id.insert(
                 stem.clone(),
-                build_skill_item(stem, scope, AgentSkillLayout::MarkdownFile, path),
+                build_skill_item(stem, scope, AgentSkillLayout::MarkdownFile, path, enabled),
             );
         }
     }
 
+    Ok(())
+}
+
+pub(crate) fn list_skills_from_dir(
+    scope: AgentSkillScope,
+    dir: &Path,
+    kind: SkillStorageKind,
+    include_disabled: bool,
+) -> Result<Vec<AgentSkillItem>, AcpError> {
+    let mut by_id: BTreeMap<String, AgentSkillItem> = BTreeMap::new();
+    collect_skills_from_dir(scope, dir, kind, true, &mut by_id)?;
+    if include_disabled {
+        collect_skills_from_dir(scope, &disabled_skills_dir(dir), kind, false, &mut by_id)?;
+    }
     Ok(by_id.into_values().collect())
 }
 
@@ -4727,6 +5209,7 @@ fn locate_existing_skill(
     kind: SkillStorageKind,
     skill_id: &str,
     scope: AgentSkillScope,
+    enabled: bool,
 ) -> Option<AgentSkillItem> {
     if matches!(
         kind,
@@ -4739,6 +5222,7 @@ fn locate_existing_skill(
                 scope,
                 AgentSkillLayout::SkillDirectory,
                 skill_dir,
+                enabled,
             ));
         }
     }
@@ -4751,6 +5235,7 @@ fn locate_existing_skill(
                 scope,
                 AgentSkillLayout::MarkdownFile,
                 file_path,
+                enabled,
             ));
         }
     }
@@ -4763,13 +5248,73 @@ fn locate_existing_skill_across_dirs(
     kind: SkillStorageKind,
     skill_id: &str,
     scope: AgentSkillScope,
+    include_disabled: bool,
 ) -> Option<AgentSkillItem> {
     for dir in dirs {
-        if let Some(found) = locate_existing_skill(dir, kind, skill_id, scope) {
+        if let Some(found) = locate_existing_skill(dir, kind, skill_id, scope, true) {
+            return Some(found);
+        }
+    }
+    if include_disabled {
+        for dir in dirs {
+            let disabled_dir = disabled_skills_dir(dir);
+            if let Some(found) = locate_existing_skill(&disabled_dir, kind, skill_id, scope, false)
+            {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn locate_disabled_skill_across_dirs(
+    dirs: &[PathBuf],
+    kind: SkillStorageKind,
+    skill_id: &str,
+    scope: AgentSkillScope,
+) -> Option<AgentSkillItem> {
+    for dir in dirs {
+        let disabled_dir = disabled_skills_dir(dir);
+        if let Some(found) = locate_existing_skill(&disabled_dir, kind, skill_id, scope, false) {
             return Some(found);
         }
     }
     None
+}
+
+fn set_skill_read_only(agent_type: AgentType, skill: &mut AgentSkillItem) {
+    if is_read_only_skill_path(agent_type, Path::new(&skill.path)) {
+        skill.read_only = true;
+    }
+}
+
+fn disabled_path_for_active_skill(skill: &AgentSkillItem) -> Result<PathBuf, AcpError> {
+    let active_path = PathBuf::from(&skill.path);
+    let active_dir = active_path
+        .parent()
+        .ok_or_else(|| AcpError::protocol("skill path has no parent directory"))?;
+    let disabled_dir = disabled_skills_dir(active_dir);
+    Ok(match skill.layout {
+        AgentSkillLayout::SkillDirectory => disabled_dir.join(&skill.id),
+        AgentSkillLayout::MarkdownFile => disabled_dir.join(format!("{}.md", skill.id)),
+    })
+}
+
+fn active_path_for_disabled_skill(skill: &AgentSkillItem) -> Result<PathBuf, AcpError> {
+    let disabled_path = PathBuf::from(&skill.path);
+    let disabled_dir = disabled_path
+        .parent()
+        .ok_or_else(|| AcpError::protocol("disabled skill path has no parent directory"))?;
+    if disabled_dir.file_name().and_then(|name| name.to_str()) != Some(DISABLED_SKILLS_DIR) {
+        return Err(AcpError::protocol("skill is not in the disabled store"));
+    }
+    let active_dir = disabled_dir
+        .parent()
+        .ok_or_else(|| AcpError::protocol("disabled store has no parent directory"))?;
+    Ok(match skill.layout {
+        AgentSkillLayout::SkillDirectory => active_dir.join(&skill.id),
+        AgentSkillLayout::MarkdownFile => active_dir.join(format!("{}.md", skill.id)),
+    })
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -7421,6 +7966,7 @@ pub async fn acp_reorder_agents(
 pub async fn acp_list_agent_skills(
     agent_type: AgentType,
     workspace_path: Option<String>,
+    include_disabled: Option<bool>,
 ) -> Result<AgentSkillsListResult, AcpError> {
     let Some(spec) = skill_storage_spec(agent_type) else {
         return Ok(AgentSkillsListResult {
@@ -7431,20 +7977,33 @@ pub async fn acp_list_agent_skills(
         });
     };
 
+    let include_disabled = include_disabled.unwrap_or(false);
     let mut locations = Vec::new();
     let mut skills_by_key: BTreeMap<String, AgentSkillItem> = BTreeMap::new();
 
-    for dir in &spec.global_dirs {
-        locations.push(AgentSkillLocation {
-            scope: AgentSkillScope::Global,
-            path: dir.to_string_lossy().to_string(),
-            exists: dir.exists(),
+    if include_disabled {
+        auto_take_over_read_only_global_native_skills_for_all_agents()?;
+        publish_existing_shared_skills_to_all_agents()?;
+    }
+
+    let shared_dir = shared_skills_dir();
+    locations.push(AgentSkillLocation {
+        scope: AgentSkillScope::Global,
+        path: shared_dir.to_string_lossy().to_string(),
+        exists: shared_dir.exists(),
+    });
+    for mut skill in list_shared_skills_for_agent(agent_type, include_disabled)? {
+        let key = format!("global:{}", skill.id);
+        set_skill_read_only(agent_type, &mut skill);
+        skills_by_key.entry(key).or_insert(skill);
+    }
+
+    for mut skill in list_read_only_global_native_skills(agent_type, &spec)? {
+        let key = format!("global:{}", skill.id);
+        skills_by_key.entry(key).or_insert_with(|| {
+            set_skill_read_only(agent_type, &mut skill);
+            skill
         });
-        let listed = list_skills_from_dir(AgentSkillScope::Global, dir, spec.kind)?;
-        for skill in listed {
-            let key = format!("global:{}", skill.id);
-            skills_by_key.entry(key).or_insert(skill);
-        }
     }
 
     if let Some(workspace) = workspace_path.as_deref().map(str::trim) {
@@ -7456,8 +8015,12 @@ pub async fn acp_list_agent_skills(
                     path: project_dir.to_string_lossy().to_string(),
                     exists: project_dir.exists(),
                 });
-                let listed =
-                    list_skills_from_dir(AgentSkillScope::Project, &project_dir, spec.kind)?;
+                let listed = list_skills_from_dir(
+                    AgentSkillScope::Project,
+                    &project_dir,
+                    spec.kind,
+                    include_disabled,
+                )?;
                 for skill in listed {
                     let key = format!("project:{}", skill.id);
                     skills_by_key.entry(key).or_insert(skill);
@@ -7468,9 +8031,7 @@ pub async fn acp_list_agent_skills(
 
     let mut skills = skills_by_key.into_values().collect::<Vec<_>>();
     for skill in &mut skills {
-        if is_read_only_skill_path(agent_type, Path::new(&skill.path)) {
-            skill.read_only = true;
-        }
+        set_skill_read_only(agent_type, skill);
     }
     skills.sort_by(|a, b| {
         scope_rank(a.scope)
@@ -7499,17 +8060,40 @@ pub async fn acp_read_agent_skill(
         )));
     };
     let id = validate_skill_id(&skill_id)?;
+
+    if scope == AgentSkillScope::Global {
+        if let Ok(skill) = build_shared_skill_item_for_agent(agent_type, id.clone()) {
+            let content_path = skill_content_path(skill.layout, Path::new(&skill.path));
+            let content = fs::read_to_string(&content_path)
+                .map_err(|e| AcpError::protocol(format!("failed to read skill content: {e}")))?;
+            return Ok(AgentSkillContent { skill, content });
+        }
+    }
+
     let dirs = scoped_skill_dirs(agent_type, scope, workspace_path.as_deref())?;
 
-    let mut skill = locate_existing_skill_across_dirs(&dirs, spec.kind, &id, scope)
+    let mut skill = locate_existing_skill_across_dirs(&dirs, spec.kind, &id, scope, true)
         .ok_or_else(|| AcpError::protocol(format!("skill not found: {id}")))?;
-    if is_read_only_skill_path(agent_type, Path::new(&skill.path)) {
-        skill.read_only = true;
-    }
+    set_skill_read_only(agent_type, &mut skill);
     let content_path = skill_content_path(skill.layout, Path::new(&skill.path));
     let content = fs::read_to_string(&content_path)
         .map_err(|e| AcpError::protocol(format!("failed to read skill content: {e}")))?;
     Ok(AgentSkillContent { skill, content })
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn acp_take_over_agent_skill(
+    agent_type: AgentType,
+    skill_id: String,
+    sync_mode: Option<AgentSkillSyncMode>,
+) -> Result<AgentSkillItem, AcpError> {
+    let Some(spec) = skill_storage_spec(agent_type) else {
+        return Err(AcpError::protocol(format!(
+            "{agent_type} skills are not supported in Settings yet"
+        )));
+    };
+    let id = validate_skill_id(&skill_id)?;
+    take_over_read_only_global_native_skill(agent_type, &spec, &id, sync_mode.unwrap_or_default())
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
@@ -7520,6 +8104,7 @@ pub async fn acp_save_agent_skill(
     content: String,
     workspace_path: Option<String>,
     layout: Option<AgentSkillLayout>,
+    sync_mode: Option<AgentSkillSyncMode>,
 ) -> Result<AgentSkillItem, AcpError> {
     let Some(spec) = skill_storage_spec(agent_type) else {
         return Err(AcpError::protocol(format!(
@@ -7527,13 +8112,38 @@ pub async fn acp_save_agent_skill(
         )));
     };
     let id = validate_skill_id(&skill_id)?;
+
+    if scope == AgentSkillScope::Global {
+        ensure_shared_skill_writable(&id)?;
+        let source = shared_skill_path(&id);
+        let existed = source.join("SKILL.md").is_file();
+        let was_copy_mode = if existed {
+            shared_skill_publish_status(agent_type, &source, &id)?.1
+        } else {
+            false
+        };
+
+        fs::create_dir_all(&source)
+            .map_err(|e| AcpError::protocol(format!("failed to create shared skill: {e}")))?;
+        let content_path = source.join("SKILL.md");
+        fs::write(&content_path, content)
+            .map_err(|e| AcpError::protocol(format!("failed to write skill content: {e}")))?;
+
+        let mode = sync_mode.unwrap_or(if was_copy_mode {
+            AgentSkillSyncMode::Copy
+        } else {
+            AgentSkillSyncMode::Symlink
+        });
+        return publish_shared_skill_to_all_agents(agent_type, &id, mode);
+    }
+
     let dirs = scoped_skill_dirs(agent_type, scope, workspace_path.as_deref())?;
     let preferred_dir = preferred_scope_skill_dir(agent_type, scope, workspace_path.as_deref())?;
 
     fs::create_dir_all(&preferred_dir)
         .map_err(|e| AcpError::protocol(format!("failed to create skills directory: {e}")))?;
 
-    let existing = locate_existing_skill_across_dirs(&dirs, spec.kind, &id, scope);
+    let existing = locate_existing_skill_across_dirs(&dirs, spec.kind, &id, scope, true);
     if let Some(ref item) = existing {
         if is_read_only_skill_path(agent_type, Path::new(&item.path)) {
             return Err(AcpError::protocol(format!(
@@ -7554,7 +8164,7 @@ pub async fn acp_save_agent_skill(
             AgentSkillLayout::SkillDirectory => preferred_dir.join(&id),
             AgentSkillLayout::MarkdownFile => preferred_dir.join(format!("{id}.md")),
         };
-        build_skill_item(id.clone(), scope, new_layout, skill_path)
+        build_skill_item(id.clone(), scope, new_layout, skill_path, true)
     };
 
     let skill_path = PathBuf::from(&skill.path);
@@ -7582,6 +8192,71 @@ pub async fn acp_save_agent_skill(
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn acp_set_agent_skill_enabled(
+    agent_type: AgentType,
+    scope: AgentSkillScope,
+    skill_id: String,
+    workspace_path: Option<String>,
+    enabled: bool,
+    sync_mode: Option<AgentSkillSyncMode>,
+) -> Result<AgentSkillItem, AcpError> {
+    let Some(spec) = skill_storage_spec(agent_type) else {
+        return Err(AcpError::protocol(format!(
+            "{agent_type} skills are not supported in Settings yet"
+        )));
+    };
+    let id = validate_skill_id(&skill_id)?;
+
+    if scope == AgentSkillScope::Global {
+        ensure_shared_skill_writable(&id)?;
+        if enabled {
+            return publish_shared_skill_to_all_agents(
+                agent_type,
+                &id,
+                sync_mode.unwrap_or_default(),
+            );
+        }
+        remove_shared_skill_publications(&id)?;
+        return build_shared_skill_item_for_agent(agent_type, id);
+    }
+
+    let dirs = scoped_skill_dirs(agent_type, scope, workspace_path.as_deref())?;
+    let active = locate_existing_skill_across_dirs(&dirs, spec.kind, &id, scope, false);
+
+    if enabled {
+        if let Some(mut skill) = active {
+            set_skill_read_only(agent_type, &mut skill);
+            return Ok(skill);
+        }
+        let disabled_skill = locate_disabled_skill_across_dirs(&dirs, spec.kind, &id, scope)
+            .ok_or_else(|| AcpError::protocol(format!("skill not found: {id}")))?;
+        let target = active_path_for_disabled_skill(&disabled_skill)?;
+        move_skill_entry(Path::new(&disabled_skill.path), &target)?;
+        let mut skill = build_skill_item(id, scope, disabled_skill.layout, target, true);
+        set_skill_read_only(agent_type, &mut skill);
+        return Ok(skill);
+    }
+
+    if active.is_none() {
+        let mut skill = locate_disabled_skill_across_dirs(&dirs, spec.kind, &id, scope)
+            .ok_or_else(|| AcpError::protocol(format!("skill not found: {id}")))?;
+        set_skill_read_only(agent_type, &mut skill);
+        return Ok(skill);
+    }
+
+    let mut skill = active.expect("active checked above");
+    set_skill_read_only(agent_type, &mut skill);
+    if skill.read_only {
+        return Err(AcpError::protocol(format!(
+            "skill '{id}' is a built-in system skill and cannot be disabled"
+        )));
+    }
+    let target = disabled_path_for_active_skill(&skill)?;
+    move_skill_entry(Path::new(&skill.path), &target)?;
+    Ok(build_skill_item(id, scope, skill.layout, target, false))
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn acp_delete_agent_skill(
     agent_type: AgentType,
     scope: AgentSkillScope,
@@ -7594,9 +8269,22 @@ pub async fn acp_delete_agent_skill(
         )));
     };
     let id = validate_skill_id(&skill_id)?;
+
+    if scope == AgentSkillScope::Global {
+        ensure_shared_skill_writable(&id)?;
+        let skill_path = shared_skill_path(&id);
+        if !skill_path.join("SKILL.md").is_file() {
+            return Err(AcpError::protocol(format!("skill not found: {id}")));
+        }
+        remove_shared_skill_publications(&id)?;
+        remove_skill_entry(&skill_path)
+            .map_err(|e| AcpError::protocol(format!("failed to delete skill entry: {e}")))?;
+        return Ok(());
+    }
+
     let dirs = scoped_skill_dirs(agent_type, scope, workspace_path.as_deref())?;
 
-    let skill = locate_existing_skill_across_dirs(&dirs, spec.kind, &id, scope)
+    let skill = locate_existing_skill_across_dirs(&dirs, spec.kind, &id, scope, true)
         .ok_or_else(|| AcpError::protocol(format!("skill not found: {id}")))?;
     if is_read_only_skill_path(agent_type, Path::new(&skill.path)) {
         return Err(AcpError::protocol(format!(
@@ -7910,6 +8598,60 @@ mod tests {
             .expect("canonicalize")
             .to_string_lossy()
             .to_string()
+    }
+
+    #[test]
+    fn list_skills_excludes_disabled_unless_requested() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let skills_dir = tmp.path();
+        fs::create_dir_all(skills_dir.join("active")).unwrap();
+        fs::write(skills_dir.join("active").join("SKILL.md"), "# Active").unwrap();
+
+        let disabled_dir = disabled_skills_dir(skills_dir);
+        fs::create_dir_all(disabled_dir.join("paused")).unwrap();
+        fs::write(disabled_dir.join("paused").join("SKILL.md"), "# Paused").unwrap();
+
+        let active_only = list_skills_from_dir(
+            AgentSkillScope::Global,
+            skills_dir,
+            SkillStorageKind::SkillDirectoryOnly,
+            false,
+        )
+        .expect("list active");
+        assert_eq!(active_only.len(), 1);
+        assert_eq!(active_only[0].id, "active");
+        assert!(active_only[0].enabled);
+
+        let all = list_skills_from_dir(
+            AgentSkillScope::Global,
+            skills_dir,
+            SkillStorageKind::SkillDirectoryOnly,
+            true,
+        )
+        .expect("list all");
+        assert_eq!(all.len(), 2);
+        let paused = all.iter().find(|skill| skill.id == "paused").unwrap();
+        assert!(!paused.enabled);
+        assert!(paused.path.contains(DISABLED_SKILLS_DIR));
+    }
+
+    #[test]
+    fn shared_copy_marker_matches_only_expected_source_and_skill() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let source = tmp.path().join("shared").join("my-skill");
+        let target = tmp.path().join("agent").join("my-skill");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&target).unwrap();
+
+        write_shared_copy_marker(&target, &source, "my-skill").unwrap();
+
+        assert!(shared_copy_marker_matches(&target, &source, "my-skill"));
+        assert!(!shared_copy_marker_matches(&target, &source, "other-skill"));
+        assert!(!shared_copy_marker_matches(
+            &target,
+            &tmp.path().join("shared").join("other-skill"),
+            "my-skill"
+        ));
     }
 
     #[test]

@@ -1504,6 +1504,7 @@ export interface AcpAgentStatus {
 
 export type AgentSkillScope = "global" | "project"
 export type AgentSkillLayout = "markdown_file" | "skill_directory"
+export type AgentSkillSyncMode = "symlink" | "copy"
 
 export interface AgentSkillLocation {
   scope: AgentSkillScope
@@ -1518,6 +1519,8 @@ export interface AgentSkillItem {
   layout: AgentSkillLayout
   path: string
   description: string | null
+  enabled: boolean
+  copy_mode: boolean
   read_only: boolean
 }
 

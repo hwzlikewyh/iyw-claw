@@ -277,6 +277,10 @@ fn find_metadata(expert_id: &str) -> Result<&'static ExpertMetadata, ExpertsErro
         .ok_or_else(|| ExpertsError::NotFound(expert_id.to_string()))
 }
 
+pub(crate) fn is_bundled_expert_id(expert_id: &str) -> bool {
+    bundled_metadata().iter().any(|m| m.id == expert_id)
+}
+
 // ─── Hashing ────────────────────────────────────────────────────────────
 
 fn hash_bundled_expert(expert_id: &str) -> Result<String, ExpertsError> {
