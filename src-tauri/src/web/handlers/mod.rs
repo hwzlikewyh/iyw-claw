@@ -19,7 +19,6 @@ pub mod mcp;
 pub mod model_provider;
 pub mod office_tools;
 pub mod office_watch_proxy;
-pub mod pet;
 pub mod question;
 pub mod quick_messages;
 pub mod session_info;

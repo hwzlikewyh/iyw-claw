@@ -95,6 +95,20 @@
       "default": "기본값",
       "current": "현재 확대/축소: {zoom}%"
     },
+    "sidebar": {
+      "sectionTitle": "Sidebar",
+      "sectionDescription": "Adjust conversation visibility, sorting, and section order.",
+      "showCompletedTitle": "Show completed conversations",
+      "showCompletedDescription": "Keep completed conversations visible in the left conversation list.",
+      "sortModeTitle": "Sort order",
+      "sortModeDescription": "Controls the order of conversations inside the folders and chat sections.",
+      "sortByCreatedAt": "Created time",
+      "sortByUpdatedAt": "Updated time",
+      "sectionOrderTitle": "Section order",
+      "sectionOrderDescription": "Choose whether folders or chats appear first in the sidebar.",
+      "sectionOrderFoldersFirst": "Folders first",
+      "sectionOrderChatsFirst": "Chats first"
+    },
     "fonts": {
       "sectionTitle": "글꼴",
       "sectionDescription": "인터페이스, 코드 편집기, 터미널의 글꼴을 각각 선택합니다. 내장 글꼴은 필요할 때 불러옵니다. “사용자 지정…”을 선택하면 시스템에 설치된 모든 글꼴을 사용할 수 있습니다.",

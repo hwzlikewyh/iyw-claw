@@ -95,6 +95,20 @@
       "default": "Padrão",
       "current": "Zoom atual: {zoom}%"
     },
+    "sidebar": {
+      "sectionTitle": "Sidebar",
+      "sectionDescription": "Adjust conversation visibility, sorting, and section order.",
+      "showCompletedTitle": "Show completed conversations",
+      "showCompletedDescription": "Keep completed conversations visible in the left conversation list.",
+      "sortModeTitle": "Sort order",
+      "sortModeDescription": "Controls the order of conversations inside the folders and chat sections.",
+      "sortByCreatedAt": "Created time",
+      "sortByUpdatedAt": "Updated time",
+      "sectionOrderTitle": "Section order",
+      "sectionOrderDescription": "Choose whether folders or chats appear first in the sidebar.",
+      "sectionOrderFoldersFirst": "Folders first",
+      "sectionOrderChatsFirst": "Chats first"
+    },
     "fonts": {
       "sectionTitle": "Fontes",
       "sectionDescription": "Escolha as fontes para a interface, o editor de código e o terminal. As fontes incluídas são carregadas sob demanda; selecione “Personalizada…” para usar qualquer fonte instalada no seu sistema.",

@@ -1,12 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useRef, useState, type ReactNode } from "react"
 import {
   ChevronsDownUp,
   ChevronsUpDown,
   Crosshair,
   FolderOpenDot,
-  Funnel,
   PackageCheck,
   SquarePen,
   Zap,
@@ -15,6 +14,7 @@ import {
 import { useTranslations } from "next-intl"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useSidebarContext } from "@/contexts/sidebar-context"
+import { useSidebarViewOptions } from "@/contexts/sidebar-view-options-context"
 import { useTabActions } from "@/contexts/tab-context"
 import { useAutomationsView } from "@/contexts/automations-view-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
@@ -24,30 +24,10 @@ import {
 } from "@/components/conversations/sidebar-conversation-list"
 import { SidebarAccountSettings } from "@/components/layout/sidebar-account-settings"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useIsMac } from "@/hooks/use-is-mac"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
 import { formatShortcutLabel } from "@/lib/keyboard-shortcuts"
-import {
-  loadShowCompleted,
-  loadSortMode,
-  loadSectionOrder,
-  saveShowCompleted,
-  saveSortMode,
-  saveSectionOrder,
-  type SidebarSortMode,
-  type SidebarSectionOrder,
-} from "@/lib/sidebar-view-mode-storage"
 import { cn } from "@/lib/utils"
 
 function getFolderName(path: string | undefined) {
@@ -56,17 +36,10 @@ function getFolderName(path: string | undefined) {
   return normalized.split("/").filter(Boolean).pop() ?? normalized
 }
 
-// Keyboard-shortcut hint at the trailing edge of fixed sidebar rows.
-// Mirrors the folder count badge exactly — same chip (0.9375rem height,
-// 0.3125rem radius, bg-primary/10, text-primary, 0.625rem text) per the request
-// to match it. That pairing is also solidly legible (text-primary on
-// primary/10 ≈ 14:1 light / 11:1 dark), unlike the muted-on-muted kbd it
-// replaces (4.34:1). Revealed only on hover / keyboard focus of its row (each
-// row is a `group`); font-mono renders the shortcut glyphs cleanly.
-const SHORTCUT_BADGE_CLASS = cn(
+const PRIMARY_SHORTCUT_BADGE_CLASS = cn(
   "ml-auto inline-flex h-[0.9375rem] shrink-0 items-center justify-center",
-  "rounded-[0.3125rem] border border-sidebar-border/60 bg-sidebar-accent/60 px-[0.25rem]",
-  "font-mono text-[0.625rem] font-medium leading-none text-muted-foreground",
+  "rounded-[0.3125rem] border border-primary-foreground/25 bg-primary-foreground/15 px-[0.25rem]",
+  "font-mono text-[0.625rem] font-medium leading-none text-primary-foreground/85",
   "opacity-0 transition-opacity duration-150",
   "group-hover:opacity-100 group-focus-visible:opacity-100"
 )
@@ -102,20 +75,25 @@ function SidebarNavButton({
       title={label}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group flex w-full items-center gap-2.5 rounded-xl px-3",
+        "group relative flex w-full items-center gap-2.5 rounded-lg px-3",
         "text-[0.875rem] outline-none",
-        "transition-colors duration-150 hover:bg-sidebar-accent",
+        "transition-colors duration-150",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         isPrimary
-          ? "h-10 bg-sidebar-foreground text-sidebar hover:bg-sidebar-foreground/90"
+          ? "h-10 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
           : "h-9 text-sidebar-foreground/80",
-        active && "bg-sidebar-accent text-sidebar-foreground"
+        !isPrimary &&
+          "hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
+        active &&
+          !isPrimary &&
+          "bg-sidebar-accent text-sidebar-foreground before:absolute before:left-0 before:top-2 before:bottom-2 before:w-0.5 before:rounded-full before:bg-primary"
       )}
     >
       <Icon
         className={cn(
           "h-[0.875rem] w-[0.875rem] shrink-0",
-          isPrimary ? "text-sidebar" : "text-muted-foreground"
+          isPrimary ? "text-primary-foreground" : "text-muted-foreground",
+          active && !isPrimary && "text-primary"
         )}
       />
       <span className={cn("truncate", isPrimary && "font-medium")}>
@@ -138,49 +116,16 @@ export function Sidebar() {
   const isMobile = useIsMobile()
   const listRef = useRef<SidebarConversationListHandle>(null)
 
-  const [showCompleted, setShowCompleted] = useState(false)
-  const [sortMode, setSortMode] = useState<SidebarSortMode>("created")
-  const [sectionOrder, setSectionOrder] =
-    useState<SidebarSectionOrder>("folders-first")
+  const { showCompleted, sortMode, sectionOrder } = useSidebarViewOptions()
   const [allExpanded, setAllExpanded] = useState(true)
   const newConversationShortcutLabel = formatShortcutLabel(
     shortcuts.new_conversation,
     isMac
   )
-  // General umbrella name for the funnel menu (show-completed + sort + section
-  // order). Kept generic so the accessible name / tooltip stays accurate as the
-  // menu gains options.
-  const viewOptionsLabel = t("viewOptions")
   const toggleExpandLabel = allExpanded
     ? t("collapseAllGroups")
     : t("expandAllGroups")
   const activeFolderName = getFolderName(activeFolder?.path)
-
-  useEffect(() => {
-    // Hydrate from localStorage after mount to keep SSR/CSR markup consistent.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setShowCompleted(loadShowCompleted())
-    setSortMode(loadSortMode())
-    setSectionOrder(loadSectionOrder())
-  }, [])
-
-  const handleSetShowCompleted = useCallback((value: boolean) => {
-    setShowCompleted(value)
-    saveShowCompleted(value)
-  }, [])
-
-  const handleSetSortMode = useCallback((value: string) => {
-    const mode: SidebarSortMode = value === "updated" ? "updated" : "created"
-    setSortMode(mode)
-    saveSortMode(mode)
-  }, [])
-
-  const handleSetSectionOrder = useCallback((value: string) => {
-    const next: SidebarSectionOrder =
-      value === "chats-first" ? "chats-first" : "folders-first"
-    setSectionOrder(next)
-    saveSectionOrder(next)
-  }, [])
 
   const handleToggleExpandAll = useCallback(() => {
     if (allExpanded) {
@@ -209,94 +154,25 @@ export function Sidebar() {
   if (!isOpen) return null
 
   return (
-    <aside className="@container/sidebar flex h-full min-h-0 flex-col overflow-hidden border-r border-sidebar-border/70 bg-sidebar text-sidebar-foreground select-none">
-      <div className="shrink-0 border-b border-sidebar-border/70 px-3 pb-3 pt-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sidebar-foreground text-[0.8125rem] font-semibold text-sidebar shadow-sm">
-            N
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[0.8125rem] font-semibold text-sidebar-foreground">
-              iyw-claw
+    <aside className="@container/sidebar flex h-full min-h-0 flex-col overflow-hidden border-r border-sidebar-border/70 bg-sidebar/95 text-sidebar-foreground select-none">
+      <div className="shrink-0 border-b border-sidebar-border/70 p-3">
+        <div className="rounded-xl border border-sidebar-border/70 bg-sidebar-accent/35 p-2.5 shadow-sm shadow-black/[0.02]">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-[0.8125rem] font-semibold text-primary">
+              N
             </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
-              <FolderOpenDot className="h-3 w-3 shrink-0" aria-hidden />
-              <span className="truncate">{activeFolderName || t("title")}</span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[0.8125rem] font-semibold text-sidebar-foreground">
+                iyw-claw
+              </div>
+              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
+                <FolderOpenDot className="h-3 w-3 shrink-0" aria-hidden />
+                <span className="truncate">
+                  {activeFolderName || t("title")}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-sidebar-accent/45 p-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-full shrink-0 rounded-lg text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground"
-            onClick={() => listRef.current?.scrollToActive()}
-            title={t("locateActiveConversation")}
-            aria-label={t("locateActiveConversation")}
-          >
-            <Crosshair aria-hidden="true" className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-full shrink-0 rounded-lg text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground"
-            onClick={handleToggleExpandAll}
-            title={toggleExpandLabel}
-            aria-label={toggleExpandLabel}
-          >
-            {allExpanded ? (
-              <ChevronsDownUp aria-hidden="true" className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronsUpDown aria-hidden="true" className="h-3.5 w-3.5" />
-            )}
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-full shrink-0 rounded-lg text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground"
-                title={viewOptionsLabel}
-                aria-label={viewOptionsLabel}
-              >
-                <Funnel aria-hidden="true" className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuCheckboxItem
-                checked={showCompleted}
-                onCheckedChange={handleSetShowCompleted}
-              >
-                {t("showCompleted")}
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>{t("sortBy")}</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={sortMode}
-                onValueChange={handleSetSortMode}
-              >
-                <DropdownMenuRadioItem value="created">
-                  {t("sortByCreatedAt")}
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="updated">
-                  {t("sortByUpdatedAt")}
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>{t("sectionOrder")}</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={sectionOrder}
-                onValueChange={handleSetSectionOrder}
-              >
-                <DropdownMenuRadioItem value="folders-first">
-                  {t("sectionOrderFoldersFirst")}
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="chats-first">
-                  {t("sectionOrderChatsFirst")}
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
 
@@ -308,15 +184,33 @@ export function Sidebar() {
           tone="primary"
           trailing={
             newConversationShortcutLabel ? (
-              <kbd className={SHORTCUT_BADGE_CLASS}>
+              <kbd className={PRIMARY_SHORTCUT_BADGE_CLASS}>
                 {newConversationShortcutLabel}
               </kbd>
             ) : null
           }
         />
-        <div className="pt-1">
-          <div className="mb-1.5 px-1 text-[0.625rem] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            {t("title")}
+        <div className="rounded-xl border border-sidebar-border/70 bg-sidebar-accent/25 p-1">
+          <div className="mb-1 flex items-center justify-between gap-2 px-2 py-1">
+            <div className="text-[0.625rem] font-semibold text-muted-foreground">
+              {t("title")}
+            </div>
+            <div className="flex items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 shrink-0 rounded-md text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground"
+                onClick={handleToggleExpandAll}
+                title={toggleExpandLabel}
+                aria-label={toggleExpandLabel}
+              >
+                {allExpanded ? (
+                  <ChevronsDownUp aria-hidden="true" className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronsUpDown aria-hidden="true" className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </div>
           </div>
           <SidebarNavButton
             icon={Zap}
@@ -342,7 +236,7 @@ export function Sidebar() {
 
       {/* On mobile, clicking a conversation card auto-closes the Sheet */}
       <div
-        className="flex flex-col flex-1 min-h-0 overflow-hidden"
+        className="relative flex flex-col flex-1 min-h-0 overflow-hidden"
         onClick={
           isMobile
             ? (e) => {
@@ -360,6 +254,23 @@ export function Sidebar() {
           sortMode={sortMode}
           sectionOrder={sectionOrder}
         />
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "absolute right-3 bottom-3 z-20 h-8 w-8 rounded-full",
+            "border border-sidebar-border/80 bg-sidebar/90 text-muted-foreground shadow-md shadow-black/10 backdrop-blur",
+            "hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          )}
+          onClick={(event) => {
+            event.stopPropagation()
+            listRef.current?.scrollToActive()
+          }}
+          title={t("locateActiveConversation")}
+          aria-label={t("locateActiveConversation")}
+        >
+          <Crosshair aria-hidden="true" className="h-3.5 w-3.5" />
+        </Button>
       </div>
 
       <div className="flex shrink-0 flex-col border-t border-sidebar-border/70 bg-sidebar/95 px-2 py-2">

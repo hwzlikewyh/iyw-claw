@@ -95,6 +95,20 @@
       "default": "افتراضي",
       "current": "التكبير الحالي: {zoom}%"
     },
+    "sidebar": {
+      "sectionTitle": "Sidebar",
+      "sectionDescription": "Adjust conversation visibility, sorting, and section order.",
+      "showCompletedTitle": "Show completed conversations",
+      "showCompletedDescription": "Keep completed conversations visible in the left conversation list.",
+      "sortModeTitle": "Sort order",
+      "sortModeDescription": "Controls the order of conversations inside the folders and chat sections.",
+      "sortByCreatedAt": "Created time",
+      "sortByUpdatedAt": "Updated time",
+      "sectionOrderTitle": "Section order",
+      "sectionOrderDescription": "Choose whether folders or chats appear first in the sidebar.",
+      "sectionOrderFoldersFirst": "Folders first",
+      "sectionOrderChatsFirst": "Chats first"
+    },
     "fonts": {
       "sectionTitle": "الخطوط",
       "sectionDescription": "اختر خطوطًا للواجهة ومحرّر الأكواد والطرفية. تُحمّل الخطوط المضمّنة عند الحاجة؛ اختر «مخصّص…» لاستخدام أي خط مثبّت على نظامك.",

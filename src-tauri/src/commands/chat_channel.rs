@@ -248,12 +248,13 @@ pub async fn set_chat_command_prefix_core(
 }
 
 const MESSAGE_LANGUAGE_KEY: &str = "chat_message_language";
+const DEFAULT_MESSAGE_LANGUAGE: &str = "zh-cn";
 
 pub async fn get_chat_message_language_core(db: &AppDatabase) -> Result<String, AppCommandError> {
     let val = crate::db::service::app_metadata_service::get_value(&db.conn, MESSAGE_LANGUAGE_KEY)
         .await
         .map_err(AppCommandError::from)?;
-    Ok(val.unwrap_or_else(|| "en".to_string()))
+    Ok(val.unwrap_or_else(|| DEFAULT_MESSAGE_LANGUAGE.to_string()))
 }
 
 pub async fn set_chat_message_language_core(
@@ -759,10 +760,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_message_language_default_is_en() {
+    async fn chat_message_language_default_is_zh_cn() {
         let db = fresh_in_memory_db().await;
         let lang = get_chat_message_language_core(&db).await.expect("get");
-        assert_eq!(lang, "en");
+        assert_eq!(lang, DEFAULT_MESSAGE_LANGUAGE);
     }
 
     #[tokio::test]

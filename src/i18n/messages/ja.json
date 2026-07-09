@@ -95,6 +95,20 @@
       "default": "デフォルト",
       "current": "現在のズーム：{zoom}%"
     },
+    "sidebar": {
+      "sectionTitle": "Sidebar",
+      "sectionDescription": "Adjust conversation visibility, sorting, and section order.",
+      "showCompletedTitle": "Show completed conversations",
+      "showCompletedDescription": "Keep completed conversations visible in the left conversation list.",
+      "sortModeTitle": "Sort order",
+      "sortModeDescription": "Controls the order of conversations inside the folders and chat sections.",
+      "sortByCreatedAt": "Created time",
+      "sortByUpdatedAt": "Updated time",
+      "sectionOrderTitle": "Section order",
+      "sectionOrderDescription": "Choose whether folders or chats appear first in the sidebar.",
+      "sectionOrderFoldersFirst": "Folders first",
+      "sectionOrderChatsFirst": "Chats first"
+    },
     "fonts": {
       "sectionTitle": "フォント",
       "sectionDescription": "インターフェース、コードエディター、ターミナルのフォントをそれぞれ選択します。内蔵フォントは必要に応じて読み込まれます。「カスタム…」を選ぶと、システムにインストールされた任意のフォントを使用できます。",

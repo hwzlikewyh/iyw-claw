@@ -26,10 +26,11 @@ const SUPPORTED_LANGUAGES = [
   "pt",
   "ar",
 ] as const
+const DEFAULT_MESSAGE_LANGUAGE = "zh-cn"
 
 export function ChannelOtherTab() {
   const t = useTranslations("ChatChannelSettings.language")
-  const [language, setLanguage] = useState("en")
+  const [language, setLanguage] = useState(DEFAULT_MESSAGE_LANGUAGE)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 

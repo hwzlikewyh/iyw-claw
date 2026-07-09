@@ -44,8 +44,8 @@ describe("TemplateGallery", () => {
 
   it("shows a humanized cadence for scheduled templates and Manual for manual ones", () => {
     renderGallery()
-    // code-review is the only weekdays-at template. Match the prefix to avoid
-    // the locale time format (ICU uses a narrow no-break space before AM/PM).
+    // The product detail review template is the only weekdays-at template.
+    // Match the prefix to avoid locale time formatting differences.
     expect(screen.getByText(/Weekdays at/)).toBeInTheDocument()
     expect(screen.getAllByText("Manual").length).toBeGreaterThan(0)
   })

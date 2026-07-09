@@ -30,6 +30,7 @@ import { ConversationRuntimeProvider } from "@/contexts/conversation-runtime-con
 import { TabProvider, useTabStore, useTabActions } from "@/contexts/tab-context"
 import { SessionStatsProvider } from "@/contexts/session-stats-context"
 import { SidebarProvider, useSidebarContext } from "@/contexts/sidebar-context"
+import { SidebarViewOptionsProvider } from "@/contexts/sidebar-view-options-context"
 import { SearchDialogProvider } from "@/contexts/search-dialog-context"
 import { AutomationsViewProvider } from "@/contexts/automations-view-context"
 import {
@@ -61,10 +62,7 @@ import { FileWorkspacePanel } from "@/components/files/file-workspace-panel"
 import { ExternalConflictDialog } from "@/components/files/external-conflict-dialog"
 import { SettingsDialog } from "@/components/settings/settings-dialog"
 import { AppToaster } from "@/components/ui/app-toaster"
-import {
-  DeepLinkBootstrap,
-  PetFocusBridge,
-} from "@/components/workspace/deep-link-bootstrap"
+import { DeepLinkBootstrap } from "@/components/workspace/deep-link-bootstrap"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -932,29 +930,30 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                       <WorkspaceDocumentTitle />
                       <TabKeysSync />
                       <DeepLinkBootstrap />
-                      <PetFocusBridge />
-                      <SettingsDialog />
-                      {/* Always mounted: external-change conflicts must be
+                      <SidebarViewOptionsProvider>
+                        <SettingsDialog />
+                        {/* Always mounted: external-change conflicts must be
                             resolvable even with the aux file tree closed. */}
-                      <ExternalConflictDialog />
-                      <SessionStatsProvider>
-                        <SidebarProvider>
-                          <AuxPanelProvider>
-                            <TerminalProvider>
-                              <SearchDialogProvider>
-                                <AutomationsViewProvider>
-                                  <WorkbenchRouteProvider>
-                                    <WorkbenchRouteConversationSync />
-                                    <FolderLayoutShell>
-                                      {children}
-                                    </FolderLayoutShell>
-                                  </WorkbenchRouteProvider>
-                                </AutomationsViewProvider>
-                              </SearchDialogProvider>
-                            </TerminalProvider>
-                          </AuxPanelProvider>
-                        </SidebarProvider>
-                      </SessionStatsProvider>
+                        <ExternalConflictDialog />
+                        <SessionStatsProvider>
+                          <SidebarProvider>
+                            <AuxPanelProvider>
+                              <TerminalProvider>
+                                <SearchDialogProvider>
+                                  <AutomationsViewProvider>
+                                    <WorkbenchRouteProvider>
+                                      <WorkbenchRouteConversationSync />
+                                      <FolderLayoutShell>
+                                        {children}
+                                      </FolderLayoutShell>
+                                    </WorkbenchRouteProvider>
+                                  </AutomationsViewProvider>
+                                </SearchDialogProvider>
+                              </TerminalProvider>
+                            </AuxPanelProvider>
+                          </SidebarProvider>
+                        </SessionStatsProvider>
+                      </SidebarViewOptionsProvider>
                     </TabProvider>
                   </WorkspaceProvider>
                 </ConversationRuntimeProvider>

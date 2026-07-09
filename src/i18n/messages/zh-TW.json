@@ -95,6 +95,20 @@
       "default": "預設",
       "current": "目前縮放：{zoom}%"
     },
+    "sidebar": {
+      "sectionTitle": "側邊欄",
+      "sectionDescription": "調整會話列表的顯示、排序與分區順序。",
+      "showCompletedTitle": "顯示已完成會話",
+      "showCompletedDescription": "開啟後，已完成的會話仍會保留在左側會話列表中。",
+      "sortModeTitle": "排序方式",
+      "sortModeDescription": "控制資料夾與聊天區域內會話的排列順序。",
+      "sortByCreatedAt": "按建立時間",
+      "sortByUpdatedAt": "按更新時間",
+      "sectionOrderTitle": "區域順序",
+      "sectionOrderDescription": "選擇資料夾區域和聊天區域在側邊欄中的上下順序。",
+      "sectionOrderFoldersFirst": "資料夾在上",
+      "sectionOrderChatsFirst": "聊天在上"
+    },
     "fonts": {
       "sectionTitle": "字型",
       "sectionDescription": "為介面、程式碼編輯器與終端機分別選擇字型。內建字型會按需載入；選擇「自訂…」可使用系統已安裝的任意字型。",
