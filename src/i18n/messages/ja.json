@@ -2176,6 +2176,8 @@
         "removeAttachmentAria": "{name} を削除",
         "attachFiles": "ファイルを添付",
         "addActions": "追加",
+        "selectFolderForConversation": "会話するフォルダを選択",
+        "noFoldersForConversation": "利用可能なフォルダがありません",
         "quickMessages": "クイックメッセージ",
         "quickMessagesEmpty": "クイックメッセージはありません",
         "quickMessagesLoading": "読み込み中...",

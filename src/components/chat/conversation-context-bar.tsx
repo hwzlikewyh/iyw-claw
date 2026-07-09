@@ -176,7 +176,6 @@ export const ConversationFolderBranchPicker = memo(
     const isChatMode = ownTab.isChat === true || ownFolder?.kind === "chat"
     if (!ownFolder && !isChatMode) return null
 
-    const isNewConversation = ownTab.conversationId == null
     const currentBranch =
       isChatMode || !ownFolder
         ? null
@@ -202,7 +201,6 @@ export const ConversationFolderBranchPicker = memo(
           currentFolderId={pickerSelectedId}
           currentFolderName={displayFolderName}
           title={`${t("folderTitle")}: ${displayFolderName}`}
-          editable={isNewConversation}
           onSelect={async (folderId) => {
             const target = folders.find((f) => f.id === folderId)
             if (!target) return
@@ -307,7 +305,6 @@ interface FolderPickerProps {
   currentFolderId: number
   currentFolderName: string
   title: string
-  editable: boolean
   onSelect: (folderId: number) => void | Promise<void>
   labelEmpty: string
   labelSearch: string
@@ -324,7 +321,6 @@ const FolderPicker = memo(function FolderPicker({
   currentFolderId,
   currentFolderName,
   title,
-  editable,
   onSelect,
   labelEmpty,
   labelSearch,
@@ -342,20 +338,13 @@ const FolderPicker = memo(function FolderPicker({
       // `px-1.5` (rem scale, so it tracks UI zoom) matches the composer "+"
       // button's icon breathing room; paired with the row's `pl-2` it lands the
       // folder icon on the same column as the centered "+" icon.
-      className={cn(
-        "min-w-0 gap-0.5 px-1.5",
-        !editable && "cursor-default opacity-60 hover:bg-transparent"
-      )}
+      className={cn("min-w-0 gap-0.5 px-1.5")}
     >
       <Folder className="size-3 shrink-0 text-muted-foreground" />
       <span className="max-w-[140px] truncate">{currentFolderName}</span>
       <ChevronDown className="size-3 shrink-0 text-muted-foreground/60" />
     </Button>
   )
-
-  if (!editable) {
-    return trigger
-  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

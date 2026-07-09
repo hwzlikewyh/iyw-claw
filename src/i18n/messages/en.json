@@ -2178,6 +2178,8 @@
         "attachLocalUpload": "Upload local file",
         "attachServerFile": "Pick server file",
         "addActions": "Add",
+        "selectFolderForConversation": "Choose folder for conversation",
+        "noFoldersForConversation": "No folders available",
         "quickMessages": "Quick messages",
         "quickMessagesEmpty": "No quick messages yet",
         "quickMessagesLoading": "Loading...",

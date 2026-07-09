@@ -2176,6 +2176,8 @@
         "removeAttachmentAria": "إزالة {name}",
         "attachFiles": "إرفاق ملفات",
         "addActions": "إضافة",
+        "selectFolderForConversation": "اختيار مجلد للمحادثة",
+        "noFoldersForConversation": "لا توجد مجلدات متاحة",
         "quickMessages": "الرسائل السريعة",
         "quickMessagesEmpty": "لا توجد رسائل سريعة بعد",
         "quickMessagesLoading": "جارٍ التحميل...",

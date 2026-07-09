@@ -13,6 +13,7 @@ import {
   Cog,
   Copy,
   FileStack,
+  Folder,
   FolderSearch,
   GitFork,
   Lock,
@@ -67,6 +68,8 @@ import {
   imageFilesFromClipboardApi,
 } from "@/lib/clipboard-images"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { useTabActions } from "@/contexts/tab-context"
 import {
   readFileBase64,
   quickMessagesList,
@@ -135,6 +138,7 @@ import { useBuiltInExperts } from "@/hooks/use-built-in-experts"
 import { useEnabledSkillIds } from "@/hooks/use-enabled-skill-ids"
 import { getExpertIcon, pickLocalized } from "@/lib/expert-presentation"
 import { OFFICE_ACTIONS, type OfficeAction } from "@/lib/office-actions"
+import { excludeChatFolders, filterTopLevelFolders } from "@/lib/folder-display"
 import {
   clearMessageInputDraftV2,
   loadMessageInputDraftV2,
@@ -922,6 +926,12 @@ export function MessageInput({
   const hasFolderBranchPicker =
     useConversationFolderBranchPickerVisible(attachmentTabId)
   const folderBranchPickerAttached = hasFolderBranchPicker
+  const folders = useAppWorkspaceStore((s) => s.folders)
+  const { openNewConversationTab } = useTabActions()
+  const conversationFolders = useMemo(
+    () => excludeChatFolders(filterTopLevelFolders(folders)),
+    [folders]
+  )
   const imageAttachments = useMemo(
     () =>
       attachments.filter(
@@ -939,6 +949,15 @@ export function MessageInput({
   )
   const hasAttachments = attachments.length > 0
   const hasSendableContent = !composerEmpty || hasAttachments
+
+  const handleFolderConversationSelect = useCallback(
+    (folder: (typeof conversationFolders)[number]) => {
+      openNewConversationTab(folder.id, folder.path, {
+        inheritFromActive: true,
+      })
+    },
+    [openNewConversationTab]
+  )
 
   // ── Slash command autocomplete ──
   //
@@ -3007,6 +3026,45 @@ export function MessageInput({
                           </DropdownMenuItem>
                         </>
                       )}
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                          <Folder className="size-4" />
+                          {t("selectFolderForConversation")}
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent
+                          className="min-w-56 overflow-y-auto"
+                          style={{
+                            maxWidth: "min(22rem, calc(100vw - 1rem))",
+                            maxHeight:
+                              "min(32rem, var(--radix-dropdown-menu-content-available-height))",
+                          }}
+                        >
+                          {conversationFolders.length === 0 ? (
+                            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                              {t("noFoldersForConversation")}
+                            </div>
+                          ) : (
+                            conversationFolders.map((folder) => (
+                              <DropdownMenuItem
+                                key={folder.id}
+                                onClick={() =>
+                                  handleFolderConversationSelect(folder)
+                                }
+                              >
+                                <Folder className="size-4" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate">
+                                    {folder.name}
+                                  </span>
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    {folder.path}
+                                  </span>
+                                </span>
+                              </DropdownMenuItem>
+                            ))
+                          )}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
                           <MessageSquareText className="size-4" />

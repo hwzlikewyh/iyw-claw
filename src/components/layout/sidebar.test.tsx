@@ -37,6 +37,13 @@ vi.mock("@/components/conversations/sidebar-conversation-list", () => ({
 vi.mock("@/contexts/sidebar-context", () => ({
   useSidebarContext: () => ({ isOpen: true, toggle: vi.fn() }),
 }))
+vi.mock("@/contexts/sidebar-view-options-context", () => ({
+  useSidebarViewOptions: () => ({
+    showCompleted: true,
+    sortMode: "updated",
+    sectionOrder: ["active", "recent", "completed"],
+  }),
+}))
 vi.mock("@/contexts/active-folder-context", () => ({
   useActiveFolder: () => ({ activeFolder: mockState.activeFolder }),
 }))

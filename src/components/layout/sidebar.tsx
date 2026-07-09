@@ -7,6 +7,8 @@ import {
   Crosshair,
   FolderOpenDot,
   PackageCheck,
+  PanelLeft,
+  PanelRight,
   SquarePen,
   Zap,
   type LucideIcon,
@@ -22,6 +24,7 @@ import {
   SidebarConversationList,
   type SidebarConversationListHandle,
 } from "@/components/conversations/sidebar-conversation-list"
+import { NewFolderDropdown } from "@/components/layout/new-folder-dropdown"
 import { SidebarAccountSettings } from "@/components/layout/sidebar-account-settings"
 import { Button } from "@/components/ui/button"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -104,8 +107,46 @@ function SidebarNavButton({
   )
 }
 
+function SidebarRailButton({
+  icon: Icon,
+  label,
+  onClick,
+  active,
+  tone = "default",
+}: {
+  icon: LucideIcon
+  label: string
+  onClick: () => void
+  active?: boolean
+  tone?: "default" | "primary"
+}) {
+  const isPrimary = tone === "primary"
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex h-8 w-8 items-center justify-center rounded-lg outline-none",
+        "transition-colors duration-150",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+        isPrimary
+          ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+          : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
+        active && !isPrimary && "bg-sidebar-accent text-primary"
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+    </button>
+  )
+}
+
 export function Sidebar() {
   const t = useTranslations("Folder.sidebar")
+  const tTitleBar = useTranslations("Folder.folderTitleBar")
   const { isOpen, toggle } = useSidebarContext()
   const { activeFolder } = useActiveFolder()
   const { openNewConversationTab, openChatModeTab } = useTabActions()
@@ -126,6 +167,10 @@ export function Sidebar() {
     ? t("collapseAllGroups")
     : t("expandAllGroups")
   const activeFolderName = getFolderName(activeFolder?.path)
+  const toggleSidebarLabel = tTitleBar("withShortcut", {
+    label: tTitleBar(isOpen ? "hideSidebar" : "showSidebar"),
+    shortcut: formatShortcutLabel(shortcuts.toggle_sidebar, isMac),
+  })
 
   const handleToggleExpandAll = useCallback(() => {
     if (allExpanded) {
@@ -151,7 +196,55 @@ export function Sidebar() {
     openNewConversationTab(activeFolder.id, activeFolder.path)
   }, [activeFolder, openChatModeTab, openNewConversationTab, openConversations])
 
-  if (!isOpen) return null
+  if (!isOpen) {
+    if (isMobile) return null
+
+    return (
+      <aside className="flex h-full min-h-0 w-full flex-col items-center overflow-hidden border-r border-sidebar-border/70 bg-sidebar/95 py-2 text-sidebar-foreground select-none">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-[0.8125rem] font-semibold text-primary">
+          N
+        </div>
+
+        <div className="mt-3 flex shrink-0 flex-col items-center gap-1.5 border-t border-sidebar-border/60 pt-3">
+          <SidebarRailButton
+            icon={PanelRight}
+            label={toggleSidebarLabel}
+            onClick={toggle}
+          />
+          <div
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-lg",
+              "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
+              "[&_button]:h-8 [&_button]:w-8 [&_button]:rounded-lg"
+            )}
+          >
+            <NewFolderDropdown />
+          </div>
+          <SidebarRailButton
+            icon={SquarePen}
+            label={t("newChat")}
+            onClick={handleNewConversation}
+            tone="primary"
+          />
+        </div>
+
+        <div className="mt-3 flex shrink-0 flex-col items-center gap-1.5 border-t border-sidebar-border/60 pt-3">
+          <SidebarRailButton
+            icon={Zap}
+            label={t("automations")}
+            active={routeId === "automations"}
+            onClick={() => setRoute("automations")}
+          />
+          <SidebarRailButton
+            icon={PackageCheck}
+            label={t("skillsMarket")}
+            active={routeId === "skills"}
+            onClick={() => setRoute("skills")}
+          />
+        </div>
+      </aside>
+    )
+  }
 
   return (
     <aside className="@container/sidebar flex h-full min-h-0 flex-col overflow-hidden border-r border-sidebar-border/70 bg-sidebar/95 text-sidebar-foreground select-none">
@@ -172,6 +265,18 @@ export function Sidebar() {
                 </span>
               </div>
             </div>
+            <div className="flex shrink-0 items-center">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 rounded-md text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground"
+                onClick={toggle}
+                title={toggleSidebarLabel}
+                aria-label={toggleSidebarLabel}
+              >
+                <PanelLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -189,6 +294,10 @@ export function Sidebar() {
               </kbd>
             ) : null
           }
+        />
+        <NewFolderDropdown
+          showLabel
+          buttonClassName="rounded-lg border border-sidebar-border/70 bg-sidebar-accent/35 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
         />
         <div className="rounded-xl border border-sidebar-border/70 bg-sidebar-accent/25 p-1">
           <div className="mb-1 flex items-center justify-between gap-2 px-2 py-1">

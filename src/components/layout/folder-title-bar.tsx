@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react"
 import {
   EllipsisVertical,
   Menu,
-  PanelLeft,
   PanelRight,
   Search,
   Settings,
@@ -33,7 +32,6 @@ import {
 import { AppTitleBar } from "./app-title-bar"
 import { BranchDropdown } from "./branch-dropdown"
 import { NewFolderDropdown } from "./new-folder-dropdown"
-import { RemoteWorkspaceDropdown } from "./remote-workspace-dropdown"
 import { SearchCommandDialog } from "@/components/conversations/search-command-dialog"
 import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -49,7 +47,7 @@ export function FolderTitleBar() {
   const openFolder = useAppWorkspaceStore((s) => s.openFolder)
   const { activeFolder } = useActiveFolder()
   const isChatMode = useIsActiveChatMode()
-  const { isOpen, toggle } = useSidebarContext()
+  const { toggle } = useSidebarContext()
   const { isOpen: auxPanelOpen, toggle: toggleAuxPanel } = useAuxPanelContext()
   const { toggle: toggleTerminal } = useTerminalContext()
   const { openNewConversationTab } = useTabActions()
@@ -170,30 +168,10 @@ export function FolderTitleBar() {
                 <Menu className="h-4 w-4" />
               </Button>
               <NewFolderDropdown />
-              <RemoteWorkspaceDropdown />
               <BranchDropdown />
             </div>
           ) : (
             <div className="flex h-8 flex-1 items-center gap-6">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 hover:text-foreground/80"
-                  onClick={toggle}
-                  title={tTitleBar("withShortcut", {
-                    label: tTitleBar(isOpen ? "hideSidebar" : "showSidebar"),
-                    shortcut: formatShortcutLabel(
-                      shortcuts.toggle_sidebar,
-                      isMac
-                    ),
-                  })}
-                >
-                  <PanelLeft className="h-3.5 w-3.5" />
-                </Button>
-                <NewFolderDropdown />
-                <RemoteWorkspaceDropdown />
-              </div>
               <BranchDropdown />
               <div data-tauri-drag-region className="h-8 flex-1" />
             </div>

@@ -9,8 +9,6 @@ import {
   useState,
 } from "react"
 import type { ImperativePanelGroupHandle } from "react-resizable-panels"
-import { PanelLeft, Settings } from "lucide-react"
-import { useTranslations } from "next-intl"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { Sidebar } from "@/components/layout/sidebar"
@@ -68,13 +66,8 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { useIsMac } from "@/hooks/use-is-mac"
-import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
-import { formatShortcutLabel } from "@/lib/keyboard-shortcuts"
-import { openSettingsWindow } from "@/lib/api"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 
 function WorkspaceDocumentTitle() {
@@ -101,6 +94,7 @@ const FOLDER_MAIN_GROUP_ID = "folder-main-group"
 const FOLDER_MAIN_WORKSPACE_PANEL_ID = "folder-main-workspace-panel"
 const FOLDER_MAIN_TERMINAL_PANEL_ID = "folder-main-terminal-panel"
 const DEFAULT_FUSION_LAYOUT: [number, number] = [56, 44]
+const COLLAPSED_SIDEBAR_WIDTH_PX = 52
 const MIN_CENTER_WIDTH_PX = 420
 const MIN_WORKSPACE_HEIGHT_PX = 220
 const LAYOUT_EPSILON = 0.25
@@ -484,7 +478,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
   const buildShellLayout = useCallback((): [number, number, number] => {
     const requestedLeft = sidebarOpen
       ? clamp(sidebarWidth, sidebarMinWidth, sidebarMaxWidth)
-      : 0
+      : COLLAPSED_SIDEBAR_WIDTH_PX
     const requestedRight = auxOpen
       ? clamp(auxWidth, auxMinWidth, auxMaxWidth)
       : 0
@@ -607,8 +601,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
 
       const desired = shellDesiredLayoutRef.current
       const shouldEnforceDesiredLayout =
-        (!sidebarOpen && normalizedLayout[0] > LAYOUT_EPSILON) ||
-        (!auxOpen && normalizedLayout[2] > LAYOUT_EPSILON)
+        !auxOpen && normalizedLayout[2] > LAYOUT_EPSILON
 
       if (
         shouldEnforceDesiredLayout &&
@@ -705,6 +698,11 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
     sidebarMaxWidth,
     safeShellWidth
   )
+  const collapsedSidebarSizeRange = resolvePanelSizeRange(
+    COLLAPSED_SIDEBAR_WIDTH_PX,
+    COLLAPSED_SIDEBAR_WIDTH_PX,
+    safeShellWidth
+  )
   const auxSizeRange = resolvePanelSizeRange(
     auxMinWidth,
     auxMaxWidth,
@@ -717,6 +715,21 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
     terminalMaxHeight,
     safeMainHeight
   )
+  const sidebarDefaultSize = sidebarOpen
+    ? clamp(18, sidebarSizeRange.minSize, sidebarSizeRange.maxSize)
+    : collapsedSidebarSizeRange.maxSize
+  const auxDefaultSize = auxOpen
+    ? clamp(18, auxSizeRange.minSize, auxSizeRange.maxSize)
+    : 0
+  const mainDefaultSize = clamp(
+    100 - sidebarDefaultSize - auxDefaultSize,
+    10,
+    100
+  )
+  const terminalDefaultSize = terminalOpen
+    ? clamp(28, terminalSizeRange.minSize, terminalSizeRange.maxSize)
+    : 0
+  const workspaceDefaultSize = terminalOpen ? 100 - terminalDefaultSize : 100
 
   return (
     <div
@@ -732,9 +745,17 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
         <ResizablePanel
           id={FOLDER_SHELL_LEFT_PANEL_ID}
           order={1}
-          defaultSize={18}
-          minSize={sidebarOpen ? sidebarSizeRange.minSize : 0}
-          maxSize={sidebarOpen ? sidebarSizeRange.maxSize : 0}
+          defaultSize={sidebarDefaultSize}
+          minSize={
+            sidebarOpen
+              ? sidebarSizeRange.minSize
+              : collapsedSidebarSizeRange.minSize
+          }
+          maxSize={
+            sidebarOpen
+              ? sidebarSizeRange.maxSize
+              : collapsedSidebarSizeRange.maxSize
+          }
         >
           <div className="h-full min-h-0 overflow-hidden">
             <Sidebar />
@@ -752,7 +773,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
         <ResizablePanel
           id={FOLDER_SHELL_MAIN_PANEL_ID}
           order={2}
-          defaultSize={64}
+          defaultSize={mainDefaultSize}
           minSize={10}
         >
           <main
@@ -768,7 +789,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
               <ResizablePanel
                 id={FOLDER_MAIN_WORKSPACE_PANEL_ID}
                 order={1}
-                defaultSize={72}
+                defaultSize={workspaceDefaultSize}
                 minSize={15}
               >
                 <WorkspaceContent>{children}</WorkspaceContent>
@@ -787,7 +808,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
               <ResizablePanel
                 id={FOLDER_MAIN_TERMINAL_PANEL_ID}
                 order={2}
-                defaultSize={28}
+                defaultSize={terminalDefaultSize}
                 minSize={terminalOpen ? terminalSizeRange.minSize : 0}
                 maxSize={terminalOpen ? terminalSizeRange.maxSize : 0}
               >
@@ -810,7 +831,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
         <ResizablePanel
           id={FOLDER_SHELL_RIGHT_PANEL_ID}
           order={3}
-          defaultSize={18}
+          defaultSize={auxDefaultSize}
           minSize={auxOpen ? auxSizeRange.minSize : 0}
           maxSize={auxOpen ? auxSizeRange.maxSize : 0}
         >
@@ -819,50 +840,6 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
-    </div>
-  )
-}
-
-function DesktopWorkspaceCornerControls() {
-  const tTitleBar = useTranslations("Folder.folderTitleBar")
-  const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebarContext()
-  const isMac = useIsMac()
-  const { shortcuts } = useShortcutSettings()
-
-  const openSettings = useCallback(() => {
-    openSettingsWindow("appearance").catch((err) => {
-      console.error("[Workspace] failed to open settings:", err)
-    })
-  }, [])
-
-  if (sidebarOpen) return null
-
-  return (
-    <div className="absolute bottom-2 left-2 z-40 flex flex-col gap-1 rounded-lg border border-border/80 bg-background/95 p-1 shadow-sm backdrop-blur">
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground/80"
-        onClick={toggleSidebar}
-        title={tTitleBar("withShortcut", {
-          label: tTitleBar("showSidebar"),
-          shortcut: formatShortcutLabel(shortcuts.toggle_sidebar, isMac),
-        })}
-      >
-        <PanelLeft className="h-3.5 w-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 rounded-md text-muted-foreground hover:text-foreground/80"
-        onClick={openSettings}
-        title={tTitleBar("withShortcut", {
-          label: tTitleBar("openSettings"),
-          shortcut: formatShortcutLabel(shortcuts.open_settings, isMac),
-        })}
-      >
-        <Settings className="h-3.5 w-3.5" />
-      </Button>
     </div>
   )
 }
@@ -879,7 +856,6 @@ function FolderLayoutShell({ children }: { children: React.ReactNode }) {
       ) : (
         <FolderWorkspaceShell>{children}</FolderWorkspaceShell>
       )}
-      {!isMobile && <DesktopWorkspaceCornerControls />}
       <AppToaster
         position="bottom-right"
         duration={TOAST_DURATION_MS}

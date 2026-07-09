@@ -8,8 +8,15 @@ import { isDesktop, openFileDialog } from "@/lib/platform"
 import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
+import { cn } from "@/lib/utils"
 
-export function NewFolderDropdown() {
+export function NewFolderDropdown({
+  showLabel = false,
+  buttonClassName,
+}: {
+  showLabel?: boolean
+  buttonClassName?: string
+}) {
   const t = useTranslations("Folder.folderNameDropdown")
   const openFolder = useAppWorkspaceStore((s) => s.openFolder)
   const [browserOpen, setBrowserOpen] = useState(false)
@@ -38,12 +45,19 @@ export function NewFolderDropdown() {
       <Button
         variant="ghost"
         size="icon"
-        className="h-6 w-6 hover:text-foreground/80"
+        className={cn(
+          showLabel
+            ? "h-10 w-full justify-start gap-2 px-3 text-[0.875rem]"
+            : "h-6 w-6",
+          "hover:text-foreground/80",
+          buttonClassName
+        )}
         title={t("openFolder")}
         aria-label={t("openFolder")}
         onClick={handleOpenFolder}
       >
         <FolderPlus className="h-3.5 w-3.5" />
+        {showLabel ? <span>{t("openFolder")}</span> : null}
       </Button>
       <DirectoryBrowserDialog
         open={browserOpen}

@@ -2176,6 +2176,8 @@
         "removeAttachmentAria": "Remover {name}",
         "attachFiles": "Anexar arquivos",
         "addActions": "Adicionar",
+        "selectFolderForConversation": "Escolher pasta para conversa",
+        "noFoldersForConversation": "Nenhuma pasta disponível",
         "quickMessages": "Mensagens rápidas",
         "quickMessagesEmpty": "Ainda não há mensagens rápidas",
         "quickMessagesLoading": "Carregando...",

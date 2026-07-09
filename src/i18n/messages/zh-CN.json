@@ -2178,6 +2178,8 @@
         "attachLocalUpload": "附加本地文件",
         "attachServerFile": "附加服务端文件",
         "addActions": "添加",
+        "selectFolderForConversation": "选择文件夹进行对话",
+        "noFoldersForConversation": "暂无可用文件夹",
         "quickMessages": "快捷消息",
         "quickMessagesEmpty": "暂无快捷消息",
         "quickMessagesLoading": "加载中...",

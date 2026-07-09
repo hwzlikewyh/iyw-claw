@@ -149,6 +149,26 @@ describe("ConversationFolderBranchPicker — branch checkout", () => {
     expect(gitCheckout).not.toHaveBeenCalled()
   })
 
+  it("opens the folder picker for an existing conversation", async () => {
+    const other = mkFolder({
+      id: 2,
+      name: "other",
+      path: "/repo/other",
+    })
+    useAppWorkspaceStore.setState({
+      folders: [repo, other],
+      allFolders: [repo, other],
+    })
+    tabs = [{ id: "tab-1", folderId: 1, conversationId: 42 }]
+    activeTabId = "tab-1"
+
+    render(<ConversationFolderBranchPicker tabId="tab-1" />)
+    const user = userEvent.setup()
+    await user.click(screen.getByRole("button", { name: /repo/ }))
+
+    expect(await screen.findByText("other")).toBeTruthy()
+  })
+
   it("does not fire a checkout when the picked branch is the current one", async () => {
     tabs = [{ id: "tab-1", folderId: 1, conversationId: 42 }]
     activeTabId = "tab-1"
