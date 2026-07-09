@@ -1,5 +1,11 @@
 import { invoke } from "@tauri-apps/api/core"
 import { getCurrentEffectiveAppLocale } from "./i18n"
+import {
+  normalizeSettingsSection,
+  requestSettingsDialog,
+  type OpenSettingsDialogOptions,
+  type SettingsSection,
+} from "./settings-navigation"
 import type {
   AgentType,
   ConversationSummary,
@@ -972,24 +978,17 @@ export async function openCommitWindow(folderId: number): Promise<void> {
   })
 }
 
-export type SettingsSection =
-  | "appearance"
-  | "agents"
-  | "mcp"
-  | "skills"
-  | "shortcuts"
-  | "system"
-
-interface OpenSettingsWindowOptions {
-  agentType?: AgentType | null
-}
+export type { SettingsSection } from "./settings-navigation"
 
 export async function openSettingsWindow(
   section?: SettingsSection,
-  options?: OpenSettingsWindowOptions
+  options?: OpenSettingsDialogOptions
 ): Promise<void> {
+  const normalizedSection = normalizeSettingsSection(section)
+  if (requestSettingsDialog(normalizedSection, options)) return
+
   return invoke("open_settings_window", {
-    section: section ?? null,
+    section: normalizedSection,
     agentType: options?.agentType ?? null,
     locale: getCurrentEffectiveAppLocale(),
   })

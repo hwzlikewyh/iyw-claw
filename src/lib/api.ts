@@ -9,6 +9,13 @@ import {
 import { getIywClawToken } from "./transport/web-auth"
 import { notifyWebUnauthorized } from "./transport/web-connection-store"
 import { getCurrentEffectiveAppLocale } from "./i18n"
+import {
+  buildSettingsPath,
+  normalizeSettingsSection,
+  requestSettingsDialog,
+  type OpenSettingsDialogOptions,
+  type SettingsSection,
+} from "./settings-navigation"
 import { TurnBusyError, isTurnInProgressRejection } from "./turn-busy"
 import type { FolderThemeColor } from "./theme-presets"
 import type {
@@ -1718,28 +1725,19 @@ export async function openCommitWindow(folderId: number): Promise<void> {
   window.open(result.path, `commit-${folderId}`)
 }
 
-export type SettingsSection =
-  | "appearance"
-  | "agents"
-  | "mcp"
-  | "skills"
-  | "experts"
-  | "office-tools"
-  | "shortcuts"
-  | "system"
-
-interface OpenSettingsWindowOptions {
-  agentType?: AgentType | null
-}
+export type { SettingsSection } from "./settings-navigation"
 
 export async function openSettingsWindow(
   section?: SettingsSection,
-  options?: OpenSettingsWindowOptions
+  options?: OpenSettingsDialogOptions
 ): Promise<void> {
+  const normalizedSection = normalizeSettingsSection(section)
+  if (requestSettingsDialog(normalizedSection, options)) return
+
   const locale = getCurrentEffectiveAppLocale()
   if (isDesktop()) {
     return getShellTransport().call("open_settings_window", {
-      section: section ?? null,
+      section: normalizedSection,
       agentType: options?.agentType ?? null,
       locale,
       remoteConnectionId: getActiveRemoteConnectionId(),
@@ -1749,12 +1747,14 @@ export async function openSettingsWindow(
   const result = await getTransport().call<{ path: string }>(
     "open_settings_window",
     {
-      section: section ?? null,
+      section: normalizedSection,
       agentType: options?.agentType ?? null,
       locale,
     }
   )
-  window.open(result.path, `settings-${section ?? "general"}`)
+  window.location.assign(
+    result.path || buildSettingsPath(normalizedSection, options)
+  )
 }
 
 // Conversation CRUD commands

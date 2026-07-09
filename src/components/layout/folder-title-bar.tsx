@@ -11,11 +11,11 @@ import {
   SquareTerminal,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { useRouter } from "next/navigation"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { isDesktop, openFileDialog } from "@/lib/platform"
+import { openSettingsWindow } from "@/lib/api"
 import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { Button } from "@/components/ui/button"
 import { useSidebarContext } from "@/contexts/sidebar-context"
@@ -46,7 +46,6 @@ import {
 
 export function FolderTitleBar() {
   const tTitleBar = useTranslations("Folder.folderTitleBar")
-  const router = useRouter()
   const openFolder = useAppWorkspaceStore((s) => s.openFolder)
   const { activeFolder } = useActiveFolder()
   const isChatMode = useIsActiveChatMode()
@@ -90,9 +89,10 @@ export function FolderTitleBar() {
   }, [openFolder])
 
   const handleOpenSettings = useCallback(() => {
-    const search = typeof window === "undefined" ? "" : window.location.search
-    router.push(`/settings/appearance${search}`)
-  }, [router])
+    openSettingsWindow("appearance").catch((err) => {
+      console.error("[FolderTitleBar] failed to open settings:", err)
+    })
+  }, [])
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {

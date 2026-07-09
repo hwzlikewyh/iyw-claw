@@ -187,7 +187,13 @@ function localizeValue(
           `sessionConfig.values.switch.${key}`,
           option.name
         ),
-        description: option.description,
+        description: option.description
+          ? translateOrFallback(
+              t,
+              `sessionConfig.values.switch.${key}Description`,
+              option.description
+            )
+          : option.description,
       }
     }
   }

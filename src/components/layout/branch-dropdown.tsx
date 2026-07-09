@@ -19,7 +19,6 @@ import {
   GitBranch,
   GitBranchPlus,
   GitCommitHorizontal,
-  GitFork,
   GitMerge,
   GitPullRequestArrow,
   Globe,
@@ -64,7 +63,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  gitInit,
   gitPull,
   gitFetch,
   gitNewBranch,
@@ -692,34 +690,7 @@ export function BranchDropdown() {
   // below still use `activeFolder` (the worktree) unchanged.
   const folderName = resolveFolderDisplayName(activeFolder, allFolders)
 
-  if (!isRepo) {
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="flex min-w-0 items-center gap-1 text-sm tracking-tight outline-none transition-colors cursor-default hover:text-foreground/80">
-            <GitFork className="h-3 w-3 shrink-0" />
-            <span className="max-w-[320px] truncate">
-              {folderName}
-              <span className="mx-1.5 inline-block h-3 w-px bg-foreground/20 align-middle" />
-              <span className="text-primary">{t("noBranch")}</span>
-            </span>
-            <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="min-w-64" align="start">
-          <DropdownMenuItem
-            disabled={loading}
-            onSelect={() =>
-              runGitTask(t("tasks.initGitRepo"), () => gitInit(folderPath))
-            }
-          >
-            <GitBranch className="h-3.5 w-3.5" />
-            {t("initGitRepo")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    )
-  }
+  if (!isRepo) return null
 
   return (
     <>

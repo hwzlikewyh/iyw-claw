@@ -12,6 +12,7 @@ interface AppTitleBarProps {
   right?: ReactNode
   className?: string
   rowClassName?: string
+  draggable?: boolean
   showWindowControls?: boolean
 }
 
@@ -21,6 +22,7 @@ export function AppTitleBar({
   right,
   className,
   rowClassName,
+  draggable = true,
   showWindowControls = true,
 }: AppTitleBarProps) {
   const { isMac, isWindows, isLinux } = usePlatform()
@@ -46,10 +48,13 @@ export function AppTitleBar({
         className
       )}
     >
-      <div data-tauri-drag-region className="absolute inset-0" />
+      <div
+        {...(draggable ? { "data-tauri-drag-region": true } : {})}
+        className="absolute inset-0"
+      />
 
       <div
-        data-tauri-drag-region
+        {...(draggable ? { "data-tauri-drag-region": true } : {})}
         className={cn(
           "relative z-10 flex h-full items-center",
           rowPadding,

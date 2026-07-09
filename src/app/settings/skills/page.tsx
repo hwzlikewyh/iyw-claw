@@ -1,5 +1,5 @@
-import { SkillsSettings } from "@/components/settings/skills-settings"
+import { GeneralSettings } from "@/components/settings/general-settings"
 
 export default function SettingsSkillsPage() {
-  return <SkillsSettings />
+  return <GeneralSettings />
 }

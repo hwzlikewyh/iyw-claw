@@ -23,6 +23,7 @@ const apiMocks = vi.hoisted(() => ({
   iywAccountPollWechatLogin: vi.fn(),
   iywAccountLoginWithPassword: vi.fn(),
   iywAccountLogout: vi.fn(),
+  openSettingsWindow: vi.fn(),
 }))
 const mockState = vi.hoisted(() => ({
   activeFolder: { id: 7, path: "/x" } as { id: number; path: string } | null,
@@ -83,6 +84,7 @@ vi.mock("@/lib/api", () => ({
   iywAccountPollWechatLogin: apiMocks.iywAccountPollWechatLogin,
   iywAccountLoginWithPassword: apiMocks.iywAccountLoginWithPassword,
   iywAccountLogout: apiMocks.iywAccountLogout,
+  openSettingsWindow: apiMocks.openSettingsWindow,
 }))
 
 function renderSidebar() {
@@ -108,6 +110,7 @@ describe("Sidebar — fixed action region", () => {
     apiMocks.iywAccountPollWechatLogin.mockReset()
     apiMocks.iywAccountLoginWithPassword.mockReset()
     apiMocks.iywAccountLogout.mockReset()
+    apiMocks.openSettingsWindow.mockReset()
     apiMocks.getWebServerStatus.mockResolvedValue({
       port: 3080,
       token: "test-token",
@@ -151,6 +154,7 @@ describe("Sidebar — fixed action region", () => {
       balance_expiry_time: null,
     })
     apiMocks.iywAccountLogout.mockResolvedValue(undefined)
+    apiMocks.openSettingsWindow.mockResolvedValue(undefined)
   })
 
   it("Automations navigates to the automations route", async () => {
@@ -210,7 +214,7 @@ describe("Sidebar — fixed action region", () => {
 
     fireEvent.click(await findByLabelText("Settings"))
 
-    expect(spies.routerPush).toHaveBeenCalledWith("/settings/appearance")
+    expect(apiMocks.openSettingsWindow).toHaveBeenCalledWith("appearance")
     expect(queryByText("iyw Account")).toBeNull()
   })
 

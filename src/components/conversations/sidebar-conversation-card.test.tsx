@@ -8,20 +8,20 @@ import { formatRelative } from "./sidebar-conversation-grouping"
 import type { DbConversationSummary } from "@/lib/types"
 import enMessages from "@/i18n/messages/en.json"
 
-// AgentIcon renders exactly once per card body execution, so counting its
-// renders counts how many cards actually re-rendered (a card that bails out via
-// memo never re-runs its body, hence never re-renders AgentIcon). Cheap leaf →
-// easy, unambiguous render probe.
-const probe = vi.hoisted(() => ({ agentIconRenders: 0 }))
-vi.mock("@/components/agent-icon", () => ({
-  AgentIcon: () => {
-    probe.agentIconRenders++
-    return null
+// formatConversationTitle is our render probe. In this test setup it is called
+// twice for a rendered card, but a memo bailout still calls it zero times. This
+// keeps the perf tests independent from visible platform icons.
+const probe = vi.hoisted(() => ({ titleFormatterCalls: 0 }))
+vi.mock("@/lib/conversation-title", () => ({
+  formatConversationTitle: (title?: string | null) => {
+    probe.titleFormatterCalls++
+    return title ?? ""
   },
 }))
 
 const MINUTE = 60_000
 const NOW = 1_700_000_000_000
+const TITLE_FORMAT_CALLS_PER_RENDER = 2
 
 // Stable callback identities shared across renders — the production list hands
 // memoized callbacks down, so the test must too.
@@ -95,7 +95,7 @@ const BASE = [conv(1), conv(2), conv(3), conv(4), conv(5)]
 
 describe("SidebarConversationCard memo (sidebar perf Phase 1 gate)", () => {
   beforeEach(() => {
-    probe.agentIconRenders = 0
+    probe.titleFormatterCalls = 0
   })
 
   it("re-renders only the card whose summary object changed", () => {
@@ -104,26 +104,26 @@ describe("SidebarConversationCard memo (sidebar perf Phase 1 gate)", () => {
     )
 
     // Control: an identical re-render must bail out for every card.
-    probe.agentIconRenders = 0
+    probe.titleFormatterCalls = 0
     rerender(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <CardList conversations={BASE} now={NOW} />
       </NextIntlClientProvider>
     )
-    expect(probe.agentIconRenders).toBe(0)
+    expect(probe.titleFormatterCalls).toBe(0)
 
     // Replace exactly one summary (new object ref) — mirrors a single
     // `conversation_status_changed` patch in updateConversationLocal.
     const next = BASE.slice()
     next[2] = { ...BASE[2], status: "completed" }
 
-    probe.agentIconRenders = 0
+    probe.titleFormatterCalls = 0
     rerender(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <CardList conversations={next} now={NOW} />
       </NextIntlClientProvider>
     )
-    expect(probe.agentIconRenders).toBe(1)
+    expect(probe.titleFormatterCalls).toBe(TITLE_FORMAT_CALLS_PER_RENDER)
   })
 
   it("re-renders all cards (only) once per minute as the shared now advances", () => {
@@ -135,13 +135,15 @@ describe("SidebarConversationCard memo (sidebar perf Phase 1 gate)", () => {
     // "5m" → "6m", so every card re-renders — but just this once. This is the
     // bounded cost that justifies threading a single `now` instead of letting
     // each row read Date.now() on every unrelated render.
-    probe.agentIconRenders = 0
+    probe.titleFormatterCalls = 0
     rerender(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <CardList conversations={BASE} now={NOW + MINUTE} />
       </NextIntlClientProvider>
     )
-    expect(probe.agentIconRenders).toBe(BASE.length)
+    expect(probe.titleFormatterCalls).toBe(
+      BASE.length * TITLE_FORMAT_CALLS_PER_RENDER
+    )
   })
 
   it("re-renders every card when callback identity is unstable (defeats memo)", () => {
@@ -151,13 +153,15 @@ describe("SidebarConversationCard memo (sidebar perf Phase 1 gate)", () => {
 
     // A fresh onSelect each render is exactly the R1b regression: stable
     // conversations + stable now, yet every card re-renders.
-    probe.agentIconRenders = 0
+    probe.titleFormatterCalls = 0
     rerender(
       <NextIntlClientProvider locale="en" messages={enMessages}>
         <CardList conversations={BASE} now={NOW} select={() => {}} />
       </NextIntlClientProvider>
     )
-    expect(probe.agentIconRenders).toBe(BASE.length)
+    expect(probe.titleFormatterCalls).toBe(
+      BASE.length * TITLE_FORMAT_CALLS_PER_RENDER
+    )
   })
 })
 
@@ -336,22 +340,21 @@ describe("SidebarConversationCard sub-session chevron", () => {
     expect(queryByLabelText("Expand sub-conversations")).toBeNull()
   })
 
-  it("overlays the chevron on the rail axis (the agent-icon position)", () => {
+  it("overlays the chevron on the rail axis", () => {
     const { getByLabelText } = renderCard(conv(2), {
       hasChildren: true,
       expanded: false,
     })
-    // The chevron now sits at the agent-icon's rail-axis x (revealed on hover),
-    // not in the right-hand time/action slot.
+    // The chevron sits at the row's rail-axis x (revealed on hover), not in the
+    // right-hand time/action slot.
     const chevron = getByLabelText("Expand sub-conversations")
     expect(chevron.style.left).toContain("--conv-rail-axis")
   })
 
-  it("indents deeper rows by CONV_RAIL_DEPTH_STEP per level so the child icon aligns under the parent title", () => {
+  it("indents deeper rows by CONV_RAIL_DEPTH_STEP per level", () => {
     const { container } = renderCard(conv(3), { hasChildren: false, depth: 2 })
     const outer = container.querySelector("[data-conv-key]") as HTMLElement
-    // 0.875rem root axis + depth · 1.25rem (gap 0.875 + half glyph 0.375) lands
-    // the child icon glyph's left edge under the parent title text start.
+    // 0.875rem root axis + depth · 1.25rem keeps nested rails aligned.
     expect(outer.style.getPropertyValue("--conv-rail-axis")).toBe(
       "calc(0.875rem + 2 * 1.25rem)"
     )

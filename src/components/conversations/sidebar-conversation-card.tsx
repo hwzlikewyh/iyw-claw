@@ -50,18 +50,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ConversationStatusDot } from "./conversation-status-dot"
 import { SessionDetailsDialog } from "./session-details-dialog"
-import { AgentIcon } from "@/components/agent-icon"
 import { SessionUsageChip } from "@/components/layout/status-bar-tokens"
 import { useConversationRuntimeStore } from "@/stores/conversation-runtime-store"
 
 /**
- * Horizontal indent added per delegation-nesting level. Chosen so a child's
- * agent-icon GLYPH left edge lands exactly under its parent's title TEXT start:
- * the gap from a row's rail axis to its title is `0.875rem`, and the icon glyph
- * is centred on the axis (half-width `0.375rem`), so one level must shift the
- * child axis right by `0.875 + 0.375 = 1.25rem` for `axis(child) − 0.375 =
- * title(parent)`. The root axis (`0.875rem`) and the axis→title gap (`0.875rem`)
- * are separate constants — don't fold them into this step.
+ * Horizontal indent added per delegation-nesting level. The root axis
+ * (`0.875rem`) and the axis→title gap (`0.875rem`) are separate constants —
+ * don't fold them into this step.
  */
 export const CONV_RAIL_DEPTH_STEP = "1.25rem"
 
@@ -73,8 +68,7 @@ export const CONV_RAIL_DEPTH_STEP = "1.25rem"
  * subtree they render each parent's rail as a single continuous vertical line
  * running down through all of its descendants, so a child's left rail lines up
  * exactly under its parent's instead of floating one indent step to the right.
- * The row's OWN rail — the one through its agent icon — is drawn separately at
- * `--conv-rail-axis` by the caller.
+ * The row's OWN rail is drawn separately at `--conv-rail-axis` by the caller.
  *
  * Renders nothing for a root (depth 0). Shared with the list's sub-session
  * loading placeholder so the spine stays continuous while children are fetched.
@@ -225,8 +219,8 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
             // Per-level indent: shift the shared rail axis right by one step per
             // depth. Root rows (depth 0) leave the var untouched so they inherit
             // the list's `--conv-rail-axis: 0.875rem` and render exactly as
-            // before; the rail, agent icon, status dot, and button padding all
-            // key off this var so the whole row indents cohesively.
+            // before; the rail and button padding both key off this var so the
+            // whole row indents cohesively.
             style={
               depth > 0
                 ? ({
@@ -266,8 +260,7 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
                     line continuous down through this nested row, so the child's
                     left rail aligns under the parent's. */}
                 <SubsessionAncestorRails depth={depth} />
-                {/* This row's OWN rail, through its agent icon, at the (depth-
-                    shifted) rail axis. */}
+                {/* This row's OWN rail at the depth-shifted rail axis. */}
                 <span
                   aria-hidden
                   className={cn(
@@ -281,35 +274,6 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
                     transform: "translateX(-50%)",
                   }}
                 />
-                <div
-                  className={cn(
-                    "pointer-events-none absolute top-1/2 z-10 flex items-center justify-center",
-                    // With children, the row hover (or focus) swaps this agent
-                    // icon out for the expand chevron at the same spot — fade it
-                    // so the two cross-fade in place. On touch (no hover) the
-                    // chevron is always shown, so the icon is always hidden.
-                    hasChildren &&
-                      onToggleExpand &&
-                      "transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 [@media(hover:none)]:opacity-0"
-                  )}
-                  style={{
-                    left: "var(--conv-rail-axis, 0.875rem)",
-                    width: "0.875rem",
-                    height: "0.875rem",
-                    transform: "translate(-50%, -50%)",
-                  }}
-                  aria-hidden
-                >
-                  <AgentIcon
-                    agentType={conversation.agent_type}
-                    className="h-[0.75rem] w-[0.75rem]"
-                  />
-                  <ConversationStatusDot
-                    status={status}
-                    size="sm"
-                    className="absolute -right-0.5 -bottom-0.5 ring-2 ring-sidebar"
-                  />
-                </div>
 
                 <span
                   className={cn(
@@ -323,12 +287,10 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
               </button>
 
               {/* Expand/collapse affordance for delegation children. It overlays
-                  the agent icon at the rail axis: idle shows the icon, and
-                  hovering (or focusing) the row swaps in this chevron at the very
-                  same spot while the icon fades. A sibling of the row button (HTML
-                  forbids nested buttons) with `stopPropagation` so a toggle never
-                  selects the row; pointer events stay off until revealed so a
-                  click on the icon area still selects the row when not hovering. */}
+                  the rail axis. A sibling of the row button (HTML forbids nested
+                  buttons) with `stopPropagation` so a toggle never selects the
+                  row; pointer events stay off until revealed so a click on the
+                  rail area still selects the row when not hovering. */}
               {hasChildren && onToggleExpand && (
                 <button
                   type="button"

@@ -55,7 +55,6 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
-import { AgentIcon } from "@/components/agent-icon"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import {
   buildFileUri,
@@ -3266,14 +3265,7 @@ export function MessageInput({
                             title={t("agentSettings")}
                             aria-label={t("agentSettings")}
                           >
-                            {agentType ? (
-                              <AgentIcon
-                                agentType={agentType}
-                                className="size-3"
-                              />
-                            ) : (
-                              <Cog className="size-3" />
-                            )}
+                            <Cog className="size-3" />
                           </Button>
                         </PopoverTrigger>
                         <PopoverContent

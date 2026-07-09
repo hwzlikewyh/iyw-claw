@@ -10,8 +10,6 @@ import {
 import {
   ArrowLeft,
   Bot,
-  BookOpenText,
-  FileSpreadsheet,
   FileStack,
   GitBranch,
   Globe,
@@ -21,7 +19,6 @@ import {
   SendHorizontal,
   Palette,
   PlugZap,
-  Server,
   Settings,
   SlidersHorizontal,
   Sparkles,
@@ -38,15 +35,13 @@ import { AppTitleBar } from "@/components/layout/app-title-bar"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 
-interface SettingsNavItem {
+export interface SettingsNavItem {
   href: string
   labelKey:
     | "general"
     | "appearance"
     | "agents"
-    | "model_providers"
     | "mcp"
-    | "skills"
     | "experts"
     | "office_tools"
     | "quick_messages"
@@ -55,11 +50,10 @@ interface SettingsNavItem {
     | "chat_channels"
     | "system"
     | "web_service"
-    | "logs"
   icon: ComponentType<{ className?: string }>
 }
 
-const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
+export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   {
     href: "/settings/appearance",
     labelKey: "appearance",
@@ -76,11 +70,6 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     icon: PlugZap,
   },
   {
-    href: "/settings/skills",
-    labelKey: "skills",
-    icon: BookOpenText,
-  },
-  {
     href: "/settings/experts",
     labelKey: "experts",
     icon: Sparkles,
@@ -94,11 +83,6 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     href: "/settings/agents",
     labelKey: "agents",
     icon: Bot,
-  },
-  {
-    href: "/settings/model-providers",
-    labelKey: "model_providers",
-    icon: Server,
   },
   {
     href: "/settings/quick-messages",
@@ -126,11 +110,6 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     icon: Globe,
   },
   {
-    href: "/settings/logs",
-    labelKey: "logs",
-    icon: FileSpreadsheet,
-  },
-  {
     href: "/settings/system",
     labelKey: "system",
     icon: Settings,
@@ -139,9 +118,16 @@ const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
 
 interface SettingsShellProps {
   children: ReactNode
+  activePath?: string
+  className?: string
+  onBack?: () => void
+  onNavigate?: (href: string) => void
+  showToaster?: boolean
+  showWindowControls?: boolean
+  updateDocumentTitle?: boolean
 }
 
-function normalizePath(path: string): string {
+export function normalizeSettingsPath(path: string): string {
   const noSuffix = path.replace(/\/index\.html$/, "").replace(/\.html$/, "")
   const noTrailingSlash = noSuffix.replace(/\/+$/, "")
   return noTrailingSlash || "/"
@@ -154,25 +140,43 @@ function isWindowsRuntime(): boolean {
   return platform.includes("win") || userAgent.includes("windows")
 }
 
-export function SettingsShell({ children }: SettingsShellProps) {
+export function SettingsShell({
+  children,
+  activePath,
+  className,
+  onBack,
+  onNavigate,
+  showToaster = true,
+  showWindowControls = true,
+  updateDocumentTitle = true,
+}: SettingsShellProps) {
   const t = useTranslations("SettingsShell")
   const pathname = usePathname()
   const router = useRouter()
-  const normalizedPathname = normalizePath(pathname)
+  const normalizedPathname = normalizeSettingsPath(activePath ?? pathname)
   const isMobile = useIsMobile()
   const [navOpen, setNavOpen] = useState(false)
 
   useEffect(() => {
+    if (!updateDocumentTitle) return
     document.title = `${t("title")} - iyw-claw`
-  }, [t])
+  }, [t, updateDocumentTitle])
 
   const navigateTo = useCallback(
     (href: string) => {
       if (typeof window === "undefined") return
 
-      const target = normalizePath(href)
-      const current = normalizePath(window.location.pathname)
+      const target = normalizeSettingsPath(href)
+      const current = onNavigate
+        ? normalizedPathname
+        : normalizeSettingsPath(window.location.pathname)
       if (current === target) {
+        setNavOpen(false)
+        return
+      }
+
+      if (onNavigate) {
+        onNavigate(target)
         setNavOpen(false)
         return
       }
@@ -192,7 +196,7 @@ export function SettingsShell({ children }: SettingsShellProps) {
       router.push(fullTarget)
       setNavOpen(false)
     },
-    [router, setNavOpen]
+    [normalizedPathname, onNavigate, router, setNavOpen]
   )
 
   const filteredNavItems = SETTINGS_NAV_ITEMS.filter(
@@ -238,7 +242,13 @@ export function SettingsShell({ children }: SettingsShellProps) {
           size="sm"
           className="w-full justify-start px-2"
           type="button"
-          onClick={() => navigateTo("/workspace")}
+          onClick={() => {
+            if (onBack) {
+              onBack()
+              return
+            }
+            navigateTo("/workspace")
+          }}
         >
           <span className="inline-flex items-center gap-1">
             <ArrowLeft className="h-3.5 w-3.5" />
@@ -250,8 +260,15 @@ export function SettingsShell({ children }: SettingsShellProps) {
   )
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-background text-foreground">
+    <div
+      className={cn(
+        "h-screen flex flex-col overflow-hidden bg-background text-foreground",
+        className
+      )}
+    >
       <AppTitleBar
+        draggable={showWindowControls}
+        showWindowControls={showWindowControls}
         left={
           isMobile ? (
             <Button
@@ -295,7 +312,9 @@ export function SettingsShell({ children }: SettingsShellProps) {
           {children}
         </section>
       </div>
-      <AppToaster position="bottom-right" closeButton duration={4000} />
+      {showToaster && (
+        <AppToaster position="bottom-right" closeButton duration={4000} />
+      )}
     </div>
   )
 }

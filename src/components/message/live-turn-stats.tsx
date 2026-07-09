@@ -14,7 +14,6 @@ import {
 } from "@/lib/line-change-stats"
 import { FilePenLine, ListTodoIcon, Timer, Wrench } from "lucide-react"
 import type { AgentType, PlanEntryInfo } from "@/lib/types"
-import { AgentIcon } from "@/components/agent-icon"
 import { Badge } from "@/components/ui/badge"
 import {
   Popover,
@@ -328,7 +327,6 @@ export function extractLiveEditStats(message: LiveMessage): LiveEditStats {
 
 export function LiveTurnStats({
   message,
-  agentType,
   isStreaming = true,
   planEntries,
   subAgentControl,
@@ -438,10 +436,6 @@ export function LiveTurnStats({
             <span className="text-border leading-none">|</span>
           </>
         )}
-        <AgentIcon
-          agentType={agentType}
-          className="h-3.5 w-3.5 animate-pulse"
-        />
         {isThinking ? (
           <span>{t("thinking")}</span>
         ) : (

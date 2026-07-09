@@ -113,8 +113,8 @@ pub async fn set_feedback_settings(
     #[cfg(feature = "tauri-runtime")]
     {
         // Tauri's `app.emit` fans out to every window, so the feedback bar in an
-        // open conversation window converges even though this save originates in
-        // the separate settings window.
+        // open conversation window converges even when this save originates in
+        // settings UI mounted elsewhere.
         let emitter = EventEmitter::Tauri(app);
         set_feedback_settings_core(&db.conn, &config, &emitter, settings).await
     }

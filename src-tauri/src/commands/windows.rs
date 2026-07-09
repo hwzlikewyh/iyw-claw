@@ -259,12 +259,6 @@ impl SettingsWindowState {
         }
     }
 
-    fn set_owner(&self, settings_label: String, owner_label: String) {
-        if let Ok(mut owners) = self.owner_by_settings_label.lock() {
-            owners.insert(settings_label, owner_label);
-        }
-    }
-
     fn take_owner(&self, settings_label: &str) -> Option<String> {
         self.owner_by_settings_label
             .lock()
@@ -306,20 +300,6 @@ impl Default for CommitWindowState {
     }
 }
 
-fn resolve_settings_route(section: Option<&str>) -> &'static str {
-    match section {
-        Some("appearance") => "settings/appearance",
-        Some("agents") => "settings/agents",
-        Some("mcp") => "settings/mcp",
-        Some("skills") => "settings/skills",
-        Some("experts") => "settings/experts",
-        Some("office-tools") => "settings/office-tools",
-        Some("shortcuts") => "settings/shortcuts",
-        Some("system") => "settings/system",
-        _ => "settings/appearance",
-    }
-}
-
 fn normalize_agent_query(agent_type: Option<&str>) -> Option<String> {
     let raw = agent_type?.trim();
     if raw.is_empty() {
@@ -334,14 +314,12 @@ fn normalize_agent_query(agent_type: Option<&str>) -> Option<String> {
     None
 }
 
-fn resolve_settings_target(section: Option<&str>, agent_type: Option<&str>) -> String {
-    let route = resolve_settings_route(section);
-    if route == "settings/agents" {
-        if let Some(agent) = normalize_agent_query(agent_type) {
-            return format!("{route}?agent={agent}");
-        }
-    }
-    route.to_string()
+#[cfg(feature = "tauri-runtime")]
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenSettingsDialogPayload {
+    section: Option<String>,
+    agent_type: Option<String>,
 }
 
 fn append_query_param(route: String, key: &str, value: &str) -> String {
@@ -377,16 +355,6 @@ fn route_with_new_remote_window(
     (route, remote_window_id)
 }
 
-fn remote_window_id_from_window(window: &tauri::WebviewWindow) -> Option<String> {
-    window.url().ok()?.query_pairs().find_map(|(key, value)| {
-        if key == "remoteWindowId" && !value.is_empty() {
-            Some(value.into_owned())
-        } else {
-            None
-        }
-    })
-}
-
 fn register_remote_window_cleanup(
     app: &AppHandle,
     window: &tauri::WebviewWindow,
@@ -414,7 +382,6 @@ fn register_remote_window_cleanup(
 // Tauri's window builder before the webview boots.
 
 struct WindowTitles {
-    settings: &'static str,
     commit: &'static str,
     merge: &'static str,
     stash: &'static str,
@@ -425,70 +392,60 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
     use crate::models::system::AppLocale;
     match locale {
         AppLocale::ZhCn => WindowTitles {
-            settings: "设置",
             commit: "提交代码",
             merge: "解决冲突",
             stash: "储藏",
             push: "推送",
         },
         AppLocale::ZhTw => WindowTitles {
-            settings: "設定",
             commit: "提交程式碼",
             merge: "解決衝突",
             stash: "暫存",
             push: "推送",
         },
         AppLocale::Ja => WindowTitles {
-            settings: "設定",
             commit: "コミット",
             merge: "コンフリクトの解決",
             stash: "スタッシュ",
             push: "プッシュ",
         },
         AppLocale::Ko => WindowTitles {
-            settings: "설정",
             commit: "커밋",
             merge: "충돌 해결",
             stash: "스태시",
             push: "푸시",
         },
         AppLocale::Es => WindowTitles {
-            settings: "Configuración",
             commit: "Confirmar",
             merge: "Resolver conflictos",
             stash: "Reserva",
             push: "Enviar",
         },
         AppLocale::De => WindowTitles {
-            settings: "Einstellungen",
             commit: "Commit",
             merge: "Konflikte lösen",
             stash: "Stash",
             push: "Push",
         },
         AppLocale::Fr => WindowTitles {
-            settings: "Paramètres",
             commit: "Valider",
             merge: "Résoudre les conflits",
             stash: "Réserve",
             push: "Pousser",
         },
         AppLocale::Pt => WindowTitles {
-            settings: "Configurações",
             commit: "Confirmar",
             merge: "Resolver conflitos",
             stash: "Stash",
             push: "Enviar",
         },
         AppLocale::Ar => WindowTitles {
-            settings: "الإعدادات",
             commit: "الالتزام",
             merge: "حل التعارضات",
             stash: "إخفاء",
             push: "دفع",
         },
         AppLocale::En => WindowTitles {
-            settings: "Settings",
             commit: "Commit",
             merge: "Resolve Conflicts",
             stash: "Stash",
@@ -618,73 +575,42 @@ pub async fn open_settings_window(
     remote_connection_id: Option<i32>,
     state: tauri::State<'_, SettingsWindowState>,
 ) -> Result<(), AppCommandError> {
-    let settings_label = match remote_connection_id {
-        Some(remote_id) => format!("remote-settings-{remote_id}"),
-        None => "settings".to_string(),
-    };
+    use tauri::Emitter;
+
+    let _ = (&db, locale.as_ref(), remote_connection_id, &state);
+
     let owner_label = window.label().to_string();
-    if let Some(existing) = app.get_webview_window(&settings_label) {
-        post_window_setup(&existing);
-        if section.is_some() || agent_type.is_some() || remote_connection_id.is_some() {
-            let existing_remote_window_id = remote_window_id_from_window(&existing);
-            let generated_remote_window_id = remote_connection_id
-                .filter(|_| existing_remote_window_id.is_none())
-                .map(|_| crate::commands::remote_workspace::new_remote_window_instance_id());
-            let remote_window_id = existing_remote_window_id
-                .as_deref()
-                .or(generated_remote_window_id.as_deref());
-            if generated_remote_window_id.is_some() {
-                register_remote_window_cleanup(&app, &existing, remote_window_id);
-            }
-            let target_route = append_remote_context(
-                resolve_settings_target(section.as_deref(), agent_type.as_deref()),
-                remote_connection_id,
-                remote_window_id,
-            );
-            let target_path = format!("/{target_route}");
-            let target_json = serde_json::to_string(&target_path).map_err(|e| {
-                AppCommandError::window("Failed to build settings navigation target", e.to_string())
-            })?;
-            let nav_script = format!("window.location.replace({target_json});");
-            existing.eval(&nav_script).map_err(|e| {
-                AppCommandError::window("Failed to navigate settings window", e.to_string())
-            })?;
-        }
-        let _ = state.take_owner(&settings_label);
-        state.set_owner(settings_label, owner_label);
-        let _ = existing.unminimize();
-        existing.set_focus().map_err(|e| {
-            AppCommandError::window("Failed to focus settings window", e.to_string())
-        })?;
-        return Ok(());
+    let target_label = if owner_label.starts_with("remote-workspace-") {
+        owner_label
+    } else {
+        "main".to_string()
+    };
+
+    if target_label == "main" {
+        show_main_window(&app);
     }
 
-    let titles = resolve_window_titles(&db.conn, locale).await;
-    let (target_route, remote_window_id) = route_with_new_remote_window(
-        resolve_settings_target(section.as_deref(), agent_type.as_deref()),
-        remote_connection_id,
-    );
-    let url = WebviewUrl::App(target_route.into());
-    let builder = WebviewWindowBuilder::new(&app, &settings_label, url)
-        .title(titles.settings)
-        .inner_size(1080.0, 700.0)
-        .min_inner_size(1080.0, 600.0)
-        .center();
-    // Intentionally NOT a child of the caller window: on macOS `.parent()`
-    // attaches the window via `addChildWindow`, which makes settings move and
-    // minimize together with the main window. Keep it an independent top-level
-    // window; focus returns to the owner on close via
-    // `restore_windows_after_settings` (the SettingsWindowState owner tracking
-    // is independent of any parent/child relationship).
-    let settings_window = apply_platform_window_style(builder)
-        .build()
-        .map_err(|e| AppCommandError::window("Failed to open settings window", e.to_string()))?;
-    register_remote_window_cleanup(&app, &settings_window, remote_window_id.as_deref());
-    post_window_setup(&settings_window);
-    state.set_owner(settings_label, owner_label);
-    settings_window
+    let target = app.get_webview_window(&target_label).ok_or_else(|| {
+        AppCommandError::window(
+            "Failed to find main window for settings dialog",
+            format!("window_label={target_label}"),
+        )
+    })?;
+    let _ = target.unminimize();
+    let _ = target.show();
+    target
         .set_focus()
-        .map_err(|e| AppCommandError::window("Failed to focus settings window", e.to_string()))?;
+        .map_err(|e| AppCommandError::window("Failed to focus settings dialog", e.to_string()))?;
+
+    target
+        .emit(
+            "app://open-settings-dialog",
+            OpenSettingsDialogPayload {
+                section,
+                agent_type: normalize_agent_query(agent_type.as_deref()),
+            },
+        )
+        .map_err(|e| AppCommandError::window("Failed to signal settings dialog", e.to_string()))?;
     Ok(())
 }
 

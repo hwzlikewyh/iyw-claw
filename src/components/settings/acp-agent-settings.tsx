@@ -137,6 +137,10 @@ const CLAUDE_AUTH_MODES = [
   "model_provider",
 ] as const
 type ClaudeAuthMode = (typeof CLAUDE_AUTH_MODES)[number]
+const VISIBLE_CLAUDE_AUTH_MODES: ClaudeAuthMode[] = [
+  "official_subscription",
+  "custom",
+]
 
 interface AgentDraft {
   enabled: boolean
@@ -347,6 +351,14 @@ const GEMINI_AUTH_MODES = [
 ] as const
 
 type GeminiAuthMode = (typeof GEMINI_AUTH_MODES)[number]
+const VISIBLE_GEMINI_AUTH_MODES: GeminiAuthMode[] = [
+  "custom",
+  "login_google",
+  "gemini_api_key",
+  "vertex_adc",
+  "vertex_service_account",
+  "vertex_api_key",
+]
 
 const GEMINI_ENV_KEYS = {
   baseUrl: "GOOGLE_GEMINI_BASE_URL",
@@ -1356,6 +1368,10 @@ const CODEX_AUTH_MODES = [
   "model_provider",
 ] as const
 type CodexAuthMode = (typeof CODEX_AUTH_MODES)[number]
+const VISIBLE_CODEX_AUTH_MODES: CodexAuthMode[] = [
+  "api_key",
+  "chatgpt_subscription",
+]
 
 type CodexReasoningEffort = "low" | "medium" | "high" | "xhigh"
 
@@ -2565,11 +2581,9 @@ function buildAgentDraft(agent: AcpAgentInfo): AgentDraft {
   )
   const clineImportant = extractClineImportantValues(configText)
   const codexAuthMode: CodexAuthMode =
-    agent.agent_type === "codex" && agent.model_provider_id != null
-      ? "model_provider"
-      : agent.agent_type === "codex"
-        ? inferCodexAuthMode(codexAuthJsonText)
-        : "api_key"
+    agent.agent_type === "codex"
+      ? inferCodexAuthMode(codexAuthJsonText)
+      : "api_key"
   const rawEnvText = envMapToText(agent.env)
   // When codex is in official subscription mode, clean up API keys/URLs from env
   const envText =
@@ -2610,17 +2624,12 @@ function buildAgentDraft(agent: AcpAgentInfo): AgentDraft {
               ? openCodeImportant.model
               : important.model,
     claudeAuthMode:
-      agent.agent_type === "claude_code" && agent.model_provider_id != null
-        ? "model_provider"
-        : agent.agent_type === "claude_code" &&
-            (important.apiBaseUrl || important.apiKey)
-          ? "custom"
-          : "official_subscription",
-    modelProviderId: agent.model_provider_id ?? null,
-    geminiAuthMode:
-      agent.agent_type === "gemini" && agent.model_provider_id != null
-        ? "model_provider"
-        : geminiImportant.authMode,
+      agent.agent_type === "claude_code" &&
+      (important.apiBaseUrl || important.apiKey)
+        ? "custom"
+        : "official_subscription",
+    modelProviderId: null,
+    geminiAuthMode: geminiImportant.authMode,
     geminiApiKey: geminiImportant.geminiApiKey,
     googleApiKey: geminiImportant.googleApiKey,
     googleCloudProject: geminiImportant.googleCloudProject,
@@ -3683,7 +3692,13 @@ function KimiCodeConfigPanel({
   )
 }
 
-export function AcpAgentSettings() {
+interface AcpAgentSettingsProps {
+  initialAgentType?: AgentType | null
+}
+
+export function AcpAgentSettings({
+  initialAgentType = null,
+}: AcpAgentSettingsProps) {
   const locale = useLocale()
   const t = useTranslations("AcpAgentSettings")
   const rawTranslator = t as unknown as AcpTranslator
@@ -3806,8 +3821,8 @@ export function AcpAgentSettings() {
     [agents]
   )
   const requestedAgentType = useMemo(
-    () => searchParams.get("agent"),
-    [searchParams]
+    () => initialAgentType ?? searchParams.get("agent"),
+    [initialAgentType, searchParams]
   )
 
   const refreshAgents = useCallback(async () => {
@@ -6533,39 +6548,6 @@ export function AcpAgentSettings() {
     [selectedAgent, selectedDraft, updateSelectedDraft]
   )
 
-  const handleCodexSkillsChange = useCallback(
-    (enabled: boolean) => {
-      if (
-        !selectedAgent ||
-        !selectedDraft ||
-        selectedAgent.agent_type !== "codex"
-      )
-        return
-      const nextToml = patchCodexConfigTomlText(
-        selectedDraft.codexConfigTomlText,
-        { skills: enabled }
-      )
-      const synced = extractCodexImportantValues(
-        selectedDraft.codexAuthJsonText,
-        nextToml
-      )
-      updateSelectedDraft((current) => ({
-        ...current,
-        apiBaseUrl: synced.apiBaseUrl,
-        apiKey: synced.apiKey ?? current.apiKey,
-        model: synced.model,
-        codexModelProvider: synced.modelProvider,
-        codexProviderOptions: synced.providerOptions,
-        codexReasoningEffort: synced.reasoningEffort,
-        codexSupportsWebsockets: synced.supportsWebsockets,
-        codexSkills: synced.skills,
-        codexServiceTierFast: synced.serviceTierFast,
-        codexConfigTomlText: nextToml,
-      }))
-    },
-    [selectedAgent, selectedDraft, updateSelectedDraft]
-  )
-
   const handleCodexServiceTierFastChange = useCallback(
     (enabled: boolean) => {
       if (
@@ -7117,7 +7099,7 @@ export function AcpAgentSettings() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent align="start">
-                          {CODEX_AUTH_MODES.map((mode) => (
+                          {VISIBLE_CODEX_AUTH_MODES.map((mode) => (
                             <SelectItem key={mode} value={mode}>
                               {mode === "chatgpt_subscription"
                                 ? t("authModeOfficialSubscription")
@@ -7283,28 +7265,6 @@ export function AcpAgentSettings() {
                       selectedDraft.codexAuthMode === "model_provider") && (
                       <div className="space-y-1.5">
                         <label className="text-[11px] text-muted-foreground">
-                          API URL
-                        </label>
-                        <Input
-                          value={selectedDraft.apiBaseUrl}
-                          readOnly={
-                            selectedDraft.codexAuthMode === "model_provider"
-                          }
-                          onChange={(event) => {
-                            handleCodexImportantConfigChange(
-                              "apiBaseUrl",
-                              event.target.value
-                            )
-                          }}
-                          placeholder="https://api.openai.com/v1"
-                        />
-                      </div>
-                    )}
-
-                    {(selectedDraft.codexAuthMode === "api_key" ||
-                      selectedDraft.codexAuthMode === "model_provider") && (
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] text-muted-foreground">
                           API Key
                         </label>
                         <div className="flex items-center gap-2">
@@ -7423,19 +7383,6 @@ export function AcpAgentSettings() {
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between rounded-md border px-3 py-2">
                         <label className="text-[11px] text-muted-foreground">
-                          {t("codex.enableSkills")}
-                        </label>
-                        <Switch
-                          checked={selectedDraft.codexSkills}
-                          onCheckedChange={handleCodexSkillsChange}
-                          aria-label={t("codex.enableSkillsAria")}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                        <label className="text-[11px] text-muted-foreground">
                           {t("codex.enableFast")}
                         </label>
                         <Switch
@@ -7458,14 +7405,9 @@ export function AcpAgentSettings() {
                         placeholder={`disable_response_storage = true
 model = "gpt-5"
 model_reasoning_effort = "high"
-model_provider = "iyw-claw"
 
 [features]
-responses_websockets_v2 = true
-
-[model_providers.iyw-claw]
-base_url = "https://api.openai.com/v1"
-supports_websockets = true`}
+responses_websockets_v2 = true`}
                         className="min-h-40 max-h-80 font-mono text-xs"
                       />
                     </div>
@@ -7577,7 +7519,7 @@ supports_websockets = true`}
                           />
                         </SelectTrigger>
                         <SelectContent align="start">
-                          {GEMINI_AUTH_MODES.map((mode) => (
+                          {VISIBLE_GEMINI_AUTH_MODES.map((mode) => (
                             <SelectItem key={mode} value={mode}>
                               {geminiAuthModeLabel(mode)}
                             </SelectItem>
@@ -7645,28 +7587,6 @@ supports_websockets = true`}
                         {t("modelHintDefault")}
                       </p>
                     </div>
-
-                    {(selectedDraft.geminiAuthMode === "custom" ||
-                      selectedDraft.geminiAuthMode === "model_provider") && (
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] text-muted-foreground">
-                          GOOGLE_GEMINI_BASE_URL
-                        </label>
-                        <Input
-                          value={selectedDraft.apiBaseUrl}
-                          readOnly={
-                            selectedDraft.geminiAuthMode === "model_provider"
-                          }
-                          onChange={(event) => {
-                            handleGeminiFieldChange(
-                              "apiBaseUrl",
-                              event.target.value
-                            )
-                          }}
-                          placeholder="https://your-gemini-endpoint.example.com"
-                        />
-                      </div>
-                    )}
 
                     {(selectedDraft.geminiAuthMode === "custom" ||
                       selectedDraft.geminiAuthMode === "gemini_api_key" ||
@@ -8788,22 +8708,6 @@ supports_websockets = true`}
 
                     <div className="space-y-1.5">
                       <label className="text-[11px] text-muted-foreground">
-                        API URL
-                      </label>
-                      <Input
-                        value={selectedDraft.clineBaseUrl}
-                        onChange={(event) => {
-                          handleClineFieldChange(
-                            "clineBaseUrl",
-                            event.target.value
-                          )
-                        }}
-                        placeholder="https://api.openai.com"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] text-muted-foreground">
                         {t("nativeJsonConfig")} (config)
                       </label>
                       <Textarea
@@ -9132,25 +9036,6 @@ supports_websockets = true`}
                       </div>
                     )}
 
-                    {selectedHermesProviderOption?.needsBaseUrl && (
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] text-muted-foreground">
-                          API URL
-                        </label>
-                        <Input
-                          value={selectedDraft.apiBaseUrl}
-                          onChange={(event) =>
-                            handleHermesFieldChange(
-                              "apiBaseUrl",
-                              event.target.value
-                            )
-                          }
-                          placeholder="https://api.example.com/v1"
-                          disabled={selectedIsSavingConfig}
-                        />
-                      </div>
-                    )}
-
                     <div className="space-y-1.5">
                       <label className="text-[11px] text-muted-foreground">
                         {t("hermes.modelName")}
@@ -9328,7 +9213,7 @@ supports_websockets = true`}
                         selectedAgent.agent_type,
                         enabled,
                         envMapToText(env),
-                        selectedAgent.model_provider_id
+                        null
                       )
                     }
                   />
@@ -9346,7 +9231,7 @@ supports_websockets = true`}
                         selectedAgent.agent_type,
                         enabled,
                         envMapToText(env),
-                        selectedAgent.model_provider_id
+                        null
                       )
                     }
                     onSaved={refreshAgents}
@@ -9387,15 +9272,13 @@ supports_websockets = true`}
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent align="start">
-                            <SelectItem value="official_subscription">
-                              {t("authModeOfficialSubscription")}
-                            </SelectItem>
-                            <SelectItem value="custom">
-                              {t("authModeCustomEndpoint")}
-                            </SelectItem>
-                            <SelectItem value="model_provider">
-                              {t("authModeModelProvider")}
-                            </SelectItem>
+                            {VISIBLE_CLAUDE_AUTH_MODES.map((mode) => (
+                              <SelectItem key={mode} value={mode}>
+                                {mode === "official_subscription"
+                                  ? t("authModeOfficialSubscription")
+                                  : t("authModeCustomEndpoint")}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                         <p className="text-[11px] text-muted-foreground">
@@ -9452,26 +9335,6 @@ supports_websockets = true`}
                       selectedDraft.claudeAuthMode === "custom" ||
                       selectedDraft.claudeAuthMode === "model_provider") && (
                       <>
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] text-muted-foreground">
-                            API URL
-                          </label>
-                          <Input
-                            value={selectedDraft.apiBaseUrl}
-                            readOnly={
-                              selectedAgent.agent_type === "claude_code" &&
-                              selectedDraft.claudeAuthMode === "model_provider"
-                            }
-                            onChange={(event) => {
-                              handleImportantConfigChange(
-                                "apiBaseUrl",
-                                event.target.value
-                              )
-                            }}
-                            placeholder="https://api.example.com"
-                          />
-                        </div>
-
                         <div className="space-y-1.5">
                           <label className="text-[11px] text-muted-foreground">
                             API Key

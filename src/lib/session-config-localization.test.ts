@@ -15,7 +15,9 @@ const messages: Record<string, string> = {
   "sessionConfig.values.reasoning.xhigh.name": "极高",
   "sessionConfig.values.reasoning.xhigh.description": "最高推理深度",
   "sessionConfig.values.switch.on": "开启",
+  "sessionConfig.values.switch.onDescription": "速度更快，用量增加",
   "sessionConfig.values.switch.off": "关闭",
+  "sessionConfig.values.switch.offDescription": "默认速度，正常用量",
 }
 
 function t(key: string): string {
@@ -117,8 +119,8 @@ describe("localizeSessionConfigOption", () => {
         type: "select",
         current_value: "off",
         options: [
-          { value: "on", name: "On", description: null },
-          { value: "off", name: "Off", description: null },
+          { value: "on", name: "On", description: "Fast" },
+          { value: "off", name: "Off", description: "Default" },
         ],
         groups: [],
       },
@@ -135,11 +137,10 @@ describe("localizeSessionConfigOption", () => {
       },
     })
 
-    expect(
-      localizeSessionConfigOption(switchOption, t).kind.options.map(
-        (item) => item.name
-      )
-    ).toEqual(["开启", "关闭"])
+    expect(localizeSessionConfigOption(switchOption, t).kind.options).toEqual([
+      { value: "on", name: "开启", description: "速度更快，用量增加" },
+      { value: "off", name: "关闭", description: "默认速度，正常用量" },
+    ])
     expect(
       localizeSessionConfigOption(modelOption, t).kind.options[0].name
     ).toBe("GPT-5")

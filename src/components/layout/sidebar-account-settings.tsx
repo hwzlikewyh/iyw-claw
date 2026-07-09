@@ -10,7 +10,6 @@ import {
 } from "react"
 import { Loader2, LogOut, RefreshCw, Settings, UserRound } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { useRouter } from "next/navigation"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -27,6 +26,7 @@ import {
   iywAccountLoginWithPassword,
   iywAccountLogout,
   iywAccountPollWechatLogin,
+  openSettingsWindow,
 } from "@/lib/api"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -367,7 +367,6 @@ function InfoRow({
 
 export function SidebarAccountSettings() {
   const t = useTranslations("SidebarAccount")
-  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loginMode, setLoginMode] = useState<LoginMode>("wechat")
   const [profile, setProfile] = useState<IywAccountProfile | null>(null)
@@ -527,10 +526,11 @@ export function SidebarAccountSettings() {
   )
 
   const handleOpenSettings = useCallback(() => {
-    const search = typeof window === "undefined" ? "" : window.location.search
     setOpen(false)
-    router.push(`/settings/appearance${search}`)
-  }, [router])
+    openSettingsWindow("appearance").catch((err) => {
+      console.error("[SidebarAccountSettings] failed to open settings:", err)
+    })
+  }, [])
 
   const title = displayName(profile, t("notSignedIn"))
   const subtitle = profile?.logged_in

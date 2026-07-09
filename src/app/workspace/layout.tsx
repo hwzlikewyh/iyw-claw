@@ -11,7 +11,6 @@ import {
 import type { ImperativePanelGroupHandle } from "react-resizable-panels"
 import { PanelLeft, Settings } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { useRouter } from "next/navigation"
 import { FolderTitleBar } from "@/components/layout/folder-title-bar"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { Sidebar } from "@/components/layout/sidebar"
@@ -60,6 +59,7 @@ import { AuxPanel } from "@/components/layout/aux-panel"
 import { FileWorkspaceTabBar } from "@/components/files/file-workspace-tab-bar"
 import { FileWorkspacePanel } from "@/components/files/file-workspace-panel"
 import { ExternalConflictDialog } from "@/components/files/external-conflict-dialog"
+import { SettingsDialog } from "@/components/settings/settings-dialog"
 import { AppToaster } from "@/components/ui/app-toaster"
 import {
   DeepLinkBootstrap,
@@ -76,6 +76,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useIsMac } from "@/hooks/use-is-mac"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
 import { formatShortcutLabel } from "@/lib/keyboard-shortcuts"
+import { openSettingsWindow } from "@/lib/api"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 
 function WorkspaceDocumentTitle() {
@@ -827,14 +828,14 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
 function DesktopWorkspaceCornerControls() {
   const tTitleBar = useTranslations("Folder.folderTitleBar")
   const { isOpen: sidebarOpen, toggle: toggleSidebar } = useSidebarContext()
-  const router = useRouter()
   const isMac = useIsMac()
   const { shortcuts } = useShortcutSettings()
 
   const openSettings = useCallback(() => {
-    const search = typeof window === "undefined" ? "" : window.location.search
-    router.push(`/settings/appearance${search}`)
-  }, [router])
+    openSettingsWindow("appearance").catch((err) => {
+      console.error("[Workspace] failed to open settings:", err)
+    })
+  }, [])
 
   if (sidebarOpen) return null
 
@@ -932,6 +933,7 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                       <TabKeysSync />
                       <DeepLinkBootstrap />
                       <PetFocusBridge />
+                      <SettingsDialog />
                       {/* Always mounted: external-change conflicts must be
                             resolvable even with the aux file tree closed. */}
                       <ExternalConflictDialog />

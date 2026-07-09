@@ -32,6 +32,9 @@ use crate::web::event_bridge::EventEmitter;
 
 const ACP_AGENTS_UPDATED_EVENT: &str = "app://acp-agents-updated";
 const NPM_PREFIX_TIMEOUT: Duration = Duration::from_millis(1500);
+const DEFAULT_MODEL_GATEWAY_BASE_URL: &str = "http://127.0.0.1:6001";
+const MODEL_GATEWAY_BASE_URL_ENV: &str = "IYW_CLAW_MODEL_GATEWAY_BASE_URL";
+
 static NPM_GLOBAL_PREFIX_CACHE: tokio::sync::OnceCell<PathBuf> = tokio::sync::OnceCell::const_new();
 
 #[derive(Serialize, Clone)]
@@ -5363,6 +5366,38 @@ fn agent_env_keys(agent_type: AgentType) -> (&'static str, &'static str, &'stati
     }
 }
 
+fn join_model_gateway_path(base_url: &str, path: &str) -> String {
+    format!(
+        "{}/{}",
+        base_url.trim().trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
+}
+
+pub(crate) fn model_gateway_base_url_for_agent(agent_type: AgentType, base_url: &str) -> String {
+    match agent_type {
+        AgentType::ClaudeCode => join_model_gateway_path(base_url, "anthropic"),
+        _ => join_model_gateway_path(base_url, "v1"),
+    }
+}
+
+fn configured_model_gateway_base_url() -> String {
+    std::env::var(MODEL_GATEWAY_BASE_URL_ENV)
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_MODEL_GATEWAY_BASE_URL.to_string())
+}
+
+fn apply_model_gateway_env(agent_type: AgentType, runtime_env: &mut BTreeMap<String, String>) {
+    let base_url = configured_model_gateway_base_url();
+    let (url_key, _, _) = agent_env_keys(agent_type);
+    runtime_env.insert(
+        url_key.to_string(),
+        model_gateway_base_url_for_agent(agent_type, &base_url),
+    );
+}
+
 /// Serialize a BTreeMap into env_json for database storage.
 /// Returns `None` when the map is empty.
 fn serialize_env_map(env: &BTreeMap<String, String>) -> Result<Option<String>, AcpError> {
@@ -5858,6 +5893,7 @@ pub(crate) async fn build_session_runtime_env(
     let mut runtime_env =
         build_runtime_env_from_setting(agent_type, setting.as_ref(), local_config_json.as_deref());
     apply_model_provider_env(agent_type, setting.as_ref(), &mut runtime_env, &db.conn).await;
+    apply_model_gateway_env(agent_type, &mut runtime_env);
 
     // codex resume no longer needs a `MODEL_PROVIDER` pin: codex-acp 1.0.1
     // (#224) resolves the resumed provider from `~/.codex/config.toml` via

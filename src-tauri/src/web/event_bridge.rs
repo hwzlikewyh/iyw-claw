@@ -150,11 +150,11 @@ impl EventEmitter {
 pub const CONVERSATION_CHANGED_EVENT: &str = "conversation://changed";
 
 /// Global side-channel announcing a live-feedback enable/disable. The settings
-/// UI runs in a SEPARATE window (`openSettingsWindow`), so the conversation
-/// feedback bar can't learn about a save through any frontend-only cache — it
-/// relies on this backend broadcast to converge across every window / WS client,
-/// exactly like [`CONVERSATION_CHANGED_EVENT`]. Payload: `FeedbackSettings`
-/// (`{ "enabled": bool }`).
+/// UI can be mounted away from the conversation component, so the feedback bar
+/// can't learn about a save through any frontend-only cache — it relies on this
+/// backend broadcast to converge across every window / WS client, exactly like
+/// [`CONVERSATION_CHANGED_EVENT`]. Payload: `FeedbackSettings` (`{ "enabled":
+/// bool }`).
 pub const FEEDBACK_SETTINGS_CHANGED_EVENT: &str = "feedback-settings://changed";
 
 /// Global side-channel announcing an ask-user-question enable/disable. Same

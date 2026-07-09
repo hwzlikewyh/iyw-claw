@@ -116,6 +116,13 @@ describe("extractLiveEditStats", () => {
 })
 
 describe("LiveTurnStats", () => {
+  it("does not show the agent icon while streaming", () => {
+    renderWithIntl(<LiveTurnStats message={msg([])} agentType="codex" />)
+
+    expect(screen.getByText("Streaming")).toBeInTheDocument()
+    expect(screen.queryByText("Codex")).not.toBeInTheDocument()
+  })
+
   it("places a sub-agent control in the live status row", () => {
     renderWithIntl(
       <LiveTurnStats

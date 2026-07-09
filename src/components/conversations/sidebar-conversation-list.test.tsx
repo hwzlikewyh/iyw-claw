@@ -22,11 +22,11 @@ import {
 import enMessages from "@/i18n/messages/en.json"
 
 // ── Probes ────────────────────────────────────────────────────────────────
-// AgentIcon renders once per card body → counts card re-renders. The Folder /
-// FolderOpen lucide icon renders once per FolderHeader body → counts folder
-// re-renders. Both increment only when the owning memoized component does NOT
-// bail out, so they measure exactly the production memo path.
+// formatConversationTitle is our card render probe. In this test setup it is
+// called twice for a rendered card, but a memo bailout still calls it zero
+// times. Folder / FolderOpen lucide icons render once per FolderHeader body.
 const probes = vi.hoisted(() => ({ card: 0, folder: 0 }))
+const CARD_TITLE_FORMAT_CALLS_PER_RENDER = 2
 
 // Mutable backing store the mocked tab-context hook reads from (workspace data
 // now lives in the real zustand store, seeded per test below). `tabs` is
@@ -77,10 +77,10 @@ const stableTerminal = vi.hoisted(() => ({
   createTerminalInDirectory: () => {},
 }))
 
-vi.mock("@/components/agent-icon", () => ({
-  AgentIcon: () => {
+vi.mock("@/lib/conversation-title", () => ({
+  formatConversationTitle: (title?: string | null) => {
     probes.card++
-    return null
+    return title ?? ""
   },
 }))
 
@@ -362,7 +362,7 @@ describe("SidebarConversationList — single status event re-render scope", () =
     render(tree())
 
     // Sanity: initial mount rendered all 5 cards and both folders.
-    expect(probes.card).toBe(5)
+    expect(probes.card).toBe(5 * CARD_TITLE_FORMAT_CALLS_PER_RENDER)
     expect(probes.folder).toBe(2)
 
     // Mirror updateConversationLocal: replace exactly one summary (folder 2,
@@ -380,7 +380,7 @@ describe("SidebarConversationList — single status event re-render scope", () =
     act(() => harness.rerender())
 
     // Card-level gate: only the changed card re-renders (R1 + R1b + shared now).
-    expect(probes.card).toBe(1)
+    expect(probes.card).toBe(CARD_TITLE_FORMAT_CALLS_PER_RENDER)
     // Folder headers are fully decoupled from their conversation rows in the
     // flat model — a status event leaves every header's props (count, expanded,
     // stable callbacks) unchanged, so no header re-renders at all.
@@ -435,7 +435,7 @@ describe("SidebarConversationList — Pinned section (migration semantics)", () 
     // …while the unpinned conv-11 lives down in the folders section.
     expect(iFolders).toBeLessThan(iConv11)
     // Migration, not duplication: 3 conversations → exactly 3 rendered cards.
-    expect(probes.card).toBe(3)
+    expect(probes.card).toBe(3 * CARD_TITLE_FORMAT_CALLS_PER_RENDER)
   })
 
   it("omits the Pinned section entirely when nothing is pinned", () => {
