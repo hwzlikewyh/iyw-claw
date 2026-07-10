@@ -305,7 +305,8 @@ export function normalizeAppUpdateError(error: unknown): AppUpdateErrorInfo {
 
   if (
     normalized.includes("latest.json") ||
-    normalized.includes("/releases/latest/download/")
+    normalized.includes("/releases/latest/download/") ||
+    normalized.includes("release json")
   ) {
     return { kind: "source_unreachable", rawMessage }
   }

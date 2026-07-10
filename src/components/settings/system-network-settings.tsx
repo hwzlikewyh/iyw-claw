@@ -301,7 +301,7 @@ export function SystemNetworkSettings() {
 
   const formatUpdateError = useCallback(
     (error: unknown, action: UpdateAction): string => {
-      const { kind, rawMessage } = normalizeAppUpdateError(error)
+      const { kind } = normalizeAppUpdateError(error)
 
       switch (kind) {
         case "source_unreachable":
@@ -317,7 +317,6 @@ export function SystemNetworkSettings() {
           if (action === "install") {
             return t("updateErrors.installFailed")
           }
-          console.error("[Settings] updater unknown error:", rawMessage)
           return t("updateErrors.unknown")
       }
     },
@@ -362,7 +361,7 @@ export function SystemNetworkSettings() {
       const message = formatUpdateError(err, "check")
       setUpdateError(message)
       toast.error(t("checkUpdateFailed", { message }))
-      console.error("[Settings] check app update failed:", err)
+      console.warn("[Settings] check app update failed:", err)
     } finally {
       setCheckingUpdate(false)
     }
