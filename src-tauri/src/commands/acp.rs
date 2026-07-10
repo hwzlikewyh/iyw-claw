@@ -34,6 +34,8 @@ const ACP_AGENTS_UPDATED_EVENT: &str = "app://acp-agents-updated";
 const NPM_PREFIX_TIMEOUT: Duration = Duration::from_millis(1500);
 const DEFAULT_MODEL_GATEWAY_BASE_URL: &str = "http://127.0.0.1:6001";
 const MODEL_GATEWAY_BASE_URL_ENV: &str = "IYW_CLAW_MODEL_GATEWAY_BASE_URL";
+const CODEX_MODEL_CATALOG_FILE: &str = "iyw-claw-models.json";
+const CODEX_MODEL_CONTEXT_WINDOW: u64 = 128_000;
 
 static NPM_GLOBAL_PREFIX_CACHE: tokio::sync::OnceCell<PathBuf> = tokio::sync::OnceCell::const_new();
 
@@ -1029,6 +1031,10 @@ fn codex_auth_json_path() -> PathBuf {
     codex_home_dir().join("auth.json")
 }
 
+fn codex_model_catalog_path() -> PathBuf {
+    codex_home_dir().join(CODEX_MODEL_CATALOG_FILE)
+}
+
 /// OpenCode reads config from `$XDG_CONFIG_HOME/opencode` (falling back to
 /// `~/.config/opencode`) and credentials from `$XDG_DATA_HOME/opencode`
 /// (falling back to `~/.local/share/opencode`) on every platform. iyw-claw must
@@ -1355,6 +1361,151 @@ fn persist_cline_local_config(config_patch_json: Option<&str>) -> Result<(), Acp
     Ok(())
 }
 
+fn normalize_codex_model_ids(
+    model_ids: &[String],
+    default_model: Option<&str>,
+) -> Result<Vec<String>, AcpError> {
+    let mut normalized = Vec::new();
+    for raw in default_model
+        .into_iter()
+        .chain(model_ids.iter().map(String::as_str))
+    {
+        let model = raw.trim();
+        if model.is_empty() || normalized.iter().any(|item| item == model) {
+            continue;
+        }
+        if model.chars().any(char::is_control) {
+            return Err(AcpError::protocol(
+                "codex model id cannot contain control characters",
+            ));
+        }
+        normalized.push(model.to_string());
+    }
+    if normalized.is_empty() {
+        return Err(AcpError::protocol(
+            "codex model catalog must contain at least one model",
+        ));
+    }
+    Ok(normalized)
+}
+
+fn load_codex_model_catalog_ids() -> Vec<String> {
+    let Ok(raw) = fs::read_to_string(codex_model_catalog_path()) else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return Vec::new();
+    };
+    let model_ids = value
+        .get("models")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|model| model.get("slug").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    normalize_codex_model_ids(&model_ids, None).unwrap_or_default()
+}
+
+fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value {
+    serde_json::json!({
+        "slug": model,
+        "display_name": model,
+        "description": "Custom model managed by iyw-claw.",
+        "default_reasoning_level": "high",
+        "supported_reasoning_levels": [
+            { "effort": "low", "description": "Fast responses with lighter reasoning" },
+            { "effort": "medium", "description": "Balances speed and reasoning depth for everyday tasks" },
+            { "effort": "high", "description": "Greater reasoning depth for complex problems" },
+            { "effort": "xhigh", "description": "Extra high reasoning depth for complex problems" }
+        ],
+        "shell_type": "shell_command",
+        "visibility": "list",
+        "supported_in_api": true,
+        "priority": priority,
+        "base_instructions": "You are Codex, a coding agent. You and the user share one workspace. Collaborate until the user's goal is handled.",
+        "include_skills_usage_instructions": true,
+        "supports_reasoning_summaries": true,
+        "support_verbosity": false,
+        "apply_patch_tool_type": "freeform",
+        "web_search_tool_type": "text",
+        "truncation_policy": { "mode": "tokens", "limit": 10000 },
+        "supports_parallel_tool_calls": true,
+        "context_window": CODEX_MODEL_CONTEXT_WINDOW,
+        "effective_context_window_percent": 95,
+        "experimental_supported_tools": []
+    })
+}
+
+fn serialize_codex_model_catalog(model_ids: &[String]) -> Result<String, AcpError> {
+    let models = model_ids
+        .iter()
+        .enumerate()
+        .map(|(priority, model)| codex_model_catalog_entry(model, priority))
+        .collect::<Vec<_>>();
+    serde_json::to_string_pretty(&serde_json::json!({ "models": models }))
+        .map(|raw| format!("{raw}\n"))
+        .map_err(|e| AcpError::protocol(format!("serialize codex model catalog failed: {e}")))
+}
+
+fn toml_root_assignment_key(line: &str) -> Option<&str> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('[') {
+        return None;
+    }
+    trimmed.split_once('=').map(|(key, _)| key.trim())
+}
+
+fn patch_toml_root_string(raw_toml: &str, key: &str, value: &str) -> String {
+    let newline = if raw_toml.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let mut lines = raw_toml
+        .split(newline)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let root_end = lines
+        .iter()
+        .position(|line| {
+            let trimmed = line.trim();
+            trimmed.starts_with('[') && trimmed.ends_with(']')
+        })
+        .unwrap_or(lines.len());
+    let line = format!(
+        "{key} = {}",
+        serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+    );
+    if let Some(index) = lines[..root_end]
+        .iter()
+        .position(|current| toml_root_assignment_key(current) == Some(key))
+    {
+        lines[index] = line;
+    } else {
+        let mut insert_at = root_end;
+        while insert_at > 0 && lines[insert_at - 1].trim().is_empty() {
+            insert_at -= 1;
+        }
+        lines.insert(insert_at, line);
+    }
+    lines.join(newline)
+}
+
+fn codex_model_ids_from_projection(raw: Option<&str>) -> Result<Option<Vec<String>>, AcpError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let value = serde_json::from_str::<serde_json::Value>(raw)
+        .map_err(|e| AcpError::protocol(format!("invalid config_json: {e}")))?;
+    let Some(models) = value.get("modelCatalog") else {
+        return Ok(None);
+    };
+    let model_ids = serde_json::from_value::<Vec<String>>(models.clone())
+        .map_err(|e| AcpError::protocol(format!("invalid codex modelCatalog: {e}")))?;
+    Ok(Some(model_ids))
+}
+
 fn load_codex_auth_json_raw() -> Option<String> {
     fs::read_to_string(codex_auth_json_path()).ok()
 }
@@ -1392,6 +1543,18 @@ fn codex_config_projection_from_toml(raw_toml: &str) -> serde_json::Map<String, 
         merged.insert(
             "model".to_string(),
             serde_json::Value::String(model.to_string()),
+        );
+    }
+
+    if let Some(model_catalog_path) = value
+        .get("model_catalog_json")
+        .and_then(|item| item.as_str())
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        merged.insert(
+            "modelCatalogPath".to_string(),
+            serde_json::Value::String(model_catalog_path.to_string()),
         );
     }
 
@@ -1484,6 +1647,19 @@ fn load_codex_local_config_json() -> Option<String> {
                 );
             }
         }
+    }
+
+    let model_catalog = load_codex_model_catalog_ids();
+    if !model_catalog.is_empty() {
+        merged.insert(
+            "modelCatalog".to_string(),
+            serde_json::Value::Array(
+                model_catalog
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ),
+        );
     }
 
     if merged.is_empty() {
@@ -1650,13 +1826,63 @@ fn persist_codex_local_config(config_patch_json: Option<&str>) -> Result<(), Acp
     Ok(())
 }
 
+fn prepare_codex_config_files(
+    raw_toml: Option<&str>,
+    model_ids: Option<&[String]>,
+) -> Result<(Option<String>, Option<String>), AcpError> {
+    if raw_toml.is_none() && model_ids.is_none() {
+        return Ok((None, None));
+    }
+    let mut toml_text = raw_toml
+        .map(str::to_string)
+        .unwrap_or_else(|| fs::read_to_string(codex_config_toml_path()).unwrap_or_default());
+    let table = toml::from_str::<toml::Table>(&toml_text)
+        .map_err(|e| AcpError::protocol(format!("invalid codex config.toml: {e}")))?;
+    let Some(model_ids) = model_ids else {
+        return Ok((Some(toml_text), None));
+    };
+
+    let default_model = table
+        .get("model")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|model| !model.is_empty());
+    let normalized = normalize_codex_model_ids(model_ids, default_model)?;
+    if default_model.is_none() {
+        toml_text = patch_toml_root_string(&toml_text, "model", &normalized[0]);
+    }
+    let catalog_path = codex_model_catalog_path();
+    toml_text = patch_toml_root_string(
+        &toml_text,
+        "model_catalog_json",
+        &catalog_path.to_string_lossy(),
+    );
+    toml::from_str::<toml::Table>(&toml_text)
+        .map_err(|e| AcpError::protocol(format!("invalid codex config.toml: {e}")))?;
+    Ok((
+        Some(toml_text),
+        Some(serialize_codex_model_catalog(&normalized)?),
+    ))
+}
+
 fn persist_codex_native_config_files(
     codex_auth_json: Option<&str>,
     codex_config_toml: Option<&str>,
+    codex_model_ids: Option<&[String]>,
 ) -> Result<(), AcpError> {
-    if let Some(raw_toml) = codex_config_toml {
-        toml::from_str::<toml::Table>(raw_toml)
-            .map_err(|e| AcpError::protocol(format!("invalid codex config.toml: {e}")))?;
+    let (prepared_toml, prepared_catalog) =
+        prepare_codex_config_files(codex_config_toml, codex_model_ids)?;
+    if let Some(raw_catalog) = prepared_catalog {
+        let path = codex_model_catalog_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| AcpError::protocol(format!("create codex directory failed: {e}")))?;
+        }
+        fs::write(&path, raw_catalog)
+            .map_err(|e| AcpError::protocol(format!("write codex model catalog failed: {e}")))?;
+    }
+
+    if let Some(raw_toml) = prepared_toml {
         let path = codex_config_toml_path();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
@@ -1684,6 +1910,49 @@ fn persist_codex_native_config_files(
     }
 
     Ok(())
+}
+
+/// Migrate existing single-model configs before Codex starts. Explicit external
+/// catalogs remain user-owned; only the iyw-claw catalog is repaired in place.
+fn ensure_codex_model_catalog() -> Result<(), AcpError> {
+    let raw_toml = match fs::read_to_string(codex_config_toml_path()) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(AcpError::protocol(format!(
+                "read codex config.toml failed: {error}"
+            )))
+        }
+    };
+    let table = toml::from_str::<toml::Table>(&raw_toml)
+        .map_err(|e| AcpError::protocol(format!("invalid codex config.toml: {e}")))?;
+    let managed_path = codex_model_catalog_path();
+    let configured_path = table
+        .get("model_catalog_json")
+        .and_then(toml::Value::as_str)
+        .map(PathBuf::from);
+    if configured_path
+        .as_ref()
+        .is_some_and(|path| path != &managed_path)
+    {
+        return Ok(());
+    }
+
+    let default_model = table
+        .get("model")
+        .and_then(toml::Value::as_str)
+        .map(str::trim)
+        .filter(|model| !model.is_empty());
+    let model_ids = load_codex_model_catalog_ids();
+    let catalog_ready = !model_ids.is_empty()
+        && default_model.map_or(true, |model| model_ids.iter().any(|item| item == model));
+    if configured_path.is_some() && catalog_ready {
+        return Ok(());
+    }
+    if model_ids.is_empty() && default_model.is_none() {
+        return Ok(());
+    }
+    persist_codex_native_config_files(None, Some(&raw_toml), Some(&model_ids))
 }
 
 fn persist_opencode_auth_json(raw_auth: &str) -> Result<(), AcpError> {
@@ -5696,7 +5965,7 @@ fn cascade_update_agent_config(
             let toml_str = toml::to_string_pretty(&toml_value)
                 .map_err(|e| AcpError::protocol(e.to_string()))?;
 
-            persist_codex_native_config_files(Some(&auth_str), Some(&toml_str))?;
+            persist_codex_native_config_files(Some(&auth_str), Some(&toml_str), None)?;
         }
         AgentType::OpenCode => {
             let auth_path = opencode_auth_json_path();
@@ -5867,6 +6136,10 @@ pub(crate) async fn build_session_runtime_env(
         return Err(AcpError::protocol(format!(
             "{agent_type} is disabled in settings"
         )));
+    }
+
+    if agent_type == AgentType::Codex {
+        ensure_codex_model_catalog()?;
     }
 
     let local_config_json = load_agent_local_config_json(agent_type);
@@ -6704,6 +6977,7 @@ pub(crate) async fn acp_update_agent_preferences_core(
             persist_codex_native_config_files(
                 codex_auth_json.as_deref(),
                 codex_config_toml.as_deref(),
+                None,
             )?;
         }
         emit_acp_agents_updated(emitter, "preferences_updated", Some(agent_type));
@@ -6924,7 +7198,7 @@ fn apply_codex_root_model_action(action: &CodexModelAction) -> Result<(), AcpErr
     }
     let toml_str =
         toml::to_string_pretty(&toml_value).map_err(|e| AcpError::protocol(e.to_string()))?;
-    persist_codex_native_config_files(None, Some(&toml_str))?;
+    persist_codex_native_config_files(None, Some(&toml_str), None)?;
     Ok(())
 }
 
@@ -7018,10 +7292,12 @@ pub(crate) async fn acp_update_agent_config_core(
     }
 
     if agent_type == AgentType::Codex {
-        if codex_auth_json.is_some() || codex_config_toml.is_some() {
+        let codex_model_ids = codex_model_ids_from_projection(config_json.as_deref())?;
+        if codex_auth_json.is_some() || codex_config_toml.is_some() || codex_model_ids.is_some() {
             persist_codex_native_config_files(
                 codex_auth_json.as_deref(),
                 codex_config_toml.as_deref(),
+                codex_model_ids.as_deref(),
             )?;
         }
         emit_acp_agents_updated(emitter, "config_updated", Some(agent_type));

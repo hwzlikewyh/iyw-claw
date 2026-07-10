@@ -161,6 +161,7 @@ interface AgentDraft {
   codexModelProvider: string
   codexProviderOptions: string[]
   codexReasoningEffort: CodexReasoningEffort
+  codexModels: string[]
   codexSupportsWebsockets: boolean
   codexSkills: boolean
   codexServiceTierFast: boolean
@@ -1404,6 +1405,27 @@ const CODEX_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
 
 const CODEX_DEFAULT_REASONING_EFFORT: CodexReasoningEffort = "high"
 
+function normalizeCodexModels(
+  modelIds: readonly string[],
+  defaultModel: string
+): string[] {
+  const normalized: string[] = []
+  const seen = new Set<string>()
+  for (const raw of [defaultModel, ...modelIds]) {
+    const model = raw.trim()
+    if (!model || seen.has(model)) continue
+    seen.add(model)
+    normalized.push(model)
+  }
+  return normalized
+}
+
+function extractCodexModelCatalog(configText: string): string[] {
+  const models = parseConfigJsonText(configText).config.modelCatalog
+  if (!Array.isArray(models)) return []
+  return models.filter((model): model is string => typeof model === "string")
+}
+
 function normalizeCodexReasoningEffort(
   value: string
 ): CodexReasoningEffort | null {
@@ -2575,6 +2597,14 @@ function buildAgentDraft(agent: AcpAgentInfo): AgentDraft {
     codexAuthJsonText,
     codexConfigTomlText
   )
+  const codexModels =
+    agent.agent_type === "codex"
+      ? normalizeCodexModels(
+          extractCodexModelCatalog(configText),
+          codexImportant.model
+        )
+      : []
+  const codexModel = codexImportant.model || codexModels[0] || ""
   const openCodeImportant = extractOpenCodeConfigValues(
     configText,
     openCodeAuthJsonText
@@ -2617,7 +2647,7 @@ function buildAgentDraft(agent: AcpAgentInfo): AgentDraft {
       agent.agent_type === "hermes"
         ? (hermesValues?.model ?? "")
         : agent.agent_type === "codex"
-          ? codexImportant.model
+          ? codexModel
           : agent.agent_type === "gemini"
             ? geminiImportant.model
             : agent.agent_type === "open_code"
@@ -2639,6 +2669,7 @@ function buildAgentDraft(agent: AcpAgentInfo): AgentDraft {
     codexModelProvider: codexImportant.modelProvider,
     codexProviderOptions: codexImportant.providerOptions,
     codexReasoningEffort: codexImportant.reasoningEffort,
+    codexModels,
     codexSupportsWebsockets: codexImportant.supportsWebsockets,
     codexSkills: codexImportant.skills,
     codexServiceTierFast: codexImportant.serviceTierFast,
@@ -3806,6 +3837,7 @@ export function AcpAgentSettings({
     "idle" | "requesting" | "polling" | "success" | "error"
   >("idle")
   const [codexLoginError, setCodexLoginError] = useState<string | null>(null)
+  const [codexNewModelId, setCodexNewModelId] = useState("")
   const codexPollCancelledRef = useRef(false)
 
   const visibleAgents = useMemo(
@@ -4105,6 +4137,7 @@ export function AcpAgentSettings({
         openCodeAuthJsonText?: string
         codexAuthJsonText?: string
         codexConfigTomlText?: string
+        codexModels?: string[]
       }
     ) => {
       const parsedConfig = parseConfigJsonText(configText)
@@ -4119,6 +4152,20 @@ export function AcpAgentSettings({
         }
       }
       let normalizedConfig = normalizeConfigText(configText)
+      if (
+        agentType === "codex" &&
+        options?.codexModels &&
+        options.codexModels.length > 0
+      ) {
+        normalizedConfig = JSON.stringify(
+          {
+            ...parsedConfig.config,
+            modelCatalog: options.codexModels,
+          },
+          null,
+          2
+        )
+      }
       if (agentType === "open_code" && normalizedConfig) {
         normalizedConfig = ensureOpenCodeProviderNpm(normalizedConfig)
       }
@@ -4753,6 +4800,10 @@ export function AcpAgentSettings({
           (option) => option.value === selectedDraft.codexReasoningEffort
         ) ?? null)
       : null
+  const selectedCodexModels =
+    selectedAgent?.agent_type === "codex" && selectedDraft
+      ? normalizeCodexModels(selectedDraft.codexModels, selectedDraft.model)
+      : []
   const selectedHermesProviderOption =
     selectedAgent?.agent_type === "hermes" && selectedDraft
       ? (HERMES_PROVIDERS.find((p) => p.id === selectedDraft.hermesProvider) ??
@@ -5277,6 +5328,7 @@ export function AcpAgentSettings({
           apiBaseUrl: apiUrl,
           apiKey,
           model: codexModel,
+          codexModels: normalizeCodexModels(current.codexModels, codexModel),
           codexAuthJsonText: nextAuthJsonText,
           codexConfigTomlText: nextConfigTomlText,
           codexModelProvider: CODEX_DEFAULT_MODEL_PROVIDER,
@@ -6357,6 +6409,7 @@ export function AcpAgentSettings({
         codexModelProvider: important.modelProvider,
         codexProviderOptions: important.providerOptions,
         codexReasoningEffort: important.reasoningEffort,
+        codexModels: normalizeCodexModels(current.codexModels, important.model),
         codexSupportsWebsockets: important.supportsWebsockets,
         codexSkills: important.skills,
         codexServiceTierFast: important.serviceTierFast,
@@ -6511,6 +6564,7 @@ export function AcpAgentSettings({
         codexModelProvider: synced.modelProvider,
         codexProviderOptions: synced.providerOptions,
         codexReasoningEffort: synced.reasoningEffort,
+        codexModels: normalizeCodexModels(current.codexModels, synced.model),
         codexSupportsWebsockets: synced.supportsWebsockets,
         codexSkills: synced.skills,
         codexServiceTierFast: synced.serviceTierFast,
@@ -6519,6 +6573,63 @@ export function AcpAgentSettings({
       }))
     },
     [selectedAgent, selectedDraft, t, updateSelectedDraft]
+  )
+
+  const handleCodexAddModel = useCallback(() => {
+    if (
+      !selectedAgent ||
+      !selectedDraft ||
+      selectedAgent.agent_type !== "codex"
+    )
+      return
+    const model = codexNewModelId.trim()
+    if (!model) return
+    const currentModels = normalizeCodexModels(
+      selectedDraft.codexModels,
+      selectedDraft.model
+    )
+    if (currentModels.includes(model)) {
+      toast.error(t("errors.modelExists", { modelId: model }))
+      return
+    }
+    updateSelectedDraft((current) => {
+      const defaultModel = current.model.trim() || model
+      return {
+        ...current,
+        model: defaultModel,
+        codexModels: normalizeCodexModels(
+          [...current.codexModels, model],
+          defaultModel
+        ),
+        codexConfigTomlText: current.model.trim()
+          ? current.codexConfigTomlText
+          : patchCodexConfigTomlText(current.codexConfigTomlText, {
+              model: defaultModel,
+            }),
+      }
+    })
+    setCodexNewModelId("")
+  }, [codexNewModelId, selectedAgent, selectedDraft, t, updateSelectedDraft])
+
+  const handleCodexRemoveModel = useCallback(
+    (model: string) => {
+      if (
+        !selectedAgent ||
+        !selectedDraft ||
+        selectedAgent.agent_type !== "codex"
+      )
+        return
+      const currentModels = normalizeCodexModels(
+        selectedDraft.codexModels,
+        selectedDraft.model
+      )
+      if (currentModels.length <= 1 || selectedDraft.model === model) return
+      updateSelectedDraft((current) => ({
+        ...current,
+        codexModels: current.codexModels.filter((item) => item !== model),
+      }))
+    },
+    [selectedAgent, selectedDraft, updateSelectedDraft]
   )
 
   const handleCodexSupportsWebsocketsChange = useCallback(
@@ -6683,6 +6794,10 @@ export function AcpAgentSettings({
               await persistConfig("codex", draft.configText, {
                 codexAuthJsonText: authJson,
                 codexConfigTomlText: draft.codexConfigTomlText,
+                codexModels: normalizeCodexModels(
+                  draft.codexModels,
+                  draft.model
+                ),
               })
             } catch (err) {
               const msg = toErrorMessage(err)
@@ -7360,21 +7475,94 @@ export function AcpAgentSettings({
                         <label className="text-[11px] text-muted-foreground">
                           {t("codex.modelName")}
                         </label>
-                        <Input
+                        <Select
                           value={selectedDraft.model}
-                          readOnly={
-                            selectedDraft.codexAuthMode === "model_provider"
-                          }
-                          onChange={(event) => {
-                            handleCodexImportantConfigChange(
-                              "model",
-                              event.target.value
-                            )
+                          onValueChange={(value) => {
+                            handleCodexImportantConfigChange("model", value)
                           }}
-                          placeholder="gpt-5 / gpt-5-mini"
-                        />
+                          disabled={
+                            selectedDraft.codexAuthMode === "model_provider" ||
+                            selectedCodexModels.length === 0
+                          }
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder={t("codex.modelName")} />
+                          </SelectTrigger>
+                          <SelectContent align="start">
+                            {selectedCodexModels.map((model) => (
+                              <SelectItem key={model} value={model}>
+                                {model}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     )}
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-[11px] text-muted-foreground">
+                          {t("openCode.modelManagement")}
+                        </label>
+                        <span className="text-[11px] text-muted-foreground">
+                          {t("openCode.modelCount", {
+                            count: selectedCodexModels.length,
+                          })}
+                        </span>
+                      </div>
+                      {selectedCodexModels.map((model) => {
+                        const cannotRemove =
+                          selectedCodexModels.length <= 1 ||
+                          selectedDraft.model === model
+                        return (
+                          <div key={model} className="flex items-center gap-2">
+                            <Input value={model} readOnly />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              className="shrink-0 text-muted-foreground hover:text-destructive"
+                              disabled={cannotRemove}
+                              onClick={() => handleCodexRemoveModel(model)}
+                              title={t("openCode.deleteModel", {
+                                modelId: model,
+                              })}
+                              aria-label={t("openCode.deleteModel", {
+                                modelId: model,
+                              })}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        )
+                      })}
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={codexNewModelId}
+                          onChange={(event) => {
+                            setCodexNewModelId(event.target.value)
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter") return
+                            event.preventDefault()
+                            handleCodexAddModel()
+                          }}
+                          placeholder={t("openCode.modelId")}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          className="shrink-0"
+                          disabled={!codexNewModelId.trim()}
+                          onClick={handleCodexAddModel}
+                          title={t("openCode.addModel")}
+                          aria-label={t("openCode.addModel")}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
 
                     <div className="space-y-1.5">
                       <label className="text-[11px] text-muted-foreground">
@@ -7461,6 +7649,14 @@ responses_websockets_v2 = true`}
                             toast.error(t("toasts.modelProviderRequired"))
                             return
                           }
+                          const codexModels = normalizeCodexModels(
+                            selectedDraft.codexModels,
+                            selectedDraft.model
+                          )
+                          if (codexModels.length === 0) {
+                            toast.error(t("openCode.emptyModel"))
+                            return
+                          }
                           const codexEnvText =
                             selectedDraft.codexAuthMode ===
                             "chatgpt_subscription"
@@ -7494,6 +7690,7 @@ responses_websockets_v2 = true`}
                                     selectedDraft.codexAuthJsonText,
                                   codexConfigTomlText:
                                     selectedDraft.codexConfigTomlText,
+                                  codexModels,
                                 }
                               )
                             )
