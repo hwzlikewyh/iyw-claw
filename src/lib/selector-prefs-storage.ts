@@ -21,10 +21,6 @@ import type { SessionModeStateInfo } from "@/lib/types"
 
 const STORAGE_KEY = "iyw-claw:selector-prefs"
 
-// Temporary product override: keep Codex on the configured Volcengine model
-// even when localStorage still contains a previously selected built-in model.
-export const TEMPORARY_CODEX_MODEL = "doubao-seed-2-1-pro-260628"
-
 interface SelectorPrefs {
   modeId?: string
   configValues?: Record<string, string>
@@ -93,19 +89,18 @@ export function getSavedPrefsForConnect(agentType: string): {
 } {
   const all = readAll()
   const prefs = all[agentType]
-  if (!prefs && agentType !== "codex") {
-    return { modeId: null, configValues: null }
-  }
+  if (!prefs) return { modeId: null, configValues: null }
 
-  const values = { ...prefs?.configValues }
+  const configValues = { ...prefs.configValues }
+  // Codex config.toml owns the initial model. Composer selections remain
+  // session-scoped instead of overriding the configured model on reconnect.
   if (agentType === "codex") {
-    values.model = TEMPORARY_CODEX_MODEL
+    delete configValues.model
   }
 
-  const configValues = Object.keys(values).length > 0 ? values : null
   return {
-    modeId: prefs?.modeId ?? null,
-    configValues,
+    modeId: prefs.modeId ?? null,
+    configValues: Object.keys(configValues).length > 0 ? configValues : null,
   }
 }
 

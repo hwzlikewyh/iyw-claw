@@ -132,7 +132,6 @@ import {
   localizeSessionConfigOption,
   type SessionConfigTranslator,
 } from "@/lib/session-config-localization"
-import { TEMPORARY_CODEX_MODEL } from "@/lib/selector-prefs-storage"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { useAgentSkills } from "@/hooks/use-agent-skills"
 import { useBuiltInExperts } from "@/hooks/use-built-in-experts"
@@ -899,28 +898,10 @@ export function MessageInput({
   const rawConfigOptions = useMemo(() => configOptions ?? [], [configOptions])
   const availableConfigOptions = useMemo(
     () =>
-      rawConfigOptions.map((option) => {
-        const localized = localizeSessionConfigOption(option, tSessionConfig)
-        if (agentType !== "codex" || localized.id !== "model") {
-          return localized
-        }
-        return {
-          ...localized,
-          kind: {
-            ...localized.kind,
-            current_value: TEMPORARY_CODEX_MODEL,
-            options: [
-              {
-                value: TEMPORARY_CODEX_MODEL,
-                name: TEMPORARY_CODEX_MODEL,
-                description: null,
-              },
-            ],
-            groups: [],
-          },
-        }
-      }),
-    [agentType, rawConfigOptions, tSessionConfig]
+      rawConfigOptions.map((option) =>
+        localizeSessionConfigOption(option, tSessionConfig)
+      ),
+    [rawConfigOptions, tSessionConfig]
   )
   const hasConfigOptions = availableConfigOptions.length > 0
   const hasModes = availableModes.length > 0
