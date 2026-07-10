@@ -4988,26 +4988,6 @@ fn publish_shared_skill_to_all_agents(
     })
 }
 
-fn publish_existing_shared_skills_to_all_agents() -> Result<(), AcpError> {
-    let skills = list_skills_from_dir(
-        AgentSkillScope::Global,
-        &shared_skills_dir(),
-        SkillStorageKind::SkillDirectoryOnly,
-        false,
-    )?;
-    for skill in skills {
-        if is_reserved_shared_skill_id(&skill.id) {
-            continue;
-        }
-        publish_shared_skill_to_all_agents(
-            AgentType::Codex,
-            &skill.id,
-            AgentSkillSyncMode::default(),
-        )?;
-    }
-    Ok(())
-}
-
 fn remove_shared_skill_publications(skill_id: &str) -> Result<(), AcpError> {
     let source = shared_skill_path(skill_id);
     for agent in skill_capable_agent_types() {
@@ -8019,7 +7999,6 @@ pub async fn acp_list_agent_skills(
 
     if include_disabled {
         auto_take_over_read_only_global_native_skills_for_all_agents()?;
-        publish_existing_shared_skills_to_all_agents()?;
     }
 
     let shared_dir = shared_skills_dir();
