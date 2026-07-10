@@ -10,7 +10,7 @@ use super::session_bridge::{ActiveSession, SessionBridge};
 use super::types::{MessageLevel, RichMessage};
 use crate::acp::manager::ConnectionManager;
 use crate::acp::registry::all_acp_agents;
-use crate::acp::types::PromptInputBlock;
+use crate::acp::types::{ConnectionStatus, PromptInputBlock};
 use crate::db::entities::conversation;
 use crate::db::service::{conversation_service, folder_service, sender_context_service};
 use crate::models::agent::AgentType;
@@ -22,6 +22,7 @@ pub struct FollowupRequest<'a> {
     pub channel_id: i32,
     pub sender_id: &'a str,
     pub conn_mgr: &'a ConnectionManager,
+    pub emitter: &'a EventEmitter,
     pub bridge: &'a Arc<Mutex<SessionBridge>>,
     pub lang: Lang,
     pub prefix: &'a str,
@@ -355,8 +356,7 @@ pub async fn handle_task(
     )
     .await;
 
-    RichMessage::info(format!("[{}] #{} @ {}", agent_type, conv.id, folder.name,))
-        .with_title(i18n::task_started_title(lang))
+    RichMessage::info("")
 }
 
 // ── /sessions ──
@@ -531,12 +531,7 @@ pub async fn handle_resume(
     let _ = sender_context_service::update_folder(db, channel_id, sender_id, Some(conv.folder_id))
         .await;
 
-    let title = conv.title.as_deref().unwrap_or("(untitled)");
-    RichMessage::info(format!(
-        "[{}] #{} {} @ {}",
-        conv.agent_type, conv.id, title, folder.name,
-    ))
-    .with_title(i18n::session_resumed_title(lang))
+    RichMessage::info("")
 }
 
 // ── /cancel ──
@@ -667,17 +662,11 @@ pub async fn handle_permission_response(
         let _ = sender_context_service::update_auto_approve(db, channel_id, sender_id, true).await;
     }
 
-    let action = if approve {
-        i18n::approved_label(lang)
-    } else {
-        i18n::denied_label(lang)
-    };
-
-    let mut msg = RichMessage::info(format!("{}: {}", action, pending.tool_description));
-    if always && approve {
-        msg = msg.with_field("", i18n::auto_approve_enabled(lang));
+    if approve {
+        return RichMessage::info("");
     }
-    msg.with_title(i18n::permission_response_title(lang))
+
+    RichMessage::info(i18n::denied_label(lang)).with_title(i18n::permission_response_title(lang))
 }
 
 // ── follow-up (non-command text) ──
@@ -694,48 +683,392 @@ pub async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
             }
         };
 
-    let connection_id = match &ctx.current_connection_id {
-        Some(id) => id.clone(),
+    tracing::info!(
+        "[ChatChannel] follow-up route channel={} sender={} has_connection={} \
+         has_conversation={}",
+        req.channel_id,
+        req.sender_id,
+        ctx.current_connection_id.is_some(),
+        ctx.current_conversation_id.is_some()
+    );
+
+    if let Some(connection_id) = ctx.current_connection_id.clone() {
+        let bridge_has_session = {
+            let bridge_guard = req.bridge.lock().await;
+            bridge_guard.get(&connection_id).is_some()
+        };
+
+        if bridge_has_session {
+            tracing::info!(
+                "[ChatChannel] follow-up using active bridge connection={} channel={} sender={}",
+                connection_id,
+                req.channel_id,
+                req.sender_id
+            );
+            return send_followup_prompt(
+                req.db,
+                req.channel_id,
+                req.sender_id,
+                req.conn_mgr,
+                req.bridge,
+                &connection_id,
+                req.text,
+                req.lang,
+            )
+            .await;
+        }
+
+        if let Some(conversation_id) = ctx.current_conversation_id {
+            tracing::info!(
+                "[ChatChannel] follow-up trying bridge restore connection={} \
+                 conversation={} channel={} sender={}",
+                connection_id,
+                conversation_id,
+                req.channel_id,
+                req.sender_id
+            );
+            if restore_bridge_session_from_live_connection(
+                req.db,
+                req.channel_id,
+                req.sender_id,
+                conversation_id,
+                &connection_id,
+                req.conn_mgr,
+                req.bridge,
+            )
+            .await
+            {
+                tracing::info!(
+                    "[ChatChannel] follow-up restored bridge connection={} \
+                     conversation={} channel={} sender={}",
+                    connection_id,
+                    conversation_id,
+                    req.channel_id,
+                    req.sender_id
+                );
+                return send_followup_prompt(
+                    req.db,
+                    req.channel_id,
+                    req.sender_id,
+                    req.conn_mgr,
+                    req.bridge,
+                    &connection_id,
+                    req.text,
+                    req.lang,
+                )
+                .await;
+            }
+        }
+    }
+
+    if let Some(conversation_id) = ctx.current_conversation_id {
+        tracing::info!(
+            "[ChatChannel] follow-up resuming conversation={} channel={} sender={}",
+            conversation_id,
+            req.channel_id,
+            req.sender_id
+        );
+        return resume_conversation_for_followup(
+            req.db,
+            req.channel_id,
+            req.sender_id,
+            conversation_id,
+            req.text,
+            req.conn_mgr,
+            req.emitter,
+            req.bridge,
+            req.lang,
+        )
+        .await;
+    }
+
+    tracing::info!(
+        "[ChatChannel] follow-up ignored without active session channel={} sender={} prefix={}",
+        req.channel_id,
+        req.sender_id,
+        req.prefix
+    );
+    RichMessage::info("")
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn send_followup_prompt(
+    db: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+    conn_mgr: &ConnectionManager,
+    bridge: &Arc<Mutex<SessionBridge>>,
+    connection_id: &str,
+    text: &str,
+    _lang: Lang,
+) -> RichMessage {
+    // Send prompt to agent
+    let blocks = vec![PromptInputBlock::Text {
+        text: text.to_string(),
+    }];
+
+    tracing::info!(
+        "[ChatChannel] follow-up enqueue start connection={} channel={} sender={} text_len={}",
+        connection_id,
+        channel_id,
+        sender_id,
+        text.chars().count()
+    );
+
+    if let Err(e) = conn_mgr.send_prompt(connection_id, blocks).await {
+        // A turn is already in flight on this (shared) connection — another
+        // client, or a previous prompt still running. This is transient: the
+        // connection is alive, so do NOT tear down the bridge/session. Chat
+        // channels only receive real assistant content, so this stays log-only.
+        if matches!(e, crate::acp::error::AcpError::TurnInProgress) {
+            tracing::info!(
+                "[ChatChannel] follow-up enqueue blocked by in-flight turn \
+                 connection={} channel={} sender={}",
+                connection_id,
+                channel_id,
+                sender_id
+            );
+            return RichMessage::info("");
+        }
+        // Otherwise the connection may have died — clean up, but don't send a
+        // canned channel reply. The next visible response must come from AI.
+        bridge.lock().await.remove(connection_id);
+        let _ = sender_context_service::clear_session(db, channel_id, sender_id).await;
+        tracing::warn!("[ChatChannel] failed to send follow-up prompt: {e}");
+        return RichMessage::info("");
+    }
+
+    tracing::info!(
+        "[ChatChannel] follow-up prompt enqueued connection={} channel={} sender={}",
+        connection_id,
+        channel_id,
+        sender_id
+    );
+    RichMessage::info("")
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn restore_bridge_session_from_live_connection(
+    db: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+    conversation_id: i32,
+    connection_id: &str,
+    conn_mgr: &ConnectionManager,
+    bridge: &Arc<Mutex<SessionBridge>>,
+) -> bool {
+    let Some(state) = conn_mgr.get_state(connection_id).await else {
+        return false;
+    };
+    let state = state.read().await;
+    if matches!(
+        state.status,
+        ConnectionStatus::Disconnected | ConnectionStatus::Error
+    ) {
+        return false;
+    }
+    let agent_type = state.agent_type;
+    drop(state);
+
+    let Ok(conv) = conversation_service::get_by_id(db, conversation_id).await else {
+        return false;
+    };
+    if conv.agent_type != agent_type {
+        return false;
+    }
+
+    register_active_session(
+        bridge,
+        channel_id,
+        sender_id,
+        conv.id,
+        connection_id.to_string(),
+        conv.agent_type,
+        None,
+    )
+    .await;
+    remember_sender_session(
+        db,
+        channel_id,
+        sender_id,
+        conv.id,
+        conv.folder_id,
+        conv.agent_type,
+        connection_id.to_string(),
+    )
+    .await;
+    true
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn resume_conversation_for_followup(
+    db: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+    conversation_id: i32,
+    text: &str,
+    conn_mgr: &ConnectionManager,
+    emitter: &EventEmitter,
+    bridge: &Arc<Mutex<SessionBridge>>,
+    lang: Lang,
+) -> RichMessage {
+    let conv = match conversation_service::get_by_id(db, conversation_id).await {
+        Ok(c) => c,
+        Err(_) => return RichMessage::info(i18n::conversation_not_found(lang)),
+    };
+
+    let folder = match folder_service::get_folder_by_id(db, conv.folder_id).await {
+        Ok(Some(f)) => f,
+        _ => return RichMessage::info(i18n::folder_not_found(lang)),
+    };
+
+    let live_connection = match conv.external_id.as_deref() {
+        Some(external_id) => {
+            conn_mgr
+                .find_connection_by_external_id(external_id, conv.agent_type)
+                .await
+        }
+        None => None,
+    };
+
+    tracing::info!(
+        "[ChatChannel] follow-up resume target conversation={} channel={} sender={} \
+         agent={:?} external_id_present={} live_connection_found={}",
+        conversation_id,
+        channel_id,
+        sender_id,
+        conv.agent_type,
+        conv.external_id.is_some(),
+        live_connection.is_some()
+    );
+
+    let (connection_id, send_now) = match live_connection {
+        Some(id) => (id, true),
         None => {
-            return RichMessage::info(i18n::no_active_session_use_task(req.lang, req.prefix));
+            let owner_label = format!("chat_channel:{}:{}", channel_id, sender_id);
+            let id = match conn_mgr
+                .spawn_agent(
+                    conv.agent_type,
+                    Some(folder.path.clone()),
+                    conv.external_id.clone(),
+                    BTreeMap::new(),
+                    owner_label,
+                    emitter.clone(),
+                    None,
+                    BTreeMap::new(),
+                )
+                .await
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::warn!("[ChatChannel] failed to resume conversation: {e}");
+                    return RichMessage::error(i18n::failed_to_start_agent_label(lang));
+                }
+            };
+            (id, conv.external_id.is_some())
         }
     };
 
-    // Check connection exists in bridge
-    {
-        let bridge_guard = req.bridge.lock().await;
-        if bridge_guard.get(&connection_id).is_none() {
-            // Connection lost, clear context
-            drop(bridge_guard);
-            let _ =
-                sender_context_service::clear_session(req.db, req.channel_id, req.sender_id).await;
-            return RichMessage::info(i18n::session_connection_lost(req.lang, req.prefix));
-        }
+    tracing::info!(
+        "[ChatChannel] follow-up resume ready connection={} conversation={} \
+         channel={} sender={} send_now={}",
+        connection_id,
+        conversation_id,
+        channel_id,
+        sender_id,
+        send_now
+    );
+
+    let pending_prompt = (!send_now).then(|| text.to_string());
+    register_active_session(
+        bridge,
+        channel_id,
+        sender_id,
+        conv.id,
+        connection_id.clone(),
+        conv.agent_type,
+        pending_prompt,
+    )
+    .await;
+    remember_sender_session(
+        db,
+        channel_id,
+        sender_id,
+        conv.id,
+        conv.folder_id,
+        conv.agent_type,
+        connection_id.clone(),
+    )
+    .await;
+
+    if send_now {
+        send_followup_prompt(
+            db,
+            channel_id,
+            sender_id,
+            conn_mgr,
+            bridge,
+            &connection_id,
+            text,
+            lang,
+        )
+        .await
+    } else {
+        RichMessage::info("")
     }
+}
 
-    // Send prompt to agent
-    let blocks = vec![PromptInputBlock::Text {
-        text: req.text.to_string(),
-    }];
+async fn register_active_session(
+    bridge: &Arc<Mutex<SessionBridge>>,
+    channel_id: i32,
+    sender_id: &str,
+    conversation_id: i32,
+    connection_id: String,
+    agent_type: AgentType,
+    pending_prompt: Option<String>,
+) {
+    let session = ActiveSession {
+        channel_id,
+        sender_id: sender_id.to_string(),
+        conversation_id,
+        connection_id: connection_id.clone(),
+        agent_type,
+        content_buffer: String::new(),
+        tool_calls: Vec::new(),
+        tool_call_inputs: std::collections::HashMap::new(),
+        delegation_rendered: std::collections::HashSet::new(),
+        last_flushed: Instant::now(),
+        pending_prompt,
+        permission_pending: None,
+    };
+    bridge.lock().await.register(connection_id, session);
+}
 
-    if let Err(e) = req.conn_mgr.send_prompt(&connection_id, blocks).await {
-        // A turn is already in flight on this (shared) connection — another
-        // client, or a previous prompt still running. This is transient: the
-        // connection is alive, so do NOT tear down the bridge/session. Tell the
-        // user to retry once the current turn finishes.
-        if matches!(e, crate::acp::error::AcpError::TurnInProgress) {
-            return RichMessage::info(i18n::agent_busy_retry(req.lang).to_string());
-        }
-        // Otherwise the connection may have died — clean up.
-        req.bridge.lock().await.remove(&connection_id);
-        let _ = sender_context_service::clear_session(req.db, req.channel_id, req.sender_id).await;
-        return RichMessage::error(format!(
-            "{}{e}",
-            i18n::failed_to_send_message_label(req.lang)
-        ));
-    }
-
-    RichMessage::info(i18n::message_sent(req.lang))
+async fn remember_sender_session(
+    db: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+    conversation_id: i32,
+    folder_id: i32,
+    agent_type: AgentType,
+    connection_id: String,
+) {
+    let _ = sender_context_service::update_session(
+        db,
+        channel_id,
+        sender_id,
+        Some(conversation_id),
+        Some(connection_id),
+    )
+    .await;
+    let _ = sender_context_service::update_folder(db, channel_id, sender_id, Some(folder_id)).await;
+    let _ = sender_context_service::update_agent(
+        db,
+        channel_id,
+        sender_id,
+        Some(agent_type_to_string(agent_type)),
+    )
+    .await;
 }
 
 // ── /resume (list recent) ──
@@ -809,5 +1142,338 @@ fn truncate_title(s: &str) -> String {
     } else {
         let truncated: String = s.chars().take(77).collect();
         format!("{truncated}...")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::acp::connection::ConnectionCommand;
+    use crate::acp::types::PermissionOptionInfo;
+    use crate::chat_channel::session_bridge::{ActiveSession, PendingPermission, SessionBridge};
+    use crate::db::service::sender_context_service;
+    use crate::db::test_helpers;
+    use crate::web::event_bridge::EventEmitter;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tokio::sync::Mutex;
+
+    #[tokio::test]
+    async fn approving_permission_responds_to_agent_without_channel_reply() {
+        let db = test_helpers::fresh_in_memory_db().await;
+        let channel = crate::db::service::chat_channel_service::create(
+            &db.conn,
+            "test".to_string(),
+            "lark".to_string(),
+            "{}".to_string(),
+            true,
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+        let conn_mgr = ConnectionManager::new();
+        let mut cmd_rx = conn_mgr
+            .insert_test_connection_live("conn-approve", AgentType::Codex, None, EventEmitter::Noop)
+            .await;
+        let bridge = Arc::new(Mutex::new(SessionBridge::new()));
+        bridge.lock().await.register(
+            "conn-approve".to_string(),
+            ActiveSession {
+                channel_id: channel.id,
+                sender_id: "u1".to_string(),
+                conversation_id: 1,
+                connection_id: "conn-approve".to_string(),
+                agent_type: AgentType::Codex,
+                content_buffer: String::new(),
+                tool_calls: Vec::new(),
+                tool_call_inputs: HashMap::new(),
+                delegation_rendered: HashSet::new(),
+                last_flushed: Instant::now(),
+                pending_prompt: None,
+                permission_pending: Some(PendingPermission {
+                    request_id: "perm-1".to_string(),
+                    tool_description: "Bash: cargo test".to_string(),
+                    options: vec![
+                        PermissionOptionInfo {
+                            option_id: "allow".to_string(),
+                            name: "Allow".to_string(),
+                            kind: "allow".to_string(),
+                        },
+                        PermissionOptionInfo {
+                            option_id: "deny".to_string(),
+                            name: "Deny".to_string(),
+                            kind: "deny".to_string(),
+                        },
+                    ],
+                    sent_message_id: None,
+                }),
+            },
+        );
+        sender_context_service::update_session(
+            &db.conn,
+            channel.id,
+            "u1",
+            Some(1),
+            Some("conn-approve".to_string()),
+        )
+        .await
+        .unwrap();
+
+        let msg = handle_permission_response(
+            true,
+            false,
+            &db.conn,
+            channel.id,
+            "u1",
+            &conn_mgr,
+            &bridge,
+            Lang::ZhCn,
+        )
+        .await;
+
+        assert!(msg.title.is_none());
+        assert!(msg.body.is_empty());
+        assert!(msg.fields.is_empty());
+        let command = cmd_rx.try_recv().expect("approval command should be sent");
+        assert!(
+            matches!(
+                command,
+                ConnectionCommand::RespondPermission {
+                    request_id,
+                    option_id,
+                } if request_id == "perm-1" && option_id == "allow"
+            ),
+            "unexpected permission command"
+        );
+    }
+
+    #[tokio::test]
+    async fn followup_busy_connection_stays_silent() {
+        let db = test_helpers::fresh_in_memory_db().await;
+        let channel = crate::db::service::chat_channel_service::create(
+            &db.conn,
+            "test".to_string(),
+            "weixin".to_string(),
+            "{}".to_string(),
+            true,
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+        let folder_id = test_helpers::seed_folder(&db, "D:/projects/iyw-claw").await;
+        let conversation_id =
+            test_helpers::seed_conversation(&db, folder_id, AgentType::Codex).await;
+        let conn_mgr = ConnectionManager::new();
+        let _cmd_rx = conn_mgr
+            .insert_test_connection_live("conn-busy", AgentType::Codex, None, EventEmitter::Noop)
+            .await;
+        conn_mgr
+            .get_state("conn-busy")
+            .await
+            .unwrap()
+            .write()
+            .await
+            .turn_in_flight = true;
+        let bridge = Arc::new(Mutex::new(SessionBridge::new()));
+        bridge.lock().await.register(
+            "conn-busy".to_string(),
+            ActiveSession {
+                channel_id: channel.id,
+                sender_id: "u1".to_string(),
+                conversation_id,
+                connection_id: "conn-busy".to_string(),
+                agent_type: AgentType::Codex,
+                content_buffer: String::new(),
+                tool_calls: Vec::new(),
+                tool_call_inputs: HashMap::new(),
+                delegation_rendered: HashSet::new(),
+                last_flushed: Instant::now(),
+                pending_prompt: None,
+                permission_pending: None,
+            },
+        );
+        sender_context_service::update_session(
+            &db.conn,
+            channel.id,
+            "u1",
+            Some(conversation_id),
+            Some("conn-busy".to_string()),
+        )
+        .await
+        .unwrap();
+
+        let msg = handle_followup(FollowupRequest {
+            db: &db.conn,
+            text: "你好",
+            channel_id: channel.id,
+            sender_id: "u1",
+            conn_mgr: &conn_mgr,
+            emitter: &EventEmitter::Noop,
+            bridge: &bridge,
+            lang: Lang::ZhCn,
+            prefix: "/",
+        })
+        .await;
+
+        assert!(msg.is_silent(), "busy follow-up must not send canned text");
+        assert!(
+            bridge.lock().await.get("conn-busy").is_some(),
+            "busy live connection should remain bridged"
+        );
+    }
+
+    #[tokio::test]
+    async fn followup_restores_missing_bridge_for_live_context_connection() {
+        let db = test_helpers::fresh_in_memory_db().await;
+        let channel = crate::db::service::chat_channel_service::create(
+            &db.conn,
+            "test".to_string(),
+            "weixin".to_string(),
+            "{}".to_string(),
+            true,
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+        let folder_id = test_helpers::seed_folder(&db, "D:/projects/iyw-claw").await;
+        let conversation_id =
+            test_helpers::seed_conversation(&db, folder_id, AgentType::Codex).await;
+        let conn_mgr = ConnectionManager::new();
+        let mut cmd_rx = conn_mgr
+            .insert_test_connection_live("conn-live", AgentType::Codex, None, EventEmitter::Noop)
+            .await;
+        let bridge = Arc::new(Mutex::new(SessionBridge::new()));
+        sender_context_service::update_session(
+            &db.conn,
+            channel.id,
+            "u1",
+            Some(conversation_id),
+            Some("conn-live".to_string()),
+        )
+        .await
+        .unwrap();
+
+        let msg = handle_followup(FollowupRequest {
+            db: &db.conn,
+            text: "你好",
+            channel_id: channel.id,
+            sender_id: "u1",
+            conn_mgr: &conn_mgr,
+            emitter: &EventEmitter::Noop,
+            bridge: &bridge,
+            lang: Lang::ZhCn,
+            prefix: "/",
+        })
+        .await;
+
+        assert!(msg.is_silent(), "follow-up ack must stay silent");
+        assert!(
+            bridge.lock().await.get("conn-live").is_some(),
+            "bridge should be restored for the live connection"
+        );
+        let command = cmd_rx.try_recv().expect("prompt should be sent");
+        assert!(
+            matches!(
+                command,
+                ConnectionCommand::Prompt { blocks, .. }
+                    if matches!(blocks.as_slice(), [PromptInputBlock::Text { text }] if text == "你好")
+            ),
+            "unexpected prompt command"
+        );
+        let rows = conversation_service::list_all(&db.conn, None, None, None, None, None, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "follow-up must not create a new conversation"
+        );
+    }
+
+    #[tokio::test]
+    async fn followup_recovers_live_connection_by_existing_conversation_external_id() {
+        let db = test_helpers::fresh_in_memory_db().await;
+        let channel = crate::db::service::chat_channel_service::create(
+            &db.conn,
+            "test".to_string(),
+            "weixin".to_string(),
+            "{}".to_string(),
+            true,
+            false,
+            None,
+        )
+        .await
+        .unwrap();
+        let folder_id = test_helpers::seed_folder(&db, "D:/projects/iyw-claw").await;
+        let conversation_id =
+            test_helpers::seed_conversation(&db, folder_id, AgentType::Codex).await;
+        conversation_service::update_external_id(&db.conn, conversation_id, "ext-1".to_string())
+            .await
+            .unwrap();
+        let conn_mgr = ConnectionManager::new();
+        let mut cmd_rx = conn_mgr
+            .insert_test_connection_live("conn-ext", AgentType::Codex, None, EventEmitter::Noop)
+            .await;
+        conn_mgr
+            .get_state("conn-ext")
+            .await
+            .unwrap()
+            .write()
+            .await
+            .external_id = Some("ext-1".to_string());
+        let bridge = Arc::new(Mutex::new(SessionBridge::new()));
+        sender_context_service::update_session(
+            &db.conn,
+            channel.id,
+            "u1",
+            Some(conversation_id),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let msg = handle_followup(FollowupRequest {
+            db: &db.conn,
+            text: "继续",
+            channel_id: channel.id,
+            sender_id: "u1",
+            conn_mgr: &conn_mgr,
+            emitter: &EventEmitter::Noop,
+            bridge: &bridge,
+            lang: Lang::ZhCn,
+            prefix: "/",
+        })
+        .await;
+
+        assert!(msg.is_silent(), "follow-up ack must stay silent");
+        assert!(
+            bridge.lock().await.get("conn-ext").is_some(),
+            "bridge should be restored from the conversation external id"
+        );
+        let ctx = sender_context_service::get_or_create(&db.conn, channel.id, "u1")
+            .await
+            .unwrap();
+        assert_eq!(ctx.current_connection_id.as_deref(), Some("conn-ext"));
+        let command = cmd_rx.try_recv().expect("prompt should be sent");
+        assert!(
+            matches!(
+                command,
+                ConnectionCommand::Prompt { blocks, .. }
+                    if matches!(blocks.as_slice(), [PromptInputBlock::Text { text }] if text == "继续")
+            ),
+            "unexpected prompt command"
+        );
+        let rows = conversation_service::list_all(&db.conn, None, None, None, None, None, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "follow-up must not create a new conversation"
+        );
     }
 }

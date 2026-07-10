@@ -9,6 +9,10 @@ fn channel_token_key(channel_id: i32) -> String {
     format!("chat-channel:{}", channel_id)
 }
 
+fn chat_router_token_key() -> &'static str {
+    "chat-natural-router"
+}
+
 // ── Tauri mode: OS keyring ──
 
 #[cfg(feature = "tauri-runtime")]
@@ -146,6 +150,54 @@ pub fn get_channel_token(channel_id: i32) -> Option<String> {
 pub fn delete_channel_token(channel_id: i32) -> Result<(), String> {
     let mut tokens = read_tokens();
     tokens.remove(&channel_token_key(channel_id));
+    write_tokens(&tokens)
+}
+
+// ── Chat natural router token helpers ──
+// One global OpenAI-compatible API key used by the channel-agnostic router.
+
+#[cfg(feature = "tauri-runtime")]
+pub fn set_chat_router_token(token: &str) -> Result<(), String> {
+    let entry = keyring::Entry::new(SERVICE_NAME, chat_router_token_key())
+        .map_err(|e| format!("keyring init error: {e}"))?;
+    entry
+        .set_password(token)
+        .map_err(|e| format!("keyring set error: {e}"))
+}
+
+#[cfg(feature = "tauri-runtime")]
+pub fn get_chat_router_token() -> Option<String> {
+    let entry = keyring::Entry::new(SERVICE_NAME, chat_router_token_key()).ok()?;
+    entry.get_password().ok()
+}
+
+#[cfg(feature = "tauri-runtime")]
+pub fn delete_chat_router_token() -> Result<(), String> {
+    let entry = keyring::Entry::new(SERVICE_NAME, chat_router_token_key())
+        .map_err(|e| format!("keyring init error: {e}"))?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("keyring delete error: {e}")),
+    }
+}
+
+#[cfg(not(feature = "tauri-runtime"))]
+pub fn set_chat_router_token(token: &str) -> Result<(), String> {
+    let mut tokens = read_tokens();
+    tokens.insert(chat_router_token_key().to_string(), token.to_string());
+    write_tokens(&tokens)
+}
+
+#[cfg(not(feature = "tauri-runtime"))]
+pub fn get_chat_router_token() -> Option<String> {
+    read_tokens().get(chat_router_token_key()).cloned()
+}
+
+#[cfg(not(feature = "tauri-runtime"))]
+pub fn delete_chat_router_token() -> Result<(), String> {
+    let mut tokens = read_tokens();
+    tokens.remove(chat_router_token_key());
     write_tokens(&tokens)
 }
 

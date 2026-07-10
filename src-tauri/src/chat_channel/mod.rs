@@ -4,12 +4,16 @@ pub mod command_handlers;
 pub mod error;
 pub mod event_subscriber;
 pub mod i18n;
+pub mod llm_router;
 pub mod manager;
 pub mod message_formatter;
+pub mod natural_router;
+pub mod natural_router_config;
 pub mod scheduler;
 pub mod session_bridge;
 pub mod session_commands;
 pub mod session_event_subscriber;
+#[cfg(test)]
 pub mod tool_detail;
 pub mod traits;
 pub mod types;

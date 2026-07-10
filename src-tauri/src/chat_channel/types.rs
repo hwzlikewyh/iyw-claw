@@ -4,16 +4,10 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ChannelType {
     Lark,
-    Telegram,
     Weixin,
 }
 
 // ── Per-channel strong typed configs ──
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TelegramConfig {
-    pub chat_id: String,
-}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LarkConfig {
@@ -30,7 +24,6 @@ impl std::fmt::Display for ChannelType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChannelType::Lark => write!(f, "lark"),
-            ChannelType::Telegram => write!(f, "telegram"),
             ChannelType::Weixin => write!(f, "weixin"),
         }
     }
@@ -98,6 +91,10 @@ impl RichMessage {
     pub fn with_field(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.fields.push((key.into(), value.into()));
         self
+    }
+
+    pub fn is_silent(&self) -> bool {
+        self.title.is_none() && self.body.trim().is_empty() && self.fields.is_empty()
     }
 
     pub fn to_plain_text(&self) -> String {

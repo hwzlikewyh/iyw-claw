@@ -576,7 +576,7 @@ pub fn help_body(lang: Lang, prefix: &str) -> String {
         Lang::ZhCn => format!(
             "{prefix}folder - 选择工作目录\n\
              {prefix}agent - 选择 Agent\n\
-             {prefix}task <描述> - 创建会话并执行任务\n\
+             {prefix}new <描述> - 创建会话并执行任务\n\
              {prefix}sessions - 当前目录的活跃会话\n\
              {prefix}resume [ID] - 最近会话 / 恢复指定会话\n\
              {prefix}cancel - 取消当前任务\n\
@@ -593,7 +593,7 @@ pub fn help_body(lang: Lang, prefix: &str) -> String {
         Lang::ZhTw => format!(
             "{prefix}folder - 選擇工作目錄\n\
              {prefix}agent - 選擇 Agent\n\
-             {prefix}task <描述> - 建立對話並執行任務\n\
+             {prefix}new <描述> - 建立對話並執行任務\n\
              {prefix}sessions - 當前目錄的活躍對話\n\
              {prefix}resume [ID] - 最近對話 / 恢復指定對話\n\
              {prefix}cancel - 取消當前任務\n\
@@ -610,7 +610,7 @@ pub fn help_body(lang: Lang, prefix: &str) -> String {
         Lang::Ja => format!(
             "{prefix}folder - 作業フォルダを選択\n\
              {prefix}agent - エージェントを選択\n\
-             {prefix}task <説明> - セッションを作成してタスクを実行\n\
+             {prefix}new <説明> - セッションを作成してタスクを実行\n\
              {prefix}sessions - フォルダ内のアクティブセッション\n\
              {prefix}resume [ID] - 最近のセッション / セッションを再開\n\
              {prefix}cancel - 現在のタスクをキャンセル\n\
@@ -627,7 +627,7 @@ pub fn help_body(lang: Lang, prefix: &str) -> String {
         Lang::Ko => format!(
             "{prefix}folder - 작업 폴더 선택\n\
              {prefix}agent - 에이전트 선택\n\
-             {prefix}task <설명> - 세션 생성 및 작업 실행\n\
+             {prefix}new <설명> - 세션 생성 및 작업 실행\n\
              {prefix}sessions - 폴더 내 활성 세션\n\
              {prefix}resume [ID] - 최근 대화 / 세션 재개\n\
              {prefix}cancel - 현재 작업 취소\n\
@@ -644,7 +644,7 @@ pub fn help_body(lang: Lang, prefix: &str) -> String {
         Lang::Es => format!(
             "{prefix}folder - Seleccionar carpeta de trabajo\n\
              {prefix}agent - Seleccionar agente\n\
-             {prefix}task <desc> - Crear sesion y ejecutar tarea\n\
+             {prefix}new <desc> - Crear sesion y ejecutar tarea\n\
              {prefix}sessions - Sesiones activas en la carpeta\n\
              {prefix}resume [ID] - Recientes / reanudar una sesion\n\
              {prefix}cancel - Cancelar tarea actual\n\
@@ -661,7 +661,7 @@ pub fn help_body(lang: Lang, prefix: &str) -> String {
         Lang::De => format!(
             "{prefix}folder - Arbeitsordner auswahlen\n\
              {prefix}agent - Agent auswahlen\n\
-             {prefix}task <Beschreibung> - Sitzung erstellen und Aufgabe ausfuhren\n\
+             {prefix}new <Beschreibung> - Sitzung erstellen und Aufgabe ausfuhren\n\
              {prefix}sessions - Aktive Sitzungen im Ordner\n\
              {prefix}resume [ID] - Neueste Sitzungen / Sitzung fortsetzen\n\
              {prefix}cancel - Aktuelle Aufgabe abbrechen\n\
@@ -678,7 +678,7 @@ pub fn help_body(lang: Lang, prefix: &str) -> String {
         Lang::Fr => format!(
             "{prefix}folder - Selectionner le dossier de travail\n\
              {prefix}agent - Selectionner l'agent\n\
-             {prefix}task <desc> - Creer une session et executer une tache\n\
+             {prefix}new <desc> - Creer une session et executer une tache\n\
              {prefix}sessions - Sessions actives dans le dossier\n\
              {prefix}resume [ID] - Sessions recentes / reprendre une session\n\
              {prefix}cancel - Annuler la tache en cours\n\
@@ -695,7 +695,7 @@ pub fn help_body(lang: Lang, prefix: &str) -> String {
         Lang::Pt => format!(
             "{prefix}folder - Selecionar pasta de trabalho\n\
              {prefix}agent - Selecionar agente\n\
-             {prefix}task <desc> - Criar sessao e executar tarefa\n\
+             {prefix}new <desc> - Criar sessao e executar tarefa\n\
              {prefix}sessions - Sessoes ativas na pasta\n\
              {prefix}resume [ID] - Recentes / retomar uma sessao\n\
              {prefix}cancel - Cancelar tarefa atual\n\
@@ -712,7 +712,7 @@ pub fn help_body(lang: Lang, prefix: &str) -> String {
         Lang::Ar => format!(
             "{prefix}folder - اختيار مجلد العمل\n\
              {prefix}agent - اختيار الوكيل\n\
-             {prefix}task <وصف> - انشاء جلسة وتنفيذ مهمة\n\
+             {prefix}new <وصف> - انشاء جلسة وتنفيذ مهمة\n\
              {prefix}sessions - الجلسات النشطة في المجلد\n\
              {prefix}resume [ID] - الجلسات الاخيرة / استئناف جلسة\n\
              {prefix}cancel - الغاء المهمة الحالية\n\
@@ -729,7 +729,7 @@ pub fn help_body(lang: Lang, prefix: &str) -> String {
         Lang::En => format!(
             "{prefix}folder - Select working folder\n\
              {prefix}agent - Select agent\n\
-             {prefix}task <desc> - Create session & run task\n\
+             {prefix}new <desc> - Create session & run task\n\
              {prefix}sessions - Active sessions in folder\n\
              {prefix}resume [ID] - Recent conversations / resume a session\n\
              {prefix}cancel - Cancel current task\n\
@@ -1050,19 +1050,19 @@ pub fn unknown_agent_label(lang: Lang) -> &'static str {
     }
 }
 
-// Task (/task)
+// Task (/new)
 pub fn task_usage(lang: Lang, prefix: &str) -> String {
     match lang {
-        Lang::ZhCn => format!("用法: {prefix}task <任务描述>"),
-        Lang::ZhTw => format!("用法: {prefix}task <任務描述>"),
-        Lang::Ja => format!("使い方: {prefix}task <タスク説明>"),
-        Lang::Ko => format!("사용법: {prefix}task <작업 설명>"),
-        Lang::Es => format!("Uso: {prefix}task <descripción>"),
-        Lang::De => format!("Verwendung: {prefix}task <Beschreibung>"),
-        Lang::Fr => format!("Usage : {prefix}task <description>"),
-        Lang::Pt => format!("Uso: {prefix}task <descrição>"),
-        Lang::Ar => format!("الاستخدام: {prefix}task <الوصف>"),
-        Lang::En => format!("Usage: {prefix}task <description>"),
+        Lang::ZhCn => format!("用法: {prefix}new <任务描述>"),
+        Lang::ZhTw => format!("用法: {prefix}new <任務描述>"),
+        Lang::Ja => format!("使い方: {prefix}new <タスク説明>"),
+        Lang::Ko => format!("사용법: {prefix}new <작업 설명>"),
+        Lang::Es => format!("Uso: {prefix}new <descripción>"),
+        Lang::De => format!("Verwendung: {prefix}new <Beschreibung>"),
+        Lang::Fr => format!("Usage : {prefix}new <description>"),
+        Lang::Pt => format!("Uso: {prefix}new <descrição>"),
+        Lang::Ar => format!("الاستخدام: {prefix}new <الوصف>"),
+        Lang::En => format!("Usage: {prefix}new <description>"),
     }
 }
 
@@ -1418,39 +1418,39 @@ pub fn permission_response_title(lang: Lang) -> &'static str {
 // Follow-up
 pub fn no_active_session_use_task(lang: Lang, prefix: &str) -> String {
     match lang {
-        Lang::ZhCn => format!("没有活跃的会话，请使用 {prefix}task 开始新任务。"),
-        Lang::ZhTw => format!("沒有活躍的對話，請使用 {prefix}task 開始新任務。"),
+        Lang::ZhCn => format!("没有活跃的会话，请使用 {prefix}new 开始新任务。"),
+        Lang::ZhTw => format!("沒有活躍的對話，請使用 {prefix}new 開始新任務。"),
         Lang::Ja => {
-            format!("アクティブなセッションがありません。{prefix}task で開始してください。")
+            format!("アクティブなセッションがありません。{prefix}new で開始してください。")
         }
-        Lang::Ko => format!("활성 세션이 없습니다. {prefix}task로 시작하세요."),
-        Lang::Es => format!("No hay sesión activa. Usa {prefix}task para iniciar una."),
-        Lang::De => format!("Keine aktive Sitzung. {prefix}task zum Starten verwenden."),
-        Lang::Fr => format!("Aucune session active. Utilisez {prefix}task pour en démarrer une."),
-        Lang::Pt => format!("Nenhuma sessão ativa. Use {prefix}task para iniciar uma."),
-        Lang::Ar => format!("لا توجد جلسة نشطة. استخدم {prefix}task لبدء واحدة."),
-        Lang::En => format!("No active session. Use {prefix}task to start one."),
+        Lang::Ko => format!("활성 세션이 없습니다. {prefix}new로 시작하세요."),
+        Lang::Es => format!("No hay sesión activa. Usa {prefix}new para iniciar una."),
+        Lang::De => format!("Keine aktive Sitzung. {prefix}new zum Starten verwenden."),
+        Lang::Fr => format!("Aucune session active. Utilisez {prefix}new pour en démarrer une."),
+        Lang::Pt => format!("Nenhuma sessão ativa. Use {prefix}new para iniciar uma."),
+        Lang::Ar => format!("لا توجد جلسة نشطة. استخدم {prefix}new لبدء واحدة."),
+        Lang::En => format!("No active session. Use {prefix}new to start one."),
     }
 }
 
 pub fn session_connection_lost(lang: Lang, prefix: &str) -> String {
     match lang {
-        Lang::ZhCn => format!("会话连接已断开，请使用 {prefix}task 开始新任务。"),
-        Lang::ZhTw => format!("對話連線已斷開，請使用 {prefix}task 開始新任務。"),
+        Lang::ZhCn => format!("会话连接已断开，请使用 {prefix}new 开始新任务。"),
+        Lang::ZhTw => format!("對話連線已斷開，請使用 {prefix}new 開始新任務。"),
         Lang::Ja => {
-            format!("セッション接続が切断されました。{prefix}task で新しく開始してください。")
+            format!("セッション接続が切断されました。{prefix}new で新しく開始してください。")
         }
-        Lang::Ko => format!("세션 연결이 끊어졌습니다. {prefix}task로 새로 시작하세요."),
-        Lang::Es => format!("Conexión de sesión perdida. Usa {prefix}task para iniciar una nueva."),
+        Lang::Ko => format!("세션 연결이 끊어졌습니다. {prefix}new로 새로 시작하세요."),
+        Lang::Es => format!("Conexión de sesión perdida. Usa {prefix}new para iniciar una nueva."),
         Lang::De => {
-            format!("Sitzungsverbindung verloren. {prefix}task für neue Sitzung verwenden.")
+            format!("Sitzungsverbindung verloren. {prefix}new für neue Sitzung verwenden.")
         }
         Lang::Fr => format!(
-            "Connexion de session perdue. Utilisez {prefix}task pour en démarrer une nouvelle."
+            "Connexion de session perdue. Utilisez {prefix}new pour en démarrer une nouvelle."
         ),
-        Lang::Pt => format!("Conexão da sessão perdida. Use {prefix}task para iniciar uma nova."),
-        Lang::Ar => format!("انقطع اتصال الجلسة. استخدم {prefix}task لبدء جلسة جديدة."),
-        Lang::En => format!("Session connection lost. Use {prefix}task to start a new one."),
+        Lang::Pt => format!("Conexão da sessão perdida. Use {prefix}new para iniciar uma nova."),
+        Lang::Ar => format!("انقطع اتصال الجلسة. استخدم {prefix}new لبدء جلسة جديدة."),
+        Lang::En => format!("Session connection lost. Use {prefix}new to start a new one."),
     }
 }
 
@@ -1619,7 +1619,7 @@ pub fn agent_responding(lang: Lang, agent_label: &str) -> String {
         Lang::Fr => format!("{agent_label} en cours de réponse..."),
         Lang::Pt => format!("{agent_label} respondendo..."),
         // FSI/PDI (U+2068/U+2069) isolate Latin agent name inside the Arabic RTL run so
-        // bidi reordering stays predictable across Telegram/Lark/WeiXin clients.
+        // bidi reordering stays predictable across Lark/WeiXin clients.
         Lang::Ar => format!("\u{2068}{agent_label}\u{2069} يستجيب..."),
         Lang::En => format!("{agent_label} is responding..."),
     }

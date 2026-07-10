@@ -8,11 +8,14 @@ use tokio::task::JoinHandle;
 use super::command_handlers;
 use super::i18n::{self, Lang};
 use super::manager::ChatChannelManager;
+use super::natural_router::{self, NaturalRouteDecision};
 use super::session_bridge::SessionBridge;
 use super::session_commands;
 use super::types::IncomingCommand;
 use crate::acp::manager::ConnectionManager;
-use crate::db::service::{app_metadata_service, chat_channel_message_log_service};
+use crate::db::service::{
+    app_metadata_service, chat_channel_message_log_service, sender_context_service,
+};
 use crate::web::event_bridge::EventEmitter;
 
 const COMMAND_PREFIX_KEY: &str = "chat_command_prefix";
@@ -107,6 +110,10 @@ pub fn spawn_command_dispatcher(
                 response.body.len()
             );
 
+            if response.is_silent() {
+                continue;
+            }
+
             // Send response back via the same channel
             let send_result = manager.send_to_channel(cmd.channel_id, &response).await;
             let (status, error_detail) = match &send_result {
@@ -152,25 +159,10 @@ async fn dispatch_command(
     let without_prefix = match text.strip_prefix(prefix) {
         Some(rest) => rest,
         None => {
-            // Check if sender has an active session for follow-up
-            let has_session = {
-                let guard = bridge.lock().await;
-                guard.find_by_sender(channel_id, sender_id).is_some()
-            };
-            if has_session {
-                return session_commands::handle_followup(session_commands::FollowupRequest {
-                    db,
-                    text,
-                    channel_id,
-                    sender_id,
-                    conn_mgr,
-                    bridge,
-                    lang,
-                    prefix,
-                })
-                .await;
-            }
-            return command_handlers::handle_help(prefix, lang);
+            return dispatch_natural_message(
+                text, prefix, db, manager, conn_mgr, emitter, bridge, channel_id, sender_id, lang,
+            )
+            .await;
         }
     };
 
@@ -199,7 +191,7 @@ async fn dispatch_command(
         "agent" => {
             session_commands::handle_agent(db, args, channel_id, sender_id, lang, prefix).await
         }
-        "task" | "do" => {
+        "new" | "task" | "do" => {
             session_commands::handle_task(
                 db, args, channel_id, sender_id, conn_mgr, emitter, bridge, lang, prefix,
             )
@@ -233,5 +225,93 @@ async fn dispatch_command(
 
         _ => super::types::RichMessage::info(i18n::unknown_command(lang, prefix, &command))
             .with_title(i18n::unknown_command_title(lang)),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_natural_message(
+    text: &str,
+    prefix: &str,
+    db: &DatabaseConnection,
+    manager: &ChatChannelManager,
+    conn_mgr: &ConnectionManager,
+    emitter: &EventEmitter,
+    bridge: &Arc<Mutex<SessionBridge>>,
+    channel_id: i32,
+    sender_id: &str,
+    lang: Lang,
+) -> super::types::RichMessage {
+    let decision =
+        natural_router::route_natural_message(db, bridge, channel_id, sender_id, text, lang).await;
+    tracing::info!(
+        "[ChatChannel] natural route channel={} sender={} decision={:?}",
+        channel_id,
+        sender_id,
+        decision
+    );
+
+    match decision {
+        NaturalRouteDecision::ContinueSession => {
+            session_commands::handle_followup(session_commands::FollowupRequest {
+                db,
+                text,
+                channel_id,
+                sender_id,
+                conn_mgr,
+                emitter,
+                bridge,
+                lang,
+                prefix,
+            })
+            .await
+        }
+        NaturalRouteDecision::ApprovePermission { always } => {
+            session_commands::handle_permission_response(
+                true, always, db, channel_id, sender_id, conn_mgr, bridge, lang,
+            )
+            .await
+        }
+        NaturalRouteDecision::DenyPermission => {
+            session_commands::handle_permission_response(
+                false, false, db, channel_id, sender_id, conn_mgr, bridge, lang,
+            )
+            .await
+        }
+        NaturalRouteDecision::CancelSession => {
+            session_commands::handle_cancel(db, channel_id, sender_id, conn_mgr, bridge, lang).await
+        }
+        NaturalRouteDecision::StartTask {
+            task,
+            folder_id,
+            agent_type,
+        } => {
+            let _ =
+                sender_context_service::update_folder(db, channel_id, sender_id, Some(folder_id))
+                    .await;
+            let _ = sender_context_service::update_agent(
+                db,
+                channel_id,
+                sender_id,
+                Some(natural_router::agent_type_to_wire(agent_type)),
+            )
+            .await;
+            session_commands::handle_task(
+                db, &task, channel_id, sender_id, conn_mgr, emitter, bridge, lang, prefix,
+            )
+            .await
+        }
+        NaturalRouteDecision::ShowStatus => command_handlers::handle_status(manager, lang).await,
+        NaturalRouteDecision::ShowToday => command_handlers::handle_today(db, lang).await,
+        NaturalRouteDecision::SearchHistory { keyword } => {
+            command_handlers::handle_search(db, &keyword, lang).await
+        }
+        NaturalRouteDecision::AskClarification { message } => {
+            tracing::info!(
+                "[ChatChannel] natural message needs clarification; suppressing canned \
+                 channel reply: {}",
+                message
+            );
+            super::types::RichMessage::info("")
+        }
     }
 }

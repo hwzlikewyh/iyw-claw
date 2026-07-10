@@ -1,27 +1,21 @@
 use super::i18n::{self, Lang};
-use super::tool_detail;
 use super::types::{MessageLevel, RichMessage};
 use crate::acp::question::QuestionSpec;
 
-pub fn format_turn_complete(agent_type: &str, stop_reason: &str, lang: Lang) -> RichMessage {
-    let reason = match stop_reason {
-        "end_turn" => i18n::stop_reason_end_turn(lang),
-        "cancelled" => i18n::stop_reason_cancelled(lang),
-        _ => stop_reason,
-    };
-    RichMessage::info(i18n::turn_complete_body(lang, agent_type))
-        .with_title(i18n::turn_complete_title(lang))
-        .with_field(i18n::stop_reason_label(lang), reason)
+pub fn format_turn_complete(_agent_type: &str, _stop_reason: &str, lang: Lang) -> RichMessage {
+    let _ = lang;
+    RichMessage::info("")
 }
 
-pub fn format_agent_error(agent_type: &str, message: &str, lang: Lang) -> RichMessage {
+pub fn format_agent_error(_agent_type: &str, _message: &str, lang: Lang) -> RichMessage {
+    let body = match lang {
+        Lang::ZhCn | Lang::ZhTw => "处理过程中出现错误，请在 iyw-claw 中查看详情。",
+        _ => "An error occurred. Check iyw-claw for details.",
+    };
     RichMessage {
         title: Some(i18n::agent_error_title(lang).to_string()),
-        body: i18n::agent_error_body(lang, agent_type),
-        fields: vec![(
-            i18n::error_message_label(lang).to_string(),
-            message.to_string(),
-        )],
+        body: body.to_string(),
+        fields: Vec::new(),
         level: MessageLevel::Error,
     }
 }
@@ -34,34 +28,13 @@ pub fn format_agent_error(agent_type: &str, message: &str, lang: Lang) -> RichMe
 /// keep their interactive `/approve`,`/deny` flow in `session_event_subscriber`
 /// and are suppressed here by the event subscriber (see `process_envelope`).
 ///
-/// `tool_call` is the raw ACP tool-call object; the requested operation is
-/// rendered with the same shared detail formatter the session relay uses, so a
-/// `Bash` / `Write` / `Read` reads identically across both surfaces.
-pub fn format_permission_request(tool_call: &serde_json::Value, lang: Lang) -> RichMessage {
-    let tool_title = tool_call
-        .get("title")
-        .and_then(|v| v.as_str())
-        .or_else(|| tool_call.get("tool_name").and_then(|v| v.as_str()))
-        .unwrap_or("Unknown tool");
-
-    let raw_input = tool_call
-        .get("rawInput")
-        .or_else(|| tool_call.get("raw_input"))
-        .and_then(|v| match v {
-            serde_json::Value::String(s) => Some(s.clone()),
-            serde_json::Value::Null => None,
-            other => Some(other.to_string()),
-        });
-
-    let tool_desc = tool_detail::format_tool_call_detail(tool_title, raw_input.as_deref());
-
+/// `tool_call` is intentionally ignored: external channels should not receive
+/// commands, file paths, tool names, or other implementation details.
+pub fn format_permission_request(_tool_call: &serde_json::Value, lang: Lang) -> RichMessage {
     RichMessage {
         title: Some(i18n::permission_request_title(lang).to_string()),
         body: i18n::permission_request_body(lang).to_string(),
-        fields: vec![(
-            i18n::permission_operation_label(lang).to_string(),
-            tool_desc,
-        )],
+        fields: Vec::new(),
         level: MessageLevel::Warning,
     }
 }
@@ -158,7 +131,29 @@ mod permission_request_tests {
     use super::*;
 
     #[test]
-    fn renders_title_warning_and_operation_from_object_input() {
+    fn turn_complete_is_silent_for_channels() {
+        let msg = format_turn_complete("Codex CLI", "end_turn", Lang::ZhCn);
+        let text = msg.to_plain_text();
+
+        assert!(msg.is_silent());
+        assert!(!text.contains("Codex"), "got {text}");
+        assert!(!text.contains("会话完成"), "got {text}");
+        assert!(!text.contains("任务已完成"), "got {text}");
+        assert!(!text.contains("结束原因"), "got {text}");
+    }
+
+    #[test]
+    fn agent_error_hides_agent_and_raw_error_details() {
+        let msg = format_agent_error("Codex CLI", "Bash failed: C:/secret/path", Lang::ZhCn);
+        let text = msg.to_plain_text();
+
+        assert!(!text.contains("Codex"), "got {text}");
+        assert!(!text.contains("Bash"), "got {text}");
+        assert!(!text.contains("C:/secret/path"), "got {text}");
+    }
+
+    #[test]
+    fn permission_request_hides_tool_operation_details() {
         let tool_call = serde_json::json!({
             "title": "Bash",
             "rawInput": { "command": "rm -rf build" }
@@ -167,24 +162,27 @@ mod permission_request_tests {
         assert_eq!(msg.level, MessageLevel::Warning);
         assert_eq!(msg.title.as_deref(), Some("Permission Request"));
         let text = msg.to_plain_text();
-        assert!(text.contains("Bash: rm -rf build"), "got {text}");
+        assert!(!text.contains("Bash"), "got {text}");
+        assert!(!text.contains("rm -rf build"), "got {text}");
     }
 
     #[test]
-    fn handles_bare_string_raw_input_and_localizes_title() {
+    fn permission_request_localizes_title_without_raw_input() {
         let tool_call = serde_json::json!({
             "title": "Bash",
             "rawInput": "ls -la"
         });
         let msg = format_permission_request(&tool_call, Lang::ZhCn);
         assert_eq!(msg.title.as_deref(), Some("权限请求"));
-        assert!(msg.to_plain_text().contains("Bash: ls -la"));
+        let text = msg.to_plain_text();
+        assert!(!text.contains("Bash"), "got {text}");
+        assert!(!text.contains("ls -la"), "got {text}");
     }
 
     #[test]
-    fn falls_back_to_unknown_tool_when_empty() {
+    fn permission_request_empty_tool_stays_generic() {
         let msg = format_permission_request(&serde_json::json!({}), Lang::En);
-        assert!(msg.to_plain_text().contains("Unknown tool"));
+        assert!(!msg.to_plain_text().contains("Unknown tool"));
     }
 }
 

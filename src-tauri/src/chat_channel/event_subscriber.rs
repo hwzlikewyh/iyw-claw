@@ -398,14 +398,8 @@ fn parse_acp_event(payload: &AcpEvent, lang: Lang) -> Option<(String, RichMessag
             agent_type,
             ..
         } => {
-            // Only push for end_turn, not for intermediate completions.
-            if stop_reason != "end_turn" {
-                return None;
-            }
-            Some((
-                "turn_complete".to_string(),
-                message_formatter::format_turn_complete(agent_type, stop_reason, lang),
-            ))
+            let _ = (stop_reason, agent_type, lang);
+            None
         }
         AcpEvent::Error {
             message,
@@ -464,7 +458,7 @@ mod permission_push_tests {
     #[async_trait]
     impl ChatChannelBackend for RecordingBackend {
         fn channel_type(&self) -> ChannelType {
-            ChannelType::Telegram
+            ChannelType::Lark
         }
         async fn start(&self, _tx: mpsc::Sender<IncomingCommand>) -> Result<(), ChatChannelError> {
             Ok(())
@@ -497,7 +491,7 @@ mod permission_push_tests {
         chat.add_channel(
             channel_id,
             "test".into(),
-            ChannelType::Telegram,
+            ChannelType::Lark,
             Box::new(RecordingBackend { rec: rec.clone() }),
         )
         .await
@@ -571,6 +565,19 @@ mod permission_push_tests {
                 session_id: "s".into(),
                 stop_reason: "end_turn".into(),
                 agent_type: "claude_code".into(),
+            },
+        }
+    }
+
+    fn error_envelope(connection_id: &str) -> EventEnvelope {
+        EventEnvelope {
+            seq: 1,
+            connection_id: connection_id.into(),
+            payload: AcpEvent::Error {
+                message: "failed".into(),
+                agent_type: "claude_code".into(),
+                code: None,
+                terminal: false,
             },
         }
     }
@@ -649,7 +656,7 @@ mod permission_push_tests {
     }
 
     /// A permission request from a NON-bridged (desktop / web) connection is
-    /// pushed, carrying the localized title and the rendered operation detail.
+    /// pushed, but it must not carry tool names, commands, or paths.
     #[tokio::test]
     async fn permission_request_non_bridged_is_pushed() {
         let db = test_helpers::fresh_in_memory_db().await;
@@ -672,7 +679,8 @@ mod permission_push_tests {
         let msgs = sent(&rec).await;
         assert_eq!(msgs.len(), 1, "expected one push, got {msgs:?}");
         assert!(msgs[0].contains("Permission Request"), "got {:?}", msgs[0]);
-        assert!(msgs[0].contains("Bash: npm test"), "got {:?}", msgs[0]);
+        assert!(!msgs[0].contains("Bash"), "got {:?}", msgs[0]);
+        assert!(!msgs[0].contains("npm test"), "got {:?}", msgs[0]);
     }
 
     /// A permission request from a chat-channel-bridged connection is suppressed
@@ -823,27 +831,18 @@ mod permission_push_tests {
         );
     }
 
-    /// Contrast: turn_complete is still debounced — a second one within the 5s
+    /// Contrast: error is still debounced — a second one within the 5s
     /// window is dropped. Guards against accidentally exempting everything.
     #[tokio::test]
-    async fn turn_complete_is_debounced_within_window() {
+    async fn error_is_debounced_within_window() {
         let db = test_helpers::fresh_in_memory_db().await;
         let (chat, rec) = manager_with_recorder(7).await;
         let bridge = Arc::new(Mutex::new(SessionBridge::new()));
         let config = config_all_on(7);
         let mut last_push = HashMap::new();
 
-        let turn_complete = || EventEnvelope {
-            seq: 1,
-            connection_id: "c".into(),
-            payload: AcpEvent::TurnComplete {
-                session_id: "s".into(),
-                stop_reason: "end_turn".into(),
-                agent_type: "claude_code".into(),
-            },
-        };
         process_envelope(
-            &turn_complete(),
+            &error_envelope("c"),
             &bridge,
             &chat,
             &db.conn,
@@ -853,7 +852,7 @@ mod permission_push_tests {
         )
         .await;
         process_envelope(
-            &turn_complete(),
+            &error_envelope("c"),
             &bridge,
             &chat,
             &db.conn,
@@ -866,13 +865,14 @@ mod permission_push_tests {
         assert_eq!(
             sent(&rec).await.len(),
             1,
-            "second turn_complete within 5s must be debounced"
+            "second error within 5s must be debounced"
         );
     }
 
-    /// Regression: turn_complete (end_turn) still pushes after the refactor.
+    /// turn_complete is intentionally suppressed for chat channels; final
+    /// answers are sent by the bridged session relay without completion chrome.
     #[tokio::test]
-    async fn turn_complete_still_pushes() {
+    async fn turn_complete_is_suppressed() {
         let db = test_helpers::fresh_in_memory_db().await;
         let (chat, rec) = manager_with_recorder(7).await;
         let bridge = Arc::new(Mutex::new(SessionBridge::new()));
@@ -899,7 +899,7 @@ mod permission_push_tests {
         )
         .await;
 
-        assert_eq!(sent(&rec).await.len(), 1);
+        assert!(sent(&rec).await.is_empty());
     }
 
     /// Once explicitly enabled (filter contains the id), a user_prompt_sent
@@ -1004,7 +1004,7 @@ mod permission_push_tests {
     /// Opt-in default: with NO explicit filter configured (null = the default
     /// "all events" set), user_prompt_sent is suppressed — it must not forward
     /// prompt text to channels until the user enables it deliberately. Contrast
-    /// `turn_complete_still_pushes`, which DOES fire under the same null filter.
+    /// other default-on events still fire under the same null filter.
     #[tokio::test]
     async fn user_prompt_sent_off_by_default() {
         let db = test_helpers::fresh_in_memory_db().await;
@@ -1086,7 +1086,7 @@ mod permission_push_tests {
         config.webhooks = vec![format!("http://{addr}/hook")];
 
         process_envelope(
-            &turn_complete_envelope("desktop-conn"),
+            &permission_envelope("desktop-conn"),
             &bridge,
             &chat,
             &db.conn,
@@ -1102,7 +1102,7 @@ mod permission_push_tests {
             .unwrap();
         assert!(request.starts_with("POST /hook"), "got: {request}");
         assert!(
-            request.contains("\"event\":\"turn_complete\""),
+            request.contains("\"event\":\"permission_request\""),
             "got: {request}"
         );
         assert!(
@@ -1187,9 +1187,8 @@ mod permission_push_tests {
         );
     }
 
-    /// Webhooks are intentionally NOT debounced: two `turn_complete` events
-    /// inside the 5s window each deliver, even though the IM-channel push of the
-    /// second is debounced (contrast `turn_complete_is_debounced_within_window`).
+    /// Webhooks are intentionally NOT debounced: two permission_request events
+    /// inside the 5s window each deliver.
     #[tokio::test]
     async fn webhook_is_not_debounced() {
         use tokio::net::TcpListener;
@@ -1213,7 +1212,7 @@ mod permission_push_tests {
 
         for _ in 0..2 {
             process_envelope(
-                &turn_complete_envelope("c"),
+                &permission_envelope("c"),
                 &bridge,
                 &chat,
                 &db.conn,

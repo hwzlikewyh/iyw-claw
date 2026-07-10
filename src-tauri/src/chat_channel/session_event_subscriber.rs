@@ -8,13 +8,14 @@ use tokio::task::JoinHandle;
 
 use super::i18n::Lang;
 use super::session_bridge::{PendingPermission, SessionBridge};
-use super::tool_detail::{format_tool_call_detail, truncate_str};
+#[cfg(test)]
+use super::tool_detail::truncate_str;
 use super::types::{MessageLevel, RichMessage};
 use crate::acp::internal_bus::InternalEventBus;
 use crate::acp::manager::ConnectionManager;
-use crate::acp::types::{
-    AcpEvent, ConnectionStatus, DelegationResultSummary, EventEnvelope, PromptInputBlock,
-};
+#[cfg(test)]
+use crate::acp::types::DelegationResultSummary;
+use crate::acp::types::{AcpEvent, ConnectionStatus, EventEnvelope, PromptInputBlock};
 
 use crate::db::service::{app_metadata_service, conversation_service, sender_context_service};
 
@@ -24,8 +25,6 @@ const FLUSH_INTERVAL_SECS: u64 = 10;
 const BUFFER_FLUSH_THRESHOLD: usize = 500;
 const MAX_MESSAGE_LEN: usize = 2000;
 const MESSAGE_LANGUAGE_KEY: &str = "chat_message_language";
-const COMMAND_PREFIX_KEY: &str = "chat_command_prefix";
-const DEFAULT_COMMAND_PREFIX: &str = "/";
 
 pub fn spawn_session_event_subscriber(
     bus: Arc<InternalEventBus>,
@@ -82,14 +81,6 @@ async fn get_lang(db: &DatabaseConnection) -> Lang {
         .unwrap_or_default()
 }
 
-async fn get_prefix(db: &DatabaseConnection) -> String {
-    app_metadata_service::get_value(db, COMMAND_PREFIX_KEY)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| DEFAULT_COMMAND_PREFIX.to_string())
-}
-
 /// Phase 5: typed-envelope dispatcher. Replaces the prior JSON
 /// `payload.get("type").as_str()` switch — every accessor we used to need
 /// (type / connection_id / event-specific fields) is now a structural
@@ -133,17 +124,8 @@ async fn handle_acp_envelope(
                                 "[SessionEventSub] kickoff deferred; a turn is already in \
                                  progress, will retry on TurnComplete"
                             );
-                            let channel_id = session.channel_id;
-                            let lang = get_lang(db).await;
-                            let msg = RichMessage::info(
-                                super::i18n::task_deferred_busy(lang).to_string(),
-                            );
-                            let _ = manager.send_to_channel(channel_id, &msg).await;
                         } else {
                             tracing::error!("[SessionEventSub] failed to send pending prompt: {e}");
-                            let channel_id = session.channel_id;
-                            let msg = RichMessage::error(format!("Failed to send task: {e}"));
-                            let _ = manager.send_to_channel(channel_id, &msg).await;
                         }
                     }
                 }
@@ -151,37 +133,14 @@ async fn handle_acp_envelope(
         }
 
         AcpEvent::ContentDelta { text } => {
-            // Collect flush info under the lock, then release before any IO.
-            let flush_info: Option<(i32, String, Option<String>)> = {
-                let mut guard = bridge.lock().await;
-                match guard.get_mut(connection_id) {
-                    Some(session) => {
-                        session.content_buffer.push_str(text);
-                        if session.content_buffer.len() >= BUFFER_FLUSH_THRESHOLD
-                            && session.last_flushed.elapsed() >= Duration::from_secs(2)
-                        {
-                            session.last_flushed = Instant::now();
-                            Some((
-                                session.channel_id,
-                                session.agent_type.to_string(),
-                                session.tool_calls.last().cloned(),
-                            ))
-                        } else {
-                            None
-                        }
-                    }
-                    None => None,
+            let mut guard = bridge.lock().await;
+            if let Some(session) = guard.get_mut(connection_id) {
+                session.content_buffer.push_str(text);
+                if session.content_buffer.len() >= BUFFER_FLUSH_THRESHOLD
+                    && session.last_flushed.elapsed() >= Duration::from_secs(2)
+                {
+                    session.last_flushed = Instant::now();
                 }
-            };
-
-            if let Some((channel_id, agent_label, last_tool)) = flush_info {
-                let lang = get_lang(db).await;
-                let mut status = super::i18n::agent_responding(lang, &agent_label);
-                if let Some(tool) = last_tool {
-                    status.push_str(&format!(" | {tool}"));
-                }
-                let msg = RichMessage::info(status);
-                let _ = manager.send_to_channel(channel_id, &msg).await;
             }
         }
 
@@ -191,32 +150,13 @@ async fn handle_acp_envelope(
             raw_input,
             ..
         } => {
-            // Emit a "delegation started" placeholder to the channel so
-            // remote users see something happen as soon as the parent agent
-            // fires `delegate_to_agent`, not only when the child wraps up.
-            let delegation_announce = if is_delegation_title(title) {
-                raw_input
-                    .as_deref()
-                    .and_then(extract_agent_type)
-                    .map(|agent| format!("🤖 Delegating to {agent}…"))
-            } else {
-                None
-            };
-
             let mut guard = bridge.lock().await;
             if let Some(session) = guard.get_mut(connection_id) {
-                // Store title for progress indicator; store raw_input for later
                 session.tool_calls.push(title.clone());
                 if let Some(input) = raw_input.as_deref() {
                     session
                         .tool_call_inputs
                         .insert(tool_call_id.clone(), input.to_string());
-                }
-                if let Some(text) = delegation_announce {
-                    let channel_id = session.channel_id;
-                    drop(guard);
-                    let msg = RichMessage::info(text);
-                    let _ = manager.send_to_channel(channel_id, &msg).await;
                 }
             }
         }
@@ -250,60 +190,21 @@ async fn handle_acp_envelope(
                             .as_deref()
                             .map(|s| extract_agent_type(s).is_some())
                             .unwrap_or(false);
-                    let channel_id = session.channel_id;
                     if is_delegation {
                         let already_rendered = session.delegation_rendered.contains(tool_call_id);
                         let report = parse_delegation_report(raw_output.as_deref());
                         if report.as_ref().is_some_and(|r| r.is_terminal()) {
-                            // Terminal tool output (a fast-complete result, or a
-                            // setup failure). Render it EXACTLY ONCE, gated on the
-                            // `delegation_rendered` marker (NOT the input map,
-                            // which `raw_input` updates re-populate). This is the
-                            // only surface for setup failures and synthetic-id
-                            // fast-completes (neither emits `DelegationCompleted`),
-                            // and it no-ops when the completion event already
-                            // rendered first.
                             if !already_rendered {
-                                let agent = session
-                                    .tool_call_inputs
-                                    .get(tool_call_id)
-                                    .map(String::as_str)
-                                    .or(raw_input.as_deref())
-                                    .and_then(extract_agent_type)
-                                    .unwrap_or_else(|| "agent".to_string());
-                                let body =
-                                    format_delegation_terminal(&agent, report.as_ref().unwrap());
                                 session.delegation_rendered.insert(tool_call_id.clone());
                                 session.tool_call_inputs.remove(tool_call_id);
-                                drop(guard);
-                                let msg = RichMessage::info(body);
-                                let _ = manager.send_to_channel(channel_id, &msg).await;
                             }
                         } else if !already_rendered {
-                            // Running ack (or unparseable output): announce the
-                            // background task. KEEP the stored input — the eventual
-                            // `DelegationCompleted` render needs the agent_type.
-                            // Suppressed once the result has rendered, so a late
-                            // re-emitted ack can't appear after the result.
-                            let agent = session
-                                .tool_call_inputs
-                                .get(tool_call_id)
-                                .map(String::as_str)
-                                .or(raw_input.as_deref())
-                                .and_then(extract_agent_type)
-                                .unwrap_or_else(|| "agent".to_string());
-                            drop(guard);
-                            let msg = RichMessage::info(format_delegation_ack(&agent));
-                            let _ = manager.send_to_channel(channel_id, &msg).await;
+                            // Running ack (or unparseable output): keep the
+                            // stored input for eventual DelegationCompleted, but
+                            // never post this process detail to chat channels.
                         }
                     } else {
-                        let stored_input = session.tool_call_inputs.remove(tool_call_id);
-                        let input_ref = stored_input.as_deref().or(raw_input.as_deref());
-                        let body =
-                            format!(">> {}", format_tool_call_detail(effective_title, input_ref));
-                        drop(guard);
-                        let msg = RichMessage::info(body);
-                        let _ = manager.send_to_channel(channel_id, &msg).await;
+                        session.tool_call_inputs.remove(tool_call_id);
                     }
                 }
             }
@@ -317,9 +218,7 @@ async fn handle_acp_envelope(
         // bridged session's stored input, so this arm no-ops for synthetic ids,
         // which is correct — the terminal `ToolCallUpdate` is their surface.)
         AcpEvent::DelegationCompleted {
-            parent_tool_use_id,
-            result,
-            ..
+            parent_tool_use_id, ..
         } => {
             let mut guard = bridge.lock().await;
             if let Some(session) = guard.get_mut(connection_id) {
@@ -329,27 +228,18 @@ async fn handle_acp_envelope(
                 // here at all, so this arm naturally no-ops for synthetic ids —
                 // the terminal `ToolCallUpdate` is their surface.)
                 if !session.delegation_rendered.contains(parent_tool_use_id) {
-                    let agent = session
-                        .tool_call_inputs
-                        .remove(parent_tool_use_id)
-                        .as_deref()
-                        .and_then(extract_agent_type)
-                        .unwrap_or_else(|| "sub-agent".to_string());
+                    session.tool_call_inputs.remove(parent_tool_use_id);
                     session
                         .delegation_rendered
                         .insert(parent_tool_use_id.clone());
-                    let channel_id = session.channel_id;
-                    drop(guard);
-                    let msg = RichMessage::info(format_delegation_result(&agent, result));
-                    let _ = manager.send_to_channel(channel_id, &msg).await;
                 }
             }
         }
 
         AcpEvent::PermissionRequest {
             request_id,
-            tool_call,
             options,
+            ..
         } => {
             let mut guard = bridge.lock().await;
             if let Some(session) = guard.get_mut(connection_id) {
@@ -379,26 +269,9 @@ async fn handle_acp_envelope(
                     return;
                 }
 
-                let tool_title = tool_call
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .or_else(|| tool_call.get("tool_name").and_then(|v| v.as_str()))
-                    .unwrap_or("Unknown tool");
-
-                // Extract detail from rawInput / raw_input in the tool_call object
-                let raw_input_str = tool_call
-                    .get("rawInput")
-                    .or_else(|| tool_call.get("raw_input"))
-                    .and_then(|v| match v {
-                        serde_json::Value::String(s) => Some(s.clone()),
-                        serde_json::Value::Null => None,
-                        other => Some(other.to_string()),
-                    });
-                let tool_desc = format_tool_call_detail(tool_title, raw_input_str.as_deref());
-
                 session.permission_pending = Some(PendingPermission {
                     request_id: request_id.clone(),
-                    tool_description: tool_desc.clone(),
+                    tool_description: "permission".to_string(),
                     options: options.clone(),
                     sent_message_id: None,
                 });
@@ -406,20 +279,12 @@ async fn handle_acp_envelope(
                 drop(guard);
 
                 let lang = get_lang(db).await;
-                let prefix = get_prefix(db).await;
-                let body = match lang {
-                    Lang::ZhCn | Lang::ZhTw => {
-                        format!("Agent 请求权限: {tool_desc}\n\n{prefix}approve 批准 | {prefix}deny 拒绝 | {prefix}approve always 自动批准")
-                    }
-                    _ => {
-                        format!("Agent requests permission: {tool_desc}\n\n{prefix}approve | {prefix}deny | {prefix}approve always")
-                    }
-                };
+                let body = permission_confirmation_body(lang).to_string();
 
                 let msg = RichMessage {
                     title: Some(match lang {
-                        Lang::ZhCn | Lang::ZhTw => "权限请求".to_string(),
-                        _ => "Permission Request".to_string(),
+                        Lang::ZhCn | Lang::ZhTw => "需要确认".to_string(),
+                        _ => "Confirmation Needed".to_string(),
                     }),
                     body,
                     fields: Vec::new(),
@@ -429,17 +294,12 @@ async fn handle_acp_envelope(
             }
         }
 
-        AcpEvent::TurnComplete {
-            stop_reason,
-            agent_type,
-            ..
-        } => {
+        AcpEvent::TurnComplete { stop_reason, .. } => {
             let mut guard = bridge.lock().await;
             if let Some(session) = guard.get_mut(connection_id) {
                 let channel_id = session.channel_id;
                 let conv_id = session.conversation_id;
                 let content = std::mem::take(&mut session.content_buffer);
-                let tool_count = session.tool_calls.len();
                 session.tool_calls.clear();
                 session.last_flushed = Instant::now();
                 // A kickoff prompt deferred by `SessionStarted` (the connection
@@ -450,23 +310,20 @@ async fn handle_acp_envelope(
                 drop(guard);
 
                 let lang = get_lang(db).await;
-                let body = format_completion(&content, tool_count, lang);
+                let body = format_completion(&content, lang);
 
-                let msg = RichMessage::info(body)
-                    .with_title(match lang {
-                        Lang::ZhCn | Lang::ZhTw => "任务完成",
-                        _ => "Turn Complete",
-                    })
-                    .with_field("Agent", agent_type)
-                    .with_field(
-                        match lang {
-                            Lang::ZhCn | Lang::ZhTw => "结束原因",
-                            _ => "Stop Reason",
-                        },
-                        localize_stop_reason(stop_reason, lang),
+                if !body.trim().is_empty() {
+                    let msg = RichMessage::info(body);
+                    let _ = manager.send_to_channel(channel_id, &msg).await;
+                } else if !content.trim().is_empty() {
+                    tracing::info!(
+                        "[SessionEventSub] assistant completion suppressed after channel \
+                         sanitization connection={} channel={} conversation={}",
+                        connection_id,
+                        channel_id,
+                        conv_id
                     );
-
-                let _ = manager.send_to_channel(channel_id, &msg).await;
+                }
 
                 if stop_reason == "end_turn" {
                     let _ = conversation_service::update_status(
@@ -499,48 +356,30 @@ async fn handle_acp_envelope(
                             tracing::error!(
                                 "[SessionEventSub] failed to send deferred kickoff: {e}"
                             );
-                            let msg = RichMessage::error(format!("Failed to send task: {e}"));
-                            let _ = manager.send_to_channel(channel_id, &msg).await;
                         }
                     }
                 }
             }
         }
 
-        AcpEvent::Error {
-            message,
-            agent_type,
-            terminal,
-            ..
-        } => {
+        AcpEvent::Error { terminal, .. } => {
             // Non-terminal Errors (`turn_failure_error_event`,
             // `session/load` fallback, empty-prompt rejection, SetMode /
             // SetConfigOption failures) leave the ACP connection alive —
-            // the next prompt on the same session will still work. Posting
-            // the error to the channel is useful, but tearing down the
-            // bridge session and flipping the conversation row to
-            // Cancelled would break remote chat-channel users (their next
-            // message would spawn a brand-new session, losing context).
-            // The lifecycle worker mirrors this gating; see F2 in the
-            // v0.14.3 sub-agent delegation post-mortem.
-            let lang = get_lang(db).await;
-            let msg = RichMessage {
-                title: Some(match lang {
-                    Lang::ZhCn | Lang::ZhTw => "Agent 错误".to_string(),
-                    _ => "Agent Error".to_string(),
-                }),
-                body: format!("[{agent_type}] {message}"),
-                fields: Vec::new(),
-                level: MessageLevel::Error,
-            };
-
+            // the next prompt on the same session will still work. Chat
+            // channels only receive real assistant content, so ACP errors are
+            // log-only here.
             if !*terminal {
-                let channel_id = {
+                if let Some(channel_id) = {
                     let guard = bridge.lock().await;
                     guard.get(connection_id).map(|s| s.channel_id)
-                };
-                if let Some(channel_id) = channel_id {
-                    let _ = manager.send_to_channel(channel_id, &msg).await;
+                } {
+                    tracing::warn!(
+                        "[SessionEventSub] non-terminal ACP error for bridged session \
+                         connection={} channel={}",
+                        connection_id,
+                        channel_id
+                    );
                 }
                 return;
             }
@@ -552,7 +391,13 @@ async fn handle_acp_envelope(
                 let conv_id = session.conversation_id;
                 drop(guard);
 
-                let _ = manager.send_to_channel(channel_id, &msg).await;
+                tracing::warn!(
+                    "[SessionEventSub] terminal ACP error for bridged session \
+                     connection={} channel={} conversation={}",
+                    connection_id,
+                    channel_id,
+                    conv_id
+                );
 
                 let _ = conversation_service::update_status(
                     db,
@@ -586,57 +431,27 @@ async fn handle_acp_envelope(
 
 async fn flush_progress(
     bridge: &Arc<Mutex<SessionBridge>>,
-    manager: &ChatChannelManager,
-    db: &DatabaseConnection,
+    _manager: &ChatChannelManager,
+    _db: &DatabaseConnection,
 ) {
-    let lang = get_lang(db).await;
-    let updates: Vec<(i32, String)> = {
-        let mut guard = bridge.lock().await;
-        let mut out = Vec::new();
-        for session in guard.all_sessions_mut() {
-            if !session.content_buffer.is_empty()
-                && session.last_flushed.elapsed() >= Duration::from_secs(FLUSH_INTERVAL_SECS)
-            {
-                session.last_flushed = Instant::now();
-                let last_tool = session.tool_calls.last().cloned();
-                let agent_label = session.agent_type.to_string();
-                let mut status = super::i18n::agent_responding(lang, &agent_label);
-                if let Some(tool) = last_tool {
-                    status.push_str(&format!(" | {tool}"));
-                }
-                out.push((session.channel_id, status));
-            }
+    let mut guard = bridge.lock().await;
+    for session in guard.all_sessions_mut() {
+        if !session.content_buffer.is_empty()
+            && session.last_flushed.elapsed() >= Duration::from_secs(FLUSH_INTERVAL_SECS)
+        {
+            session.last_flushed = Instant::now();
         }
-        out
-    };
-
-    for (channel_id, text) in updates {
-        let msg = RichMessage::info(text);
-        let _ = manager.send_to_channel(channel_id, &msg).await;
     }
 }
 
-fn format_completion(content: &str, tool_count: usize, lang: Lang) -> String {
+fn format_completion(content: &str, lang: Lang) -> String {
+    let content = sanitize_channel_content(content);
     if content.is_empty() {
-        return match lang {
-            Lang::ZhCn | Lang::ZhTw => format!("(无文本输出, {tool_count} 次工具调用)"),
-            _ => format!("(No text output, {tool_count} tool calls)"),
-        };
+        return String::new();
     }
 
     if content.len() <= MAX_MESSAGE_LEN {
-        let mut body = content.to_string();
-        if tool_count > 0 {
-            body.push_str(&format!(
-                "\n\n[{} {}]",
-                tool_count,
-                match lang {
-                    Lang::ZhCn | Lang::ZhTw => "次工具调用",
-                    _ => "tool calls",
-                }
-            ));
-        }
-        return body;
+        return content;
     }
 
     // Truncate long content (use char boundaries to avoid panic on multi-byte)
@@ -657,108 +472,60 @@ fn format_completion(content: &str, tool_count: usize, lang: Lang) -> String {
     match lang {
         Lang::ZhCn | Lang::ZhTw => {
             format!(
-                "{head}\n\n...\n\n{tail}\n\n[完整回复: {} 字符, {tool_count} 次工具调用]",
+                "{head}\n\n...\n\n{tail}\n\n[完整回复: {} 字符]",
                 content.len()
             )
         }
         _ => {
             format!(
-                "{head}\n\n...\n\n{tail}\n\n[Full response: {} chars, {tool_count} tool calls]",
+                "{head}\n\n...\n\n{tail}\n\n[Full response: {} chars]",
                 content.len()
             )
         }
     }
 }
 
-fn localize_stop_reason(reason: &str, lang: Lang) -> String {
-    match lang {
-        Lang::ZhCn => match reason {
-            "end_turn" => "正常结束",
-            "cancelled" => "已取消",
-            "max_tokens" => "达到最大长度",
-            "stop_sequence" => "遇到停止序列",
-            "error" => "错误",
-            "timeout" => "超时",
-            other => other,
-        },
-        Lang::ZhTw => match reason {
-            "end_turn" => "正常結束",
-            "cancelled" => "已取消",
-            "max_tokens" => "達到最大長度",
-            "stop_sequence" => "遇到停止序列",
-            "error" => "錯誤",
-            "timeout" => "逾時",
-            other => other,
-        },
-        Lang::Ja => match reason {
-            "end_turn" => "正常終了",
-            "cancelled" => "キャンセル",
-            "max_tokens" => "最大トークン数到達",
-            "stop_sequence" => "停止シーケンス",
-            "error" => "エラー",
-            "timeout" => "タイムアウト",
-            other => other,
-        },
-        Lang::Ko => match reason {
-            "end_turn" => "정상 종료",
-            "cancelled" => "취소됨",
-            "max_tokens" => "최대 길이 도달",
-            "stop_sequence" => "정지 시퀀스",
-            "error" => "오류",
-            "timeout" => "시간 초과",
-            other => other,
-        },
-        Lang::Es => match reason {
-            "end_turn" => "Finalizado",
-            "cancelled" => "Cancelado",
-            "max_tokens" => "Longitud máxima alcanzada",
-            "error" => "Error",
-            "timeout" => "Tiempo agotado",
-            other => other,
-        },
-        Lang::De => match reason {
-            "end_turn" => "Abgeschlossen",
-            "cancelled" => "Abgebrochen",
-            "max_tokens" => "Maximale Länge erreicht",
-            "error" => "Fehler",
-            "timeout" => "Zeitüberschreitung",
-            other => other,
-        },
-        Lang::Fr => match reason {
-            "end_turn" => "Terminé",
-            "cancelled" => "Annulé",
-            "max_tokens" => "Longueur maximale atteinte",
-            "error" => "Erreur",
-            "timeout" => "Délai dépassé",
-            other => other,
-        },
-        Lang::Pt => match reason {
-            "end_turn" => "Concluído",
-            "cancelled" => "Cancelado",
-            "max_tokens" => "Comprimento máximo atingido",
-            "error" => "Erro",
-            "timeout" => "Tempo esgotado",
-            other => other,
-        },
-        Lang::Ar => match reason {
-            "end_turn" => "اكتمل",
-            "cancelled" => "ملغى",
-            "max_tokens" => "تم بلوغ الحد الأقصى",
-            "error" => "خطأ",
-            "timeout" => "انتهت المهلة",
-            other => other,
-        },
-        Lang::En => match reason {
-            "end_turn" => "Completed",
-            "cancelled" => "Cancelled",
-            "max_tokens" => "Max length reached",
-            "stop_sequence" => "Stop sequence",
-            "error" => "Error",
-            "timeout" => "Timeout",
-            other => other,
-        },
+fn sanitize_channel_content(content: &str) -> String {
+    content
+        .lines()
+        .filter(|line| !is_internal_process_line(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+fn is_internal_process_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
     }
-    .to_string()
+    let lower = trimmed.to_lowercase();
+    lower.contains("using-superpowers")
+        || lower.contains("codex cli")
+        || lower.contains("claude code")
+        || lower.contains("get-content")
+        || lower.contains("pwsh.exe")
+        || lower.contains("powershell.exe")
+        || lower.contains("bash:")
+        || lower.contains("tool call")
+        || lower.contains("工具调用")
+        || lower.contains("正在响应")
+        || lower.contains("running in background")
+        || lower.starts_with("i will first")
+        || lower.starts_with("i'll first")
+        || lower.starts_with("i’ll first")
+        || trimmed.starts_with("我会先")
+        || trimmed.starts_with("我先")
+        || trimmed.starts_with("先加载")
+        || trimmed.starts_with("我将先")
+}
+
+fn permission_confirmation_body(lang: Lang) -> &'static str {
+    match lang {
+        Lang::ZhCn | Lang::ZhTw => "需要你确认是否允许继续执行。回复“可以”或“拒绝”即可。",
+        _ => "Please confirm whether to continue. Reply \"yes\" or \"no\".",
+    }
 }
 
 /// Title-side match for `delegate_to_agent`. Title is free-form text the
@@ -788,6 +555,7 @@ fn extract_agent_type(raw_input: &str) -> Option<String> {
 /// output is just a task id, so the channel shows that the sub-agent started
 /// and is running in the background. The result lands later via
 /// [`format_delegation_result`] on `DelegationCompleted`.
+#[cfg(test)]
 fn format_delegation_ack(agent: &str) -> String {
     format!("🚀 Delegated to {agent}; running in background")
 }
@@ -796,8 +564,11 @@ fn format_delegation_ack(agent: &str) -> String {
 /// needs to classify it (running ack vs terminal) and render the terminal line.
 struct DelegationReportView {
     status: Option<String>,
+    #[cfg(test)]
     error_code: Option<String>,
+    #[cfg(test)]
     message: Option<String>,
+    #[cfg(test)]
     text: Option<String>,
 }
 
@@ -824,14 +595,17 @@ fn parse_delegation_report(raw_output: Option<&str>) -> Option<DelegationReportV
             .get("status")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        #[cfg(test)]
         error_code: report
             .get("error_code")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        #[cfg(test)]
         message: report
             .get("message")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        #[cfg(test)]
         text: report
             .get("text")
             .and_then(|v| v.as_str())
@@ -864,6 +638,7 @@ fn parse_json_lenient(s: &str) -> Option<serde_json::Value> {
 /// failure: delegation disabled / depth rejected / spawn failed). Used when the
 /// terminal line surfaces via the tool output rather than `DelegationCompleted`
 /// (setup failures and synthetic-id fast-completes emit no `DelegationCompleted`).
+#[cfg(test)]
 fn format_delegation_terminal(agent: &str, view: &DelegationReportView) -> String {
     if view.status.as_deref() == Some("completed") {
         let body = view
@@ -894,6 +669,7 @@ fn format_delegation_terminal(agent: &str, view: &DelegationReportView) -> Strin
 
 /// Result line for a finished delegation, from the `DelegationCompleted`
 /// summary: a compact ✅/❌ with the bounded preview the broker attached.
+#[cfg(test)]
 fn format_delegation_result(agent: &str, result: &DelegationResultSummary) -> String {
     match result {
         DelegationResultSummary::Ok { text_preview, .. } => {
@@ -935,6 +711,14 @@ mod delegation_relay_tests {
         );
         assert_eq!(extract_agent_type(r#"{"task":"x"}"#), None);
         assert_eq!(extract_agent_type("not json"), None);
+    }
+
+    #[test]
+    fn sanitize_channel_content_preserves_assistant_greeting() {
+        assert_eq!(
+            sanitize_channel_content("你好，我在。你想处理代码、调研、文档，还是先聊一个方案？"),
+            "你好，我在。你想处理代码、调研、文档，还是先聊一个方案？"
+        );
     }
 
     #[test]
@@ -1095,7 +879,7 @@ mod async_relay_dedup_tests {
     #[async_trait]
     impl ChatChannelBackend for RecordingBackend {
         fn channel_type(&self) -> ChannelType {
-            ChannelType::Telegram
+            ChannelType::Lark
         }
         async fn start(
             &self,
@@ -1117,7 +901,7 @@ mod async_relay_dedup_tests {
             &self,
             message: &RichMessage,
         ) -> Result<SentMessageId, ChatChannelError> {
-            self.rec.msgs.lock().await.push(message.body.clone());
+            self.rec.msgs.lock().await.push(message.to_plain_text());
             Ok(SentMessageId("1".into()))
         }
         async fn test_connection(&self) -> Result<(), ChatChannelError> {
@@ -1156,7 +940,7 @@ mod async_relay_dedup_tests {
         chat.add_channel(
             7,
             "test".into(),
-            ChannelType::Telegram,
+            ChannelType::Lark,
             Box::new(RecordingBackend { rec: rec.clone() }),
         )
         .await
@@ -1207,14 +991,29 @@ mod async_relay_dedup_tests {
         rec.msgs.lock().await.clone()
     }
 
+    fn assert_no_channel_output(msgs: &[String]) {
+        assert!(msgs.is_empty(), "channel should stay quiet, got {msgs:?}");
+    }
+
+    async fn delegation_rendered(bridge: &Arc<Mutex<SessionBridge>>) -> bool {
+        bridge
+            .lock()
+            .await
+            .get("conn")
+            .unwrap()
+            .delegation_rendered
+            .contains("tc-1")
+    }
+
     const ACK: &str =
         r#"{"structuredContent":{"task_id":"x","status":"running","child_conversation_id":5}}"#;
     const FAST_COMPLETE: &str = r#"{"content":[{"type":"text","text":"done"}],"isError":false,"structuredContent":{"task_id":"x","status":"completed","child_conversation_id":5,"text":"done"}}"#;
 
     /// Synthetic-id fast-complete: terminal tool output, NO DelegationCompleted.
-    /// Exactly one ✅ result line, from the terminal ToolCallUpdate.
+    /// The channel must not show sub-agent names or tool-result details, but the
+    /// internal dedup marker is still recorded.
     #[tokio::test]
-    async fn synthetic_fast_complete_renders_one_result() {
+    async fn synthetic_fast_complete_marks_internal_dedup_without_channel_output() {
         let (bridge, chat, rec) = harness().await;
         let conn = ConnectionManager::new();
         let db = test_helpers::fresh_in_memory_db().await;
@@ -1227,15 +1026,15 @@ mod async_relay_dedup_tests {
         )
         .await;
         let msgs = sent(&rec).await;
-        assert_eq!(msgs.len(), 1, "exactly one line, got {msgs:?}");
-        assert!(msgs[0].starts_with("✅ codex"), "got {:?}", msgs[0]);
+        assert_no_channel_output(&msgs);
+        assert!(delegation_rendered(&bridge).await);
     }
 
     /// Non-synthetic fast-complete in the `DelegationCompleted → ToolCallUpdate
     /// (WITH raw_input)` order: the completion renders, the later update
     /// re-populates the input map but must NOT produce a second result line.
     #[tokio::test]
-    async fn dedup_survives_raw_input_repopulation() {
+    async fn dedup_survives_raw_input_repopulation_without_channel_output() {
         let (bridge, chat, rec) = harness().await;
         let conn = ConnectionManager::new();
         let db = test_helpers::fresh_in_memory_db().await;
@@ -1251,18 +1050,14 @@ mod async_relay_dedup_tests {
         )
         .await;
         let msgs = sent(&rec).await;
-        assert_eq!(
-            msgs.len(),
-            1,
-            "must render exactly one result line, got {msgs:?}"
-        );
-        assert!(msgs[0].starts_with("✅ codex"), "got {:?}", msgs[0]);
+        assert_no_channel_output(&msgs);
+        assert!(delegation_rendered(&bridge).await);
     }
 
-    /// Slow async: running ack first, then DelegationCompleted. Exactly two
-    /// lines — the ack and the result.
+    /// Slow async: running ack first, then DelegationCompleted. Both are
+    /// internal process details and must stay out of chat channels.
     #[tokio::test]
-    async fn slow_async_emits_ack_then_result() {
+    async fn slow_async_suppresses_ack_and_result_channel_output() {
         let (bridge, chat, rec) = harness().await;
         let conn = ConnectionManager::new();
         let db = test_helpers::fresh_in_memory_db().await;
@@ -1276,9 +1071,8 @@ mod async_relay_dedup_tests {
         .await;
         handle_acp_envelope(&delegation_completed_ok(), &bridge, &chat, &conn, &db.conn).await;
         let msgs = sent(&rec).await;
-        assert_eq!(msgs.len(), 2, "ack + result, got {msgs:?}");
-        assert!(msgs[0].contains("running in background"));
-        assert!(msgs[1].starts_with("✅ codex"));
+        assert_no_channel_output(&msgs);
+        assert!(delegation_rendered(&bridge).await);
     }
 
     /// A late running-ack `ToolCallUpdate` (with raw_input) arriving AFTER the
@@ -1299,14 +1093,14 @@ mod async_relay_dedup_tests {
         )
         .await;
         let msgs = sent(&rec).await;
-        assert_eq!(msgs.len(), 1, "no stale ack after the result, got {msgs:?}");
-        assert!(msgs[0].starts_with("✅ codex"));
+        assert_no_channel_output(&msgs);
+        assert!(delegation_rendered(&bridge).await);
     }
 
-    /// Setup failure (terminal report, NO child, NO DelegationCompleted): one
-    /// ❌ failure line from the terminal ToolCallUpdate.
+    /// Setup failure (terminal report, NO child, NO DelegationCompleted) is an
+    /// internal delegation detail and must not be posted into chat channels.
     #[tokio::test]
-    async fn setup_failure_renders_one_failure_line() {
+    async fn setup_failure_marks_internal_dedup_without_channel_output() {
         let (bridge, chat, rec) = harness().await;
         let conn = ConnectionManager::new();
         let db = test_helpers::fresh_in_memory_db().await;
@@ -1320,14 +1114,189 @@ mod async_relay_dedup_tests {
         )
         .await;
         let msgs = sent(&rec).await;
-        assert_eq!(msgs.len(), 1, "one failure line, got {msgs:?}");
-        assert!(msgs[0].starts_with("❌ codex failed"), "got {:?}", msgs[0]);
+        assert_no_channel_output(&msgs);
+        assert!(delegation_rendered(&bridge).await);
+    }
+
+    #[tokio::test]
+    async fn content_delta_progress_does_not_emit_agent_or_tool_status() {
+        let (bridge, chat, rec) = harness().await;
+        let conn = ConnectionManager::new();
+        let db = test_helpers::fresh_in_memory_db().await;
+        {
+            let mut guard = bridge.lock().await;
+            let session = guard.get_mut("conn").unwrap();
+            session.last_flushed = Instant::now() - Duration::from_secs(3);
+            session.tool_calls.push("Get-Content package.json".into());
+        }
+
+        let envelope = EventEnvelope {
+            seq: 1,
+            connection_id: "conn".into(),
+            payload: AcpEvent::ContentDelta {
+                text: "x".repeat(600),
+            },
+        };
+        handle_acp_envelope(&envelope, &bridge, &chat, &conn, &db.conn).await;
+
+        let msgs = sent(&rec).await;
+        assert_no_channel_output(&msgs);
+    }
+
+    #[tokio::test]
+    async fn turn_complete_sends_real_assistant_content_to_channel() {
+        let (bridge, chat, rec) = harness().await;
+        let conn = ConnectionManager::new();
+        let db = test_helpers::fresh_in_memory_db().await;
+        let content = "你好，我在。你想处理代码、调研、文档，还是先聊一个方案？";
+
+        let delta = EventEnvelope {
+            seq: 1,
+            connection_id: "conn".into(),
+            payload: AcpEvent::ContentDelta {
+                text: content.into(),
+            },
+        };
+        handle_acp_envelope(&delta, &bridge, &chat, &conn, &db.conn).await;
+        let complete = EventEnvelope {
+            seq: 2,
+            connection_id: "conn".into(),
+            payload: AcpEvent::TurnComplete {
+                session_id: "S1".into(),
+                stop_reason: "end_turn".into(),
+                agent_type: "claude".into(),
+            },
+        };
+        handle_acp_envelope(&complete, &bridge, &chat, &conn, &db.conn).await;
+
+        let msgs = sent(&rec).await;
+        assert_eq!(msgs, vec![content.to_string()]);
+    }
+
+    #[tokio::test]
+    async fn non_delegation_tool_completion_stays_out_of_channel() {
+        let (bridge, chat, rec) = harness().await;
+        let conn = ConnectionManager::new();
+        let db = test_helpers::fresh_in_memory_db().await;
+        let envelope = EventEnvelope {
+            seq: 1,
+            connection_id: "conn".into(),
+            payload: AcpEvent::ToolCallUpdate {
+                tool_call_id: "bash-1".into(),
+                title: Some("Bash".into()),
+                status: Some("completed".into()),
+                content: None,
+                raw_input: Some(r#"{"command":"Get-Content package.json"}"#.into()),
+                raw_output: Some("{}".into()),
+                raw_output_append: None,
+                locations: None,
+                meta: None,
+                images: None,
+            },
+        };
+
+        handle_acp_envelope(&envelope, &bridge, &chat, &conn, &db.conn).await;
+
+        let msgs = sent(&rec).await;
+        assert_no_channel_output(&msgs);
+    }
+
+    #[tokio::test]
+    async fn bridged_permission_request_is_generic_but_keeps_pending_state() {
+        use crate::acp::types::PermissionOptionInfo;
+
+        let (bridge, chat, rec) = harness().await;
+        let conn = ConnectionManager::new();
+        let db = test_helpers::fresh_in_memory_db().await;
+        let envelope = EventEnvelope {
+            seq: 1,
+            connection_id: "conn".into(),
+            payload: AcpEvent::PermissionRequest {
+                request_id: "perm-1".into(),
+                tool_call: serde_json::json!({
+                    "title": "Bash",
+                    "rawInput": {
+                        "command": "C:/Users/Administrator/.codex/bin/pwsh.exe -c Get-Content package.json"
+                    }
+                }),
+                options: vec![
+                    PermissionOptionInfo {
+                        option_id: "allow".into(),
+                        name: "Allow".into(),
+                        kind: "allow".into(),
+                    },
+                    PermissionOptionInfo {
+                        option_id: "deny".into(),
+                        name: "Deny".into(),
+                        kind: "deny".into(),
+                    },
+                ],
+            },
+        };
+
+        handle_acp_envelope(&envelope, &bridge, &chat, &conn, &db.conn).await;
+
+        let msgs = sent(&rec).await;
+        assert_eq!(
+            msgs.len(),
+            1,
+            "expected one confirmation prompt, got {msgs:?}"
+        );
+        let text = &msgs[0];
+        for forbidden in [
+            "Bash",
+            "Get-Content",
+            "pwsh.exe",
+            "/approve",
+            "/deny",
+            "Codex",
+            "Agent",
+        ] {
+            assert!(!text.contains(forbidden), "leaked {forbidden}: {text}");
+        }
+        assert!(
+            bridge
+                .lock()
+                .await
+                .get("conn")
+                .unwrap()
+                .permission_pending
+                .is_some(),
+            "permission state must remain available for natural approval"
+        );
+    }
+
+    #[tokio::test]
+    async fn kickoff_send_failure_stays_channel_silent() {
+        use crate::web::event_bridge::EventEmitter;
+
+        let (bridge, chat, rec) = harness().await;
+        let conn = ConnectionManager::new();
+        let db = test_helpers::fresh_in_memory_db().await;
+        conn.insert_test_connection("conn", AgentType::ClaudeCode, None, EventEmitter::Noop)
+            .await;
+        bridge.lock().await.get_mut("conn").unwrap().pending_prompt = Some("do the task".into());
+
+        let started = EventEnvelope {
+            seq: 1,
+            connection_id: "conn".into(),
+            payload: AcpEvent::SessionStarted {
+                session_id: "S1".into(),
+            },
+        };
+        handle_acp_envelope(&started, &bridge, &chat, &conn, &db.conn).await;
+
+        let msgs = sent(&rec).await;
+        assert!(
+            msgs.is_empty(),
+            "kickoff enqueue failures must not send canned channel text: {msgs:?}"
+        );
     }
 
     /// Chat kickoff DEFERS (does not drop) when a turn is already in flight on a
     /// shared connection: SessionStarted bounces with `TurnInProgress` → the
-    /// pending prompt is RESTORED and an info line is posted; `TurnComplete`
-    /// then retries it successfully. Regression for the silent kickoff-drop.
+    /// pending prompt is RESTORED; `TurnComplete` then retries it successfully.
+    /// Regression for the silent kickoff-drop.
     #[tokio::test]
     async fn kickoff_defers_on_turn_in_progress_then_retries_on_turn_complete() {
         use crate::acp::connection::ConnectionCommand;
@@ -1377,11 +1346,8 @@ mod async_relay_dedup_tests {
             "no Prompt should be enqueued while the turn is in flight"
         );
         assert!(
-            sent(&rec)
-                .await
-                .iter()
-                .any(|m| m.contains("start automatically")),
-            "the user should be told the task is deferred"
+            sent(&rec).await.is_empty(),
+            "deferred kickoff must not send canned channel text"
         );
 
         // Turn ends → kickoff retried and now succeeds.

@@ -1,6 +1,9 @@
 use crate::app_error::AppCommandError;
 use crate::chat_channel::backends::weixin::{WeixinQrcodeInfo, WeixinQrcodeStatusPublic};
 use crate::chat_channel::manager::ChatChannelManager;
+use crate::chat_channel::natural_router_config::{
+    ChatNaturalRouterConfig, ChatNaturalRouterConfigInput,
+};
 use crate::chat_channel::types::ChannelType;
 use crate::chat_channel::webhook::WebhookConfig;
 use crate::db::service::{chat_channel_message_log_service, chat_channel_service};
@@ -389,6 +392,28 @@ pub async fn set_chat_event_webhooks_core(
     Ok(())
 }
 
+pub async fn get_chat_natural_router_config_core(
+    db: &AppDatabase,
+) -> Result<ChatNaturalRouterConfig, AppCommandError> {
+    crate::chat_channel::natural_router_config::get_chat_natural_router_config(&db.conn).await
+}
+
+pub async fn set_chat_natural_router_config_core(
+    db: &AppDatabase,
+    config: ChatNaturalRouterConfigInput,
+) -> Result<(), AppCommandError> {
+    crate::chat_channel::natural_router_config::set_chat_natural_router_config(&db.conn, config)
+        .await
+}
+
+pub fn save_chat_natural_router_api_key_core(token: &str) -> Result<(), AppCommandError> {
+    crate::chat_channel::natural_router_config::save_chat_natural_router_api_key(token)
+}
+
+pub fn delete_chat_natural_router_api_key_core() -> Result<(), AppCommandError> {
+    crate::chat_channel::natural_router_config::delete_chat_natural_router_api_key()
+}
+
 // ---------------------------------------------------------------------------
 // WeChat QR code auth
 // ---------------------------------------------------------------------------
@@ -664,6 +689,35 @@ pub async fn set_chat_message_language(
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
+pub async fn get_chat_natural_router_config(
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<ChatNaturalRouterConfig, AppCommandError> {
+    get_chat_natural_router_config_core(&db).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn set_chat_natural_router_config(
+    db: tauri::State<'_, AppDatabase>,
+    config: ChatNaturalRouterConfigInput,
+) -> Result<(), AppCommandError> {
+    set_chat_natural_router_config_core(&db, config).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn save_chat_natural_router_api_key(token: String) -> Result<(), AppCommandError> {
+    save_chat_natural_router_api_key_core(&token)
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn delete_chat_natural_router_api_key() -> Result<(), AppCommandError> {
+    delete_chat_natural_router_api_key_core()
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
 pub async fn weixin_get_qrcode() -> Result<WeixinQrcodeInfo, AppCommandError> {
     weixin_get_qrcode_core().await
 }
@@ -696,8 +750,8 @@ mod tests {
         let created = create_chat_channel_core(
             &db,
             "test-channel".to_string(),
-            "telegram".to_string(),
-            "{}".to_string(),
+            "lark".to_string(),
+            r#"{"app_id":"cli_test","chat_id":"oc_test"}"#.to_string(),
             true,
             false,
             None,
@@ -705,7 +759,7 @@ mod tests {
         .await
         .expect("create");
         assert_eq!(created.name, "test-channel");
-        assert_eq!(created.channel_type, "telegram");
+        assert_eq!(created.channel_type, "lark");
 
         let channels = list_chat_channels_core(&db).await.expect("list");
         assert_eq!(channels.len(), 1);

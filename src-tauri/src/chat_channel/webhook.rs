@@ -67,7 +67,7 @@ pub fn build_webhook_payload(
 }
 
 /// Build the shared reqwest client used for webhook delivery. Mirrors the
-/// timeout posture of the IM backends (see `backends/telegram.rs`).
+/// timeout posture of the IM backends.
 pub fn make_webhook_client() -> reqwest::Client {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))

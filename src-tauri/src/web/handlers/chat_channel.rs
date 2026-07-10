@@ -6,6 +6,9 @@ use serde::Deserialize;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::chat_channel::backends::weixin::{WeixinQrcodeInfo, WeixinQrcodeStatusPublic};
+use crate::chat_channel::natural_router_config::{
+    ChatNaturalRouterConfig, ChatNaturalRouterConfigInput,
+};
 use crate::chat_channel::webhook::WebhookConfig;
 use crate::commands::chat_channel as cc_commands;
 use crate::models::chat_channel::{ChannelStatusInfo, ChatChannelInfo, ChatChannelMessageLogInfo};
@@ -267,6 +270,45 @@ pub async fn set_chat_message_language(
     Json(params): Json<SetMessageLanguageParams>,
 ) -> Result<Json<()>, AppCommandError> {
     cc_commands::set_chat_message_language_core(&state.db, params.language).await?;
+    Ok(Json(()))
+}
+
+pub async fn get_chat_natural_router_config(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<ChatNaturalRouterConfig>, AppCommandError> {
+    let result = cc_commands::get_chat_natural_router_config_core(&state.db).await?;
+    Ok(Json(result))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetNaturalRouterConfigParams {
+    pub config: ChatNaturalRouterConfigInput,
+}
+
+pub async fn set_chat_natural_router_config(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<SetNaturalRouterConfigParams>,
+) -> Result<Json<()>, AppCommandError> {
+    cc_commands::set_chat_natural_router_config_core(&state.db, params.config).await?;
+    Ok(Json(()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveNaturalRouterApiKeyParams {
+    pub token: String,
+}
+
+pub async fn save_chat_natural_router_api_key(
+    Json(params): Json<SaveNaturalRouterApiKeyParams>,
+) -> Result<Json<()>, AppCommandError> {
+    cc_commands::save_chat_natural_router_api_key_core(&params.token)?;
+    Ok(Json(()))
+}
+
+pub async fn delete_chat_natural_router_api_key() -> Result<Json<()>, AppCommandError> {
+    cc_commands::delete_chat_natural_router_api_key_core()?;
     Ok(Json(()))
 }
 

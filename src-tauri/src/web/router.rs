@@ -955,6 +955,22 @@ pub fn build_router(
             post(handlers::chat_channel::set_chat_message_language),
         )
         .route(
+            "/get_chat_natural_router_config",
+            post(handlers::chat_channel::get_chat_natural_router_config),
+        )
+        .route(
+            "/set_chat_natural_router_config",
+            post(handlers::chat_channel::set_chat_natural_router_config),
+        )
+        .route(
+            "/save_chat_natural_router_api_key",
+            post(handlers::chat_channel::save_chat_natural_router_api_key),
+        )
+        .route(
+            "/delete_chat_natural_router_api_key",
+            post(handlers::chat_channel::delete_chat_natural_router_api_key),
+        )
+        .route(
             "/weixin_get_qrcode",
             post(handlers::chat_channel::weixin_get_qrcode),
         )

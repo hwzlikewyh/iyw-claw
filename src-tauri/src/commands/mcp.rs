@@ -1175,8 +1175,20 @@ fn codex_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, AppC
         .and_then(toml::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("stdio")
-        .to_string();
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if table
+                .get("url")
+                .and_then(toml::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_some()
+            {
+                "http".to_string()
+            } else {
+                "stdio".to_string()
+            }
+        });
     let canonical_type = normalize_mcp_type(&raw_type).ok_or_else(|| {
         mcp_invalid_input(format!(
             "Codex MCP entry '{id}' has unsupported type '{raw_type}'"
@@ -4529,6 +4541,18 @@ mod tests {
         let sse = codex_entry("type = \"sse\"\nurl = \"https://mcp.example.com/sse\"\n");
         let canonical = codex_entry_to_canonical("ex", &sse).expect("sse entry");
         assert_eq!(canonical.get("type").and_then(Value::as_str), Some("sse"));
+    }
+
+    #[test]
+    fn codex_entry_infers_http_from_url_when_type_is_missing() {
+        let remote = codex_entry("url = \"https://developers.openai.com/mcp\"\n");
+        let canonical = codex_entry_to_canonical("openaiDeveloperDocs", &remote)
+            .expect("url-only Codex MCP entry should be accepted");
+        assert_eq!(canonical.get("type").and_then(Value::as_str), Some("http"));
+        assert_eq!(
+            canonical.get("url").and_then(Value::as_str),
+            Some("https://developers.openai.com/mcp")
+        );
     }
 
     #[test]
