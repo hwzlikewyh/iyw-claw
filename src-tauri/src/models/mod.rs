@@ -9,6 +9,7 @@ pub mod pet;
 pub mod quick_message;
 pub mod remote_workspace_connection;
 pub mod system;
+pub mod usage;
 
 pub use agent::AgentType;
 pub use automation::{
@@ -38,4 +39,7 @@ pub use system::{
     AvailableTerminalShells, GitCredentials, GitDetectResult, GitHubAccountsSettings,
     GitHubTokenValidation, GitSettings, SystemLanguageSettings, SystemProxySettings,
     SystemTerminalSettings, TerminalShellOption,
+};
+pub use usage::{
+    SessionUsageSnapshot, UsageBreakdown, UsageDailyRow, UsageDashboardStats, UsageModelRow,
 };

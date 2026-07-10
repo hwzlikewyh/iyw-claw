@@ -6,14 +6,8 @@ import { useTranslations } from "next-intl"
 
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { getConversation, listConversations } from "@/lib/api"
+import { getUsageDashboard } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
-import {
-  DEFAULT_USAGE_LOAD_CONCURRENCY,
-  DEFAULT_USAGE_SESSION_LIMIT,
-  loadUsageDetails,
-} from "@/lib/usage-detail-loader"
-import { aggregateUsageStats } from "@/lib/usage-stats"
 import {
   DailyUsage,
   isUsageSnapshotEmpty,
@@ -38,28 +32,9 @@ export function UsageSettings() {
     setLoading(true)
     setError(null)
     try {
-      const conversations = await listConversations({ sort_by: "newest" })
+      const stats = await getUsageDashboard()
       if (!isCurrent()) return
-
-      const selected = conversations.slice(0, DEFAULT_USAGE_SESSION_LIMIT)
-      const { details, failedConversations } = await loadUsageDetails(
-        selected,
-        {
-          concurrency: DEFAULT_USAGE_LOAD_CONCURRENCY,
-          isCurrent,
-          loadConversation: (conversation) =>
-            getConversation(conversation.agent_type, conversation.id),
-        }
-      )
-      if (!isCurrent()) return
-
-      setSnapshot({
-        stats: aggregateUsageStats(details),
-        totalConversations: conversations.length,
-        loadedConversations: details.length,
-        failedConversations,
-        capped: conversations.length > selected.length,
-      })
+      setSnapshot({ stats })
     } catch (err) {
       if (isCurrent()) setError(toErrorMessage(err))
     } finally {
@@ -117,15 +92,6 @@ export function UsageSettings() {
         {snapshot && (
           <>
             <UsageSummary snapshot={snapshot} />
-            {(snapshot.capped || snapshot.failedConversations > 0) && (
-              <p className="text-xs text-muted-foreground">
-                {t("coverage", {
-                  loaded: snapshot.loadedConversations,
-                  total: snapshot.totalConversations,
-                  failed: snapshot.failedConversations,
-                })}
-              </p>
-            )}
             {isUsageSnapshotEmpty(snapshot) ? (
               <UsageEmptyState />
             ) : (

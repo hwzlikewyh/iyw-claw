@@ -13,10 +13,6 @@ import {
 
 export interface UsageSnapshot {
   stats: UsageDashboardStats
-  totalConversations: number
-  loadedConversations: number
-  failedConversations: number
-  capped: boolean
 }
 
 function formatPercent(value: number): string {

@@ -270,6 +270,15 @@ pub(crate) async fn handle_event(
                 )
                 .await;
             }
+
+            // Persist only usage produced by a conversation actively running
+            // through iyw-claw. Passive imported history never emits this
+            // bound TurnComplete path, so it cannot enter the usage dashboard.
+            if let Err(error) =
+                crate::commands::usage::record_conversation_usage_core(db_conn, cid).await
+            {
+                tracing::warn!("[lifecycle] failed to cache usage for conversation {cid}: {error}");
+            }
             Ok(())
         }
         // Other events don't need cross-connection DB persistence today; extend

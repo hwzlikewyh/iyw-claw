@@ -55,8 +55,8 @@ mod tauri_app {
         office_tools as office_tools_commands, question as question_commands,
         quick_messages as quick_messages_commands, remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands, session_info as session_info_commands,
-        system_settings, terminal as terminal_commands, version_control, windows,
-        workspace_state as workspace_state_commands,
+        system_settings, terminal as terminal_commands, usage as usage_commands, version_control,
+        windows, workspace_state as workspace_state_commands,
     };
     use crate::terminal::manager::TerminalManager;
     use crate::{db, git_credential, network, paths, process, web};
@@ -720,6 +720,7 @@ mod tauri_app {
                 conversations::list_folders,
                 conversations::get_stats,
                 conversations::get_sidebar_data,
+                usage_commands::get_usage_dashboard,
                 conversations::create_conversation,
                 conversations::create_chat_conversation,
                 conversations::create_chat_dir,

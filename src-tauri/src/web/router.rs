@@ -76,6 +76,10 @@ pub fn build_router(
             post(handlers::conversations::list_child_conversations),
         )
         .route(
+            "/get_usage_dashboard",
+            post(handlers::usage::get_usage_dashboard),
+        )
+        .route(
             "/get_delegation_settings",
             post(handlers::delegation::get_delegation_settings),
         )

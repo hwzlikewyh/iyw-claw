@@ -18,6 +18,7 @@ import {
 } from "./settings-navigation"
 import { TurnBusyError, isTurnInProgressRejection } from "./turn-busy"
 import type { FolderThemeColor } from "./theme-presets"
+import type { UsageDashboardStats } from "./usage-stats"
 import type {
   AgentType,
   AgentDelegationDefaults,
@@ -153,6 +154,10 @@ export async function getStats(): Promise<AgentStats> {
 
 export async function getSidebarData(): Promise<SidebarData> {
   return getTransport().call("get_sidebar_data")
+}
+
+export async function getUsageDashboard(): Promise<UsageDashboardStats> {
+  return getTransport().call("get_usage_dashboard")
 }
 
 // ACP commands

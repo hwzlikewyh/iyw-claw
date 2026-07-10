@@ -29,6 +29,7 @@ pub mod remote_workspace;
 pub mod session_info;
 pub mod system_settings;
 pub mod terminal;
+pub mod usage;
 pub mod version_control;
 #[cfg(feature = "tauri-runtime")]
 pub mod windows;
