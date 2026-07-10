@@ -3699,6 +3699,8 @@ interface AcpAgentSettingsProps {
 // Keep hidden agents registered and configurable in the backend while limiting
 // this settings page to the agents currently exposed by the product.
 const VISIBLE_AGENT_TYPES = new Set<AgentType>(["codex"])
+const SHOW_AGENT_ENVIRONMENT_SETTINGS = false
+const SHOW_AGENT_CONFIGURATION_SETTINGS = false
 
 export function AcpAgentSettings({
   initialAgentType = null,
@@ -7021,7 +7023,12 @@ export function AcpAgentSettings({
                     )}
                 </div>
 
-                <div className="space-y-2">
+                <div
+                  className={cn(
+                    "space-y-2",
+                    !SHOW_AGENT_ENVIRONMENT_SETTINGS && "hidden"
+                  )}
+                >
                   <label className="text-xs font-medium">{t("envVars")}</label>
                   <div className="relative group">
                     <Textarea
@@ -7078,7 +7085,12 @@ export function AcpAgentSettings({
                 </div>
 
                 {selectedAgent.agent_type === "codex" ? (
-                  <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+                  <div
+                    className={cn(
+                      "space-y-3 rounded-md border bg-muted/10 p-3",
+                      !SHOW_AGENT_CONFIGURATION_SETTINGS && "hidden"
+                    )}
+                  >
                     <div>
                       <label className="text-xs font-medium">
                         {t("configManagement")}
