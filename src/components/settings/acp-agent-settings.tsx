@@ -3700,7 +3700,7 @@ interface AcpAgentSettingsProps {
 // this settings page to the agents currently exposed by the product.
 const VISIBLE_AGENT_TYPES = new Set<AgentType>(["codex"])
 const SHOW_AGENT_ENVIRONMENT_SETTINGS = false
-const SHOW_AGENT_CONFIGURATION_SETTINGS = false
+const SHOW_AGENT_CONFIGURATION_SETTINGS = true
 
 export function AcpAgentSettings({
   initialAgentType = null,
@@ -7277,6 +7277,28 @@ export function AcpAgentSettings({
                             {t("noModelProviderAvailable")}
                           </p>
                         )}
+                      </div>
+                    )}
+
+                    {(selectedDraft.codexAuthMode === "api_key" ||
+                      selectedDraft.codexAuthMode === "model_provider") && (
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] text-muted-foreground">
+                          Base URL
+                        </label>
+                        <Input
+                          value={selectedDraft.apiBaseUrl}
+                          readOnly={
+                            selectedDraft.codexAuthMode === "model_provider"
+                          }
+                          onChange={(event) => {
+                            handleCodexImportantConfigChange(
+                              "apiBaseUrl",
+                              event.target.value
+                            )
+                          }}
+                          placeholder="https://api.openai.com/v1"
+                        />
                       </div>
                     )}
 
