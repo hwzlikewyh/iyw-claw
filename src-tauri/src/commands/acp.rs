@@ -1527,7 +1527,8 @@ fn load_codex_config_toml_raw() -> Option<String> {
 /// differ in `wire_api` / auth. Before codex-acp 1.0.1 this was caught only
 /// incidentally by the injected `MODEL_PROVIDER` launch env; that injection is
 /// gone now that resume reads `model_provider` from config.toml (#224), so the
-/// fingerprint must carry the name itself.
+/// fingerprint must carry the name itself. `requestHeaderToken` likewise keeps
+/// running-session staleness aligned with the provider's static token header.
 fn codex_config_projection_from_toml(raw_toml: &str) -> serde_json::Map<String, serde_json::Value> {
     let mut merged = serde_json::Map::new();
     let Ok(value) = raw_toml.parse::<toml::Value>() else {
@@ -1601,6 +1602,41 @@ fn codex_config_projection_from_toml(raw_toml: &str) -> serde_json::Map<String, 
         merged.insert(
             "apiBaseUrl".to_string(),
             serde_json::Value::String(base_url),
+        );
+    }
+
+    let mut request_header_token: Option<String> = None;
+    if let Some(provider) = &model_provider {
+        request_header_token = value
+            .get("model_providers")
+            .and_then(|table| table.get(provider.as_str()))
+            .and_then(|table| table.get("http_headers"))
+            .and_then(|headers| headers.get("token"))
+            .and_then(toml::Value::as_str)
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(str::to_string);
+    }
+    if request_header_token.is_none() {
+        request_header_token = value
+            .get("model_providers")
+            .and_then(toml::Value::as_table)
+            .and_then(|providers| {
+                providers.values().find_map(|provider| {
+                    provider
+                        .get("http_headers")
+                        .and_then(|headers| headers.get("token"))
+                        .and_then(toml::Value::as_str)
+                        .map(str::trim)
+                        .filter(|token| !token.is_empty())
+                        .map(str::to_string)
+                })
+            });
+    }
+    if let Some(token) = request_header_token {
+        merged.insert(
+            "requestHeaderToken".to_string(),
+            serde_json::Value::String(token),
         );
     }
 

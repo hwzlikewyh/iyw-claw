@@ -161,6 +161,7 @@ interface AgentDraft {
   codexModelProvider: string
   codexProviderOptions: string[]
   codexReasoningEffort: CodexReasoningEffort
+  codexRequestHeaderToken: string
   codexModels: string[]
   codexSupportsWebsockets: boolean
   codexSkills: boolean
@@ -1343,6 +1344,7 @@ interface CodexTomlImportantValues {
   modelReasoningEffort: CodexReasoningEffort
   providerNames: string[]
   providerBaseUrls: Record<string, string>
+  providerRequestHeaderTokens: Record<string, string>
   providerSupportsWebsockets: Record<string, boolean>
   featureResponsesWebsocketsV2: boolean
   featureSkills: boolean
@@ -1355,6 +1357,7 @@ interface CodexImportantValues {
   model: string
   modelProvider: string
   reasoningEffort: CodexReasoningEffort
+  requestHeaderToken: string
   providerOptions: string[]
   supportsWebsockets: boolean
   skills: boolean
@@ -1510,6 +1513,24 @@ function parseTomlStringAssignment(
   return { key, value: value.trim() }
 }
 
+function parseTomlInlineTableStringField(
+  rawLine: string,
+  assignmentKey: string,
+  fieldKey: string
+): string | null {
+  if (parseTomlAssignmentKey(rawLine) !== assignmentKey) return null
+  const equalsIndex = rawLine.indexOf("=")
+  const openBrace = rawLine.indexOf("{", equalsIndex + 1)
+  const closeBrace = rawLine.lastIndexOf("}")
+  if (openBrace < 0 || closeBrace <= openBrace) return null
+  const body = rawLine.slice(openBrace + 1, closeBrace)
+  const fieldPattern = new RegExp(
+    `(?:^|,\\s*)${escapeRegExp(fieldKey)}\\s*=\\s*("(?:\\\\.|[^"])*"|'[^']*')(?=\\s*(?:,|$))`
+  )
+  const match = body.match(fieldPattern)
+  return match ? parseTomlStringLiteral(match[1]) : null
+}
+
 function parseTomlAssignmentKey(rawLine: string): string | null {
   const line = rawLine.trim()
   if (!line || line.startsWith("#")) return null
@@ -1537,6 +1558,7 @@ function extractCodexTomlImportantValues(
   configTomlText: string
 ): CodexTomlImportantValues {
   const providerBaseUrls: Record<string, string> = {}
+  const providerRequestHeaderTokens: Record<string, string> = {}
   const providerSupportsWebsockets: Record<string, boolean> = {}
   const providerNames = new Set<string>()
   let model = ""
@@ -1547,17 +1569,29 @@ function extractCodexTomlImportantValues(
   let featureSkills = false
   let serviceTierFast = false
   let currentProviderSection: string | null = null
+  let currentProviderHeadersSection: string | null = null
   let inFeaturesSection = false
 
   for (const rawLine of configTomlText.split(/\r?\n/)) {
     const line = rawLine.trim()
     if (!line || line.startsWith("#")) continue
 
+    const headersSectionMatch = line.match(
+      /^\[\s*model_providers\.([A-Za-z0-9_-]+)\.http_headers\s*\]$/
+    )
+    if (headersSectionMatch) {
+      currentProviderHeadersSection = headersSectionMatch[1]
+      currentProviderSection = null
+      inFeaturesSection = false
+      providerNames.add(currentProviderHeadersSection)
+      continue
+    }
     const sectionMatch = line.match(
       /^\[\s*model_providers\.([A-Za-z0-9_-]+)\s*\]$/
     )
     if (sectionMatch) {
       currentProviderSection = sectionMatch[1]
+      currentProviderHeadersSection = null
       inFeaturesSection = false
       if (currentProviderSection.trim()) {
         providerNames.add(currentProviderSection.trim())
@@ -1567,10 +1601,12 @@ function extractCodexTomlImportantValues(
     if (line.match(/^\[\s*features\s*\]$/)) {
       inFeaturesSection = true
       currentProviderSection = null
+      currentProviderHeadersSection = null
       continue
     }
     if (line.startsWith("[") && line.endsWith("]")) {
       currentProviderSection = null
+      currentProviderHeadersSection = null
       inFeaturesSection = false
       continue
     }
@@ -1593,10 +1629,24 @@ function extractCodexTomlImportantValues(
       }
       if (
         !currentProviderSection &&
+        !currentProviderHeadersSection &&
         !inFeaturesSection &&
         assignment.key === "service_tier"
       ) {
         serviceTierFast = assignment.value.toLowerCase() === "fast"
+        continue
+      }
+    }
+
+    if (currentProviderSection) {
+      const inlineToken = parseTomlInlineTableStringField(
+        rawLine,
+        "http_headers",
+        "token"
+      )
+      if (inlineToken !== null) {
+        providerRequestHeaderTokens[currentProviderSection] = inlineToken
+        providerNames.add(currentProviderSection)
         continue
       }
     }
@@ -1644,12 +1694,24 @@ function extractCodexTomlImportantValues(
 
     if (!assignment) continue
 
+    if (currentProviderHeadersSection && assignment.key === "token") {
+      providerRequestHeaderTokens[currentProviderHeadersSection] =
+        assignment.value
+      providerNames.add(currentProviderHeadersSection)
+      continue
+    }
+
     const rawAssignmentKey = parseTomlAssignmentKey(rawLine)
     const dottedProviderMatch = rawAssignmentKey?.match(
       /^model_providers\.([A-Za-z0-9_-]+)\./
     )
     if (dottedProviderMatch && dottedProviderMatch[1]) {
       providerNames.add(dottedProviderMatch[1].trim())
+    }
+    if (currentProviderSection && assignment.key === "http_headers.token") {
+      providerRequestHeaderTokens[currentProviderSection] = assignment.value
+      providerNames.add(currentProviderSection)
+      continue
     }
     if (
       currentProviderSection &&
@@ -1666,6 +1728,13 @@ function extractCodexTomlImportantValues(
     if (dottedMatch && assignment.value) {
       providerBaseUrls[dottedMatch[1]] = assignment.value
       providerNames.add(dottedMatch[1].trim())
+    }
+    const dottedTokenMatch = assignment.key.match(
+      /^model_providers\.([A-Za-z0-9_-]+)\.http_headers\.token$/
+    )
+    if (dottedTokenMatch) {
+      providerRequestHeaderTokens[dottedTokenMatch[1]] = assignment.value
+      providerNames.add(dottedTokenMatch[1].trim())
     }
   }
   if (modelProvider.trim()) {
@@ -1684,6 +1753,7 @@ function extractCodexTomlImportantValues(
     modelReasoningEffort,
     providerNames: Array.from(providerNames),
     providerBaseUrls,
+    providerRequestHeaderTokens,
     providerSupportsWebsockets,
     featureResponsesWebsocketsV2,
     featureSkills,
@@ -1776,6 +1846,11 @@ function extractCodexImportantValues(
     (activeProvider === CODEX_DEFAULT_MODEL_PROVIDER
       ? toml.featureResponsesWebsocketsV2
       : false)
+  const requestHeaderToken = hasExplicitProvider
+    ? (toml.providerRequestHeaderTokens[activeProvider] ?? "")
+    : (toml.providerRequestHeaderTokens[CODEX_DEFAULT_MODEL_PROVIDER] ??
+      toml.providerRequestHeaderTokens.openai ??
+      "")
   return {
     apiBaseUrl: providerBaseUrl,
     apiKey:
@@ -1789,6 +1864,7 @@ function extractCodexImportantValues(
     model: toml.model,
     modelProvider: activeProvider,
     reasoningEffort: toml.modelReasoningEffort,
+    requestHeaderToken,
     providerOptions: buildCodexProviderOptions(
       activeProvider,
       toml.providerNames
@@ -2120,6 +2196,138 @@ function patchCodexProviderField(
   return `${appended}\n\n${sectionText}`.trim()
 }
 
+function findTomlSectionRange(
+  lines: string[],
+  sectionName: string
+): { start: number; end: number } | null {
+  const sectionPattern = new RegExp(
+    `^\\[\\s*${escapeRegExp(sectionName)}\\s*\\]$`
+  )
+  const start = lines.findIndex((line) => sectionPattern.test(line.trim()))
+  if (start < 0) return null
+  const nextSectionOffset = lines
+    .slice(start + 1)
+    .findIndex((line) => /^\[.*\]$/.test(line.trim()))
+  return {
+    start,
+    end: nextSectionOffset < 0 ? lines.length : start + 1 + nextSectionOffset,
+  }
+}
+
+function patchTomlInlineTableStringField(
+  rawLine: string,
+  assignmentKey: string,
+  fieldKey: string,
+  value: string
+): string | null {
+  if (parseTomlAssignmentKey(rawLine) !== assignmentKey) return null
+  const equalsIndex = rawLine.indexOf("=")
+  const openBrace = rawLine.indexOf("{", equalsIndex + 1)
+  const closeBrace = rawLine.lastIndexOf("}")
+  if (openBrace < 0 || closeBrace <= openBrace) return null
+  const body = rawLine.slice(openBrace + 1, closeBrace)
+  const fieldPattern = new RegExp(
+    `(?:^|,\\s*)${escapeRegExp(fieldKey)}\\s*=\\s*("(?:\\\\.|[^"])*"|'[^']*')(?=\\s*(?:,|$))`
+  )
+  const match = fieldPattern.exec(body)
+  let nextBody = body
+  if (match) {
+    if (value) {
+      const literalOffset = match.index + match[0].lastIndexOf(match[1])
+      nextBody = `${body.slice(0, literalOffset)}${JSON.stringify(value)}${body.slice(literalOffset + match[1].length)}`
+    } else {
+      nextBody = `${body.slice(0, match.index)}${body.slice(match.index + match[0].length)}`
+      nextBody = nextBody.replace(/^\s*,\s*/, "")
+    }
+  } else if (value) {
+    const trimmedBody = body.trim()
+    nextBody = trimmedBody
+      ? `${trimmedBody}, ${fieldKey} = ${JSON.stringify(value)}`
+      : `${fieldKey} = ${JSON.stringify(value)}`
+  }
+  return `${rawLine.slice(0, openBrace + 1)}${nextBody}${rawLine.slice(closeBrace)}`
+}
+
+function patchCodexNestedRequestHeaderToken(
+  lines: string[],
+  provider: string,
+  token: string
+): string | null {
+  const section = findTomlSectionRange(
+    lines,
+    `model_providers.${provider}.http_headers`
+  )
+  if (!section) return null
+  const offset = lines
+    .slice(section.start + 1, section.end)
+    .findIndex((line) => parseTomlAssignmentKey(line) === "token")
+  if (offset >= 0) {
+    const index = section.start + 1 + offset
+    if (token) lines[index] = `token = ${JSON.stringify(token)}`
+    else lines.splice(index, 1)
+  } else if (token) {
+    lines.splice(section.end, 0, `token = ${JSON.stringify(token)}`)
+  }
+  return lines.join("\n").trim()
+}
+
+function patchCodexParentRequestHeaderToken(
+  lines: string[],
+  provider: string,
+  token: string
+): string | null {
+  const section = findTomlSectionRange(lines, `model_providers.${provider}`)
+  if (!section) return null
+  for (let i = section.start + 1; i < section.end; i += 1) {
+    if (parseTomlAssignmentKey(lines[i]) === "http_headers.token") {
+      if (token) lines[i] = `http_headers.token = ${JSON.stringify(token)}`
+      else lines.splice(i, 1)
+      return lines.join("\n").trim()
+    }
+    const patchedInline = patchTomlInlineTableStringField(
+      lines[i],
+      "http_headers",
+      "token",
+      token
+    )
+    if (patchedInline !== null) {
+      lines[i] = patchedInline
+      return lines.join("\n").trim()
+    }
+  }
+  return null
+}
+
+function patchCodexProviderRequestHeaderToken(
+  configTomlText: string,
+  provider: string,
+  token: string
+): string {
+  const trimmedProvider = provider.trim()
+  if (!trimmedProvider) return configTomlText.trim()
+  const nextToken = token.trim()
+  const lines = configTomlText.split(/\r?\n/)
+  const nestedPatch = patchCodexNestedRequestHeaderToken(
+    lines,
+    trimmedProvider,
+    nextToken
+  )
+  if (nestedPatch !== null) return nestedPatch
+  const parentPatch = patchCodexParentRequestHeaderToken(
+    lines,
+    trimmedProvider,
+    nextToken
+  )
+  if (parentPatch !== null) return parentPatch
+  if (!nextToken) return configTomlText.trim()
+  return patchCodexProviderField(
+    configTomlText,
+    trimmedProvider,
+    "http_headers.token",
+    `http_headers.token = ${JSON.stringify(nextToken)}`
+  )
+}
+
 function ensureCodexProviderDefaults(
   configTomlText: string,
   provider: string
@@ -2203,6 +2411,7 @@ function patchCodexConfigTomlText(
     model?: string
     modelProvider?: string
     modelReasoningEffort?: string
+    requestHeaderToken?: string
     supportsWebsockets?: boolean
     skills?: boolean
     serviceTierFast?: boolean
@@ -2250,6 +2459,26 @@ function patchCodexConfigTomlText(
       nextTomlText,
       modelProvider,
       patch.apiBaseUrl
+    )
+    nextTomlText = ensureCodexProviderDefaults(nextTomlText, modelProvider)
+  }
+  if (typeof patch.requestHeaderToken === "string") {
+    const tomlValues = extractCodexTomlImportantValues(nextTomlText)
+    const modelProvider =
+      patch.modelProvider?.trim() ||
+      tomlValues.modelProvider.trim() ||
+      CODEX_DEFAULT_MODEL_PROVIDER
+    if (!tomlValues.modelProvider.trim() && patch.requestHeaderToken.trim()) {
+      nextTomlText = updateTomlRootStringKey(
+        nextTomlText,
+        "model_provider",
+        modelProvider
+      )
+    }
+    nextTomlText = patchCodexProviderRequestHeaderToken(
+      nextTomlText,
+      modelProvider,
+      patch.requestHeaderToken
     )
     nextTomlText = ensureCodexProviderDefaults(nextTomlText, modelProvider)
   }
@@ -2669,6 +2898,7 @@ function buildAgentDraft(agent: AcpAgentInfo): AgentDraft {
     codexModelProvider: codexImportant.modelProvider,
     codexProviderOptions: codexImportant.providerOptions,
     codexReasoningEffort: codexImportant.reasoningEffort,
+    codexRequestHeaderToken: codexImportant.requestHeaderToken,
     codexModels,
     codexSupportsWebsockets: codexImportant.supportsWebsockets,
     codexSkills: codexImportant.skills,
@@ -3787,6 +4017,8 @@ export function AcpAgentSettings({
   const [showApiKeys, setShowApiKeys] = useState<
     Partial<Record<AgentType, boolean>>
   >({})
+  const [showCodexRequestHeaderToken, setShowCodexRequestHeaderToken] =
+    useState(false)
   const [openCodeProviderId, setOpenCodeProviderId] = useState("")
   const [openCodeNewModelIds, setOpenCodeNewModelIds] = useState<
     Record<string, string>
@@ -5333,6 +5565,7 @@ export function AcpAgentSettings({
           codexConfigTomlText: nextConfigTomlText,
           codexModelProvider: CODEX_DEFAULT_MODEL_PROVIDER,
           codexProviderOptions: synced.providerOptions,
+          codexRequestHeaderToken: synced.requestHeaderToken,
           envText: patchEnvText(current.envText, {
             OPENAI_API_KEY: apiKey,
             OPENAI_BASE_URL: apiUrl,
@@ -6409,6 +6642,7 @@ export function AcpAgentSettings({
         codexModelProvider: important.modelProvider,
         codexProviderOptions: important.providerOptions,
         codexReasoningEffort: important.reasoningEffort,
+        codexRequestHeaderToken: important.requestHeaderToken,
         codexModels: normalizeCodexModels(current.codexModels, important.model),
         codexSupportsWebsockets: important.supportsWebsockets,
         codexSkills: important.skills,
@@ -6463,6 +6697,7 @@ export function AcpAgentSettings({
           codexModelProvider: synced.modelProvider,
           codexProviderOptions: synced.providerOptions,
           codexReasoningEffort: synced.reasoningEffort,
+          codexRequestHeaderToken: synced.requestHeaderToken,
           codexSupportsWebsockets: synced.supportsWebsockets,
           codexSkills: synced.skills,
           codexServiceTierFast: synced.serviceTierFast,
@@ -6497,6 +6732,7 @@ export function AcpAgentSettings({
         codexModelProvider: CODEX_DEFAULT_MODEL_PROVIDER,
         codexProviderOptions: synced.providerOptions,
         codexReasoningEffort: synced.reasoningEffort,
+        codexRequestHeaderToken: synced.requestHeaderToken,
         codexSupportsWebsockets: synced.supportsWebsockets,
         codexSkills: synced.skills,
         codexServiceTierFast: synced.serviceTierFast,
@@ -6564,6 +6800,7 @@ export function AcpAgentSettings({
         codexModelProvider: synced.modelProvider,
         codexProviderOptions: synced.providerOptions,
         codexReasoningEffort: synced.reasoningEffort,
+        codexRequestHeaderToken: synced.requestHeaderToken,
         codexModels: normalizeCodexModels(current.codexModels, synced.model),
         codexSupportsWebsockets: synced.supportsWebsockets,
         codexSkills: synced.skills,
@@ -6573,6 +6810,36 @@ export function AcpAgentSettings({
       }))
     },
     [selectedAgent, selectedDraft, t, updateSelectedDraft]
+  )
+
+  const handleCodexRequestHeaderTokenChange = useCallback(
+    (value: string) => {
+      if (
+        !selectedAgent ||
+        !selectedDraft ||
+        selectedAgent.agent_type !== "codex"
+      )
+        return
+      const nextToml = patchCodexConfigTomlText(
+        selectedDraft.codexConfigTomlText,
+        {
+          modelProvider: selectedDraft.codexModelProvider,
+          requestHeaderToken: value,
+        }
+      )
+      const synced = extractCodexImportantValues(
+        selectedDraft.codexAuthJsonText,
+        nextToml
+      )
+      updateSelectedDraft((current) => ({
+        ...current,
+        codexModelProvider: synced.modelProvider,
+        codexProviderOptions: synced.providerOptions,
+        codexRequestHeaderToken: synced.requestHeaderToken,
+        codexConfigTomlText: nextToml,
+      }))
+    },
+    [selectedAgent, selectedDraft, updateSelectedDraft]
   )
 
   const handleCodexAddModel = useCallback(() => {
@@ -6659,6 +6926,7 @@ export function AcpAgentSettings({
         codexModelProvider: synced.modelProvider,
         codexProviderOptions: synced.providerOptions,
         codexReasoningEffort: synced.reasoningEffort,
+        codexRequestHeaderToken: synced.requestHeaderToken,
         codexSupportsWebsockets: synced.supportsWebsockets,
         codexSkills: synced.skills,
         codexServiceTierFast: synced.serviceTierFast,
@@ -6692,6 +6960,7 @@ export function AcpAgentSettings({
         codexModelProvider: synced.modelProvider,
         codexProviderOptions: synced.providerOptions,
         codexReasoningEffort: synced.reasoningEffort,
+        codexRequestHeaderToken: synced.requestHeaderToken,
         codexSupportsWebsockets: synced.supportsWebsockets,
         codexSkills: synced.skills,
         codexServiceTierFast: synced.serviceTierFast,
@@ -7414,6 +7683,50 @@ export function AcpAgentSettings({
                           }}
                           placeholder="https://api.openai.com/v1"
                         />
+                      </div>
+                    )}
+
+                    {(selectedDraft.codexAuthMode === "api_key" ||
+                      selectedDraft.codexAuthMode === "model_provider") && (
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] text-muted-foreground">
+                          Request Header: token
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type={
+                              showCodexRequestHeaderToken ? "text" : "password"
+                            }
+                            value={selectedDraft.codexRequestHeaderToken}
+                            onChange={(event) => {
+                              handleCodexRequestHeaderTokenChange(
+                                event.target.value
+                              )
+                            }}
+                            placeholder="token"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setShowCodexRequestHeaderToken(
+                                (current) => !current
+                              )
+                            }}
+                            title={
+                              showCodexRequestHeaderToken
+                                ? t("actions.hideToken")
+                                : t("actions.showToken")
+                            }
+                          >
+                            {showCodexRequestHeaderToken ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
                     )}
 
