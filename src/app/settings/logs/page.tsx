@@ -1,5 +1,5 @@
-import { GeneralSettings } from "@/components/settings/general-settings"
+import { LogsSettings } from "@/components/settings/logs-settings"
 
 export default function SettingsLogsPage() {
-  return <GeneralSettings />
+  return <LogsSettings />
 }

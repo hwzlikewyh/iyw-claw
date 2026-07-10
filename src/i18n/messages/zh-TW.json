@@ -52,7 +52,9 @@
       "experts": "專家",
       "office_tools": "辦公工具",
       "quick_messages": "快捷訊息",
-      "logs": "執行日誌"
+      "logs": "執行日誌",
+      "usage": "用量",
+      "user_memory": "用户记忆"
     }
   },
   "AppearanceSettings": {
@@ -2285,7 +2287,9 @@
             },
             "switch": {
               "on": "開啟",
-              "off": "關閉"
+              "onDescription": "1.5 倍速度，用量增加",
+              "off": "關閉",
+              "offDescription": "預設速度，正常用量"
             }
           }
         }
@@ -2318,7 +2322,7 @@
           "draftAutoSave": "未發送的草稿會自動儲存，重新開啟會話仍在",
           "forkSend": "傳送按鈕旁的下拉選擇「分叉傳送」，從目前位置開一條新分支",
           "exportConversation": "右鍵會話內容區可匯出為 Markdown / HTML / 圖片",
-          "chatChannels": "在「設定 → 聊天頻道」接入 Telegram / 飛書 / 微信，從手機繼續操作",
+          "chatChannels": "在「設定 → 聊天頻道」接入飛書 / 微信，從手機繼續操作",
           "shortcutsAuxPanel": "<shortcut>{toggleAuxPanel}</shortcut> 切換右側面板，檢視本次會話改動的檔案與 Git 變更",
           "shortcutsTerminalSidebar": "<shortcut>{toggleTerminal}</shortcut> 開啟內建終端機，<shortcut>{toggleSidebar}</shortcut> 切換側邊欄",
           "customShortcuts": "所有快捷鍵都可在「設定 → 快捷鍵」中自訂",
@@ -2835,7 +2839,7 @@
     "addChannel": "新增頻道",
     "noChannels": "尚未設定任何訊息頻道。",
     "channelName": "名稱",
-    "channelNamePlaceholder": "我的 Telegram 機器人",
+    "channelNamePlaceholder": "我的飛書機器人",
     "channelType": "頻道類型",
     "lark": "飛書",
     "weixin": "微信",
@@ -2889,6 +2893,30 @@
       "prefixSaved": "指令前綴已儲存。",
       "prefixSaveFailed": "儲存指令前綴失敗。",
       "prefixInvalid": "前綴必須是 1-3 個非字母數字字元。",
+      "routerTitle": "智慧路由",
+      "routerDescription": "普通訊息會自動轉換為內部動作；斜線指令保留給進階使用和除錯。",
+      "routerEnabled": "啟用 LLM 路由",
+      "routerEnabledHint": "確定性規則先執行；專案和動作不明確時再交給模型判斷。",
+      "routerApiUrlLabel": "API 位址",
+      "routerApiUrlPlaceholder": "https://api.openai.com/v1/chat/completions",
+      "routerModelLabel": "模型",
+      "routerTimeoutLabel": "逾時（毫秒）",
+      "routerConfidenceLabel": "最低信心值",
+      "routerApiKeyLabel": "API Key",
+      "routerApiKeyPlaceholder": "留空保持目前密鑰",
+      "routerApiKeySave": "儲存密鑰",
+      "routerApiKeyDelete": "刪除 API Key",
+      "routerApiKeyToggle": "顯示或隱藏 API Key",
+      "routerApiKeyStored": "API Key 已儲存",
+      "routerApiKeyMissing": "尚未儲存 API Key",
+      "routerConfigSaved": "智慧路由設定已儲存。",
+      "routerConfigSaveFailed": "儲存智慧路由設定失敗。",
+      "routerConfigInvalid": "請檢查 API 位址、模型、逾時和信心值。",
+      "routerApiKeySaved": "API Key 已儲存。",
+      "routerApiKeySaveFailed": "儲存 API Key 失敗。",
+      "routerApiKeyDeleted": "API Key 已刪除。",
+      "routerApiKeyDeleteFailed": "刪除 API Key 失敗。",
+      "routerApiKeyEmpty": "API Key 為空。",
       "save": "儲存",
       "folderDesc": "選擇工作目錄",
       "agentDesc": "選擇 AI Agent",
@@ -3723,5 +3751,80 @@
     "logout": "登出",
     "signedInWithBalance": "已登入 · {balance}",
     "openSettings": "設定"
+  },
+  "UsageSettings": {
+    "loading": "正在加载用量...",
+    "title": "用量",
+    "description": "从已解析的本地会话历史中聚合 Token 用量。",
+    "refresh": "刷新",
+    "loadFailed": "用量加载失败：{message}",
+    "coverage": "已加载 {loaded} / {total} 个会话，失败 {failed} 个。",
+    "legend": {
+      "input": "输入",
+      "output": "输出",
+      "cacheRead": "缓存读取"
+    },
+    "cards": {
+      "totalTokens": "总 Token 数",
+      "totalTokensHint": "{input} 输入 / {output} 输出",
+      "sessions": "总会话数",
+      "sessionsHint": "日均 ~{average}",
+      "estimatedCost": "预估费用",
+      "estimatedCostHint": "当前未配置价格数据",
+      "cacheHitRate": "缓存命中率",
+      "cacheHitRateHint": "{tokens} Token"
+    },
+    "model": {
+      "title": "模型分布"
+    },
+    "daily": {
+      "title": "每日用量"
+    },
+    "table": {
+      "date": "日期",
+      "input": "输入",
+      "output": "输出",
+      "cacheRead": "缓存读取",
+      "cacheWrite": "缓存写入",
+      "cacheHitRate": "缓存命中率",
+      "sessions": "会话",
+      "cost": "费用"
+    },
+    "empty": {
+      "title": "暂无用量",
+      "description": "包含 Token 用量的已解析会话会显示在这里。"
+    }
+  },
+  "UserMemorySettings": {
+    "loading": "正在加载用户记忆...",
+    "title": "用户记忆",
+    "description": "编辑持久化记忆文件，用于保存长期偏好、约定和备注。",
+    "reload": "重新加载",
+    "save": "保存",
+    "saving": "保存中...",
+    "saved": "用户记忆已保存",
+    "saveFailed": "用户记忆保存失败",
+    "dirty": "有未保存修改",
+    "readonly": "只读",
+    "stats": "{lines} 行 / {chars} 字符",
+    "placeholder": "在这里记录长期偏好、工作方式、项目约定或提醒。",
+    "discardChangesConfirm": "当前文档有未保存修改，确定切换并丢弃这些修改吗？",
+    "documents": {
+      "memory": {
+        "label": "用户记忆",
+        "description": "长期偏好、项目约定和稳定备注。",
+        "placeholder": "在这里记录长期偏好、工作方式、项目约定或提醒。"
+      },
+      "profile": {
+        "label": "用户画像",
+        "description": "用户身份、项目、习惯、偏好和约束。",
+        "placeholder": "记录用户事实、当前角色、常做项目、沟通偏好和明确约束。"
+      },
+      "soul": {
+        "label": "灵魂",
+        "description": "更高层的价值观、审美、语气和决策原则。",
+        "placeholder": "记录用户的价值观、审美、表达风格、动机边界和深层决策原则。"
+      }
+    }
   }
 }

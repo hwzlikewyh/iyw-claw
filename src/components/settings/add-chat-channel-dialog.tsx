@@ -41,7 +41,7 @@ export function AddChatChannelDialog({
   const [error, setError] = useState<string | null>(null)
 
   const [name, setName] = useState("")
-  const [channelType, setChannelType] = useState<ChannelType>("telegram")
+  const [channelType, setChannelType] = useState<ChannelType>("lark")
   const [token, setToken] = useState("")
   const [chatId, setChatId] = useState("")
   const [appId, setAppId] = useState("")
@@ -51,7 +51,7 @@ export function AddChatChannelDialog({
 
   const resetForm = useCallback(() => {
     setName("")
-    setChannelType("telegram")
+    setChannelType("lark")
     setToken("")
     setChatId("")
     setAppId("")
@@ -89,9 +89,7 @@ export function AddChatChannelDialog({
       const configJson =
         channelType === "weixin"
           ? JSON.stringify({ base_url: baseUrl })
-          : channelType === "lark"
-            ? JSON.stringify({ app_id: appId, chat_id: chatId })
-            : JSON.stringify({ chat_id: chatId })
+          : JSON.stringify({ app_id: appId, chat_id: chatId })
 
       const channel = await createChatChannel({
         name: name.trim(),
@@ -155,7 +153,6 @@ export function AddChatChannelDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="telegram">Telegram</SelectItem>
                 <SelectItem value="lark">{t("lark")}</SelectItem>
                 <SelectItem value="weixin">{t("weixin")}</SelectItem>
               </SelectContent>
@@ -175,16 +172,12 @@ export function AddChatChannelDialog({
 
           {channelType !== "weixin" && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">
-                {channelType === "telegram" ? "Bot Token" : "App Secret"}
-              </label>
+              <label className="text-xs font-medium">App Secret</label>
               <Input
                 type="password"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder={
-                  channelType === "telegram" ? "123456:ABC-DEF..." : "xxxxx"
-                }
+                placeholder="xxxxx"
               />
             </div>
           )}
@@ -195,9 +188,7 @@ export function AddChatChannelDialog({
               <Input
                 value={chatId}
                 onChange={(e) => setChatId(e.target.value)}
-                placeholder={
-                  channelType === "telegram" ? "-100123456789" : "oc_xxxxx"
-                }
+                placeholder="oc_xxxxx"
               />
             </div>
           )}

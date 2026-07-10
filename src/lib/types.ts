@@ -2225,13 +2225,27 @@ export interface OfficecliInstallEvent {
 
 // ─── Chat Channels ───
 
-export type ChannelType = "lark" | "telegram" | "weixin"
+export type ChannelType = "lark" | "weixin"
 
 /** One configured event-notification webhook sink. */
 export interface WebhookConfig {
   url: string
   enabled: boolean
 }
+
+export interface ChatNaturalRouterConfig {
+  enabled: boolean
+  apiUrl: string
+  model: string
+  timeoutMs: number
+  minConfidence: number
+  hasApiKey: boolean
+}
+
+export type ChatNaturalRouterConfigInput = Omit<
+  ChatNaturalRouterConfig,
+  "hasApiKey"
+>
 
 export type ChannelConnectionStatus =
   | "connected"

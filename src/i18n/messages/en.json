@@ -52,7 +52,9 @@
       "experts": "Experts",
       "office_tools": "Office Tools",
       "quick_messages": "Quick Messages",
-      "logs": "Runtime Logs"
+      "logs": "Runtime Logs",
+      "usage": "Usage",
+      "user_memory": "User Memory"
     }
   },
   "AppearanceSettings": {
@@ -2285,7 +2287,9 @@
             },
             "switch": {
               "on": "On",
-              "off": "Off"
+              "onDescription": "1.5x faster, higher usage",
+              "off": "Off",
+              "offDescription": "Default speed, normal usage"
             }
           }
         }
@@ -2318,7 +2322,7 @@
           "draftAutoSave": "Unsent drafts are auto-saved per conversation and restored when you come back.",
           "forkSend": "The send button's dropdown has Fork and Send — branch from the current turn into a new tab.",
           "exportConversation": "Right-click inside the conversation to export it as Markdown, HTML, or an image.",
-          "chatChannels": "Connect Telegram / Lark / WeChat under Settings → Chat Channels to continue from your phone.",
+          "chatChannels": "Connect Lark / WeChat under Settings → Chat Channels to continue from your phone.",
           "shortcutsAuxPanel": "<shortcut>{toggleAuxPanel}</shortcut> toggles the right panel to view this session's touched files and Git changes.",
           "shortcutsTerminalSidebar": "<shortcut>{toggleTerminal}</shortcut> opens the built-in terminal, <shortcut>{toggleSidebar}</shortcut> toggles the sidebar.",
           "customShortcuts": "Every shortcut is fully remappable under Settings → Shortcuts.",
@@ -2847,7 +2851,7 @@
     "addChannel": "Add Channel",
     "noChannels": "No chat channels configured yet.",
     "channelName": "Name",
-    "channelNamePlaceholder": "My Telegram Bot",
+    "channelNamePlaceholder": "My Lark Bot",
     "channelType": "Channel Type",
     "lark": "Lark (Feishu)",
     "weixin": "WeChat",
@@ -2901,6 +2905,30 @@
       "prefixSaved": "Command prefix saved.",
       "prefixSaveFailed": "Failed to save command prefix.",
       "prefixInvalid": "Prefix must be 1-3 non-alphanumeric characters.",
+      "routerTitle": "Smart Routing",
+      "routerDescription": "Plain messages are routed into internal actions automatically. Slash commands remain available for advanced use.",
+      "routerEnabled": "Enable LLM router",
+      "routerEnabledHint": "Deterministic rules run first; the model handles ambiguous project and action choices.",
+      "routerApiUrlLabel": "API URL",
+      "routerApiUrlPlaceholder": "https://api.openai.com/v1/chat/completions",
+      "routerModelLabel": "Model",
+      "routerTimeoutLabel": "Timeout (ms)",
+      "routerConfidenceLabel": "Minimum confidence",
+      "routerApiKeyLabel": "API Key",
+      "routerApiKeyPlaceholder": "Leave blank to keep current key",
+      "routerApiKeySave": "Save key",
+      "routerApiKeyDelete": "Delete API key",
+      "routerApiKeyToggle": "Show or hide API key",
+      "routerApiKeyStored": "API key saved",
+      "routerApiKeyMissing": "API key not saved",
+      "routerConfigSaved": "Smart routing settings saved.",
+      "routerConfigSaveFailed": "Failed to save smart routing settings.",
+      "routerConfigInvalid": "Check API URL, model, timeout, and confidence.",
+      "routerApiKeySaved": "API key saved.",
+      "routerApiKeySaveFailed": "Failed to save API key.",
+      "routerApiKeyDeleted": "API key deleted.",
+      "routerApiKeyDeleteFailed": "Failed to delete API key.",
+      "routerApiKeyEmpty": "API key is empty.",
       "save": "Save",
       "folderDesc": "Select working folder",
       "agentDesc": "Select AI agent",
@@ -3723,5 +3751,80 @@
     "logout": "Sign out",
     "signedInWithBalance": "Signed in · {balance}",
     "openSettings": "Settings"
+  },
+  "UsageSettings": {
+    "loading": "Loading usage...",
+    "title": "Usage",
+    "description": "Aggregates token usage from parsed local session history.",
+    "refresh": "Refresh",
+    "loadFailed": "Failed to load usage: {message}",
+    "coverage": "Loaded {loaded} of {total} conversations. Failed sessions: {failed}.",
+    "legend": {
+      "input": "Input",
+      "output": "Output",
+      "cacheRead": "Cache read"
+    },
+    "cards": {
+      "totalTokens": "Total tokens",
+      "totalTokensHint": "{input} input / {output} output",
+      "sessions": "Sessions",
+      "sessionsHint": "Daily average ~{average}",
+      "estimatedCost": "Estimated cost",
+      "estimatedCostHint": "Pricing data is not configured",
+      "cacheHitRate": "Cache hit rate",
+      "cacheHitRateHint": "{tokens} tokens"
+    },
+    "model": {
+      "title": "Model distribution"
+    },
+    "daily": {
+      "title": "Daily usage"
+    },
+    "table": {
+      "date": "Date",
+      "input": "Input",
+      "output": "Output",
+      "cacheRead": "Cache read",
+      "cacheWrite": "Cache write",
+      "cacheHitRate": "Cache hit rate",
+      "sessions": "Sessions",
+      "cost": "Cost"
+    },
+    "empty": {
+      "title": "No usage yet",
+      "description": "Parsed sessions with token usage will appear here."
+    }
+  },
+  "UserMemorySettings": {
+    "loading": "Loading user memory...",
+    "title": "User Memory",
+    "description": "Edit the persistent memory file used to store long-lived preferences and notes.",
+    "reload": "Reload",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "User memory saved",
+    "saveFailed": "Failed to save user memory",
+    "dirty": "Unsaved changes",
+    "readonly": "Read-only",
+    "stats": "{lines} lines / {chars} chars",
+    "placeholder": "Write durable preferences, working style notes, project conventions, or reminders here.",
+    "discardChangesConfirm": "This document has unsaved changes. Switch and discard them?",
+    "documents": {
+      "memory": {
+        "label": "User Memory",
+        "description": "Stable preferences, conventions, and long-lived notes.",
+        "placeholder": "Write durable preferences, working style notes, project conventions, or reminders here."
+      },
+      "profile": {
+        "label": "User Profile",
+        "description": "Facts about the user, role, projects, habits, and preferences.",
+        "placeholder": "Capture user facts, current roles, recurring projects, communication preferences, and constraints."
+      },
+      "soul": {
+        "label": "Soul",
+        "description": "Higher-level values, taste, voice, and decision principles.",
+        "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
+      }
+    }
   }
 }

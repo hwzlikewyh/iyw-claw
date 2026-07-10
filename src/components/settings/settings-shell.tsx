@@ -9,7 +9,9 @@ import {
 } from "react"
 import {
   ArrowLeft,
+  BarChart3,
   Bot,
+  Brain,
   FileStack,
   GitBranch,
   Keyboard,
@@ -21,6 +23,7 @@ import {
   Settings,
   SlidersHorizontal,
   Sparkles,
+  ScrollText,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { usePathname } from "next/navigation"
@@ -38,6 +41,8 @@ export interface SettingsNavItem {
   labelKey:
     | "general"
     | "appearance"
+    | "usage"
+    | "user_memory"
     | "agents"
     | "mcp"
     | "experts"
@@ -47,6 +52,7 @@ export interface SettingsNavItem {
     | "version_control"
     | "chat_channels"
     | "system"
+    | "logs"
   icon: ComponentType<{ className?: string }>
 }
 
@@ -60,6 +66,16 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     href: "/settings/general",
     labelKey: "general",
     icon: SlidersHorizontal,
+  },
+  {
+    href: "/settings/usage",
+    labelKey: "usage",
+    icon: BarChart3,
+  },
+  {
+    href: "/settings/user-memory",
+    labelKey: "user_memory",
+    icon: Brain,
   },
   {
     href: "/settings/mcp",
@@ -105,6 +121,11 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     href: "/settings/system",
     labelKey: "system",
     icon: Settings,
+  },
+  {
+    href: "/settings/logs",
+    labelKey: "logs",
+    icon: ScrollText,
   },
 ]
 

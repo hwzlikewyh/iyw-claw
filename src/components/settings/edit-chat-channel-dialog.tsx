@@ -78,9 +78,7 @@ export function EditChatChannelDialog({
       const configJson =
         channel.channel_type === "weixin"
           ? JSON.stringify({ base_url: baseUrl })
-          : channel.channel_type === "lark"
-            ? JSON.stringify({ app_id: appId, chat_id: chatId })
-            : JSON.stringify({ chat_id: chatId })
+          : JSON.stringify({ app_id: appId, chat_id: chatId })
 
       await updateChatChannel({
         id: channel.id,
@@ -147,11 +145,7 @@ export function EditChatChannelDialog({
 
           {channel.channel_type !== "weixin" && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">
-                {channel.channel_type === "telegram"
-                  ? "Bot Token"
-                  : "App Secret"}
-              </label>
+              <label className="text-xs font-medium">App Secret</label>
               <Input
                 type="password"
                 value={token}
@@ -169,11 +163,7 @@ export function EditChatChannelDialog({
               <Input
                 value={chatId}
                 onChange={(e) => setChatId(e.target.value)}
-                placeholder={
-                  channel.channel_type === "telegram"
-                    ? "-100123456789"
-                    : "oc_xxxxx"
-                }
+                placeholder="oc_xxxxx"
               />
             </div>
           )}

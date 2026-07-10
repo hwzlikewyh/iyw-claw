@@ -110,6 +110,8 @@ import type {
   ChannelStatusInfo,
   ChatChannelMessageLog,
   WebhookConfig,
+  ChatNaturalRouterConfig,
+  ChatNaturalRouterConfigInput,
   ModelProviderInfo,
   UpdateModelProviderResult,
   PluginCheckSummary,
@@ -2998,6 +3000,26 @@ export async function getChatMessageLanguage(): Promise<string> {
 
 export async function setChatMessageLanguage(language: string): Promise<void> {
   return getTransport().call("set_chat_message_language", { language })
+}
+
+export async function getChatNaturalRouterConfig(): Promise<ChatNaturalRouterConfig> {
+  return getTransport().call("get_chat_natural_router_config")
+}
+
+export async function setChatNaturalRouterConfig(
+  config: ChatNaturalRouterConfigInput
+): Promise<void> {
+  return getTransport().call("set_chat_natural_router_config", { config })
+}
+
+export async function saveChatNaturalRouterApiKey(
+  token: string
+): Promise<void> {
+  return getTransport().call("save_chat_natural_router_api_key", { token })
+}
+
+export async function deleteChatNaturalRouterApiKey(): Promise<void> {
+  return getTransport().call("delete_chat_natural_router_api_key")
 }
 
 // ─── WeChat QR Code Auth ───

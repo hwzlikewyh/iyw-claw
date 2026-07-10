@@ -52,7 +52,9 @@
       "experts": "エキスパート",
       "office_tools": "Officeツール",
       "quick_messages": "クイックメッセージ",
-      "logs": "実行ログ"
+      "logs": "実行ログ",
+      "usage": "Usage",
+      "user_memory": "User Memory"
     }
   },
   "AppearanceSettings": {
@@ -2285,7 +2287,9 @@
             },
             "switch": {
               "on": "オン",
-              "off": "オフ"
+              "onDescription": "1.5 倍高速、使用量増加",
+              "off": "オフ",
+              "offDescription": "標準速度、通常使用量"
             }
           }
         }
@@ -2318,7 +2322,7 @@
           "draftAutoSave": "未送信の下書きは会話ごとに自動保存され、戻ったときに復元されます",
           "forkSend": "送信ボタンのドロップダウンで「分岐して送信」を選ぶと、現在の地点から新しいタブに分岐できます",
           "exportConversation": "会話内容を右クリックすると Markdown / HTML / 画像としてエクスポートできます",
-          "chatChannels": "「設定 → チャットチャネル」で Telegram / Lark / WeChat を連携すれば、スマホから続けて操作できます",
+          "chatChannels": "「設定 → チャットチャネル」で Lark / WeChat を連携すれば、スマホから続けて操作できます",
           "shortcutsAuxPanel": "<shortcut>{toggleAuxPanel}</shortcut> で右側パネルを開き、このセッションで変更したファイルや Git の差分を確認できます",
           "shortcutsTerminalSidebar": "<shortcut>{toggleTerminal}</shortcut> で内蔵ターミナル、<shortcut>{toggleSidebar}</shortcut> でサイドバーを切り替えできます",
           "customShortcuts": "すべてのショートカットは「設定 → ショートカット」で自由に変更できます",
@@ -2835,7 +2839,7 @@
     "addChannel": "チャンネルを追加",
     "noChannels": "チャットチャンネルはまだ設定されていません。",
     "channelName": "名前",
-    "channelNamePlaceholder": "My Telegram Bot",
+    "channelNamePlaceholder": "My Lark Bot",
     "channelType": "チャンネルタイプ",
     "lark": "Lark（飛書）",
     "weixin": "WeChat",
@@ -2889,6 +2893,30 @@
       "prefixSaved": "コマンドプレフィックスを保存しました。",
       "prefixSaveFailed": "コマンドプレフィックスの保存に失敗しました。",
       "prefixInvalid": "プレフィックスは1-3文字の英数字以外の文字である必要があります。",
+      "routerTitle": "Smart Routing",
+      "routerDescription": "Plain messages are routed into internal actions automatically. Slash commands remain available for advanced use.",
+      "routerEnabled": "Enable LLM router",
+      "routerEnabledHint": "Deterministic rules run first; the model handles ambiguous project and action choices.",
+      "routerApiUrlLabel": "API URL",
+      "routerApiUrlPlaceholder": "https://api.openai.com/v1/chat/completions",
+      "routerModelLabel": "Model",
+      "routerTimeoutLabel": "Timeout (ms)",
+      "routerConfidenceLabel": "Minimum confidence",
+      "routerApiKeyLabel": "API Key",
+      "routerApiKeyPlaceholder": "Leave blank to keep current key",
+      "routerApiKeySave": "Save key",
+      "routerApiKeyDelete": "Delete API key",
+      "routerApiKeyToggle": "Show or hide API key",
+      "routerApiKeyStored": "API key saved",
+      "routerApiKeyMissing": "API key not saved",
+      "routerConfigSaved": "Smart routing settings saved.",
+      "routerConfigSaveFailed": "Failed to save smart routing settings.",
+      "routerConfigInvalid": "Check API URL, model, timeout, and confidence.",
+      "routerApiKeySaved": "API key saved.",
+      "routerApiKeySaveFailed": "Failed to save API key.",
+      "routerApiKeyDeleted": "API key deleted.",
+      "routerApiKeyDeleteFailed": "Failed to delete API key.",
+      "routerApiKeyEmpty": "API key is empty.",
       "save": "保存",
       "folderDesc": "作業フォルダを選択",
       "agentDesc": "AIエージェントを選択",
@@ -3723,5 +3751,80 @@
     "logout": "Sign out",
     "signedInWithBalance": "Signed in · {balance}",
     "openSettings": "Settings"
+  },
+  "UsageSettings": {
+    "loading": "Loading usage...",
+    "title": "Usage",
+    "description": "Aggregates token usage from parsed local session history.",
+    "refresh": "Refresh",
+    "loadFailed": "Failed to load usage: {message}",
+    "coverage": "Loaded {loaded} of {total} conversations. Failed sessions: {failed}.",
+    "legend": {
+      "input": "Input",
+      "output": "Output",
+      "cacheRead": "Cache read"
+    },
+    "cards": {
+      "totalTokens": "Total tokens",
+      "totalTokensHint": "{input} input / {output} output",
+      "sessions": "Sessions",
+      "sessionsHint": "Daily average ~{average}",
+      "estimatedCost": "Estimated cost",
+      "estimatedCostHint": "Pricing data is not configured",
+      "cacheHitRate": "Cache hit rate",
+      "cacheHitRateHint": "{tokens} tokens"
+    },
+    "model": {
+      "title": "Model distribution"
+    },
+    "daily": {
+      "title": "Daily usage"
+    },
+    "table": {
+      "date": "Date",
+      "input": "Input",
+      "output": "Output",
+      "cacheRead": "Cache read",
+      "cacheWrite": "Cache write",
+      "cacheHitRate": "Cache hit rate",
+      "sessions": "Sessions",
+      "cost": "Cost"
+    },
+    "empty": {
+      "title": "No usage yet",
+      "description": "Parsed sessions with token usage will appear here."
+    }
+  },
+  "UserMemorySettings": {
+    "loading": "Loading user memory...",
+    "title": "User Memory",
+    "description": "Edit the persistent memory file used to store long-lived preferences and notes.",
+    "reload": "Reload",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "User memory saved",
+    "saveFailed": "Failed to save user memory",
+    "dirty": "Unsaved changes",
+    "readonly": "Read-only",
+    "stats": "{lines} lines / {chars} chars",
+    "placeholder": "Write durable preferences, working style notes, project conventions, or reminders here.",
+    "discardChangesConfirm": "This document has unsaved changes. Switch and discard them?",
+    "documents": {
+      "memory": {
+        "label": "User Memory",
+        "description": "Stable preferences, conventions, and long-lived notes.",
+        "placeholder": "Write durable preferences, working style notes, project conventions, or reminders here."
+      },
+      "profile": {
+        "label": "User Profile",
+        "description": "Facts about the user, role, projects, habits, and preferences.",
+        "placeholder": "Capture user facts, current roles, recurring projects, communication preferences, and constraints."
+      },
+      "soul": {
+        "label": "Soul",
+        "description": "Higher-level values, taste, voice, and decision principles.",
+        "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
+      }
+    }
   }
 }
