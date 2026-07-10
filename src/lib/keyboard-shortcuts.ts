@@ -1,9 +1,6 @@
 export type ShortcutActionId =
   | "toggle_search"
   | "toggle_sidebar"
-  | "toggle_terminal"
-  | "new_terminal_tab"
-  | "close_current_terminal_tab"
   | "toggle_aux_panel"
   | "new_conversation"
   | "open_folder"
@@ -25,15 +22,6 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   },
   {
     id: "toggle_sidebar",
-  },
-  {
-    id: "toggle_terminal",
-  },
-  {
-    id: "new_terminal_tab",
-  },
-  {
-    id: "close_current_terminal_tab",
   },
   {
     id: "toggle_aux_panel",
@@ -78,9 +66,6 @@ export type ShortcutSettings = Record<ShortcutActionId, string>
 export const DEFAULT_SHORTCUTS: ShortcutSettings = {
   toggle_search: "mod+k",
   toggle_sidebar: "mod+b",
-  toggle_terminal: "mod+j",
-  new_terminal_tab: "mod+t",
-  close_current_terminal_tab: "mod+w",
   toggle_aux_panel: "mod+e",
   new_conversation: "mod+t",
   open_folder: "mod+o",

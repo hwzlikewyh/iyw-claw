@@ -58,3 +58,16 @@ describe("tab cycling shortcuts", () => {
     ).toBe(false)
   })
 })
+
+describe("terminal shortcuts", () => {
+  it("does not register terminal actions or defaults", () => {
+    const ids = SHORTCUT_DEFINITIONS.map((definition) => definition.id)
+
+    expect(ids).not.toContain("toggle_terminal")
+    expect(ids).not.toContain("new_terminal_tab")
+    expect(ids).not.toContain("close_current_terminal_tab")
+    expect(DEFAULT_SHORTCUTS).not.toHaveProperty("toggle_terminal")
+    expect(DEFAULT_SHORTCUTS).not.toHaveProperty("new_terminal_tab")
+    expect(DEFAULT_SHORTCUTS).not.toHaveProperty("close_current_terminal_tab")
+  })
+})

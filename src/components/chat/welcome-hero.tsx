@@ -22,7 +22,6 @@ type TipKey =
   | "exportConversation"
   | "chatChannels"
   | "shortcutsAuxPanel"
-  | "shortcutsTerminalSidebar"
   | "customShortcuts"
   | "webService"
   | "fusionMode"
@@ -61,14 +60,6 @@ const TIPS: TipDef[] = [
     buildValues: ({ shortcuts, isMac, kbd }) => ({
       shortcut: kbd,
       toggleAuxPanel: formatShortcutLabel(shortcuts.toggle_aux_panel, isMac),
-    }),
-  },
-  {
-    key: "shortcutsTerminalSidebar",
-    buildValues: ({ shortcuts, isMac, kbd }) => ({
-      shortcut: kbd,
-      toggleTerminal: formatShortcutLabel(shortcuts.toggle_terminal, isMac),
-      toggleSidebar: formatShortcutLabel(shortcuts.toggle_sidebar, isMac),
     }),
   },
   { key: "customShortcuts" },

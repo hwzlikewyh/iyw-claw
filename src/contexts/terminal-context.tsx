@@ -14,8 +14,6 @@ import { getSystemTerminalSettings, terminalKill } from "@/lib/api"
 import { getTransport } from "@/lib/transport"
 import { randomUUID } from "@/lib/utils"
 import { useActiveFolder } from "@/contexts/active-folder-context"
-import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
-import { matchShortcutEvent } from "@/lib/keyboard-shortcuts"
 
 export interface TerminalTab {
   id: string
@@ -71,7 +69,6 @@ export function useTerminalContext() {
 
 export function TerminalProvider({ children }: { children: ReactNode }) {
   const { activeFolder, activeFolderId } = useActiveFolder()
-  const { shortcuts } = useShortcutSettings()
   const [isOpen, setIsOpen] = useState(false)
   const [height, setHeightState] = useState(DEFAULT_HEIGHT)
   const [tabs, setTabs] = useState<TerminalTab[]>([])
@@ -81,7 +78,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const [defaultTerminalShell, setDefaultTerminalShell] = useState<
     string | null
   >(null)
-  const lastMouseActivityInTerminalRef = useRef(false)
   // Keep a ref of tabs for cleanup on unmount (effect [] captures stale state)
   const tabsRef = useRef(tabs)
   useEffect(() => {
@@ -300,87 +296,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const switchTerminal = useCallback((id: string) => {
     setActiveTabId(id)
   }, [])
-
-  const isInTerminalRegion = useCallback((target: EventTarget | null) => {
-    if (!(target instanceof Element)) return false
-    return Boolean(target.closest('[data-terminal-panel-region="true"]'))
-  }, [])
-
-  const updateLastMouseActivity = useCallback(
-    (target: EventTarget | null) => {
-      const next = isInTerminalRegion(target)
-      if (lastMouseActivityInTerminalRef.current === next) return
-      lastMouseActivityInTerminalRef.current = next
-    },
-    [isInTerminalRegion]
-  )
-
-  useEffect(() => {
-    const handlePointerActivity = (event: PointerEvent) => {
-      updateLastMouseActivity(event.target)
-    }
-    const handleFocusActivity = (event: FocusEvent) => {
-      updateLastMouseActivity(event.target)
-    }
-
-    window.addEventListener("pointerover", handlePointerActivity, true)
-    window.addEventListener("pointerdown", handlePointerActivity, true)
-    window.addEventListener("focusin", handleFocusActivity, true)
-    return () => {
-      window.removeEventListener("pointerover", handlePointerActivity, true)
-      window.removeEventListener("pointerdown", handlePointerActivity, true)
-      window.removeEventListener("focusin", handleFocusActivity, true)
-    }
-  }, [updateLastMouseActivity])
-
-  useEffect(() => {
-    if (!isOpen) {
-      lastMouseActivityInTerminalRef.current = false
-    }
-  }, [isOpen])
-
-  useEffect(() => {
-    const handleTerminalHotkeys = (event: KeyboardEvent) => {
-      if (!isOpen) return
-
-      const targetInTerminal = isInTerminalRegion(event.target)
-      const activeElementInTerminal = isInTerminalRegion(document.activeElement)
-      const shouldHandle =
-        lastMouseActivityInTerminalRef.current ||
-        targetInTerminal ||
-        activeElementInTerminal
-      if (!shouldHandle) return
-
-      if (matchShortcutEvent(event, shortcuts.new_terminal_tab)) {
-        event.preventDefault()
-        event.stopPropagation()
-        void createTerminal()
-        return
-      }
-
-      if (
-        activeTabId &&
-        matchShortcutEvent(event, shortcuts.close_current_terminal_tab)
-      ) {
-        event.preventDefault()
-        event.stopPropagation()
-        closeTerminal(activeTabId)
-      }
-    }
-
-    window.addEventListener("keydown", handleTerminalHotkeys, true)
-    return () => {
-      window.removeEventListener("keydown", handleTerminalHotkeys, true)
-    }
-  }, [
-    activeTabId,
-    closeTerminal,
-    createTerminal,
-    isInTerminalRegion,
-    isOpen,
-    shortcuts.close_current_terminal_tab,
-    shortcuts.new_terminal_tab,
-  ])
 
   // Cleanup all terminals on unmount — uses ref to get current tabs
   useEffect(() => {

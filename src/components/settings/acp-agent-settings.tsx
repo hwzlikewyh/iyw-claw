@@ -3696,6 +3696,10 @@ interface AcpAgentSettingsProps {
   initialAgentType?: AgentType | null
 }
 
+// Keep hidden agents registered and configurable in the backend while limiting
+// this settings page to the agents currently exposed by the product.
+const VISIBLE_AGENT_TYPES = new Set<AgentType>(["codex"])
+
 export function AcpAgentSettings({
   initialAgentType = null,
 }: AcpAgentSettingsProps) {
@@ -3802,18 +3806,21 @@ export function AcpAgentSettings({
   const [codexLoginError, setCodexLoginError] = useState<string | null>(null)
   const codexPollCancelledRef = useRef(false)
 
-  const sortedAgents = useMemo(
+  const visibleAgents = useMemo(
     () =>
-      [...agents].sort(
-        (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)
-      ),
+      agents
+        .filter((agent) => VISIBLE_AGENT_TYPES.has(agent.agent_type))
+        .sort(
+          (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)
+        ),
     [agents]
   )
+  const canReorderAgents = visibleAgents.length > 1
   const selectedAgent = useMemo(
     () =>
-      sortedAgents.find((agent) => agent.agent_type === selectedAgentType) ??
+      visibleAgents.find((agent) => agent.agent_type === selectedAgentType) ??
       null,
-    [selectedAgentType, sortedAgents]
+    [selectedAgentType, visibleAgents]
   )
   const agentTypesKey = useMemo(
     () =>
@@ -3988,20 +3995,20 @@ export function AcpAgentSettings({
       handledSearchAgentRef.current = null
       return
     }
-    if (sortedAgents.length === 0) {
+    if (visibleAgents.length === 0) {
       return
     }
     if (handledSearchAgentRef.current === requestedAgentType) {
       return
     }
-    const matched = sortedAgents.find(
+    const matched = visibleAgents.find(
       (agent) => agent.agent_type === requestedAgentType
     )
     if (matched) {
       setSelectedAgentType(matched.agent_type)
     }
     handledSearchAgentRef.current = requestedAgentType
-  }, [requestedAgentType, sortedAgents])
+  }, [requestedAgentType, visibleAgents])
 
   useEffect(() => {
     if (!selectedAgentType) return
@@ -4012,20 +4019,20 @@ export function AcpAgentSettings({
     )
     if (!selected) return
     selected.scrollIntoView({ block: "nearest", behavior: "smooth" })
-  }, [selectedAgentType, sortedAgents])
+  }, [selectedAgentType, visibleAgents])
 
   useEffect(() => {
-    if (sortedAgents.length === 0) {
+    if (visibleAgents.length === 0) {
       setSelectedAgentType(null)
       return
     }
     setSelectedAgentType((prev) => {
-      if (prev && sortedAgents.some((agent) => agent.agent_type === prev)) {
+      if (prev && visibleAgents.some((agent) => agent.agent_type === prev)) {
         return prev
       }
-      return sortedAgents[0].agent_type
+      return visibleAgents[0].agent_type
     })
-  }, [sortedAgents])
+  }, [visibleAgents])
 
   // A settings save (env or native config) only takes effect on the NEXT agent
   // start, so any running session of that agent stays on its launch-time config
@@ -6752,12 +6759,12 @@ export function AcpAgentSettings({
           <Reorder.Group
             as="div"
             axis="y"
-            values={sortedAgents}
+            values={visibleAgents}
             onReorder={handleReorder}
             ref={agentListRef}
             className="flex-1 min-h-0 overflow-y-auto space-y-2 p-2"
           >
-            {sortedAgents.map((agent) => {
+            {visibleAgents.map((agent) => {
               const current = checkState[agent.agent_type]
               const isChecking = Boolean(checking[agent.agent_type])
               const draft = drafts[agent.agent_type] ?? buildAgentDraft(agent)
@@ -6788,7 +6795,7 @@ export function AcpAgentSettings({
                   key={agent.agent_type}
                   agent={agent}
                   selected={selectedAgentType === agent.agent_type}
-                  reordering={reordering}
+                  reordering={reordering || !canReorderAgents}
                   dragging={dragging}
                   onDragStart={(agentType) => {
                     setDragging(agentType)
@@ -6821,7 +6828,7 @@ export function AcpAgentSettings({
                           onClick={(event) => {
                             event.stopPropagation()
                           }}
-                          disabled={reordering}
+                          disabled={reordering || !canReorderAgents}
                         >
                           <GripVertical className="h-3.5 w-3.5" />
                         </button>

@@ -6,9 +6,6 @@ import { useTranslations } from "next-intl"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTerminalContext } from "@/contexts/terminal-context"
-import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
-import { useIsMac } from "@/hooks/use-is-mac"
-import { formatShortcutLabel } from "@/lib/keyboard-shortcuts"
 import { handleMiddleClickClose } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,8 +24,6 @@ import {
 
 export function TerminalTabBar() {
   const t = useTranslations("Folder.terminal")
-  const { shortcuts } = useShortcutSettings()
-  const isMac = useIsMac()
   const {
     tabs,
     activeTabId,
@@ -157,9 +152,7 @@ export function TerminalTabBar() {
         size="icon"
         className="h-6 w-6 shrink-0 ml-auto"
         onClick={toggle}
-        title={t("hideTerminal", {
-          shortcut: formatShortcutLabel(shortcuts.toggle_terminal, isMac),
-        })}
+        title={t("close")}
       >
         <Minus className="h-3 w-3" />
       </Button>

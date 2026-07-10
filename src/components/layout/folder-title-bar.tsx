@@ -104,11 +104,6 @@ export function FolderTitleBar() {
         toggle()
         return
       }
-      if (matchShortcutEvent(e, shortcuts.toggle_terminal)) {
-        e.preventDefault()
-        toggleTerminal()
-        return
-      }
       if (matchShortcutEvent(e, shortcuts.toggle_aux_panel)) {
         // Chat mode hides the aux panel + its toggle; the shortcut must not
         // re-open it either.
@@ -148,7 +143,6 @@ export function FolderTitleBar() {
     shortcuts,
     toggle,
     toggleAuxPanel,
-    toggleTerminal,
     isChatMode,
   ])
 
