@@ -12,7 +12,6 @@ import {
   Bot,
   FileStack,
   GitBranch,
-  Globe,
   Keyboard,
   Menu,
   MessageSquareText,
@@ -30,7 +29,6 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { AppToaster } from "@/components/ui/app-toaster"
 import { cn } from "@/lib/utils"
-import { detectEnvironment } from "@/lib/transport/detect"
 import { AppTitleBar } from "@/components/layout/app-title-bar"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
@@ -49,7 +47,6 @@ export interface SettingsNavItem {
     | "version_control"
     | "chat_channels"
     | "system"
-    | "web_service"
   icon: ComponentType<{ className?: string }>
 }
 
@@ -103,11 +100,6 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     href: "/settings/chat-channels",
     labelKey: "chat_channels",
     icon: SendHorizontal,
-  },
-  {
-    href: "/settings/web-service",
-    labelKey: "web_service",
-    icon: Globe,
   },
   {
     href: "/settings/system",
@@ -199,11 +191,6 @@ export function SettingsShell({
     [normalizedPathname, onNavigate, router, setNavOpen]
   )
 
-  const filteredNavItems = SETTINGS_NAV_ITEMS.filter(
-    (item) =>
-      !(item.labelKey === "web_service" && detectEnvironment() === "web")
-  )
-
   const navContent = (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="px-2 pb-2 text-[11px] font-medium text-muted-foreground">
@@ -211,7 +198,7 @@ export function SettingsShell({
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <nav className="space-y-1">
-          {filteredNavItems.map((item) => {
+          {SETTINGS_NAV_ITEMS.map((item) => {
             const Icon = item.icon
             const translationKey = `nav.${item.labelKey}` as const
             const active =

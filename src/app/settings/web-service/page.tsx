@@ -1,5 +1,5 @@
-import { WebServiceSettings } from "@/components/settings/web-service-settings"
+import { AppearanceSettings } from "@/components/settings/appearance-settings"
 
 export default function SettingsWebServicePage() {
-  return <WebServiceSettings />
+  return <AppearanceSettings />
 }
