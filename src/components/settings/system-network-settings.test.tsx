@@ -119,6 +119,41 @@ function liveServerCalls(snapshot: unknown) {
 }
 
 describe("SystemNetworkSettings — update source outage", () => {
+  it("hides network proxy settings", async () => {
+    mockGetProxy.mockResolvedValue({
+      enabled: true,
+      proxy_url: "http://proxy.local:8080",
+    })
+    call.mockImplementation(async (endpoint: string) => {
+      if (endpoint === "check_app_update") {
+        throw new Error("manifest unreachable")
+      }
+      if (endpoint === "app_update_status") {
+        throw new Error("not implemented")
+      }
+      if (endpoint === "health") return { version: "0.14.11" }
+      if (endpoint === "app_update_state") return { seq: 0, status: "idle" }
+      throw new Error(`unexpected endpoint: ${endpoint}`)
+    })
+
+    renderWithIntl()
+
+    expect(
+      await screen.findByRole("button", { name: "Check for updates" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", { name: "Network Proxy" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByDisplayValue("http://proxy.local:8080")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        "Manage network proxy, app updates and language preferences."
+      )
+    ).not.toBeInTheDocument()
+  })
+
   it("loads proxy settings and exposes rollback when the manifest is unreachable", async () => {
     // The release source is down: the update CHECK fails, but the version read
     // and rollback availability come from the local `app_update_status`
@@ -153,11 +188,11 @@ describe("SystemNetworkSettings — update source outage", () => {
       await screen.findByRole("button", { name: "Roll back" })
     ).toBeInTheDocument()
 
-    // Unrelated local settings still loaded (not defaulted), and the settings
-    // load itself did not error out.
+    // Hidden proxy settings still load without breaking the rest of the page.
+    expect(mockGetProxy).toHaveBeenCalledTimes(1)
     expect(
-      screen.getByDisplayValue("http://proxy.local:8080")
-    ).toBeInTheDocument()
+      screen.queryByDisplayValue("http://proxy.local:8080")
+    ).not.toBeInTheDocument()
     expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument()
   })
 
@@ -183,10 +218,14 @@ describe("SystemNetworkSettings — update source outage", () => {
 
     renderWithIntl()
 
-    // Settings load completed (spinner gone) and proxy is loaded, not defaulted.
+    // Settings load completed (spinner gone), including the hidden proxy data.
     expect(
-      await screen.findByDisplayValue("http://proxy.local:8080")
+      await screen.findByRole("button", { name: "Check for updates" })
     ).toBeInTheDocument()
+    expect(mockGetProxy).toHaveBeenCalledTimes(1)
+    expect(
+      screen.queryByDisplayValue("http://proxy.local:8080")
+    ).not.toBeInTheDocument()
     expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument()
   })
 

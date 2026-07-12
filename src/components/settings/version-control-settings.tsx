@@ -46,6 +46,8 @@ import { toErrorMessage } from "@/lib/app-error"
 import { AddGitHubAccountDialog } from "./add-github-account-dialog"
 import { AddGitAccountDialog } from "./add-git-account-dialog"
 
+const SHOW_GIT_ACCOUNT_SETTINGS = false
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -440,81 +442,85 @@ export function VersionControlSettings() {
           )}
         </section>
 
-        {/* ---- GitHub Accounts ---- */}
-        <section className="rounded-xl border bg-card p-4 space-y-4">
-          <div className="flex items-center gap-2">
-            <Github className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">{t("githubTitle")}</h2>
-          </div>
-          <p className="text-xs text-muted-foreground leading-5">
-            {t("githubDescription")}
-          </p>
+        {SHOW_GIT_ACCOUNT_SETTINGS && (
+          <>
+            {/* ---- GitHub Accounts ---- */}
+            <section className="rounded-xl border bg-card p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <Github className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold">{t("githubTitle")}</h2>
+              </div>
+              <p className="text-xs text-muted-foreground leading-5">
+                {t("githubDescription")}
+              </p>
 
-          {githubAccounts.length === 0 ? (
-            <div className="rounded-md border border-dashed bg-muted/10 px-4 py-6 text-center text-xs text-muted-foreground">
-              {t("noAccounts")}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {githubAccounts.map((account) => (
-                <AccountRow
-                  key={account.id}
-                  account={account}
-                  testingId={testingAccountId}
-                  onTest={handleTestConnection}
-                  onSetDefault={handleSetDefault}
-                  onRemove={setRemoveTarget}
-                  t={t}
-                />
-              ))}
-            </div>
-          )}
+              {githubAccounts.length === 0 ? (
+                <div className="rounded-md border border-dashed bg-muted/10 px-4 py-6 text-center text-xs text-muted-foreground">
+                  {t("noAccounts")}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {githubAccounts.map((account) => (
+                    <AccountRow
+                      key={account.id}
+                      account={account}
+                      testingId={testingAccountId}
+                      onTest={handleTestConnection}
+                      onSetDefault={handleSetDefault}
+                      onRemove={setRemoveTarget}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              )}
 
-          <div className="flex justify-end">
-            <Button size="sm" onClick={() => setAddGitHubOpen(true)}>
-              {t("addAccount")}
-            </Button>
-          </div>
-        </section>
+              <div className="flex justify-end">
+                <Button size="sm" onClick={() => setAddGitHubOpen(true)}>
+                  {t("addAccount")}
+                </Button>
+              </div>
+            </section>
 
-        {/* ---- Git Accounts (non-GitHub) ---- */}
-        <section className="rounded-xl border bg-card p-4 space-y-4">
-          <div className="flex items-center gap-2">
-            <Globe className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">
-              {t("gitAccount.sectionTitle")}
-            </h2>
-          </div>
-          <p className="text-xs text-muted-foreground leading-5">
-            {t("gitAccount.sectionDescription")}
-          </p>
+            {/* ---- Git Accounts (non-GitHub) ---- */}
+            <section className="rounded-xl border bg-card p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <Globe className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold">
+                  {t("gitAccount.sectionTitle")}
+                </h2>
+              </div>
+              <p className="text-xs text-muted-foreground leading-5">
+                {t("gitAccount.sectionDescription")}
+              </p>
 
-          {gitAccounts.length === 0 ? (
-            <div className="rounded-md border border-dashed bg-muted/10 px-4 py-6 text-center text-xs text-muted-foreground">
-              {t("gitAccount.noAccounts")}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {gitAccounts.map((account) => (
-                <AccountRow
-                  key={account.id}
-                  account={account}
-                  testingId={testingAccountId}
-                  onTest={handleTestConnection}
-                  onSetDefault={handleSetDefault}
-                  onRemove={setRemoveTarget}
-                  t={t}
-                />
-              ))}
-            </div>
-          )}
+              {gitAccounts.length === 0 ? (
+                <div className="rounded-md border border-dashed bg-muted/10 px-4 py-6 text-center text-xs text-muted-foreground">
+                  {t("gitAccount.noAccounts")}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {gitAccounts.map((account) => (
+                    <AccountRow
+                      key={account.id}
+                      account={account}
+                      testingId={testingAccountId}
+                      onTest={handleTestConnection}
+                      onSetDefault={handleSetDefault}
+                      onRemove={setRemoveTarget}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              )}
 
-          <div className="flex justify-end">
-            <Button size="sm" onClick={() => setAddGitOpen(true)}>
-              {t("gitAccount.addAccount")}
-            </Button>
-          </div>
-        </section>
+              <div className="flex justify-end">
+                <Button size="sm" onClick={() => setAddGitOpen(true)}>
+                  {t("gitAccount.addAccount")}
+                </Button>
+              </div>
+            </section>
+          </>
+        )}
       </div>
 
       {/* Dialogs */}

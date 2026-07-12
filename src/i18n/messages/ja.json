@@ -137,7 +137,7 @@
   "SystemSettings": {
     "loading": "読み込み中...",
     "sectionTitle": "システム管理",
-    "sectionDescription": "ネットワークプロキシ、アプリ更新、言語設定を管理します。",
+    "sectionDescription": "アプリ更新と言語設定を管理します。",
     "proxyTitle": "ネットワークプロキシ",
     "proxyDescription": "有効にすると、以降のネットワークリクエストはこのプロキシを優先して使用します（ACP チャット、エージェントのインストール、Git リモート操作を含む）。",
     "loadFailed": "読み込みに失敗しました: {message}",
@@ -203,7 +203,7 @@
   "VersionControlSettings": {
     "loading": "読み込み中...",
     "sectionTitle": "バージョン管理",
-    "sectionDescription": "Git 実行ファイルの設定と GitHub アカウントの管理。",
+    "sectionDescription": "アプリが使用する Git 実行ファイルを設定します。",
     "gitTitle": "Git 設定",
     "gitDescription": "アプリケーションで使用する Git 実行ファイルを設定します。",
     "gitDetected": "Git が検出されました",

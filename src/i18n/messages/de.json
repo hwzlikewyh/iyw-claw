@@ -137,7 +137,7 @@
   "SystemSettings": {
     "loading": "Wird geladen...",
     "sectionTitle": "Systemverwaltung",
-    "sectionDescription": "Verwalte Netzwerk-Proxy, App-Updates und Spracheinstellungen.",
+    "sectionDescription": "Verwalte App-Updates und Spracheinstellungen.",
     "proxyTitle": "Netzwerk-Proxy",
     "proxyDescription": "Wenn aktiviert, werden nachfolgende Netzwerkanfragen bevorzugt über diesen Proxy ausgeführt (einschließlich ACP-Chat, Agent-Installation und Git-Remote-Operationen).",
     "loadFailed": "Laden fehlgeschlagen: {message}",
@@ -203,7 +203,7 @@
   "VersionControlSettings": {
     "loading": "Laden...",
     "sectionTitle": "Versionskontrolle",
-    "sectionDescription": "Git-Programm konfigurieren und GitHub-Konten verwalten.",
+    "sectionDescription": "Konfiguriere das von der App verwendete Git-Programm.",
     "gitTitle": "Git-Konfiguration",
     "gitDescription": "Konfigurieren Sie das von der Anwendung verwendete Git-Programm.",
     "gitDetected": "Git erkannt",

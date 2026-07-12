@@ -137,7 +137,7 @@
   "SystemSettings": {
     "loading": "載入中...",
     "sectionTitle": "系統管理",
-    "sectionDescription": "管理網路代理、應用升級與語言偏好。",
+    "sectionDescription": "管理應用升級與語言偏好。",
     "proxyTitle": "網路代理",
     "proxyDescription": "啟用後，後續網路請求將優先走該代理（包含 ACP 對話、Agent 安裝、Git 遠端操作等）。",
     "loadFailed": "載入失敗：{message}",
@@ -203,7 +203,7 @@
   "VersionControlSettings": {
     "loading": "載入中...",
     "sectionTitle": "版本控制",
-    "sectionDescription": "設定 Git 執行檔並管理 GitHub 帳號。",
+    "sectionDescription": "設定應用程式使用的 Git 執行檔。",
     "gitTitle": "Git 設定",
     "gitDescription": "設定應用程式使用的 Git 執行檔。",
     "gitDetected": "已偵測到 Git",

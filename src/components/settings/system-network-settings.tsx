@@ -65,6 +65,7 @@ function formatBytes(bytes: number): string {
 
 const PROXY_EXAMPLE = "http://127.0.0.1:7890"
 const APP_LANGUAGE_VALUES = APP_LOCALES
+const SHOW_NETWORK_PROXY_SETTINGS = false
 
 type LanguageSelectValue = "system" | AppLocale
 
@@ -660,71 +661,73 @@ export function SystemNetworkSettings() {
           )}
         </section>
 
-        <section className="rounded-xl border bg-card p-4 space-y-4">
-          <div className="flex items-center gap-2">
-            <Wifi className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">{t("proxyTitle")}</h2>
-          </div>
-
-          <p className="text-xs text-muted-foreground leading-5">
-            {t("proxyDescription")}
-          </p>
-
-          {loadError && (
-            <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
-              {t("loadFailed", { message: loadError })}
+        {SHOW_NETWORK_PROXY_SETTINGS && (
+          <section className="rounded-xl border bg-card p-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <Wifi className="h-4 w-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold">{t("proxyTitle")}</h2>
             </div>
-          )}
 
-          <label className="inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={enabled}
-              disabled={saving}
-              onChange={(event) => {
-                const next = event.target.checked
-                if (next && !proxyUrl.trim()) {
-                  setProxyUrlError(t("proxyRequired"))
-                  return
-                }
-                setProxyUrlError(null)
-                setEnabled(next)
-                saveProxySettings(next, proxyUrl)
-              }}
-            />
-            {t("enableProxy")}
-          </label>
-
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t("proxyAddress")}
-            </label>
-            <Input
-              value={proxyUrl}
-              onChange={(event) => {
-                setProxyUrl(event.target.value)
-                if (event.target.value.trim()) setProxyUrlError(null)
-              }}
-              onBlur={() => {
-                if (enabled && !proxyUrl.trim()) {
-                  setProxyUrlError(t("proxyRequired"))
-                  return
-                }
-                setProxyUrlError(null)
-                saveProxySettings(enabled, proxyUrl)
-              }}
-              placeholder={PROXY_EXAMPLE}
-              disabled={saving}
-              aria-invalid={proxyUrlError ? true : undefined}
-            />
-            {proxyUrlError && (
-              <p className="text-[11px] text-destructive">{proxyUrlError}</p>
-            )}
-            <p className="text-[11px] text-muted-foreground">
-              {t("proxyHint", { example: PROXY_EXAMPLE })}
+            <p className="text-xs text-muted-foreground leading-5">
+              {t("proxyDescription")}
             </p>
-          </div>
-        </section>
+
+            {loadError && (
+              <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+                {t("loadFailed", { message: loadError })}
+              </div>
+            )}
+
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={enabled}
+                disabled={saving}
+                onChange={(event) => {
+                  const next = event.target.checked
+                  if (next && !proxyUrl.trim()) {
+                    setProxyUrlError(t("proxyRequired"))
+                    return
+                  }
+                  setProxyUrlError(null)
+                  setEnabled(next)
+                  saveProxySettings(next, proxyUrl)
+                }}
+              />
+              {t("enableProxy")}
+            </label>
+
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t("proxyAddress")}
+              </label>
+              <Input
+                value={proxyUrl}
+                onChange={(event) => {
+                  setProxyUrl(event.target.value)
+                  if (event.target.value.trim()) setProxyUrlError(null)
+                }}
+                onBlur={() => {
+                  if (enabled && !proxyUrl.trim()) {
+                    setProxyUrlError(t("proxyRequired"))
+                    return
+                  }
+                  setProxyUrlError(null)
+                  saveProxySettings(enabled, proxyUrl)
+                }}
+                placeholder={PROXY_EXAMPLE}
+                disabled={saving}
+                aria-invalid={proxyUrlError ? true : undefined}
+              />
+              {proxyUrlError && (
+                <p className="text-[11px] text-destructive">{proxyUrlError}</p>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                {t("proxyHint", { example: PROXY_EXAMPLE })}
+              </p>
+            </div>
+          </section>
+        )}
 
         <section className="rounded-xl border bg-card p-4 space-y-4">
           <div className="flex items-center gap-2">

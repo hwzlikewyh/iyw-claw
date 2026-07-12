@@ -56,7 +56,9 @@ export interface SettingsNavItem {
   icon: ComponentType<{ className?: string }>
 }
 
-export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
+const SHOW_RUNTIME_LOGS_SETTINGS = false
+
+const SETTINGS_NAV_ITEMS_WITH_HIDDEN: SettingsNavItem[] = [
   {
     href: "/settings/appearance",
     labelKey: "appearance",
@@ -128,6 +130,10 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
     icon: ScrollText,
   },
 ]
+
+export const SETTINGS_NAV_ITEMS = SETTINGS_NAV_ITEMS_WITH_HIDDEN.filter(
+  (item) => SHOW_RUNTIME_LOGS_SETTINGS || item.href !== "/settings/logs"
+)
 
 interface SettingsShellProps {
   children: ReactNode

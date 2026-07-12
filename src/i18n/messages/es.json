@@ -137,7 +137,7 @@
   "SystemSettings": {
     "loading": "Cargando...",
     "sectionTitle": "Administración del sistema",
-    "sectionDescription": "Administra el proxy de red, las actualizaciones de la app y las preferencias de idioma.",
+    "sectionDescription": "Administra las actualizaciones de la app y las preferencias de idioma.",
     "proxyTitle": "Proxy de red",
     "proxyDescription": "Cuando está activado, las solicitudes de red posteriores usarán este proxy preferentemente (incluyendo chat ACP, instalación de agentes y operaciones remotas de Git).",
     "loadFailed": "Error al cargar: {message}",
@@ -203,7 +203,7 @@
   "VersionControlSettings": {
     "loading": "Cargando...",
     "sectionTitle": "Control de versiones",
-    "sectionDescription": "Configura el ejecutable de Git y gestiona las cuentas de GitHub.",
+    "sectionDescription": "Configura el ejecutable de Git que usa la aplicación.",
     "gitTitle": "Configuración de Git",
     "gitDescription": "Configura el ejecutable de Git utilizado por la aplicación.",
     "gitDetected": "Git detectado",

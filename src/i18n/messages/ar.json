@@ -137,7 +137,7 @@
   "SystemSettings": {
     "loading": "جارٍ التحميل...",
     "sectionTitle": "إدارة النظام",
-    "sectionDescription": "إدارة وكيل الشبكة وتحديثات التطبيق وتفضيلات اللغة.",
+    "sectionDescription": "إدارة تحديثات التطبيق وتفضيلات اللغة.",
     "proxyTitle": "وكيل الشبكة",
     "proxyDescription": "عند التفعيل، ستُفضَّل إعدادات هذا الوكيل في طلبات الشبكة اللاحقة (بما في ذلك دردشة ACP وتثبيت الوكلاء وعمليات Git البعيدة).",
     "loadFailed": "فشل التحميل: {message}",
@@ -203,7 +203,7 @@
   "VersionControlSettings": {
     "loading": "جارٍ التحميل...",
     "sectionTitle": "التحكم بالإصدارات",
-    "sectionDescription": "تكوين ملف Git التنفيذي وإدارة حسابات GitHub.",
+    "sectionDescription": "تكوين ملف Git التنفيذي الذي يستخدمه التطبيق.",
     "gitTitle": "إعدادات Git",
     "gitDescription": "تكوين ملف Git التنفيذي المستخدم بواسطة التطبيق.",
     "gitDetected": "تم اكتشاف Git",

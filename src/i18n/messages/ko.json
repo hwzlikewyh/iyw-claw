@@ -137,7 +137,7 @@
   "SystemSettings": {
     "loading": "로딩 중...",
     "sectionTitle": "시스템 관리",
-    "sectionDescription": "네트워크 프록시, 앱 업데이트, 언어 설정을 관리합니다.",
+    "sectionDescription": "앱 업데이트와 언어 설정을 관리합니다.",
     "proxyTitle": "네트워크 프록시",
     "proxyDescription": "활성화하면 이후 네트워크 요청에서 이 프록시를 우선 사용합니다(ACP 채팅, 에이전트 설치, Git 원격 작업 포함).",
     "loadFailed": "불러오기 실패: {message}",
@@ -203,7 +203,7 @@
   "VersionControlSettings": {
     "loading": "로딩 중...",
     "sectionTitle": "버전 관리",
-    "sectionDescription": "Git 실행 파일을 설정하고 GitHub 계정을 관리합니다.",
+    "sectionDescription": "앱에서 사용할 Git 실행 파일을 설정합니다.",
     "gitTitle": "Git 설정",
     "gitDescription": "애플리케이션에서 사용할 Git 실행 파일을 설정합니다.",
     "gitDetected": "Git이 감지되었습니다",

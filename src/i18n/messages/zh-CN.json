@@ -137,7 +137,7 @@
   "SystemSettings": {
     "loading": "加载中...",
     "sectionTitle": "系统管理",
-    "sectionDescription": "管理网络代理、应用升级与语言偏好。",
+    "sectionDescription": "管理应用升级与语言偏好。",
     "proxyTitle": "网络代理",
     "proxyDescription": "开启后，后续网络请求将优先走该代理（包括 ACP 对话、Agent 安装、Git 远程操作等）。",
     "loadFailed": "加载失败：{message}",
@@ -203,7 +203,7 @@
   "VersionControlSettings": {
     "loading": "加载中...",
     "sectionTitle": "版本控制",
-    "sectionDescription": "配置 Git 可执行文件并管理 GitHub 账号。",
+    "sectionDescription": "配置应用使用的 Git 可执行文件。",
     "gitTitle": "Git 配置",
     "gitDescription": "配置应用使用的 Git 可执行文件。",
     "gitDetected": "已检测到 Git",

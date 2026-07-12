@@ -59,6 +59,7 @@ import { useConversationRuntimeStore } from "@/stores/conversation-runtime-store
  * don't fold them into this step.
  */
 export const CONV_RAIL_DEPTH_STEP = "1.25rem"
+const SHOW_SIDEBAR_SESSION_USAGE = false
 
 /**
  * Vertical guide rails for a delegation sub-session's ANCESTORS. A row at `depth`
@@ -330,7 +331,7 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
                 </button>
               )}
 
-              {openContextKey ? (
+              {SHOW_SIDEBAR_SESSION_USAGE && openContextKey ? (
                 <SidebarConversationUsageChip
                   contextKey={openContextKey}
                   runtimeConversationId={runtimeConversationId}
