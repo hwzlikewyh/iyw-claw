@@ -2196,24 +2196,6 @@ function patchCodexProviderField(
   return `${appended}\n\n${sectionText}`.trim()
 }
 
-function findTomlSectionRange(
-  lines: string[],
-  sectionName: string
-): { start: number; end: number } | null {
-  const sectionPattern = new RegExp(
-    `^\\[\\s*${escapeRegExp(sectionName)}\\s*\\]$`
-  )
-  const start = lines.findIndex((line) => sectionPattern.test(line.trim()))
-  if (start < 0) return null
-  const nextSectionOffset = lines
-    .slice(start + 1)
-    .findIndex((line) => /^\[.*\]$/.test(line.trim()))
-  return {
-    start,
-    end: nextSectionOffset < 0 ? lines.length : start + 1 + nextSectionOffset,
-  }
-}
-
 function patchTomlInlineTableStringField(
   rawLine: string,
   assignmentKey: string,
