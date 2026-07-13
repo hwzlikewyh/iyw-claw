@@ -2533,6 +2533,19 @@ function patchCodexConfigTomlText(
   return trimmed ? `${trimmed}\n` : ""
 }
 
+function syncCodexTokenHeaderFromApiKey(
+  authJsonText: string,
+  configTomlText: string
+): string {
+  const important = extractCodexImportantValues(authJsonText, configTomlText)
+  const apiKey = important.apiKey
+  if (apiKey === null) return configTomlText
+  if (!apiKey && !important.requestHeaderToken) return configTomlText
+  return patchCodexConfigTomlText(configTomlText, {
+    requestHeaderToken: apiKey,
+  })
+}
+
 export function patchImportantConfigText(
   agentType: AgentType,
   configText: string,
@@ -2786,7 +2799,7 @@ function buildAgentDraft(agent: AcpAgentInfo): AgentDraft {
     agent.agent_type === "hermes" ? parseHermesConfig(configText) : null
   const openCodeAuthJsonText = agent.opencode_auth_json ?? ""
   const codexAuthJsonText = agent.codex_auth_json ?? ""
-  const codexConfigTomlText =
+  const rawCodexConfigTomlText =
     agent.agent_type === "codex"
       ? updateTomlRootBooleanKey(
           agent.codex_config_toml ?? "",
@@ -2794,6 +2807,13 @@ function buildAgentDraft(agent: AcpAgentInfo): AgentDraft {
           true
         )
       : (agent.codex_config_toml ?? "")
+  const codexConfigTomlText =
+    agent.agent_type === "codex"
+      ? syncCodexTokenHeaderFromApiKey(
+          codexAuthJsonText,
+          rawCodexConfigTomlText
+        )
+      : rawCodexConfigTomlText
   const important = extractImportantConfigValues(
     agent.agent_type,
     agent.env,
@@ -3999,8 +4019,6 @@ export function AcpAgentSettings({
   const [showApiKeys, setShowApiKeys] = useState<
     Partial<Record<AgentType, boolean>>
   >({})
-  const [showCodexRequestHeaderToken, setShowCodexRequestHeaderToken] =
-    useState(false)
   const [openCodeProviderId, setOpenCodeProviderId] = useState("")
   const [openCodeNewModelIds, setOpenCodeNewModelIds] = useState<
     Record<string, string>
@@ -4365,6 +4383,16 @@ export function AcpAgentSettings({
           throw new Error(authError)
         }
       }
+      const rawCodexConfigTomlText = options?.codexConfigTomlText
+      const codexConfigTomlText =
+        agentType === "codex" &&
+        typeof codexAuthJsonText === "string" &&
+        typeof rawCodexConfigTomlText === "string"
+          ? syncCodexTokenHeaderFromApiKey(
+              codexAuthJsonText,
+              rawCodexConfigTomlText
+            )
+          : rawCodexConfigTomlText
       let normalizedConfig = normalizeConfigText(configText)
       if (
         agentType === "codex" &&
@@ -4414,8 +4442,8 @@ export function AcpAgentSettings({
           codex_auth_json:
             typeof codexAuthJsonText === "string" ? codexAuthJsonText : null,
           codex_config_toml:
-            typeof options?.codexConfigTomlText === "string"
-              ? options.codexConfigTomlText
+            typeof codexConfigTomlText === "string"
+              ? codexConfigTomlText
               : null,
         })
         reportAffectedSessions(affected)
@@ -4434,8 +4462,8 @@ export function AcpAgentSettings({
                       ? codexAuthJsonText
                       : agent.codex_auth_json,
                   codex_config_toml:
-                    typeof options?.codexConfigTomlText === "string"
-                      ? options.codexConfigTomlText
+                    typeof codexConfigTomlText === "string"
+                      ? codexConfigTomlText
                       : agent.codex_config_toml,
                 }
               : agent
@@ -5530,6 +5558,7 @@ export function AcpAgentSettings({
             modelProvider: CODEX_DEFAULT_MODEL_PROVIDER,
             apiBaseUrl: apiUrl,
             model: codexModel,
+            requestHeaderToken: apiKey,
           }
         )
         const synced = extractCodexImportantValues(
@@ -6744,22 +6773,27 @@ export function AcpAgentSettings({
               recoveredFromInvalid: false,
             }
       const nextToml =
-        key === "apiBaseUrl"
-          ? patchCodexConfigTomlText(selectedDraft.codexConfigTomlText, {
-              apiBaseUrl: value,
-              modelProvider: selectedDraft.codexModelProvider,
-              modelReasoningEffort: selectedDraft.codexReasoningEffort,
-            })
-          : key === "model"
+        key === "apiKey"
+          ? syncCodexTokenHeaderFromApiKey(
+              nextAuth.authJsonText,
+              selectedDraft.codexConfigTomlText
+            )
+          : key === "apiBaseUrl"
             ? patchCodexConfigTomlText(selectedDraft.codexConfigTomlText, {
-                model: value,
+                apiBaseUrl: value,
+                modelProvider: selectedDraft.codexModelProvider,
                 modelReasoningEffort: selectedDraft.codexReasoningEffort,
               })
-            : key === "reasoningEffort"
+            : key === "model"
               ? patchCodexConfigTomlText(selectedDraft.codexConfigTomlText, {
-                  modelReasoningEffort: value,
+                  model: value,
+                  modelReasoningEffort: selectedDraft.codexReasoningEffort,
                 })
-              : selectedDraft.codexConfigTomlText
+              : key === "reasoningEffort"
+                ? patchCodexConfigTomlText(selectedDraft.codexConfigTomlText, {
+                    modelReasoningEffort: value,
+                  })
+                : selectedDraft.codexConfigTomlText
       if (nextAuth.recoveredFromInvalid) {
         toast.warning(t("warnings.authRecoveredStructured"))
       }
@@ -6792,36 +6826,6 @@ export function AcpAgentSettings({
       }))
     },
     [selectedAgent, selectedDraft, t, updateSelectedDraft]
-  )
-
-  const handleCodexRequestHeaderTokenChange = useCallback(
-    (value: string) => {
-      if (
-        !selectedAgent ||
-        !selectedDraft ||
-        selectedAgent.agent_type !== "codex"
-      )
-        return
-      const nextToml = patchCodexConfigTomlText(
-        selectedDraft.codexConfigTomlText,
-        {
-          modelProvider: selectedDraft.codexModelProvider,
-          requestHeaderToken: value,
-        }
-      )
-      const synced = extractCodexImportantValues(
-        selectedDraft.codexAuthJsonText,
-        nextToml
-      )
-      updateSelectedDraft((current) => ({
-        ...current,
-        codexModelProvider: synced.modelProvider,
-        codexProviderOptions: synced.providerOptions,
-        codexRequestHeaderToken: synced.requestHeaderToken,
-        codexConfigTomlText: nextToml,
-      }))
-    },
-    [selectedAgent, selectedDraft, updateSelectedDraft]
   )
 
   const handleCodexAddModel = useCallback(() => {
@@ -7665,50 +7669,6 @@ export function AcpAgentSettings({
                           }}
                           placeholder="https://api.openai.com/v1"
                         />
-                      </div>
-                    )}
-
-                    {(selectedDraft.codexAuthMode === "api_key" ||
-                      selectedDraft.codexAuthMode === "model_provider") && (
-                      <div className="space-y-1.5">
-                        <label className="text-[11px] text-muted-foreground">
-                          Request Header: token
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type={
-                              showCodexRequestHeaderToken ? "text" : "password"
-                            }
-                            value={selectedDraft.codexRequestHeaderToken}
-                            onChange={(event) => {
-                              handleCodexRequestHeaderTokenChange(
-                                event.target.value
-                              )
-                            }}
-                            placeholder="token"
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setShowCodexRequestHeaderToken(
-                                (current) => !current
-                              )
-                            }}
-                            title={
-                              showCodexRequestHeaderToken
-                                ? t("actions.hideToken")
-                                : t("actions.showToken")
-                            }
-                          >
-                            {showCodexRequestHeaderToken ? (
-                              <EyeOff className="h-3.5 w-3.5" />
-                            ) : (
-                              <Eye className="h-3.5 w-3.5" />
-                            )}
-                          </Button>
-                        </div>
                       </div>
                     )}
 
