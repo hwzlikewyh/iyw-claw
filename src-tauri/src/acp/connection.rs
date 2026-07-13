@@ -28,8 +28,10 @@ use sacp::{
 use sacp_tokio::AcpAgent;
 use tokio::sync::{mpsc, RwLock};
 
+use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::error::AcpError;
 use crate::acp::file_system_runtime::{FileSystemRuntime, FileSystemRuntimeError};
+use crate::acp::npm_runtime;
 use crate::acp::registry::{self, AgentDistribution};
 use crate::acp::session_state::SessionState;
 use crate::acp::terminal_runtime::{TerminalRuntime, TerminalRuntimeError};
@@ -63,6 +65,9 @@ fn merge_agent_env(
     }
 
     for (key, value) in runtime_env {
+        if key == crate::commands::acp::MANAGED_AGENT_VERSION_ENV {
+            continue;
+        }
         merged.insert(key.clone(), value.clone());
     }
 
@@ -271,35 +276,26 @@ fn codex_app_server_log_dir() -> Option<String> {
     Some(dir.to_string_lossy().into_owned())
 }
 
-/// Pi runs through pi-acp, which spawns the actual `pi` binary at runtime. If
-/// `pi` (or the BYO-pi `PI_ACP_PI_COMMAND` override) isn't resolvable, pi-acp
-/// dies mid-connection with a raw ENOENT. This preflight resolves the effective
-/// command up front against the same `PATH` the child inherits and returns a
-/// clear message when it can't be found; `None` means launch may proceed.
+/// Pi runs through pi-acp, which spawns the actual private `pi` binary at
+/// runtime. The command is injected as an absolute `PI_ACP_PI_COMMAND`; missing
+/// or damaged private runtimes fail before the adapter starts.
 ///
 /// The message contains the literal substring "is not installed", which the
 /// frontend matches to show the localized SDK-missing prompt with an "Open Agent
 /// Settings" action (see `src/contexts/acp-connections-context.tsx`). Do not
 /// change that substring.
 fn pi_launch_preflight(runtime_env: &BTreeMap<String, String>) -> Option<String> {
-    let custom = runtime_env
+    let command = runtime_env
         .get("PI_ACP_PI_COMMAND")
         .map(|s| s.trim())
         .filter(|s| !s.is_empty());
-    let command = custom.unwrap_or("pi");
-    if crate::commands::acp::resolve_pi_command_path(command).is_some() {
+    if command.is_some_and(|path| crate::commands::acp::resolve_pi_command_path(path).is_some()) {
         return None;
     }
-    Some(match custom {
-        Some(cmd) => format!(
-            "Pi is not installed: the custom pi command \"{cmd}\" was not found. \
-             Update it in Agent Settings → Pi → Runtime."
-        ),
-        None => "Pi is not installed. Install it with: \
-                 npm install -g @earendil-works/pi-coding-agent \
-                 (or set a custom pi command in Agent Settings → Pi → Runtime)."
-            .to_string(),
-    })
+    Some(format!(
+        "Pi is not installed: private command \"{}\" was not found. Reinstall Pi from Agent Settings.",
+        command.unwrap_or("<private pi command missing>")
+    ))
 }
 
 async fn build_agent(
@@ -312,6 +308,30 @@ async fn build_agent(
 
     let agent = match meta.distribution {
         AgentDistribution::Npx { cmd, args, env, .. } => {
+            let storage = AgentStoragePaths::active().ok_or_else(|| {
+                AcpError::SdkNotInstalled(
+                    "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
+                        .to_string(),
+                )
+            })?;
+            let version = runtime_env
+                .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    AcpError::SdkNotInstalled(format!(
+                        "{} is not installed. Please install it in Agent Settings.",
+                        meta.name
+                    ))
+                })?;
+            let command =
+                npm_runtime::resolve_private_npm_command(&storage, agent_type, version, cmd)
+                    .ok_or_else(|| {
+                        AcpError::SdkNotInstalled(format!(
+                            "{} is not installed. Please install it in Agent Settings.",
+                            meta.name
+                        ))
+                    })?;
             // pi-acp spawns the real `pi` binary; fail fast with a clear,
             // install-prompt-routable error if it (or a BYO-pi override) isn't
             // resolvable, rather than letting pi-acp die mid-connection on a raw
@@ -327,7 +347,31 @@ async fn build_agent(
                 // best-effort (never blocks the connect).
                 crate::commands::acp::seed_pi_workspace_trust(cwd, runtime_env);
             }
-            let mut merged_env = merge_agent_env(env, runtime_env);
+            let mut merged_env = merge_agent_env(env, runtime_env)
+                .into_iter()
+                .collect::<BTreeMap<_, _>>();
+            let prefix = npm_runtime::private_npm_prefix(&storage, agent_type, version)?;
+            let bin_dir = npm_runtime::npm_prefix_bin_dir(&prefix);
+            let inherited_path = std::env::var("PATH").unwrap_or_default();
+            prepend_dir_to_path_env(
+                &mut merged_env,
+                &bin_dir.to_string_lossy(),
+                &inherited_path,
+                cfg!(windows),
+            );
+            if agent_type == AgentType::Pi {
+                let private_pi =
+                    npm_runtime::resolve_private_npm_command(&storage, agent_type, version, "pi")
+                        .ok_or_else(|| {
+                        AcpError::SdkNotInstalled(
+                            "Pi is not installed. Reinstall it from Agent Settings.".to_string(),
+                        )
+                    })?;
+                merged_env.insert(
+                    "PI_ACP_PI_COMMAND".to_string(),
+                    private_pi.to_string_lossy().into_owned(),
+                );
+            }
             // codex-acp 1.0.0 honors APP_SERVER_LOGS as a directory for its
             // adapter-side logs. Surface it only under IYW_CLAW_ACP_DEBUG so
             // default runs are unchanged; a directory-creation failure silently
@@ -338,23 +382,14 @@ async fn build_agent(
                     .unwrap_or(false);
             if want_codex_logs {
                 if let Some(dir) = codex_app_server_log_dir() {
-                    merged_env.push(("APP_SERVER_LOGS".to_string(), dir));
+                    merged_env.insert("APP_SERVER_LOGS".to_string(), dir);
                 }
             }
             let mut parts: Vec<String> = Vec::new();
             for (k, v) in &merged_env {
                 parts.push(format!("{k}={v}"));
             }
-            parts.push(
-                crate::commands::acp::resolve_npx_command(cmd)
-                    .await
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|| {
-                        crate::process::normalized_program(cmd)
-                            .to_string_lossy()
-                            .to_string()
-                    }),
-            );
+            parts.push(command.to_string_lossy().into_owned());
             for a in args {
                 parts.push((*a).into());
             }
@@ -403,6 +438,12 @@ async fn build_agent(
             env,
             platforms,
         } => {
+            let storage = AgentStoragePaths::active().ok_or_else(|| {
+                AcpError::SdkNotInstalled(
+                    "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
+                        .to_string(),
+                )
+            })?;
             let platform = registry::current_platform();
             let _ = platforms
                 .iter()
@@ -425,13 +466,15 @@ async fn build_agent(
             // `src/contexts/acp-connections-context.tsx` to surface a
             // localized install prompt. Do not change the wording.
             let (binary_path, cached_version) =
-                crate::acp::binary_cache::find_best_cached_binary_for_agent(agent_type, cmd)?
-                    .ok_or_else(|| {
-                        AcpError::SdkNotInstalled(format!(
-                            "{} is not installed. Please install it in Agent Settings.",
-                            meta.name
-                        ))
-                    })?;
+                crate::acp::binary_cache::find_best_cached_binary_for_agent(
+                    &storage, agent_type, cmd,
+                )?
+                .ok_or_else(|| {
+                    AcpError::SdkNotInstalled(format!(
+                        "{} is not installed. Please install it in Agent Settings.",
+                        meta.name
+                    ))
+                })?;
             if cached_version == registry_version {
                 tracing::info!("[ACP][{}] Using cached binary {cached_version}", meta.name);
             } else {
@@ -529,15 +572,26 @@ async fn build_agent(
             args,
             env,
             python,
-            system_cmd,
+            system_cmd: _,
             ..
         } => {
-            let merged_env = merge_agent_env(env, runtime_env);
+            let storage = AgentStoragePaths::active().ok_or_else(|| {
+                AcpError::SdkNotInstalled(
+                    "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
+                        .to_string(),
+                )
+            })?;
+            let mut merged_env = merge_agent_env(env, runtime_env)
+                .into_iter()
+                .collect::<BTreeMap<_, _>>();
+            for (key, value) in crate::acp::binary_cache::uv_runtime_env(&storage) {
+                merged_env.insert(key.to_string(), value.to_string_lossy().into_owned());
+            }
             let mut parts: Vec<String> = Vec::new();
             for (k, v) in &merged_env {
                 parts.push(format!("{k}={v}"));
             }
-            if let Some(uvx_path) = crate::commands::acp::resolve_uvx_command() {
+            if let Some(uvx_path) = crate::acp::binary_cache::find_cached_uv_tool(&storage, "uvx") {
                 // Primary: `uvx [--python <ver>] --from <pinned package> <entry
                 // script>`. uvx fetches + caches the pinned package on first use;
                 // the `--python` pin keeps it on an interpreter the agent
@@ -548,24 +602,6 @@ async fn build_agent(
                 parts.push(package.to_string());
                 parts.push(cmd.to_string());
                 for a in args {
-                    parts.push((*a).into());
-                }
-            } else if let Some((sys_path, sys_args)) = system_cmd.and_then(|(c, a)| {
-                crate::commands::acp::resolve_command_on_path(c).map(|path| (path, a))
-            }) {
-                // Fallback: the agent's own CLI is already on PATH (e.g.
-                // `hermes acp`), installed via its official installer rather
-                // than provisioned through uvx.
-                tracing::warn!(
-                    "[ACP][{}] uvx unavailable; falling back to system command {:?}",
-                    meta.name,
-                    sys_path
-                );
-                // `system_cmd` is a complete launch recipe for the PATH binary;
-                // the uvx entry-script `args` don't necessarily apply to it
-                // (for Hermes both are empty / `["acp"]`, so this is exact).
-                parts.push(sys_path.to_string_lossy().to_string());
-                for a in sys_args {
                     parts.push((*a).into());
                 }
             } else {
@@ -631,6 +667,12 @@ pub async fn spawn_agent_connection(
     preferred_config_values: BTreeMap<String, String>,
     delegation_injection: Option<DelegationInjection>,
 ) -> Result<tokio::sync::oneshot::Receiver<()>, AcpError> {
+    crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type).map_err(|error| {
+        AcpError::protocol(format!(
+            "Failed to enforce private provider configuration: {error}"
+        ))
+    })?;
+
     // Create the authoritative session state up front. Subsequent emit_with_state
     // calls write through this state and increment its seq counter so the first
     // event the frontend sees has seq=1, not the placeholder 0 from Phase 0.
@@ -3273,14 +3315,29 @@ fn stop_reason_to_str(reason: StopReason) -> &'static str {
 /// (`UserMessageChunk`, `Plan`, `*ModeUpdate`, `ConfigOptionUpdate`,
 /// `SessionInfoUpdate`, `AvailableCommandsUpdate`, `UsageUpdate`) do not
 /// count.
-fn is_agent_output_update(update: &SessionUpdate) -> bool {
-    matches!(
-        update,
-        SessionUpdate::AgentMessageChunk(_)
-            | SessionUpdate::AgentThoughtChunk(_)
-            | SessionUpdate::ToolCall(_)
-            | SessionUpdate::ToolCallUpdate(_)
-    )
+fn should_suppress_agent_message(agent_type: AgentType, text: &str) -> bool {
+    if agent_type != AgentType::Codex {
+        return false;
+    }
+    let text = text.trim();
+    text.starts_with("Warning: Model metadata for ")
+        && text.contains(" not found.")
+        && text.contains("Defaulting to fallback metadata;")
+        && text.contains("this can degrade performance and cause issues.")
+}
+
+fn is_agent_output_update(agent_type: AgentType, update: &SessionUpdate) -> bool {
+    match update {
+        SessionUpdate::AgentMessageChunk(ContentChunk {
+            content: ContentBlock::Text(text),
+            ..
+        }) => !should_suppress_agent_message(agent_type, &text.text),
+        SessionUpdate::AgentMessageChunk(_) => true,
+        SessionUpdate::AgentThoughtChunk(_)
+        | SessionUpdate::ToolCall(_)
+        | SessionUpdate::ToolCallUpdate(_) => true,
+        _ => false,
+    }
 }
 
 /// Build an `AcpEvent::Error` for a non-success stop reason so the user gets a
@@ -3516,7 +3573,7 @@ async fn run_conversation_loop<'a>(
                                                     &notif.update,
                                                     &mut tracked_terminal_tool_calls,
                                                 );
-                                                if is_agent_output_update(&notif.update) {
+                                                if is_agent_output_update(agent_type, &notif.update) {
                                                     turn_had_agent_output = true;
                                                 }
                                                 emit_conversation_update(&st, &h, agent_type, notif.update, cwd_opt, &mut raw_output_cache, &mut cb_state).await;
@@ -4694,11 +4751,13 @@ async fn emit_conversation_update(
             // Drop a CodeBuddy sub-agent's interleaved message text — it belongs
             // to the Agent pill, not the main thread (see
             // `should_suppress_subagent_chunk`). No-op for every other agent.
-            if !should_suppress_subagent_chunk(
-                agent_type,
-                !cb_state.open_subagents.is_empty(),
-                meta.as_ref(),
-            ) {
+            if !should_suppress_agent_message(agent_type, &text.text)
+                && !should_suppress_subagent_chunk(
+                    agent_type,
+                    !cb_state.open_subagents.is_empty(),
+                    meta.as_ref(),
+                )
+            {
                 emit_with_state(state, emitter, AcpEvent::ContentDelta { text: text.text }).await;
             }
         }
@@ -5034,6 +5093,29 @@ mod tests {
     use super::*;
     use sacp::schema::Diff;
 
+    #[test]
+    fn codex_model_metadata_fallback_warning_is_not_rendered() {
+        let warning = "Warning: Model metadata for `gpt-5.6-sol` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.";
+
+        assert!(should_suppress_agent_message(AgentType::Codex, warning));
+        assert!(!should_suppress_agent_message(
+            AgentType::ClaudeCode,
+            warning
+        ));
+    }
+
+    #[test]
+    fn codex_other_warnings_and_normal_messages_remain_visible() {
+        assert!(!should_suppress_agent_message(
+            AgentType::Codex,
+            "Warning: authentication failed"
+        ));
+        assert!(!should_suppress_agent_message(
+            AgentType::Codex,
+            "I could not find model metadata in this source file."
+        ));
+    }
+
     fn diff_content(path: &str, old: Option<&str>, new: &str) -> ToolCallContent {
         let mut d = Diff::new(path, new);
         if let Some(o) = old {
@@ -5140,9 +5222,9 @@ mod tests {
     }
 
     #[test]
-    fn pi_preflight_accepts_resolvable_custom_command() {
-        // A binary we know exists and is executable on this platform — proves the
-        // preflight clears (returns None) for a resolvable PI_ACP_PI_COMMAND.
+    fn pi_preflight_accepts_resolvable_absolute_command() {
+        // A binary we know exists and is executable on this platform proves the
+        // preflight clears for an injected absolute PI_ACP_PI_COMMAND.
         let existing = if cfg!(windows) {
             "C:\\Windows\\System32\\cmd.exe"
         } else {
@@ -5151,6 +5233,30 @@ mod tests {
         let mut env = BTreeMap::new();
         env.insert("PI_ACP_PI_COMMAND".to_string(), existing.to_string());
         assert!(pi_launch_preflight(&env).is_none());
+    }
+
+    #[test]
+    fn pi_preflight_requires_an_explicit_private_command() {
+        let message = pi_launch_preflight(&BTreeMap::new()).unwrap();
+        assert!(message.contains("is not installed"));
+        assert!(!message.contains("npm install -g"));
+    }
+
+    #[test]
+    fn managed_runtime_version_is_not_forwarded_to_agent_process() {
+        let runtime_env = BTreeMap::from([
+            (
+                crate::commands::acp::MANAGED_AGENT_VERSION_ENV.to_string(),
+                "1.1.0".to_string(),
+            ),
+            ("USER_SETTING".to_string(), "kept".to_string()),
+        ]);
+        let merged = merge_agent_env(&[], &runtime_env)
+            .into_iter()
+            .collect::<BTreeMap<_, _>>();
+
+        assert!(!merged.contains_key(crate::commands::acp::MANAGED_AGENT_VERSION_ENV));
+        assert_eq!(merged.get("USER_SETTING").map(String::as_str), Some("kept"));
     }
 
     #[test]

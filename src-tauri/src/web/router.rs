@@ -566,6 +566,27 @@ pub fn build_router(
             "/update_system_terminal_settings",
             post(handlers::system_settings::update_system_terminal_settings),
         )
+        // ─── Agent storage ───
+        .route(
+            "/get_agent_storage_status",
+            post(handlers::agent_storage::get_agent_storage_status),
+        )
+        .route(
+            "/validate_agent_storage_root",
+            post(handlers::agent_storage::validate_agent_storage_root),
+        )
+        .route(
+            "/initialize_agent_storage",
+            post(handlers::agent_storage::initialize_agent_storage),
+        )
+        .route(
+            "/update_agent_profile_override",
+            post(handlers::agent_storage::update_agent_profile_override),
+        )
+        .route(
+            "/migrate_agent_storage",
+            post(handlers::agent_storage::migrate_agent_storage),
+        )
         // ─── Logging ───
         .route(
             "/get_log_settings",

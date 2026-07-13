@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::sync::Mutex;
 
+use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::binary_cache;
 use crate::acp::registry::{self, AgentDistribution};
 use crate::models::agent::AgentType;
@@ -56,6 +57,7 @@ pub fn clear_npm_env_cache() {
 
 pub async fn run_preflight(agent_type: AgentType) -> PreflightResult {
     let meta = registry::get_agent_meta(agent_type);
+    let storage = AgentStoragePaths::active();
     debug_assert_eq!(meta.agent_type, agent_type);
     let checks = match &meta.distribution {
         AgentDistribution::Npx { node_required, .. } => check_npm_environment(*node_required).await,
@@ -64,12 +66,12 @@ pub async fn run_preflight(agent_type: AgentType) -> PreflightResult {
             cmd,
             platforms,
             ..
-        } => check_binary_environment(agent_type, version, cmd, platforms).await,
+        } => check_binary_environment(storage.as_ref(), agent_type, version, cmd, platforms).await,
         AgentDistribution::Uvx {
             uv_required,
             system_cmd,
             ..
-        } => check_uv_environment(*uv_required, *system_cmd).await,
+        } => check_uv_environment(storage.as_ref(), *uv_required, *system_cmd).await,
     };
 
     let passed = checks
@@ -292,15 +294,16 @@ fn build_node_version_check(current_version: Option<&str>, required: &str) -> Ch
 }
 
 /// Preflight for `Uvx` agents (Python ACP agents launched via `uvx`, e.g.
-/// Hermes). Passes when either the `uv` tool runner is resolvable, or — as a
-/// fallback — the agent's own CLI is already installed on PATH.
+/// Hermes). Private storage requires its managed uvx; legacy system discovery
+/// is reported only before storage initialization.
 async fn check_uv_environment(
+    storage: Option<&AgentStoragePaths>,
     uv_required: Option<&str>,
     system_cmd: Option<(&str, &[&str])>,
 ) -> Vec<CheckItem> {
     // Primary: the `uv` tool runner (uvx) fetches + launches the agent package.
     if let Some(uvx_path) = crate::commands::acp::resolve_uvx_command() {
-        let version = run_uv_version(&uvx_path).await;
+        let version = run_uv_version(&uvx_path, storage).await;
         let mut checks = vec![CheckItem {
             check_id: "uv_available".into(),
             label: "uv".into(),
@@ -317,13 +320,12 @@ async fn check_uv_environment(
         return checks;
     }
 
-    // Fallback: the agent's own CLI is already installed on PATH (e.g. a user
-    // who ran the official installer has `hermes` available). The agent is
-    // launchable as-is, but installing uv unlocks iyw-claw's managed install /
-    // upgrade flow, so offer it as a non-blocking action.
-    if let Some((cmd, _)) = system_cmd {
-        if crate::commands::acp::resolve_command_on_path(cmd).is_some() {
-            return vec![CheckItem {
+    // Before initialization only, report an existing system CLI as legacy
+    // availability. Managed launches never use this fallback after activation.
+    if storage.is_none() {
+        if let Some((cmd, _)) = system_cmd {
+            if crate::commands::acp::resolve_command_on_path(cmd).is_some() {
+                return vec![CheckItem {
                 check_id: "uv_available".into(),
                 label: "uv".into(),
                 status: CheckStatus::Warn,
@@ -336,6 +338,7 @@ async fn check_uv_environment(
                     payload: String::new(),
                 }],
             }];
+            }
         }
     }
 
@@ -357,12 +360,15 @@ async fn check_uv_environment(
 
 /// Run `<uvx> --version` and extract the version token (output looks like
 /// "uvx 0.8.10 (hash date)").
-async fn run_uv_version(uvx_path: &std::path::Path) -> Option<String> {
-    let output = crate::process::tokio_command(uvx_path)
-        .arg("--version")
-        .output()
-        .await
-        .ok()?;
+async fn run_uv_version(
+    uvx_path: &std::path::Path,
+    storage: Option<&AgentStoragePaths>,
+) -> Option<String> {
+    let mut command = crate::process::tokio_command(uvx_path);
+    if let Some(paths) = storage {
+        command.envs(binary_cache::uv_runtime_env(paths));
+    }
+    let output = command.arg("--version").output().await.ok()?;
     if !output.status.success() {
         return None;
     }
@@ -409,6 +415,7 @@ fn build_uv_version_check(current: Option<&str>, required: &str) -> CheckItem {
 }
 
 async fn check_binary_environment(
+    storage: Option<&AgentStoragePaths>,
     agent_type: AgentType,
     version: &str,
     cmd: &str,
@@ -449,8 +456,17 @@ async fn check_binary_environment(
     // but still pass — the Settings page's version-badge flow is the
     // canonical place to surface "upgrade available".
     if platform_supported {
-        let cache_check = match binary_cache::find_best_cached_binary_for_agent(agent_type, cmd) {
-            Ok(Some((_, cached_version))) => {
+        let cache_check = match storage
+            .map(|paths| binary_cache::find_best_cached_binary_for_agent(paths, agent_type, cmd))
+        {
+            None => CheckItem {
+                check_id: "binary_cached".into(),
+                label: "Binary cache".into(),
+                status: CheckStatus::Warn,
+                message: "Agent storage is not initialized".into(),
+                fixes: vec![],
+            },
+            Some(Ok(Some((_, cached_version)))) => {
                 let message = if cached_version == version {
                     "Binary is cached locally".to_string()
                 } else {
@@ -464,7 +480,7 @@ async fn check_binary_environment(
                     fixes: vec![],
                 }
             }
-            Ok(None) => CheckItem {
+            Some(Ok(None)) => CheckItem {
                 check_id: "binary_cached".into(),
                 label: "Binary cache".into(),
                 status: CheckStatus::Warn,
@@ -473,7 +489,7 @@ async fn check_binary_environment(
                         .into(),
                 fixes: vec![],
             },
-            Err(_) => CheckItem {
+            Some(Err(_)) => CheckItem {
                 check_id: "binary_cached".into(),
                 label: "Binary cache".into(),
                 status: CheckStatus::Warn,

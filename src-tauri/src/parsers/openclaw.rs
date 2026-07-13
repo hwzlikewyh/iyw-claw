@@ -350,10 +350,7 @@ impl Default for OpenClawParser {
 
 impl OpenClawParser {
     pub fn new() -> Self {
-        let base_dir = dirs::home_dir()
-            .unwrap_or_default()
-            .join(".openclaw")
-            .join("agents");
+        let base_dir = crate::parsers::profile_paths::openclaw_state_dir().join("agents");
         Self { base_dir }
     }
 

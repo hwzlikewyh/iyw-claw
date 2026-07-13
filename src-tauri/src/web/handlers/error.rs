@@ -10,13 +10,17 @@ fn status_for_app_error_code(code: AppErrorCode) -> StatusCode {
     match code {
         AppErrorCode::InvalidInput => StatusCode::BAD_REQUEST,
         AppErrorCode::NotFound => StatusCode::NOT_FOUND,
-        AppErrorCode::AlreadyExists | AppErrorCode::TurnInProgress => StatusCode::CONFLICT,
+        AppErrorCode::AlreadyExists
+        | AppErrorCode::TurnInProgress
+        | AppErrorCode::AgentStorageRestartRequired => StatusCode::CONFLICT,
         AppErrorCode::PermissionDenied => StatusCode::FORBIDDEN,
         AppErrorCode::ConfigurationMissing
         | AppErrorCode::ConfigurationInvalid
         | AppErrorCode::DependencyMissing
         | AppErrorCode::NotAGitRepository
-        | AppErrorCode::AuthenticationFailed => StatusCode::UNPROCESSABLE_ENTITY,
+        | AppErrorCode::AuthenticationFailed
+        | AppErrorCode::AgentStorageNotInitialized
+        | AppErrorCode::AgentStorageInvalid => StatusCode::UNPROCESSABLE_ENTITY,
         AppErrorCode::NetworkError
         | AppErrorCode::DatabaseError
         | AppErrorCode::IoError

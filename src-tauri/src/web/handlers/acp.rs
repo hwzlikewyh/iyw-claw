@@ -74,8 +74,7 @@ pub async fn acp_connect(
     // Guard: the session page must never trigger a download or install.
     // If the agent isn't ready, return SdkNotInstalled here so the frontend
     // can prompt the user to install it from Agent Settings.
-    acp_commands::verify_agent_installed(params.agent_type)
-        .await
+    acp_commands::verify_agent_installed(params.agent_type, &runtime_env)
         .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
 
     let emitter = state.emitter.clone();
@@ -930,8 +929,9 @@ pub async fn acp_install_pi_binary(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<AcpPiBinaryParams>,
 ) -> Result<Json<()>, AppCommandError> {
+    let db = &state.db;
     let emitter = state.emitter.clone();
-    acp_commands::acp_install_pi_binary_core(params.task_id, &emitter)
+    acp_commands::acp_install_pi_binary_core(params.task_id, db, &emitter)
         .await
         .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
     Ok(Json(()))
@@ -941,8 +941,9 @@ pub async fn acp_uninstall_pi_binary(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<AcpPiBinaryParams>,
 ) -> Result<Json<()>, AppCommandError> {
+    let db = &state.db;
     let emitter = state.emitter.clone();
-    acp_commands::acp_uninstall_pi_binary_core(params.task_id, &emitter)
+    acp_commands::acp_uninstall_pi_binary_core(params.task_id, db, &emitter)
         .await
         .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
     Ok(Json(()))

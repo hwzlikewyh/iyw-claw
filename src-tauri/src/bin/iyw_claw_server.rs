@@ -50,7 +50,6 @@ fn main() -> ExitCode {
     // std::env::set_var is not thread-safe (unsafe in Rust edition 2024);
     // #[tokio::main] would spawn worker threads before we reach this point.
     iyw_claw_lib::process::ensure_node_in_path();
-    iyw_claw_lib::process::ensure_user_npm_prefix_in_path();
 
     // Resolve and pin `IYW_CLAW_DATA_DIR` before any threads exist.
     //
@@ -84,12 +83,28 @@ fn main() -> ExitCode {
     let resolved_data_dir = iyw_claw_lib::git_credential::absolutize(&resolved_data_dir);
     std::env::set_var("IYW_CLAW_DATA_DIR", &resolved_data_dir);
 
+    let agent_storage_root = std::env::var_os(iyw_claw_lib::acp::agent_storage::STORAGE_ROOT_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| resolved_data_dir.join("agents"));
+    let agent_storage_config =
+        iyw_claw_lib::acp::agent_storage::AgentStorageConfig::confirmed(agent_storage_root.clone());
+    let agent_storage_paths =
+        iyw_claw_lib::acp::agent_storage::AgentStoragePaths::new(agent_storage_root);
+    iyw_claw_lib::acp::agent_storage::activate_startup_profile_env(
+        &agent_storage_paths,
+        &agent_storage_config,
+    );
+
     // Install the logging subscriber now that IYW_CLAW_DATA_DIR is pinned (the logs
     // dir resolves from it). Doing it here — before the first server diagnostic
     // below — captures even the IYW_CLAW_HOME warning and the FATAL upload-quota
     // abort. Hold the guard for the whole process so buffered file lines flush
     // on a graceful exit.
     let _log_guard = iyw_claw_lib::logging::init::init_server();
+    if let Err(error) = iyw_claw_lib::acp::provider_overlay::enforce_all_active_provider_overlays()
+    {
+        tracing::error!("[agent-storage] failed to repair private provider configuration: {error}");
+    }
 
     // `IYW_CLAW_HOME` overrides `IYW_CLAW_DATA_DIR` for uploads/pets inside
     // `paths::IYW_CLAW_*_root` (legacy `~/.iyw-claw/` layout). If both are set

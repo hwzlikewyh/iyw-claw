@@ -1,16 +1,18 @@
 use std::collections::{BTreeMap, HashMap};
+use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "tauri-runtime")]
 use tauri::{Manager, State};
 
+use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::binary_cache;
 use crate::acp::error::AcpError;
 use crate::acp::manager::ConnectionManager;
+use crate::acp::npm_runtime;
 use crate::acp::opencode_plugins::{self, PluginCheckSummary};
 use crate::acp::preflight::{self, PreflightResult};
 use crate::acp::registry;
@@ -25,19 +27,15 @@ use crate::commands::experts::{
     ExpertLinkState,
 };
 use crate::db::service::agent_setting_service;
-use crate::db::service::model_provider_service;
 use crate::db::AppDatabase;
 use crate::models::agent::AgentType;
 use crate::web::event_bridge::EventEmitter;
 
 const ACP_AGENTS_UPDATED_EVENT: &str = "app://acp-agents-updated";
-const NPM_PREFIX_TIMEOUT: Duration = Duration::from_millis(1500);
-const DEFAULT_MODEL_GATEWAY_BASE_URL: &str = "http://127.0.0.1:6001";
-const MODEL_GATEWAY_BASE_URL_ENV: &str = "IYW_CLAW_MODEL_GATEWAY_BASE_URL";
 const CODEX_MODEL_CATALOG_FILE: &str = "iyw-claw-models.json";
 const CODEX_MODEL_CONTEXT_WINDOW: u64 = 128_000;
 
-static NPM_GLOBAL_PREFIX_CACHE: tokio::sync::OnceCell<PathBuf> = tokio::sync::OnceCell::const_new();
+pub(crate) const MANAGED_AGENT_VERSION_ENV: &str = "IYW_CLAW_MANAGED_AGENT_VERSION";
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -164,7 +162,7 @@ fn sanitize_custom_version(input: &str) -> Option<String> {
     all_allowed.then(|| normalized.to_string())
 }
 
-/// Build the `npm install -g` spec for an agent.
+/// Build the versioned npm package spec for an agent.
 ///
 /// `version_override` of `None` or all-whitespace yields the registry-pinned
 /// `package` spec unchanged (current behavior). A non-empty override is
@@ -198,23 +196,52 @@ fn apply_custom_version_to_url(url: &str, registry_version: &str, custom_version
 /// Check whether an NPX agent command is spawnable.
 /// Uses PATH first, then falls back to the current npm global prefix to handle
 /// GUI environments that don't inherit the user's shell PATH.
-pub(crate) async fn is_cmd_available(cmd: &str) -> bool {
-    resolve_npx_command(cmd).await.is_some()
+pub(crate) fn is_cmd_available(
+    paths: &AgentStoragePaths,
+    agent_type: AgentType,
+    version: &str,
+    cmd: &str,
+) -> bool {
+    resolve_npx_command(paths, agent_type, version, cmd).is_some()
+        && (agent_type != AgentType::Pi
+            || resolve_npx_command(paths, agent_type, version, "pi").is_some())
 }
 
 pub(crate) fn resolve_command_on_path(cmd: &str) -> Option<PathBuf> {
     which::which(cmd).ok()
 }
 
-/// Resolve the `uvx` (uv tool runner) executable used to launch Python ACP
-/// agents (e.g. Hermes). Checks PATH first (respecting a user's own `uv`),
-/// then iyw-claw's managed uv cache, then the common install locations the
-/// official `uv` installer / cargo use (`~/.local/bin`, `~/.cargo/bin`).
-pub(crate) fn resolve_uvx_command() -> Option<PathBuf> {
-    if let Some(path) = resolve_command_on_path("uvx") {
-        return Some(path);
+fn active_agent_storage_paths() -> Result<AgentStoragePaths, AcpError> {
+    AgentStoragePaths::active().ok_or_else(|| {
+        AcpError::SdkNotInstalled(
+            "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
+                .to_string(),
+        )
+    })
+}
+
+pub(crate) fn require_private_agent_storage_for_write() -> Result<AgentStoragePaths, AcpError> {
+    let paths = active_agent_storage_paths()?;
+    if !crate::acp::agent_storage::startup_profile_env_is_complete(&paths, |key| {
+        std::env::var_os(key)
+    }) {
+        return Err(AcpError::SdkNotInstalled(
+            "Agent profile environment is not active. Restart iyw-claw before changing Agent configuration."
+                .to_string(),
+        ));
     }
-    if let Some(path) = crate::acp::binary_cache::find_cached_uv_tool("uvx") {
+    Ok(paths)
+}
+
+/// Resolve the `uvx` (uv tool runner) executable used to launch Python ACP
+/// agents (e.g. Hermes). Once private Agent storage is active, only the managed
+/// uvx under that root is eligible. Legacy PATH/common-location discovery is
+/// retained only before storage initialization.
+pub(crate) fn resolve_uvx_command() -> Option<PathBuf> {
+    if let Some(paths) = AgentStoragePaths::active() {
+        return crate::acp::binary_cache::find_cached_uv_tool(&paths, "uvx");
+    }
+    if let Some(path) = resolve_command_on_path("uvx") {
         return Some(path);
     }
     let exe = if cfg!(windows) { "uvx.exe" } else { "uvx" };
@@ -232,13 +259,16 @@ pub(crate) fn resolve_uvx_command() -> Option<PathBuf> {
 }
 
 /// Whether a `Uvx` agent can actually be launched on this machine right now:
-/// the `uvx` runner is resolvable (iyw-claw auto-provisions it on install, so this
-/// holds post-prepare), or the agent's own CLI is on PATH (system fallback).
+/// after private storage activation the managed `uvx` must exist; before
+/// initialization the legacy system command remains visible to preflight only.
 /// The connect gate (`verify_agent_installed`) and the Settings status/list
 /// paths all use this so they agree on readiness. Note: the prepared-version
 /// marker is deliberately NOT consulted here — it records what was fetched (for
 /// the installed-version badge), not whether the launcher is currently present.
 fn uvx_agent_launchable(system_cmd: Option<(&'static str, &'static [&'static str])>) -> bool {
+    if AgentStoragePaths::active().is_some() {
+        return resolve_uvx_command().is_some();
+    }
     resolve_uvx_command().is_some()
         || system_cmd
             .map(|(c, _)| resolve_command_on_path(c).is_some())
@@ -271,7 +301,8 @@ async fn prewarm_uvx_agent(
     // uv" preflight action. We deliberately do NOT auto-install it here so the
     // two steps stay separate — the Settings UI disables this agent-install
     // action until uv is ready, so a normal user never reaches this error.
-    let uvx = resolve_uvx_command().ok_or_else(|| {
+    let paths = active_agent_storage_paths()?;
+    let uvx = crate::acp::binary_cache::find_cached_uv_tool(&paths, "uvx").ok_or_else(|| {
         AcpError::SdkNotInstalled("uv is not installed; install the uv runtime first".to_string())
     })?;
     let python_args = uvx_python_args(python);
@@ -286,7 +317,9 @@ async fn prewarm_uvx_agent(
         AgentInstallEventKind::Log,
         format!("$ uvx {python_display}--from {package} {cmd} --version"),
     );
-    let output = crate::process::tokio_command(&uvx)
+    let mut command = crate::process::tokio_command(&uvx);
+    command.envs(binary_cache::uv_runtime_env(&paths));
+    let output = command
         .args(&python_args)
         .arg("--from")
         .arg(package)
@@ -316,134 +349,13 @@ async fn prewarm_uvx_agent(
     Ok(())
 }
 
-pub(crate) async fn resolve_npx_command(cmd: &str) -> Option<PathBuf> {
-    if let Some(path) = resolve_command_on_path(cmd) {
-        return Some(path);
-    }
-    resolve_npx_command_from_current_npm_prefix(cmd).await
-}
-
-#[derive(Default)]
-struct NpxCommandResolver {
-    per_cmd_cache: HashMap<String, Option<PathBuf>>,
-    request_npm_prefix: Option<Option<PathBuf>>,
-}
-
-impl NpxCommandResolver {
-    async fn resolve_for_list(&mut self, cmd: &str) -> Option<PathBuf> {
-        if let Some(cached) = self.per_cmd_cache.get(cmd) {
-            return cached.clone();
-        }
-
-        let resolved = if let Some(path) = resolve_command_on_path(cmd) {
-            Some(path)
-        } else {
-            let prefix = if let Some(prefix) = &self.request_npm_prefix {
-                prefix.clone()
-            } else {
-                let resolved_prefix = cached_npm_global_prefix().await;
-                self.request_npm_prefix = Some(resolved_prefix.clone());
-                resolved_prefix
-            };
-            prefix.and_then(|p| resolve_npx_command_from_npm_prefix(cmd, &p))
-        };
-
-        self.per_cmd_cache.insert(cmd.to_string(), resolved.clone());
-        resolved
-    }
-}
-
-async fn resolve_npx_command_from_current_npm_prefix(cmd: &str) -> Option<PathBuf> {
-    let prefix = cached_npm_global_prefix().await?;
-    resolve_npx_command_from_npm_prefix(cmd, &prefix)
-}
-
-async fn cached_npm_global_prefix() -> Option<PathBuf> {
-    cached_npm_global_prefix_with(&NPM_GLOBAL_PREFIX_CACHE, resolve_current_npm_global_prefix).await
-}
-
-async fn cached_npm_global_prefix_with<F, Fut>(
-    cache: &tokio::sync::OnceCell<PathBuf>,
-    resolve: F,
-) -> Option<PathBuf>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Option<PathBuf>>,
-{
-    if let Some(prefix) = cache.get() {
-        return Some(prefix.clone());
-    }
-
-    let resolved = resolve().await?;
-    match cache.set(resolved.clone()) {
-        Ok(()) => Some(resolved),
-        Err(_) => cache.get().cloned(),
-    }
-}
-
-async fn resolve_current_npm_global_prefix() -> Option<PathBuf> {
-    let npm_path = which::which("npm").ok()?;
-    let mut cmd = crate::process::tokio_command(npm_path);
-    cmd.arg("prefix").arg("-g").kill_on_drop(true);
-    let output = tokio::time::timeout(NPM_PREFIX_TIMEOUT, cmd.output())
-        .await
-        .ok()?
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    npm_global_prefix_from_stdout(&output.stdout)
-}
-
-fn npm_global_prefix_from_stdout(stdout: &[u8]) -> Option<PathBuf> {
-    let stdout_text = String::from_utf8_lossy(stdout);
-    let prefix = stdout_text.lines().next()?.trim();
-    if prefix.is_empty() {
-        return None;
-    }
-    Some(PathBuf::from(prefix))
-}
-
-fn npm_prefix_bin_dir(prefix: &Path) -> PathBuf {
-    if cfg!(windows) {
-        prefix.to_path_buf()
-    } else {
-        prefix.join("bin")
-    }
-}
-
-fn resolve_npx_command_from_npm_prefix(cmd: &str, prefix: &Path) -> Option<PathBuf> {
-    let bin_dir = npm_prefix_bin_dir(prefix);
-
-    #[cfg(windows)]
-    let candidates = [
-        bin_dir.join(format!("{cmd}.cmd")),
-        bin_dir.join(format!("{cmd}.exe")),
-        bin_dir.join(cmd),
-    ];
-
-    #[cfg(not(windows))]
-    let candidates = [bin_dir.join(cmd)];
-
-    candidates
-        .into_iter()
-        .find(|path| is_npm_command_candidate(path))
-}
-
-#[cfg(windows)]
-fn is_npm_command_candidate(path: &Path) -> bool {
-    path.is_file()
-}
-
-#[cfg(not(windows))]
-fn is_npm_command_candidate(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-
-    path.is_file()
-        && path
-            .metadata()
-            .map(|m| m.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false)
+pub(crate) fn resolve_npx_command(
+    paths: &AgentStoragePaths,
+    agent_type: AgentType,
+    version: &str,
+    cmd: &str,
+) -> Option<PathBuf> {
+    npm_runtime::resolve_private_npm_command(paths, agent_type, version, cmd)
 }
 
 /// Verify that the agent SDK / binary is installed and usable.
@@ -456,11 +368,19 @@ fn is_npm_command_candidate(path: &Path) -> bool {
 /// For NPX agents: checks the command is spawnable in this process environment.
 /// For Binary agents: checks platform support and that the binary is
 /// already cached locally.
-pub(crate) async fn verify_agent_installed(agent_type: AgentType) -> Result<(), AcpError> {
+pub(crate) fn verify_agent_installed(
+    agent_type: AgentType,
+    runtime_env: &BTreeMap<String, String>,
+) -> Result<(), AcpError> {
     let meta = registry::get_agent_meta(agent_type);
     match meta.distribution {
         registry::AgentDistribution::Npx { cmd, .. } => {
-            if !is_cmd_available(cmd).await {
+            let paths = active_agent_storage_paths()?;
+            let version = runtime_env
+                .get(MANAGED_AGENT_VERSION_ENV)
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty());
+            if !version.is_some_and(|version| is_cmd_available(&paths, agent_type, version, cmd)) {
                 // INVARIANT: the substring "is not installed" is matched
                 // verbatim by the frontend catch block in
                 // `src/contexts/acp-connections-context.tsx` to surface a
@@ -473,6 +393,7 @@ pub(crate) async fn verify_agent_installed(agent_type: AgentType) -> Result<(), 
             Ok(())
         }
         registry::AgentDistribution::Binary { cmd, platforms, .. } => {
+            let paths = active_agent_storage_paths()?;
             let platform = registry::current_platform();
             if !platforms.iter().any(|p| p.platform == platform) {
                 return Err(AcpError::PlatformNotSupported(format!(
@@ -483,7 +404,7 @@ pub(crate) async fn verify_agent_installed(agent_type: AgentType) -> Result<(), 
             // Accept any cached version — the Settings page will still
             // surface "upgrade available" for stale caches via its own
             // version-badge flow.
-            if binary_cache::find_best_cached_binary_for_agent(agent_type, cmd)?.is_none() {
+            if binary_cache::find_best_cached_binary_for_agent(&paths, agent_type, cmd)?.is_none() {
                 // INVARIANT: see note above — "is not installed" is a
                 // stable substring the frontend matches against.
                 return Err(AcpError::SdkNotInstalled(format!(
@@ -510,98 +431,68 @@ pub(crate) async fn verify_agent_installed(agent_type: AgentType) -> Result<(), 
     }
 }
 
-/// Detect the actual installed version of an npm global package by running
-/// `npm list -g <package_name> --json` and parsing the JSON output.
-///
-/// Checks both the system global prefix and the user-local prefix
-/// (`~/.iyw-claw/npm-global/`) so packages installed via the EACCES fallback are
-/// found as well.
-async fn detect_npm_global_version(package_name: &str) -> Option<String> {
-    let npm_path = which::which("npm").ok()?;
-
-    // Try the default global prefix first.
-    if let Some(v) = npm_list_version(&npm_path, package_name, None).await {
-        return Some(v);
-    }
-
-    // Fallback: check the user-local prefix.
-    if let Some(prefix) = crate::process::user_npm_prefix() {
-        if prefix.exists() {
-            return npm_list_version(&npm_path, package_name, Some(&prefix)).await;
-        }
-    }
-
-    None
-}
-
-/// Run `npm list -g <package_name> --json [--prefix=<p>]` and extract the
-/// installed version string.
-async fn npm_list_version(
-    npm_path: &std::path::Path,
-    package_name: &str,
-    prefix: Option<&std::path::Path>,
-) -> Option<String> {
-    let mut cmd = crate::process::tokio_command(npm_path);
-    cmd.arg("list")
-        .arg("-g")
-        .arg(package_name)
-        .arg("--json")
-        .arg("--depth=0");
-    if let Some(p) = prefix {
-        cmd.arg(format!("--prefix={}", p.display()));
-    }
-    let output = cmd.output().await.ok()?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value = serde_json::from_str(&stdout).ok()?;
-    let version = json
-        .get("dependencies")?
-        .get(package_name)?
-        .get("version")?
-        .as_str()?;
-    normalize_version_candidate(version)
-}
-
-async fn detect_local_version(agent_type: AgentType) -> Option<String> {
+fn detect_local_version(agent_type: AgentType, recorded_version: Option<&str>) -> Option<String> {
     let meta = registry::get_agent_meta(agent_type);
     match meta.distribution {
-        registry::AgentDistribution::Npx { cmd, package, .. } => {
-            if !is_cmd_available(cmd).await {
-                return None;
-            }
-            // Try `npm list -g <package_name> --json` to get the real installed version.
-            let pkg_name = package_name_from_spec(package);
-            detect_npm_global_version(&pkg_name).await
+        registry::AgentDistribution::Npx { cmd, .. } => {
+            let paths = AgentStoragePaths::active()?;
+            let version = recorded_version?.trim();
+            is_cmd_available(&paths, agent_type, version, cmd).then_some(())?;
+            Some(version.to_string())
         }
         registry::AgentDistribution::Binary { cmd, .. } => {
-            binary_cache::detect_installed_version(agent_type, cmd)
+            let paths = AgentStoragePaths::active()?;
+            binary_cache::detect_installed_version(&paths, agent_type, cmd)
                 .ok()
                 .flatten()
         }
-        registry::AgentDistribution::Uvx { .. } => binary_cache::uvx_prepared_version(agent_type),
+        registry::AgentDistribution::Uvx { .. } => {
+            let paths = AgentStoragePaths::active()?;
+            binary_cache::uvx_prepared_version(&paths, agent_type)
+        }
     }
 }
 
-/// Official npm registry URL – used to bypass local mirror configurations that
-/// may not have synced niche packages like `@agentclientprotocol/*`.
-const NPM_OFFICIAL_REGISTRY: &str = "https://registry.npmjs.org";
+fn private_npm_version_from_stdout(stdout: &[u8], package_name: &str) -> Option<String> {
+    let document = serde_json::from_slice::<serde_json::Value>(stdout).ok()?;
+    document
+        .get("dependencies")?
+        .get(package_name)?
+        .get("version")?
+        .as_str()
+        .and_then(normalize_version_candidate)
+}
 
-/// Force npm to install platform-specific `optionalDependencies`. Several agents
-/// ship their native CLI as a per-platform optional package — e.g.
-/// `@agentclientprotocol/claude-agent-acp` pulls in `@anthropic-ai/claude-agent-sdk`,
-/// whose runtime binary lives in optional deps like
-/// `@anthropic-ai/claude-agent-sdk-win32-x64`. npm includes optional deps by
-/// default, but a machine with `omit=optional` in its `.npmrc` (or `npm_config_omit`
-/// in the environment) silently skips them, so the install "succeeds" yet the agent
-/// fails at launch with "native binary not found for <platform>". `--include` wins
-/// over `--omit` regardless of order and a CLI flag outranks any `.npmrc`, so passing
-/// it unconditionally guarantees the native binary lands no matter how npm is
-/// configured. Harmless for agents without optional deps.
-const NPM_INCLUDE_OPTIONAL: &str = "--include=optional";
+async fn verify_private_npm_package_version(
+    prefix: &Path,
+    package_name: &str,
+    expected_version: &str,
+) -> Result<(), AcpError> {
+    let output = crate::process::tokio_command("npm")
+        .arg("list")
+        .arg("--global")
+        .arg("--prefix")
+        .arg(prefix)
+        .arg(package_name)
+        .arg("--json")
+        .arg("--depth=0")
+        .output()
+        .await
+        .map_err(|e| AcpError::protocol(format!("verify private npm package failed: {e}")))?;
+    let actual = private_npm_version_from_stdout(&output.stdout, package_name);
+    if output.status.success() && actual.as_deref() == Some(expected_version) {
+        return Ok(());
+    }
+    Err(AcpError::protocol(format!(
+        "private npm version mismatch for {package_name}: expected {expected_version}, found {}",
+        actual.as_deref().unwrap_or("missing")
+    )))
+}
 
 /// Run an npm command with piped stdout/stderr, streaming each line as a log event.
 /// Returns (success: bool, collected_stderr: String) so callers can inspect errors.
 async fn run_npm_streaming(
-    args: &[&str],
+    args: &[OsString],
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<(bool, String), AcpError> {
@@ -668,291 +559,63 @@ async fn run_npm_streaming(
     Ok((status.success(), collected_stderr))
 }
 
-async fn install_npm_global_package_streaming(
-    package: &str,
+async fn install_private_npm_package(
+    paths: &AgentStoragePaths,
+    agent_type: AgentType,
+    version: &str,
+    packages: &[&str],
+    required_commands: &[&str],
     task_id: &str,
     emitter: &EventEmitter,
-) -> Result<(), AcpError> {
-    let registry_arg = format!("--registry={NPM_OFFICIAL_REGISTRY}");
-
-    emit_agent_install_event(
-        emitter,
-        task_id,
-        AgentInstallEventKind::Log,
-        format!("$ npm install -g {NPM_INCLUDE_OPTIONAL} {package}"),
-    );
-
-    let (success, stderr) = run_npm_streaming(
-        &[
-            "install",
-            "-g",
-            NPM_INCLUDE_OPTIONAL,
-            &registry_arg,
-            package,
-        ],
-        task_id,
-        emitter,
-    )
-    .await?;
-
-    if !success {
-        // EACCES: permission denied — retry with a user-local --prefix so
-        // we don't require root/sudo on macOS / Linux.
-        if stderr.contains("EACCES") {
-            emit_agent_install_event(
-                emitter,
-                task_id,
-                AgentInstallEventKind::Log,
-                "Permission denied, retrying with user prefix...",
-            );
-            return install_npm_to_user_prefix_streaming(package, &registry_arg, task_id, emitter)
-                .await;
-        }
-
-        // EEXIST: file conflict — retry with --force to overwrite
-        if stderr.contains("EEXIST") {
-            emit_agent_install_event(
-                emitter,
-                task_id,
-                AgentInstallEventKind::Log,
-                "File conflict, retrying with --force...",
-            );
-            let (retry_success, retry_stderr) = run_npm_streaming(
-                &[
-                    "install",
-                    "-g",
-                    "--force",
-                    NPM_INCLUDE_OPTIONAL,
-                    &registry_arg,
-                    package,
-                ],
-                task_id,
-                emitter,
-            )
-            .await?;
-            if !retry_success {
-                if retry_stderr.contains("EACCES") {
-                    emit_agent_install_event(
-                        emitter,
-                        task_id,
-                        AgentInstallEventKind::Log,
-                        "Permission denied on --force retry, falling back to user prefix...",
-                    );
-                    return install_npm_to_user_prefix_streaming(
-                        package,
-                        &registry_arg,
-                        task_id,
-                        emitter,
-                    )
-                    .await;
-                }
-                let err = retry_stderr.trim().to_string();
-                let msg = if err.is_empty() {
-                    "failed to install npm package globally (with --force)".to_string()
-                } else {
-                    format!("failed to install npm package globally (with --force): {err}")
-                };
-                return Err(AcpError::protocol(msg));
-            }
-            return Ok(());
-        }
-
-        let err = stderr.trim().to_string();
-        let msg = if err.is_empty() {
-            "failed to install npm package globally".to_string()
-        } else {
-            format!("failed to install npm package globally: {err}")
-        };
-        return Err(AcpError::protocol(msg));
-    }
-
-    Ok(())
-}
-
-/// Fallback: install an npm package into a user-local prefix (`~/.iyw-claw/npm-global/`)
-/// when the system global prefix is not writable (EACCES).
-async fn install_npm_to_user_prefix_streaming(
-    package: &str,
-    registry_arg: &str,
-    task_id: &str,
-    emitter: &EventEmitter,
-) -> Result<(), AcpError> {
-    let prefix = crate::process::user_npm_prefix().ok_or_else(|| {
-        AcpError::protocol(
-            "npm install -g failed with EACCES and could not determine home directory for fallback"
-                .to_string(),
-        )
-    })?;
-
-    // Ensure the prefix directory exists.
-    tokio::fs::create_dir_all(&prefix).await.map_err(|e| {
-        AcpError::protocol(format!(
-            "failed to create user npm prefix {}: {e}",
-            prefix.display()
-        ))
-    })?;
-
-    let prefix_arg = format!("--prefix={}", prefix.display());
+) -> Result<PathBuf, AcpError> {
+    let staging = npm_runtime::private_npm_staging_prefix(paths, agent_type);
+    tokio::fs::create_dir_all(paths.staging_dir())
+        .await
+        .map_err(|e| AcpError::protocol(format!("create npm staging root failed: {e}")))?;
+    tokio::fs::create_dir_all(paths.npm_cache_dir())
+        .await
+        .map_err(|e| AcpError::protocol(format!("create private npm cache failed: {e}")))?;
+    let args = npm_runtime::private_npm_install_args(&staging, &paths.npm_cache_dir(), packages);
+    let package_display = packages.join(" ");
 
     emit_agent_install_event(
         emitter,
         task_id,
         AgentInstallEventKind::Log,
         format!(
-            "$ npm install -g {NPM_INCLUDE_OPTIONAL} --prefix={} {package}",
-            prefix.display()
+            "$ npm install --global --include=optional --prefix={} {package_display}",
+            staging.display()
         ),
     );
 
-    let (success, stderr) = run_npm_streaming(
-        &[
-            "install",
-            "-g",
-            NPM_INCLUDE_OPTIONAL,
-            &prefix_arg,
-            registry_arg,
-            package,
-        ],
-        task_id,
-        emitter,
-    )
-    .await?;
-
-    if !success {
-        // EEXIST in the user prefix: retry with --force to overwrite stale files
-        // from a previous installation.
-        if stderr.contains("EEXIST") {
-            emit_agent_install_event(
-                emitter,
-                task_id,
-                AgentInstallEventKind::Log,
-                "File conflict in user prefix, retrying with --force...",
-            );
-            let (force_success, force_stderr) = run_npm_streaming(
-                &[
-                    "install",
-                    "-g",
-                    "--force",
-                    NPM_INCLUDE_OPTIONAL,
-                    &prefix_arg,
-                    registry_arg,
-                    package,
-                ],
-                task_id,
-                emitter,
-            )
-            .await?;
-            if !force_success {
-                let err = force_stderr.trim().to_string();
-                let msg = if err.is_empty() {
-                    format!(
-                        "failed to install npm package (user prefix {}, --force)",
-                        prefix.display()
-                    )
-                } else {
-                    format!(
-                        "failed to install npm package (user prefix {}, --force): {err}",
-                        prefix.display()
-                    )
-                };
-                return Err(AcpError::protocol(msg));
-            }
-            // --force succeeded, fall through to PATH setup below.
-        } else {
-            let err = stderr.trim().to_string();
-            let msg = if err.is_empty() {
-                format!(
-                    "failed to install npm package globally (user prefix {})",
-                    prefix.display()
-                )
+    let result = async {
+        let (success, stderr) = run_npm_streaming(&args, task_id, emitter).await?;
+        if !success {
+            let detail = stderr.trim();
+            return Err(AcpError::protocol(if detail.is_empty() {
+                "private npm install failed".to_string()
             } else {
-                format!(
-                    "failed to install npm package globally (user prefix {}): {err}",
-                    prefix.display()
-                )
-            };
-            return Err(AcpError::protocol(msg));
+                format!("private npm install failed: {detail}")
+            }));
         }
+        let package_name = packages
+            .first()
+            .map(|package| package_name_from_spec(package))
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| AcpError::protocol("private npm package name is empty"))?;
+        verify_private_npm_package_version(&staging, &package_name, version).await?;
+        npm_runtime::activate_private_npm_runtime(
+            paths,
+            agent_type,
+            version,
+            &staging,
+            required_commands,
+        )
     }
+    .await;
 
-    // Make sure the user prefix bin dir is in PATH for subsequent `which` lookups.
-    crate::process::ensure_user_npm_prefix_in_path();
-
-    Ok(())
-}
-
-async fn uninstall_npm_global_package(package: &str) -> Result<(), AcpError> {
-    let package_name = package_name_from_spec(package);
-
-    if !package_name.is_empty() {
-        // Try uninstalling from the default global prefix.
-        let output = crate::process::tokio_command("npm")
-            .arg("uninstall")
-            .arg("-g")
-            .arg(&package_name)
-            .output()
-            .await
-            .map_err(|e| AcpError::protocol(format!("failed to run npm uninstall -g: {e}")))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            // EACCES: the package may have been installed to the user-local
-            // prefix via the EACCES fallback — try uninstalling from there.
-            if stderr.contains("EACCES") {
-                return uninstall_npm_from_user_prefix(&package_name).await;
-            }
-            let err = stderr.trim().to_string();
-            let msg = if err.is_empty() {
-                "failed to uninstall npm package globally".to_string()
-            } else {
-                format!("failed to uninstall npm package globally: {err}")
-            };
-            return Err(AcpError::protocol(msg));
-        }
-
-        // Also try removing from the user prefix (best-effort) in case the
-        // package was installed in both locations.
-        let _ = uninstall_npm_from_user_prefix(&package_name).await;
-    }
-
-    Ok(())
-}
-
-/// Uninstall an npm package from the user-local prefix (`~/.iyw-claw/npm-global/`).
-async fn uninstall_npm_from_user_prefix(package_name: &str) -> Result<(), AcpError> {
-    let prefix = match crate::process::user_npm_prefix() {
-        Some(p) if p.exists() => p,
-        _ => return Ok(()),
-    };
-
-    let prefix_arg = format!("--prefix={}", prefix.display());
-    let output = crate::process::tokio_command("npm")
-        .arg("uninstall")
-        .arg("-g")
-        .arg(&prefix_arg)
-        .arg(package_name)
-        .output()
-        .await
-        .map_err(|e| {
-            AcpError::protocol(format!(
-                "failed to run npm uninstall -g with user prefix: {e}"
-            ))
-        })?;
-
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let msg = if err.is_empty() {
-            format!(
-                "failed to uninstall npm package from user prefix (exit code {})",
-                output.status.code().unwrap_or(-1)
-            )
-        } else {
-            format!("failed to uninstall npm package from user prefix: {err}")
-        };
-        return Err(AcpError::protocol(msg));
-    }
-
-    Ok(())
+    let _ = tokio::fs::remove_dir_all(&staging).await;
+    result
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -970,6 +633,21 @@ pub(crate) struct SkillStorageSpec {
 
 fn home_dir_or_default() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn user_shared_agent_skills_dir_for(
+    private_storage_active: bool,
+    home: PathBuf,
+) -> Option<PathBuf> {
+    (!private_storage_active).then(|| home.join(".agents").join("skills"))
+}
+
+fn with_user_shared_agent_skills(mut directories: Vec<PathBuf>) -> Vec<PathBuf> {
+    let active = crate::acp::agent_storage::AgentStoragePaths::active().is_some();
+    if let Some(shared) = user_shared_agent_skills_dir_for(active, home_dir_or_default()) {
+        directories.push(shared);
+    }
+    directories
 }
 
 fn codex_home_dir() -> PathBuf {
@@ -1043,9 +721,7 @@ fn codex_model_catalog_path() -> PathBuf {
 /// user with XDG dirs set would get credentials written where OpenCode never
 /// looks, and iyw-claw's own plugin/connect paths would diverge.
 fn opencode_config_dir() -> PathBuf {
-    crate::acp::opencode_plugins::xdg_config_home()
-        .unwrap_or_else(|| home_dir_or_default().join(".config"))
-        .join("opencode")
+    crate::parsers::profile_paths::opencode_config_dir()
 }
 
 fn opencode_primary_config_path() -> PathBuf {
@@ -1083,13 +759,7 @@ fn load_opencode_auth_json_raw() -> Option<String> {
 // ---------------------------------------------------------------------------
 
 fn cline_data_dir() -> PathBuf {
-    if let Ok(custom) = std::env::var("CLINE_DIR") {
-        let trimmed = custom.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
-    }
-    home_dir_or_default().join(".cline").join("data")
+    crate::parsers::profile_paths::cline_data_dir()
 }
 
 fn cline_global_state_path() -> PathBuf {
@@ -1981,7 +1651,7 @@ fn ensure_codex_model_catalog() -> Result<(), AcpError> {
         .filter(|model| !model.is_empty());
     let model_ids = load_codex_model_catalog_ids();
     let catalog_ready = !model_ids.is_empty()
-        && default_model.map_or(true, |model| model_ids.iter().any(|item| item == model));
+        && default_model.is_none_or(|model| model_ids.iter().any(|item| item == model));
     if configured_path.is_some() && catalog_ready {
         return Ok(());
     }
@@ -2675,6 +2345,7 @@ pub(crate) async fn acp_update_kimi_code_config_core(
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _paths = require_private_agent_storage_for_write()?;
     enum FileAction {
         Managed(Option<KimiManagedSpec>),
         Raw(String),
@@ -2823,14 +2494,7 @@ pub(crate) async fn acp_fetch_kimi_models_core(
 /// Resolve pi's coding-agent dir: `PI_CODING_AGENT_DIR` if set (trimmed,
 /// non-empty), else `~/.pi/agent` (mirrors `codex_home_dir`/`resolve_kimi_*`).
 fn pi_agent_dir() -> PathBuf {
-    match std::env::var("PI_CODING_AGENT_DIR")
-        .ok()
-        .map(|raw| raw.trim().to_string())
-        .filter(|s| !s.is_empty())
-    {
-        Some(value) => PathBuf::from(value),
-        None => home_dir_or_default().join(".pi").join("agent"),
-    }
+    crate::parsers::profile_paths::pi_agent_dir()
 }
 
 fn pi_settings_json_path() -> PathBuf {
@@ -2992,6 +2656,7 @@ pub(crate) async fn acp_update_pi_config_core(
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _paths = require_private_agent_storage_for_write()?;
     // ---- Validate (no writes yet) ----
     let provider = update.provider.trim();
     if provider.is_empty() {
@@ -3862,10 +3527,34 @@ fn shell_join(argv: &[String]) -> String {
         .join(" ")
 }
 
-/// The argv for Hermes's `--setup` and `model` flows: prefer a system `hermes`
-/// CLI, else the resolved uvx recipe (with the pinned package), else the
-/// documented uvx form. Returned as argv vectors so callers can shell-quote per
-/// platform for display or execute them.
+#[cfg(any(feature = "tauri-runtime", test))]
+fn with_private_uv_shell_env(command: &str, paths: &AgentStoragePaths, windows: bool) -> String {
+    let env = binary_cache::uv_runtime_env(paths);
+    if windows {
+        let assignments = env
+            .into_iter()
+            .map(|(key, value)| format!("set \"{key}={}\"", value.display()))
+            .collect::<Vec<_>>()
+            .join(" && ");
+        format!("{assignments} && {command}")
+    } else {
+        let assignments = env
+            .into_iter()
+            .map(|(key, value)| {
+                format!(
+                    "{key}={}",
+                    shell_quote_arg_for(&value.to_string_lossy(), false)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("{assignments} {command}")
+    }
+}
+
+/// The argv for Hermes's `--setup` and `model` flows. Private storage uses only
+/// the managed uvx recipe; the system Hermes CLI is considered only before
+/// initialization. Returned as argv vectors for display or terminal execution.
 fn hermes_setup_argvs() -> (Vec<String>, Vec<String>) {
     let meta = registry::get_agent_meta(AgentType::Hermes);
     if let registry::AgentDistribution::Uvx {
@@ -3876,16 +3565,22 @@ fn hermes_setup_argvs() -> (Vec<String>, Vec<String>) {
         ..
     } = meta.distribution
     {
-        if let Some((sys, _)) = system_cmd {
-            if resolve_command_on_path(sys).is_some() {
-                return (
-                    vec![sys.to_string(), "acp".to_string(), "--setup".to_string()],
-                    vec![sys.to_string(), "model".to_string()],
-                );
+        if AgentStoragePaths::active().is_none() {
+            if let Some((sys, _)) = system_cmd {
+                if resolve_command_on_path(sys).is_some() {
+                    return (
+                        vec![sys.to_string(), "acp".to_string(), "--setup".to_string()],
+                        vec![sys.to_string(), "model".to_string()],
+                    );
+                }
             }
         }
         let uvx = resolve_uvx_command()
-            .map(|p| p.display().to_string())
+            .or_else(|| {
+                AgentStoragePaths::active()
+                    .map(|paths| binary_cache::managed_uv_tool_path(&paths, "uvx"))
+            })
+            .map(|path| path.display().to_string())
             .unwrap_or_else(|| "uvx".to_string());
         let python_args = uvx_python_args(python);
         // `uvx [--python <ver>] --from <package> <tail...>` — the pin must
@@ -4180,6 +3875,7 @@ pub(crate) fn acp_update_hermes_config_core(
     update: HermesConfigUpdate,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _paths = require_private_agent_storage_for_write()?;
     let HermesConfigUpdate {
         provider,
         api_key,
@@ -4502,8 +4198,8 @@ fn reconcile_hermes_runtime_env_in(home: &Path) -> Result<(), AcpError> {
 
 fn agent_local_config_path(agent_type: AgentType) -> Option<PathBuf> {
     match agent_type {
-        AgentType::ClaudeCode => Some(home_dir_or_default().join(".claude").join("settings.json")),
-        AgentType::Gemini => Some(home_dir_or_default().join(".gemini").join("settings.json")),
+        AgentType::ClaudeCode => Some(crate::parsers::profile_paths::claude_settings_path()),
+        AgentType::Gemini => Some(crate::parsers::profile_paths::gemini_settings_path()),
         AgentType::OpenCode => Some(resolve_opencode_config_path()),
         AgentType::Cline => Some(cline_global_state_path()),
         // Kimi Code's native config is `~/.kimi-code/config.toml`. Exposing the
@@ -4634,12 +4330,12 @@ pub(crate) fn skill_storage_spec(agent_type: AgentType) -> Option<SkillStorageSp
     match agent_type {
         AgentType::ClaudeCode => Some(SkillStorageSpec {
             kind: SkillStorageKind::SkillDirectoryOnly,
-            global_dirs: vec![home_dir_or_default().join(".claude").join("skills")],
+            global_dirs: vec![crate::parsers::claude::resolve_claude_config_dir().join("skills")],
             project_rel_dirs: vec![".claude/skills"],
         }),
         AgentType::Codex => Some(SkillStorageSpec {
             kind: SkillStorageKind::SkillDirectoryOrMarkdownFile,
-            global_dirs: vec![
+            global_dirs: with_user_shared_agent_skills(vec![
                 codex_home_dir().join("skills"),
                 // `.system` is where Codex CLI stores its own bundled
                 // skills (imagegen, skill-creator, etc.). The directory
@@ -4648,8 +4344,7 @@ pub(crate) fn skill_storage_spec(agent_type: AgentType) -> Option<SkillStorageSp
                 // `is_read_only_skill_path` mirrors this path to prevent
                 // edit/delete from clobbering CLI assets.
                 codex_home_dir().join("skills").join(".system"),
-                home_dir_or_default().join(".agents").join("skills"),
-            ],
+            ]),
             project_rel_dirs: vec![".codex/skills", ".agents/skills"],
         }),
         AgentType::OpenCode => Some(SkillStorageSpec {
@@ -4660,34 +4355,28 @@ pub(crate) fn skill_storage_spec(agent_type: AgentType) -> Option<SkillStorageSp
             // create a `~/.config/opencode/skills` symlink. OpenCode reads both
             // locations, so probe both — otherwise CLI-installed skills are
             // invisible here and in Settings → Skills.
-            global_dirs: vec![
-                home_dir_or_default()
-                    .join(".config")
-                    .join("opencode")
-                    .join("skills"),
-                home_dir_or_default().join(".agents").join("skills"),
-            ],
+            global_dirs: with_user_shared_agent_skills(vec![
+                crate::parsers::profile_paths::opencode_config_dir().join("skills"),
+            ]),
             project_rel_dirs: vec![".agents/skills", ".opencode/skills"],
         }),
         AgentType::Gemini => Some(SkillStorageSpec {
             kind: SkillStorageKind::SkillDirectoryOnly,
-            global_dirs: vec![
-                home_dir_or_default().join(".gemini").join("skills"),
-                home_dir_or_default().join(".agents").join("skills"),
-            ],
+            global_dirs: with_user_shared_agent_skills(vec![
+                crate::parsers::gemini::resolve_gemini_base_dir().join("skills"),
+            ]),
             project_rel_dirs: vec![".gemini/skills", ".agents/skills"],
         }),
         AgentType::OpenClaw => Some(SkillStorageSpec {
             kind: SkillStorageKind::SkillDirectoryOnly,
-            global_dirs: vec![home_dir_or_default().join(".openclaw").join("skills")],
+            global_dirs: vec![crate::parsers::profile_paths::openclaw_state_dir().join("skills")],
             project_rel_dirs: vec!["skills"],
         }),
         AgentType::Cline => Some(SkillStorageSpec {
             kind: SkillStorageKind::SkillDirectoryOnly,
-            global_dirs: vec![
-                home_dir_or_default().join(".agents").join("skills"),
-                home_dir_or_default().join(".cline").join("skills"),
-            ],
+            global_dirs: with_user_shared_agent_skills(vec![
+                crate::parsers::profile_paths::cline_skills_dir(),
+            ]),
             project_rel_dirs: vec![
                 ".agents/skills",
                 ".cline/skills",
@@ -4704,7 +4393,9 @@ pub(crate) fn skill_storage_spec(agent_type: AgentType) -> Option<SkillStorageSp
         // layout, under `~/.codebuddy` instead of `~/.claude`.
         AgentType::CodeBuddy => Some(SkillStorageSpec {
             kind: SkillStorageKind::SkillDirectoryOnly,
-            global_dirs: vec![home_dir_or_default().join(".codebuddy").join("skills")],
+            global_dirs: vec![
+                crate::parsers::codebuddy::resolve_codebuddy_config_dir().join("skills")
+            ],
             project_rel_dirs: vec![".codebuddy/skills"],
         }),
         // Kimi Code reads skills from `<KIMI_CODE_HOME>/skills/` (default
@@ -4725,10 +4416,7 @@ pub(crate) fn skill_storage_spec(agent_type: AgentType) -> Option<SkillStorageSp
         // without cross-agent side effects on the shared store.
         AgentType::Pi => Some(SkillStorageSpec {
             kind: SkillStorageKind::SkillDirectoryOrMarkdownFile,
-            global_dirs: vec![
-                pi_agent_dir().join("skills"),
-                home_dir_or_default().join(".agents").join("skills"),
-            ],
+            global_dirs: with_user_shared_agent_skills(vec![pi_agent_dir().join("skills")]),
             project_rel_dirs: vec![".pi/skills", ".agents/skills"],
         }),
     }
@@ -5159,6 +4847,7 @@ fn take_over_read_only_global_native_skill(
     skill_id: &str,
     sync_mode: AgentSkillSyncMode,
 ) -> Result<AgentSkillItem, AcpError> {
+    let _paths = require_private_agent_storage_for_write()?;
     ensure_shared_skill_writable(skill_id)?;
 
     let source = shared_skill_path(skill_id);
@@ -5194,6 +4883,9 @@ fn auto_take_over_read_only_global_native_skills(
 }
 
 fn auto_take_over_read_only_global_native_skills_for_all_agents() -> Result<(), AcpError> {
+    if AgentStoragePaths::active().is_none() {
+        return Ok(());
+    }
     for agent_type in skill_capable_agent_types() {
         let Some(spec) = skill_storage_spec(agent_type) else {
             continue;
@@ -5651,38 +5343,6 @@ fn agent_env_keys(agent_type: AgentType) -> (&'static str, &'static str, &'stati
     }
 }
 
-fn join_model_gateway_path(base_url: &str, path: &str) -> String {
-    format!(
-        "{}/{}",
-        base_url.trim().trim_end_matches('/'),
-        path.trim_start_matches('/')
-    )
-}
-
-pub(crate) fn model_gateway_base_url_for_agent(agent_type: AgentType, base_url: &str) -> String {
-    match agent_type {
-        AgentType::ClaudeCode => join_model_gateway_path(base_url, "anthropic"),
-        _ => join_model_gateway_path(base_url, "v1"),
-    }
-}
-
-fn configured_model_gateway_base_url() -> String {
-    std::env::var(MODEL_GATEWAY_BASE_URL_ENV)
-        .ok()
-        .map(|value| value.trim().trim_end_matches('/').to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_MODEL_GATEWAY_BASE_URL.to_string())
-}
-
-fn apply_model_gateway_env(agent_type: AgentType, runtime_env: &mut BTreeMap<String, String>) {
-    let base_url = configured_model_gateway_base_url();
-    let (url_key, _, _) = agent_env_keys(agent_type);
-    runtime_env.insert(
-        url_key.to_string(),
-        model_gateway_base_url_for_agent(agent_type, &base_url),
-    );
-}
-
 /// Serialize a BTreeMap into env_json for database storage.
 /// Returns `None` when the map is empty.
 fn serialize_env_map(env: &BTreeMap<String, String>) -> Result<Option<String>, AcpError> {
@@ -5736,28 +5396,32 @@ pub(crate) fn build_runtime_env_from_setting(
     merged
 }
 
-/// Resolve model provider credentials into runtime env vars if `model_provider_id` is set.
-pub(crate) async fn apply_model_provider_env(
-    agent_type: AgentType,
-    setting: Option<&crate::db::entities::agent_setting::Model>,
-    runtime_env: &mut BTreeMap<String, String>,
-    conn: &sea_orm::DatabaseConnection,
-) {
-    let provider_id = match setting.and_then(|s| s.model_provider_id) {
-        Some(id) => id,
-        None => return,
-    };
-    let provider = match model_provider_service::get_by_id(conn, provider_id).await {
-        Ok(Some(p)) => p,
-        _ => return,
-    };
-    let (url_key, key_key, _) = agent_env_keys(agent_type);
-    if !provider.api_url.trim().is_empty() {
-        runtime_env.insert(url_key.to_string(), provider.api_url.clone());
+fn managed_profile_env_keys(agent_type: AgentType) -> &'static [&'static str] {
+    match agent_type {
+        AgentType::ClaudeCode => &["CLAUDE_CONFIG_DIR"],
+        AgentType::Codex => &["CODEX_HOME"],
+        AgentType::Gemini => &["GEMINI_CLI_HOME"],
+        AgentType::OpenClaw => &["OPENCLAW_HOME", "OPENCLAW_STATE_DIR"],
+        AgentType::OpenCode => &["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"],
+        AgentType::Cline => &["CLINE_DIR"],
+        AgentType::Hermes => &["HERMES_HOME"],
+        AgentType::CodeBuddy => &["CODEBUDDY_CONFIG_DIR"],
+        AgentType::KimiCode => &["KIMI_CODE_HOME"],
+        AgentType::Pi => &[
+            "PI_ACP_PI_COMMAND",
+            "PI_CODING_AGENT_DIR",
+            "PI_CODING_AGENT_SESSION_DIR",
+        ],
     }
-    if !provider.api_key.trim().is_empty() {
-        runtime_env.insert(key_key.to_string(), provider.api_key.clone());
-    }
+}
+
+fn remove_managed_profile_env(agent_type: AgentType, runtime_env: &mut BTreeMap<String, String>) {
+    let protected = managed_profile_env_keys(agent_type);
+    runtime_env.retain(|key, _| {
+        !protected
+            .iter()
+            .any(|candidate| key.eq_ignore_ascii_case(candidate))
+    });
 }
 
 /// Claude Code provider-model JSON keys → ANTHROPIC_*_MODEL env var names.
@@ -5871,6 +5535,7 @@ fn cascade_update_agent_config(
     model_env: &BTreeMap<String, Option<String>>,
     codex_model: &CodexModelAction,
 ) -> Result<(), AcpError> {
+    let _paths = require_private_agent_storage_for_write()?;
     let (url_key, key_key, _) = agent_env_keys(agent_type);
     match agent_type {
         AgentType::ClaudeCode | AgentType::Gemini => {
@@ -6161,6 +5826,28 @@ pub(crate) async fn build_session_runtime_env(
     session_id: Option<&str>,
     data_dir: &Path,
 ) -> Result<BTreeMap<String, String>, AcpError> {
+    let paths = active_agent_storage_paths()?;
+    if !crate::acp::agent_storage::startup_profile_env_is_complete(&paths, |key| {
+        std::env::var_os(key)
+    }) {
+        return Err(AcpError::SdkNotInstalled(
+            "Agent profile environment is not active. Restart iyw-claw before launching Agents."
+                .to_string(),
+        ));
+    }
+    if let Some(config) = crate::acp::agent_storage::load_config(&db.conn)
+        .await
+        .map_err(|error| AcpError::protocol(error.to_string()))?
+    {
+        if !crate::acp::agent_storage::startup_profile_env_matches(&paths, &config, |key| {
+            std::env::var_os(key)
+        }) {
+            return Err(AcpError::protocol(
+                "Agent storage settings changed. Restart iyw-claw before launching Agents."
+                    .to_string(),
+            ));
+        }
+    }
     let setting = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
@@ -6181,8 +5868,31 @@ pub(crate) async fn build_session_runtime_env(
     let local_config_json = load_agent_local_config_json(agent_type);
     let mut runtime_env =
         build_runtime_env_from_setting(agent_type, setting.as_ref(), local_config_json.as_deref());
-    apply_model_provider_env(agent_type, setting.as_ref(), &mut runtime_env, &db.conn).await;
-    apply_model_gateway_env(agent_type, &mut runtime_env);
+    remove_managed_profile_env(agent_type, &mut runtime_env);
+    crate::acp::provider_overlay::apply_provider_runtime_env(agent_type, &mut runtime_env);
+    runtime_env.remove(MANAGED_AGENT_VERSION_ENV);
+    if let Some(version) = setting
+        .as_ref()
+        .and_then(|model| model.installed_version.as_deref())
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+    {
+        runtime_env.insert(MANAGED_AGENT_VERSION_ENV.to_string(), version.to_string());
+        if agent_type == AgentType::Pi {
+            let paths = active_agent_storage_paths()?;
+            let pi_command = if let Some(command) =
+                npm_runtime::resolve_private_npm_command(&paths, agent_type, version, "pi")
+            {
+                command
+            } else {
+                npm_runtime::preferred_private_npm_command_path(&paths, agent_type, version, "pi")?
+            };
+            runtime_env.insert(
+                "PI_ACP_PI_COMMAND".to_string(),
+                pi_command.to_string_lossy().into_owned(),
+            );
+        }
+    }
 
     // codex resume no longer needs a `MODEL_PROVIDER` pin: codex-acp 1.0.1
     // (#224) resolves the resumed provider from `~/.codex/config.toml` via
@@ -6382,7 +6092,7 @@ pub async fn acp_connect(
     // Guard: the session page must never trigger a download or install.
     // If the agent isn't ready, return SdkNotInstalled here so the frontend
     // can prompt the user to install it from Agent Settings.
-    verify_agent_installed(agent_type).await?;
+    verify_agent_installed(agent_type, &runtime_env)?;
 
     let emitter = EventEmitter::Tauri(app_handle);
     manager
@@ -6463,13 +6173,13 @@ pub async fn acp_describe_agent_options_core(
     agent_type: AgentType,
     working_dir: Option<String>,
 ) -> Result<crate::acp::types::AgentOptionsSnapshot, AcpError> {
-    verify_agent_installed(agent_type).await?;
     // Build the same runtime env delegation/acp_connect would build so
     // probe sees exactly what `delegate_to_agent` will see at runtime.
     // Without this, the settings UI could show options that the agent
     // never advertises in production (settings override an API URL,
     // model_provider injects a different model list, etc.).
     let runtime_env = build_session_runtime_env(db, agent_type, None, data_dir).await?;
+    verify_agent_installed(agent_type, &runtime_env)?;
     manager
         .probe_agent_options(agent_type, working_dir, runtime_env)
         .await
@@ -6695,6 +6405,7 @@ pub(crate) async fn acp_get_agent_status_core(
     agent_type: AgentType,
     db: &AppDatabase,
 ) -> Result<crate::acp::types::AcpAgentStatus, AcpError> {
+    let storage = AgentStoragePaths::active();
     let platform = registry::current_platform();
     let meta = registry::get_agent_meta(agent_type);
     let setting = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
@@ -6702,21 +6413,28 @@ pub(crate) async fn acp_get_agent_status_core(
         .map_err(|e| AcpError::protocol(e.to_string()))?;
 
     let (available, installed_version) = match &meta.distribution {
-        registry::AgentDistribution::Npx { cmd, .. } => (
-            true,
-            resolve_npx_command(cmd)
-                .await
-                .and_then(|_| setting.as_ref().and_then(|m| m.installed_version.clone())),
-        ),
+        registry::AgentDistribution::Npx { cmd, .. } => {
+            let detected = setting.as_ref().and_then(|model| {
+                let version = model.installed_version.as_deref()?;
+                let paths = storage.as_ref()?;
+                is_cmd_available(paths, agent_type, version, cmd).then_some(())?;
+                Some(version.to_string())
+            });
+            (true, detected)
+        }
         registry::AgentDistribution::Binary { platforms, cmd, .. } => {
-            let detected = binary_cache::detect_installed_version(agent_type, cmd)
-                .ok()
-                .flatten();
+            let detected = storage.as_ref().and_then(|paths| {
+                binary_cache::detect_installed_version(paths, agent_type, cmd)
+                    .ok()
+                    .flatten()
+            });
             (platforms.iter().any(|p| p.platform == platform), detected)
         }
         registry::AgentDistribution::Uvx { system_cmd, .. } => (
             uvx_agent_launchable(*system_cmd),
-            binary_cache::uvx_prepared_version(agent_type),
+            storage
+                .as_ref()
+                .and_then(|paths| binary_cache::uvx_prepared_version(paths, agent_type)),
         ),
     };
 
@@ -6798,27 +6516,28 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
     let settings_map = agent_setting_service::list_map_by_agent_type(&db.conn)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
+    let storage = AgentStoragePaths::active();
 
     let mut agents = Vec::new();
-    let mut npx_resolver = NpxCommandResolver::default();
     for (idx, agent_type) in agent_types.into_iter().enumerate() {
         let setting = settings_map.get(&agent_type);
         let meta = registry::get_agent_meta(agent_type);
         let (available, dist_type, local_installed_version) = match &meta.distribution {
             registry::AgentDistribution::Npx { cmd, .. } => {
-                // Keep the list path bounded: each list request probes npm
-                // global prefix at most once, then reuses the result across
-                // all NPX agents in the loop.
-                let cached = npx_resolver
-                    .resolve_for_list(cmd)
-                    .await
-                    .and_then(|_| setting.and_then(|m| m.installed_version.clone()));
+                let cached = setting.and_then(|model| {
+                    let version = model.installed_version.as_deref()?;
+                    let paths = storage.as_ref()?;
+                    is_cmd_available(paths, agent_type, version, cmd).then_some(())?;
+                    Some(version.to_string())
+                });
                 (true, "npx", cached)
             }
             registry::AgentDistribution::Binary { platforms, cmd, .. } => {
-                let detected = binary_cache::detect_installed_version(agent_type, cmd)
-                    .ok()
-                    .flatten();
+                let detected = storage.as_ref().and_then(|paths| {
+                    binary_cache::detect_installed_version(paths, agent_type, cmd)
+                        .ok()
+                        .flatten()
+                });
                 (
                     platforms.iter().any(|p| p.platform == platform),
                     "binary",
@@ -6828,7 +6547,9 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
             registry::AgentDistribution::Uvx { system_cmd, .. } => (
                 uvx_agent_launchable(*system_cmd),
                 "uvx",
-                binary_cache::uvx_prepared_version(agent_type),
+                storage
+                    .as_ref()
+                    .and_then(|paths| binary_cache::uvx_prepared_version(paths, agent_type)),
             ),
         };
 
@@ -6948,12 +6669,13 @@ pub async fn acp_list_agents(
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn acp_clear_binary_cache(agent_type: AgentType) -> Result<(), AcpError> {
+    let paths = active_agent_storage_paths()?;
     let meta = registry::get_agent_meta(agent_type);
     if matches!(
         meta.distribution,
         registry::AgentDistribution::Binary { .. }
     ) {
-        binary_cache::clear_agent_cache(agent_type)?;
+        binary_cache::clear_agent_cache(&paths, agent_type)?;
     }
     Ok(())
 }
@@ -6970,6 +6692,7 @@ pub(crate) async fn acp_update_agent_preferences_core(
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _paths = require_private_agent_storage_for_write()?;
     let default = agent_setting_service::AgentDefaultInput {
         agent_type,
         registry_id: registry::registry_id_for(agent_type).to_string(),
@@ -7098,6 +6821,7 @@ pub(crate) async fn acp_update_agent_env_core(
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _paths = require_private_agent_storage_for_write()?;
     let default = agent_setting_service::AgentDefaultInput {
         agent_type,
         registry_id: registry::registry_id_for(agent_type).to_string(),
@@ -7309,6 +7033,7 @@ pub(crate) async fn acp_update_agent_config_core(
     codex_config_toml: Option<String>,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _paths = require_private_agent_storage_for_write()?;
     let config_json = config_json.and_then(|raw| {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -7574,8 +7299,14 @@ pub async fn acp_validate_pi_command(command: String) -> Result<PiCommandValidat
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn acp_open_hermes_setup_terminal(kind: String) -> Result<(), AcpError> {
+    let paths = active_agent_storage_paths()?;
+    if binary_cache::find_cached_uv_tool(&paths, "uvx").is_none() {
+        return Err(AcpError::SdkNotInstalled(
+            "uv is not installed; install the uv runtime first".to_string(),
+        ));
+    }
     let (setup, model) = hermes_setup_commands();
-    let command = match kind.as_str() {
+    let base_command = match kind.as_str() {
         "setup" => setup,
         "model" => model,
         other => {
@@ -7584,6 +7315,7 @@ pub async fn acp_open_hermes_setup_terminal(kind: String) -> Result<(), AcpError
             )));
         }
     };
+    let command = with_private_uv_shell_env(&base_command, &paths, cfg!(windows));
     let home = hermes_home_dir();
     ensure_hermes_home_secure(&home)?;
     let home_str = home.to_string_lossy();
@@ -7692,7 +7424,9 @@ pub(crate) async fn acp_download_agent_binary_core(
     task_id: String,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
+    let paths = active_agent_storage_paths()?;
 
     let meta = registry::get_agent_meta(agent_type);
     let result = match meta.distribution {
@@ -7743,6 +7477,7 @@ pub(crate) async fn acp_download_agent_binary_core(
             let emitter_clone = emitter.clone();
             let task_id_clone = task_id.clone();
             let _ = binary_cache::ensure_binary_for_agent_with_progress(
+                &paths,
                 agent_type,
                 effective_version,
                 &archive_url,
@@ -7811,11 +7546,13 @@ pub(crate) async fn acp_install_uv_tool_core(
     task_id: String,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
+    let paths = active_agent_storage_paths()?;
 
     let emitter_clone = emitter.clone();
     let task_id_clone = task_id.clone();
-    let result = crate::acp::binary_cache::ensure_uv_tool(move |msg| {
+    let result = crate::acp::binary_cache::ensure_uv_tool(&paths, move |msg| {
         emit_agent_install_event(
             &emitter_clone,
             &task_id_clone,
@@ -7861,7 +7598,11 @@ pub(crate) async fn acp_detect_agent_local_version_core(
     agent_type: AgentType,
     conn: &sea_orm::DatabaseConnection,
 ) -> Result<Option<String>, AcpError> {
-    let detected = detect_local_version(agent_type).await;
+    let recorded = agent_setting_service::get_by_agent_type(conn, agent_type)
+        .await
+        .map_err(|e| AcpError::protocol(e.to_string()))?
+        .and_then(|model| model.installed_version);
+    let detected = detect_local_version(agent_type, recorded.as_deref());
     if let Some(version) = detected.clone() {
         let _ =
             agent_setting_service::set_installed_version(conn, agent_type, Some(version.clone()))
@@ -7869,28 +7610,8 @@ pub(crate) async fn acp_detect_agent_local_version_core(
         return Ok(Some(version));
     }
 
-    // Binary agents detect their version purely from the on-disk cache, so a
-    // `None` here means the binary is genuinely absent (cleared cache, or a
-    // failed custom/upgrade install). Return `None` authoritatively rather than
-    // falling back to the DB, which would resurrect a removed version as a
-    // phantom that can no longer be launched. The returned value does NOT depend
-    // on the mirror write below, so a swallowed write cannot reintroduce the
-    // phantom. (NPX detection runs `npm list`, which can fail transiently, so
-    // for npx we keep the DB value as a best-effort fallback.)
-    if matches!(
-        registry::get_agent_meta(agent_type).distribution,
-        registry::AgentDistribution::Binary { .. }
-    ) {
-        let _ = agent_setting_service::set_installed_version(conn, agent_type, None).await;
-        return Ok(None);
-    }
-
-    let fallback = agent_setting_service::get_by_agent_type(conn, agent_type)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|m| m.installed_version);
-    Ok(fallback)
+    let _ = agent_setting_service::set_installed_version(conn, agent_type, None).await;
+    Ok(None)
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -7911,11 +7632,18 @@ pub(crate) async fn acp_prepare_npx_agent_core(
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<String, AcpError> {
+    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
+    let paths = active_agent_storage_paths()?;
 
     let meta = registry::get_agent_meta(agent_type);
     let result = match meta.distribution {
-        registry::AgentDistribution::Npx { package, .. } => {
+        registry::AgentDistribution::Npx {
+            package,
+            cmd,
+            version,
+            ..
+        } => {
             // `version_override` of None/empty keeps the registry-pinned spec;
             // a custom version installs `<name>@<version>` instead.
             let install_spec = build_npm_install_spec(package, version_override.as_deref())?;
@@ -7929,34 +7657,13 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 .await
                 .map_err(|e| AcpError::protocol(e.to_string()))?;
 
-            let existing = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
-                .await
-                .ok()
-                .flatten()
-                .and_then(|m| m.installed_version);
-
-            // Best-effort uninstall before reinstall. Forces npm to re-resolve
-            // the dependency graph from scratch, which is required for
-            // platform-specific optionalDependencies (e.g. native CLI binaries
-            // shipped as `<pkg>-darwin-x64`) to be picked up after an upgrade.
-            // Failures here are logged and swallowed so we still attempt the
-            // install — for example when nothing is currently installed.
             if clean_first {
-                let package_name = package_name_from_spec(package);
                 emit_agent_install_event(
                     emitter,
                     &task_id,
                     AgentInstallEventKind::Log,
-                    format!("$ npm uninstall -g {package_name} (clean reinstall)"),
+                    "Clean reinstall requested; preparing a fresh private staging prefix",
                 );
-                if let Err(e) = uninstall_npm_global_package(package).await {
-                    emit_agent_install_event(
-                        emitter,
-                        &task_id,
-                        AgentInstallEventKind::Log,
-                        format!("(warning) uninstall step failed, continuing: {e}"),
-                    );
-                }
             }
 
             emit_agent_install_event(
@@ -7965,28 +7672,32 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 AgentInstallEventKind::Log,
                 format!("Installing {} ({install_spec})", meta.name),
             );
-            install_npm_global_package_streaming(&install_spec, &task_id, emitter).await?;
-
-            emit_agent_install_event(
-                emitter,
-                &task_id,
-                AgentInstallEventKind::Log,
-                "Detecting installed version...",
-            );
-            let resolved = detect_local_version(agent_type)
-                .await
-                .or_else(|| version_from_package_spec(&install_spec))
+            let resolved = version_from_package_spec(&install_spec)
                 .or_else(|| {
                     registry_version
                         .as_deref()
                         .and_then(normalize_version_candidate)
                 })
-                .or(existing)
+                .or_else(|| normalize_version_candidate(version))
                 .ok_or_else(|| {
-                    AcpError::protocol(
-                        "npm global install succeeded but failed to determine local version",
-                    )
+                    AcpError::protocol("failed to determine private npm runtime version")
                 })?;
+            let mut packages = vec![install_spec.as_str()];
+            let mut required_commands = vec![cmd];
+            if agent_type == AgentType::Pi {
+                packages.push(PI_CODING_AGENT_PACKAGE);
+                required_commands.push("pi");
+            }
+            install_private_npm_package(
+                &paths,
+                agent_type,
+                &resolved,
+                &packages,
+                &required_commands,
+                &task_id,
+                emitter,
+            )
+            .await?;
 
             agent_setting_service::set_installed_version(
                 &db.conn,
@@ -8023,7 +7734,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             prewarm_uvx_agent(meta.name, package, cmd, python, &task_id, emitter).await?;
 
             let resolved = version.to_string();
-            binary_cache::mark_uvx_agent_prepared(agent_type, &resolved)?;
+            binary_cache::mark_uvx_agent_prepared(&paths, agent_type, &resolved)?;
             agent_setting_service::set_installed_version(
                 &db.conn,
                 agent_type,
@@ -8046,23 +7757,6 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             );
         }
         Err(e) => {
-            // When clean_first was true the uninstall step may already have
-            // succeeded by the time install failed, leaving the DB pointing at
-            // a version that no longer exists on disk. Resync the DB to the
-            // actual filesystem state so the UI doesn't mislead the user into
-            // thinking they can connect.
-            if clean_first {
-                let detected = detect_local_version(agent_type).await;
-                if let Err(sync_err) =
-                    agent_setting_service::set_installed_version(&db.conn, agent_type, detected)
-                        .await
-                {
-                    tracing::error!(
-                        "[acp] failed to resync installed_version after clean upgrade failure: {sync_err}"
-                    );
-                }
-                emit_acp_agents_updated(emitter, "npx_prepare_failed", Some(agent_type));
-            }
             emit_agent_install_event(
                 emitter,
                 &task_id,
@@ -8104,7 +7798,9 @@ pub(crate) async fn acp_uninstall_agent_core(
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
+    let paths = active_agent_storage_paths()?;
 
     let meta = registry::get_agent_meta(agent_type);
     emit_agent_install_event(
@@ -8117,13 +7813,13 @@ pub(crate) async fn acp_uninstall_agent_core(
     let result: Result<(), AcpError> = async {
         match meta.distribution {
             registry::AgentDistribution::Binary { .. } => {
-                binary_cache::clear_agent_cache(agent_type)?;
+                binary_cache::clear_agent_cache(&paths, agent_type)?;
             }
-            registry::AgentDistribution::Npx { package, .. } => {
-                uninstall_npm_global_package(package).await?;
+            registry::AgentDistribution::Npx { .. } => {
+                npm_runtime::uninstall_private_npm_runtime(&paths, agent_type)?;
             }
             registry::AgentDistribution::Uvx { .. } => {
-                binary_cache::clear_uvx_agent_prepared(agent_type)?;
+                binary_cache::clear_uvx_agent_prepared(&paths, agent_type)?;
             }
         }
 
@@ -8169,24 +7865,60 @@ pub async fn acp_uninstall_agent(
 }
 
 /// The npm package that ships the `pi` binary pi-acp spawns as `pi --mode rpc`.
-/// Installed unpinned ("latest"): pi releases frequently and pi-acp resolves
-/// `pi` from PATH, so the binary's version floats independently of the pinned
-/// `pi-acp` adapter (which `acp_prepare_npx_agent` installs separately).
+/// It is installed beside the pinned pi-acp adapter in the same private prefix.
 const PI_CODING_AGENT_PACKAGE: &str = "@earendil-works/pi-coding-agent";
 
-/// Install the `pi` binary globally via npm, streaming progress on the shared
-/// `app://agent-install` topic. This is the prerequisite the missing-pi launch
-/// preflight (see [`crate::acp::connection`]) guards against. Reuses the same
-/// EACCES user-prefix and EEXIST `--force` fallbacks as every other npm agent
-/// install.
+/// Install the Pi adapter and child command together in one private runtime.
 pub(crate) async fn acp_install_pi_binary_core(
     task_id: String,
+    db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
-
-    let result =
-        install_npm_global_package_streaming(PI_CODING_AGENT_PACKAGE, &task_id, emitter).await;
+    let paths = active_agent_storage_paths()?;
+    let meta = registry::get_agent_meta(AgentType::Pi);
+    agent_setting_service::ensure_defaults(
+        &db.conn,
+        &[agent_setting_service::AgentDefaultInput {
+            agent_type: AgentType::Pi,
+            registry_id: registry::registry_id_for(AgentType::Pi).to_string(),
+            default_sort_order: i32::MAX / 2,
+        }],
+    )
+    .await
+    .map_err(|e| AcpError::protocol(e.to_string()))?;
+    let result: Result<(), AcpError> = if let registry::AgentDistribution::Npx {
+        package,
+        cmd,
+        version,
+        ..
+    } = meta.distribution
+    {
+        async {
+            install_private_npm_package(
+                &paths,
+                AgentType::Pi,
+                version,
+                &[package, PI_CODING_AGENT_PACKAGE],
+                &[cmd, "pi"],
+                &task_id,
+                emitter,
+            )
+            .await?;
+            agent_setting_service::set_installed_version(
+                &db.conn,
+                AgentType::Pi,
+                Some(version.to_string()),
+            )
+            .await
+            .map_err(|e| AcpError::protocol(e.to_string()))?;
+            Ok(())
+        }
+        .await
+    } else {
+        Err(AcpError::protocol("Pi is not an npm Agent"))
+    };
 
     match &result {
         Ok(()) => emit_agent_install_event(
@@ -8207,28 +7939,39 @@ pub(crate) async fn acp_install_pi_binary_core(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn acp_install_pi_binary(task_id: String, app: tauri::AppHandle) -> Result<(), AcpError> {
+pub async fn acp_install_pi_binary(
+    task_id: String,
+    db: State<'_, AppDatabase>,
+    app: tauri::AppHandle,
+) -> Result<(), AcpError> {
     let emitter = EventEmitter::Tauri(app);
-    acp_install_pi_binary_core(task_id, &emitter).await
+    acp_install_pi_binary_core(task_id, &db, &emitter).await
 }
 
-/// Uninstall the global `pi` binary. Mirrors `acp_uninstall_agent_core`'s event
-/// envelope; the npm subprocess output isn't streamed (the shared helper
-/// collects it via `.output()`), but the Started/Log/Completed/Failed events
-/// drive the same install-log block in the panel.
+/// Uninstall the coupled private Pi adapter and child runtime.
 pub(crate) async fn acp_uninstall_pi_binary_core(
     task_id: String,
+    db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
+    let paths = active_agent_storage_paths()?;
     emit_agent_install_event(
         emitter,
         &task_id,
         AgentInstallEventKind::Log,
-        format!("$ npm uninstall -g {PI_CODING_AGENT_PACKAGE}"),
+        "Removing private Pi runtime",
     );
 
-    let result = uninstall_npm_global_package(PI_CODING_AGENT_PACKAGE).await;
+    let result: Result<(), AcpError> = async {
+        npm_runtime::uninstall_private_npm_runtime(&paths, AgentType::Pi)?;
+        agent_setting_service::set_installed_version(&db.conn, AgentType::Pi, None)
+            .await
+            .map_err(|e| AcpError::protocol(e.to_string()))?;
+        Ok(())
+    }
+    .await;
 
     match &result {
         Ok(()) => emit_agent_install_event(
@@ -8251,10 +7994,11 @@ pub(crate) async fn acp_uninstall_pi_binary_core(
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn acp_uninstall_pi_binary(
     task_id: String,
+    db: State<'_, AppDatabase>,
     app: tauri::AppHandle,
 ) -> Result<(), AcpError> {
     let emitter = EventEmitter::Tauri(app);
-    acp_uninstall_pi_binary_core(task_id, &emitter).await
+    acp_uninstall_pi_binary_core(task_id, &db, &emitter).await
 }
 
 pub(crate) async fn acp_reorder_agents_core(
@@ -8414,6 +8158,7 @@ pub async fn acp_take_over_agent_skill(
     skill_id: String,
     sync_mode: Option<AgentSkillSyncMode>,
 ) -> Result<AgentSkillItem, AcpError> {
+    let _paths = require_private_agent_storage_for_write()?;
     let Some(spec) = skill_storage_spec(agent_type) else {
         return Err(AcpError::protocol(format!(
             "{agent_type} skills are not supported in Settings yet"
@@ -8441,6 +8186,7 @@ pub async fn acp_save_agent_skill(
     let id = validate_skill_id(&skill_id)?;
 
     if scope == AgentSkillScope::Global {
+        let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
         let source = shared_skill_path(&id);
         let existed = source.join("SKILL.md").is_file();
@@ -8535,6 +8281,7 @@ pub async fn acp_set_agent_skill_enabled(
     let id = validate_skill_id(&skill_id)?;
 
     if scope == AgentSkillScope::Global {
+        let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
         if enabled {
             return publish_shared_skill_to_all_agents(
@@ -8598,6 +8345,7 @@ pub async fn acp_delete_agent_skill(
     let id = validate_skill_id(&skill_id)?;
 
     if scope == AgentSkillScope::Global {
+        let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
         let skill_path = shared_skill_path(&id);
         if !skill_path.join("SKILL.md").is_file() {
@@ -8659,6 +8407,7 @@ pub(crate) async fn opencode_install_plugins_core(
     task_id: String,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     opencode_plugins::install_missing_plugins(names, task_id, emitter)
         .await
         .map_err(AcpError::Protocol)
@@ -8678,6 +8427,7 @@ pub async fn opencode_install_plugins(
 pub(crate) async fn opencode_uninstall_plugin_core(
     name: String,
 ) -> Result<PluginCheckSummary, AcpError> {
+    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     opencode_plugins::uninstall_plugin(name)
         .await
         .map_err(AcpError::Protocol)
@@ -8909,6 +8659,52 @@ pub(crate) async fn codex_poll_device_code_core(
 mod tests {
     use super::*;
 
+    #[test]
+    fn managed_runtime_env_discards_private_profile_path_overrides() {
+        let cases = [
+            (AgentType::Codex, "CODEX_HOME"),
+            (AgentType::ClaudeCode, "CLAUDE_CONFIG_DIR"),
+            (AgentType::OpenCode, "XDG_CONFIG_HOME"),
+            (AgentType::Cline, "CLINE_DIR"),
+        ];
+
+        for (agent, key) in cases {
+            let mut env = BTreeMap::from([
+                (key.to_string(), "C:/Users/demo/global-profile".to_string()),
+                ("KEEP".to_string(), "1".to_string()),
+            ]);
+            remove_managed_profile_env(agent, &mut env);
+            assert!(!env.contains_key(key), "{agent:?} retained {key}");
+            assert_eq!(env.get("KEEP").map(String::as_str), Some("1"));
+        }
+    }
+
+    #[test]
+    fn managed_pi_runtime_discards_user_command_and_directory_overrides() {
+        let mut env = BTreeMap::from([
+            (
+                "PI_ACP_PI_COMMAND".to_string(),
+                "C:/Users/demo/pi.exe".to_string(),
+            ),
+            (
+                "PI_CODING_AGENT_DIR".to_string(),
+                "C:/Users/demo/.pi".to_string(),
+            ),
+            (
+                "PI_CODING_AGENT_SESSION_DIR".to_string(),
+                "C:/Users/demo/pi-sessions".to_string(),
+            ),
+            ("KEEP".to_string(), "1".to_string()),
+        ]);
+
+        remove_managed_profile_env(AgentType::Pi, &mut env);
+
+        assert!(!env.contains_key("PI_ACP_PI_COMMAND"));
+        assert!(!env.contains_key("PI_CODING_AGENT_DIR"));
+        assert!(!env.contains_key("PI_CODING_AGENT_SESSION_DIR"));
+        assert_eq!(env.get("KEEP").map(String::as_str), Some("1"));
+    }
+
     /// Build a `runtime_env` whose `PI_CODING_AGENT_DIR` points at `agent_dir`,
     /// so trust seeding writes a tempdir's `trust.json` instead of `~/.pi/agent`.
     fn pi_env_for(agent_dir: &Path) -> BTreeMap<String, String> {
@@ -8918,6 +8714,50 @@ mod tests {
             agent_dir.to_string_lossy().to_string(),
         );
         env
+    }
+
+    #[test]
+    fn private_storage_disables_system_uvx_fallback() {
+        let temp = tempfile::tempdir().unwrap();
+        let system_bin = temp.path().join("system-bin");
+        let private_root = temp.path().join("private-root");
+        fs::create_dir_all(&system_bin).unwrap();
+        let uvx = system_bin.join(if cfg!(windows) { "uvx.exe" } else { "uvx" });
+        fs::write(&uvx, b"system uvx").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&uvx).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&uvx, permissions).unwrap();
+        }
+
+        temp_env::with_vars(
+            [
+                ("PATH", Some(system_bin.as_path())),
+                (
+                    crate::acp::agent_storage::STORAGE_ROOT_ENV,
+                    Some(private_root.as_path()),
+                ),
+            ],
+            || {
+                assert!(resolve_command_on_path("uvx").is_some());
+                assert_eq!(resolve_uvx_command(), None);
+            },
+        );
+    }
+
+    #[test]
+    fn hermes_terminal_command_pins_private_uv_directories() {
+        let paths = AgentStoragePaths::new(PathBuf::from("D:/iyw-claw-data"));
+        let command = with_private_uv_shell_env("uvx --version", &paths, true);
+
+        assert!(command.contains(&format!("UV_CACHE_DIR={}", paths.uv_cache_dir().display())));
+        assert!(command.contains(&format!(
+            "UV_TOOL_DIR={}",
+            paths.uv_runtime_dir().join("tools").display()
+        )));
+        assert!(command.ends_with("uvx --version"));
     }
 
     fn canonical_key(dir: &Path) -> String {
@@ -9314,6 +9154,16 @@ wire_api = "chat"
     }
 
     #[test]
+    fn private_agent_storage_hides_user_shared_agent_skills() {
+        let home = PathBuf::from("/home/demo");
+        assert_eq!(
+            user_shared_agent_skills_dir_for(false, home.clone()),
+            Some(home.join(".agents/skills"))
+        );
+        assert_eq!(user_shared_agent_skills_dir_for(true, home), None);
+    }
+
+    #[test]
     fn parse_provider_model_emits_claude_custom_model_option_trio() {
         // A Claude provider that defines the custom model option must surface all
         // three ANTHROPIC_CUSTOM_MODEL_OPTION* env vars (Some => set) alongside
@@ -9629,6 +9479,16 @@ wire_api = "chat"
     }
 
     #[test]
+    fn parses_private_npm_package_version() {
+        let stdout = br#"{"dependencies":{"@agentclientprotocol/codex-acp":{"version":"1.1.0"}}}"#;
+        assert_eq!(
+            private_npm_version_from_stdout(stdout, "@agentclientprotocol/codex-acp").as_deref(),
+            Some("1.1.0")
+        );
+        assert_eq!(private_npm_version_from_stdout(b"{}", "missing"), None);
+    }
+
+    #[test]
     fn apply_custom_version_to_url_substitutes_all_occurrences() {
         // Codex URL embeds the version twice (path tag + asset filename).
         let codex = "https://github.com/zed-industries/codex-acp/releases/download/v0.15.0/codex-acp-0.15.0-aarch64-apple-darwin.tar.gz";
@@ -9643,72 +9503,6 @@ wire_api = "chat"
             apply_custom_version_to_url(opencode, "1.15.12", "1.16.0"),
             "https://github.com/anomalyco/opencode/releases/download/v1.16.0/opencode-darwin-arm64.zip"
         );
-    }
-
-    #[test]
-    fn parses_npm_global_prefix_stdout() {
-        let prefix = npm_global_prefix_from_stdout(b"npm-prefix\n");
-        assert_eq!(prefix.as_deref(), Some(Path::new("npm-prefix")));
-
-        assert_eq!(npm_global_prefix_from_stdout(b"\n"), None);
-    }
-
-    #[test]
-    fn resolves_npx_command_from_npm_prefix_bin_dir() {
-        let prefix = unique_test_dir("npm-prefix");
-        let bin_dir = npm_prefix_bin_dir(&prefix);
-        std::fs::create_dir_all(&bin_dir).expect("create npm prefix bin directory");
-
-        #[cfg(windows)]
-        let command_path = bin_dir.join("gemini.cmd");
-        #[cfg(not(windows))]
-        let command_path = bin_dir.join("gemini");
-
-        std::fs::write(&command_path, "").expect("write command shim");
-        #[cfg(not(windows))]
-        {
-            use std::os::unix::fs::PermissionsExt;
-
-            let mut permissions = std::fs::metadata(&command_path)
-                .expect("read command shim metadata")
-                .permissions();
-            permissions.set_mode(0o755);
-            std::fs::set_permissions(&command_path, permissions)
-                .expect("mark command shim executable");
-        }
-
-        let resolved = resolve_npx_command_from_npm_prefix("gemini", &prefix);
-
-        assert_eq!(resolved.as_deref(), Some(command_path.as_path()));
-        let _ = std::fs::remove_dir_all(prefix);
-    }
-
-    #[tokio::test]
-    async fn does_not_cache_failed_npm_global_prefix_resolution() {
-        let cache = tokio::sync::OnceCell::const_new();
-        let first = cached_npm_global_prefix_with(&cache, || async { None }).await;
-        assert_eq!(first, None);
-
-        let expected = PathBuf::from("npm-prefix");
-        let second =
-            cached_npm_global_prefix_with(&cache, || async { Some(expected.clone()) }).await;
-
-        assert_eq!(second, Some(expected));
-    }
-
-    #[cfg(not(windows))]
-    #[test]
-    fn ignores_non_executable_npx_command_from_npm_prefix_bin_dir() {
-        let prefix = unique_test_dir("npm-prefix-non-executable");
-        let bin_dir = npm_prefix_bin_dir(&prefix);
-        std::fs::create_dir_all(&bin_dir).expect("create npm prefix bin directory");
-        let command_path = bin_dir.join("gemini");
-        std::fs::write(&command_path, "").expect("write command shim");
-
-        let resolved = resolve_npx_command_from_npm_prefix("gemini", &prefix);
-
-        assert_eq!(resolved, None);
-        let _ = std::fs::remove_dir_all(prefix);
     }
 
     fn write_skill_md(name: &str, body: &str) -> (PathBuf, PathBuf) {
@@ -11160,7 +10954,7 @@ wire_api = "chat"
         // leading double-quoted string makes PowerShell parse the line as a
         // string expression and fail with "Unexpected token" instead of running
         // uvx; an unquoted bare path runs in both cmd and PowerShell.
-        let path = r"C:\Users\Administrator\AppData\Local\app.iywclaw\acp-binaries\uv-tool\windows-x86_64\uvx.exe";
+        let path = r"D:\Apps\iyw-claw-data\runtime\uv\0.8.10\windows-x86_64\uvx.exe";
         assert_eq!(shell_quote_arg_for(path, true), path);
         // On POSIX the backslash is the escape char, so it still forces quoting.
         assert_eq!(shell_quote_arg_for(path, false), format!("'{path}'"));
@@ -11171,8 +10965,8 @@ wire_api = "chat"
         // Spaces force quoting on both platforms (this case is the known
         // PowerShell-incompatible residual: a quoted leading path needs `&`).
         assert_eq!(
-            shell_quote_arg_for(r"C:\Program Files\uv-tool\uvx.exe", true),
-            "\"C:\\Program Files\\uv-tool\\uvx.exe\""
+            shell_quote_arg_for(r"D:\Program Files\iyw-claw-data\uvx.exe", true),
+            "\"D:\\Program Files\\iyw-claw-data\\uvx.exe\""
         );
         // The pinned package's brackets and comma must stay quoted so PowerShell
         // does not split `[acp,mcp]` into an array argument.
@@ -11564,5 +11358,20 @@ model = "gpt"
         std::fs::write(&path, r#"{"access_token":"real-oauth-abc"}"#).unwrap();
         remove_kimi_synthetic_credential_if_ours_at(&path).expect("remove");
         assert!(path.exists(), "a real login token must not be removed");
+    }
+
+    #[test]
+    fn agent_profile_writes_require_initialized_private_storage() {
+        temp_env::with_var(
+            crate::acp::agent_storage::STORAGE_ROOT_ENV,
+            None::<&str>,
+            || {
+                let error = require_private_agent_storage_for_write()
+                    .expect_err("profile writes must be blocked before storage initialization");
+                assert!(error
+                    .to_string()
+                    .contains("Agent storage is not initialized"));
+            },
+        );
     }
 }

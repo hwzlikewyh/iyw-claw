@@ -91,16 +91,7 @@ struct ApiTokenMetrics {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn cline_data_dir() -> PathBuf {
-    if let Ok(custom) = std::env::var("CLINE_DIR") {
-        let trimmed = custom.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
-    }
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".cline")
-        .join("data")
+    crate::parsers::profile_paths::cline_data_dir()
 }
 
 fn ts_to_datetime(ts: i64) -> DateTime<Utc> {

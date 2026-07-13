@@ -145,6 +145,15 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
+    fn make_loopback_test_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("loopback webhook client")
+    }
+
     fn sample_msg() -> RichMessage {
         RichMessage {
             title: Some("Turn Complete".into()),
@@ -278,7 +287,7 @@ mod tests {
             read_request_and_respond(stream).await
         });
 
-        let client = make_webhook_client();
+        let client = make_loopback_test_client();
         let payload = build_webhook_payload("turn_complete", "conn-1", &sample_msg());
         post_one(&client, &format!("http://{addr}/hook"), &payload)
             .await
@@ -309,7 +318,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         drop(listener);
 
-        let client = make_webhook_client();
+        let client = make_loopback_test_client();
         let payload = serde_json::json!({ "event": "error" });
         let url = format!("http://{addr}/services/T0/B0/SECRETPATH?token=SECRETQUERY");
         let err = post_one(&client, &url, &payload)
@@ -334,7 +343,7 @@ mod tests {
             let _ = stream.flush().await;
         });
 
-        let client = make_webhook_client();
+        let client = make_loopback_test_client();
         let payload = serde_json::json!({ "event": "error" });
         let err = post_one(&client, &format!("http://{addr}/"), &payload)
             .await

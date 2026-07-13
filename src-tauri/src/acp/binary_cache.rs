@@ -1,8 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::error::AcpError;
 use crate::acp::registry;
 use crate::models::agent::AgentType;
@@ -13,38 +14,39 @@ use crate::models::agent::AgentType;
 /// resolution) and would otherwise collide on the rename target.
 static TRASH_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub(crate) fn cache_dir() -> Result<PathBuf, AcpError> {
-    let base = dirs::cache_dir()
-        .ok_or_else(|| AcpError::DownloadFailed("cannot determine cache directory".into()))?;
-    Ok(base.join("app.iywclaw").join("acp-binaries"))
-}
+/// Pinned `uv` toolchain version iyw-claw downloads for Python ACP agents.
+const UV_TOOL_VERSION: &str = "0.8.10";
 
-/// Directory where iyw-claw caches a managed `uv` toolchain (`uv` + `uvx`),
-/// downloaded on demand when the user has no system `uv` (used to launch
-/// Python ACP agents such as Hermes). Layout:
-/// `<cache_dir>/uv-tool/<platform>/{uv,uvx}`.
-pub(crate) fn uv_tool_dir() -> Result<PathBuf, AcpError> {
-    Ok(cache_dir()?
-        .join("uv-tool")
-        .join(registry::current_platform()))
-}
-
-/// Locate a iyw-claw-managed uv tool binary (`uv` or `uvx`) if it has already
-/// been downloaded into the cache. Returns `None` when not present, so
-/// callers fall back to PATH / common install locations.
-pub fn find_cached_uv_tool(tool: &str) -> Option<PathBuf> {
+/// Locate an iyw-claw-managed uv tool binary (`uv` or `uvx`) below the private
+/// Agent storage root. Missing or incompatible files are never resolved from
+/// the process PATH by this module.
+pub fn managed_uv_tool_path(paths: &AgentStoragePaths, tool: &str) -> PathBuf {
     let exe = if cfg!(windows) {
         format!("{tool}.exe")
     } else {
         tool.to_string()
     };
-    let path = uv_tool_dir().ok()?.join(exe);
-    path.is_file().then_some(path)
+    uv_tool_dir_for(paths).join(exe)
 }
 
-/// Pinned `uv` toolchain version iyw-claw downloads on demand when the user has no
-/// system `uv` (used to launch Python ACP agents such as Hermes).
-const UV_TOOL_VERSION: &str = "0.8.10";
+pub fn find_cached_uv_tool(paths: &AgentStoragePaths, tool: &str) -> Option<PathBuf> {
+    let path = managed_uv_tool_path(paths, tool);
+    (path.is_file() && is_binary_file_compatible(&path)).then_some(path)
+}
+
+fn uv_tool_dir_for(paths: &AgentStoragePaths) -> PathBuf {
+    paths
+        .uv_runtime_dir()
+        .join(UV_TOOL_VERSION)
+        .join(registry::current_platform())
+}
+
+pub fn uv_runtime_env(paths: &AgentStoragePaths) -> BTreeMap<&'static str, PathBuf> {
+    BTreeMap::from([
+        ("UV_CACHE_DIR", paths.uv_cache_dir()),
+        ("UV_TOOL_DIR", paths.uv_runtime_dir().join("tools")),
+    ])
+}
 
 /// Build the astral-sh/uv release archive URL for the current platform.
 fn uv_archive_url() -> Option<String> {
@@ -62,11 +64,13 @@ fn uv_archive_url() -> Option<String> {
     ))
 }
 
-/// Download + cache the `uv` toolchain (`uv` + `uvx`) into iyw-claw's cache when no
-/// system `uv` is available, so Python ACP agents work with zero prerequisites.
+/// Download + cache the `uv` toolchain (`uv` + `uvx`) below private Agent storage.
 /// Idempotent: returns the cached `uvx` path immediately if already present.
-pub async fn ensure_uv_tool(on_progress: impl Fn(&str)) -> Result<PathBuf, AcpError> {
-    if let Some(uvx) = find_cached_uv_tool("uvx") {
+pub async fn ensure_uv_tool(
+    paths: &AgentStoragePaths,
+    on_progress: impl Fn(&str),
+) -> Result<PathBuf, AcpError> {
+    if let Some(uvx) = find_cached_uv_tool(paths, "uvx") {
         on_progress("uv already cached, skipping download");
         return Ok(uvx);
     }
@@ -78,15 +82,15 @@ pub async fn ensure_uv_tool(on_progress: impl Fn(&str)) -> Result<PathBuf, AcpEr
         ))
     })?;
 
-    let dir = uv_tool_dir()?;
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| AcpError::DownloadFailed(format!("failed to create uv cache dir: {e}")))?;
-    let tmp_dir = dir.join(".tmp");
-    if tmp_dir.exists() {
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-    }
-    std::fs::create_dir_all(&tmp_dir)
-        .map_err(|e| AcpError::DownloadFailed(format!("failed to create tmp dir: {e}")))?;
+    let operation_id = uuid::Uuid::new_v4();
+    let staging_dir = paths.staging_dir().join(format!("uv-{operation_id}"));
+    let archive_path = paths
+        .downloads_dir()
+        .join(format!("uv-{UV_TOOL_VERSION}-{operation_id}.archive"));
+    std::fs::create_dir_all(paths.downloads_dir())
+        .map_err(|e| AcpError::DownloadFailed(format!("failed to create downloads dir: {e}")))?;
+    std::fs::create_dir_all(&staging_dir)
+        .map_err(|e| AcpError::DownloadFailed(format!("failed to create uv staging dir: {e}")))?;
 
     let (uv_name, uvx_name) = if cfg!(windows) {
         ("uv.exe", "uvx.exe")
@@ -95,11 +99,10 @@ pub async fn ensure_uv_tool(on_progress: impl Fn(&str)) -> Result<PathBuf, AcpEr
     };
 
     let result: Result<PathBuf, AcpError> = async {
-        let archive_path = tmp_dir.join("archive");
         on_progress(&format!("Downloading uv {UV_TOOL_VERSION}..."));
         download_file_with_progress(&url, &archive_path, &on_progress).await?;
 
-        let extract_dir = tmp_dir.join("extracted");
+        let extract_dir = staging_dir.join("extracted");
         std::fs::create_dir_all(&extract_dir)
             .map_err(|e| AcpError::DownloadFailed(format!("failed to create extract dir: {e}")))?;
 
@@ -116,31 +119,32 @@ pub async fn ensure_uv_tool(on_progress: impl Fn(&str)) -> Result<PathBuf, AcpEr
 
         // The uv archive ships both `uv` and `uvx`; cache both so the resolver
         // and any direct `uv` invocation find them.
-        let mut uvx_path: Option<PathBuf> = None;
         for name in [uv_name, uvx_name] {
             let extracted = find_binary_recursive(&extract_dir, name).ok_or_else(|| {
                 AcpError::DownloadFailed(format!("'{name}' not found in uv archive"))
             })?;
-            let final_path = dir.join(name);
-            std::fs::copy(&extracted, &final_path)
+            let staged_path = staging_dir.join(name);
+            std::fs::copy(&extracted, &staged_path)
                 .map_err(|e| AcpError::DownloadFailed(format!("failed to copy {name}: {e}")))?;
-            set_executable_permissions(&final_path)?;
-            if name == uvx_name {
-                uvx_path = Some(final_path);
+            if !is_binary_file_compatible(&staged_path) {
+                return Err(AcpError::DownloadFailed(format!(
+                    "downloaded {name} format is invalid for current platform"
+                )));
             }
+            set_executable_permissions(&staged_path)?;
         }
+        std::fs::remove_dir_all(&extract_dir).map_err(|e| {
+            AcpError::DownloadFailed(format!("failed to finalize uv staging dir: {e}"))
+        })?;
+        activate_staged_directory(paths, &staging_dir, &uv_tool_dir_for(paths), "uv-runtime")?;
         on_progress("uv installed successfully");
-        uvx_path.ok_or_else(|| AcpError::DownloadFailed("uvx missing after install".into()))
+        find_cached_uv_tool(paths, "uvx")
+            .ok_or_else(|| AcpError::DownloadFailed("uvx missing after install".into()))
     }
     .await;
 
-    // Only clean the temp extraction dir. Unlike per-agent binary caches,
-    // `uv_tool_dir` is shared across all Uvx agents, so removing it on failure
-    // could delete a `uv`/`uvx` that a concurrent install (or a live connect)
-    // just wrote. A half-written binary is harmless — the next attempt
-    // overwrites it, and `find_cached_uv_tool` only reports ready when `uvx` is
-    // actually present.
-    let _ = std::fs::remove_dir_all(&tmp_dir);
+    let _ = std::fs::remove_file(&archive_path);
+    let _ = std::fs::remove_dir_all(&staging_dir);
     result
 }
 
@@ -148,22 +152,26 @@ pub async fn ensure_uv_tool(on_progress: impl Fn(&str)) -> Result<PathBuf, AcpEr
 /// uvx's cache (written by the prepare step). The file content is the prepared
 /// version string. Lets the connect/status paths report readiness without
 /// introspecting uvx's internal cache or triggering a download.
-fn uvx_prepared_marker(registry_id: &str) -> Result<PathBuf, AcpError> {
-    Ok(cache_dir()?.join("uvx-prepared").join(registry_id))
+fn uvx_prepared_marker_for(paths: &AgentStoragePaths, registry_id: &str) -> PathBuf {
+    paths.uv_runtime_dir().join("prepared").join(registry_id)
 }
 
 /// Return the prepared version for a Uvx agent, or `None` if it has not been
 /// prepared yet.
-pub fn uvx_prepared_version(agent_type: AgentType) -> Option<String> {
-    let path = uvx_prepared_marker(registry::registry_id_for(agent_type)).ok()?;
+pub fn uvx_prepared_version(paths: &AgentStoragePaths, agent_type: AgentType) -> Option<String> {
+    let path = uvx_prepared_marker_for(paths, registry::registry_id_for(agent_type));
     let raw = std::fs::read_to_string(path).ok()?;
     let v = raw.trim();
     (!v.is_empty()).then(|| v.to_string())
 }
 
 /// Record that a Uvx agent's package (at `version`) has been pre-fetched.
-pub fn mark_uvx_agent_prepared(agent_type: AgentType, version: &str) -> Result<(), AcpError> {
-    let path = uvx_prepared_marker(registry::registry_id_for(agent_type))?;
+pub fn mark_uvx_agent_prepared(
+    paths: &AgentStoragePaths,
+    agent_type: AgentType,
+    version: &str,
+) -> Result<(), AcpError> {
+    let path = uvx_prepared_marker_for(paths, registry::registry_id_for(agent_type));
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| AcpError::DownloadFailed(format!("create uvx marker dir failed: {e}")))?;
@@ -173,8 +181,11 @@ pub fn mark_uvx_agent_prepared(agent_type: AgentType, version: &str) -> Result<(
 }
 
 /// Remove a Uvx agent's prepared marker (used on uninstall). Absent marker is OK.
-pub fn clear_uvx_agent_prepared(agent_type: AgentType) -> Result<(), AcpError> {
-    let path = uvx_prepared_marker(registry::registry_id_for(agent_type))?;
+pub fn clear_uvx_agent_prepared(
+    paths: &AgentStoragePaths,
+    agent_type: AgentType,
+) -> Result<(), AcpError> {
+    let path = uvx_prepared_marker_for(paths, registry::registry_id_for(agent_type));
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -200,7 +211,15 @@ pub(crate) fn agent_cache_key(agent_type: AgentType) -> String {
     registry::registry_id_for(agent_type).to_string()
 }
 
-pub(crate) fn binary_dir(agent_id: &str, version: &str) -> Result<PathBuf, AcpError> {
+fn binary_dir_for(
+    paths: &AgentStoragePaths,
+    agent_id: &str,
+    version: &str,
+) -> Result<PathBuf, AcpError> {
+    binary_dir_from_root(&paths.binary_runtime_dir(), agent_id, version)
+}
+
+fn binary_dir_from_root(root: &Path, agent_id: &str, version: &str) -> Result<PathBuf, AcpError> {
     let version = normalize_version_label(version);
     if version.is_empty() {
         return Err(AcpError::DownloadFailed(
@@ -208,15 +227,106 @@ pub(crate) fn binary_dir(agent_id: &str, version: &str) -> Result<PathBuf, AcpEr
         ));
     }
 
-    Ok(cache_dir()?
+    Ok(root
         .join(agent_id)
         .join(version)
         .join(registry::current_platform()))
 }
 
-pub fn clear_agent_cache(agent_type: AgentType) -> Result<(), AcpError> {
+fn binary_trash_dir(paths: &AgentStoragePaths) -> PathBuf {
+    paths.trash_dir().join("binary")
+}
+
+fn trash_entry_path(paths: &AgentStoragePaths, category: &str, label: &str) -> PathBuf {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let counter = TRASH_COUNTER.fetch_add(1, Ordering::Relaxed);
+    paths
+        .trash_dir()
+        .join(category)
+        .join(format!("{label}-{stamp}-{counter}"))
+}
+
+fn activate_staged_directory(
+    paths: &AgentStoragePaths,
+    staging_dir: &Path,
+    final_dir: &Path,
+    trash_label: &str,
+) -> Result<(), AcpError> {
+    let parent = final_dir.parent().ok_or_else(|| {
+        AcpError::DownloadFailed("runtime destination has no parent directory".into())
+    })?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| AcpError::DownloadFailed(format!("create runtime dir failed: {e}")))?;
+
+    let previous = if final_dir.exists() {
+        let aside = trash_entry_path(paths, "runtime", trash_label);
+        if let Some(parent) = aside.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AcpError::DownloadFailed(format!("create runtime trash dir failed: {e}"))
+            })?;
+        }
+        std::fs::rename(final_dir, &aside).map_err(|e| {
+            AcpError::DownloadFailed(format!("move previous runtime aside failed: {e}"))
+        })?;
+        Some(aside)
+    } else {
+        None
+    };
+
+    if let Err(error) = std::fs::rename(staging_dir, final_dir) {
+        if let Some(previous) = previous.as_ref() {
+            let _ = std::fs::rename(previous, final_dir);
+        }
+        return Err(AcpError::DownloadFailed(format!(
+            "activate staged runtime failed: {error}"
+        )));
+    }
+
+    if let Some(previous) = previous {
+        let _ = std::fs::remove_dir_all(previous);
+    }
+    Ok(())
+}
+
+fn activate_staged_binary(
+    paths: &AgentStoragePaths,
+    agent_id: &str,
+    version: &str,
+    executable_name: &str,
+    staging_dir: &Path,
+) -> Result<PathBuf, AcpError> {
+    let staged_binary = staging_dir.join(executable_name);
+    if !is_binary_file_compatible(&staged_binary) {
+        let _ = std::fs::remove_dir_all(staging_dir);
+        return Err(AcpError::DownloadFailed(
+            "downloaded binary format is invalid for current platform".into(),
+        ));
+    }
+    if let Err(error) = set_executable_permissions(&staged_binary) {
+        let _ = std::fs::remove_dir_all(staging_dir);
+        return Err(error);
+    }
+
+    let final_dir = match binary_dir_for(paths, agent_id, version) {
+        Ok(dir) => dir,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(staging_dir);
+            return Err(error);
+        }
+    };
+    if let Err(error) = activate_staged_directory(paths, staging_dir, &final_dir, agent_id) {
+        let _ = std::fs::remove_dir_all(staging_dir);
+        return Err(error);
+    }
+    Ok(final_dir.join(executable_name))
+}
+
+pub fn clear_agent_cache(paths: &AgentStoragePaths, agent_type: AgentType) -> Result<(), AcpError> {
     let agent_id = agent_cache_key(agent_type);
-    let dir = cache_dir()?.join(&agent_id);
+    let dir = paths.binary_runtime_dir().join(&agent_id);
     if !dir.exists() {
         return Ok(());
     }
@@ -230,14 +340,9 @@ pub fn clear_agent_cache(agent_type: AgentType) -> Result<(), AcpError> {
     // renaming a directory whose children are locked because rename only
     // updates the parent directory entry; the locked file's FILE_OBJECT keeps
     // working under the new path. The aside is swept on next startup.
-    let trash_root = cache_dir()?.join(".trash");
+    let trash_root = binary_trash_dir(paths);
     let _ = std::fs::create_dir_all(&trash_root);
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let counter = TRASH_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let aside = trash_root.join(format!("{agent_id}-{stamp}-{counter}"));
+    let aside = trash_entry_path(paths, "binary", &agent_id);
     std::fs::rename(&dir, &aside)
         .map_err(|e| AcpError::DownloadFailed(format!("failed to clear cache: {e}")))?;
 
@@ -255,18 +360,23 @@ pub fn clear_agent_cache(agent_type: AgentType) -> Result<(), AcpError> {
 /// Iterates children rather than nuking the parent so that a concurrent
 /// `clear_agent_cache` racing to rename a fresh entry into `.trash/` cannot
 /// have its target directory yanked out from under it.
-pub fn sweep_trash() {
-    let Ok(base) = cache_dir() else { return };
-    let trash = base.join(".trash");
-    let Ok(entries) = std::fs::read_dir(&trash) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let _ = std::fs::remove_dir_all(entry.path());
+pub fn sweep_trash(paths: &AgentStoragePaths) {
+    for trash in [binary_trash_dir(paths), paths.trash_dir().join("runtime")] {
+        let Ok(entries) = std::fs::read_dir(&trash) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
     }
 }
 
-fn installed_binary_path(agent_id: &str, version: &str, cmd_name: &str) -> Option<PathBuf> {
+fn installed_binary_path(
+    paths: &AgentStoragePaths,
+    agent_id: &str,
+    version: &str,
+    cmd_name: &str,
+) -> Option<PathBuf> {
     let bin_name = if cfg!(target_os = "windows") {
         format!("{cmd_name}.exe")
     } else {
@@ -278,11 +388,8 @@ fn installed_binary_path(agent_id: &str, version: &str, cmd_name: &str) -> Optio
         return None;
     }
 
-    let path = cache_dir()
+    let path = binary_dir_for(paths, agent_id, &normalized)
         .ok()?
-        .join(agent_id)
-        .join(normalized)
-        .join(registry::current_platform())
         .join(bin_name);
 
     if !path.exists() {
@@ -295,8 +402,12 @@ fn installed_binary_path(agent_id: &str, version: &str, cmd_name: &str) -> Optio
     None
 }
 
-fn installed_version_labels(agent_id: &str, cmd_name: &str) -> Result<Vec<String>, AcpError> {
-    let root = cache_dir()?.join(agent_id);
+fn installed_version_labels(
+    paths: &AgentStoragePaths,
+    agent_id: &str,
+    cmd_name: &str,
+) -> Result<Vec<String>, AcpError> {
+    let root = paths.binary_runtime_dir().join(agent_id);
     if !root.exists() {
         return Ok(Vec::new());
     }
@@ -317,7 +428,7 @@ fn installed_version_labels(agent_id: &str, cmd_name: &str) -> Result<Vec<String
             continue;
         }
 
-        if installed_binary_path(agent_id, &normalized, cmd_name).is_some()
+        if installed_binary_path(paths, agent_id, &normalized, cmd_name).is_some()
             && seen.insert(normalized.clone())
         {
             versions.push(normalized);
@@ -328,11 +439,12 @@ fn installed_version_labels(agent_id: &str, cmd_name: &str) -> Result<Vec<String
 }
 
 fn installed_version_for_agent(
+    paths: &AgentStoragePaths,
     agent_type: AgentType,
     cmd_name: &str,
 ) -> Result<Option<String>, AcpError> {
     let agent_id = agent_cache_key(agent_type);
-    let mut versions = installed_version_labels(&agent_id, cmd_name)?;
+    let mut versions = installed_version_labels(paths, &agent_id, cmd_name)?;
     if versions.is_empty() {
         return Ok(None);
     }
@@ -341,10 +453,11 @@ fn installed_version_for_agent(
 }
 
 pub fn detect_installed_version(
+    paths: &AgentStoragePaths,
     agent_type: AgentType,
     cmd_name: &str,
 ) -> Result<Option<String>, AcpError> {
-    installed_version_for_agent(agent_type, cmd_name)
+    installed_version_for_agent(paths, agent_type, cmd_name)
 }
 
 /// Return the best cached binary across all installed versions.
@@ -358,17 +471,18 @@ pub fn detect_installed_version(
 ///
 /// Returns Ok(None) when no usable binary is cached.
 pub fn find_best_cached_binary_for_agent(
+    paths: &AgentStoragePaths,
     agent_type: AgentType,
     cmd_name: &str,
 ) -> Result<Option<(PathBuf, String)>, AcpError> {
     let agent_id = agent_cache_key(agent_type);
-    let mut versions = installed_version_labels(&agent_id, cmd_name)?;
+    let mut versions = installed_version_labels(paths, &agent_id, cmd_name)?;
     if versions.is_empty() {
         return Ok(None);
     }
     versions.sort_by(|a, b| version_cmp(a, b));
     while let Some(version) = versions.pop() {
-        if let Some(path) = installed_binary_path(&agent_id, &version, cmd_name) {
+        if let Some(path) = installed_binary_path(paths, &agent_id, &version, cmd_name) {
             return Ok(Some((path, version)));
         }
     }
@@ -405,56 +519,65 @@ fn parse_version_parts(input: &str) -> Vec<u32> {
 /// Same as `ensure_binary_for_agent` but calls `on_progress` with human-readable
 /// status messages during download / extraction.
 pub async fn ensure_binary_for_agent_with_progress(
+    paths: &AgentStoragePaths,
     agent_type: AgentType,
     version: &str,
     archive_url: &str,
     cmd_name: &str,
     on_progress: impl Fn(&str),
 ) -> Result<PathBuf, AcpError> {
-    if let Some(path) = find_cached_binary_for_agent(agent_type, version, cmd_name)? {
+    if let Some(path) = find_cached_binary_for_agent(paths, agent_type, version, cmd_name)? {
         on_progress("Binary already cached, skipping download");
         return Ok(path);
     }
 
     let agent_id = agent_cache_key(agent_type);
-    ensure_binary_with_progress(&agent_id, version, archive_url, cmd_name, on_progress).await
+    ensure_binary_with_progress(
+        paths,
+        &agent_id,
+        version,
+        archive_url,
+        cmd_name,
+        on_progress,
+    )
+    .await
 }
 
 async fn ensure_binary_with_progress(
+    paths: &AgentStoragePaths,
     agent_id: &str,
     version: &str,
     archive_url: &str,
     cmd_name: &str,
     on_progress: impl Fn(&str),
 ) -> Result<PathBuf, AcpError> {
-    if let Some(path) = find_cached_binary(agent_id, version, cmd_name)? {
+    if let Some(path) = find_cached_binary(paths, agent_id, version, cmd_name)? {
         return Ok(path);
     }
 
-    let dir = binary_dir(agent_id, version)?;
     let bin_name = if cfg!(target_os = "windows") {
         format!("{cmd_name}.exe")
     } else {
         cmd_name.to_string()
     };
-
-    // Download and extract
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| AcpError::DownloadFailed(format!("failed to create cache dir: {e}")))?;
-
-    let tmp_dir = dir.join(".tmp");
-    if tmp_dir.exists() {
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-    }
-    std::fs::create_dir_all(&tmp_dir)
-        .map_err(|e| AcpError::DownloadFailed(format!("failed to create tmp dir: {e}")))?;
+    let operation_id = uuid::Uuid::new_v4();
+    let staging_dir = paths
+        .staging_dir()
+        .join(format!("binary-{agent_id}-{operation_id}"));
+    let archive_path = paths
+        .downloads_dir()
+        .join(format!("binary-{agent_id}-{operation_id}.archive"));
+    std::fs::create_dir_all(paths.downloads_dir())
+        .map_err(|e| AcpError::DownloadFailed(format!("failed to create downloads dir: {e}")))?;
+    std::fs::create_dir_all(&staging_dir).map_err(|e| {
+        AcpError::DownloadFailed(format!("failed to create binary staging dir: {e}"))
+    })?;
 
     let result: Result<PathBuf, AcpError> = async {
-        let archive_path = tmp_dir.join("archive");
         on_progress(&format!("Downloading {archive_url}"));
         download_file_with_progress(archive_url, &archive_path, &on_progress).await?;
 
-        let extract_dir = tmp_dir.join("extracted");
+        let extract_dir = staging_dir.join("extracted");
         std::fs::create_dir_all(&extract_dir)
             .map_err(|e| AcpError::DownloadFailed(format!("failed to create extract dir: {e}")))?;
 
@@ -471,53 +594,45 @@ async fn ensure_binary_with_progress(
             )));
         }
 
-        // Find the binary in extracted files and move to final location.
         on_progress("Locating binary...");
         let extracted_bin = find_binary_recursive(&extract_dir, &bin_name).ok_or_else(|| {
             AcpError::DownloadFailed(format!("binary '{bin_name}' not found in archive"))
         })?;
 
-        let final_path = dir.join(&bin_name);
-        std::fs::copy(&extracted_bin, &final_path)
+        let staged_path = staging_dir.join(&bin_name);
+        std::fs::copy(&extracted_bin, &staged_path)
             .map_err(|e| AcpError::DownloadFailed(format!("failed to copy binary: {e}")))?;
-
-        if !is_binary_file_compatible(&final_path) {
-            let _ = std::fs::remove_file(&final_path);
-            return Err(AcpError::DownloadFailed(
-                "downloaded binary format is invalid for current platform".into(),
-            ));
-        }
-        set_executable_permissions(&final_path)?;
+        std::fs::remove_dir_all(&extract_dir).map_err(|e| {
+            AcpError::DownloadFailed(format!("failed to finalize binary staging dir: {e}"))
+        })?;
+        let final_path = activate_staged_binary(paths, agent_id, version, &bin_name, &staging_dir)?;
         on_progress("Binary installed successfully");
         Ok(final_path)
     }
     .await;
 
-    // Always clean up temp extraction artifacts.
-    let _ = std::fs::remove_dir_all(&tmp_dir);
-    if result.is_err() {
-        // Avoid leaving empty version/platform directories on failed downloads.
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
+    let _ = std::fs::remove_file(&archive_path);
+    let _ = std::fs::remove_dir_all(&staging_dir);
     result
 }
 
 pub(crate) fn find_cached_binary(
+    paths: &AgentStoragePaths,
     agent_id: &str,
     version: &str,
     cmd_name: &str,
 ) -> Result<Option<PathBuf>, AcpError> {
-    Ok(installed_binary_path(agent_id, version, cmd_name))
+    Ok(installed_binary_path(paths, agent_id, version, cmd_name))
 }
 
 pub(crate) fn find_cached_binary_for_agent(
+    paths: &AgentStoragePaths,
     agent_type: AgentType,
     version: &str,
     cmd_name: &str,
 ) -> Result<Option<PathBuf>, AcpError> {
     let agent_id = agent_cache_key(agent_type);
-    find_cached_binary(&agent_id, version, cmd_name)
+    find_cached_binary(paths, &agent_id, version, cmd_name)
 }
 
 pub(crate) fn find_binary_recursive(dir: &PathBuf, name: &str) -> Option<PathBuf> {
@@ -684,6 +799,22 @@ pub(crate) fn is_binary_file_compatible(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::acp::agent_storage::AgentStoragePaths;
+
+    fn write_compatible_test_binary(path: &Path) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        #[cfg(target_os = "windows")]
+        let bytes = [b'M', b'Z', 0, 0];
+        #[cfg(target_os = "linux")]
+        let bytes = [0x7f, b'E', b'L', b'F'];
+        #[cfg(target_os = "macos")]
+        let bytes = [0xfe, 0xed, 0xfa, 0xcf];
+        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+        let bytes = [0, 0, 0, 0];
+        std::fs::write(path, bytes).unwrap();
+    }
 
     #[test]
     fn cache_key_uses_registry_id() {
@@ -696,5 +827,115 @@ mod tests {
         assert_eq!(normalize_version_label("v1.2.15"), "1.2.15");
         assert_eq!(normalize_version_label("V0.9.4 "), "0.9.4");
         assert_eq!(normalize_version_label("1.25.1"), "1.25.1");
+    }
+
+    #[test]
+    fn private_binary_and_uv_paths_stay_below_agent_storage() {
+        let root = PathBuf::from("D:/iyw-claw-data");
+        let paths = AgentStoragePaths::new(root.clone());
+        let platform = registry::current_platform();
+
+        assert_eq!(
+            binary_dir_for(&paths, "opencode", "v1.2.15").unwrap(),
+            root.join("runtime")
+                .join("binary")
+                .join("opencode")
+                .join("1.2.15")
+                .join(platform)
+        );
+        assert_eq!(
+            uv_tool_dir_for(&paths),
+            root.join("runtime")
+                .join("uv")
+                .join(UV_TOOL_VERSION)
+                .join(platform)
+        );
+        assert_eq!(
+            managed_uv_tool_path(&paths, "uvx"),
+            uv_tool_dir_for(&paths).join(if cfg!(windows) { "uvx.exe" } else { "uvx" })
+        );
+        assert!(uvx_prepared_marker_for(&paths, "hermes").starts_with(&root));
+        assert!(binary_trash_dir(&paths).starts_with(&root));
+
+        if let Some(system_cache) = dirs::cache_dir() {
+            assert!(!binary_dir_for(&paths, "opencode", "1.2.15")
+                .unwrap()
+                .starts_with(&system_cache));
+            assert!(!uv_tool_dir_for(&paths).starts_with(system_cache));
+        }
+    }
+
+    #[test]
+    fn uv_runtime_environment_is_private() {
+        let root = PathBuf::from("D:/iyw-claw-data");
+        let paths = AgentStoragePaths::new(root.clone());
+        let env = uv_runtime_env(&paths);
+
+        assert_eq!(env.get("UV_CACHE_DIR"), Some(&paths.uv_cache_dir()));
+        assert_eq!(
+            env.get("UV_TOOL_DIR"),
+            Some(&root.join("runtime").join("uv").join("tools"))
+        );
+    }
+
+    #[test]
+    fn binary_lookup_reads_only_the_supplied_private_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AgentStoragePaths::new(temp.path().join("private"));
+        let binary = binary_dir_for(&paths, "opencode", "1.2.15")
+            .unwrap()
+            .join(if cfg!(windows) {
+                "opencode.exe"
+            } else {
+                "opencode"
+            });
+        write_compatible_test_binary(&binary);
+
+        let found = find_best_cached_binary_for_agent(&paths, AgentType::OpenCode, "opencode")
+            .unwrap()
+            .unwrap();
+        assert_eq!(found, (binary, "1.2.15".to_string()));
+    }
+
+    #[test]
+    fn uvx_marker_round_trip_uses_private_runtime() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AgentStoragePaths::new(temp.path().join("private"));
+
+        mark_uvx_agent_prepared(&paths, AgentType::Hermes, "0.16.0").unwrap();
+        assert_eq!(
+            uvx_prepared_version(&paths, AgentType::Hermes).as_deref(),
+            Some("0.16.0")
+        );
+        assert!(uvx_prepared_marker_for(&paths, "hermes").starts_with(paths.root()));
+
+        clear_uvx_agent_prepared(&paths, AgentType::Hermes).unwrap();
+        assert_eq!(uvx_prepared_version(&paths, AgentType::Hermes), None);
+    }
+
+    #[test]
+    fn invalid_staged_upgrade_keeps_previous_binary_and_cleans_staging() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = AgentStoragePaths::new(temp.path().join("private"));
+        let executable = if cfg!(windows) {
+            "opencode.exe"
+        } else {
+            "opencode"
+        };
+        let previous = binary_dir_for(&paths, "opencode", "1.2.15")
+            .unwrap()
+            .join(executable);
+        write_compatible_test_binary(&previous);
+
+        let staging = paths.staging_dir().join("invalid-upgrade");
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join(executable), b"invalid").unwrap();
+
+        assert!(activate_staged_binary(&paths, "opencode", "1.3.0", executable, &staging).is_err());
+        assert!(previous.is_file());
+        assert!(!binary_dir_for(&paths, "opencode", "1.3.0")
+            .unwrap()
+            .exists());
+        assert!(!staging.exists());
     }
 }

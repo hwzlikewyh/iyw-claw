@@ -390,9 +390,7 @@ impl AutomationEngine {
         let runtime_env = build_session_runtime_env(&self.db, agent_type, None, &self.data_dir)
             .await
             .map_err(|e| e.to_string())?;
-        verify_agent_installed(agent_type)
-            .await
-            .map_err(|e| e.to_string())?;
+        verify_agent_installed(agent_type, &runtime_env).map_err(|e| e.to_string())?;
 
         // A user cancel can arrive the instant run_automation's early RunStarted
         // makes the row visible. Re-read before spawning the CLI: if a concurrent

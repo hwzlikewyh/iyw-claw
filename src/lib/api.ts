@@ -21,6 +21,8 @@ import type { FolderThemeColor } from "./theme-presets"
 import type { UsageDashboardStats } from "./usage-stats"
 import type {
   AgentType,
+  AgentStorageStatus,
+  AgentStorageRootValidation,
   AgentDelegationDefaults,
   AgentOptionsSnapshot,
   Automation,
@@ -314,6 +316,52 @@ export async function acpListAgents(): Promise<AcpAgentInfo[]> {
   return getTransport().call("acp_list_agents")
 }
 
+export async function getAgentStorageStatus(): Promise<AgentStorageStatus> {
+  return getTransport().call("get_agent_storage_status")
+}
+
+export async function initializeAgentStorage(params: {
+  root: string
+  allowSystemDrive?: boolean
+  importExistingSettings?: boolean
+}): Promise<AgentStorageStatus> {
+  return getTransport().call("initialize_agent_storage", {
+    root: params.root,
+    allowSystemDrive: params.allowSystemDrive ?? false,
+    importExistingSettings: params.importExistingSettings ?? true,
+  })
+}
+
+export async function validateAgentStorageRoot(
+  root: string
+): Promise<AgentStorageRootValidation> {
+  return getTransport().call("validate_agent_storage_root", { root })
+}
+
+export async function updateAgentProfileOverride(params: {
+  agentType: AgentType
+  path: string | null
+  allowSystemDrive?: boolean
+  allowUserGlobalProfile?: boolean
+}): Promise<AgentStorageStatus> {
+  return getTransport().call("update_agent_profile_override", {
+    agentType: params.agentType,
+    path: params.path,
+    allowSystemDrive: params.allowSystemDrive ?? false,
+    allowUserGlobalProfile: params.allowUserGlobalProfile ?? false,
+  })
+}
+
+export async function migrateAgentStorage(params: {
+  root: string
+  allowSystemDrive?: boolean
+}): Promise<AgentStorageStatus> {
+  return getTransport().call("migrate_agent_storage", {
+    root: params.root,
+    allowSystemDrive: params.allowSystemDrive ?? false,
+  })
+}
+
 export async function acpGetAgentStatus(
   agentType: AgentType
 ): Promise<AcpAgentStatus> {
@@ -553,9 +601,8 @@ export async function loadPiConfig(): Promise<{
 }
 
 /**
- * Validate a user-supplied custom pi binary (BYO-pi): resolve it (path or
- * `PATH`) and best-effort read its `--version`. A not-found binary returns
- * `{ found: false, resolvedPath: null, version: null }` (not an error).
+ * Legacy diagnostic for validating a Pi command. Managed launches never call
+ * this path and always inject the private Pi command from Agent storage.
  */
 export async function acpValidatePiCommand(command: string): Promise<{
   found: boolean
@@ -566,11 +613,8 @@ export async function acpValidatePiCommand(command: string): Promise<{
 }
 
 /**
- * Install the `pi` binary (`@earendil-works/pi-coding-agent`) globally via npm.
- * This is the prerequisite pi-acp spawns as `pi --mode rpc` — distinct from the
- * `pi-acp` adapter that `acpPrepareNpxAgent` installs. Progress streams on the
- * shared `app://agent-install` topic; pass `taskId` to `useAgentInstallStream`
- * (or `acpInstallStream`) to receive the log lines.
+ * Install the private Pi adapter and child command into their shared managed
+ * npm prefix. Progress streams on the shared `app://agent-install` topic.
  */
 export async function acpInstallPiBinary(taskId: string): Promise<void> {
   return getTransport().call(
@@ -580,7 +624,7 @@ export async function acpInstallPiBinary(taskId: string): Promise<void> {
   )
 }
 
-/** Uninstall the global `pi` binary. Streams on `app://agent-install` too. */
+/** Uninstall the coupled private Pi runtime. */
 export async function acpUninstallPiBinary(taskId: string): Promise<void> {
   return getTransport().call("acp_uninstall_pi_binary", { taskId })
 }

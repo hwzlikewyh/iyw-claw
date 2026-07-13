@@ -8,6 +8,7 @@ pub mod kimi_code;
 pub mod openclaw;
 pub mod opencode;
 pub mod pi;
+pub(crate) mod profile_paths;
 mod summary_cache;
 
 use std::collections::{HashMap, HashSet};
@@ -128,14 +129,12 @@ pub fn external_transcript_sources() -> Vec<ExternalSource> {
             include_top: None,
         },
     ];
-    if let Some(home) = dirs::home_dir() {
-        sources.push(ExternalSource {
-            agent: "openclaw",
-            root: home.join(".openclaw").join("agents"),
-            is_file: false,
-            include_top: None,
-        });
-    }
+    sources.push(ExternalSource {
+        agent: "openclaw",
+        root: profile_paths::openclaw_state_dir().join("agents"),
+        is_file: false,
+        include_top: None,
+    });
     sources
 }
 

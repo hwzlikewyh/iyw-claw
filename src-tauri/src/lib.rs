@@ -36,7 +36,10 @@ pub mod workspace_transfer;
 /// be invoked once at startup from a detached OS thread. Does not block, does
 /// not panic, errors are silently dropped.
 pub fn sweep_acp_binary_trash() {
-    crate::acp::binary_cache::sweep_trash();
+    if let Some(paths) = crate::acp::agent_storage::AgentStoragePaths::active() {
+        crate::acp::binary_cache::sweep_trash(&paths);
+        crate::acp::npm_runtime::sweep_trash(&paths);
+    }
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -46,12 +49,12 @@ mod tauri_app {
     use crate::acp::manager::ConnectionManager;
     use crate::chat_channel::manager::ChatChannelManager;
     use crate::commands::{
-        acp as acp_commands, app_update as app_update_commands, automation as automation_commands,
-        backup, chat_channel as chat_channel_commands, conversations,
-        delegation as delegation_commands, experts as experts_commands,
-        feedback as feedback_commands, file_io, folder_commands, folders,
-        iyw_account as iyw_account_commands, logging as logging_commands, mcp as mcp_commands,
-        model_provider as model_provider_commands, notification,
+        acp as acp_commands, agent_storage as agent_storage_commands,
+        app_update as app_update_commands, automation as automation_commands, backup,
+        chat_channel as chat_channel_commands, conversations, delegation as delegation_commands,
+        experts as experts_commands, feedback as feedback_commands, file_io, folder_commands,
+        folders, iyw_account as iyw_account_commands, logging as logging_commands,
+        mcp as mcp_commands, model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, question as question_commands,
         quick_messages as quick_messages_commands, remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands, session_info as session_info_commands,
@@ -147,7 +150,6 @@ mod tauri_app {
             tracing::error!("[PATH] fix_path_env failed: {err}");
         }
         process::ensure_node_in_path();
-        process::ensure_user_npm_prefix_in_path();
 
         let builder = tauri::Builder::default();
 
@@ -292,6 +294,43 @@ mod tauri_app {
                     app_version,
                 ))
                 .map_err(|e| e.to_string())?;
+
+                match tauri::async_runtime::block_on(crate::acp::agent_storage::load_config(
+                    &database.conn,
+                )) {
+                    Ok(persisted) => {
+                        if let Some((paths, config)) =
+                            crate::acp::agent_storage::effective_startup_config(
+                                std::env::var_os(
+                                    crate::acp::agent_storage::STORAGE_ROOT_ENV,
+                                ),
+                                persisted.as_ref(),
+                                None,
+                            )
+                        {
+                            crate::acp::agent_storage::activate_startup_profile_env(
+                                &paths,
+                                &config,
+                            );
+                            if let Err(error) =
+                                crate::acp::provider_overlay::enforce_all_active_provider_overlays()
+                            {
+                                tracing::error!(
+                                    "[agent-storage] failed to repair private provider configuration: {error}"
+                                );
+                            }
+                            tracing::info!(
+                                "[agent-storage] activated private root {}",
+                                paths.root().display()
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            "[agent-storage] failed to load persisted settings: {error}"
+                        );
+                    }
+                }
                 app.manage(database);
 
                 // Restore and apply saved system proxy settings before any network operation.
@@ -852,6 +891,11 @@ mod tauri_app {
                 system_settings::probe_terminal_shell_path,
                 system_settings::get_system_rendering_settings,
                 system_settings::update_system_rendering_settings,
+                agent_storage_commands::get_agent_storage_status,
+                agent_storage_commands::validate_agent_storage_root,
+                agent_storage_commands::initialize_agent_storage,
+                agent_storage_commands::update_agent_profile_override,
+                agent_storage_commands::migrate_agent_storage,
                 logging_commands::get_log_settings,
                 logging_commands::set_log_settings,
                 logging_commands::get_recent_logs,

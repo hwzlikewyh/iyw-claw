@@ -38,6 +38,29 @@ export interface AppCommandError {
   i18n_params?: Record<string, string> | null
 }
 
+export interface AgentProfileStatus {
+  agentType: AgentType
+  path: string
+  overridden: boolean
+}
+
+export interface AgentStorageStatus {
+  initialized: boolean
+  activeRoot: string | null
+  suggestedRoot: string | null
+  allowSystemDrive: boolean
+  restartRequired: boolean
+  profilePaths: AgentProfileStatus[]
+  previousRoot: string | null
+}
+
+export interface AgentStorageRootValidation {
+  absolutePath: string
+  writable: boolean
+  onSystemDrive: boolean
+  error: string | null
+}
+
 export interface RemoteWorkspaceConnection {
   id: number
   name: string

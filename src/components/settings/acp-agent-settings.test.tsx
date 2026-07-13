@@ -4,6 +4,10 @@ import {
   applyClaudeProviderToConfigText,
   buildVersionCheck,
   configTextForClaudeSave,
+  fixActionNeedsAgentStorage,
+  guardFixActionForAgentStorage,
+  isAgentStorageNotInitializedError,
+  parsePendingAgentInstall,
   getAgentChecks,
   patchImportantConfigText,
 } from "./acp-agent-settings"
@@ -45,7 +49,141 @@ function fixDisabled(fix: unknown): boolean {
   )
 }
 
+describe("fixActionNeedsAgentStorage", () => {
+  it.each([
+    "download_binary",
+    "upgrade_binary",
+    "install_npx",
+    "upgrade_npx",
+    "uninstall_binary",
+    "uninstall_npx",
+    "redownload_binary",
+    "install_opencode_plugins",
+    "install_uv",
+  ] as const)("requires initialized private storage for %s", (kind) => {
+    expect(fixActionNeedsAgentStorage(kind)).toBe(true)
+  })
+
+  it.each(["open_url", "retry_connection", "open_agents_settings"] as const)(
+    "keeps non-runtime action %s available",
+    (kind) => {
+      expect(fixActionNeedsAgentStorage(kind)).toBe(false)
+    }
+  )
+
+  it("blocks a runtime fix before initialization without running it", () => {
+    let blocked = 0
+    let executed = 0
+
+    if (
+      guardFixActionForAgentStorage("download_binary", false, () => {
+        blocked += 1
+      })
+    ) {
+      executed += 1
+    }
+
+    expect(blocked).toBe(1)
+    expect(executed).toBe(0)
+  })
+
+  it("allows a runtime fix after initialization", () => {
+    let blocked = 0
+
+    expect(
+      guardFixActionForAgentStorage("download_binary", true, () => {
+        blocked += 1
+      })
+    ).toBe(true)
+    expect(blocked).toBe(0)
+  })
+})
+
+describe("isAgentStorageNotInitializedError", () => {
+  it("recognizes the structured backend error code", () => {
+    expect(
+      isAgentStorageNotInitializedError({
+        code: "agent_storage_not_initialized",
+        message: "Agent storage is not initialized",
+      })
+    ).toBe(true)
+  })
+
+  it("recognizes the plain Tauri error shown by the console regression", () => {
+    expect(
+      isAgentStorageNotInitializedError(
+        "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
+      )
+    ).toBe(true)
+  })
+
+  it("does not swallow unrelated action failures", () => {
+    expect(isAgentStorageNotInitializedError("Download failed")).toBe(false)
+  })
+})
+
+describe("parsePendingAgentInstall", () => {
+  it("restores a recent managed install after restart", () => {
+    expect(
+      parsePendingAgentInstall(
+        JSON.stringify({
+          agentType: "codex",
+          actionKind: "install_npx",
+          createdAt: 1_000,
+        }),
+        2_000
+      )
+    ).toEqual({
+      agentType: "codex",
+      actionKind: "install_npx",
+      createdAt: 1_000,
+    })
+  })
+
+  it("drops stale or malformed pending installs", () => {
+    expect(
+      parsePendingAgentInstall(
+        JSON.stringify({
+          agentType: "codex",
+          actionKind: "install_npx",
+          createdAt: 1,
+        }),
+        10 * 60 * 1_000
+      )
+    ).toBeNull()
+    expect(parsePendingAgentInstall("not-json", 1_000)).toBeNull()
+  })
+})
+
 describe("buildVersionCheck", () => {
+  it("does not expose the removed custom-install action", () => {
+    const states = [
+      makeAgent({
+        agent_type: "codex" as AgentType,
+        distribution_type: "npx",
+        installed_version: null,
+      }),
+      makeAgent({
+        agent_type: "codex" as AgentType,
+        distribution_type: "npx",
+        installed_version: "1.0.0",
+        registry_version: "2.0.0",
+      }),
+      makeAgent({
+        agent_type: "codex" as AgentType,
+        distribution_type: "npx",
+        installed_version: "2.0.0",
+        registry_version: "2.0.0",
+      }),
+    ]
+
+    for (const agent of states) {
+      expect(buildVersionCheck(agent)?.fixes).not.toContainEqual(
+        expect.objectContaining({ kind: "custom_install" })
+      )
+    }
+  })
+
   // uv runtime not ready: a uvx agent (Hermes) must surface a blocked
   // version-status with the agent-install action DISABLED — the actual install
   // happens via the separate "Install uv" preflight action, not here.

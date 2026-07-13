@@ -37,6 +37,22 @@ fn mcp_network(message: impl Into<String>) -> AppCommandError {
     AppCommandError::network(message)
 }
 
+fn require_private_agent_storage_for_write() -> Result<(), AppCommandError> {
+    let paths = crate::acp::agent_storage::AgentStoragePaths::active().ok_or_else(|| {
+        AppCommandError::agent_storage_not_initialized(
+            "Agent storage is not initialized. Choose a private storage directory in Agent Settings.",
+        )
+    })?;
+    if !crate::acp::agent_storage::startup_profile_env_is_complete(&paths, |key| {
+        std::env::var_os(key)
+    }) {
+        return Err(AppCommandError::agent_storage_not_initialized(
+            "Agent profile environment is not active. Restart iyw-claw before changing MCP configuration.",
+        ));
+    }
+    Ok(())
+}
+
 /// Build the parameter map for an i18n-tagged MCP error.
 fn mcp_i18n_params<const N: usize>(pairs: [(&str, &str); N]) -> BTreeMap<String, String> {
     pairs
@@ -310,6 +326,7 @@ pub async fn mcp_install_from_marketplace(
     protocol: Option<String>,
     parameter_values: Option<Value>,
 ) -> Result<LocalMcpServer, AppCommandError> {
+    require_private_agent_storage_for_write()?;
     let normalized_apps = normalize_apps(apps);
     if normalized_apps.is_empty() {
         return Err(mcp_invalid_input("at least one target app is required")
@@ -355,6 +372,7 @@ pub async fn mcp_upsert_local_server(
     spec: Value,
     apps: Vec<McpAppType>,
 ) -> Result<LocalMcpServer, AppCommandError> {
+    require_private_agent_storage_for_write()?;
     let canonical_spec = canonicalize_spec(&spec, "local MCP save")?;
     let target_apps = normalize_apps(apps);
     if target_apps.is_empty() {
@@ -395,6 +413,7 @@ pub async fn mcp_set_server_apps(
     server_id: String,
     apps: Vec<McpAppType>,
 ) -> Result<Option<LocalMcpServer>, AppCommandError> {
+    require_private_agent_storage_for_write()?;
     let target_apps = normalize_apps(apps);
     let current = find_local_server(&server_id)?
         .ok_or_else(|| mcp_not_found(format!("local MCP server not found: {server_id}")))?;
@@ -418,6 +437,7 @@ pub async fn mcp_remove_server(
     server_id: String,
     apps: Option<Vec<McpAppType>>,
 ) -> Result<bool, AppCommandError> {
+    require_private_agent_storage_for_write()?;
     let target_apps = match apps {
         Some(selected) => normalize_apps(selected),
         None => vec![
@@ -599,11 +619,11 @@ fn codex_home_dir() -> PathBuf {
 }
 
 fn claude_config_path() -> PathBuf {
-    home_dir_or_default().join(".claude.json")
+    crate::parsers::profile_paths::claude_mcp_config_path()
 }
 
 fn claude_settings_path() -> PathBuf {
-    home_dir_or_default().join(".claude").join("settings.json")
+    crate::parsers::profile_paths::claude_settings_path()
 }
 
 /// The marketplace suffix iyw-claw uses when toggling user-scope Claude Code
@@ -622,26 +642,19 @@ fn codex_config_toml_path() -> PathBuf {
 }
 
 fn opencode_config_path() -> PathBuf {
-    home_dir_or_default()
-        .join(".config")
-        .join("opencode")
-        .join("opencode.json")
+    crate::parsers::profile_paths::opencode_config_dir().join("opencode.json")
 }
 
 fn gemini_config_path() -> PathBuf {
-    home_dir_or_default().join(".gemini").join("settings.json")
+    crate::parsers::profile_paths::gemini_settings_path()
 }
 
 fn openclaw_config_path() -> PathBuf {
-    home_dir_or_default()
-        .join(".openclaw")
-        .join("openclaw.json")
+    crate::parsers::profile_paths::openclaw_config_path()
 }
 
 fn cline_config_path() -> PathBuf {
-    home_dir_or_default()
-        .join(".cline")
-        .join("data")
+    crate::parsers::profile_paths::cline_data_dir()
         .join("settings")
         .join("cline_mcp_settings.json")
 }
@@ -1581,13 +1594,11 @@ fn disable_claude_local_plugin(id: &str) -> Result<(), AppCommandError> {
 // ---------------------------------------------------------------------------
 
 fn codebuddy_config_path() -> PathBuf {
-    home_dir_or_default().join(".codebuddy.json")
+    crate::parsers::profile_paths::codebuddy_mcp_config_path()
 }
 
 fn codebuddy_settings_path() -> PathBuf {
-    home_dir_or_default()
-        .join(".codebuddy")
-        .join("settings.json")
+    crate::parsers::profile_paths::codebuddy_settings_path()
 }
 
 fn read_codebuddy_servers() -> Result<BTreeMap<String, Value>, AppCommandError> {
@@ -4420,6 +4431,21 @@ fn resolve_smithery_install_spec_with_selection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mcp_profile_writes_require_initialized_private_storage() {
+        temp_env::with_var(
+            crate::acp::agent_storage::STORAGE_ROOT_ENV,
+            None::<&str>,
+            || {
+                let error = require_private_agent_storage_for_write()
+                    .expect_err("MCP writes must be blocked before storage initialization");
+                assert!(error
+                    .to_string()
+                    .contains("Agent storage is not initialized"));
+            },
+        );
+    }
 
     #[test]
     fn normalize_mcp_type_canonical_pass_through() {

@@ -1,4 +1,9 @@
 pub mod acp;
+pub mod agent_storage;
+mod agent_storage_migration;
+mod agent_storage_profile;
+#[cfg(feature = "tauri-runtime")]
+mod agent_storage_tauri;
 #[cfg(feature = "tauri-runtime")]
 pub mod app_update;
 pub mod automation;

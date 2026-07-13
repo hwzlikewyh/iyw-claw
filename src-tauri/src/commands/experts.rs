@@ -57,6 +57,10 @@ pub enum ExpertsError {
     Metadata(String),
     #[error("central expert store is unavailable: {0}")]
     CentralUnavailable(String),
+    #[error(
+        "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
+    )]
+    AgentStorageNotInitialized,
 }
 
 impl Serialize for ExpertsError {
@@ -275,6 +279,14 @@ fn find_metadata(expert_id: &str) -> Result<&'static ExpertMetadata, ExpertsErro
         .iter()
         .find(|m| m.id == expert_id)
         .ok_or_else(|| ExpertsError::NotFound(expert_id.to_string()))
+}
+
+fn require_private_agent_storage_for_write() -> Result<(), ExpertsError> {
+    let paths = crate::acp::agent_storage::AgentStoragePaths::active()
+        .ok_or(ExpertsError::AgentStorageNotInitialized)?;
+    crate::acp::agent_storage::startup_profile_env_is_complete(&paths, |key| std::env::var_os(key))
+        .then_some(())
+        .ok_or(ExpertsError::AgentStorageNotInitialized)
 }
 
 pub(crate) fn is_bundled_expert_id(expert_id: &str) -> bool {
@@ -813,6 +825,7 @@ fn link_one_locked(
         )));
     }
 
+    require_private_agent_storage_for_write()?;
     let link_path = agent_link_path(agent_type, &expert_id)?;
     if let Some(parent) = link_path.parent() {
         fs::create_dir_all(parent)?;
@@ -908,6 +921,7 @@ fn unlink_one_locked(expert_id: &str, agent_type: AgentType) -> Result<(), Exper
             state,
             ExpertLinkState::LinkedToIywClaw | ExpertLinkState::Broken
         ) {
+            require_private_agent_storage_for_write()?;
             // Safe to remove a link to our central store or a broken link.
             remove_skill_entry(&candidate).map_err(|e| {
                 ExpertsError::Io(format!("remove link {}: {e}", candidate.display()))
@@ -1040,6 +1054,21 @@ pub async fn experts_open_central_dir() -> Result<String, ExpertsError> {
 mod tests {
     use super::*;
     use tokio::time::{timeout, Duration};
+
+    #[test]
+    fn expert_profile_writes_require_initialized_private_storage() {
+        temp_env::with_var(
+            crate::acp::agent_storage::STORAGE_ROOT_ENV,
+            None::<&str>,
+            || {
+                let error = require_private_agent_storage_for_write()
+                    .expect_err("expert links must be blocked before storage initialization");
+                assert!(error
+                    .to_string()
+                    .contains("Agent storage is not initialized"));
+            },
+        );
+    }
 
     // These tests deliberately use ids that are well-formed but absent from the
     // bundle and unlikely to exist as real links, so they never touch or mutate

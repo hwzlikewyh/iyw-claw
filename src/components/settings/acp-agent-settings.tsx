@@ -24,7 +24,6 @@ import {
   GripVertical,
   Loader2,
   Minus,
-  PackagePlus,
   Plug,
   Plus,
   RefreshCw,
@@ -78,6 +77,8 @@ import {
   acpInstallUvTool,
   acpGetAgentStatus,
   acpListAgents,
+  getAgentStorageStatus,
+  initializeAgentStorage,
   acpPreflight,
   acpPrepareNpxAgent,
   acpReorderAgents,
@@ -97,6 +98,7 @@ import {
 import type {
   AcpAgentInfo,
   AgentType,
+  AgentStorageStatus,
   CheckStatus,
   FixAction,
   HermesLocalConfig,
@@ -119,12 +121,14 @@ import {
   setProviderEnabled,
   type OpenCodeModelOptionGroup,
 } from "@/lib/opencode-connect"
-import { toErrorMessage } from "@/lib/app-error"
+import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import { getInstallErrorHintKey } from "@/lib/agent-install-error"
 import { useAgentInstallStream } from "@/hooks/use-agent-install-stream"
+import { relaunchApp } from "@/lib/updater"
 import { OpencodePluginsModal } from "./opencode-plugins-modal"
 import { CodeBuddyConfigPanel } from "./codebuddy-config-panel"
 import { PiConfigPanel } from "./pi-config-panel"
+import { AgentStorageSettings } from "./agent-storage-settings"
 
 interface AgentCheckState {
   result?: PreflightResult
@@ -202,7 +206,6 @@ type RunningActionKind =
   | "uninstall_binary"
   | "uninstall_npx"
   | "redownload_binary"
-  | "custom_install"
   | "install_uv"
 
 type UiFixAction =
@@ -217,12 +220,98 @@ type UiFixAction =
         | "uninstall_binary"
         | "uninstall_npx"
         | "install_opencode_plugins"
-        | "custom_install"
       payload: string
       // When true, the fix renders as a greyed-out button (e.g. the uvx
       // agent-install action while the uv runtime isn't ready yet).
       disabled?: boolean
     }
+
+type UiFixActionKind = UiFixAction["kind"]
+
+const AGENT_STORAGE_FIX_ACTIONS = new Set<UiFixActionKind>([
+  "download_binary",
+  "upgrade_binary",
+  "install_npx",
+  "upgrade_npx",
+  "uninstall_binary",
+  "uninstall_npx",
+  "redownload_binary",
+  "install_opencode_plugins",
+  "install_uv",
+])
+
+export function fixActionNeedsAgentStorage(kind: UiFixActionKind): boolean {
+  return AGENT_STORAGE_FIX_ACTIONS.has(kind)
+}
+
+export function guardFixActionForAgentStorage(
+  kind: UiFixActionKind,
+  storageInitialized: boolean | null,
+  onBlocked: () => void
+): boolean {
+  if (storageInitialized === false && fixActionNeedsAgentStorage(kind)) {
+    onBlocked()
+    return false
+  }
+  return true
+}
+
+export function isAgentStorageNotInitializedError(error: unknown): boolean {
+  const appError = extractAppCommandError(error)
+  if (appError?.code === "agent_storage_not_initialized") return true
+
+  return toErrorMessage(error)
+    .toLowerCase()
+    .includes("agent storage is not initialized")
+}
+
+type PendingAgentInstall = {
+  agentType: AgentType
+  actionKind: "download_binary" | "install_npx"
+  createdAt: number
+}
+
+const PENDING_AGENT_INSTALL_KEY = "iyw-claw:pending-agent-install"
+const PENDING_AGENT_INSTALL_MAX_AGE_MS = 5 * 60 * 1_000
+
+export function parsePendingAgentInstall(
+  raw: string | null,
+  now: number = Date.now()
+): PendingAgentInstall | null {
+  if (!raw) return null
+  try {
+    const value = JSON.parse(raw) as Partial<PendingAgentInstall>
+    if (
+      typeof value.agentType !== "string" ||
+      !["download_binary", "install_npx"].includes(value.actionKind ?? "") ||
+      typeof value.createdAt !== "number" ||
+      now - value.createdAt > PENDING_AGENT_INSTALL_MAX_AGE_MS ||
+      value.createdAt > now
+    ) {
+      return null
+    }
+    return value as PendingAgentInstall
+  } catch {
+    return null
+  }
+}
+
+function persistPendingAgentInstall(
+  agent: AcpAgentInfo,
+  action: UiFixAction
+): void {
+  if (action.kind !== "download_binary" && action.kind !== "install_npx") {
+    return
+  }
+  localStorage.setItem(
+    PENDING_AGENT_INSTALL_KEY,
+    JSON.stringify({
+      agentType: agent.agent_type,
+      actionKind: action.kind,
+      createdAt: Date.now(),
+    } satisfies PendingAgentInstall)
+  )
+}
 
 interface UiCheckItem {
   check_id: string
@@ -2955,16 +3044,6 @@ function hasComparableVersion(
   return Boolean(value && /\d/.test(value) && value.includes("."))
 }
 
-// Mirror of the backend `sanitize_custom_version`: a custom install version
-// tolerates a leading `v`, must start with a digit, must be dotted (e.g.
-// `1.2.3`), and may only contain `[0-9A-Za-z.-+]` (semver pre-release/build +
-// calendar versions). Rejects npm dist-tags like `latest`, bare majors like
-// `2`, and anything with spaces / `@`.
-function isValidCustomVersion(value: string): boolean {
-  const normalized = value.trim().replace(/^[vV]/, "")
-  return /^[0-9][0-9A-Za-z.\-+]*$/.test(normalized) && normalized.includes(".")
-}
-
 // `uvReady` reports whether the uv runtime (uvx) is installed — only meaningful
 // for uvx agents (Hermes). Derived from the uv preflight check by the caller.
 // uvx agents need uv installed before their package can be prepared, so when
@@ -3050,22 +3129,6 @@ export function buildVersionCheck(
     }
   }
 
-  // Custom-version install is offered in every installable state (and stays
-  // available after a version is installed, so users can switch versions).
-  // Binary agents need the registry version present to template the download URL.
-  // uvx agents pin their version in the package spec, so custom-version
-  // install does not apply (the backend ignores the override).
-  const supportsCustomInstall =
-    agent.distribution_type === "npx" ||
-    (agent.distribution_type === "binary" && Boolean(agent.registry_version))
-  const customInstallFix: UiFixAction = {
-    label: acpText("actions.customInstall", "Custom install"),
-    kind: "custom_install",
-    payload: agent.agent_type,
-  }
-  const withCustomInstall = (fixes: UiFixAction[]): UiFixAction[] =>
-    supportsCustomInstall ? [...fixes, customInstallFix] : fixes
-
   if (!agent.installed_version) {
     return {
       check_id: "version_status",
@@ -3076,13 +3139,13 @@ export function buildVersionCheck(
         "{versionText}. Click Install on the right.",
         { versionText }
       ),
-      fixes: withCustomInstall([
+      fixes: [
         {
           label: acpText("actions.install", "Install"),
           kind: installAction,
           payload: agent.agent_type,
         },
-      ]),
+      ],
     }
   }
 
@@ -3100,7 +3163,7 @@ export function buildVersionCheck(
         "{versionText}. Local version is not comparable; try upgrade to overwrite install.",
         { versionText }
       ),
-      fixes: withCustomInstall([
+      fixes: [
         {
           label: acpText("actions.upgrade", "Upgrade"),
           kind: upgradeAction,
@@ -3111,7 +3174,7 @@ export function buildVersionCheck(
           kind: uninstallAction,
           payload: agent.agent_type,
         },
-      ]),
+      ],
     }
   }
 
@@ -3129,7 +3192,7 @@ export function buildVersionCheck(
         "{versionText}. Upgrade available.",
         { versionText }
       ),
-      fixes: withCustomInstall([
+      fixes: [
         {
           label: acpText("actions.upgrade", "Upgrade"),
           kind: upgradeAction,
@@ -3140,7 +3203,7 @@ export function buildVersionCheck(
           kind: uninstallAction,
           payload: agent.agent_type,
         },
-      ]),
+      ],
     }
   }
 
@@ -3154,13 +3217,13 @@ export function buildVersionCheck(
         "{versionText}. Remote version is currently unavailable.",
         { versionText }
       ),
-      fixes: withCustomInstall([
+      fixes: [
         {
           label: acpText("actions.uninstall", "Uninstall"),
           kind: uninstallAction,
           payload: agent.agent_type,
         },
-      ]),
+      ],
     }
   }
 
@@ -3171,13 +3234,13 @@ export function buildVersionCheck(
     message: acpText("version.latest", "{versionText}. Already latest.", {
       versionText,
     }),
-    fixes: withCustomInstall([
+    fixes: [
       {
         label: acpText("actions.uninstall", "Uninstall"),
         kind: uninstallAction,
         payload: agent.agent_type,
       },
-    ]),
+    ],
   }
 }
 
@@ -3976,6 +4039,13 @@ export function AcpAgentSettings({
   const [agents, setAgents] = useState<AcpAgentInfo[]>([])
   const [loadingAgents, setLoadingAgents] = useState(true)
   const [loadingError, setLoadingError] = useState<string | null>(null)
+  const [agentStorageInitialized, setAgentStorageInitialized] = useState<
+    boolean | null
+  >(null)
+  const [agentStorageStatus, setAgentStorageStatus] =
+    useState<AgentStorageStatus | null>(null)
+  const [initializingAgentStorage, setInitializingAgentStorage] =
+    useState(false)
   const [checkState, setCheckState] = useState<
     Partial<Record<AgentType, AgentCheckState>>
   >({})
@@ -3997,9 +4067,6 @@ export function AcpAgentSettings({
   const [modelProviders, setModelProviders] = useState<ModelProviderInfo[]>([])
   const [uninstallConfirmAgent, setUninstallConfirmAgent] =
     useState<AcpAgentInfo | null>(null)
-  const [customInstallAgent, setCustomInstallAgent] =
-    useState<AcpAgentInfo | null>(null)
-  const [customVersionInput, setCustomVersionInput] = useState("")
   const [pluginModalOpen, setPluginModalOpen] = useState(false)
   const [pluginModalAgent, setPluginModalAgent] = useState<AgentType | null>(
     null
@@ -4055,6 +4122,7 @@ export function AcpAgentSettings({
   const pendingOrderRef = useRef<AgentType[] | null>(null)
   const busyActionRef = useRef<Set<AgentType>>(new Set())
   const handledSearchAgentRef = useRef<string | null>(null)
+  const resumedPendingInstallRef = useRef(false)
   const agentListRef = useRef<HTMLDivElement | null>(null)
   const installStream = useAgentInstallStream()
   const [streamAgentType, setStreamAgentType] = useState<AgentType | null>(null)
@@ -4102,12 +4170,19 @@ export function AcpAgentSettings({
     setLoadingAgents(true)
     setLoadingError(null)
     try {
-      const [next, providers] = await Promise.all([
+      const [next, providers, storageStatus] = await Promise.all([
         acpListAgents(),
         listModelProviders().catch(() => [] as ModelProviderInfo[]),
+        getAgentStorageStatus().catch(() => null),
       ])
       setAgents(next)
       setModelProviders(providers)
+      setAgentStorageInitialized(
+        storageStatus
+          ? storageStatus.initialized && !storageStatus.restartRequired
+          : null
+      )
+      setAgentStorageStatus(storageStatus)
       setDrafts((prev) => {
         const updated = { ...prev }
         for (const agent of next) {
@@ -4480,8 +4555,7 @@ export function AcpAgentSettings({
     async (
       agent: AcpAgentInfo,
       mode: "download" | "upgrade",
-      kind?: RunningActionKind,
-      versionOverride?: string
+      kind?: RunningActionKind
     ) => {
       if (busyActionRef.current.has(agent.agent_type)) return
       busyActionRef.current.add(agent.agent_type)
@@ -4491,14 +4565,9 @@ export function AcpAgentSettings({
         [agent.agent_type]:
           kind ?? (mode === "download" ? "download_binary" : "upgrade_binary"),
       }))
-      // A custom-version install must replace whatever is cached, otherwise a
-      // higher cached version would still win on connect.
-      const clearCache = mode === "upgrade" || Boolean(versionOverride)
-      const actionLabel = versionOverride
-        ? t("actions.customInstall")
-        : mode === "upgrade"
-          ? t("actions.upgrade")
-          : t("actions.install")
+      const clearCache = mode === "upgrade"
+      const actionLabel =
+        mode === "upgrade" ? t("actions.upgrade") : t("actions.install")
       const taskId = randomUUID()
       setStreamAgentType(agent.agent_type)
       await installStream.start(taskId)
@@ -4506,11 +4575,7 @@ export function AcpAgentSettings({
         if (clearCache) {
           await acpClearBinaryCache(agent.agent_type)
         }
-        await acpDownloadAgentBinary(
-          agent.agent_type,
-          taskId,
-          versionOverride ?? null
-        )
+        await acpDownloadAgentBinary(agent.agent_type, taskId)
         await runPreflight(agent.agent_type)
         const detectedVersion = await acpDetectAgentLocalVersion(
           agent.agent_type
@@ -4579,30 +4644,17 @@ export function AcpAgentSettings({
   )
 
   const runNpxAction = useCallback(
-    async (
-      agent: AcpAgentInfo,
-      mode: "install" | "upgrade",
-      versionOverride?: string
-    ) => {
+    async (agent: AcpAgentInfo, mode: "install" | "upgrade") => {
       if (busyActionRef.current.has(agent.agent_type)) return
       busyActionRef.current.add(agent.agent_type)
       setBusyBinaryAction((prev) => ({ ...prev, [agent.agent_type]: true }))
       setRunningActionKind((prev) => ({
         ...prev,
-        [agent.agent_type]: versionOverride
-          ? "custom_install"
-          : mode === "install"
-            ? "install_npx"
-            : "upgrade_npx",
+        [agent.agent_type]: mode === "install" ? "install_npx" : "upgrade_npx",
       }))
-      // A custom-version install forces a clean reinstall so the requested
-      // version replaces whatever is currently installed.
-      const cleanFirst = mode === "upgrade" || Boolean(versionOverride)
-      const actionLabel = versionOverride
-        ? t("actions.customInstall")
-        : mode === "upgrade"
-          ? t("actions.upgrade")
-          : t("actions.install")
+      const cleanFirst = mode === "upgrade"
+      const actionLabel =
+        mode === "upgrade" ? t("actions.upgrade") : t("actions.install")
       const taskId = randomUUID()
       setStreamAgentType(agent.agent_type)
       await installStream.start(taskId)
@@ -4611,8 +4663,7 @@ export function AcpAgentSettings({
           agent.agent_type,
           agent.registry_version,
           taskId,
-          cleanFirst,
-          versionOverride ?? null
+          cleanFirst
         )
         setAgents((prev) =>
           prev.map((item) =>
@@ -4782,11 +4833,81 @@ export function AcpAgentSettings({
     [runPreflight, t, installStream.start]
   )
 
+  const initializeStorageFromFixAction = useCallback(
+    async (agent: AcpAgentInfo, action: UiFixAction) => {
+      if (initializingAgentStorage) return
+      if (
+        agentStorageStatus?.initialized &&
+        agentStorageStatus.restartRequired
+      ) {
+        persistPendingAgentInstall(agent, action)
+        try {
+          await relaunchApp()
+        } catch (err) {
+          toast.error(t("toasts.storageRestartFailed"), {
+            description: toErrorMessage(err),
+          })
+        }
+        return
+      }
+      const suggestedRoot = agentStorageStatus?.suggestedRoot?.trim()
+      if (!suggestedRoot) {
+        toast.error(t("toasts.storageInitializationFailed"), {
+          description: t("toasts.storageSuggestionUnavailable"),
+        })
+        return
+      }
+      setInitializingAgentStorage(true)
+      try {
+        const status = await initializeAgentStorage({
+          root: suggestedRoot,
+          allowSystemDrive: false,
+          importExistingSettings: true,
+        })
+        setAgentStorageStatus(status)
+        setAgentStorageInitialized(
+          status.initialized && !status.restartRequired
+        )
+        persistPendingAgentInstall(agent, action)
+        toast.success(t("toasts.storageInitialized"), {
+          description: t("toasts.storageRestartingForInstall"),
+        })
+      } catch (err) {
+        localStorage.removeItem(PENDING_AGENT_INSTALL_KEY)
+        toast.error(t("toasts.storageInitializationFailed"), {
+          description: toErrorMessage(err),
+        })
+        setInitializingAgentStorage(false)
+        return
+      }
+      try {
+        await relaunchApp()
+      } catch (err) {
+        toast.error(t("toasts.storageRestartFailed"), {
+          description: toErrorMessage(err),
+        })
+      } finally {
+        setInitializingAgentStorage(false)
+      }
+    },
+    [agentStorageStatus, initializingAgentStorage, t]
+  )
+
   const handleFixAction = async (agent: AcpAgentInfo, action: UiFixAction) => {
     if (
       busyBinaryAction[agent.agent_type] ||
       busyActionRef.current.has(agent.agent_type)
     ) {
+      return
+    }
+    if (
+      !guardFixActionForAgentStorage(
+        action.kind,
+        agentStorageInitialized,
+        () => {}
+      )
+    ) {
+      await initializeStorageFromFixAction(agent, action)
       return
     }
     if (action.kind === "open_url") {
@@ -4826,13 +4947,45 @@ export function AcpAgentSettings({
       await runUvInstall(agent)
       return
     }
-    if (action.kind === "custom_install") {
-      setCustomVersionInput("")
-      setCustomInstallAgent(agent)
-      return
-    }
     await runPreflight(agent.agent_type)
   }
+
+  useEffect(() => {
+    if (
+      resumedPendingInstallRef.current ||
+      loadingAgents ||
+      agentStorageInitialized !== true
+    ) {
+      return
+    }
+    resumedPendingInstallRef.current = true
+    const pending = parsePendingAgentInstall(
+      localStorage.getItem(PENDING_AGENT_INSTALL_KEY)
+    )
+    localStorage.removeItem(PENDING_AGENT_INSTALL_KEY)
+    if (!pending) return
+
+    const agent = agents.find(
+      (candidate) => candidate.agent_type === pending.agentType
+    )
+    if (!agent) return
+
+    const resume =
+      pending.actionKind === "download_binary"
+        ? runBinaryAction(agent, "download")
+        : runNpxAction(agent, "install")
+    resume.catch((err) => {
+      if (!isAgentStorageNotInitializedError(err)) {
+        console.error("[Settings] resumed Agent install failed:", err)
+      }
+    })
+  }, [
+    agentStorageInitialized,
+    agents,
+    loadingAgents,
+    runBinaryAction,
+    runNpxAction,
+  ])
 
   const confirmUninstall = useCallback(() => {
     if (!uninstallConfirmAgent) return
@@ -4845,23 +4998,6 @@ export function AcpAgentSettings({
         setUninstallConfirmAgent(null)
       })
   }, [runUninstallAction, uninstallConfirmAgent])
-
-  const confirmCustomInstall = useCallback(() => {
-    if (!customInstallAgent) return
-    const agent = customInstallAgent
-    const version = customVersionInput.trim()
-    if (!isValidCustomVersion(version)) return
-    // Close immediately; progress streams into the detail panel log, and any
-    // failure is surfaced via toast inside the run* actions.
-    const run =
-      agent.distribution_type === "binary"
-        ? runBinaryAction(agent, "upgrade", "custom_install", version)
-        : runNpxAction(agent, "upgrade", version)
-    run.catch((err) => {
-      console.error("[Settings] custom install failed:", err)
-    })
-    setCustomInstallAgent(null)
-  }, [customInstallAgent, customVersionInput, runBinaryAction, runNpxAction])
 
   const persistReorder = useCallback(
     async (order: AgentType[]) => {
@@ -4941,6 +5077,8 @@ export function AcpAgentSettings({
                     className="h-6 bg-muted/30 hover:bg-muted/50 disabled:bg-muted/30 disabled:opacity-100"
                     disabled={
                       ("disabled" in fix && fix.disabled === true) ||
+                      (initializingAgentStorage &&
+                        fixActionNeedsAgentStorage(fix.kind)) ||
                       (Boolean(busyBinaryAction[agent.agent_type]) &&
                         [
                           "download_binary",
@@ -4951,17 +5089,23 @@ export function AcpAgentSettings({
                           "uninstall_npx",
                           "redownload_binary",
                           "install_opencode_plugins",
-                          "custom_install",
                           "install_uv",
                         ].includes(fix.kind))
                     }
                     onClick={() => {
                       handleFixAction(agent, fix).catch((err) => {
+                        if (isAgentStorageNotInitializedError(err)) {
+                          setAgentStorageInitialized(false)
+                          return
+                        }
                         console.error("[Settings] fix action failed:", err)
                       })
                     }}
                   >
-                    {runningActionKind[agent.agent_type] === fix.kind ? (
+                    {initializingAgentStorage &&
+                    fixActionNeedsAgentStorage(fix.kind) ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : runningActionKind[agent.agent_type] === fix.kind ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : fix.kind === "download_binary" ||
                       fix.kind === "install_npx" ||
@@ -4976,8 +5120,6 @@ export function AcpAgentSettings({
                       <Trash2 className="h-3 w-3" />
                     ) : fix.kind === "install_opencode_plugins" ? (
                       <Download className="h-3 w-3" />
-                    ) : fix.kind === "custom_install" ? (
-                      <PackagePlus className="h-3 w-3" />
                     ) : null}
                     {fix.label}
                   </Button>
@@ -7122,6 +7264,22 @@ export function AcpAgentSettings({
           {loadingError}
         </div>
       )}
+
+      <AgentStorageSettings
+        status={agentStorageStatus}
+        selectedAgent={
+          selectedAgent
+            ? {
+                agentType: selectedAgent.agent_type,
+                name: selectedAgent.name,
+              }
+            : null
+        }
+        onStatusChange={(next) => {
+          setAgentStorageStatus(next)
+          setAgentStorageInitialized(next.initialized && !next.restartRequired)
+        }}
+      />
 
       <div className="flex-1 min-h-0 grid gap-3 lg:grid-cols-[minmax(240px,320px)_1fr]">
         <div className="min-h-0 min-w-0 rounded-lg border bg-card flex flex-col overflow-hidden">
@@ -9718,7 +9876,6 @@ responses_websockets_v2 = true`}
                 ) : selectedAgent.agent_type === "pi" ? (
                   <PiConfigPanel
                     agent={selectedAgent}
-                    saving={Boolean(savingEnv[selectedAgent.agent_type])}
                     onSaveEnv={(env, enabled) =>
                       persistEnv(
                         selectedAgent.agent_type,
@@ -10318,66 +10475,6 @@ responses_websockets_v2 = true`}
                   {t("actions.confirmUninstall")}
                 </>
               )}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={Boolean(customInstallAgent)}
-        onOpenChange={(open) => {
-          if (!open) setCustomInstallAgent(null)
-        }}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("dialogs.customInstallTitle", {
-                name: customInstallAgent?.name ?? "Agent",
-              })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("dialogs.customInstallDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-1.5">
-            <label
-              htmlFor="custom-version-input"
-              className="text-xs font-medium"
-            >
-              {t("dialogs.customInstallVersionLabel")}
-            </label>
-            <Input
-              id="custom-version-input"
-              autoFocus
-              value={customVersionInput}
-              placeholder={customInstallAgent?.registry_version ?? "1.0.0"}
-              onChange={(e) => setCustomVersionInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (
-                  e.key === "Enter" &&
-                  isValidCustomVersion(customVersionInput)
-                ) {
-                  e.preventDefault()
-                  confirmCustomInstall()
-                }
-              }}
-            />
-            {customVersionInput.trim() !== "" &&
-              !isValidCustomVersion(customVersionInput) && (
-                <p className="text-[11px] text-red-500">
-                  {t("dialogs.customInstallInvalid")}
-                </p>
-              )}
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("actions.cancel")}</AlertDialogCancel>
-            <Button
-              onClick={confirmCustomInstall}
-              disabled={!isValidCustomVersion(customVersionInput)}
-            >
-              <PackagePlus className="h-3.5 w-3.5" />
-              {t("dialogs.customInstallSubmit")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

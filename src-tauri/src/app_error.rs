@@ -90,6 +90,9 @@ pub enum AppErrorCode {
     /// connection (a second, concurrent send). Maps to HTTP 409 — an expected,
     /// recoverable condition in multi-client co-control, not a server fault.
     TurnInProgress,
+    AgentStorageNotInitialized,
+    AgentStorageInvalid,
+    AgentStorageRestartRequired,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
@@ -191,6 +194,18 @@ impl AppCommandError {
 
     pub fn task_execution_failed(message: impl Into<String>) -> Self {
         Self::new(AppErrorCode::TaskExecutionFailed, message)
+    }
+
+    pub fn agent_storage_not_initialized(message: impl Into<String>) -> Self {
+        Self::new(AppErrorCode::AgentStorageNotInitialized, message)
+    }
+
+    pub fn agent_storage_invalid(message: impl Into<String>) -> Self {
+        Self::new(AppErrorCode::AgentStorageInvalid, message)
+    }
+
+    pub fn agent_storage_restart_required(message: impl Into<String>) -> Self {
+        Self::new(AppErrorCode::AgentStorageRestartRequired, message)
     }
 
     pub fn io(err: std::io::Error) -> Self {

@@ -333,13 +333,11 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             supports_mcp: true,
             name: "Pi",
             description: "Self-extensible coding agent (ACP via pi-acp)",
-            // pi-acp 0.0.31 spawns `pi --mode rpc` as a child, so `pi` (npm
-            // `@earendil-works/pi-coding-agent`) must be resolvable on PATH —
-            // or pointed at a custom build via the `PI_ACP_PI_COMMAND` env
-            // (see BYO-pi). Args are empty: the ACP server is the default mode
-            // (`npx -y pi-acp`, no subcommand). `node_required` follows pi's
-            // 22+ requirement (pi-acp's own engines say >=20). The embedded
-            // context env lets pi-acp advertise `promptCapabilities.embeddedContext`.
+            // pi-acp 0.0.31 spawns `pi --mode rpc` as a child. iyw-claw installs
+            // both packages into one private prefix and injects the absolute
+            // child path through `PI_ACP_PI_COMMAND`; PATH/global installs are
+            // not launch fallbacks. Args are empty because ACP server mode is
+            // the adapter default. `node_required` follows pi's 22+ requirement.
             distribution: AgentDistribution::Npx {
                 version: "0.0.31",
                 package: "pi-acp@0.0.31",
