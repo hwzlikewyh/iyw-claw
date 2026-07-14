@@ -15,6 +15,9 @@ use crate::acp::manager::ConnectionManager;
 use crate::acp::npm_runtime;
 use crate::acp::opencode_plugins::{self, PluginCheckSummary};
 use crate::acp::preflight::{self, PreflightResult};
+use crate::acp::provider_overlay::{
+    model_gateway_base_url, patch_codex_toml, MANAGED_DEFAULT_MODEL, MANAGED_MODEL_IDS,
+};
 use crate::acp::registry;
 use crate::acp::types::{
     AcpAgentInfo, AgentSkillContent, AgentSkillItem, AgentSkillLayout, AgentSkillLocation,
@@ -1031,50 +1034,15 @@ fn persist_cline_local_config(config_patch_json: Option<&str>) -> Result<(), Acp
     Ok(())
 }
 
-fn normalize_codex_model_ids(
-    model_ids: &[String],
-    default_model: Option<&str>,
-) -> Result<Vec<String>, AcpError> {
-    let mut normalized = Vec::new();
-    for raw in default_model
-        .into_iter()
-        .chain(model_ids.iter().map(String::as_str))
-    {
-        let model = raw.trim();
-        if model.is_empty() || normalized.iter().any(|item| item == model) {
-            continue;
-        }
-        if model.chars().any(char::is_control) {
-            return Err(AcpError::protocol(
-                "codex model id cannot contain control characters",
-            ));
-        }
-        normalized.push(model.to_string());
-    }
-    if normalized.is_empty() {
-        return Err(AcpError::protocol(
-            "codex model catalog must contain at least one model",
-        ));
-    }
-    Ok(normalized)
+fn managed_codex_model_ids() -> Vec<String> {
+    MANAGED_MODEL_IDS
+        .iter()
+        .map(|model| (*model).to_string())
+        .collect()
 }
 
 fn load_codex_model_catalog_ids() -> Vec<String> {
-    let Ok(raw) = fs::read_to_string(codex_model_catalog_path()) else {
-        return Vec::new();
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return Vec::new();
-    };
-    let model_ids = value
-        .get("models")
-        .and_then(serde_json::Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|model| model.get("slug").and_then(serde_json::Value::as_str))
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    normalize_codex_model_ids(&model_ids, None).unwrap_or_default()
+    managed_codex_model_ids()
 }
 
 fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value {
@@ -1171,9 +1139,9 @@ fn codex_model_ids_from_projection(raw: Option<&str>) -> Result<Option<Vec<Strin
     let Some(models) = value.get("modelCatalog") else {
         return Ok(None);
     };
-    let model_ids = serde_json::from_value::<Vec<String>>(models.clone())
+    serde_json::from_value::<Vec<String>>(models.clone())
         .map_err(|e| AcpError::protocol(format!("invalid codex modelCatalog: {e}")))?;
-    Ok(Some(model_ids))
+    Ok(Some(managed_codex_model_ids()))
 }
 
 fn load_codex_auth_json_raw() -> Option<String> {
@@ -1486,6 +1454,8 @@ fn persist_codex_local_config(config_patch_json: Option<&str>) -> Result<(), Acp
 
     let serialized_toml = toml::to_string_pretty(&toml_value)
         .map_err(|e| AcpError::protocol(format!("serialize codex toml failed: {e}")))?;
+    let serialized_toml = patch_codex_toml(&serialized_toml, &model_gateway_base_url())
+        .map_err(AcpError::protocol)?;
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
             AcpError::protocol(format!("create codex config directory failed: {e}"))
@@ -1529,6 +1499,7 @@ fn persist_codex_local_config(config_patch_json: Option<&str>) -> Result<(), Acp
     fs::write(&auth_path, format!("{serialized_auth}\n"))
         .map_err(|e| AcpError::protocol(format!("write codex auth failed: {e}")))?;
 
+    ensure_codex_model_catalog()?;
     Ok(())
 }
 
@@ -1544,40 +1515,44 @@ fn prepare_codex_config_files(
         .unwrap_or_else(|| fs::read_to_string(codex_config_toml_path()).unwrap_or_default());
     let table = toml::from_str::<toml::Table>(&toml_text)
         .map_err(|e| AcpError::protocol(format!("invalid codex config.toml: {e}")))?;
-    let Some(model_ids) = model_ids else {
-        return Ok((Some(toml_text), None));
-    };
-
-    let default_model = table
+    let selected_model = table
         .get("model")
         .and_then(toml::Value::as_str)
         .map(str::trim)
-        .filter(|model| !model.is_empty());
-    let normalized = normalize_codex_model_ids(model_ids, default_model)?;
-    if default_model.is_none() {
-        toml_text = patch_toml_root_string(&toml_text, "model", &normalized[0]);
+        .filter(|model| MANAGED_MODEL_IDS.contains(model))
+        .unwrap_or(MANAGED_DEFAULT_MODEL)
+        .to_string();
+    toml_text = patch_toml_root_string(&toml_text, "model", &selected_model);
+    if model_ids.is_some() {
+        let catalog_path = codex_model_catalog_path();
+        toml_text = patch_toml_root_string(
+            &toml_text,
+            "model_catalog_json",
+            &catalog_path.to_string_lossy(),
+        );
     }
-    let catalog_path = codex_model_catalog_path();
-    toml_text = patch_toml_root_string(
-        &toml_text,
-        "model_catalog_json",
-        &catalog_path.to_string_lossy(),
-    );
+    toml_text = patch_codex_toml(&toml_text, &model_gateway_base_url())
+        .map_err(AcpError::protocol)?;
     toml::from_str::<toml::Table>(&toml_text)
         .map_err(|e| AcpError::protocol(format!("invalid codex config.toml: {e}")))?;
+    let catalog = model_ids
+        .is_some()
+        .then(|| serialize_codex_model_catalog(&managed_codex_model_ids()))
+        .transpose()?;
     Ok((
         Some(toml_text),
-        Some(serialize_codex_model_catalog(&normalized)?),
+        catalog,
     ))
 }
 
 fn persist_codex_native_config_files(
     codex_auth_json: Option<&str>,
     codex_config_toml: Option<&str>,
-    codex_model_ids: Option<&[String]>,
+    _codex_model_ids: Option<&[String]>,
 ) -> Result<(), AcpError> {
+    let managed_model_ids = managed_codex_model_ids();
     let (prepared_toml, prepared_catalog) =
-        prepare_codex_config_files(codex_config_toml, codex_model_ids)?;
+        prepare_codex_config_files(codex_config_toml, Some(&managed_model_ids))?;
     if let Some(raw_catalog) = prepared_catalog {
         let path = codex_model_catalog_path();
         if let Some(parent) = path.parent() {
@@ -1618,46 +1593,18 @@ fn persist_codex_native_config_files(
     Ok(())
 }
 
-/// Migrate existing single-model configs before Codex starts. Explicit external
-/// catalogs remain user-owned; only the iyw-claw catalog is repaired in place.
+/// Reapply the managed provider and model catalog before every Codex launch.
 fn ensure_codex_model_catalog() -> Result<(), AcpError> {
     let raw_toml = match fs::read_to_string(codex_config_toml_path()) {
         Ok(raw) => raw,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
         Err(error) => {
             return Err(AcpError::protocol(format!(
                 "read codex config.toml failed: {error}"
             )))
         }
     };
-    let table = toml::from_str::<toml::Table>(&raw_toml)
-        .map_err(|e| AcpError::protocol(format!("invalid codex config.toml: {e}")))?;
-    let managed_path = codex_model_catalog_path();
-    let configured_path = table
-        .get("model_catalog_json")
-        .and_then(toml::Value::as_str)
-        .map(PathBuf::from);
-    if configured_path
-        .as_ref()
-        .is_some_and(|path| path != &managed_path)
-    {
-        return Ok(());
-    }
-
-    let default_model = table
-        .get("model")
-        .and_then(toml::Value::as_str)
-        .map(str::trim)
-        .filter(|model| !model.is_empty());
-    let model_ids = load_codex_model_catalog_ids();
-    let catalog_ready = !model_ids.is_empty()
-        && default_model.is_none_or(|model| model_ids.iter().any(|item| item == model));
-    if configured_path.is_some() && catalog_ready {
-        return Ok(());
-    }
-    if model_ids.is_empty() && default_model.is_none() {
-        return Ok(());
-    }
+    let model_ids = managed_codex_model_ids();
     persist_codex_native_config_files(None, Some(&raw_toml), Some(&model_ids))
 }
 
@@ -5861,6 +5808,8 @@ pub(crate) async fn build_session_runtime_env(
         )));
     }
 
+    crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
+        .map_err(AcpError::protocol)?;
     if agent_type == AgentType::Codex {
         ensure_codex_model_catalog()?;
     }

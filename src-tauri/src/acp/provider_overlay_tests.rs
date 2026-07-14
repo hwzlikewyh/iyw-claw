@@ -51,7 +51,7 @@ fn custom_model_gateway_replaces_the_whole_url_without_suffixes() {
 }
 
 #[test]
-fn codex_toml_overlay_preserves_unrelated_sections() {
+fn codex_toml_overlay_forces_managed_provider_and_preserves_unrelated_sections() {
     let raw = r#"
 model = "keep-model"
 model_provider = "old"
@@ -64,16 +64,13 @@ custom = "keep"
 
     let patched = patch_codex_toml(raw, MODEL_GATEWAY_BASE_URL).expect("patch codex");
     let value = patched.parse::<toml::Value>().expect("valid toml");
-    assert_eq!(value["model"].as_str(), Some("keep-model"));
+    assert_eq!(value["model"].as_str(), Some(MANAGED_DEFAULT_MODEL));
     assert_eq!(value["model_provider"].as_str(), Some("iyw-claw"));
     assert_eq!(
         value["model_providers"]["iyw-claw"]["base_url"].as_str(),
         Some(MODEL_GATEWAY_BASE_URL)
     );
-    assert_eq!(
-        value["model_providers"]["old"]["custom"].as_str(),
-        Some("keep")
-    );
+    assert!(value["model_providers"].get("old").is_none());
     assert_eq!(
         value["mcp_servers"]["demo"]["command"].as_str(),
         Some("demo")
@@ -106,7 +103,7 @@ fn json_overlays_preserve_permissions_skills_and_custom_fields() {
 }
 
 #[test]
-fn hermes_yaml_overlay_preserves_tools_and_model_name() {
+fn hermes_yaml_overlay_forces_managed_model_and_preserves_tools() {
     let raw = r#"
 model:
   provider: openrouter
@@ -118,7 +115,10 @@ tools:
     let patched = patch_hermes_yaml(raw, MODEL_GATEWAY_BASE_URL).expect("patch hermes");
     let value: serde_yaml::Value = serde_yaml::from_str(&patched).expect("valid yaml");
     assert_eq!(value["model"]["provider"].as_str(), Some("custom"));
-    assert_eq!(value["model"]["default"].as_str(), Some("keep-model"));
+    assert_eq!(
+        value["model"]["default"].as_str(),
+        Some(MANAGED_DEFAULT_MODEL)
+    );
     assert_eq!(
         value["model"]["base_url"].as_str(),
         Some(MODEL_GATEWAY_BASE_URL)
@@ -127,7 +127,7 @@ tools:
 }
 
 #[test]
-fn kimi_toml_overlay_preserves_existing_model_and_custom_tables() {
+fn kimi_toml_overlay_forces_managed_models_and_preserves_custom_tables() {
     let raw = r#"
 default_model = "keep-alias"
 [models.keep-alias]
@@ -139,14 +139,18 @@ value = "keep"
 "#;
     let patched = patch_kimi_toml(raw, MODEL_GATEWAY_BASE_URL).expect("patch kimi");
     let value = patched.parse::<toml::Value>().expect("valid toml");
-    assert_eq!(value["default_model"].as_str(), Some("keep-alias"));
+    assert_eq!(value["default_model"].as_str(), Some(MANAGED_DEFAULT_MODEL));
     assert_eq!(
-        value["models"]["keep-alias"]["provider"].as_str(),
+        value["models"][MANAGED_DEFAULT_MODEL]["provider"].as_str(),
         Some("iyw-claw")
     );
     assert_eq!(
-        value["models"]["keep-alias"]["model"].as_str(),
-        Some("keep-model")
+        value["models"][MANAGED_DEFAULT_MODEL]["model"].as_str(),
+        Some(MANAGED_DEFAULT_MODEL)
+    );
+    assert_eq!(
+        value["models"].as_table().map(toml::map::Map::len),
+        Some(MANAGED_MODEL_IDS.len())
     );
     assert_eq!(
         value["providers"]["iyw-claw"]["base_url"].as_str(),
@@ -168,7 +172,7 @@ fn filesystem_overlay_writes_private_files_and_preserves_auth() {
 
     let config = fs::read_to_string(codex.join("config.toml")).expect("read config");
     let value = config.parse::<toml::Value>().expect("toml");
-    assert_eq!(value["model"].as_str(), Some("keep"));
+    assert_eq!(value["model"].as_str(), Some(MANAGED_DEFAULT_MODEL));
     assert_eq!(value["model_provider"].as_str(), Some("iyw-claw"));
     assert_eq!(
         fs::read_to_string(codex.join("auth.json")).expect("read auth"),
@@ -299,7 +303,7 @@ fn assert_json_provider_overlay(agent: AgentType, value: &serde_json::Value) {
             );
             assert_eq!(
                 models["providers"]["iyw-claw"]["models"][0]["id"].as_str(),
-                Some("keep-model")
+                Some(MANAGED_DEFAULT_MODEL)
             );
             assert_eq!(models["custom"].as_i64(), Some(1));
         }

@@ -511,6 +511,14 @@ export const MODEL_PROVIDER_AGENT_TYPES: AgentType[] = [
   "gemini",
 ]
 
+export const MANAGED_MODEL_OPTIONS = [
+  "deepseek-v4-pro",
+  "doubao-seed-2-1-pro-260628",
+  "deepseek-v4-flash",
+] as const
+
+export const MANAGED_DEFAULT_MODEL = MANAGED_MODEL_OPTIONS[0]
+
 /**
  * How a Hermes provider's credentials are supplied:
  * - `apiKey`: iyw-claw writes the key to `~/.hermes/.env`.

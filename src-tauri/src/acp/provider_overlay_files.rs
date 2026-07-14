@@ -5,8 +5,8 @@ use crate::acp::agent_storage::AgentStoragePaths;
 use crate::models::agent::AgentType;
 
 use super::provider_overlay::{
-    patch_codex_toml, patch_hermes_yaml, patch_json_config, patch_kimi_toml, patch_pi_models_json,
-    MODEL_GATEWAY_BASE_URL, MODEL_GATEWAY_BASE_URL_ENV,
+    model_gateway_base_url, patch_codex_toml, patch_hermes_yaml, patch_json_config,
+    patch_kimi_toml, patch_pi_models_json,
 };
 
 pub fn enforce_all_provider_overlays(paths: &AgentStoragePaths) -> Result<(), String> {
@@ -46,7 +46,7 @@ pub fn enforce_provider_overlay(agent: AgentType, paths: &AgentStoragePaths) -> 
 }
 
 fn enforce_provider_overlay_at_root(agent: AgentType, profile: &Path) -> Result<(), String> {
-    let base_url = gateway_base_url();
+    let base_url = model_gateway_base_url();
     match agent {
         AgentType::Codex => patch_text(&profile.join("config.toml"), |raw| {
             patch_codex_toml(raw, &base_url)
@@ -148,14 +148,6 @@ fn patch_env_value(raw: &str, key: &str, value: &str) -> String {
         output.push(format!("{key}={value}"));
     }
     output.join("\n") + "\n"
-}
-
-fn gateway_base_url() -> String {
-    std::env::var(MODEL_GATEWAY_BASE_URL_ENV)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| MODEL_GATEWAY_BASE_URL.to_string())
 }
 
 fn patch_json(

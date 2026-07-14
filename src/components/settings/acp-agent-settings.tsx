@@ -106,7 +106,12 @@ import type {
   OpenCodeCatalogProvider,
   PreflightResult,
 } from "@/lib/types"
-import { HERMES_PROVIDERS, parseClaudeProviderModel } from "@/lib/types"
+import {
+  HERMES_PROVIDERS,
+  MANAGED_DEFAULT_MODEL,
+  MANAGED_MODEL_OPTIONS,
+  parseClaudeProviderModel,
+} from "@/lib/types"
 import {
   OpenCodeConnectDialog,
   OpenCodeCustomProviderDialog,
@@ -1498,24 +1503,17 @@ const CODEX_REASONING_EFFORT_OPTIONS: ReadonlyArray<{
 const CODEX_DEFAULT_REASONING_EFFORT: CodexReasoningEffort = "high"
 
 function normalizeCodexModels(
-  modelIds: readonly string[],
-  defaultModel: string
+  _modelIds: readonly string[],
+  _defaultModel: string
 ): string[] {
-  const normalized: string[] = []
-  const seen = new Set<string>()
-  for (const raw of [defaultModel, ...modelIds]) {
-    const model = raw.trim()
-    if (!model || seen.has(model)) continue
-    seen.add(model)
-    normalized.push(model)
-  }
-  return normalized
+  return [...MANAGED_MODEL_OPTIONS]
 }
 
-function extractCodexModelCatalog(configText: string): string[] {
-  const models = parseConfigJsonText(configText).config.modelCatalog
-  if (!Array.isArray(models)) return []
-  return models.filter((model): model is string => typeof model === "string")
+function normalizeManagedModel(model: string): string {
+  const normalized = model.trim()
+  return MANAGED_MODEL_OPTIONS.some((option) => option === normalized)
+    ? normalized
+    : MANAGED_DEFAULT_MODEL
 }
 
 function normalizeCodexReasoningEffort(
@@ -2919,12 +2917,12 @@ function buildAgentDraft(agent: AcpAgentInfo): AgentDraft {
   )
   const codexModels =
     agent.agent_type === "codex"
-      ? normalizeCodexModels(
-          extractCodexModelCatalog(configText),
-          codexImportant.model
-        )
+      ? normalizeCodexModels([], codexImportant.model)
       : []
-  const codexModel = codexImportant.model || codexModels[0] || ""
+  const codexModel =
+    agent.agent_type === "codex"
+      ? normalizeManagedModel(codexImportant.model)
+      : ""
   const openCodeImportant = extractOpenCodeConfigValues(
     configText,
     openCodeAuthJsonText
@@ -4137,7 +4135,6 @@ export function AcpAgentSettings({
     "idle" | "requesting" | "polling" | "success" | "error"
   >("idle")
   const [codexLoginError, setCodexLoginError] = useState<string | null>(null)
-  const [codexNewModelId, setCodexNewModelId] = useState("")
   const codexPollCancelledRef = useRef(false)
 
   const visibleAgents = useMemo(
@@ -4469,15 +4466,11 @@ export function AcpAgentSettings({
             )
           : rawCodexConfigTomlText
       let normalizedConfig = normalizeConfigText(configText)
-      if (
-        agentType === "codex" &&
-        options?.codexModels &&
-        options.codexModels.length > 0
-      ) {
+      if (agentType === "codex") {
         normalizedConfig = JSON.stringify(
           {
             ...parsedConfig.config,
-            modelCatalog: options.codexModels,
+            modelCatalog: [...MANAGED_MODEL_OPTIONS],
           },
           null,
           2
@@ -5687,7 +5680,7 @@ export function AcpAgentSettings({
           }
         })
       } else if (agentType === "codex") {
-        const codexModel = provider?.model?.trim() ?? ""
+        const codexModel = normalizeManagedModel(provider?.model ?? "")
         const nextAuthPatch = patchCodexAuthJsonText(
           selectedDraft.codexAuthJsonText,
           { apiKey, authMode: null }
@@ -5700,7 +5693,6 @@ export function AcpAgentSettings({
             modelProvider: CODEX_DEFAULT_MODEL_PROVIDER,
             apiBaseUrl: apiUrl,
             model: codexModel,
-            requestHeaderToken: apiKey,
           }
         )
         const synced = extractCodexImportantValues(
@@ -6791,7 +6783,7 @@ export function AcpAgentSettings({
         codexConfigTomlText: nextText,
         apiBaseUrl: important.apiBaseUrl,
         apiKey: important.apiKey ?? current.apiKey,
-        model: important.model,
+        model: normalizeManagedModel(important.model),
         codexModelProvider: important.modelProvider,
         codexProviderOptions: important.providerOptions,
         codexReasoningEffort: important.reasoningEffort,
@@ -6846,7 +6838,7 @@ export function AcpAgentSettings({
           }),
           apiBaseUrl: "",
           apiKey: "",
-          model: synced.model,
+          model: normalizeManagedModel(synced.model),
           codexModelProvider: synced.modelProvider,
           codexProviderOptions: synced.providerOptions,
           codexReasoningEffort: synced.reasoningEffort,
@@ -6881,7 +6873,7 @@ export function AcpAgentSettings({
         codexConfigTomlText: nextConfigTomlText,
         apiBaseUrl: synced.apiBaseUrl,
         apiKey: synced.apiKey ?? current.apiKey,
-        model: synced.model,
+        model: normalizeManagedModel(synced.model),
         codexModelProvider: CODEX_DEFAULT_MODEL_PROVIDER,
         codexProviderOptions: synced.providerOptions,
         codexReasoningEffort: synced.reasoningEffort,
@@ -6954,7 +6946,7 @@ export function AcpAgentSettings({
           : applyImportantFieldToDraft(current, key, value)),
         apiBaseUrl: synced.apiBaseUrl,
         apiKey: synced.apiKey ?? current.apiKey,
-        model: synced.model,
+        model: normalizeManagedModel(synced.model),
         codexModelProvider: synced.modelProvider,
         codexProviderOptions: synced.providerOptions,
         codexReasoningEffort: synced.reasoningEffort,
@@ -6968,63 +6960,6 @@ export function AcpAgentSettings({
       }))
     },
     [selectedAgent, selectedDraft, t, updateSelectedDraft]
-  )
-
-  const handleCodexAddModel = useCallback(() => {
-    if (
-      !selectedAgent ||
-      !selectedDraft ||
-      selectedAgent.agent_type !== "codex"
-    )
-      return
-    const model = codexNewModelId.trim()
-    if (!model) return
-    const currentModels = normalizeCodexModels(
-      selectedDraft.codexModels,
-      selectedDraft.model
-    )
-    if (currentModels.includes(model)) {
-      toast.error(t("errors.modelExists", { modelId: model }))
-      return
-    }
-    updateSelectedDraft((current) => {
-      const defaultModel = current.model.trim() || model
-      return {
-        ...current,
-        model: defaultModel,
-        codexModels: normalizeCodexModels(
-          [...current.codexModels, model],
-          defaultModel
-        ),
-        codexConfigTomlText: current.model.trim()
-          ? current.codexConfigTomlText
-          : patchCodexConfigTomlText(current.codexConfigTomlText, {
-              model: defaultModel,
-            }),
-      }
-    })
-    setCodexNewModelId("")
-  }, [codexNewModelId, selectedAgent, selectedDraft, t, updateSelectedDraft])
-
-  const handleCodexRemoveModel = useCallback(
-    (model: string) => {
-      if (
-        !selectedAgent ||
-        !selectedDraft ||
-        selectedAgent.agent_type !== "codex"
-      )
-        return
-      const currentModels = normalizeCodexModels(
-        selectedDraft.codexModels,
-        selectedDraft.model
-      )
-      if (currentModels.length <= 1 || selectedDraft.model === model) return
-      updateSelectedDraft((current) => ({
-        ...current,
-        codexModels: current.codexModels.filter((item) => item !== model),
-      }))
-    },
-    [selectedAgent, selectedDraft, updateSelectedDraft]
   )
 
   const handleCodexSupportsWebsocketsChange = useCallback(
@@ -7050,7 +6985,7 @@ export function AcpAgentSettings({
         ...current,
         apiBaseUrl: synced.apiBaseUrl,
         apiKey: synced.apiKey ?? current.apiKey,
-        model: synced.model,
+        model: normalizeManagedModel(synced.model),
         codexModelProvider: synced.modelProvider,
         codexProviderOptions: synced.providerOptions,
         codexReasoningEffort: synced.reasoningEffort,
@@ -7084,7 +7019,7 @@ export function AcpAgentSettings({
         ...current,
         apiBaseUrl: synced.apiBaseUrl,
         apiKey: synced.apiKey ?? current.apiKey,
-        model: synced.model,
+        model: normalizeManagedModel(synced.model),
         codexModelProvider: synced.modelProvider,
         codexProviderOptions: synced.providerOptions,
         codexReasoningEffort: synced.reasoningEffort,
@@ -7913,71 +7848,6 @@ export function AcpAgentSettings({
                     )}
 
                     <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <label className="text-[11px] text-muted-foreground">
-                          {t("openCode.modelManagement")}
-                        </label>
-                        <span className="text-[11px] text-muted-foreground">
-                          {t("openCode.modelCount", {
-                            count: selectedCodexModels.length,
-                          })}
-                        </span>
-                      </div>
-                      {selectedCodexModels.map((model) => {
-                        const cannotRemove =
-                          selectedCodexModels.length <= 1 ||
-                          selectedDraft.model === model
-                        return (
-                          <div key={model} className="flex items-center gap-2">
-                            <Input value={model} readOnly />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="shrink-0 text-muted-foreground hover:text-destructive"
-                              disabled={cannotRemove}
-                              onClick={() => handleCodexRemoveModel(model)}
-                              title={t("openCode.deleteModel", {
-                                modelId: model,
-                              })}
-                              aria-label={t("openCode.deleteModel", {
-                                modelId: model,
-                              })}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        )
-                      })}
-                      <div className="flex items-center gap-2">
-                        <Input
-                          value={codexNewModelId}
-                          onChange={(event) => {
-                            setCodexNewModelId(event.target.value)
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter") return
-                            event.preventDefault()
-                            handleCodexAddModel()
-                          }}
-                          placeholder={t("openCode.modelId")}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon-sm"
-                          className="shrink-0"
-                          disabled={!codexNewModelId.trim()}
-                          onClick={handleCodexAddModel}
-                          title={t("openCode.addModel")}
-                          aria-label={t("openCode.addModel")}
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
                       <label className="text-[11px] text-muted-foreground">
                         Reasoning Effort
                       </label>
@@ -8045,7 +7915,7 @@ export function AcpAgentSettings({
                           handleCodexConfigTomlTextChange(event.target.value)
                         }}
                         placeholder={`disable_response_storage = true
-model = "gpt-5"
+model = "deepseek-v4-pro"
 model_reasoning_effort = "high"
 
 [features]

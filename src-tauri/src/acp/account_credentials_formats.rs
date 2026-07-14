@@ -10,20 +10,61 @@ pub(crate) fn patch_json_credential(
     let mut root = parse_json_object(raw)?;
     match agent {
         AgentType::ClaudeCode | AgentType::CodeBuddy => {
-            patch_nested_json(&mut root, &["env"], "ANTHROPIC_AUTH_TOKEN", token)
+            patch_nested_json(&mut root, &["env"], "ANTHROPIC_AUTH_TOKEN", token);
+            patch_anthropic_custom_headers(&mut root, token);
         }
-        AgentType::Gemini => patch_nested_json(&mut root, &["env"], "GEMINI_API_KEY", token),
-        AgentType::OpenClaw => patch_nested_json(
-            &mut root,
-            &["models", "providers", MANAGED_PROVIDER_ID],
-            "apiKey",
-            token,
-        ),
+        AgentType::Gemini => {
+            patch_nested_json(&mut root, &["env"], "GEMINI_API_KEY", token);
+            let custom_headers = token.map(|value| format!("token: {value}"));
+            patch_nested_json(
+                &mut root,
+                &["env"],
+                "GEMINI_CLI_CUSTOM_HEADERS",
+                custom_headers.as_deref(),
+            );
+        }
+        AgentType::OpenClaw => {
+            patch_nested_json(
+                &mut root,
+                &["models", "providers", MANAGED_PROVIDER_ID],
+                "apiKey",
+                token,
+            );
+            patch_nested_json(
+                &mut root,
+                &[
+                    "models",
+                    "providers",
+                    MANAGED_PROVIDER_ID,
+                    "headers",
+                ],
+                "token",
+                token,
+            );
+        }
         AgentType::OpenCode => patch_provider_auth(&mut root, "api", token),
         AgentType::Cline => patch_root_string(&mut root, "openAiApiKey", token),
         AgentType::Pi => patch_provider_auth(&mut root, "api_key", token),
         _ => return Err(format!("no JSON account credential format for {agent:?}")),
     }
+    serde_json::to_string_pretty(&root)
+        .map(|value| value + "\n")
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn patch_json_gateway_header(
+    agent: AgentType,
+    raw: &str,
+    token: Option<&str>,
+) -> Result<String, String> {
+    let mut root = parse_json_object(raw)?;
+    let path = match agent {
+        AgentType::OpenCode => vec!["provider", MANAGED_PROVIDER_ID, "options", "headers"],
+        AgentType::Pi => vec!["providers", MANAGED_PROVIDER_ID, "headers"],
+        AgentType::Cline => vec!["openAiHeaders"],
+        _ => return Err(format!("no JSON gateway header format for {agent:?}")),
+    };
+    patch_nested_json(&mut root, &path, "token", token);
     serde_json::to_string_pretty(&root)
         .map(|value| value + "\n")
         .map_err(|error| error.to_string())
@@ -54,7 +95,13 @@ pub(crate) fn patch_toml_credential(
             token,
         )?,
         AgentType::KimiCode => {
-            patch_nested_toml(root, &["providers", MANAGED_PROVIDER_ID], "api_key", token)?
+            patch_nested_toml(root, &["providers", MANAGED_PROVIDER_ID], "api_key", token)?;
+            patch_nested_toml(
+                root,
+                &["providers", MANAGED_PROVIDER_ID, "custom_headers"],
+                "token",
+                token,
+            )?;
         }
         _ => return Err(format!("no TOML account credential format for {agent:?}")),
     }
@@ -80,12 +127,27 @@ pub(crate) fn patch_yaml_credential(raw: &str, token: Option<&str>) -> Result<St
         if !model.is_mapping() {
             *model = Value::Mapping(Mapping::new());
         }
-        model
+        let model = model.as_mapping_mut().expect("mapping ensured");
+        model.insert(Value::String("api_key".into()), Value::String(token.into()));
+        let headers_key = Value::String("default_headers".into());
+        let headers = model
+            .entry(headers_key)
+            .or_insert_with(|| Value::Mapping(Mapping::new()));
+        if !headers.is_mapping() {
+            *headers = Value::Mapping(Mapping::new());
+        }
+        headers
             .as_mapping_mut()
             .expect("mapping ensured")
-            .insert(Value::String("api_key".into()), Value::String(token.into()));
+            .insert(Value::String("token".into()), Value::String(token.into()));
     } else if let Some(model) = map.get_mut(&model_key).and_then(Value::as_mapping_mut) {
         model.remove(Value::String("api_key".into()));
+        if let Some(headers) = model
+            .get_mut(Value::String("default_headers".into()))
+            .and_then(Value::as_mapping_mut)
+        {
+            headers.remove(Value::String("token".into()));
+        }
     }
     serde_yaml::to_string(&root).map_err(|error| error.to_string())
 }
@@ -114,6 +176,36 @@ fn patch_provider_auth(
     } else {
         root.remove(MANAGED_PROVIDER_ID);
     }
+}
+
+fn patch_anthropic_custom_headers(
+    root: &mut serde_json::Map<String, serde_json::Value>,
+    token: Option<&str>,
+) {
+    let existing = root
+        .get("env")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|env| env.get("ANTHROPIC_CUSTOM_HEADERS"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let mut lines = existing
+        .lines()
+        .filter(|line| {
+            line.split_once(':')
+                .is_none_or(|(name, _)| !name.trim().eq_ignore_ascii_case("token"))
+        })
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if let Some(token) = token {
+        lines.push(format!("token: {token}"));
+    }
+    let custom_headers = (!lines.is_empty()).then(|| lines.join("\n"));
+    patch_nested_json(
+        root,
+        &["env"],
+        "ANTHROPIC_CUSTOM_HEADERS",
+        custom_headers.as_deref(),
+    );
 }
 
 fn patch_root_string(

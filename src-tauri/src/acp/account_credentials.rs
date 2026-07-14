@@ -6,7 +6,8 @@ use crate::app_error::{AppCommandError, AppErrorCode};
 use crate::models::agent::AgentType;
 
 use super::account_credentials_formats::{
-    patch_codex_auth_json, patch_json_credential, patch_toml_credential, patch_yaml_credential,
+    patch_codex_auth_json, patch_json_credential, patch_json_gateway_header,
+    patch_toml_credential, patch_yaml_credential,
 };
 use super::provider_overlay_files::{active_profile_root, read_optional, write_if_changed};
 
@@ -120,23 +121,43 @@ pub(crate) fn write_agent_credentials_at_profile(
         AgentType::OpenClaw => patch_file(profile.join("openclaw.json"), token, |raw| {
             patch_json_credential(agent, raw, token)
         }),
-        AgentType::OpenCode => patch_file(
-            profile.join("data").join("opencode").join("auth.json"),
-            token,
-            |raw| patch_json_credential(agent, raw, token),
-        ),
-        AgentType::Cline => patch_file(profile.join("secrets.json"), token, |raw| {
-            patch_json_credential(agent, raw, token)
-        }),
+        AgentType::OpenCode => {
+            patch_file(
+                profile.join("data").join("opencode").join("auth.json"),
+                token,
+                |raw| patch_json_credential(agent, raw, token),
+            )?;
+            patch_file(
+                profile
+                    .join("config")
+                    .join("opencode")
+                    .join("opencode.json"),
+                token,
+                |raw| patch_json_gateway_header(agent, raw, token),
+            )
+        }
+        AgentType::Cline => {
+            patch_file(profile.join("secrets.json"), token, |raw| {
+                patch_json_credential(agent, raw, token)
+            })?;
+            patch_file(profile.join("globalState.json"), token, |raw| {
+                patch_json_gateway_header(agent, raw, token)
+            })
+        }
         AgentType::Hermes => patch_file(profile.join("config.yaml"), token, |raw| {
             patch_yaml_credential(raw, token)
         }),
         AgentType::KimiCode => patch_file(profile.join("config.toml"), token, |raw| {
             patch_toml_credential(agent, raw, token)
         }),
-        AgentType::Pi => patch_file(profile.join("auth.json"), token, |raw| {
-            patch_json_credential(agent, raw, token)
-        }),
+        AgentType::Pi => {
+            patch_file(profile.join("auth.json"), token, |raw| {
+                patch_json_credential(agent, raw, token)
+            })?;
+            patch_file(profile.join("models.json"), token, |raw| {
+                patch_json_gateway_header(agent, raw, token)
+            })
+        }
     }
 }
 

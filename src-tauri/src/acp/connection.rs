@@ -977,6 +977,29 @@ fn map_session_config_options(
         .collect()
 }
 
+fn enforce_managed_model_options(options: &mut [SessionConfigOptionInfo]) {
+    for option in options.iter_mut().filter(|option| {
+        option.id == "model" || option.category.as_deref() == Some("model")
+    }) {
+        let SessionConfigKindInfo::Select(select) = &mut option.kind;
+        if !crate::acp::provider_overlay::MANAGED_MODEL_IDS
+            .contains(&select.current_value.as_str())
+        {
+            select.current_value =
+                crate::acp::provider_overlay::MANAGED_DEFAULT_MODEL.to_string();
+        }
+        select.options = crate::acp::provider_overlay::MANAGED_MODEL_IDS
+            .iter()
+            .map(|model| SessionConfigSelectOptionInfo {
+                value: (*model).to_string(),
+                name: (*model).to_string(),
+                description: None,
+            })
+            .collect();
+        select.groups.clear();
+    }
+}
+
 /// Defensive fallback for Codex's approval-preset selector.
 ///
 /// codex-acp 1.0.0 advertises its modes through *both* standard ACP
@@ -1045,6 +1068,7 @@ async fn emit_session_config_options_values(
     config_options: Vec<SessionConfigOption>,
 ) {
     let mut mapped = map_session_config_options(&config_options);
+    enforce_managed_model_options(&mut mapped);
     if agent_type == AgentType::Codex {
         ensure_codex_mode_option(&mut mapped);
     }
