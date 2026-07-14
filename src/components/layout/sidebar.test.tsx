@@ -175,6 +175,13 @@ describe("Sidebar — fixed action region", () => {
     expect(spies.setRoute).toHaveBeenCalledWith("automations")
   })
 
+  it("keeps the workspace card separate from the application title bar", async () => {
+    const { findByText, queryByText } = renderSidebar()
+
+    expect(await findByText("iyw-claw")).toBeTruthy()
+    expect(queryByText("原助手 v0.0.2")).toBeNull()
+  })
+
   it("Skill Market navigates to the skills route", async () => {
     const { findByText, getByText } = renderSidebar()
     await findByText("Not signed in")

@@ -56,6 +56,7 @@ interface ConversationShellProps {
   agentType?: AgentType | null
   availableCommands?: AvailableCommandInfo[] | null
   attachmentTabId?: string | null
+  stageAttachmentsInWorkingDir?: boolean
   draftStorageKey?: string | null
   hideInput?: boolean
   /** Optional read-only live-feedback notes list rendered just above the
@@ -117,6 +118,7 @@ export function ConversationShell({
   agentType,
   availableCommands,
   attachmentTabId,
+  stageAttachmentsInWorkingDir,
   draftStorageKey,
   hideInput = false,
   feedbackList,
@@ -245,6 +247,7 @@ export function ConversationShell({
               agentType={agentType}
               availableCommands={availableCommands}
               attachmentTabId={attachmentTabId}
+              stageAttachmentsInWorkingDir={stageAttachmentsInWorkingDir}
               draftStorageKey={draftStorageKey}
               isActive={isActive}
               showActiveFlow={showActiveFlow}

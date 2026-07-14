@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl"
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
 import {
   Dialog,
   DialogContent,
@@ -13,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useIywAccount } from "@/contexts/iyw-account-context"
+import { useAcpAgents } from "@/hooks/use-acp-agents"
 import {
   acpDetectAgentLocalVersion,
   acpListAgents,
@@ -30,6 +32,7 @@ type CodexBootstrapState =
 export function StartupCodexGate({ children }: { children: ReactNode }) {
   const t = useTranslations("StartupCodex")
   const { status } = useIywAccount()
+  const { refresh: refreshAgents } = useAcpAgents()
   const [state, setState] = useState<CodexBootstrapState>("idle")
   const runningRef = useRef(false)
   const taskIdRef = useRef(randomUUID())
@@ -46,6 +49,7 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
       if (!codex) throw new Error("Codex is missing from the Agent registry")
       const installed = await acpDetectAgentLocalVersion("codex")
       if (installed) {
+        await refreshAgents()
         setState("ready")
         return
       }
@@ -56,13 +60,14 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
         taskIdRef.current,
         false
       )
+      await refreshAgents()
       setState("ready")
     } catch {
       setState("error")
     } finally {
       runningRef.current = false
     }
-  }, [])
+  }, [refreshAgents])
 
   useEffect(() => {
     if (status === "authenticated" && state === "idle") void bootstrap()
@@ -107,6 +112,13 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
               {state === "error" ? t("errorDescription") : description}
             </DialogDescription>
           </DialogHeader>
+          {state !== "error" ? (
+            <Progress
+              value={state === "installing" ? 75 : 30}
+              aria-label={title}
+              className="h-2"
+            />
+          ) : null}
           {state === "error" ? (
             <div className="grid gap-4 text-center">
               <Button

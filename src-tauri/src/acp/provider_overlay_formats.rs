@@ -64,10 +64,7 @@ pub(crate) fn patch_kimi_toml(raw: &str, base_url: &str) -> Result<String, Strin
             toml::Value::String(MANAGED_PROVIDER_ID.into()),
         );
         model.insert("model".into(), toml::Value::String(model_id.into()));
-        model.insert(
-            "max_context_size".into(),
-            toml::Value::Integer(1_000_000),
-        );
+        model.insert("max_context_size".into(), toml::Value::Integer(1_000_000));
     }
     toml::to_string_pretty(&value).map_err(|error| error.to_string())
 }
@@ -112,26 +109,18 @@ pub(crate) fn patch_json_config(
             providers.retain(|name, _| name == MANAGED_PROVIDER_ID);
             let provider = ensure_json_object(providers, &[MANAGED_PROVIDER_ID]);
             let options = ensure_json_object(provider, &["options"]);
-            options.insert(
-                "baseURL".into(),
-                serde_json::Value::String(base_url.into()),
-            );
+            options.insert("baseURL".into(), serde_json::Value::String(base_url.into()));
             provider.insert("models".into(), managed_model_object());
             root.insert(
                 "model".into(),
-                serde_json::Value::String(format!(
-                    "{MANAGED_PROVIDER_ID}/{MANAGED_DEFAULT_MODEL}"
-                )),
+                serde_json::Value::String(format!("{MANAGED_PROVIDER_ID}/{MANAGED_DEFAULT_MODEL}")),
             );
         }
         AgentType::OpenClaw => {
             let providers = ensure_json_object(root, &["models", "providers"]);
             providers.retain(|name, _| name == MANAGED_PROVIDER_ID);
             let provider = ensure_json_object(providers, &[MANAGED_PROVIDER_ID]);
-            provider.insert(
-                "baseUrl".into(),
-                serde_json::Value::String(base_url.into()),
-            );
+            provider.insert("baseUrl".into(), serde_json::Value::String(base_url.into()));
             provider.insert(
                 "api".into(),
                 serde_json::Value::String("openai-responses".into()),
@@ -183,10 +172,7 @@ pub(crate) fn patch_pi_models_json(
     let providers = ensure_json_object(root, &["providers"]);
     providers.retain(|name, _| name == MANAGED_PROVIDER_ID);
     let provider = ensure_json_object(providers, &[MANAGED_PROVIDER_ID]);
-    provider.insert(
-        "baseUrl".into(),
-        serde_json::Value::String(base_url.into()),
-    );
+    provider.insert("baseUrl".into(), serde_json::Value::String(base_url.into()));
     provider.insert(
         "api".into(),
         serde_json::Value::String("openai-responses".into()),
@@ -282,12 +268,7 @@ fn managed_model_object() -> serde_json::Value {
     serde_json::Value::Object(
         MANAGED_MODEL_IDS
             .iter()
-            .map(|model| {
-                (
-                    (*model).to_string(),
-                    serde_json::json!({"name": model}),
-                )
-            })
+            .map(|model| ((*model).to_string(), serde_json::json!({"name": model})))
             .collect(),
     )
 }

@@ -5,7 +5,7 @@ use crate::acp::agent_storage::AgentStoragePaths;
 use crate::models::agent::AgentType;
 
 use super::provider_overlay::{
-    model_gateway_base_url, patch_codex_toml, patch_hermes_yaml, patch_json_config,
+    model_gateway_base_url_for, patch_codex_toml, patch_hermes_yaml, patch_json_config,
     patch_kimi_toml, patch_pi_models_json,
 };
 
@@ -46,7 +46,7 @@ pub fn enforce_provider_overlay(agent: AgentType, paths: &AgentStoragePaths) -> 
 }
 
 fn enforce_provider_overlay_at_root(agent: AgentType, profile: &Path) -> Result<(), String> {
-    let base_url = model_gateway_base_url();
+    let base_url = model_gateway_base_url_for(agent);
     match agent {
         AgentType::Codex => patch_text(&profile.join("config.toml"), |raw| {
             patch_codex_toml(raw, &base_url)

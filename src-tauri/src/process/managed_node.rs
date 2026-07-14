@@ -15,9 +15,7 @@ pub(super) fn managed_node_bin_dir(executable: &Path) -> Option<PathBuf> {
             return Some(candidate);
         }
     }
-    if let Some(storage_root) =
-        std::env::var_os(crate::acp::agent_storage::STORAGE_ROOT_ENV)
-    {
+    if let Some(storage_root) = std::env::var_os(crate::acp::agent_storage::STORAGE_ROOT_ENV) {
         if let Some(candidate) = managed_node_bin_dir_from_data_root(Path::new(&storage_root)) {
             return Some(candidate);
         }

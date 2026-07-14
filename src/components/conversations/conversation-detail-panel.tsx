@@ -1386,6 +1386,7 @@ const ConversationTabView = memo(function ConversationTabView({
       agentType={selectedAgent}
       availableCommands={connectionCommands}
       attachmentTabId={tabId}
+      stageAttachmentsInWorkingDir={ownTab?.isChat === true}
       draftStorageKey={draftStorageKey}
       hideInput={isWelcomeMode || Boolean(acpLoadError)}
       feedbackList={
@@ -1479,6 +1480,7 @@ const ConversationTabView = memo(function ConversationTabView({
               agentType={selectedAgent}
               availableCommands={connectionCommands}
               attachmentTabId={tabId}
+              stageAttachmentsInWorkingDir={ownTab?.isChat === true}
               draftStorageKey={draftStorageKey}
               isActive={isActive}
               showActiveFlow={showActiveFlow}

@@ -6,8 +6,8 @@ use crate::app_error::{AppCommandError, AppErrorCode};
 use crate::models::agent::AgentType;
 
 use super::account_credentials_formats::{
-    patch_codex_auth_json, patch_json_credential, patch_json_gateway_header,
-    patch_toml_credential, patch_yaml_credential,
+    patch_codex_auth_json, patch_json_credential, patch_json_gateway_header, patch_toml_credential,
+    patch_yaml_credential,
 };
 use super::provider_overlay_files::{active_profile_root, read_optional, write_if_changed};
 

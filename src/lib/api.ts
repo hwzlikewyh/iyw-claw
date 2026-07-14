@@ -2127,6 +2127,17 @@ export function isEmptyAttachmentError(err: unknown): boolean {
   )
 }
 
+export async function stageLocalChatAttachment(
+  sourcePath: string,
+  chatDir: string
+): Promise<string> {
+  const result = await getShellTransport().call<{ path: string }>(
+    "stage_chat_attachment",
+    { sourcePath, chatDir }
+  )
+  return result.path
+}
+
 // Upload a single attachment to the server.
 //
 // Web mode: streams the file via multipart/form-data to the same origin the

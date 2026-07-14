@@ -39,6 +39,7 @@ interface ChatInputProps {
   agentType?: AgentType | null
   availableCommands?: AvailableCommandInfo[] | null
   attachmentTabId?: string | null
+  stageAttachmentsInWorkingDir?: boolean
   draftStorageKey?: string | null
   isActive?: boolean
   /** Show the composer's flowing active-session border. Set only for the active
@@ -96,6 +97,7 @@ export const ChatInput = memo(function ChatInput({
   agentType,
   availableCommands,
   attachmentTabId,
+  stageAttachmentsInWorkingDir,
   draftStorageKey,
   isActive,
   showActiveFlow,
@@ -164,6 +166,7 @@ export const ChatInput = memo(function ChatInput({
         agentType={agentType}
         availableCommands={availableCommands}
         attachmentTabId={attachmentTabId}
+        stageAttachmentsInWorkingDir={stageAttachmentsInWorkingDir}
         draftStorageKey={draftStorageKey}
         isActive={isActive}
         showActiveFlow={showActiveFlow}

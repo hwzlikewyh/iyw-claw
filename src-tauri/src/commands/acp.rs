@@ -16,7 +16,7 @@ use crate::acp::npm_runtime;
 use crate::acp::opencode_plugins::{self, PluginCheckSummary};
 use crate::acp::preflight::{self, PreflightResult};
 use crate::acp::provider_overlay::{
-    model_gateway_base_url, patch_codex_toml, MANAGED_DEFAULT_MODEL, MANAGED_MODEL_IDS,
+    model_gateway_base_url_for, patch_codex_toml, MANAGED_DEFAULT_MODEL, MANAGED_MODEL_IDS,
 };
 use crate::acp::registry;
 use crate::acp::types::{
@@ -1454,8 +1454,11 @@ fn persist_codex_local_config(config_patch_json: Option<&str>) -> Result<(), Acp
 
     let serialized_toml = toml::to_string_pretty(&toml_value)
         .map_err(|e| AcpError::protocol(format!("serialize codex toml failed: {e}")))?;
-    let serialized_toml = patch_codex_toml(&serialized_toml, &model_gateway_base_url())
-        .map_err(AcpError::protocol)?;
+    let serialized_toml = patch_codex_toml(
+        &serialized_toml,
+        &model_gateway_base_url_for(AgentType::Codex),
+    )
+    .map_err(AcpError::protocol)?;
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
             AcpError::protocol(format!("create codex config directory failed: {e}"))
@@ -1531,7 +1534,7 @@ fn prepare_codex_config_files(
             &catalog_path.to_string_lossy(),
         );
     }
-    toml_text = patch_codex_toml(&toml_text, &model_gateway_base_url())
+    toml_text = patch_codex_toml(&toml_text, &model_gateway_base_url_for(AgentType::Codex))
         .map_err(AcpError::protocol)?;
     toml::from_str::<toml::Table>(&toml_text)
         .map_err(|e| AcpError::protocol(format!("invalid codex config.toml: {e}")))?;
@@ -1539,10 +1542,7 @@ fn prepare_codex_config_files(
         .is_some()
         .then(|| serialize_codex_model_catalog(&managed_codex_model_ids()))
         .transpose()?;
-    Ok((
-        Some(toml_text),
-        catalog,
-    ))
+    Ok((Some(toml_text), catalog))
 }
 
 fn persist_codex_native_config_files(

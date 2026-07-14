@@ -32,12 +32,7 @@ pub(crate) fn patch_json_credential(
             );
             patch_nested_json(
                 &mut root,
-                &[
-                    "models",
-                    "providers",
-                    MANAGED_PROVIDER_ID,
-                    "headers",
-                ],
+                &["models", "providers", MANAGED_PROVIDER_ID, "headers"],
                 "token",
                 token,
             );

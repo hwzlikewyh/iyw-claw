@@ -41,6 +41,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import packageJson from "../../../package.json"
+
+const APP_BRAND_WITH_VERSION = `原助手 v${packageJson.version}`
 
 export function FolderTitleBar() {
   const tTitleBar = useTranslations("Folder.folderTitleBar")
@@ -166,6 +169,12 @@ export function FolderTitleBar() {
             </div>
           ) : (
             <div className="flex h-8 flex-1 items-center gap-6">
+              <div
+                data-tauri-drag-region
+                className="shrink-0 whitespace-nowrap text-xs font-semibold text-foreground/80"
+              >
+                {APP_BRAND_WITH_VERSION}
+              </div>
               <BranchDropdown />
               <div data-tauri-drag-region className="h-8 flex-1" />
             </div>

@@ -12,8 +12,24 @@ fn every_agent_receives_exact_model_gateway_root() {
             .get(provider_base_url_env_key(agent_type))
             .expect("provider base URL");
         assert_eq!(value, MODEL_GATEWAY_BASE_URL, "{agent_type:?}");
-        assert!(!value.ends_with("/v1"), "{agent_type:?}");
         assert!(!value.ends_with("/anthropic"), "{agent_type:?}");
+    }
+}
+
+#[test]
+fn production_model_gateway_uses_protocol_appropriate_api_roots() {
+    let root = "https://gateway.iyw.cn/iyw-fusion-api";
+    let openai = "https://gateway.iyw.cn/iyw-fusion-api/v1";
+    for agent_type in registry::all_acp_agents() {
+        let expected = match agent_type {
+            AgentType::ClaudeCode | AgentType::CodeBuddy | AgentType::Gemini => root,
+            _ => openai,
+        };
+        assert_eq!(
+            production_model_gateway_base_url(agent_type),
+            expected,
+            "{agent_type:?}"
+        );
     }
 }
 

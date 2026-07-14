@@ -9,16 +9,6 @@
 !define IYW_CLAW_INSTALL_REGISTRY_KEY "Software\iywclaw\iyw-claw"
 !define IYW_CLAW_NODE_VERSION "24.0.0"
 
-!if "${ARCH}" == "x64"
-  !define IYW_CLAW_MANAGED_NODE_ASSET "node-v24.0.0-win-x64.zip"
-  !define IYW_CLAW_MANAGED_GIT_ASSET "MinGit-2.55.0.2-64-bit.zip"
-!else if "${ARCH}" == "arm64"
-  !define IYW_CLAW_MANAGED_NODE_ASSET "node-v24.0.0-win-arm64.zip"
-  !define IYW_CLAW_MANAGED_GIT_ASSET "MinGit-2.55.0.2-arm64.zip"
-!else
-  !error "Unsupported Windows installer architecture: ${ARCH}"
-!endif
-
 Var IywClawRoot
 
 Function IywClawResolveInstallRoot
@@ -57,6 +47,7 @@ Function IywClawResolveInstallRoot
     CreateDirectory "$IywClawRoot\logs"
 
     StrCpy $INSTDIR "$IywClawRoot\app"
+    SetOutPath "$INSTDIR"
     WriteRegStr SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot" "$IywClawRoot"
     DetailPrint "安装目录：$IywClawRoot"
     Return
@@ -76,6 +67,18 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; ARCH is defined by Tauri's generated installer.nsi after this hook is
+  ; included, so resolve architecture-specific assets when this macro expands.
+  !if "${ARCH}" == "x64"
+    !define IYW_CLAW_MANAGED_NODE_ASSET "node-v24.0.0-win-x64.zip"
+    !define IYW_CLAW_MANAGED_GIT_ASSET "MinGit-2.55.0.2-64-bit.zip"
+  !else if "${ARCH}" == "arm64"
+    !define IYW_CLAW_MANAGED_NODE_ASSET "node-v24.0.0-win-arm64.zip"
+    !define IYW_CLAW_MANAGED_GIT_ASSET "MinGit-2.55.0.2-arm64.zip"
+  !else
+    !error "Unsupported Windows installer architecture: ${ARCH}"
+  !endif
+
   DetailPrint "正在准备内置 Node.js/npm 运行环境..."
   !system 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${IYW_CLAW_PREPARE_MANAGED_NODE_SCRIPT}" -Architecture "${ARCH}" -Version "${IYW_CLAW_NODE_VERSION}" -OutputDirectory "${IYW_CLAW_MANAGED_NODE_CACHE_DIR}"' = 0
   File /oname=$PLUGINSDIR\managed-node.zip "${IYW_CLAW_MANAGED_NODE_CACHE_DIR}\${IYW_CLAW_MANAGED_NODE_ASSET}"

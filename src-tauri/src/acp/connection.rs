@@ -978,15 +978,14 @@ fn map_session_config_options(
 }
 
 fn enforce_managed_model_options(options: &mut [SessionConfigOptionInfo]) {
-    for option in options.iter_mut().filter(|option| {
-        option.id == "model" || option.category.as_deref() == Some("model")
-    }) {
+    for option in options
+        .iter_mut()
+        .filter(|option| option.id == "model" || option.category.as_deref() == Some("model"))
+    {
         let SessionConfigKindInfo::Select(select) = &mut option.kind;
-        if !crate::acp::provider_overlay::MANAGED_MODEL_IDS
-            .contains(&select.current_value.as_str())
+        if !crate::acp::provider_overlay::MANAGED_MODEL_IDS.contains(&select.current_value.as_str())
         {
-            select.current_value =
-                crate::acp::provider_overlay::MANAGED_DEFAULT_MODEL.to_string();
+            select.current_value = crate::acp::provider_overlay::MANAGED_DEFAULT_MODEL.to_string();
         }
         select.options = crate::acp::provider_overlay::MANAGED_MODEL_IDS
             .iter()

@@ -1,7 +1,7 @@
 {
   "name": "iyw-claw",
   "private": true,
-  "version": "0.19.0",
+  "version": "0.0.2",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "next dev --turbopack",
@@ -10,7 +10,12 @@
     "tauri": "tauri",
     "tauri:build:local": "tauri build --debug",
     "tauri:build:test": "tauri build --features test-gateway",
-    "tauri:build:prod": "tauri build",
+    "tauri:build:prod": "node src-tauri/scripts/build-desktop.mjs",
+    "tauri:build:fast": "node src-tauri/scripts/build-desktop.mjs --reuse-assets --no-sign",
+    "tauri:build:low-cpu": "node src-tauri/scripts/build-desktop.mjs --jobs=4",
+    "tauri:build:low-cpu-local": "node src-tauri/scripts/build-desktop.mjs --jobs=4 --no-sign",
+    "tauri:build:diagnose": "node src-tauri/scripts/build-desktop.mjs --jobs=4 --verbose --no-sign",
+    "tauri:bundle:local": "node src-tauri/scripts/build-desktop.mjs --bundle-only --no-sign",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",

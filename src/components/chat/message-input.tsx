@@ -73,6 +73,7 @@ import { useTabActions } from "@/contexts/tab-context"
 import {
   readFileBase64,
   quickMessagesList,
+  stageLocalChatAttachment,
   uploadAttachment,
   uploadLocalPathToRemote,
   isEmptyAttachmentError,
@@ -88,6 +89,7 @@ import { openFileDialog } from "@/lib/platform"
 import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { ServerFileBrowserDialog } from "@/components/shared/server-file-browser-dialog"
 import { toast } from "sonner"
+import { preparePickedAttachmentPaths } from "./chat-attachment-staging"
 import { disposeTauriListener } from "@/lib/tauri-listener"
 import { AGENT_LABELS } from "@/lib/types"
 import type {
@@ -210,6 +212,7 @@ interface MessageInputProps {
   availableCommands?: AvailableCommandInfo[] | null
   promptCapabilities: PromptCapabilitiesInfo
   attachmentTabId?: string | null
+  stageAttachmentsInWorkingDir?: boolean
   draftStorageKey?: string | null
   isActive?: boolean
   /** Paint the flowing active-session gradient on the composer border. Set only
@@ -497,6 +500,7 @@ export function MessageInput({
   availableCommands,
   promptCapabilities,
   attachmentTabId,
+  stageAttachmentsInWorkingDir = false,
   draftStorageKey,
   isActive = false,
   showActiveFlow = false,
@@ -1937,6 +1941,7 @@ export function MessageInput({
     if (disabled) return
     // Only wired up when `showNativePaperclip` is true (i.e. local desktop),
     // so we can hand raw OS paths to the local agent without a round-trip.
+    let picked: string[] = []
     try {
       const selected = await openFileDialog({
         multiple: true,
@@ -1944,12 +1949,30 @@ export function MessageInput({
         defaultPath,
       })
       if (!selected) return
-      const picked = Array.isArray(selected) ? selected : [selected]
-      appendResourceAttachments(picked.filter((item): item is string => !!item))
+      picked = (Array.isArray(selected) ? selected : [selected]).filter(
+        (item): item is string => !!item
+      )
+      const prepared = await preparePickedAttachmentPaths(picked, {
+        stageInChatDirectory: stageAttachmentsInWorkingDir,
+        chatDirectory: defaultPath,
+        stage: stageLocalChatAttachment,
+      })
+      appendResourceAttachments(prepared)
     } catch (error) {
       console.error("[MessageInput] pick files failed:", error)
+      toast.error(
+        tAttach("attachUploadFailed", {
+          names: picked.map(fileNameFromPath).join(", ") || "attachment",
+        })
+      )
     }
-  }, [appendResourceAttachments, defaultPath, disabled])
+  }, [
+    appendResourceAttachments,
+    defaultPath,
+    disabled,
+    stageAttachmentsInWorkingDir,
+    tAttach,
+  ])
 
   const [serverFilePickerOpen, setServerFilePickerOpen] = useState(false)
 

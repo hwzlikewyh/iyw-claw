@@ -17,8 +17,8 @@ pub use super::provider_overlay_formats::{
 
 pub const MODEL_GATEWAY_LOCAL_URL: &str = "http://127.0.0.1:6001";
 pub const MODEL_GATEWAY_TEST_URL: &str = "http://192.168.1.86:3201/ai-application";
-pub const MODEL_GATEWAY_PRODUCTION_URL: &str =
-    "https://gateway.iyw.cn/iyw-fusion-api";
+pub const MODEL_GATEWAY_PRODUCTION_URL: &str = "https://gateway.iyw.cn/iyw-fusion-api";
+pub const MODEL_GATEWAY_PRODUCTION_OPENAI_URL: &str = "https://gateway.iyw.cn/iyw-fusion-api/v1";
 
 #[cfg(debug_assertions)]
 pub const MODEL_GATEWAY_BASE_URL: &str = MODEL_GATEWAY_LOCAL_URL;
@@ -28,19 +28,37 @@ pub const MODEL_GATEWAY_BASE_URL: &str = MODEL_GATEWAY_TEST_URL;
 pub const MODEL_GATEWAY_BASE_URL: &str = MODEL_GATEWAY_PRODUCTION_URL;
 pub const MODEL_GATEWAY_BASE_URL_ENV: &str = "IYW_CLAW_MODEL_GATEWAY_BASE_URL";
 
-pub fn model_gateway_base_url() -> String {
+fn configured_model_gateway_base_url() -> Option<String> {
     std::env::var(MODEL_GATEWAY_BASE_URL_ENV)
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| MODEL_GATEWAY_BASE_URL.to_string())
+}
+
+pub(crate) fn production_model_gateway_base_url(agent_type: AgentType) -> &'static str {
+    match agent_type {
+        AgentType::ClaudeCode | AgentType::CodeBuddy | AgentType::Gemini => {
+            MODEL_GATEWAY_PRODUCTION_URL
+        }
+        _ => MODEL_GATEWAY_PRODUCTION_OPENAI_URL,
+    }
+}
+
+pub fn model_gateway_base_url_for(agent_type: AgentType) -> String {
+    if let Some(configured) = configured_model_gateway_base_url() {
+        return configured;
+    }
+    if MODEL_GATEWAY_BASE_URL == MODEL_GATEWAY_PRODUCTION_URL {
+        return production_model_gateway_base_url(agent_type).to_string();
+    }
+    MODEL_GATEWAY_BASE_URL.to_string()
 }
 
 pub fn apply_provider_runtime_env(
     agent_type: AgentType,
     runtime_env: &mut BTreeMap<String, String>,
 ) {
-    let base_url = model_gateway_base_url();
+    let base_url = model_gateway_base_url_for(agent_type);
     apply_provider_runtime_env_with_base(agent_type, runtime_env, &base_url);
 }
 
