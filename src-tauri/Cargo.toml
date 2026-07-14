@@ -35,6 +35,9 @@ tauri-runtime = [
 # `db::test_helpers` module) for integration tests in `tests/*.rs`. Without
 # this feature the items are physically uncompiled in release builds.
 test-utils = []
+# Release test packages opt into the internal model gateway. Debug builds keep
+# using the local gateway, while ordinary release builds use production.
+test-gateway = []
 
 [[bin]]
 name = "iyw-claw"

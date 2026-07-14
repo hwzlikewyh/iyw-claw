@@ -12,7 +12,17 @@ pub(crate) use super::provider_overlay_formats::{
     patch_codex_toml, patch_hermes_yaml, patch_json_config, patch_kimi_toml, patch_pi_models_json,
 };
 
-pub const MODEL_GATEWAY_BASE_URL: &str = "http://127.0.0.1:6001";
+pub const MODEL_GATEWAY_LOCAL_URL: &str = "http://127.0.0.1:6001";
+pub const MODEL_GATEWAY_TEST_URL: &str = "http://192.168.1.86:3201/ai-application";
+pub const MODEL_GATEWAY_PRODUCTION_URL: &str =
+    "https://gateway.iyw.cn/iyw-fusion-api";
+
+#[cfg(debug_assertions)]
+pub const MODEL_GATEWAY_BASE_URL: &str = MODEL_GATEWAY_LOCAL_URL;
+#[cfg(all(not(debug_assertions), feature = "test-gateway"))]
+pub const MODEL_GATEWAY_BASE_URL: &str = MODEL_GATEWAY_TEST_URL;
+#[cfg(all(not(debug_assertions), not(feature = "test-gateway")))]
+pub const MODEL_GATEWAY_BASE_URL: &str = MODEL_GATEWAY_PRODUCTION_URL;
 pub const MODEL_GATEWAY_BASE_URL_ENV: &str = "IYW_CLAW_MODEL_GATEWAY_BASE_URL";
 
 pub fn apply_provider_runtime_env(
