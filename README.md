@@ -136,17 +136,17 @@ cargo clippy --all-targets --features test-utils -- -D warnings
 
 ```bash
 cd src-tauri
-cargo check --no-default-features --bin iyw-claw-server
-cargo test --no-default-features --bin iyw-claw-server --lib
-cargo clippy --no-default-features --bin iyw-claw-server --lib -- -D warnings
+cargo check --no-default-features --features server-runtime --bin iyw-claw-server
+cargo test --no-default-features --features server-runtime --bin iyw-claw-server --lib
+cargo clippy --no-default-features --features server-runtime --bin iyw-claw-server --lib -- -D warnings
 ```
 
 MCP sidecar 检查：
 
 ```bash
 cd src-tauri
-cargo check --no-default-features --bin iyw-claw-mcp
-cargo clippy --no-default-features --bin iyw-claw-mcp -- -D warnings
+cargo check --no-default-features --features mcp-runtime --bin iyw-claw-mcp
+cargo clippy --no-default-features --features mcp-runtime --bin iyw-claw-mcp -- -D warnings
 ```
 
 ## 服务端配置

@@ -38,6 +38,10 @@ test-utils = []
 # Release test packages opt into the internal model gateway. Debug builds keep
 # using the local gateway, while ordinary release builds use production.
 test-gateway = []
+# Keep non-desktop binaries out of ordinary Tauri builds. Their dedicated
+# build entry points enable only the feature they need.
+server-runtime = []
+mcp-runtime = []
 
 [[bin]]
 name = "iyw-claw"
@@ -47,12 +51,12 @@ required-features = ["tauri-runtime"]
 [[bin]]
 name = "iyw-claw-server"
 path = "src/bin/iyw_claw_server.rs"
-required-features = []
+required-features = ["server-runtime"]
 
 [[bin]]
 name = "iyw-claw-mcp"
 path = "src/bin/iyw_claw_mcp.rs"
-required-features = []
+required-features = ["mcp-runtime"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [], optional = true }

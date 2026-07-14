@@ -17,8 +17,8 @@ COPY src-tauri/ ./
 # iyw-claw-mcp is the stdio MCP companion the runtime injects per session
 # (see acp/delegation/companion.rs). It must ship next to iyw-claw-server so
 # `locate_iyw_claw_mcp_binary()` finds it via the exe-sibling lookup.
-RUN cargo build --release --bin iyw-claw-server --no-default-features \
- && cargo build --release --bin iyw-claw-mcp --no-default-features
+RUN cargo build --release --bins --no-default-features \
+    --features server-runtime,mcp-runtime
 
 # Stage 3: Runtime
 FROM node:24-bookworm-slim

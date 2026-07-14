@@ -37,13 +37,13 @@ cargo test --features test-utils
 cargo clippy --all-targets --features test-utils -- -D warnings
 
 # 服务器模式
-cargo check --no-default-features --bin iyw-claw-server
-cargo test --no-default-features --bin iyw-claw-server --lib
-cargo clippy --no-default-features --bin iyw-claw-server --lib -- -D warnings
+cargo check --no-default-features --features server-runtime --bin iyw-claw-server
+cargo test --no-default-features --features server-runtime --bin iyw-claw-server --lib
+cargo clippy --no-default-features --features server-runtime --bin iyw-claw-server --lib -- -D warnings
 
 # iyw-claw-mcp 协作伴生进程（多智能体委托）
-cargo check --no-default-features --bin iyw-claw-mcp
-cargo clippy --no-default-features --bin iyw-claw-mcp -- -D warnings
+cargo check --no-default-features --features mcp-runtime --bin iyw-claw-mcp
+cargo clippy --no-default-features --features mcp-runtime --bin iyw-claw-mcp -- -D warnings
 
 # 解析器快照评审（输出变化时）
 cargo insta review
@@ -57,8 +57,8 @@ INSTA_UPDATE=auto cargo test --features test-utils     # 自动写新 .snap
 项目通过 Cargo feature flags 支持三种二进制：
 
 - **`iyw-claw`**（`tauri-runtime`，默认）：完整桌面应用，包含 Tauri 窗口管理、系统通知、自动更新等
-- **`iyw-claw-server`**（无 feature，`--no-default-features`）：独立服务器模式，仅编译 Axum HTTP API + WebSocket
-- **`iyw-claw-mcp`**（无 feature）：per-launch stdio MCP 伴生进程，被注入到代理 CLI 的 MCP 配置中，向 LLM 暴露**异步**子智能体委托工具。
+- **`iyw-claw-server`**（`server-runtime`）：独立服务器模式，仅编译 Axum HTTP API + WebSocket
+- **`iyw-claw-mcp`**（`mcp-runtime`）：per-launch stdio MCP 伴生进程，被注入到代理 CLI 的 MCP 配置中，向 LLM 暴露**异步**子智能体委托工具。
 
 ### 共享核心
 

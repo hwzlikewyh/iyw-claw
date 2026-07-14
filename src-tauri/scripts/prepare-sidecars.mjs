@@ -5,7 +5,7 @@
 // What it does:
 //   1. Resolves the target triple — `--target <triple>` arg, or
 //      `TAURI_TARGET_TRIPLE` env, or the host's `rustc -vV` host triple.
-//   2. Runs `cargo build --release --bin iyw-claw-mcp --no-default-features`
+//   2. Builds `iyw-claw-mcp` with only its dedicated Cargo feature enabled.
 //      for that triple from `src-tauri/`.
 //   3. Copies the produced binary to
 //      `src-tauri/binaries/iyw-claw-mcp-<triple>{.exe}` so Tauri's externalBin
@@ -79,13 +79,14 @@ function main() {
   const ext = isWindows ? ".exe" : ""
 
   log(`target triple: ${target}`)
-  log(`building ${BIN_NAME} (--release --no-default-features)`)
+  log(
+    `building ${BIN_NAME} (--release --no-default-features --features mcp-runtime)`
+  )
 
   // cargo build needs to run from src-tauri so it resolves the local manifest
   // and shares the swatinem/rust-cache key with other cargo invocations.
-  // `--no-default-features` keeps iyw-claw-mcp free of the Tauri runtime deps —
-  // the bin's required-features is empty, so this just enables cross-compile
-  // without dragging in macOS-private-api / Linux WebKit / Windows WebView2.
+  // Keep the companion free of Tauri runtime dependencies while satisfying
+  // the bin's feature gate, so desktop builds do not compile it a second time.
   execFileSync(
     "cargo",
     [
@@ -94,6 +95,8 @@ function main() {
       "--bin",
       BIN_NAME,
       "--no-default-features",
+      "--features",
+      "mcp-runtime",
       "--target",
       target,
     ],
