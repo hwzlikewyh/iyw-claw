@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Sidebar } from "./sidebar"
 import { normalizeAvatarUrl } from "./sidebar-account-settings"
 import enMessages from "@/i18n/messages/en.json"
+import { IywAccountProvider } from "@/contexts/iyw-account-context"
 
 // Stable spies + mutable active-folder, referenced from the hoisted mock
 // factories below (vi.mock is hoisted above imports).
@@ -97,7 +98,9 @@ vi.mock("@/lib/api", () => ({
 function renderSidebar() {
   return render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <Sidebar />
+      <IywAccountProvider>
+        <Sidebar />
+      </IywAccountProvider>
     </NextIntlClientProvider>
   )
 }

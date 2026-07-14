@@ -11,6 +11,7 @@ const APP_DIR_NAME: &str = ".iyw-claw";
 const PETS_DIR_NAME: &str = "pets";
 const UPLOADS_DIR_NAME: &str = "uploads";
 const LOGS_DIR_NAME: &str = "logs";
+const LOG_DIR_ENV: &str = "IYW_CLAW_LOG_DIR";
 
 /// `$IYW_CLAW_HOME` if set (and non-empty), else `~/.iyw-claw/`.
 ///
@@ -83,16 +84,20 @@ pub fn iyw_claw_uploads_root() -> PathBuf {
 /// Root directory for application diagnostic logs (rotating files written by
 /// the `tracing` file appender; see `crate::logging`).
 ///
-/// Resolution mirrors [`iyw_claw_uploads_root`] exactly so logs land on the same
-/// filesystem root as uploads/pets/the database:
-/// 1. `$IYW_CLAW_HOME/logs` (explicit override)
-/// 2. `$IYW_CLAW_DATA_DIR/logs` (server-mode data directory)
-/// 3. `~/.iyw-claw/logs` (default for the desktop app)
+/// Resolution keeps installed desktop logs beside app/runtime/config/data while
+/// preserving the existing server layout:
+/// 1. `$IYW_CLAW_LOG_DIR` (installed desktop override)
+/// 2. `$IYW_CLAW_HOME/logs`
+/// 3. `$IYW_CLAW_DATA_DIR/logs` (server-mode data directory)
+/// 4. `~/.iyw-claw/logs` (fallback)
 ///
 /// Pure env + `dirs::home_dir()`, so it is callable at the very start of a
 /// process — before the database (or, in `iyw-claw-server`, the tokio runtime)
 /// exists — which is exactly when the subscriber must be installed.
 pub fn iyw_claw_logs_root() -> PathBuf {
+    if let Some(custom) = std::env::var_os(LOG_DIR_ENV).filter(|s| !s.is_empty()) {
+        return PathBuf::from(custom);
+    }
     if let Some(custom) = std::env::var_os("IYW_CLAW_HOME").filter(|s| !s.is_empty()) {
         return PathBuf::from(custom).join(LOGS_DIR_NAME);
     }

@@ -101,7 +101,8 @@ fn main() -> ExitCode {
     // abort. Hold the guard for the whole process so buffered file lines flush
     // on a graceful exit.
     let _log_guard = iyw_claw_lib::logging::init::init_server();
-    if let Err(error) = iyw_claw_lib::acp::provider_overlay::enforce_all_active_provider_overlays()
+    if let Err(error) =
+        iyw_claw_lib::acp::provider_overlay::enforce_existing_active_provider_overlays()
     {
         tracing::error!("[agent-storage] failed to repair private provider configuration: {error}");
     }

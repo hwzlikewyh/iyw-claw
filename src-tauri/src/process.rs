@@ -1,6 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
+mod managed_git;
 mod managed_node;
 use std::process::Command;
 
@@ -169,6 +170,28 @@ pub fn ensure_node_in_path() {
         prepend_to_path(&bin_dir);
         tracing::info!("[PATH] node not in PATH, prepended {}", bin_dir.display());
     }
+}
+
+pub fn ensure_managed_tools_in_path() {
+    ensure_node_in_path();
+    ensure_git_in_path();
+}
+
+fn ensure_git_in_path() {
+    let root = std::env::var_os(crate::desktop_bootstrap::INSTALL_ROOT_ENV)
+        .or_else(|| std::env::var_os(crate::acp::agent_storage::STORAGE_ROOT_ENV))
+        .or_else(|| std::env::var_os("IYW_CLAW_DATA_DIR"));
+    let Some(root) = root else {
+        return;
+    };
+    let Some(bin_dir) = managed_git::managed_git_bin_dir(PathBuf::from(root).as_path()) else {
+        return;
+    };
+    prepend_to_path(&bin_dir);
+    tracing::info!(
+        "[PATH] prepended iyw-claw managed Git runtime {}",
+        bin_dir.display()
+    );
 }
 
 /// Search common Node.js version manager directories for a `node` binary and

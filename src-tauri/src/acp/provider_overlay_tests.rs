@@ -225,6 +225,32 @@ fn filesystem_overlay_covers_every_private_profile() {
         .is_file());
 }
 
+#[test]
+fn startup_overlay_does_not_create_missing_profiles() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let paths = AgentStoragePaths::new(temp.path().join("private"));
+
+    enforce_existing_provider_overlays(&paths).expect("repair existing profiles");
+
+    assert!(!paths.config_dir().exists());
+}
+
+#[test]
+fn startup_overlay_repairs_only_existing_profiles() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let paths = AgentStoragePaths::new(temp.path().join("private"));
+    let codex = paths.profile(AgentType::Codex).root;
+    fs::create_dir_all(&codex).expect("codex profile");
+    fs::write(codex.join("config.toml"), "model = \"keep\"\n").expect("codex config");
+
+    enforce_existing_provider_overlays(&paths).expect("repair existing profiles");
+
+    assert!(codex.join("config.toml").is_file());
+    assert!(!paths.profile(AgentType::ClaudeCode).root.exists());
+    assert!(!paths.profile(AgentType::Gemini).root.exists());
+    assert!(!paths.profile(AgentType::OpenCode).root.exists());
+}
+
 fn assert_json_provider_overlay(agent: AgentType, value: &serde_json::Value) {
     match agent {
         AgentType::ClaudeCode | AgentType::CodeBuddy => {

@@ -222,19 +222,19 @@ async fn malformed_storage_metadata_is_an_error() {
 }
 
 #[test]
-fn desktop_suggestion_is_a_sibling_of_the_install_directory() {
-    let executable = PathBuf::from("D:/Apps/iyw-claw/iyw-claw.exe");
+fn desktop_suggestion_uses_the_product_root_above_app() {
+    let executable = PathBuf::from("D:/Apps/iyw-claw/app/iyw-claw.exe");
 
     let suggested = suggest_desktop_root(&executable);
 
-    assert_eq!(suggested, Some(PathBuf::from("D:/Apps/iyw-claw-data")));
+    assert_eq!(suggested, Some(PathBuf::from("D:/Apps/iyw-claw")));
 }
 
 #[test]
-fn desktop_suggestion_uses_drive_root_when_install_has_no_directory_name() {
+fn desktop_suggestion_appends_product_name_at_drive_root() {
     let executable = PathBuf::from("D:/iyw-claw.exe");
 
     let suggested = suggest_desktop_root(&executable);
 
-    assert_eq!(suggested, Some(PathBuf::from("D:/iyw-claw-data")));
+    assert_eq!(suggested, Some(PathBuf::from("D:/iyw-claw")));
 }

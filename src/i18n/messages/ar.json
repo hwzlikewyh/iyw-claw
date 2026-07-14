@@ -3561,6 +3561,10 @@
     "refresh": "تحديث",
     "clear": "مسح",
     "openFolder": "فتح المجلد",
+    "logsPathLabel": "مجلد السجلات",
+    "copyPath": "نسخ مجلد السجلات",
+    "pathCopied": "تم نسخ مجلد السجلات",
+    "copyPathFailed": "تعذر نسخ مجلد السجلات",
     "shownCount": "{shown} / {total} معروض",
     "empty": "لا توجد سجلات للعرض.",
     "levelSaveFailed": "فشل حفظ مستوى السجل",
@@ -3710,6 +3714,24 @@
     "branchRemote": "بعيد",
     "branchSearchPlaceholder": "بحث في الفروع…",
     "branchNone": "لا توجد فروع"
+  },
+  "StartupLogin": {
+    "title": "تسجيل الدخول إلى iyw-claw",
+    "description": "سجّل الدخول لتثبيت الوكلاء واستخدامهم.",
+    "checkingTitle": "جارٍ التحقق من الحساب",
+    "checkingDescription": "جارٍ التحقق من حالة تسجيل الدخول.",
+    "errorTitle": "تعذر التحقق من حالة تسجيل الدخول",
+    "errorDescription": "تحقق من اتصال الشبكة ثم أعد المحاولة.",
+    "retry": "إعادة المحاولة"
+  },
+  "StartupCodex": {
+    "checkingTitle": "جارٍ تحضير النواة",
+    "checkingDescription": "جارٍ تحضير بيئة التشغيل لأول تشغيل. يُرجى الانتظار.",
+    "installingTitle": "جارٍ تحضير النواة",
+    "installingDescription": "جارٍ تحضير بيئة التشغيل لأول تشغيل. يُرجى الانتظار.",
+    "errorTitle": "فشل تحضير النواة",
+    "errorDescription": "تحقق من اتصال الشبكة ثم أعد المحاولة.",
+    "retry": "إعادة المحاولة"
   },
   "SidebarAccount": {
     "notSignedIn": "Not signed in",

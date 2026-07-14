@@ -76,6 +76,7 @@ pub async fn acp_connect(
     // can prompt the user to install it from Agent Settings.
     acp_commands::verify_agent_installed(params.agent_type, &runtime_env)
         .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+    crate::acp::account_credentials::sync_agent_credentials(&db.conn, params.agent_type).await?;
 
     let emitter = state.emitter.clone();
     let connection_id = manager
@@ -833,6 +834,7 @@ pub async fn acp_download_agent_binary(
         params.agent_type,
         params.version,
         params.task_id,
+        &state.db,
         &emitter,
     )
     .await

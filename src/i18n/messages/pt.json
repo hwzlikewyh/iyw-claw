@@ -3561,6 +3561,10 @@
     "refresh": "Atualizar",
     "clear": "Limpar",
     "openFolder": "Abrir pasta",
+    "logsPathLabel": "Diretório de logs",
+    "copyPath": "Copiar diretório de logs",
+    "pathCopied": "Diretório de logs copiado",
+    "copyPathFailed": "Falha ao copiar o diretório de logs",
     "shownCount": "{shown} / {total} exibidos",
     "empty": "Nenhum registro para exibir.",
     "levelSaveFailed": "Falha ao salvar o nível de registro",
@@ -3710,6 +3714,24 @@
     "branchRemote": "Remoto",
     "branchSearchPlaceholder": "Pesquisar branches…",
     "branchNone": "Sem branches"
+  },
+  "StartupLogin": {
+    "title": "Entrar no iyw-claw",
+    "description": "Entre para instalar e usar Agents.",
+    "checkingTitle": "Verificando a conta",
+    "checkingDescription": "Confirmando o status de login.",
+    "errorTitle": "Não foi possível verificar o login",
+    "errorDescription": "Verifique a conexão de rede e tente novamente.",
+    "retry": "Tentar novamente"
+  },
+  "StartupCodex": {
+    "checkingTitle": "Preparando o núcleo",
+    "checkingDescription": "O ambiente está sendo preparado para a primeira inicialização. Aguarde.",
+    "installingTitle": "Preparando o núcleo",
+    "installingDescription": "O ambiente está sendo preparado para a primeira inicialização. Aguarde.",
+    "errorTitle": "Falha ao preparar o núcleo",
+    "errorDescription": "Verifique a conexão de rede e tente novamente.",
+    "retry": "Tentar novamente"
   },
   "SidebarAccount": {
     "notSignedIn": "Not signed in",

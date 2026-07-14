@@ -3561,6 +3561,10 @@
     "refresh": "重新整理",
     "clear": "清除",
     "openFolder": "開啟資料夾",
+    "logsPathLabel": "日誌目錄",
+    "copyPath": "複製日誌目錄",
+    "pathCopied": "已複製日誌目錄",
+    "copyPathFailed": "複製日誌目錄失敗",
     "shownCount": "已顯示 {shown} / {total}",
     "empty": "尚無日誌。",
     "levelSaveFailed": "儲存日誌等級失敗",
@@ -3710,6 +3714,24 @@
     "branchRemote": "遠端",
     "branchSearchPlaceholder": "搜尋分支…",
     "branchNone": "無分支"
+  },
+  "StartupLogin": {
+    "title": "登入 iyw-claw",
+    "description": "登入後才能安裝並使用 Agent。",
+    "checkingTitle": "正在檢查帳戶",
+    "checkingDescription": "正在確認登入狀態。",
+    "errorTitle": "無法檢查登入狀態",
+    "errorDescription": "請檢查網路連線後重試。",
+    "retry": "重試"
+  },
+  "StartupCodex": {
+    "checkingTitle": "正在準備核心中",
+    "checkingDescription": "首次啟動需要準備執行環境，請稍候。",
+    "installingTitle": "正在準備核心中",
+    "installingDescription": "首次啟動需要準備執行環境，請稍候。",
+    "errorTitle": "核心準備失敗",
+    "errorDescription": "請檢查網路連線後重試。",
+    "retry": "重試"
   },
   "SidebarAccount": {
     "notSignedIn": "未登入",

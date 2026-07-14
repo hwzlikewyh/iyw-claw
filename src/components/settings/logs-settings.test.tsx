@@ -205,6 +205,7 @@ beforeEach(() => {
     level: "info",
     targets: [],
     env_locked: false,
+    logs_dir: "D:\\iyw-claw-data\\logs",
   })
   mockGetRecent.mockResolvedValue([])
   mockSetSettings.mockResolvedValue({ level: "info", targets: [] })
@@ -220,6 +221,14 @@ afterEach(() => {
 })
 
 describe("LogsSettings", () => {
+  it("shows the resolved log directory in a read-only field", async () => {
+    renderWithIntl()
+
+    const input = await screen.findByLabelText(M.logsPathLabel)
+    expect(input).toHaveValue("D:\\iyw-claw-data\\logs")
+    expect(input).toHaveAttribute("readonly")
+  })
+
   it("renders recent log records", async () => {
     mockGetRecent.mockResolvedValue([
       rec(1, "ERROR", "acp", "boom happened"),
@@ -532,6 +541,7 @@ describe("LogsSettings", () => {
       level: "debug",
       targets: [],
       env_locked: true,
+      logs_dir: "D:\\iyw-claw-data\\logs",
     })
     renderWithIntl()
     await screen.findByText(M.targetsTitle)

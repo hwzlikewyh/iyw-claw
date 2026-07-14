@@ -315,16 +315,16 @@ fn classify_bind_error(err: std::io::Error) -> AppCommandError {
 #[cfg(feature = "tauri-runtime")]
 pub(crate) fn find_static_dir_tauri(app: &tauri::AppHandle) -> PathBuf {
     use tauri::Manager;
-    // 1. Production: bundle.resources copies out/ → web/ inside the resource directory.
+    // Production: bundle.resources copies out/ into the private desktop bundle.
     let resource = app.path().resource_dir().ok();
     if let Some(ref dir) = resource {
-        let web = dir.join("web");
-        if web.join("index.html").exists() {
+        let bundle = dir.join("resources").join("bundle");
+        if bundle.join("index.html").exists() {
             tracing::info!(
-                "[WEB] Serving static files from resource/web: {}",
-                web.display()
+                "[WEB] Serving static files from packaged bundle: {}",
+                bundle.display()
             );
-            return web;
+            return bundle;
         }
         // Fallback: files at resource root.
         if dir.join("index.html").exists() {

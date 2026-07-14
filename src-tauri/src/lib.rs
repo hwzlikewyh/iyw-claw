@@ -9,6 +9,7 @@ pub mod automation;
 pub mod chat_channel;
 pub mod commands;
 pub mod db;
+pub mod desktop_bootstrap;
 pub mod git_credential;
 pub mod git_repo;
 pub mod keyring_store;
@@ -135,6 +136,10 @@ mod tauri_app {
 
     #[cfg_attr(mobile, tauri::mobile_entry_point)]
     pub fn run() {
+        // Resolve the installed product root before logging so the first
+        // startup diagnostics land beside app/runtime/config/data.
+        let desktop_bootstrap = crate::desktop_bootstrap::apply_pre_runtime_environment();
+
         // Install the logging subscriber first so it captures everything from
         // here on. The file appender's logs dir is resolved from env (no DB
         // needed); hold the guard for the whole process so buffered file lines
@@ -149,7 +154,7 @@ mod tauri_app {
         if let Err(err) = fix_path_env::fix() {
             tracing::error!("[PATH] fix_path_env failed: {err}");
         }
-        process::ensure_node_in_path();
+        process::ensure_managed_tools_in_path();
 
         let builder = tauri::Builder::default();
 
@@ -221,7 +226,7 @@ mod tauri_app {
             // embedded web server's AppState so HTTP and webview clients see the
             // same download progress; lets the upgrade UI survive navigation.
             .manage(crate::update::new_update_state_handle())
-            .setup(|app| {
+            .setup(move |app| {
                 let app_data_dir = app.path().app_data_dir()?;
 
                 // Unify the data root across every consumer:
@@ -295,6 +300,16 @@ mod tauri_app {
                 ))
                 .map_err(|e| e.to_string())?;
 
+                if let Some(selected_root) = desktop_bootstrap.selected_root() {
+                    tauri::async_runtime::block_on(
+                        crate::desktop_bootstrap::ensure_initial_agent_storage(
+                            &database.conn,
+                            selected_root,
+                        ),
+                    )
+                    .map_err(|error| error.to_string())?;
+                }
+
                 match tauri::async_runtime::block_on(crate::acp::agent_storage::load_config(
                     &database.conn,
                 )) {
@@ -313,7 +328,7 @@ mod tauri_app {
                                 &config,
                             );
                             if let Err(error) =
-                                crate::acp::provider_overlay::enforce_all_active_provider_overlays()
+                                crate::acp::provider_overlay::enforce_existing_active_provider_overlays()
                             {
                                 tracing::error!(
                                     "[agent-storage] failed to repair private provider configuration: {error}"

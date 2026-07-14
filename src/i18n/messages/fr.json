@@ -3561,6 +3561,10 @@
     "refresh": "Actualiser",
     "clear": "Effacer",
     "openFolder": "Ouvrir le dossier",
+    "logsPathLabel": "Dossier des journaux",
+    "copyPath": "Copier le dossier des journaux",
+    "pathCopied": "Dossier des journaux copié",
+    "copyPathFailed": "Impossible de copier le dossier des journaux",
     "shownCount": "{shown} / {total} affichés",
     "empty": "Aucun journal à afficher.",
     "levelSaveFailed": "Échec de l'enregistrement du niveau de journalisation",
@@ -3710,6 +3714,24 @@
     "branchRemote": "Distante",
     "branchSearchPlaceholder": "Rechercher des branches…",
     "branchNone": "Aucune branche"
+  },
+  "StartupLogin": {
+    "title": "Se connecter à iyw-claw",
+    "description": "Connectez-vous pour installer et utiliser les agents.",
+    "checkingTitle": "Vérification du compte",
+    "checkingDescription": "Vérification de l’état de connexion.",
+    "errorTitle": "Impossible de vérifier la connexion",
+    "errorDescription": "Vérifiez la connexion réseau, puis réessayez.",
+    "retry": "Réessayer"
+  },
+  "StartupCodex": {
+    "checkingTitle": "Préparation du noyau",
+    "checkingDescription": "L’environnement est préparé pour le premier démarrage. Veuillez patienter.",
+    "installingTitle": "Préparation du noyau",
+    "installingDescription": "L’environnement est préparé pour le premier démarrage. Veuillez patienter.",
+    "errorTitle": "Échec de la préparation du noyau",
+    "errorDescription": "Vérifiez la connexion réseau, puis réessayez.",
+    "retry": "Réessayer"
   },
   "SidebarAccount": {
     "notSignedIn": "Not signed in",

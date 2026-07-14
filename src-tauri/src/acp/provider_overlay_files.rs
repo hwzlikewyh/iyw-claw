@@ -16,14 +16,27 @@ pub fn enforce_all_provider_overlays(paths: &AgentStoragePaths) -> Result<(), St
     Ok(())
 }
 
+pub fn enforce_existing_provider_overlays(paths: &AgentStoragePaths) -> Result<(), String> {
+    for agent in crate::acp::registry::all_acp_agents() {
+        let profile = paths.profile(agent).root;
+        if profile.exists() {
+            enforce_provider_overlay_at_root(agent, &profile)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn enforce_active_provider_overlay(agent: AgentType) -> Result<(), String> {
     AgentStoragePaths::active().ok_or_else(|| "Agent storage is not initialized".to_string())?;
     enforce_provider_overlay_at_root(agent, &active_profile_root(agent)?)
 }
 
-pub fn enforce_all_active_provider_overlays() -> Result<(), String> {
+pub fn enforce_existing_active_provider_overlays() -> Result<(), String> {
     for agent in crate::acp::registry::all_acp_agents() {
-        enforce_active_provider_overlay(agent)?;
+        let profile = active_profile_root(agent)?;
+        if profile.exists() {
+            enforce_provider_overlay_at_root(agent, &profile)?;
+        }
     }
     Ok(())
 }
@@ -86,7 +99,7 @@ fn enforce_provider_overlay_at_root(agent: AgentType, profile: &Path) -> Result<
     }
 }
 
-fn active_profile_root(agent: AgentType) -> Result<PathBuf, String> {
+pub(crate) fn active_profile_root(agent: AgentType) -> Result<PathBuf, String> {
     match agent {
         AgentType::ClaudeCode => required_env_path("CLAUDE_CONFIG_DIR"),
         AgentType::Codex => required_env_path("CODEX_HOME"),
@@ -170,7 +183,7 @@ fn patch_text(
     write_if_changed(path, &raw, &next)
 }
 
-fn read_optional(path: &Path) -> Result<String, String> {
+pub(crate) fn read_optional(path: &Path) -> Result<String, String> {
     match fs::read_to_string(path) {
         Ok(raw) => Ok(raw),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
@@ -178,7 +191,7 @@ fn read_optional(path: &Path) -> Result<String, String> {
     }
 }
 
-fn write_if_changed(path: &Path, old: &str, next: &str) -> Result<(), String> {
+pub(crate) fn write_if_changed(path: &Path, old: &str, next: &str) -> Result<(), String> {
     if old == next {
         return Ok(());
     }

@@ -3561,6 +3561,10 @@
     "refresh": "刷新",
     "clear": "清空",
     "openFolder": "打开文件夹",
+    "logsPathLabel": "日志目录",
+    "copyPath": "复制日志目录",
+    "pathCopied": "已复制日志目录",
+    "copyPathFailed": "复制日志目录失败",
     "shownCount": "已显示 {shown} / {total}",
     "empty": "暂无日志。",
     "levelSaveFailed": "保存日志级别失败",
@@ -3710,6 +3714,24 @@
     "branchRemote": "远程",
     "branchSearchPlaceholder": "搜索分支…",
     "branchNone": "无分支"
+  },
+  "StartupLogin": {
+    "title": "登录 iyw-claw",
+    "description": "登录后才能安装并使用 Agent。",
+    "checkingTitle": "正在检查账户",
+    "checkingDescription": "正在确认登录状态。",
+    "errorTitle": "无法检查登录状态",
+    "errorDescription": "请检查网络连接后重试。",
+    "retry": "重试"
+  },
+  "StartupCodex": {
+    "checkingTitle": "正在准备内核中",
+    "checkingDescription": "首次启动需要准备运行环境，请稍候。",
+    "installingTitle": "正在准备内核中",
+    "installingDescription": "首次启动需要准备运行环境，请稍候。",
+    "errorTitle": "内核准备失败",
+    "errorDescription": "请检查网络连接后重试。",
+    "retry": "重试"
   },
   "SidebarAccount": {
     "notSignedIn": "未登录",

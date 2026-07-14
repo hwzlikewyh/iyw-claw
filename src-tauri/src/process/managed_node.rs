@@ -10,8 +10,33 @@ struct ManagedNodeState {
 }
 
 pub(super) fn managed_node_bin_dir(executable: &Path) -> Option<PathBuf> {
+    if let Some(install_root) = std::env::var_os(crate::desktop_bootstrap::INSTALL_ROOT_ENV) {
+        if let Some(candidate) = managed_node_bin_dir_from_data_root(Path::new(&install_root)) {
+            return Some(candidate);
+        }
+    }
+    if let Some(storage_root) =
+        std::env::var_os(crate::acp::agent_storage::STORAGE_ROOT_ENV)
+    {
+        if let Some(candidate) = managed_node_bin_dir_from_data_root(Path::new(&storage_root)) {
+            return Some(candidate);
+        }
+    }
+    if let Some(data_root) = std::env::var_os("IYW_CLAW_DATA_DIR") {
+        if let Some(candidate) = managed_node_bin_dir_from_data_root(Path::new(&data_root)) {
+            return Some(candidate);
+        }
+    }
     let install_dir = executable.parent()?;
     let node_root = install_dir.parent()?.join("runtime").join("node");
+    managed_node_bin_dir_from_node_root(&node_root)
+}
+
+pub(super) fn managed_node_bin_dir_from_data_root(data_root: &Path) -> Option<PathBuf> {
+    managed_node_bin_dir_from_node_root(&data_root.join("runtime").join("node"))
+}
+
+fn managed_node_bin_dir_from_node_root(node_root: &Path) -> Option<PathBuf> {
     let raw = std::fs::read_to_string(node_root.join("current.json")).ok()?;
     let state: ManagedNodeState = serde_json::from_str(&raw).ok()?;
     if !valid_version(&state.version) || !matches!(state.platform.as_str(), "win-x64" | "win-arm64")
@@ -20,7 +45,7 @@ pub(super) fn managed_node_bin_dir(executable: &Path) -> Option<PathBuf> {
     }
 
     let candidate = node_root.join(state.version).join(state.platform);
-    let canonical_root = std::fs::canonicalize(&node_root).ok()?;
+    let canonical_root = std::fs::canonicalize(node_root).ok()?;
     let canonical_candidate = std::fs::canonicalize(&candidate).ok()?;
     if !canonical_candidate.starts_with(canonical_root)
         || !canonical_candidate.join("node.exe").is_file()
@@ -45,7 +70,26 @@ fn valid_version(value: &str) -> bool {
 mod tests {
     use std::fs;
 
-    use super::managed_node_bin_dir;
+    use super::{managed_node_bin_dir, managed_node_bin_dir_from_data_root};
+
+    #[test]
+    fn resolves_verified_node_runtime_below_the_data_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runtime = temp.path().join("runtime/node/24.0.0/win-x64");
+        fs::create_dir_all(&runtime).expect("runtime dir");
+        fs::write(runtime.join("node.exe"), b"node").expect("node");
+        fs::write(runtime.join("npm.cmd"), b"npm").expect("npm");
+        fs::write(
+            temp.path().join("runtime/node/current.json"),
+            r#"{"version":"24.0.0","platform":"win-x64"}"#,
+        )
+        .expect("current state");
+
+        assert_eq!(
+            managed_node_bin_dir_from_data_root(temp.path()),
+            Some(runtime)
+        );
+    }
 
     #[test]
     fn resolves_verified_node_runtime_beside_install_directory() {

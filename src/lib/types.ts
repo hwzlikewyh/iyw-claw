@@ -1736,6 +1736,7 @@ export interface LogSettingsView {
   level: LogLevel
   targets: TargetDirective[]
   env_locked: boolean
+  logs_dir: string
 }
 
 /** One enclosing span in an event's scope: its name + recorded fields. Ordered

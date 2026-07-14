@@ -6,7 +6,8 @@ use crate::acp::error::AcpError;
 use crate::acp::registry;
 use crate::models::agent::AgentType;
 
-const NPM_OFFICIAL_REGISTRY: &str = "https://registry.npmjs.org";
+const DEFAULT_NPM_REGISTRY: &str = "https://registry.npmmirror.com";
+const NPM_REGISTRY_ENV: &str = "IYW_CLAW_NPM_REGISTRY";
 
 pub fn private_npm_prefix(
     paths: &AgentStoragePaths,
@@ -43,17 +44,45 @@ pub fn npm_prefix_bin_dir(prefix: &Path) -> PathBuf {
     }
 }
 
-pub fn private_npm_install_args(prefix: &Path, cache: &Path, packages: &[&str]) -> Vec<OsString> {
+pub fn npm_registry(explicit: Option<&str>) -> Result<String, AcpError> {
+    let value = explicit
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_NPM_REGISTRY);
+    let parsed = reqwest::Url::parse(value)
+        .map_err(|error| AcpError::DownloadFailed(format!("invalid npm registry URL: {error}")))?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err(AcpError::DownloadFailed(
+            "npm registry must be an absolute HTTP(S) URL".to_string(),
+        ));
+    }
+    Ok(value.to_string())
+}
+
+pub fn private_npm_install_args(
+    prefix: &Path,
+    cache: &Path,
+    packages: &[&str],
+) -> Result<Vec<OsString>, AcpError> {
+    let registry = match std::env::var(NPM_REGISTRY_ENV) {
+        Ok(value) => npm_registry(Some(&value))?,
+        Err(std::env::VarError::NotPresent) => npm_registry(None)?,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(AcpError::DownloadFailed(
+                "npm registry environment is not valid Unicode".to_string(),
+            ));
+        }
+    };
     let mut args = vec![
         OsString::from("install"),
         OsString::from("--global"),
         OsString::from("--include=optional"),
-        OsString::from(format!("--registry={NPM_OFFICIAL_REGISTRY}")),
+        OsString::from(format!("--registry={registry}")),
         path_arg("--prefix=", prefix),
         path_arg("--cache=", cache),
     ];
     args.extend(packages.iter().map(OsString::from));
-    args
+    Ok(args)
 }
 
 fn path_arg(name: &str, path: &Path) -> OsString {

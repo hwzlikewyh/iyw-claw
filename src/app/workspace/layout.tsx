@@ -69,6 +69,9 @@ import {
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
+import { IywAccountProvider } from "@/contexts/iyw-account-context"
+import { StartupLoginGate } from "@/components/account/startup-login-gate"
+import { StartupCodexGate } from "@/components/account/startup-codex-gate"
 
 function WorkspaceDocumentTitle() {
   const { activeFolder } = useActiveFolder()
@@ -893,52 +896,58 @@ function WorkbenchRouteConversationSync() {
 
 function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
   return (
-    <AppWorkspaceProvider>
-      <AlertProvider>
-        <GitCredentialProvider>
-          <TaskProvider>
-            <AcpConnectionsProvider>
-              <DelegationProvider>
-                <ConversationStatusEventBridge />
-                <ConversationRuntimeProvider>
-                  <WorkspaceProvider>
-                    <TabProvider>
-                      <WorkspaceDocumentTitle />
-                      <TabKeysSync />
-                      <DeepLinkBootstrap />
-                      <SidebarViewOptionsProvider>
-                        <SettingsDialog />
-                        {/* Always mounted: external-change conflicts must be
+    <IywAccountProvider>
+      <StartupLoginGate>
+        <StartupCodexGate>
+          <AppWorkspaceProvider>
+            <AlertProvider>
+              <GitCredentialProvider>
+                <TaskProvider>
+                  <AcpConnectionsProvider>
+                    <DelegationProvider>
+                      <ConversationStatusEventBridge />
+                      <ConversationRuntimeProvider>
+                        <WorkspaceProvider>
+                          <TabProvider>
+                            <WorkspaceDocumentTitle />
+                            <TabKeysSync />
+                            <DeepLinkBootstrap />
+                            <SidebarViewOptionsProvider>
+                              <SettingsDialog />
+                              {/* Always mounted: external-change conflicts must be
                             resolvable even with the aux file tree closed. */}
-                        <ExternalConflictDialog />
-                        <SessionStatsProvider>
-                          <SidebarProvider>
-                            <AuxPanelProvider>
-                              <TerminalProvider>
-                                <SearchDialogProvider>
-                                  <AutomationsViewProvider>
-                                    <WorkbenchRouteProvider>
-                                      <WorkbenchRouteConversationSync />
-                                      <FolderLayoutShell>
-                                        {children}
-                                      </FolderLayoutShell>
-                                    </WorkbenchRouteProvider>
-                                  </AutomationsViewProvider>
-                                </SearchDialogProvider>
-                              </TerminalProvider>
-                            </AuxPanelProvider>
-                          </SidebarProvider>
-                        </SessionStatsProvider>
-                      </SidebarViewOptionsProvider>
-                    </TabProvider>
-                  </WorkspaceProvider>
-                </ConversationRuntimeProvider>
-              </DelegationProvider>
-            </AcpConnectionsProvider>
-          </TaskProvider>
-        </GitCredentialProvider>
-      </AlertProvider>
-    </AppWorkspaceProvider>
+                              <ExternalConflictDialog />
+                              <SessionStatsProvider>
+                                <SidebarProvider>
+                                  <AuxPanelProvider>
+                                    <TerminalProvider>
+                                      <SearchDialogProvider>
+                                        <AutomationsViewProvider>
+                                          <WorkbenchRouteProvider>
+                                            <WorkbenchRouteConversationSync />
+                                            <FolderLayoutShell>
+                                              {children}
+                                            </FolderLayoutShell>
+                                          </WorkbenchRouteProvider>
+                                        </AutomationsViewProvider>
+                                      </SearchDialogProvider>
+                                    </TerminalProvider>
+                                  </AuxPanelProvider>
+                                </SidebarProvider>
+                              </SessionStatsProvider>
+                            </SidebarViewOptionsProvider>
+                          </TabProvider>
+                        </WorkspaceProvider>
+                      </ConversationRuntimeProvider>
+                    </DelegationProvider>
+                  </AcpConnectionsProvider>
+                </TaskProvider>
+              </GitCredentialProvider>
+            </AlertProvider>
+          </AppWorkspaceProvider>
+        </StartupCodexGate>
+      </StartupLoginGate>
+    </IywAccountProvider>
   )
 }
 

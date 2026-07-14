@@ -3561,6 +3561,10 @@
     "refresh": "Refresh",
     "clear": "Clear",
     "openFolder": "Open folder",
+    "logsPathLabel": "Logs directory",
+    "copyPath": "Copy logs directory",
+    "pathCopied": "Logs directory copied",
+    "copyPathFailed": "Failed to copy logs directory",
     "shownCount": "{shown} / {total} shown",
     "empty": "No logs to display.",
     "levelSaveFailed": "Failed to save log level",
@@ -3710,6 +3714,24 @@
     "branchRemote": "Remote",
     "branchSearchPlaceholder": "Search branches…",
     "branchNone": "No branches"
+  },
+  "StartupLogin": {
+    "title": "Sign in to iyw-claw",
+    "description": "Sign in to install and use Agents.",
+    "checkingTitle": "Checking your account",
+    "checkingDescription": "Confirming your sign-in status.",
+    "errorTitle": "Unable to check sign-in status",
+    "errorDescription": "Check your network connection and try again.",
+    "retry": "Retry"
+  },
+  "StartupCodex": {
+    "checkingTitle": "Preparing the core",
+    "checkingDescription": "The runtime is being prepared for first launch. Please wait.",
+    "installingTitle": "Preparing the core",
+    "installingDescription": "The runtime is being prepared for first launch. Please wait.",
+    "errorTitle": "Core preparation failed",
+    "errorDescription": "Check your network connection and try again.",
+    "retry": "Retry"
   },
   "SidebarAccount": {
     "notSignedIn": "Not signed in",

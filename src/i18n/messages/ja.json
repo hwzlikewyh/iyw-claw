@@ -3561,6 +3561,10 @@
     "refresh": "更新",
     "clear": "クリア",
     "openFolder": "フォルダーを開く",
+    "logsPathLabel": "ログディレクトリ",
+    "copyPath": "ログディレクトリをコピー",
+    "pathCopied": "ログディレクトリをコピーしました",
+    "copyPathFailed": "ログディレクトリをコピーできませんでした",
     "shownCount": "{shown} / {total} 件表示",
     "empty": "表示するログがありません。",
     "levelSaveFailed": "ログレベルの保存に失敗しました",
@@ -3710,6 +3714,24 @@
     "branchRemote": "リモート",
     "branchSearchPlaceholder": "ブランチを検索…",
     "branchNone": "ブランチがありません"
+  },
+  "StartupLogin": {
+    "title": "iyw-claw にログイン",
+    "description": "Agent をインストールして使用するにはログインしてください。",
+    "checkingTitle": "アカウントを確認中",
+    "checkingDescription": "ログイン状態を確認しています。",
+    "errorTitle": "ログイン状態を確認できません",
+    "errorDescription": "ネットワーク接続を確認して再試行してください。",
+    "retry": "再試行"
+  },
+  "StartupCodex": {
+    "checkingTitle": "コアを準備中",
+    "checkingDescription": "初回起動用の実行環境を準備しています。しばらくお待ちください。",
+    "installingTitle": "コアを準備中",
+    "installingDescription": "初回起動用の実行環境を準備しています。しばらくお待ちください。",
+    "errorTitle": "コアの準備に失敗しました",
+    "errorDescription": "ネットワーク接続を確認して再試行してください。",
+    "retry": "再試行"
   },
   "SidebarAccount": {
     "notSignedIn": "Not signed in",

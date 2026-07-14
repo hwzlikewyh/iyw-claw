@@ -2289,6 +2289,11 @@ impl crate::acp::delegation::spawner::ConnectionSpawner for ConnectionManagerSpa
         )
         .await
         .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
+        crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)
+            .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
+        crate::acp::account_credentials::sync_agent_credentials_for_acp(&self.db.conn, agent_type)
+            .await
+            .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
 
         self.manager
             .spawn_agent(

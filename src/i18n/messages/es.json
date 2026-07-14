@@ -3561,6 +3561,10 @@
     "refresh": "Actualizar",
     "clear": "Limpiar",
     "openFolder": "Abrir carpeta",
+    "logsPathLabel": "Directorio de registros",
+    "copyPath": "Copiar directorio de registros",
+    "pathCopied": "Directorio de registros copiado",
+    "copyPathFailed": "No se pudo copiar el directorio de registros",
     "shownCount": "{shown} / {total} mostrados",
     "empty": "No hay registros para mostrar.",
     "levelSaveFailed": "No se pudo guardar el nivel de registro",
@@ -3710,6 +3714,24 @@
     "branchRemote": "Remota",
     "branchSearchPlaceholder": "Buscar ramas…",
     "branchNone": "Sin ramas"
+  },
+  "StartupLogin": {
+    "title": "Iniciar sesión en iyw-claw",
+    "description": "Inicia sesión para instalar y usar agentes.",
+    "checkingTitle": "Comprobando la cuenta",
+    "checkingDescription": "Estamos comprobando el estado de la sesión.",
+    "errorTitle": "No se pudo comprobar la sesión",
+    "errorDescription": "Comprueba la conexión de red y vuelve a intentarlo.",
+    "retry": "Reintentar"
+  },
+  "StartupCodex": {
+    "checkingTitle": "Preparando el núcleo",
+    "checkingDescription": "Se está preparando el entorno para el primer inicio. Espera un momento.",
+    "installingTitle": "Preparando el núcleo",
+    "installingDescription": "Se está preparando el entorno para el primer inicio. Espera un momento.",
+    "errorTitle": "Error al preparar el núcleo",
+    "errorDescription": "Comprueba la conexión de red y vuelve a intentarlo.",
+    "retry": "Reintentar"
   },
   "SidebarAccount": {
     "notSignedIn": "Not signed in",

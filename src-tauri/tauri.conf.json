@@ -28,11 +28,18 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../out": "web/"
+      "../out": "resources/bundle/"
     },
     "externalBin": ["binaries/iyw-claw-mcp"],
     "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
       "nsis": {
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
         "installerHooks": "./windows/installer-hooks.nsh"
       }
     }

@@ -42,6 +42,8 @@ pub enum AcpError {
     PlatformNotSupported(String),
     #[error("{0}")]
     SdkNotInstalled(String),
+    #[error("Sign in to iyw-claw before installing or using Agents")]
+    AuthenticationRequired,
     #[error("Agent did not respond to Initialize within 60 seconds. The cached binary may be outdated or incompatible. Try upgrading it from Agent Settings.")]
     InitializeTimeout,
     #[error("Agent did not publish its configurable options within 60 seconds. The probe was aborted; the agent may be slow, idle, or not ACP-compliant — try again or check the agent binary.")]
@@ -72,6 +74,7 @@ impl AcpError {
     pub fn code(&self) -> Option<&'static str> {
         match self {
             Self::SdkNotInstalled(_) => Some("sdk_not_installed"),
+            Self::AuthenticationRequired => Some("authentication_required"),
             Self::PlatformNotSupported(_) => Some("platform_not_supported"),
             Self::InitializeTimeout => Some("initialize_timeout"),
             Self::ProbeTimedOut => Some("probe_timed_out"),

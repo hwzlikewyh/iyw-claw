@@ -86,11 +86,13 @@ pub fn resolve_root(
 
 pub fn suggest_desktop_root(executable_path: &Path) -> Option<PathBuf> {
     let install_dir = executable_path.parent()?;
-    if install_dir.file_name().is_some() {
-        Some(install_dir.with_file_name("iyw-claw-data"))
-    } else {
-        Some(install_dir.join("iyw-claw-data"))
+    if install_dir.file_name() == Some(std::ffi::OsStr::new("app")) {
+        return install_dir.parent().map(Path::to_path_buf);
     }
+    if install_dir.file_name() == Some(std::ffi::OsStr::new("iyw-claw")) {
+        return Some(install_dir.to_path_buf());
+    }
+    Some(install_dir.join("iyw-claw"))
 }
 
 pub use crate::acp::agent_profile::{
@@ -151,15 +153,15 @@ impl AgentStoragePaths {
     }
 
     pub fn downloads_dir(&self) -> PathBuf {
-        self.root.join("downloads")
+        self.runtime_dir().join("downloads")
     }
 
     pub fn staging_dir(&self) -> PathBuf {
-        self.root.join("staging")
+        self.runtime_dir().join("staging")
     }
 
     pub fn trash_dir(&self) -> PathBuf {
-        self.root.join("trash")
+        self.runtime_dir().join("trash")
     }
 
     pub fn profile(&self, agent_type: AgentType) -> AgentProfilePaths {

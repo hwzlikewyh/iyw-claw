@@ -3561,6 +3561,10 @@
     "refresh": "새로고침",
     "clear": "지우기",
     "openFolder": "폴더 열기",
+    "logsPathLabel": "로그 디렉터리",
+    "copyPath": "로그 디렉터리 복사",
+    "pathCopied": "로그 디렉터리를 복사했습니다",
+    "copyPathFailed": "로그 디렉터리를 복사하지 못했습니다",
     "shownCount": "{shown} / {total} 표시됨",
     "empty": "표시할 로그가 없습니다.",
     "levelSaveFailed": "로그 수준 저장 실패",
@@ -3710,6 +3714,24 @@
     "branchRemote": "원격",
     "branchSearchPlaceholder": "브랜치 검색…",
     "branchNone": "브랜치 없음"
+  },
+  "StartupLogin": {
+    "title": "iyw-claw 로그인",
+    "description": "Agent를 설치하고 사용하려면 로그인하세요.",
+    "checkingTitle": "계정 확인 중",
+    "checkingDescription": "로그인 상태를 확인하고 있습니다.",
+    "errorTitle": "로그인 상태를 확인할 수 없음",
+    "errorDescription": "네트워크 연결을 확인한 후 다시 시도하세요.",
+    "retry": "다시 시도"
+  },
+  "StartupCodex": {
+    "checkingTitle": "핵심 환경 준비 중",
+    "checkingDescription": "첫 실행에 필요한 환경을 준비하고 있습니다. 잠시 기다려 주세요.",
+    "installingTitle": "핵심 환경 준비 중",
+    "installingDescription": "첫 실행에 필요한 환경을 준비하고 있습니다. 잠시 기다려 주세요.",
+    "errorTitle": "핵심 환경 준비 실패",
+    "errorDescription": "네트워크 연결을 확인한 후 다시 시도하세요.",
+    "retry": "다시 시도"
   },
   "SidebarAccount": {
     "notSignedIn": "Not signed in",

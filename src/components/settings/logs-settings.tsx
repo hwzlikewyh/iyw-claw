@@ -54,6 +54,7 @@ import type {
   TargetDirective,
 } from "@/lib/types"
 import { applyLogBatch } from "./log-buffer"
+import { LogDirectoryField } from "./log-directory-field"
 
 // Capture levels offered in the level dropdown (controls what the backend
 // records). `off` disables capture entirely.
@@ -280,6 +281,7 @@ export function LogsSettings() {
   const [captureLevel, setCaptureLevel] = useState<LogLevel>("info")
   const [targets, setTargets] = useState<TargetDirective[]>([])
   const [envLocked, setEnvLocked] = useState(false)
+  const [logsDir, setLogsDir] = useState("")
   const [records, setRecords] = useState<LogRecord[]>([])
   const [search, setSearch] = useState("")
   const [viewLevel, setViewLevel] = useState<string>("all")
@@ -375,6 +377,7 @@ export function LogsSettings() {
         targets: settings.targets ?? [],
       }
       setEnvLocked(settings.env_locked)
+      setLogsDir(settings.logs_dir)
       setRecords(recent)
       setLogFiles(files)
     } catch (err) {
@@ -668,6 +671,8 @@ export function LogsSettings() {
             {loadError}
           </div>
         )}
+
+        <LogDirectoryField path={logsDir} />
 
         {/* Capture level */}
         <section className="space-y-3 rounded-xl border bg-card p-4">

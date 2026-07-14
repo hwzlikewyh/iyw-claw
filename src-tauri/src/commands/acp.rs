@@ -575,7 +575,7 @@ async fn install_private_npm_package(
     tokio::fs::create_dir_all(paths.npm_cache_dir())
         .await
         .map_err(|e| AcpError::protocol(format!("create private npm cache failed: {e}")))?;
-    let args = npm_runtime::private_npm_install_args(&staging, &paths.npm_cache_dir(), packages);
+    let args = npm_runtime::private_npm_install_args(&staging, &paths.npm_cache_dir(), packages)?;
     let package_display = packages.join(" ");
 
     emit_agent_install_event(
@@ -6093,6 +6093,7 @@ pub async fn acp_connect(
     // If the agent isn't ready, return SdkNotInstalled here so the frontend
     // can prompt the user to install it from Agent Settings.
     verify_agent_installed(agent_type, &runtime_env)?;
+    crate::acp::account_credentials::sync_agent_credentials_for_acp(&db.conn, agent_type).await?;
 
     let emitter = EventEmitter::Tauri(app_handle);
     manager
@@ -6180,6 +6181,7 @@ pub async fn acp_describe_agent_options_core(
     // model_provider injects a different model list, etc.).
     let runtime_env = build_session_runtime_env(db, agent_type, None, data_dir).await?;
     verify_agent_installed(agent_type, &runtime_env)?;
+    crate::acp::account_credentials::sync_agent_credentials_for_acp(&db.conn, agent_type).await?;
     manager
         .probe_agent_options(agent_type, working_dir, runtime_env)
         .await
@@ -7422,6 +7424,7 @@ pub(crate) async fn acp_download_agent_binary_core(
     agent_type: AgentType,
     version_override: Option<String>,
     task_id: String,
+    db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
@@ -7503,6 +7506,16 @@ pub(crate) async fn acp_download_agent_binary_core(
         )),
     };
 
+    let result: Result<(), AcpError> = async {
+        result?;
+        crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
+            .map_err(AcpError::protocol)?;
+        crate::acp::account_credentials::sync_agent_credentials_for_acp(&db.conn, agent_type)
+            .await?;
+        Ok(())
+    }
+    .await;
+
     match &result {
         Ok(()) => {
             emit_agent_install_event(
@@ -7530,10 +7543,11 @@ pub async fn acp_download_agent_binary(
     agent_type: AgentType,
     version: Option<String>,
     task_id: String,
+    db: State<'_, AppDatabase>,
     app: tauri::AppHandle,
 ) -> Result<(), AcpError> {
     let emitter = EventEmitter::Tauri(app);
-    acp_download_agent_binary_core(agent_type, version, task_id, &emitter).await
+    acp_download_agent_binary_core(agent_type, version, task_id, &db, &emitter).await
 }
 
 /// Provision ONLY the uv toolchain (uvx) into iyw-claw's cache — independent of
@@ -7747,6 +7761,16 @@ pub(crate) async fn acp_prepare_npx_agent_core(
         }
     };
 
+    let result: Result<String, AcpError> = async {
+        let version = result?;
+        crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
+            .map_err(AcpError::protocol)?;
+        crate::acp::account_credentials::sync_agent_credentials_for_acp(&db.conn, agent_type)
+            .await?;
+        Ok(version)
+    }
+    .await;
+
     match &result {
         Ok(version) => {
             emit_agent_install_event(
@@ -7913,6 +7937,13 @@ pub(crate) async fn acp_install_pi_binary_core(
             )
             .await
             .map_err(|e| AcpError::protocol(e.to_string()))?;
+            crate::acp::provider_overlay::enforce_active_provider_overlay(AgentType::Pi)
+                .map_err(AcpError::protocol)?;
+            crate::acp::account_credentials::sync_agent_credentials_for_acp(
+                &db.conn,
+                AgentType::Pi,
+            )
+            .await?;
             Ok(())
         }
         .await

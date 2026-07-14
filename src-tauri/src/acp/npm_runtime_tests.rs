@@ -26,6 +26,35 @@ fn write_command(path: &Path) {
 }
 
 #[test]
+fn npm_registry_defaults_to_npmmirror() {
+    assert_eq!(
+        npm_registry(None).expect("default registry"),
+        "https://registry.npmmirror.com"
+    );
+}
+
+#[test]
+fn npm_registry_accepts_an_explicit_http_registry() {
+    assert_eq!(
+        npm_registry(Some(" https://npm.internal.example/repository/npm/ "))
+            .expect("custom registry"),
+        "https://npm.internal.example/repository/npm/"
+    );
+}
+
+#[test]
+fn npm_registry_rejects_invalid_explicit_values() {
+    for value in [
+        "registry.example.com",
+        "file:///tmp/npm",
+        "ftp://example.com",
+    ] {
+        let error = npm_registry(Some(value)).expect_err("invalid registry must fail");
+        assert!(error.to_string().contains("npm registry"), "{error}");
+    }
+}
+
+#[test]
 fn private_prefix_is_versioned_by_agent_and_platform() {
     let paths = AgentStoragePaths::new(PathBuf::from("D:/iyw-claw-data"));
     assert_eq!(
@@ -89,7 +118,8 @@ fn pi_adapter_and_child_share_one_private_prefix() {
 fn npm_install_args_always_use_private_prefix_without_force() {
     let prefix = PathBuf::from("D:/iyw-claw-data/staging/codex");
     let cache = PathBuf::from("D:/iyw-claw-data/runtime/npm/cache");
-    let args = private_npm_install_args(&prefix, &cache, &["@agentclientprotocol/codex-acp@1.1.0"]);
+    let args = private_npm_install_args(&prefix, &cache, &["@agentclientprotocol/codex-acp@1.1.0"])
+        .expect("npm install args");
     let args = args
         .iter()
         .map(|value| value.to_string_lossy().into_owned())
@@ -98,6 +128,7 @@ fn npm_install_args_always_use_private_prefix_without_force() {
     assert_eq!(args[0..3], ["install", "--global", "--include=optional"]);
     assert!(args.contains(&format!("--prefix={}", prefix.display())));
     assert!(args.contains(&format!("--cache={}", cache.display())));
+    assert!(args.contains(&"--registry=https://registry.npmmirror.com".to_string()));
     assert!(args.contains(&"@agentclientprotocol/codex-acp@1.1.0".to_string()));
     assert!(!args.iter().any(|arg| arg == "--force"));
 }

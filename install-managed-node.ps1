@@ -1,14 +1,24 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$Version,
 
     [Parameter(Mandatory = $true)]
-    [string]$RuntimeRoot
+    [string]$RuntimeRoot,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ArchivePath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$ChecksumPath,
+
+    [string]$LogPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = `
+    [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 function Get-NodeArchitecture {
     $architecture = if ($env:PROCESSOR_ARCHITEW6432) {
@@ -20,7 +30,7 @@ function Get-NodeArchitecture {
     switch ($architecture.ToUpperInvariant()) {
         'AMD64' { return 'x64' }
         'ARM64' { return 'arm64' }
-        default { throw "Unsupported Windows architecture: $architecture" }
+        default { throw "不支持的 Windows 处理器架构：$architecture" }
     }
 }
 
@@ -36,7 +46,45 @@ function Assert-ChildPath {
     $parentPath = [IO.Path]::GetFullPath($Parent).TrimEnd('\') + '\'
     $childPath = [IO.Path]::GetFullPath($Child)
     if (-not $childPath.StartsWith($parentPath, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to modify a path outside the runtime root: $childPath"
+        throw "拒绝修改运行目录之外的路径：$childPath"
+    }
+}
+
+function Write-InstallMessage {
+    param([Parameter(Mandatory = $true)][string]$Message)
+
+    Write-Host $Message
+    if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+        $logFullPath = [IO.Path]::GetFullPath($LogPath)
+        New-Item -ItemType Directory -Force -Path (Split-Path $logFullPath -Parent) | Out-Null
+        $line = '{0} [managed-node] {1}' -f [DateTimeOffset]::Now.ToString('O'), $Message
+        Add-Content -LiteralPath $logFullPath -Value $line -Encoding UTF8
+    }
+}
+
+function Write-Utf8Json {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Value,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $json = $Value | ConvertTo-Json
+    [IO.File]::WriteAllText($Path, "$json`r`n", [Text.UTF8Encoding]::new($false))
+}
+
+function Get-FileSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $stream = [IO.File]::OpenRead($Path)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        return [BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '').ToUpperInvariant()
+    } finally {
+        $sha256.Dispose()
+        $stream.Dispose()
     }
 }
 
@@ -64,54 +112,54 @@ $runtimeRootPath = [IO.Path]::GetFullPath($RuntimeRoot)
 $architecture = Get-NodeArchitecture
 $platform = "win-$architecture"
 $archiveName = "node-v$Version-$platform.zip"
-$releaseBaseUrl = "https://nodejs.org/dist/v$Version"
 $targetDirectory = Join-Path $runtimeRootPath "node\$Version\$platform"
 $nodeRoot = Join-Path $runtimeRootPath 'node'
-$downloadsDirectory = Join-Path $runtimeRootPath 'downloads'
 $stagingDirectory = Join-Path $runtimeRootPath "staging\node-$([Guid]::NewGuid().ToString('N'))"
-$archivePath = Join-Path $downloadsDirectory $archiveName
-$checksumPath = Join-Path $downloadsDirectory "SHASUMS256-$Version.txt"
+$bundledArchivePath = [IO.Path]::GetFullPath($ArchivePath)
+$bundledChecksumPath = [IO.Path]::GetFullPath($ChecksumPath)
 $currentPath = Join-Path $nodeRoot 'current.json'
 
 Assert-ChildPath -Parent $runtimeRootPath -Child $targetDirectory
-Assert-ChildPath -Parent $runtimeRootPath -Child $downloadsDirectory
 Assert-ChildPath -Parent $runtimeRootPath -Child $stagingDirectory
 
 if (Test-NodeRuntime -Directory $targetDirectory -ExpectedVersion $Version) {
-    Write-Host "Node.js v$Version is already installed at $targetDirectory"
+    Write-InstallMessage "Node.js v$Version 已安装：$targetDirectory"
     exit 0
 }
 
-New-Item -ItemType Directory -Force -Path $downloadsDirectory | Out-Null
 New-Item -ItemType Directory -Force -Path $stagingDirectory | Out-Null
 
 try {
-    Write-Host "Downloading $archiveName..."
-    Invoke-WebRequest -UseBasicParsing -Uri "$releaseBaseUrl/$archiveName" -OutFile $archivePath
-    Invoke-WebRequest -UseBasicParsing -Uri "$releaseBaseUrl/SHASUMS256.txt" -OutFile $checksumPath
+    if (-not (Test-Path -LiteralPath $bundledArchivePath -PathType Leaf)) {
+        throw "内置 Node.js 压缩包不存在：$bundledArchivePath"
+    }
+    if (-not (Test-Path -LiteralPath $bundledChecksumPath -PathType Leaf)) {
+        throw "内置 Node.js 校验清单不存在：$bundledChecksumPath"
+    }
+    Write-InstallMessage '正在验证内置 Node.js/npm 运行环境...'
 
-    $checksumLine = Get-Content -LiteralPath $checksumPath |
+    $checksumLine = Get-Content -LiteralPath $bundledChecksumPath |
         Where-Object { $_ -match "^[a-fA-F0-9]{64}\s+$([regex]::Escape($archiveName))$" } |
         Select-Object -First 1
     if (-not $checksumLine) {
-        throw "The Node.js checksum manifest does not contain $archiveName"
+        throw "Node.js 校验清单中不存在 $archiveName"
     }
 
     $expectedHash = ($checksumLine -split '\s+')[0].ToUpperInvariant()
-    $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToUpperInvariant()
+    $actualHash = Get-FileSha256 -Path $bundledArchivePath
     if ($actualHash -ne $expectedHash) {
-        throw 'Node.js archive checksum mismatch'
+        throw 'Node.js 压缩包 SHA-256 校验失败'
     }
 
     $extractDirectory = Join-Path $stagingDirectory 'extract'
     New-Item -ItemType Directory -Force -Path $extractDirectory | Out-Null
-    & tar.exe -xf $archivePath -C $extractDirectory
+    & tar.exe -xf $bundledArchivePath -C $extractDirectory
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to extract the Node.js archive: tar.exe exited with $LASTEXITCODE"
+        throw "Node.js 压缩包解压失败，tar.exe 错误码：$LASTEXITCODE"
     }
     $expandedRoot = Join-Path $extractDirectory "node-v$Version-$platform"
     if (-not (Test-NodeRuntime -Directory $expandedRoot -ExpectedVersion $Version)) {
-        throw 'The downloaded Node.js runtime failed validation'
+        throw '内置 Node.js 运行环境未通过版本验证'
     }
 
     New-Item -ItemType Directory -Force -Path (Split-Path $targetDirectory -Parent) | Out-Null
@@ -127,10 +175,13 @@ try {
         installedAt = [DateTimeOffset]::UtcNow.ToString('O')
     }
     $currentTemporaryPath = "$currentPath.tmp"
-    $currentState | ConvertTo-Json | Set-Content -LiteralPath $currentTemporaryPath -Encoding UTF8
+    Write-Utf8Json -Value $currentState -Path $currentTemporaryPath
     Move-Item -LiteralPath $currentTemporaryPath -Destination $currentPath -Force
 
-    Write-Host "Installed Node.js v$Version with npm at $targetDirectory"
+    Write-InstallMessage "Node.js v$Version 与 npm 安装完成：$targetDirectory"
+} catch {
+    Write-InstallMessage "Node.js/npm 安装失败：$($_.Exception.Message)"
+    throw
 } finally {
     if (Test-Path -LiteralPath $stagingDirectory) {
         Remove-Item -LiteralPath $stagingDirectory -Recurse -Force

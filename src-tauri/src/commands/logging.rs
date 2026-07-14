@@ -47,6 +47,7 @@ pub struct LogSettingsView {
     pub level: LogLevel,
     pub targets: Vec<TargetDirective>,
     pub env_locked: bool,
+    pub logs_dir: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +73,14 @@ pub async fn get_log_settings_core(
         level: settings.level,
         targets: settings.targets,
         env_locked: crate::logging::init::env_level_is_set(),
+        logs_dir: resolved_logs_dir(),
     })
+}
+
+fn resolved_logs_dir() -> String {
+    crate::paths::iyw_claw_logs_root()
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// Persist [`LogSettings`], apply the new level live (reload handle), and
@@ -396,10 +404,30 @@ mod tests {
                 let logs = crate::paths::iyw_claw_logs_root();
                 std::fs::create_dir_all(&logs).unwrap();
                 std::fs::write(logs.join("a.log"), b"a").unwrap();
+                std::fs::write(logs.join("installer.log"), b"installer").unwrap();
                 std::fs::write(logs.join("b.txt"), b"b").unwrap();
                 let files = list_log_files_core();
-                assert_eq!(files.len(), 1);
-                assert_eq!(files[0].name, "a.log");
+                let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+                assert_eq!(files.len(), 2);
+                assert!(names.contains(&"a.log"));
+                assert!(names.contains(&"installer.log"));
+            },
+        );
+    }
+
+    #[test]
+    fn resolved_logs_dir_uses_the_selected_data_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        temp_env::with_vars(
+            [
+                ("IYW_CLAW_HOME", None::<&str>),
+                ("IYW_CLAW_DATA_DIR", Some(tmp.path().to_str().unwrap())),
+            ],
+            || {
+                assert_eq!(
+                    resolved_logs_dir(),
+                    tmp.path().join("logs").to_string_lossy()
+                );
             },
         );
     }

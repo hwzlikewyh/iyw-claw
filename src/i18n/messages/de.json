@@ -3561,6 +3561,10 @@
     "refresh": "Aktualisieren",
     "clear": "Leeren",
     "openFolder": "Ordner öffnen",
+    "logsPathLabel": "Protokollverzeichnis",
+    "copyPath": "Protokollverzeichnis kopieren",
+    "pathCopied": "Protokollverzeichnis kopiert",
+    "copyPathFailed": "Protokollverzeichnis konnte nicht kopiert werden",
     "shownCount": "{shown} / {total} angezeigt",
     "empty": "Keine Protokolle vorhanden.",
     "levelSaveFailed": "Protokollebene konnte nicht gespeichert werden",
@@ -3710,6 +3714,24 @@
     "branchRemote": "Remote",
     "branchSearchPlaceholder": "Branches suchen…",
     "branchNone": "Keine Branches"
+  },
+  "StartupLogin": {
+    "title": "Bei iyw-claw anmelden",
+    "description": "Melden Sie sich an, um Agents zu installieren und zu verwenden.",
+    "checkingTitle": "Konto wird geprüft",
+    "checkingDescription": "Der Anmeldestatus wird geprüft.",
+    "errorTitle": "Anmeldestatus konnte nicht geprüft werden",
+    "errorDescription": "Prüfen Sie die Netzwerkverbindung und versuchen Sie es erneut.",
+    "retry": "Erneut versuchen"
+  },
+  "StartupCodex": {
+    "checkingTitle": "Kern wird vorbereitet",
+    "checkingDescription": "Die Laufzeit wird für den ersten Start vorbereitet. Bitte warten.",
+    "installingTitle": "Kern wird vorbereitet",
+    "installingDescription": "Die Laufzeit wird für den ersten Start vorbereitet. Bitte warten.",
+    "errorTitle": "Kernvorbereitung fehlgeschlagen",
+    "errorDescription": "Prüfen Sie die Netzwerkverbindung und versuchen Sie es erneut.",
+    "retry": "Erneut versuchen"
   },
   "SidebarAccount": {
     "notSignedIn": "Not signed in",

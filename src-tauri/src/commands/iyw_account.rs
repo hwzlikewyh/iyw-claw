@@ -19,7 +19,7 @@ const AUTH_CODES: [&str; 15] = [
     "T33", "T34", "A1", "A2", "T29", "I6", "I1", "I2", "I5", "I8", "I3", "I10", "I11", "S2", "I12",
 ];
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct IywAccountToken {
     pub access_token: String,
@@ -61,7 +61,7 @@ pub struct IywWechatPollingResult {
     pub profile: Option<IywAccountProfile>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 struct StoredSession {
     token: Option<IywAccountToken>,
@@ -211,9 +211,13 @@ async fn load_session(conn: &DatabaseConnection) -> Result<StoredSession, AppCom
         return Ok(StoredSession::default());
     };
 
-    serde_json::from_str::<StoredSession>(&raw).map_err(|err| {
+    serde_json::from_str::<StoredSession>(&raw).map_err(|error| {
         AppCommandError::configuration_invalid("Failed to parse stored iyw account session")
-            .with_detail(err.to_string())
+            .with_detail(format!(
+                "invalid session JSON at line {}, column {}",
+                error.line(),
+                error.column()
+            ))
     })
 }
 
@@ -229,6 +233,15 @@ async fn save_session(
     app_metadata_service::upsert_value(conn, IYW_ACCOUNT_SESSION_KEY, &serialized)
         .await
         .map_err(AppCommandError::from)
+}
+
+pub(crate) async fn iyw_account_access_token_core(
+    conn: &DatabaseConnection,
+) -> Result<Option<crate::acp::account_credentials::AccountAccessToken>, AppCommandError> {
+    let session = load_session(conn).await?;
+    Ok(session.token.and_then(|token| {
+        crate::acp::account_credentials::AccountAccessToken::new(token.access_token)
+    }))
 }
 
 async fn fetch_profile_with_token(token: &str) -> Result<IywAccountProfile, AppCommandError> {
@@ -406,6 +419,7 @@ pub async fn iyw_account_poll_wechat_login_core(
         }),
     };
     save_session(conn, &session).await?;
+    crate::acp::account_credentials::sync_existing_agent_credentials(conn).await?;
     let profile = fetch_profile_with_token(&token.access_token).await?;
 
     Ok(IywWechatPollingResult {
@@ -476,6 +490,7 @@ pub async fn iyw_account_login_with_password_core(
         }),
     };
     save_session(conn, &session).await?;
+    crate::acp::account_credentials::sync_existing_agent_credentials(conn).await?;
     fetch_profile_with_token(&token.access_token).await
 }
 
@@ -494,6 +509,18 @@ pub async fn iyw_account_get_profile_core(
 }
 
 pub async fn iyw_account_logout_core(conn: &DatabaseConnection) -> Result<(), AppCommandError> {
+    let scrub_result = crate::acp::account_credentials::clear_existing_agent_credentials();
+    iyw_account_logout_after_scrub_core(conn, scrub_result).await
+}
+
+async fn iyw_account_logout_after_scrub_core(
+    conn: &DatabaseConnection,
+    scrub_result: Result<(), String>,
+) -> Result<(), AppCommandError> {
+    scrub_result.map_err(|error| {
+        AppCommandError::configuration_invalid("Failed to clear private Agent credentials")
+            .with_detail(error)
+    })?;
     save_session(conn, &StoredSession::default()).await
 }
 
