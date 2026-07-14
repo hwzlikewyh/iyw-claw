@@ -84,10 +84,8 @@ pub async fn route_natural_message(
         return NaturalRouteDecision::SearchHistory { keyword };
     }
 
-    if let Some(decision) = start_task_from_available_context(
-        db, channel_id, sender_id, trimmed, &normalized,
-    )
-    .await
+    if let Some(decision) =
+        start_task_from_available_context(db, channel_id, sender_id, trimmed, &normalized).await
     {
         return decision;
     }
@@ -249,10 +247,10 @@ async fn start_task_from_available_context(
     })
 }
 
-async fn available_folders(
-    db: &DatabaseConnection,
-) -> Vec<crate::models::FolderHistoryEntry> {
-    let open = folder_service::list_open_folders(db).await.unwrap_or_default();
+async fn available_folders(db: &DatabaseConnection) -> Vec<crate::models::FolderHistoryEntry> {
+    let open = folder_service::list_open_folders(db)
+        .await
+        .unwrap_or_default();
     if !open.is_empty() {
         return open;
     }
@@ -632,15 +630,9 @@ mod tests {
         .await
         .unwrap();
 
-        let decision = route_natural_message(
-            &db.conn,
-            &bridge,
-            channel.id,
-            "user-a",
-            "你好",
-            Lang::ZhCn,
-        )
-        .await;
+        let decision =
+            route_natural_message(&db.conn, &bridge, channel.id, "user-a", "你好", Lang::ZhCn)
+                .await;
 
         assert_eq!(
             decision,
