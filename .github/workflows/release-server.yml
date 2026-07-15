@@ -193,11 +193,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          gh release upload "${{ inputs.release_tag }}" \
-            "dist/${{ matrix.artifact }}.tar.gz" \
-            "dist/${{ matrix.artifact }}.tar.gz.sig" \
-            "dist/${{ matrix.artifact }}.tar.gz.sha256" \
-            --clobber
+          assets=(
+            "dist/${{ matrix.artifact }}.tar.gz"
+            "dist/${{ matrix.artifact }}.tar.gz.sig"
+            "dist/${{ matrix.artifact }}.tar.gz.sha256"
+          )
+          for attempt in 1 2 3; do
+            if gh release upload "${{ inputs.release_tag }}" "${assets[@]}" --clobber; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Release asset upload failed after $attempt attempts"
+              exit 1
+            fi
+            echo "::warning::Release asset upload attempt $attempt failed; retrying"
+            sleep $((attempt * 10))
+          done
 
       - name: Upload Windows release assets
         if: runner.os == 'Windows'
@@ -205,8 +216,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          gh release upload "${{ inputs.release_tag }}" `
-            "dist/${{ matrix.artifact }}.zip" `
-            "dist/${{ matrix.artifact }}.zip.sig" `
-            "dist/${{ matrix.artifact }}.zip.sha256" `
-            --clobber
+          $assets = @(
+            "dist/${{ matrix.artifact }}.zip"
+            "dist/${{ matrix.artifact }}.zip.sig"
+            "dist/${{ matrix.artifact }}.zip.sha256"
+          )
+          foreach ($attempt in 1..3) {
+            gh release upload "${{ inputs.release_tag }}" @assets --clobber
+            if ($LASTEXITCODE -eq 0) {
+              break
+            }
+            if ($attempt -eq 3) {
+              throw "Release asset upload failed after $attempt attempts"
+            }
+            Write-Warning "Release asset upload attempt $attempt failed; retrying"
+            Start-Sleep -Seconds ($attempt * 10)
+          }
