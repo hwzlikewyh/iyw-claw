@@ -1,7 +1,7 @@
 fn main() {
     #[cfg(feature = "tauri-runtime")]
     {
-        ensure_sidecar_placeholder();
+        ensure_sidecar_placeholders();
         tauri_build::build();
     }
 }
@@ -25,8 +25,7 @@ fn main() {
 /// without beforeBuildCommand) you'd ship the placeholder, so emit a
 /// cargo:warning that surfaces in any compile log to make that loud.
 #[cfg(feature = "tauri-runtime")]
-fn ensure_sidecar_placeholder() {
-    use std::fs;
+fn ensure_sidecar_placeholders() {
     use std::path::PathBuf;
 
     let triple = std::env::var("TARGET").unwrap_or_default();
@@ -39,7 +38,16 @@ fn ensure_sidecar_placeholder() {
         ""
     };
     let dir = PathBuf::from("binaries");
-    let path = dir.join(format!("iyw-claw-mcp-{triple}{ext}"));
+    for name in ["iyw-claw-mcp", "uv", "uvx"] {
+        ensure_sidecar_placeholder(&dir, name, &triple, ext);
+    }
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn ensure_sidecar_placeholder(dir: &std::path::Path, name: &str, triple: &str, ext: &str) {
+    use std::fs;
+
+    let path = dir.join(format!("{name}-{triple}{ext}"));
 
     println!("cargo:rerun-if-changed={}", path.display());
 
@@ -49,7 +57,7 @@ fn ensure_sidecar_placeholder() {
     };
 
     if needs_placeholder {
-        if let Err(e) = fs::create_dir_all(&dir) {
+        if let Err(e) = fs::create_dir_all(dir) {
             panic!("failed to create {}: {e}", dir.display());
         }
         if let Err(e) = fs::write(&path, b"") {
@@ -64,7 +72,7 @@ fn ensure_sidecar_placeholder() {
             let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o755));
         }
         println!(
-            "cargo:warning=iyw-claw-mcp sidecar missing at {}; wrote 0-byte placeholder. \
+            "cargo:warning={name} sidecar missing at {}; wrote 0-byte placeholder. \
              Run `pnpm tauri:prepare-sidecars` before `tauri build` to ship a working binary.",
             path.display()
         );

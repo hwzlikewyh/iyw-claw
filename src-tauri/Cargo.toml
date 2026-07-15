@@ -1,6 +1,6 @@
 [package]
 name = "iyw-claw"
-version = "0.0.4"
+version = "0.0.5"
 description = "Agent Code Generation App"
 authors = ["feitao"]
 edition = "2021"
@@ -48,15 +48,14 @@ name = "iyw-claw"
 path = "src/main.rs"
 required-features = ["tauri-runtime"]
 
-# Keep feature-gated binaries outside src/bin until tauri-apps/tauri#15325 is fixed.
 [[bin]]
 name = "iyw-claw-server"
-path = "src/bin_targets/iyw_claw_server.rs"
+path = "src/bin/iyw_claw_server.rs"
 required-features = ["server-runtime"]
 
 [[bin]]
 name = "iyw-claw-mcp"
-path = "src/bin_targets/iyw_claw_mcp.rs"
+path = "src/bin/iyw_claw_mcp.rs"
 required-features = ["mcp-runtime"]
 
 [build-dependencies]

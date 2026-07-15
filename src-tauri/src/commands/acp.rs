@@ -26,8 +26,7 @@ use crate::acp::types::{
 #[cfg(feature = "tauri-runtime")]
 use crate::acp::types::{ConnectionInfo, ForkResultInfo, PromptInputBlock};
 use crate::commands::experts::{
-    central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, read_link_target,
-    ExpertLinkState,
+    central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, ExpertLinkState,
 };
 use crate::db::service::agent_setting_service;
 use crate::db::AppDatabase;
@@ -4542,7 +4541,9 @@ fn build_skill_item(
 }
 
 const DISABLED_SKILLS_DIR: &str = ".iyw-claw-disabled";
+const CONFLICTED_SKILLS_DIR: &str = ".iyw-claw-conflicts";
 const SHARED_SKILL_COPY_MARKER: &str = ".iyw-claw-managed-copy.json";
+const SHARED_MARKET_RECONCILE_MARKER: &str = ".central-skill-reconcile.v1";
 
 fn disabled_skills_dir(dir: &Path) -> PathBuf {
     dir.join(DISABLED_SKILLS_DIR)
@@ -4672,9 +4673,17 @@ fn list_shared_skills_for_agent(
     agent_type: AgentType,
     include_unpublished: bool,
 ) -> Result<Vec<AgentSkillItem>, AcpError> {
+    list_market_skills_from_dir(agent_type, &shared_skills_dir(), include_unpublished)
+}
+
+fn list_market_skills_from_dir(
+    agent_type: AgentType,
+    dir: &Path,
+    include_unpublished: bool,
+) -> Result<Vec<AgentSkillItem>, AcpError> {
     let mut skills = list_skills_from_dir(
         AgentSkillScope::Global,
-        &shared_skills_dir(),
+        dir,
         SkillStorageKind::SkillDirectoryOnly,
         false,
     )?;
@@ -4689,25 +4698,6 @@ fn list_shared_skills_for_agent(
         skills.retain(|skill| skill.enabled);
     }
     Ok(skills)
-}
-
-fn list_read_only_global_native_skills(
-    agent_type: AgentType,
-    spec: &SkillStorageSpec,
-) -> Result<Vec<AgentSkillItem>, AcpError> {
-    let mut out = Vec::new();
-    for dir in &spec.global_dirs {
-        for mut skill in list_skills_from_dir(AgentSkillScope::Global, dir, spec.kind, false)? {
-            if !is_read_only_skill_path(agent_type, Path::new(&skill.path)) {
-                continue;
-            }
-            skill.enabled = true;
-            skill.copy_mode = false;
-            skill.read_only = true;
-            out.push(skill);
-        }
-    }
-    Ok(out)
 }
 
 fn locate_read_only_global_native_skill(
@@ -4807,41 +4797,6 @@ fn take_over_read_only_global_native_skill(
     publish_shared_skill_to_all_agents(agent_type, skill_id, sync_mode)
 }
 
-fn auto_take_over_read_only_global_native_skills(
-    agent_type: AgentType,
-    spec: &SkillStorageSpec,
-) -> Result<(), AcpError> {
-    for skill in list_read_only_global_native_skills(agent_type, spec)? {
-        if is_reserved_shared_skill_id(&skill.id) {
-            continue;
-        }
-        let source = shared_skill_path(&skill.id);
-        if source.join("SKILL.md").is_file() {
-            continue;
-        }
-        take_over_read_only_global_native_skill(
-            agent_type,
-            spec,
-            &skill.id,
-            AgentSkillSyncMode::default(),
-        )?;
-    }
-    Ok(())
-}
-
-fn auto_take_over_read_only_global_native_skills_for_all_agents() -> Result<(), AcpError> {
-    if AgentStoragePaths::active().is_none() {
-        return Ok(());
-    }
-    for agent_type in skill_capable_agent_types() {
-        let Some(spec) = skill_storage_spec(agent_type) else {
-            continue;
-        };
-        auto_take_over_read_only_global_native_skills(agent_type, &spec)?;
-    }
-    Ok(())
-}
-
 fn ensure_shared_publish_target_available(
     target: &Path,
     source: &Path,
@@ -4860,12 +4815,36 @@ fn ensure_shared_publish_target_available(
             .map_err(|e| AcpError::protocol(format!("failed to replace existing copy: {e}")))?;
         return Ok(());
     }
-    let found = read_link_target(target)
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| target.to_string_lossy().to_string());
-    Err(AcpError::protocol(format!(
-        "skill target already exists and is not managed by iyw-claw: {found}"
-    )))
+    preserve_unmanaged_publish_target(target, skill_id)
+}
+
+fn preserve_unmanaged_publish_target(target: &Path, skill_id: &str) -> Result<(), AcpError> {
+    let agent_skills_dir = target
+        .parent()
+        .ok_or_else(|| AcpError::protocol("skill target has no parent directory"))?;
+    let backup = next_conflict_backup_path(agent_skills_dir, skill_id);
+    move_skill_entry(target, &backup).map_err(|error| {
+        AcpError::protocol(format!(
+            "failed to preserve conflicting skill '{}' at '{}': {error}",
+            target.display(),
+            backup.display()
+        ))
+    })
+}
+
+fn next_conflict_backup_path(agent_skills_dir: &Path, skill_id: &str) -> PathBuf {
+    let conflicts = agent_skills_dir.join(CONFLICTED_SKILLS_DIR);
+    let initial = conflicts.join(skill_id);
+    if !path_entry_exists(&initial) {
+        return initial;
+    }
+    for suffix in 1_u64.. {
+        let candidate = conflicts.join(format!("{skill_id}-{suffix}"));
+        if !path_entry_exists(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!("u64 conflict suffixes exhausted")
 }
 
 fn publish_shared_skill_to_agent(
@@ -4930,6 +4909,61 @@ fn publish_shared_skill_to_all_agents(
             "{primary_agent_type} skills are not supported in Settings yet"
         ))
     })
+}
+
+pub(crate) fn publish_shared_market_skill_ids(skill_ids: &[String]) -> Result<(), AcpError> {
+    for skill_id in skill_ids {
+        publish_shared_skill_to_all_agents(
+            AgentType::Codex,
+            skill_id,
+            AgentSkillSyncMode::default(),
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn reconcile_shared_market_skills() -> Result<(), AcpError> {
+    let Some(paths) = AgentStoragePaths::active() else {
+        return Ok(());
+    };
+    require_private_agent_storage_for_write()?;
+    let marker = paths.root().join(SHARED_MARKET_RECONCILE_MARKER);
+    let initial_reconcile = !marker.is_file();
+    let skills = list_skills_from_dir(
+        AgentSkillScope::Global,
+        &shared_skills_dir(),
+        SkillStorageKind::SkillDirectoryOnly,
+        false,
+    )?;
+    for skill in skills {
+        if is_reserved_shared_skill_id(&skill.id) {
+            continue;
+        }
+        let published = skill_capable_agent_types().into_iter().any(|agent| {
+            shared_skill_publish_status(agent, Path::new(&skill.path), &skill.id)
+                .map(|status| status.0)
+                .unwrap_or(false)
+        });
+        if !initial_reconcile && !published {
+            continue;
+        }
+        publish_shared_skill_to_all_agents(
+            AgentType::Codex,
+            &skill.id,
+            AgentSkillSyncMode::default(),
+        )?;
+    }
+    if initial_reconcile {
+        fs::create_dir_all(paths.root()).map_err(|error| {
+            AcpError::protocol(format!("failed to create Agent storage root: {error}"))
+        })?;
+        fs::write(marker, b"").map_err(|error| {
+            AcpError::protocol(format!(
+                "failed to record central skill reconciliation: {error}"
+            ))
+        })?;
+    }
+    Ok(())
 }
 
 fn remove_shared_skill_publications(skill_id: &str) -> Result<(), AcpError> {
@@ -8143,7 +8177,7 @@ pub async fn acp_list_agent_skills(
     let mut skills_by_key: BTreeMap<String, AgentSkillItem> = BTreeMap::new();
 
     if include_disabled {
-        auto_take_over_read_only_global_native_skills_for_all_agents()?;
+        reconcile_shared_market_skills()?;
     }
 
     let shared_dir = shared_skills_dir();
@@ -8156,14 +8190,6 @@ pub async fn acp_list_agent_skills(
         let key = format!("global:{}", skill.id);
         set_skill_read_only(agent_type, &mut skill);
         skills_by_key.entry(key).or_insert(skill);
-    }
-
-    for mut skill in list_read_only_global_native_skills(agent_type, &spec)? {
-        let key = format!("global:{}", skill.id);
-        skills_by_key.entry(key).or_insert_with(|| {
-            set_skill_read_only(agent_type, &mut skill);
-            skill
-        });
     }
 
     if let Some(workspace) = workspace_path.as_deref().map(str::trim) {
@@ -8937,6 +8963,60 @@ mod tests {
             &tmp.path().join("shared").join("other-skill"),
             "my-skill"
         ));
+    }
+
+    #[test]
+    fn publish_target_preserves_unmanaged_conflict() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let source = temp.path().join("shared/my-skill");
+        let target = temp.path().join("agent/my-skill");
+        fs::create_dir_all(&source).expect("create source");
+        fs::create_dir_all(&target).expect("create target");
+        fs::write(target.join("SKILL.md"), "# Agent version").expect("write target");
+
+        ensure_shared_publish_target_available(&target, &source, "my-skill")
+            .expect("preserve conflict");
+
+        let backup = temp
+            .path()
+            .join("agent/.iyw-claw-conflicts/my-skill/SKILL.md");
+        assert_eq!(fs::read_to_string(backup).unwrap(), "# Agent version");
+        assert!(!path_entry_exists(&target));
+    }
+
+    #[test]
+    fn conflict_backup_path_does_not_overwrite_existing_backup() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let conflicts = temp.path().join(CONFLICTED_SKILLS_DIR);
+        fs::create_dir_all(conflicts.join("my-skill")).expect("create first backup");
+        fs::create_dir_all(conflicts.join("my-skill-1")).expect("create second backup");
+
+        assert_eq!(
+            next_conflict_backup_path(temp.path(), "my-skill"),
+            conflicts.join("my-skill-2")
+        );
+    }
+
+    #[test]
+    fn market_list_reads_only_central_skills() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let central = temp.path().join("central");
+        let native = temp.path().join("native");
+        for (root, id) in [(&central, "market-skill"), (&native, "native-skill")] {
+            fs::create_dir_all(root.join(id)).expect("create skill");
+            fs::write(root.join(id).join("SKILL.md"), format!("# {id}")).expect("write skill");
+        }
+
+        let skills = list_market_skills_from_dir(AgentType::Codex, &central, true)
+            .expect("list market skills");
+
+        assert_eq!(
+            skills
+                .iter()
+                .map(|skill| skill.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["market-skill"]
+        );
     }
 
     #[test]

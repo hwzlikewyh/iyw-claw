@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "iyw-claw",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "identifier": "app.iywclaw",
   "build": {
     "beforeDevCommand": "pnpm tauri:before-dev",
@@ -30,7 +30,7 @@
     "resources": {
       "../out": "resources/bundle/"
     },
-    "externalBin": ["binaries/iyw-claw-mcp"],
+    "externalBin": ["binaries/iyw-claw-mcp", "binaries/uv", "binaries/uvx"],
     "windows": {
       "webviewInstallMode": {
         "type": "embedBootstrapper",

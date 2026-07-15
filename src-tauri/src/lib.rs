@@ -429,6 +429,14 @@ mod tauri_app {
                     {
                         tracing::warn!("[managed-mcp] startup reconcile failed: {error}");
                     }
+                    match crate::commands::internet_tools::bootstrap_core().await {
+                        Ok(synced) => {
+                            tracing::info!("[internet-tools] bootstrap ok: synced={synced}");
+                        }
+                        Err(error) => {
+                            tracing::warn!("[internet-tools] startup bootstrap failed: {error}");
+                        }
+                    }
                 });
 
                 // Reclaim orphaned chat scratch dirs (pre-send drafts that never

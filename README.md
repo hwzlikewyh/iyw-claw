@@ -72,10 +72,16 @@ pnpm tauri build
 pnpm server:build
 ```
 
-单独准备 MCP sidecar：
+准备桌面应用捆绑的 sidecars（`iyw-claw-mcp`、`uv`、`uvx`）：
 
 ```bash
 pnpm tauri:prepare-sidecars
+```
+
+仅准备 `uv` / `uvx` Python 工具运行时：
+
+```bash
+pnpm tauri:prepare-sidecars --uv-only
 ```
 
 ## Docker 运行
