@@ -55,6 +55,10 @@ import type {
   ExpertInstallStatus,
   LinkOp,
   LinkOpResult,
+  ManagedSkillFamily,
+  ManagedSkillFamilyState,
+  ManagedSkillGlobalState,
+  ManagedSkillSyncReport,
   FolderHistoryEntry,
   FolderDetail,
   CreateChatConversationResult,
@@ -819,6 +823,38 @@ export async function acpDeleteAgentSkill(params: {
   })
 }
 
+export async function managedSkillsGetGlobalState(): Promise<ManagedSkillGlobalState> {
+  return getTransport().call("managed_skills_get_global_state")
+}
+
+export async function managedSkillsGetFamilyState(
+  family: ManagedSkillFamily
+): Promise<ManagedSkillFamilyState> {
+  return getTransport().call("managed_skills_get_family_state", { family })
+}
+
+export async function managedSkillsSetGlobalEnabled(
+  family: ManagedSkillFamily,
+  enabled: boolean
+): Promise<ManagedSkillSyncReport> {
+  return getTransport().call("managed_skills_set_global_enabled", {
+    family,
+    enabled,
+  })
+}
+
+export async function managedSkillsSetSkillEnabled(
+  family: ManagedSkillFamily,
+  skillId: string,
+  enabled: boolean
+): Promise<ManagedSkillSyncReport> {
+  return getTransport().call("managed_skills_set_skill_enabled", {
+    family,
+    skillId,
+    enabled,
+  })
+}
+
 // ─── Experts (built-in expert skills) ───────────────────────────────────
 
 export async function expertsList(): Promise<ExpertListItem[]> {
@@ -1190,7 +1226,6 @@ export async function mcpGetMarketplaceServerDetail(params: {
 export async function mcpInstallFromMarketplace(params: {
   providerId: string
   serverId: string
-  apps: McpAppType[]
   specOverride?: Record<string, unknown> | null
   optionId?: string | null
   protocol?: string | null
@@ -1199,7 +1234,6 @@ export async function mcpInstallFromMarketplace(params: {
   return getTransport().call("mcp_install_from_marketplace", {
     providerId: params.providerId,
     serverId: params.serverId,
-    apps: params.apps,
     specOverride: params.specOverride ?? null,
     optionId: params.optionId ?? null,
     protocol: params.protocol ?? null,
@@ -1210,13 +1244,18 @@ export async function mcpInstallFromMarketplace(params: {
 export async function mcpUpsertLocalServer(params: {
   serverId: string
   spec: Record<string, unknown>
-  apps: McpAppType[]
 }): Promise<LocalMcpServer> {
   return getTransport().call("mcp_upsert_local_server", {
     serverId: params.serverId,
     spec: params.spec,
-    apps: params.apps,
   })
+}
+
+export async function mcpSetServerEnabled(
+  serverId: string,
+  enabled: boolean
+): Promise<LocalMcpServer | null> {
+  return getTransport().call("mcp_set_server_enabled", { serverId, enabled })
 }
 
 export async function mcpSetServerApps(

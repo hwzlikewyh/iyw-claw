@@ -42,7 +42,7 @@ export default async function RootLayout({
   const initialMessages = await getMessagesForLocale(appLocale)
 
   return (
-    <html lang={initialLocale} suppressHydrationWarning>
+    <html lang={initialLocale} data-theme="blue" suppressHydrationWarning>
       <body>
         {/* CSS-only dark background: applies before JS executes, preventing white flash in dark mode */}
         <style

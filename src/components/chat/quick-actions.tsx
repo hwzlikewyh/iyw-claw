@@ -1,12 +1,12 @@
 "use client"
 
 import {
-  Bug,
-  Code2,
-  FileText,
-  GitBranch,
-  Lightbulb,
+  BarChart3,
+  CalendarCheck,
+  FileSearch,
   ListChecks,
+  PenLine,
+  Search,
   type LucideIcon,
 } from "lucide-react"
 
@@ -26,52 +26,56 @@ interface SuggestedPrompt {
 const SUGGESTED_PROMPTS: SuggestedPrompt[] = [
   {
     id: "plan",
-    title: "梳理实现方案",
-    description: "先明确目标、边界和验证方式",
+    title: "制定行动计划",
+    description: "明确目标、优先级和下一步",
     prompt:
-      "请先帮我梳理这个需求的实现方案，明确目标、改动边界、风险点和验证方式。",
-    icon: Lightbulb,
+      "请帮我制定一份清晰可执行的行动计划，先明确目标和限制，再按优先级拆分步骤，并标出下一步该做什么。",
+    icon: CalendarCheck,
     tone: "amber",
   },
   {
-    id: "implement",
-    title: "开始代码开发",
-    description: "按现有代码风格完成改动",
-    prompt: "请基于当前仓库实现这个需求，遵循现有代码风格，并完成必要验证。",
-    icon: Code2,
+    id: "write",
+    title: "撰写内容草稿",
+    description: "起草邮件、方案或宣传文案",
+    prompt:
+      "请根据我接下来提供的背景和要求撰写内容草稿，结构清楚、表达自然，并匹配目标读者和使用场景。",
+    icon: PenLine,
     tone: "blue",
   },
   {
-    id: "debug",
-    title: "排查并修复问题",
-    description: "先定位根因，再做最小修复",
-    prompt: "请帮我排查这个问题，先定位根因，再给出最小修复并验证结果。",
-    icon: Bug,
+    id: "summarize",
+    title: "总结资料要点",
+    description: "提炼结论、重点和待办事项",
+    prompt:
+      "请帮我阅读并总结接下来提供的资料，提炼核心观点、重要事实、关键结论和需要跟进的事项。",
+    icon: FileSearch,
     tone: "pink",
   },
   {
-    id: "review",
-    title: "检查当前改动",
-    description: "重点看风险、回归和缺失验证",
+    id: "analyze",
+    title: "分析数据问题",
+    description: "发现趋势、异常和可能原因",
     prompt:
-      "请 review 当前改动，优先指出 bug、行为回归、风险点和缺失的测试验证。",
-    icon: ListChecks,
+      "请分析我接下来提供的数据或现象，找出主要趋势、异常点和可能原因，并给出有依据的结论与建议。",
+    icon: BarChart3,
     tone: "green",
   },
   {
-    id: "docs",
-    title: "整理文档说明",
-    description: "把实现和使用方式写清楚",
-    prompt: "请帮我整理这块功能的文档说明，包括使用方式、关键配置和注意事项。",
-    icon: FileText,
+    id: "meeting",
+    title: "整理会议记录",
+    description: "归纳决策、负责人和截止时间",
+    prompt:
+      "请帮我整理接下来提供的会议记录，归纳讨论结论、已做决策、待办事项、负责人和截止时间。",
+    icon: ListChecks,
     tone: "purple",
   },
   {
-    id: "git",
-    title: "处理 Git 变更",
-    description: "查看状态、归纳改动和准备提交",
-    prompt: "请帮我查看当前 Git 变更，归纳改动内容，并给出合适的提交说明。",
-    icon: GitBranch,
+    id: "research",
+    title: "调研比较选项",
+    description: "收集信息并比较优缺点",
+    prompt:
+      "请围绕我接下来提供的主题进行调研，比较主要选项的优缺点、适用条件和风险，并给出推荐结论。",
+    icon: Search,
     tone: "slate",
   },
 ]

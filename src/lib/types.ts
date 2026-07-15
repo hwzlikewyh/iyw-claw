@@ -1624,6 +1624,33 @@ export interface LinkOpResult {
   error: string | null
 }
 
+export type ManagedSkillFamily = "experts" | "office_tools"
+
+export interface ManagedSkillGlobalState {
+  expertsEnabled: boolean
+  officeToolsEnabled: boolean
+}
+
+export interface ManagedSkillState {
+  skillId: string
+  enabled: boolean
+  ready: boolean
+}
+
+export interface ManagedSkillFamilyState {
+  family: ManagedSkillFamily
+  allEnabled: boolean
+  skills: ManagedSkillState[]
+}
+
+export interface ManagedSkillSyncReport {
+  family: ManagedSkillFamily
+  enabled: boolean
+  skillId?: string | null
+  results: LinkOpResult[]
+  touchedAgents: AgentType[]
+}
+
 export interface OfficecliInfo {
   installed: boolean
   version: string | null
@@ -1828,6 +1855,7 @@ export interface LocalMcpServer {
   id: string
   spec: Record<string, unknown>
   apps: McpAppType[]
+  enabled: boolean
 }
 
 export interface McpMarketplaceProvider {

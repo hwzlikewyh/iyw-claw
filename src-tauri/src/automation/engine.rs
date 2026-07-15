@@ -527,29 +527,7 @@ impl AutomationEngine {
 
         match auto.isolation {
             IsolationMode::WorktreePerRun => {
-                // Fresh isolated worktree per run; names carry the automation +
-                // run id so `git worktree list` / the branch tree groups them.
-                let branch = format!("automation/{}/run-{}", auto.id, run_id);
-                let dir = format!(
-                    "{}-automation-{}-run-{}",
-                    basename(&root.path),
-                    auto.id,
-                    run_id
-                );
-                let mut wt_path = sibling_path(&root.path, &dir);
-
-                // Retry once with a short suffix if a leftover collides (a prior
-                // attempt for this run id that failed before cleanup).
-                if let Err(e) =
-                    git_worktree_add(root.path.clone(), branch.clone(), wt_path.clone()).await
-                {
-                    let suffix = short_suffix(run_id);
-                    let branch2 = format!("{branch}-{suffix}");
-                    wt_path = sibling_path(&root.path, &format!("{dir}-{suffix}"));
-                    git_worktree_add(root.path.clone(), branch2, wt_path.clone())
-                        .await
-                        .map_err(|_| format!("worktree add failed: {e}"))?;
-                }
+                let wt_path = create_run_worktree(&root.path, auto.id, run_id).await?;
 
                 let wt = open_worktree_folder_core(&self.db, wt_path, root_folder_id)
                     .await
@@ -976,18 +954,71 @@ fn first_chars(s: &str, n: usize) -> String {
 }
 
 fn basename(path: &str) -> &str {
-    path.trim_end_matches('/')
-        .rsplit('/')
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
         .next()
         .unwrap_or(path)
 }
 
 fn sibling_path(root_path: &str, name: &str) -> String {
-    let trimmed = root_path.trim_end_matches('/');
-    match trimmed.rfind('/') {
-        Some(idx) => format!("{}/{}", &trimmed[..idx], name),
-        None => name.to_string(),
+    let trimmed = root_path.trim_end_matches(['/', '\\']);
+    if let Some(index) = trimmed.rfind(['/', '\\']) {
+        let separator = &trimmed[index..=index];
+        return format!("{}{separator}{name}", &trimmed[..index]);
     }
+    let root = crate::git_credential::absolutize(Path::new(root_path));
+    root.parent()
+        .map(|parent| parent.join(name))
+        .unwrap_or_else(|| root.join(name))
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn worktree_error_with_detail(error: &crate::app_error::AppCommandError) -> String {
+    match error.detail.as_deref().filter(|detail| !detail.is_empty()) {
+        Some(detail) => format!("{}: {detail}", error.message),
+        None => error.message.clone(),
+    }
+}
+
+async fn create_run_worktree(
+    root_path: &str,
+    automation_id: i32,
+    run_id: i32,
+) -> Result<String, String> {
+    let branch = format!("automation-{automation_id}-run-{run_id}");
+    let dir = format!(
+        "{}-automation-{automation_id}-run-{run_id}",
+        basename(root_path)
+    );
+    let worktree_path = sibling_path(root_path, &dir);
+    let first_error = match git_worktree_add(
+        root_path.to_string(),
+        branch.clone(),
+        worktree_path.clone(),
+    )
+    .await
+    {
+        Ok(()) => return Ok(worktree_path),
+        Err(error) => error,
+    };
+
+    let suffix = short_suffix(run_id);
+    let retry_path = sibling_path(root_path, &format!("{dir}-{suffix}"));
+    git_worktree_add(
+        root_path.to_string(),
+        format!("{branch}-{suffix}"),
+        retry_path.clone(),
+    )
+    .await
+    .map(|()| retry_path)
+    .map_err(|retry_error| {
+        format!(
+            "worktree add failed; first attempt: {}; retry: {}",
+            worktree_error_with_detail(&first_error),
+            worktree_error_with_detail(&retry_error)
+        )
+    })
 }
 
 fn short_suffix(run_id: i32) -> String {
@@ -998,6 +1029,36 @@ fn short_suffix(run_id: i32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn run_git(path: &Path, args: &[&str]) -> std::process::Output {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(path)
+            .output()
+            .expect("run git")
+    }
+
+    fn init_test_repo() -> (tempfile::TempDir, PathBuf) {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let root = temp.path().join("repo");
+        std::fs::create_dir_all(&root).expect("create repo");
+        assert!(run_git(&root, &["init", "-q"]).status.success());
+        assert!(run_git(&root, &["config", "user.name", "automation-test"])
+            .status
+            .success());
+        assert!(run_git(
+            &root,
+            &["config", "user.email", "automation-test@example.invalid"]
+        )
+        .status
+        .success());
+        assert!(
+            run_git(&root, &["commit", "--allow-empty", "-m", "init", "-q"])
+                .status
+                .success()
+        );
+        (temp, root)
+    }
 
     #[test]
     fn classify_stop_reason_maps_outcomes() {
@@ -1016,6 +1077,46 @@ mod tests {
             sibling_path("/home/me/repo", "repo-automation-3-run-7"),
             "/home/me/repo-automation-3-run-7"
         );
+        if cfg!(windows) {
+            assert_eq!(basename(r"C:\workspace\repo"), "repo");
+            assert_eq!(
+                sibling_path(r"C:\workspace\repo", "repo-automation-3-run-7"),
+                r"C:\workspace\repo-automation-3-run-7"
+            );
+            assert_eq!(
+                sibling_path(r"C:\workspace\repo\", "repo-automation-3-run-7"),
+                r"C:\workspace\repo-automation-3-run-7"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn run_worktree_avoids_existing_automation_branch_prefix() {
+        let (_temp, root) = init_test_repo();
+        assert!(run_git(&root, &["branch", "automation"]).status.success());
+
+        let worktree = create_run_worktree(root.to_string_lossy().as_ref(), 3, 7)
+            .await
+            .expect("create isolated worktree");
+
+        assert_eq!(Path::new(&worktree).parent(), root.parent());
+        let branch = run_git(Path::new(&worktree), &["branch", "--show-current"]);
+        assert!(branch.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&branch.stdout).trim(),
+            "automation-3-run-7"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_worktree_failure_preserves_git_stderr() {
+        let temp = tempfile::tempdir().expect("temp dir");
+
+        let error = create_run_worktree(temp.path().to_string_lossy().as_ref(), 3, 7)
+            .await
+            .expect_err("non-git folder must fail");
+
+        assert!(error.contains("not a git repository"), "{error}");
     }
 
     #[test]

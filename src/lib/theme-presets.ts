@@ -59,11 +59,8 @@ export function normalizeFolderThemeColor(
   return LEGACY_FOLDER_COLOR_MAP[normalized] ?? FOLDER_THEME_COLOR_INHERIT
 }
 
-/**
- * 默认主题色。选用 "neutral" 是因为它对应当前 globals.css 的现存 :root 值
- * （所有 chroma=0 的纯灰阶），可保证升级后视觉零差异。
- */
-export const DEFAULT_THEME_COLOR: ThemeColor = "neutral"
+/** 新安装或没有有效持久化偏好时使用的默认主题色。 */
+export const DEFAULT_THEME_COLOR: ThemeColor = "blue"
 
 /**
  * UI 预览用的代表色（OKLch 字符串，对应各预设的 primary 色 light 版本）。

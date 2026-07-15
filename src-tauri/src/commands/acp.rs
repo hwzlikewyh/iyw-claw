@@ -6671,6 +6671,59 @@ pub async fn acp_clear_binary_cache(agent_type: AgentType) -> Result<(), AcpErro
     Ok(())
 }
 
+fn enabled_state_changed(previous: bool, current: bool) -> bool {
+    previous != current
+}
+
+async fn run_enablement_reconcilers_best_effort<
+    Skills,
+    SkillsFuture,
+    SkillsError,
+    Mcp,
+    McpFuture,
+    McpError,
+>(
+    agent_type: AgentType,
+    reconcile_skills: Skills,
+    reconcile_mcp: Mcp,
+) where
+    Skills: FnOnce() -> SkillsFuture,
+    SkillsFuture: std::future::Future<Output = Result<(), SkillsError>>,
+    SkillsError: std::fmt::Display,
+    Mcp: FnOnce() -> McpFuture,
+    McpFuture: std::future::Future<Output = Result<(), McpError>>,
+    McpError: std::fmt::Display,
+{
+    if let Err(error) = reconcile_skills().await {
+        tracing::warn!("[ACP] managed skills reconcile failed for {agent_type}: {error}");
+    }
+    if let Err(error) = reconcile_mcp().await {
+        tracing::warn!("[ACP] managed MCP reconcile failed for {agent_type}: {error}");
+    }
+}
+
+async fn reconcile_agent_enablement_best_effort(
+    db: &AppDatabase,
+    agent_type: AgentType,
+    enabled: bool,
+) {
+    run_enablement_reconcilers_best_effort(
+        agent_type,
+        || async {
+            crate::commands::managed_skills::reconcile_agent_core(&db.conn, agent_type, enabled)
+                .await
+                .map(|_| ())
+        },
+        || async {
+            crate::commands::mcp_sync::reconcile_managed_mcp_for_agent(
+                &db.conn, agent_type, enabled,
+            )
+            .await
+        },
+    )
+    .await;
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn acp_update_agent_preferences_core(
     agent_type: AgentType,
@@ -6693,6 +6746,11 @@ pub(crate) async fn acp_update_agent_preferences_core(
     agent_setting_service::ensure_defaults(&db.conn, &[default])
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
+    let previous_enabled = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
+        .await
+        .map_err(|e| AcpError::protocol(e.to_string()))?
+        .ok_or_else(|| AcpError::protocol(format!("agent setting not found: {agent_type}")))?
+        .enabled;
 
     let env_json = serialize_env_map(&env)?;
     let config_json = config_json.and_then(|raw| {
@@ -6721,6 +6779,9 @@ pub(crate) async fn acp_update_agent_preferences_core(
     agent_setting_service::update(&db.conn, agent_type, patch)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
+    if enabled_state_changed(previous_enabled, enabled) {
+        reconcile_agent_enablement_best_effort(db, agent_type, enabled).await;
+    }
 
     if agent_type == AgentType::Codex {
         if codex_auth_json.is_some() || codex_config_toml.is_some() {
@@ -6822,6 +6883,11 @@ pub(crate) async fn acp_update_agent_env_core(
     agent_setting_service::ensure_defaults(&db.conn, &[default])
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
+    let previous_enabled = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
+        .await
+        .map_err(|e| AcpError::protocol(e.to_string()))?
+        .ok_or_else(|| AcpError::protocol(format!("agent setting not found: {agent_type}")))?
+        .enabled;
 
     // If a provider is selected, the provider's model field is authoritative:
     // each relevant env key is set when the provider has a value and cleared
@@ -6893,6 +6959,9 @@ pub(crate) async fn acp_update_agent_env_core(
     agent_setting_service::update(&db.conn, agent_type, patch)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
+    if enabled_state_changed(previous_enabled, enabled) {
+        reconcile_agent_enablement_best_effort(db, agent_type, enabled).await;
+    }
 
     // Authoritatively rewrite the local config.env so a stale model key (e.g. the
     // custom model option) cannot survive a bind/rebind via any save path. `None`
@@ -8678,6 +8747,35 @@ pub(crate) async fn codex_poll_device_code_core(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn agent_enablement_reconcile_runs_only_when_enabled_state_changes() {
+        assert!(enabled_state_changed(false, true));
+        assert!(enabled_state_changed(true, false));
+        assert!(!enabled_state_changed(false, false));
+        assert!(!enabled_state_changed(true, true));
+    }
+
+    #[tokio::test]
+    async fn agent_enablement_reconcile_continues_after_managed_skills_failure() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let mcp_called = Arc::new(AtomicBool::new(false));
+        let mcp_called_by_reconciler = Arc::clone(&mcp_called);
+
+        run_enablement_reconcilers_best_effort(
+            AgentType::Codex,
+            || async { Err::<(), _>("managed skills failed") },
+            move || async move {
+                mcp_called_by_reconciler.store(true, Ordering::SeqCst);
+                Ok::<(), &str>(())
+            },
+        )
+        .await;
+
+        assert!(mcp_called.load(Ordering::SeqCst));
+    }
 
     #[test]
     fn managed_runtime_env_discards_private_profile_path_overrides() {

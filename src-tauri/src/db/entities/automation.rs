@@ -14,7 +14,7 @@ pub enum TriggerKind {
 }
 
 /// Where a fired run executes relative to the target folder. `worktree_per_run`
-/// mints a fresh git worktree (branch `automation/<id>/run-<run_id>`) each fire so
+/// mints a fresh git worktree (branch `automation-<id>-run-<run_id>`) each fire so
 /// runs never collide on a working tree; `shared_in_root` checks the branch out in
 /// the root repo (serialized per root folder).
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]

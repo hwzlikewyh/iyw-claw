@@ -1,9 +1,8 @@
 import type {
-  AcpAgentInfo,
   AgentType,
-  ExpertInstallStatus,
-  LinkOp,
-  LinkOpResult,
+  ManagedSkillFamilyState,
+  ManagedSkillState,
+  ManagedSkillSyncReport,
 } from "@/lib/types"
 
 export interface SkillToggleItem {
@@ -17,43 +16,50 @@ export interface SkillToggleItem {
 
 export interface SkillToggleListProps {
   skills: SkillToggleItem[]
-  agents: AcpAgentInfo[]
+  skillStates: ManagedSkillState[]
+  globalEnabled: boolean
+  setGlobalEnabled: (enabled: boolean) => Promise<ManagedSkillSyncReport>
+  setSkillEnabled: (
+    skillId: string,
+    enabled: boolean
+  ) => Promise<ManagedSkillSyncReport>
   categoryOrder: Record<string, number>
   translateCategory: (category: string) => string
-  loadAllStatuses: () => Promise<ExpertInstallStatus[]>
-  applyLinks: (ops: LinkOp[]) => Promise<LinkOpResult[]>
   loadContent?: (skillId: string) => Promise<string>
   onApplied?: (touchedAgents: AgentType[]) => void
-  statusReloadToken?: number
   searchPlaceholder?: string
   notReadyHint?: string
-}
-
-export function statusKey(skillId: string, agentType: AgentType): string {
-  return `${skillId}:${agentType}`
-}
-
-export function isEnabled(status: ExpertInstallStatus | undefined): boolean {
-  return status?.state === "linked_to_iyw_claw"
-}
-
-export function isBlocked(status: ExpertInstallStatus | undefined): boolean {
-  return (
-    status?.state === "blocked_by_real_directory" ||
-    status?.state === "linked_elsewhere"
-  )
-}
-
-export function buildStatusMap(statuses: ExpertInstallStatus[]) {
-  return new Map(
-    statuses.map((status) => [
-      statusKey(status.expertId, status.agentType),
-      status,
-    ])
-  )
 }
 
 export function stripFrontmatter(content: string): string {
   const match = content.match(/^---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n)?/)
   return match ? content.slice(match[0].length) : content
+}
+
+export function mergeManagedSkillEnabled(
+  state: ManagedSkillFamilyState | null,
+  skillId: string,
+  enabled: boolean
+): ManagedSkillFamilyState | null {
+  if (!state) return null
+  const skills = state.skills.map((skill) =>
+    skill.skillId === skillId ? { ...skill, enabled } : skill
+  )
+  return {
+    ...state,
+    allEnabled: skills.length > 0 && skills.every((skill) => skill.enabled),
+    skills,
+  }
+}
+
+export function mergeAllManagedSkillsEnabled(
+  state: ManagedSkillFamilyState | null,
+  enabled: boolean
+): ManagedSkillFamilyState | null {
+  if (!state) return null
+  return {
+    ...state,
+    allEnabled: enabled,
+    skills: state.skills.map((skill) => ({ ...skill, enabled })),
+  }
 }

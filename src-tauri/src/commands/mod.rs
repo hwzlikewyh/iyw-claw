@@ -20,7 +20,10 @@ pub mod folder_commands;
 pub mod folders;
 pub mod iyw_account;
 pub mod logging;
+pub mod managed_skills;
 pub mod mcp;
+pub mod mcp_catalog;
+pub mod mcp_sync;
 pub mod model_provider;
 #[cfg(feature = "tauri-runtime")]
 pub mod notification;

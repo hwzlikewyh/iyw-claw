@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   mcpGetMarketplaceServerDetail,
@@ -45,6 +46,7 @@ import {
   mcpRemoveServer,
   mcpScanLocal,
   mcpSearchMarketplace,
+  mcpSetServerEnabled,
   mcpUpsertLocalServer,
 } from "@/lib/api"
 import { toLocalizedErrorMessage } from "@/lib/app-error"
@@ -52,7 +54,6 @@ import { normalizeMcpType } from "@/lib/mcp-types"
 import { cn } from "@/lib/utils"
 import type {
   LocalMcpServer,
-  McpAppType,
   McpMarketplaceItem,
   McpMarketplaceInstallOption,
   McpMarketplaceProvider,
@@ -81,21 +82,6 @@ type McpTranslator = (
   key: string,
   values?: Record<string, string | number>
 ) => string
-
-const APP_OPTIONS: { value: McpAppType; label: string }[] = [
-  { value: "claude_code", label: "Claude Code" },
-  { value: "codex", label: "Codex CLI" },
-  { value: "gemini", label: "Gemini CLI" },
-  // OpenClaw 不接受 ACP 线缆上的 MCP 服务器条目（后端 registry.rs supports_mcp=false
-  // 会让其 mcpServers 恒为空 []，否则带条目时 OpenClaw 会在建会话阶段报错），按产品
-  // 决策不作为可分配目标。McpAppType 仍保留 "open_claw" 以兼容回读存量配置，
-  // saveLocalServer 也会保留既有 open_claw 分配（不静默清除）。
-  { value: "open_code", label: "OpenCode" },
-  { value: "cline", label: "Cline" },
-  { value: "hermes", label: "Hermes Agent" },
-  { value: "code_buddy", label: "CodeBuddy" },
-  { value: "kimi_code", label: "Kimi Code" },
-]
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
@@ -243,33 +229,6 @@ function parseParameterValues(
   return { values, error: null }
 }
 
-function normalizeApps(apps: McpAppType[]): McpAppType[] {
-  return [...new Set(apps)]
-}
-
-function appsToDraft(apps: McpAppType[]): Record<McpAppType, boolean> {
-  const appSet = new Set(apps)
-  return {
-    claude_code: appSet.has("claude_code"),
-    codex: appSet.has("codex"),
-    gemini: appSet.has("gemini"),
-    open_claw: appSet.has("open_claw"),
-    open_code: appSet.has("open_code"),
-    cline: appSet.has("cline"),
-    hermes: appSet.has("hermes"),
-    code_buddy: appSet.has("code_buddy"),
-    kimi_code: appSet.has("kimi_code"),
-  }
-}
-
-function selectedAppsFromDraft(
-  draft: Record<McpAppType, boolean>
-): McpAppType[] {
-  return APP_OPTIONS.filter((item) => draft[item.value]).map(
-    (item) => item.value
-  )
-}
-
 function detectEnvOnRemote(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
@@ -349,20 +308,11 @@ export function McpSettings() {
   >({})
 
   const [localSpecText, setLocalSpecText] = useState("")
-  const [localAppsDraft, setLocalAppsDraft] = useState<
-    Record<McpAppType, boolean>
-  >(appsToDraft([]))
 
   const [installDialogOpen, setInstallDialogOpen] = useState(false)
-  const [installAppsDraft, setInstallAppsDraft] = useState<
-    Record<McpAppType, boolean>
-  >(appsToDraft(APP_OPTIONS.map((x) => x.value)))
 
   const [draftServerId, setDraftServerId] = useState("")
   const [draftSpecText, setDraftSpecText] = useState(DEFAULT_DRAFT_SPEC)
-  const [draftAppsDraft, setDraftAppsDraft] = useState<
-    Record<McpAppType, boolean>
-  >(appsToDraft(APP_OPTIONS.map((x) => x.value)))
 
   const [runningAction, setRunningAction] = useState<string | null>(null)
 
@@ -448,7 +398,6 @@ export function McpSettings() {
     if (!selectedLocal) return
     const nextSpec = JSON.stringify(selectedLocal.spec, null, 2)
     setLocalSpecText(nextSpec)
-    setLocalAppsDraft(appsToDraft(selectedLocal.apps))
   }, [selectedLocal])
 
   useEffect(() => {
@@ -578,6 +527,24 @@ export function McpSettings() {
     [refreshLocalServers, t, mcpT]
   )
 
+  const toggleServerEnabled = useCallback(
+    async (server: LocalMcpServer, enabled: boolean) => {
+      const action = `toggle:${server.id}`
+      setRunningAction(action)
+
+      try {
+        await mcpSetServerEnabled(server.id, enabled)
+        await refreshLocalServers()
+      } catch (err) {
+        const message = toLocalizedErrorMessage(err, mcpT)
+        toast.error(t("toasts.saveFailed", { message }))
+      } finally {
+        setRunningAction(null)
+      }
+    },
+    [mcpT, refreshLocalServers, t]
+  )
+
   const saveLocalServer = useCallback(async () => {
     if (!selectedLocal) return
 
@@ -594,22 +561,6 @@ export function McpSettings() {
       return
     }
 
-    // Apps the user can see and toggle in the UI.
-    const visibleApps = selectedAppsFromDraft(localAppsDraft)
-    // Carry forward assignments for agents no longer offered in the UI (e.g.
-    // OpenClaw, which no longer accepts MCP over the ACP wire). We never add
-    // these, but must not silently strip a legacy assignment from a server the
-    // user is editing — that would destroy existing on-disk config and could
-    // wedge an OpenClaw-only server into an unsavable "no apps" state.
-    const hiddenLegacyApps = selectedLocal.apps.filter(
-      (app) => !APP_OPTIONS.some((option) => option.value === app)
-    )
-    const apps = normalizeApps([...visibleApps, ...hiddenLegacyApps])
-    if (apps.length === 0) {
-      toast.error(t("toasts.selectAtLeastOneApp"))
-      return
-    }
-
     const action = `save:${selectedLocal.id}`
     setRunningAction(action)
 
@@ -617,7 +568,6 @@ export function McpSettings() {
       await mcpUpsertLocalServer({
         serverId: selectedLocal.id,
         spec: parsedSpec,
-        apps,
       })
       const next = await refreshLocalServers()
       toast.success(t("toasts.saveSuccess"))
@@ -626,7 +576,6 @@ export function McpSettings() {
       if (updated) {
         setSelection({ kind: "local", id: updated.id })
         setLocalSpecText(JSON.stringify(updated.spec, null, 2))
-        setLocalAppsDraft(appsToDraft(updated.apps))
       }
     } catch (err) {
       const message = toLocalizedErrorMessage(err, mcpT)
@@ -634,21 +583,13 @@ export function McpSettings() {
     } finally {
       setRunningAction(null)
     }
-  }, [
-    localAppsDraft,
-    localSpecText,
-    mcpT,
-    refreshLocalServers,
-    selectedLocal,
-    t,
-  ])
+  }, [localSpecText, mcpT, refreshLocalServers, selectedLocal, t])
 
   const handleCreateDraft = useCallback(() => {
     setLeftTab("local")
     setSelection({ kind: "draft" })
     setDraftServerId("")
     setDraftSpecText(DEFAULT_DRAFT_SPEC)
-    setDraftAppsDraft(appsToDraft(APP_OPTIONS.map((item) => item.value)))
   }, [])
 
   const saveDraft = useCallback(async () => {
@@ -676,12 +617,6 @@ export function McpSettings() {
       return
     }
 
-    const apps = normalizeApps(selectedAppsFromDraft(draftAppsDraft))
-    if (apps.length === 0) {
-      toast.error(t("toasts.selectAtLeastOneApp"))
-      return
-    }
-
     const action = `create:${trimmedId}`
     setRunningAction(action)
 
@@ -689,7 +624,6 @@ export function McpSettings() {
       await mcpUpsertLocalServer({
         serverId: trimmedId,
         spec: parsedSpec,
-        apps,
       })
       const next = await refreshLocalServers()
       toast.success(t("toasts.created"))
@@ -707,7 +641,6 @@ export function McpSettings() {
       setRunningAction(null)
     }
   }, [
-    draftAppsDraft,
     draftServerId,
     draftSpecText,
     installedServers,
@@ -735,7 +668,6 @@ export function McpSettings() {
 
   const openInstallDialog = useCallback(() => {
     if (!marketDetail) return
-    setInstallAppsDraft(appsToDraft(APP_OPTIONS.map((item) => item.value)))
     const option =
       marketDetail.install_options.find(
         (item) => item.id === selectedInstallOptionId
@@ -781,12 +713,6 @@ export function McpSettings() {
       }
     }
 
-    const apps = normalizeApps(selectedAppsFromDraft(installAppsDraft))
-    if (apps.length === 0) {
-      toast.error(t("toasts.selectAtLeastOneApp"))
-      return
-    }
-
     const action = `install:${marketDetail.server_id}`
     setRunningAction(action)
 
@@ -794,7 +720,6 @@ export function McpSettings() {
       await mcpInstallFromMarketplace({
         providerId: marketDetail.provider_id,
         serverId: marketDetail.server_id,
-        apps,
         optionId: selectedInstallOption?.id ?? null,
         protocol: selectedInstallOption?.protocol ?? null,
         parameterValues: parsedParams.values,
@@ -818,7 +743,6 @@ export function McpSettings() {
       setRunningAction(null)
     }
   }, [
-    installAppsDraft,
     installParamDraft,
     marketDetail,
     marketSpecDirty,
@@ -980,30 +904,6 @@ export function McpSettings() {
                 </div>
               </div>
             ) : null}
-
-            <div className="space-y-2">
-              <div className="text-xs text-muted-foreground">
-                {t("installDialog.targetApps")}
-              </div>
-              {APP_OPTIONS.map((app) => (
-                <label
-                  key={app.value}
-                  className="inline-flex w-full items-center gap-2 rounded-md border px-2 py-1.5"
-                >
-                  <input
-                    type="checkbox"
-                    checked={installAppsDraft[app.value]}
-                    onChange={(event) => {
-                      setInstallAppsDraft((prev) => ({
-                        ...prev,
-                        [app.value]: event.target.checked,
-                      }))
-                    }}
-                  />
-                  <span>{app.label}</span>
-                </label>
-              ))}
-            </div>
           </div>
 
           <DialogFooter>
@@ -1082,24 +982,44 @@ export function McpSettings() {
                     return (
                       <ContextMenu key={server.id}>
                         <ContextMenuTrigger asChild>
-                          <button
+                          <div
                             className={cn(
-                              "w-full rounded-md border p-2 text-left transition-colors",
+                              "flex w-full items-center gap-2 rounded-md border p-2 transition-colors",
                               active
                                 ? "border-primary bg-primary/5"
                                 : "hover:bg-muted/60"
                             )}
-                            onClick={() => {
-                              setSelection({ kind: "local", id: server.id })
-                            }}
                           >
-                            <div className="text-sm font-medium break-all">
-                              {server.id}
-                            </div>
-                            <div className="text-xs text-muted-foreground line-clamp-2 break-all">
-                              {specSummary(spec, mcpT)}
-                            </div>
-                          </button>
+                            <button
+                              type="button"
+                              className="min-w-0 flex-1 text-left"
+                              onClick={() => {
+                                setSelection({ kind: "local", id: server.id })
+                              }}
+                            >
+                              <div className="text-sm font-medium break-all">
+                                {server.id}
+                              </div>
+                              <div className="text-xs text-muted-foreground line-clamp-2 break-all">
+                                {specSummary(spec, mcpT)}
+                              </div>
+                            </button>
+                            <Switch
+                              checked={server.enabled}
+                              onCheckedChange={(enabled) => {
+                                toggleServerEnabled(server, enabled).catch(
+                                  (err) => {
+                                    console.error(
+                                      "[Settings] toggle MCP failed:",
+                                      err
+                                    )
+                                  }
+                                )
+                              }}
+                              disabled={runningAction !== null}
+                              aria-label={server.id}
+                            />
+                          </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
                           <ContextMenuItem
@@ -1351,32 +1271,6 @@ export function McpSettings() {
 
               <div className="space-y-2">
                 <div className="text-xs text-muted-foreground">
-                  {t("local.enabledApps")}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {APP_OPTIONS.map((app) => (
-                    <label
-                      key={app.value}
-                      className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={draftAppsDraft[app.value]}
-                        onChange={(event) => {
-                          setDraftAppsDraft((prev) => ({
-                            ...prev,
-                            [app.value]: event.target.checked,
-                          }))
-                        }}
-                      />
-                      {app.label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-xs text-muted-foreground">
                   {t("local.configJson")}
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -1453,32 +1347,6 @@ export function McpSettings() {
                     t("actions.uninstall")
                   )}
                 </Button>
-              </div>
-
-              <div className="space-y-2">
-                <div className="text-xs text-muted-foreground">
-                  {t("local.enabledApps")}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {APP_OPTIONS.map((app) => (
-                    <label
-                      key={app.value}
-                      className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={localAppsDraft[app.value]}
-                        onChange={(event) => {
-                          setLocalAppsDraft((prev) => ({
-                            ...prev,
-                            [app.value]: event.target.checked,
-                          }))
-                        }}
-                      />
-                      {app.label}
-                    </label>
-                  ))}
-                </div>
               </div>
 
               <div className="space-y-2">

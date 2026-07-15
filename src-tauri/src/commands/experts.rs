@@ -11,7 +11,7 @@
 //! database state, and updates propagate automatically when iyw-claw upgrades
 //! and re-extracts the bundled files.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -25,8 +25,7 @@ use tokio::sync::Mutex;
 
 use crate::acp::types::AgentSkillScope;
 use crate::commands::acp::{
-    preferred_scope_skill_dir, remove_skill_entry, scoped_skill_dirs, skill_storage_spec,
-    validate_skill_id,
+    preferred_scope_skill_dir, remove_skill_entry, scoped_skill_dirs, validate_skill_id,
 };
 use crate::models::agent::AgentType;
 
@@ -38,6 +37,15 @@ const CENTRAL_DIR_NAME: &str = ".iyw-claw";
 const CENTRAL_SKILLS_SUBDIR: &str = "skills";
 const MANIFEST_FILE: &str = ".manifest.json";
 const EXPERTS_TOML: &str = "experts.toml";
+const MANAGED_COPY_MARKER_FILE: &str = ".iyw-claw-managed-copy.json";
+const MANAGED_COPY_MARKER_VERSION: u8 = 1;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedCopyMarker {
+    version: u8,
+    expected_target: PathBuf,
+}
 
 // ─── Error type ─────────────────────────────────────────────────────────
 
@@ -398,6 +406,181 @@ fn save_manifest(manifest: &Manifest) -> Result<(), ExpertsError> {
 
 // ─── Link operations ────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ManagedLinkChange {
+    Unchanged,
+    Linked { copy_mode: bool },
+    Removed,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ManagedLinkEntryError {
+    #[error("a real directory already exists at the managed link path")]
+    NameCollision,
+    #[error("a different link already exists (points to '{found}')")]
+    ForeignLink { found: String },
+    #[error("io error: {0}")]
+    Io(String),
+}
+
+fn foreign_link_error(link_path: &Path) -> ManagedLinkEntryError {
+    ManagedLinkEntryError::ForeignLink {
+        found: read_link_target(link_path)
+            .map(|path| path.to_string_lossy().to_string())
+            .unwrap_or_else(|| "<unknown>".into()),
+    }
+}
+
+fn enable_managed_link_entry(
+    expected_target: &Path,
+    link_path: &Path,
+) -> Result<ManagedLinkChange, ManagedLinkEntryError> {
+    if managed_copy_is_owned(expected_target, link_path) {
+        remove_skill_entry(link_path)
+            .map_err(|error| ManagedLinkEntryError::Io(error.to_string()))?;
+        return create_link_raw(expected_target, link_path)
+            .map(|copy_mode| ManagedLinkChange::Linked { copy_mode })
+            .map_err(|error| ManagedLinkEntryError::Io(error.to_string()));
+    }
+    match classify_link(link_path, expected_target) {
+        ExpertLinkState::LinkedToIywClaw => return Ok(ManagedLinkChange::Unchanged),
+        ExpertLinkState::BlockedByRealDirectory => {
+            return Err(ManagedLinkEntryError::NameCollision);
+        }
+        ExpertLinkState::LinkedElsewhere | ExpertLinkState::Broken => {
+            return Err(foreign_link_error(link_path));
+        }
+        ExpertLinkState::NotLinked => {}
+    }
+    if let Some(parent) = link_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| ManagedLinkEntryError::Io(error.to_string()))?;
+    }
+    create_link_raw(expected_target, link_path)
+        .map(|copy_mode| ManagedLinkChange::Linked { copy_mode })
+        .map_err(|error| ManagedLinkEntryError::Io(error.to_string()))
+}
+
+fn raw_link_targets(link_path: &Path, expected_target: &Path) -> bool {
+    let Some(target) = read_link_target(link_path) else {
+        return false;
+    };
+    let target = if target.is_absolute() {
+        target
+    } else {
+        link_path.parent().unwrap_or(Path::new("")).join(target)
+    };
+    paths_equivalent(&target, expected_target)
+}
+
+pub(crate) fn managed_link_is_owned(expected_target: &Path, link_path: &Path) -> bool {
+    let state = classify_link(link_path, expected_target);
+    state == ExpertLinkState::LinkedToIywClaw
+        || (state == ExpertLinkState::Broken && raw_link_targets(link_path, expected_target))
+}
+
+pub(crate) fn managed_copy_is_owned(expected_target: &Path, copy_path: &Path) -> bool {
+    let Ok(metadata) = fs::symlink_metadata(copy_path) else {
+        return false;
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() || path_is_reparse_point(copy_path) {
+        return false;
+    }
+    let marker_path = copy_path.join(MANAGED_COPY_MARKER_FILE);
+    let Ok(marker_metadata) = fs::symlink_metadata(&marker_path) else {
+        return false;
+    };
+    if !marker_metadata.file_type().is_file() {
+        return false;
+    }
+    let Ok(bytes) = fs::read(marker_path) else {
+        return false;
+    };
+    let Ok(marker) = serde_json::from_slice::<ManagedCopyMarker>(&bytes) else {
+        return false;
+    };
+    marker.version == MANAGED_COPY_MARKER_VERSION
+        && paths_equivalent(&marker.expected_target, expected_target)
+}
+
+#[cfg(any(windows, test))]
+fn write_managed_copy_marker(copy_path: &Path, expected_target: &Path) -> io::Result<()> {
+    let marker = ManagedCopyMarker {
+        version: MANAGED_COPY_MARKER_VERSION,
+        expected_target: expected_target.to_path_buf(),
+    };
+    let bytes = serde_json::to_vec(&marker).map_err(io::Error::other)?;
+    fs::write(copy_path.join(MANAGED_COPY_MARKER_FILE), bytes)
+}
+
+pub(crate) fn reconcile_managed_link_entry(
+    expected_target: &Path,
+    link_path: &Path,
+    enable: bool,
+) -> Result<ManagedLinkChange, ManagedLinkEntryError> {
+    if enable {
+        return enable_managed_link_entry(expected_target, link_path);
+    }
+    if !managed_link_is_owned(expected_target, link_path) {
+        return Ok(ManagedLinkChange::Unchanged);
+    }
+    remove_skill_entry(link_path).map_err(|error| ManagedLinkEntryError::Io(error.to_string()))?;
+    Ok(ManagedLinkChange::Removed)
+}
+
+pub(crate) type ManagedLinkPathChange = (PathBuf, ManagedLinkChange);
+pub(crate) type ManagedLinkPathError = (PathBuf, ManagedLinkEntryError);
+
+pub(crate) fn reconcile_managed_link_paths(
+    expected_target: &Path,
+    preferred_link_path: &Path,
+    all_link_paths: &[PathBuf],
+    enable: bool,
+) -> Result<Vec<ManagedLinkPathChange>, ManagedLinkPathError> {
+    if enable {
+        let link_path = all_link_paths
+            .iter()
+            .find(|path| managed_link_is_owned(expected_target, path))
+            .map(PathBuf::as_path)
+            .unwrap_or(preferred_link_path);
+        let change = reconcile_managed_link_entry(expected_target, link_path, true)
+            .map_err(|error| (link_path.to_path_buf(), error))?;
+        return Ok(match change {
+            ManagedLinkChange::Unchanged => Vec::new(),
+            change => vec![(link_path.to_path_buf(), change)],
+        });
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut changes = Vec::new();
+    let mut first_error = None;
+    for link_path in
+        std::iter::once(preferred_link_path.to_path_buf()).chain(all_link_paths.iter().cloned())
+    {
+        if !seen.insert(link_path.clone()) {
+            continue;
+        }
+        match reconcile_managed_link_entry(expected_target, &link_path, false) {
+            Ok(ManagedLinkChange::Unchanged) => {}
+            Ok(change) => changes.push((link_path, change)),
+            Err(error) if first_error.is_none() => first_error = Some((link_path, error)),
+            Err(_) => {}
+        }
+    }
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(changes),
+    }
+}
+
+fn experts_error_from_managed(error: ManagedLinkEntryError, link_path: &Path) -> ExpertsError {
+    let path = link_path.to_string_lossy().to_string();
+    match error {
+        ManagedLinkEntryError::NameCollision => ExpertsError::NameCollision { path },
+        ManagedLinkEntryError::ForeignLink { found } => ExpertsError::ForeignLink { path, found },
+        ManagedLinkEntryError::Io(message) => ExpertsError::Io(message),
+    }
+}
+
 #[cfg(unix)]
 pub(crate) fn create_link_raw(src: &Path, dst: &Path) -> io::Result<bool> {
     std::os::unix::fs::symlink(src, dst).map(|_| false)
@@ -407,12 +590,12 @@ pub(crate) fn create_link_raw(src: &Path, dst: &Path) -> io::Result<bool> {
 pub(crate) fn create_link_raw(src: &Path, dst: &Path) -> io::Result<bool> {
     match junction::create(src, dst) {
         Ok(_) => Ok(false),
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => Err(err),
         Err(junction_err) => {
-            // Fall back to recursive copy when junction creation is not
-            // possible (e.g. cross-volume, permission denied). Mark the
-            // returned status with copy_mode = true so the UI can warn
-            // the user that upgrades won't propagate automatically.
-            copy_dir_recursive(src, dst).map_err(|copy_err| {
+            let copy_result =
+                copy_dir_recursive(src, dst).and_then(|_| write_managed_copy_marker(dst, src));
+            copy_result.map_err(|copy_err| {
+                let _ = fs::remove_dir_all(dst);
                 io::Error::other(format!(
                     "junction failed ({junction_err}); copy fallback failed ({copy_err})"
                 ))
@@ -512,12 +695,10 @@ pub(crate) fn classify_link(link_path: &Path, expected_target: &Path) -> ExpertL
 
     let is_link_like = meta.file_type().is_symlink() || path_is_reparse_point(link_path);
     if !is_link_like {
-        // A real directory (or file) sits where we'd put our link.
-        // This also covers Windows copy-mode fallback, where we could not
-        // create a junction and fell back to `copy_dir_recursive`. We still
-        // surface it as BlockedByRealDirectory so experts_link_to_agent
-        // treats it as "needs user attention" (the copy will not track
-        // central-store updates and must be re-linked explicitly).
+        if managed_copy_is_owned(expected_target, link_path) {
+            return ExpertLinkState::LinkedToIywClaw;
+        }
+        // A user-owned real directory (or file) sits where we'd put our link.
         return ExpertLinkState::BlockedByRealDirectory;
     }
 
@@ -780,29 +961,39 @@ pub async fn experts_get_install_status(
             link_path: link_path.to_string_lossy().to_string(),
             target_path,
             expected_target_path: expected.to_string_lossy().to_string(),
-            copy_mode: false,
+            copy_mode: managed_copy_is_owned(&expected, &link_path),
         });
     }
     Ok(out)
 }
 
 fn supported_agents() -> Vec<AgentType> {
-    const ALL: &[AgentType] = &[
-        AgentType::ClaudeCode,
-        AgentType::Codex,
-        AgentType::OpenCode,
-        AgentType::Gemini,
-        AgentType::OpenClaw,
-        AgentType::Cline,
-        AgentType::Hermes,
-        AgentType::CodeBuddy,
-        AgentType::KimiCode,
-        AgentType::Pi,
-    ];
-    ALL.iter()
-        .filter(|a| skill_storage_spec(**a).is_some())
-        .copied()
+    crate::commands::managed_skills::supported_skill_agent_types()
+}
+
+pub(crate) fn managed_expert_ids() -> Vec<String> {
+    bundled_metadata()
+        .iter()
+        .map(|metadata| metadata.id.clone())
         .collect()
+}
+
+pub(crate) fn managed_ready_expert_ids() -> Vec<String> {
+    bundled_metadata()
+        .iter()
+        .filter(|metadata| expert_central_path(&metadata.id).exists())
+        .map(|metadata| metadata.id.clone())
+        .collect()
+}
+
+pub(crate) fn managed_expert_has_owned_link(expert_id: &str, agents: &[AgentType]) -> bool {
+    let expected = expert_central_path(expert_id);
+    agents.iter().any(|agent_type| {
+        scoped_skill_dirs(*agent_type, AgentSkillScope::Global, None).is_ok_and(|dirs| {
+            dirs.into_iter()
+                .any(|dir| managed_link_is_owned(&expected, &dir.join(expert_id)))
+        })
+    })
 }
 
 // ─── Commands: link / unlink ────────────────────────────────────────────
@@ -827,44 +1018,9 @@ fn link_one_locked(
 
     require_private_agent_storage_for_write()?;
     let link_path = agent_link_path(agent_type, &expert_id)?;
-    if let Some(parent) = link_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let mut copy_mode = false;
-    match create_link_raw(&central, &link_path) {
-        Ok(is_copy) => {
-            copy_mode = is_copy;
-        }
-        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
-            // Already exists — figure out what kind.
-            match classify_link(&link_path, &central) {
-                ExpertLinkState::LinkedToIywClaw => {
-                    // Idempotent success.
-                }
-                ExpertLinkState::BlockedByRealDirectory => {
-                    return Err(ExpertsError::NameCollision {
-                        path: link_path.to_string_lossy().to_string(),
-                    });
-                }
-                ExpertLinkState::LinkedElsewhere | ExpertLinkState::Broken => {
-                    let found = read_link_target(&link_path)
-                        .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "<unknown>".into());
-                    return Err(ExpertsError::ForeignLink {
-                        path: link_path.to_string_lossy().to_string(),
-                        found,
-                    });
-                }
-                ExpertLinkState::NotLinked => {
-                    // Shouldn't happen after AlreadyExists, but retry once.
-                    create_link_raw(&central, &link_path)
-                        .map_err(|e| ExpertsError::Io(format!("retry link failed: {e}")))?;
-                }
-            }
-        }
-        Err(err) => return Err(ExpertsError::Io(err.to_string())),
-    }
+    let change = reconcile_managed_link_entry(&central, &link_path, true)
+        .map_err(|error| experts_error_from_managed(error, &link_path))?;
+    let copy_mode = matches!(change, ManagedLinkChange::Linked { copy_mode: true });
 
     let state = classify_link(&link_path, &central);
     let target_path = read_link_target(&link_path).map(|p| p.to_string_lossy().to_string());
@@ -917,12 +1073,8 @@ fn unlink_one_locked(expert_id: &str, agent_type: AgentType) -> Result<(), Exper
             continue;
         }
         let state = classify_link(&candidate, &central);
-        if matches!(
-            state,
-            ExpertLinkState::LinkedToIywClaw | ExpertLinkState::Broken
-        ) {
+        if managed_link_is_owned(&central, &candidate) {
             require_private_agent_storage_for_write()?;
-            // Safe to remove a link to our central store or a broken link.
             remove_skill_entry(&candidate).map_err(|e| {
                 ExpertsError::Io(format!("remove link {}: {e}", candidate.display()))
             })?;
@@ -944,6 +1096,112 @@ fn unlink_one_locked(expert_id: &str, agent_type: AgentType) -> Result<(), Exper
         // It was already unlinked — treat as idempotent success.
     }
     Ok(())
+}
+
+fn expert_status_from_link_change(
+    expert_id: &str,
+    agent_type: AgentType,
+    link_change: (PathBuf, bool),
+) -> ExpertInstallStatus {
+    let (link_path, copy_mode) = link_change;
+    let central = expert_central_path(expert_id);
+    ExpertInstallStatus {
+        expert_id: expert_id.to_string(),
+        agent_type,
+        state: classify_link(&link_path, &central),
+        link_path: link_path.to_string_lossy().to_string(),
+        target_path: read_link_target(&link_path).map(|path| path.to_string_lossy().to_string()),
+        expected_target_path: central.to_string_lossy().to_string(),
+        copy_mode,
+    }
+}
+
+fn managed_expert_link_paths(
+    expert_id: &str,
+    agent_type: AgentType,
+) -> Result<(PathBuf, Vec<PathBuf>), ExpertsError> {
+    let preferred = agent_link_path(agent_type, expert_id)?;
+    let paths = scoped_skill_dirs(agent_type, AgentSkillScope::Global, None)
+        .map_err(|_| ExpertsError::UnsupportedAgent(agent_type))?
+        .into_iter()
+        .map(|directory| directory.join(expert_id))
+        .collect();
+    Ok((preferred, paths))
+}
+
+fn managed_expert_pair_result(
+    expert_id: &str,
+    agent_type: AgentType,
+    enable: bool,
+) -> Option<LinkOpResult> {
+    let central = expert_central_path(expert_id);
+    if enable && !central.exists() {
+        return None;
+    }
+    let (preferred, paths) = match managed_expert_link_paths(expert_id, agent_type) {
+        Ok(paths) => paths,
+        Err(error) => return Some(link_failure(expert_id, agent_type, error.to_string())),
+    };
+    let owned = paths
+        .iter()
+        .find(|path| managed_link_is_owned(&central, path));
+    if enable && (owned.is_none() || owned.is_some_and(|p| managed_copy_is_owned(&central, p))) {
+        if let Err(error) = require_private_agent_storage_for_write() {
+            return Some(link_failure(expert_id, agent_type, error.to_string()));
+        }
+    }
+    match reconcile_managed_link_paths(&central, &preferred, &paths, enable) {
+        Ok(changes) if changes.is_empty() => None,
+        Ok(_) if !enable => Some(link_success(expert_id, agent_type, None)),
+        Ok(changes) => changes.into_iter().find_map(|(path, change)| {
+            let ManagedLinkChange::Linked { copy_mode } = change else {
+                return None;
+            };
+            let status = expert_status_from_link_change(expert_id, agent_type, (path, copy_mode));
+            Some(link_success(expert_id, agent_type, Some(status)))
+        }),
+        Err((path, error)) => Some(link_failure(
+            expert_id,
+            agent_type,
+            experts_error_from_managed(error, &path).to_string(),
+        )),
+    }
+}
+
+fn link_success(
+    expert_id: &str,
+    agent_type: AgentType,
+    status: Option<ExpertInstallStatus>,
+) -> LinkOpResult {
+    LinkOpResult {
+        expert_id: expert_id.to_string(),
+        agent_type,
+        ok: true,
+        status,
+        error: None,
+    }
+}
+
+fn link_failure(expert_id: &str, agent_type: AgentType, error: String) -> LinkOpResult {
+    LinkOpResult {
+        expert_id: expert_id.to_string(),
+        agent_type,
+        ok: false,
+        status: None,
+        error: Some(error),
+    }
+}
+
+pub(crate) async fn reconcile_managed_experts(
+    targets: &[(AgentType, String, bool)],
+) -> Vec<LinkOpResult> {
+    let _guard = mutation_lock().lock().await;
+    targets
+        .iter()
+        .filter_map(|(agent_type, expert_id, enable)| {
+            managed_expert_pair_result(expert_id, *agent_type, *enable)
+        })
+        .collect()
 }
 
 /// Apply a batch of enable/disable operations under a single lock acquisition.
@@ -1012,7 +1270,7 @@ pub async fn experts_list_all_install_statuses() -> Result<Vec<ExpertInstallStat
                 link_path: link_path.to_string_lossy().to_string(),
                 target_path,
                 expected_target_path: expected.to_string_lossy().to_string(),
-                copy_mode: false,
+                copy_mode: managed_copy_is_owned(&expected, &link_path),
             });
         }
     }
@@ -1053,7 +1311,15 @@ pub async fn experts_open_central_dir() -> Result<String, ExpertsError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::acp::skill_storage_spec;
     use tokio::time::{timeout, Duration};
+
+    fn create_test_dir_link(source: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(source, link).expect("create test symlink");
+        #[cfg(windows)]
+        junction::create(source, link).expect("create test junction");
+    }
 
     #[test]
     fn expert_profile_writes_require_initialized_private_storage() {
@@ -1134,5 +1400,206 @@ mod tests {
             .expect("snapshot returns Ok");
         let expected = bundled_metadata().len() * supported_agents().len();
         assert_eq!(rows.len(), expected);
+    }
+
+    #[test]
+    fn supported_agents_follow_registry_skill_capabilities() {
+        let expected = crate::acp::registry::all_acp_agents()
+            .into_iter()
+            .filter(|agent| skill_storage_spec(*agent).is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(supported_agents(), expected);
+    }
+
+    #[test]
+    fn managed_ready_expert_ids_match_installed_central_entries() {
+        let expected = bundled_metadata()
+            .iter()
+            .filter(|metadata| expert_central_path(&metadata.id).exists())
+            .map(|metadata| metadata.id.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(managed_ready_expert_ids(), expected);
+    }
+
+    #[test]
+    fn managed_disable_removes_owned_preferred_link() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let central = temp.path().join("central");
+        let link = temp.path().join("agent").join("skill");
+        fs::create_dir_all(&central).expect("create central skill");
+        fs::create_dir_all(link.parent().unwrap()).expect("create agent skill root");
+        create_test_dir_link(&central, &link);
+
+        let change =
+            reconcile_managed_link_entry(&central, &link, false).expect("disable managed link");
+
+        assert_eq!(change, ManagedLinkChange::Removed);
+        assert!(fs::symlink_metadata(&link).is_err());
+        assert!(central.is_dir());
+    }
+
+    #[test]
+    fn managed_disable_removes_owned_copy_fallback() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let central = temp.path().join("central");
+        let copied = temp.path().join("copied-skill");
+        fs::create_dir_all(&central).expect("create central skill");
+        fs::create_dir_all(&copied).expect("create copied skill");
+        fs::write(copied.join("stale.txt"), b"stale").expect("seed copied skill");
+        fs::write(
+            copied.join(".iyw-claw-managed-copy.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "expectedTarget": central,
+            }))
+            .expect("serialize marker"),
+        )
+        .expect("write managed copy marker");
+
+        assert!(managed_link_is_owned(&central, &copied));
+        assert_eq!(
+            reconcile_managed_link_entry(&central, &copied, false).unwrap(),
+            ManagedLinkChange::Removed
+        );
+        assert!(!copied.exists());
+        assert!(central.is_dir());
+    }
+
+    #[test]
+    fn managed_enable_refreshes_owned_copy_fallback() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let central = temp.path().join("central");
+        let copied = temp.path().join("copied-skill");
+        fs::create_dir_all(&central).expect("create central skill");
+        fs::write(central.join("fresh.txt"), b"fresh").expect("seed central skill");
+        fs::create_dir_all(&copied).expect("create copied skill");
+        fs::write(copied.join("stale.txt"), b"stale").expect("seed stale copy");
+        write_managed_copy_marker(&copied, &central).expect("write managed copy marker");
+
+        let change =
+            reconcile_managed_link_entry(&central, &copied, true).expect("refresh managed copy");
+
+        assert!(matches!(change, ManagedLinkChange::Linked { .. }));
+        assert_eq!(fs::read(copied.join("fresh.txt")).unwrap(), b"fresh");
+        assert!(!copied.join("stale.txt").exists());
+        assert!(managed_link_is_owned(&central, &copied));
+    }
+
+    #[test]
+    fn managed_disable_removes_owned_links_from_all_agent_directories() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let central = temp.path().join("central");
+        let preferred = temp.path().join("preferred-skill");
+        let secondary = temp.path().join("secondary-skill");
+        fs::create_dir_all(&central).expect("create central skill");
+        create_test_dir_link(&central, &preferred);
+        create_test_dir_link(&central, &secondary);
+
+        let changes = reconcile_managed_link_paths(
+            &central,
+            &preferred,
+            &[preferred.clone(), secondary.clone()],
+            false,
+        )
+        .expect("disable all owned publications");
+
+        assert_eq!(changes.len(), 2);
+        assert!(!preferred.exists());
+        assert!(!secondary.exists());
+        assert!(central.is_dir());
+    }
+
+    #[test]
+    fn managed_enable_recognizes_an_owned_secondary_directory() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let central = temp.path().join("central");
+        let preferred = temp.path().join("preferred-skill");
+        let secondary = temp.path().join("secondary-skill");
+        fs::create_dir_all(&central).expect("create central skill");
+        fs::create_dir_all(&preferred).expect("seed user-owned preferred directory");
+        fs::write(preferred.join("keep.txt"), b"keep").expect("seed user content");
+        create_test_dir_link(&central, &secondary);
+
+        let changes = reconcile_managed_link_paths(
+            &central,
+            &preferred,
+            &[preferred.clone(), secondary.clone()],
+            true,
+        )
+        .expect("recognize secondary publication");
+
+        assert!(changes.is_empty());
+        assert_eq!(fs::read(preferred.join("keep.txt")).unwrap(), b"keep");
+        assert!(managed_link_is_owned(&central, &secondary));
+    }
+
+    #[test]
+    fn managed_disable_preserves_real_directory_and_foreign_link() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let central = temp.path().join("central");
+        let real = temp.path().join("real-skill");
+        let foreign = temp.path().join("foreign");
+        let foreign_link = temp.path().join("foreign-link");
+        fs::create_dir_all(&central).expect("create central skill");
+        fs::create_dir_all(&real).expect("create real skill");
+        fs::write(real.join("keep.txt"), b"keep").expect("seed real skill");
+        fs::create_dir_all(&foreign).expect("create foreign skill");
+        create_test_dir_link(&foreign, &foreign_link);
+
+        assert_eq!(
+            reconcile_managed_link_entry(&central, &real, false).unwrap(),
+            ManagedLinkChange::Unchanged
+        );
+        assert_eq!(
+            reconcile_managed_link_entry(&central, &foreign_link, false).unwrap(),
+            ManagedLinkChange::Unchanged
+        );
+        assert_eq!(fs::read(real.join("keep.txt")).unwrap(), b"keep");
+        assert_eq!(
+            classify_link(&foreign_link, &central),
+            ExpertLinkState::LinkedElsewhere
+        );
+    }
+
+    #[test]
+    fn migration_ownership_rejects_real_directory_and_foreign_link() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let central = temp.path().join("central");
+        let owned_link = temp.path().join("owned-link");
+        let foreign = temp.path().join("foreign");
+        let foreign_link = temp.path().join("foreign-link");
+        let real = temp.path().join("real-skill");
+        fs::create_dir_all(&central).expect("create central skill");
+        fs::create_dir_all(&foreign).expect("create foreign skill");
+        fs::create_dir_all(&real).expect("create real skill");
+        create_test_dir_link(&central, &owned_link);
+        create_test_dir_link(&foreign, &foreign_link);
+
+        assert!(managed_link_is_owned(&central, &owned_link));
+        assert!(!managed_link_is_owned(&central, &foreign_link));
+        assert!(!managed_link_is_owned(&central, &real));
+    }
+
+    #[test]
+    fn managed_enable_rejects_real_directory_and_foreign_link() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let central = temp.path().join("central");
+        let real = temp.path().join("real-skill");
+        let foreign = temp.path().join("foreign");
+        let foreign_link = temp.path().join("foreign-link");
+        fs::create_dir_all(&central).expect("create central skill");
+        fs::create_dir_all(&real).expect("create real skill");
+        fs::create_dir_all(&foreign).expect("create foreign skill");
+        create_test_dir_link(&foreign, &foreign_link);
+
+        assert!(matches!(
+            reconcile_managed_link_entry(&central, &real, true),
+            Err(ManagedLinkEntryError::NameCollision)
+        ));
+        assert!(matches!(
+            reconcile_managed_link_entry(&central, &foreign_link, true),
+            Err(ManagedLinkEntryError::ForeignLink { .. })
+        ));
     }
 }

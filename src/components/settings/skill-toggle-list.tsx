@@ -8,14 +8,10 @@ import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { toErrorMessage } from "@/lib/app-error"
-import type { ExpertInstallStatus, LinkOp, LinkOpResult } from "@/lib/types"
+import type { ManagedSkillState } from "@/lib/types"
 import { SkillToggleCatalog } from "./skill-toggle-catalog"
 import { SkillToggleDetailSheet } from "./skill-toggle-detail-sheet"
 import {
-  buildStatusMap,
-  isBlocked,
-  isEnabled,
-  statusKey,
   stripFrontmatter,
   type SkillToggleItem,
   type SkillToggleListProps,
@@ -25,52 +21,41 @@ export type { SkillToggleItem, SkillToggleListProps }
 
 export function SkillToggleList({
   skills,
-  agents,
+  skillStates,
+  globalEnabled,
+  setGlobalEnabled,
+  setSkillEnabled,
   categoryOrder,
   translateCategory,
-  loadAllStatuses,
-  applyLinks,
   loadContent,
   onApplied,
-  statusReloadToken = 0,
   searchPlaceholder,
   notReadyHint,
 }: SkillToggleListProps) {
   const t = useTranslations("SkillMatrix")
-  const [statuses, setStatuses] = useState(
-    () => new Map<string, ExpertInstallStatus>()
+  const [enabled, setEnabled] = useState(globalEnabled)
+  const [states, setStates] = useState(
+    () =>
+      new Map<string, ManagedSkillState>(
+        skillStates.map((state) => [state.skillId, state])
+      )
   )
-  const [loading, setLoading] = useState(true)
+  const [pendingSkillIds, setPendingSkillIds] = useState(
+    () => new Set<string>()
+  )
   const [applying, setApplying] = useState(false)
   const [search, setSearch] = useState("")
   const [detailId, setDetailId] = useState<string | null>(null)
   const [detailContent, setDetailContent] = useState("")
   const [detailLoading, setDetailLoading] = useState(false)
 
-  const refreshStatuses = useCallback(async () => {
-    setStatuses(buildStatusMap(await loadAllStatuses()))
-  }, [loadAllStatuses])
+  useEffect(() => {
+    setEnabled(globalEnabled)
+  }, [globalEnabled])
 
   useEffect(() => {
-    let cancelled = false
-    loadAllStatuses()
-      .then((next) => {
-        if (!cancelled) setStatuses(buildStatusMap(next))
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          toast.error(t("toasts.loadFailed"), {
-            description: toErrorMessage(error),
-          })
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [loadAllStatuses, statusReloadToken, t])
+    setStates(new Map(skillStates.map((state) => [state.skillId, state])))
+  }, [skillStates])
 
   useEffect(() => {
     if (!detailId || !loadContent) return
@@ -125,83 +110,117 @@ export function SkillToggleList({
     return Array.from(grouped.entries())
   }, [visibleSkills])
 
-  const targets = useMemo(
-    () =>
-      skills
-        .filter((skill) => skill.ready)
-        .flatMap((skill) =>
-          agents.flatMap((agent) => {
-            const key = statusKey(skill.id, agent.agent_type)
-            const status = statuses.get(key)
-            if (
-              !statuses.has(key) ||
-              (!isEnabled(status) && isBlocked(status))
-            ) {
-              return []
-            }
-            return [{ skillId: skill.id, agentType: agent.agent_type }]
-          })
-        ),
-    [agents, skills, statuses]
+  const hasReadySkills = Array.from(states.values()).some(
+    (state) => state.ready
   )
-  const enabled =
-    targets.length > 0 &&
-    targets.every(({ skillId, agentType }) =>
-      isEnabled(statuses.get(statusKey(skillId, agentType)))
-    )
 
   const toggleAll = useCallback(
-    async (enable: boolean) => {
-      const ops = targets.flatMap(({ skillId, agentType }): LinkOp[] => {
-        const current = isEnabled(statuses.get(statusKey(skillId, agentType)))
-        return current === enable
-          ? []
-          : [{ expertId: skillId, agentType, enable }]
-      })
-      if (ops.length === 0) return
-
+    async (nextEnabled: boolean) => {
       setApplying(true)
-      let results: LinkOpResult[] = []
-      let applyError: unknown = null
       try {
-        results = await applyLinks(ops)
-      } catch (error) {
-        applyError = error
-      }
-      try {
-        await refreshStatuses()
-      } catch (error) {
-        console.warn("[SkillToggleList] status reconcile failed:", error)
-      }
-      if (applyError) {
-        toast.error(t("toasts.applyFailed"), {
-          description: toErrorMessage(applyError),
-        })
-      } else {
-        const okCount = results.filter((result) => result.ok).length
-        const failCount = results.length - okCount
+        const report = await setGlobalEnabled(nextEnabled)
+        setEnabled(report.enabled)
+        const okCount = report.results.filter((result) => result.ok).length
+        const failCount = report.results.length - okCount
         if (failCount === 0) {
           toast.success(
-            enable
+            report.enabled
               ? t("toasts.enabled", { count: okCount })
               : t("toasts.disabled", { count: okCount })
           )
         } else {
           toast.warning(
-            enable
-              ? t("toasts.enabledPartial", { ok: okCount, failed: failCount })
-              : t("toasts.disabledPartial", { ok: okCount, failed: failCount }),
+            report.enabled
+              ? t("toasts.enabledPartial", {
+                  ok: okCount,
+                  failed: failCount,
+                })
+              : t("toasts.disabledPartial", {
+                  ok: okCount,
+                  failed: failCount,
+                }),
             {
               description:
-                results.find((result) => !result.ok)?.error ?? undefined,
+                report.results.find((result) => !result.ok)?.error ?? undefined,
             }
           )
         }
+        onApplied?.(report.touchedAgents)
+      } catch (error) {
+        toast.error(t("toasts.applyFailed"), {
+          description: toErrorMessage(error),
+        })
+      } finally {
+        setApplying(false)
       }
-      setApplying(false)
-      onApplied?.([...new Set(ops.map((op) => op.agentType))])
     },
-    [applyLinks, onApplied, refreshStatuses, statuses, t, targets]
+    [onApplied, setGlobalEnabled, t]
+  )
+
+  const toggleSkill = useCallback(
+    async (skillId: string, nextEnabled: boolean) => {
+      const previousState = states.get(skillId)
+      if (!previousState) return
+      setPendingSkillIds((current) => new Set(current).add(skillId))
+      setStates((current) => {
+        const state = current.get(skillId)
+        if (!state) return current
+        return new Map(current).set(skillId, {
+          ...state,
+          enabled: nextEnabled,
+        })
+      })
+      try {
+        const report = await setSkillEnabled(skillId, nextEnabled)
+        setStates((current) => {
+          const state = current.get(skillId)
+          if (!state) return current
+          return new Map(current).set(skillId, {
+            ...state,
+            enabled: report.enabled,
+          })
+        })
+        const okCount = report.results.filter((result) => result.ok).length
+        const failCount = report.results.length - okCount
+        if (failCount > 0) {
+          toast.warning(
+            report.enabled
+              ? t("toasts.enabledPartial", {
+                  ok: okCount,
+                  failed: failCount,
+                })
+              : t("toasts.disabledPartial", {
+                  ok: okCount,
+                  failed: failCount,
+                }),
+            {
+              description:
+                report.results.find((result) => !result.ok)?.error ?? undefined,
+            }
+          )
+        }
+        onApplied?.(report.touchedAgents)
+      } catch (error) {
+        setStates((current) => {
+          const state = current.get(skillId)
+          if (!state) return current
+          return new Map(current).set(skillId, {
+            ...state,
+            enabled: previousState.enabled,
+          })
+        })
+        toast.error(t("toasts.applyFailed"), {
+          description: toErrorMessage(error),
+        })
+      } finally {
+        setPendingSkillIds((current) => {
+          const next = new Set(current)
+          next.delete(skillId)
+          return next
+        })
+      }
+    },
+    [onApplied, setSkillEnabled, states, t]
   )
 
   const openDetail = useCallback((skillId: string) => {
@@ -210,15 +229,6 @@ export function SkillToggleList({
     setDetailId(skillId)
   }, [])
   const detailSkill = skills.find((skill) => skill.id === detailId) ?? null
-
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        {t("loading")}
-      </div>
-    )
-  }
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
@@ -241,20 +251,25 @@ export function SkillToggleList({
             id="all-skills-toggle"
             checked={enabled}
             onCheckedChange={(next) => void toggleAll(next)}
-            disabled={applying || targets.length === 0}
+            disabled={applying || (!hasReadySkills && !enabled)}
             aria-label={t("columnMenu.enableAll")}
-            title={targets.length === 0 ? notReadyHint : undefined}
+            title={!hasReadySkills && !enabled ? notReadyHint : undefined}
           />
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border bg-card">
         <SkillToggleCatalog
           groups={groups}
+          skillStates={states}
+          pendingSkillIds={pendingSkillIds}
           emptyText={search ? t("emptySearch") : t("empty")}
           previewEnabled={Boolean(loadContent)}
           notReadyHint={notReadyHint}
           translateCategory={translateCategory}
           onOpenDetail={openDetail}
+          onToggleSkill={(skillId, nextEnabled) =>
+            void toggleSkill(skillId, nextEnabled)
+          }
         />
       </div>
 

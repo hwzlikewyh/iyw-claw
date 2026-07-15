@@ -377,6 +377,7 @@ async fn async_main() -> ExitCode {
     // Install bundled expert skills into the central store
     // (`~/.iyw-claw/skills/`). Runs in the background; failures are logged
     // but non-fatal.
+    let managed_distribution_db = state.db.conn.clone();
     tokio::spawn(async move {
         let report = iyw_claw_lib::commands::experts::ensure_central_experts_installed().await;
         if !report.errors.is_empty() {
@@ -392,6 +393,18 @@ async fn async_main() -> ExitCode {
                 report.updated_count,
                 report.pending_user_review.len()
             );
+        }
+        if let Err(error) =
+            iyw_claw_lib::commands::managed_skills::reconcile_all_core(&managed_distribution_db)
+                .await
+        {
+            tracing::warn!("[managed-skills] startup reconcile failed: {error}");
+        }
+        if let Err(error) =
+            iyw_claw_lib::commands::mcp_sync::reconcile_all_managed_mcp(&managed_distribution_db)
+                .await
+        {
+            tracing::warn!("[managed-mcp] startup reconcile failed: {error}");
         }
     });
 

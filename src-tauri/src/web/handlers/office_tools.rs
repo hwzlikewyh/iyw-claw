@@ -55,6 +55,14 @@ pub async fn officecli_bootstrap(
     let result = ot::officecli_bootstrap_core(&state.data_dir, params.task_id, &emitter)
         .await
         .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+    if let Err(error) = crate::commands::managed_skills::reconcile_persisted_family_core(
+        &state.db.conn,
+        crate::commands::managed_skills::ManagedSkillFamily::OfficeTools,
+    )
+    .await
+    {
+        tracing::warn!("[office] managed skill reconcile after bootstrap failed: {error}");
+    }
     Ok(Json(result))
 }
 
@@ -83,10 +91,20 @@ pub async fn officecli_list_skills() -> Result<Json<Vec<OfficecliSkill>>, AppCom
     Ok(Json(result))
 }
 
-pub async fn officecli_sync_skills() -> Result<Json<SkillSyncReport>, AppCommandError> {
-    let result = ot::officecli_sync_skills()
+pub async fn officecli_sync_skills(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<SkillSyncReport>, AppCommandError> {
+    let result = ot::officecli_sync_skills_core()
         .await
         .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+    if let Err(error) = crate::commands::managed_skills::reconcile_persisted_family_core(
+        &state.db.conn,
+        crate::commands::managed_skills::ManagedSkillFamily::OfficeTools,
+    )
+    .await
+    {
+        tracing::warn!("[office] managed skill reconcile after sync failed: {error}");
+    }
     Ok(Json(result))
 }
 

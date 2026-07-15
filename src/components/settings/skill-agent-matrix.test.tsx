@@ -11,6 +11,33 @@ vi.mock("sonner", () => ({
   },
 }))
 
+const mcpApiMocks = vi.hoisted(() => ({
+  expertsList: vi.fn(),
+  expertsOpenCentralDir: vi.fn(),
+  expertsReadContent: vi.fn(),
+  managedSkillsGetFamilyState: vi.fn(),
+  managedSkillsGetGlobalState: vi.fn(),
+  managedSkillsSetGlobalEnabled: vi.fn(),
+  managedSkillsSetSkillEnabled: vi.fn(),
+  mcpGetMarketplaceServerDetail: vi.fn(),
+  mcpInstallFromMarketplace: vi.fn(),
+  mcpListMarketplaces: vi.fn(),
+  mcpRemoveServer: vi.fn(),
+  mcpScanLocal: vi.fn(),
+  mcpSearchMarketplace: vi.fn(),
+  mcpSetServerEnabled: vi.fn(),
+  mcpUpsertLocalServer: vi.fn(),
+  officecliDetect: vi.fn(),
+  officecliInstall: vi.fn(),
+  officecliListSkills: vi.fn(),
+  officecliSkillReadContent: vi.fn(),
+  officecliSyncSkills: vi.fn(),
+  officecliUninstall: vi.fn(),
+  openFolder: vi.fn(),
+}))
+
+vi.mock("@/lib/api", () => mcpApiMocks)
+
 import { toast } from "sonner"
 import enMessages from "@/i18n/messages/en.json"
 import {
@@ -20,11 +47,16 @@ import {
   type MatrixSkill,
   type SkillAgentMatrixProps,
 } from "./skill-agent-matrix"
+import { SkillToggleList, type SkillToggleListProps } from "./skill-toggle-list"
+import { McpSettings } from "./mcp-settings"
+import { ExpertsSettings } from "./experts-settings"
+import { OfficeToolsSettings } from "./office-tools-settings"
 import type {
   AcpAgentInfo,
   AgentType,
   ExpertInstallStatus,
   ExpertLinkState,
+  ManagedSkillSyncReport,
 } from "@/lib/types"
 
 function makeStatus(
@@ -165,7 +197,11 @@ function renderMatrix(overrides: Partial<SkillAgentMatrixProps> = {}) {
         expertId: "brainstorming",
         agentType: "claude_code",
         ok: true,
-        status: makeStatus("brainstorming", "claude_code", "linked_to_iyw_claw"),
+        status: makeStatus(
+          "brainstorming",
+          "claude_code",
+          "linked_to_iyw_claw"
+        ),
         error: null,
       },
     ]),
@@ -273,5 +309,477 @@ describe("SkillAgentMatrix", () => {
     expect(cell).toBeDisabled()
     fireEvent.click(cell)
     expect(applyLinks).not.toHaveBeenCalled()
+  })
+})
+
+describe("SkillToggleList global policy", () => {
+  it("persists one global switch without requiring per-agent targets", async () => {
+    const setGlobalEnabled = vi.fn().mockResolvedValue({
+      family: "experts",
+      enabled: true,
+      results: [],
+      touchedAgents: ["codex"],
+    })
+    const onApplied = vi.fn()
+
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <SkillToggleList
+          skills={[
+            {
+              id: "brainstorming",
+              category: "discovery",
+              displayName: "Brainstorming",
+              description: "desc",
+              ready: true,
+            },
+          ]}
+          skillStates={[
+            { skillId: "brainstorming", enabled: false, ready: true },
+          ]}
+          globalEnabled={false}
+          setGlobalEnabled={setGlobalEnabled}
+          setSkillEnabled={vi.fn()}
+          categoryOrder={{ discovery: 1 }}
+          translateCategory={(category) => category}
+          onApplied={onApplied}
+        />
+      </NextIntlClientProvider>
+    )
+
+    const toggle = screen.getByRole("switch", { name: /enable all skills/i })
+    expect(toggle).not.toBeChecked()
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(setGlobalEnabled).toHaveBeenCalledWith(true)
+      expect(toggle).toBeChecked()
+    })
+    expect(onApplied).toHaveBeenCalledWith(["codex"])
+  })
+
+  it("allows an enabled policy to be turned off before skills are ready", () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <SkillToggleList
+          skills={[
+            {
+              id: "officecli-docx",
+              category: "documents",
+              displayName: "Documents",
+              description: "desc",
+              ready: false,
+            },
+          ]}
+          skillStates={[
+            { skillId: "officecli-docx", enabled: true, ready: false },
+          ]}
+          globalEnabled
+          setGlobalEnabled={vi.fn()}
+          setSkillEnabled={vi.fn()}
+          categoryOrder={{ documents: 1 }}
+          translateCategory={(category) => category}
+        />
+      </NextIntlClientProvider>
+    )
+
+    expect(
+      screen.getByRole("switch", { name: /enable all skills/i })
+    ).toBeEnabled()
+  })
+})
+
+const PER_SKILL_ITEMS = [
+  {
+    id: "brainstorming",
+    category: "discovery",
+    displayName: "Brainstorming",
+    description: "desc",
+    ready: true,
+  },
+  {
+    id: "executing-plans",
+    category: "execution",
+    displayName: "Executing Plans",
+    description: "desc",
+    ready: true,
+  },
+]
+
+const PER_SKILL_STATES = [
+  { skillId: "brainstorming", enabled: false, ready: true },
+  { skillId: "executing-plans", enabled: false, ready: true },
+]
+
+function renderPerSkillList(
+  setSkillEnabled: SkillToggleListProps["setSkillEnabled"],
+  skillStates = PER_SKILL_STATES,
+  skills = PER_SKILL_ITEMS
+) {
+  render(
+    <NextIntlClientProvider locale="en" messages={enMessages}>
+      <SkillToggleList
+        skills={skills}
+        skillStates={skillStates}
+        globalEnabled={false}
+        setGlobalEnabled={vi.fn()}
+        setSkillEnabled={setSkillEnabled}
+        categoryOrder={{ discovery: 1, execution: 2 }}
+        translateCategory={(category) => category}
+      />
+    </NextIntlClientProvider>
+  )
+}
+
+describe("SkillToggleList per-skill policy", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("toggles one skill without changing its sibling", async () => {
+    const setSkillEnabled = vi.fn().mockResolvedValue({
+      family: "experts",
+      enabled: true,
+      skillId: "brainstorming",
+      results: [],
+      touchedAgents: ["codex"],
+    })
+
+    renderPerSkillList(setSkillEnabled)
+
+    const brainstorming = screen.getByRole("switch", {
+      name: "Brainstorming",
+    })
+    const executingPlans = screen.getByRole("switch", {
+      name: "Executing Plans",
+    })
+
+    fireEvent.click(brainstorming)
+
+    await waitFor(() => {
+      expect(setSkillEnabled).toHaveBeenCalledWith("brainstorming", true)
+      expect(brainstorming).toBeChecked()
+    })
+    expect(executingPlans).not.toBeChecked()
+  })
+
+  it("disables only the skill with a pending request", async () => {
+    let resolveBrainstorming!: (value: ManagedSkillSyncReport) => void
+    const brainstormingRequest = new Promise<ManagedSkillSyncReport>(
+      (resolve) => {
+        resolveBrainstorming = resolve
+      }
+    )
+    const setSkillEnabled = vi
+      .fn<SkillToggleListProps["setSkillEnabled"]>()
+      .mockImplementation((skillId) =>
+        skillId === "brainstorming"
+          ? brainstormingRequest
+          : Promise.resolve({
+              family: "experts",
+              enabled: true,
+              skillId,
+              results: [],
+              touchedAgents: [],
+            })
+      )
+    renderPerSkillList(setSkillEnabled)
+    const brainstorming = screen.getByRole("switch", {
+      name: "Brainstorming",
+    })
+    const executingPlans = screen.getByRole("switch", {
+      name: "Executing Plans",
+    })
+
+    fireEvent.click(brainstorming)
+
+    await waitFor(() => expect(brainstorming).toBeDisabled())
+    expect(executingPlans).toBeEnabled()
+    fireEvent.click(executingPlans)
+    await waitFor(() => {
+      expect(setSkillEnabled).toHaveBeenCalledWith("executing-plans", true)
+      expect(executingPlans).toBeChecked()
+    })
+
+    resolveBrainstorming({
+      family: "experts",
+      enabled: true,
+      skillId: "brainstorming",
+      results: [],
+      touchedAgents: [],
+    })
+    await waitFor(() => expect(brainstorming).toBeEnabled())
+  })
+
+  it("restores only the failed skill after a rejected request", async () => {
+    const setSkillEnabled = vi.fn().mockRejectedValue(new Error("offline"))
+    renderPerSkillList(setSkillEnabled, [
+      { skillId: "brainstorming", enabled: false, ready: true },
+      { skillId: "executing-plans", enabled: true, ready: true },
+    ])
+    const brainstorming = screen.getByRole("switch", {
+      name: "Brainstorming",
+    })
+    const executingPlans = screen.getByRole("switch", {
+      name: "Executing Plans",
+    })
+
+    fireEvent.click(brainstorming)
+
+    await waitFor(() => {
+      expect(setSkillEnabled).toHaveBeenCalledWith("brainstorming", true)
+      expect(brainstorming).not.toBeChecked()
+      expect(brainstorming).toBeEnabled()
+    })
+    expect(executingPlans).toBeChecked()
+    expect(executingPlans).toBeEnabled()
+    expect(toast.error).toHaveBeenCalledTimes(1)
+  })
+
+  it("warns when a skill policy is only partially applied", async () => {
+    const setSkillEnabled = vi.fn().mockResolvedValue({
+      family: "experts",
+      enabled: true,
+      skillId: "brainstorming",
+      results: [
+        {
+          expertId: "brainstorming",
+          agentType: "codex",
+          ok: false,
+          status: null,
+          error: "name collision",
+        },
+      ],
+      touchedAgents: [],
+    })
+    renderPerSkillList(setSkillEnabled)
+    const brainstorming = screen.getByRole("switch", {
+      name: "Brainstorming",
+    })
+
+    fireEvent.click(brainstorming)
+
+    await waitFor(() => {
+      expect(brainstorming).toBeChecked()
+      expect(toast.warning).toHaveBeenCalledTimes(1)
+    })
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it("allows a desired-on not-ready skill to be disabled", async () => {
+    const setSkillEnabled = vi.fn().mockResolvedValue({
+      family: "experts",
+      enabled: false,
+      skillId: "brainstorming",
+      results: [],
+      touchedAgents: [],
+    })
+    renderPerSkillList(
+      setSkillEnabled,
+      [{ skillId: "brainstorming", enabled: true, ready: false }],
+      [{ ...PER_SKILL_ITEMS[0], ready: false }]
+    )
+    const toggle = screen.getByRole("switch", { name: "Brainstorming" })
+
+    expect(toggle).toBeChecked()
+    expect(toggle).toBeEnabled()
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(setSkillEnabled).toHaveBeenCalledWith("brainstorming", false)
+      expect(toggle).not.toBeChecked()
+      expect(toggle).toBeDisabled()
+    })
+  })
+})
+
+describe("managed skill settings family routing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mcpApiMocks.managedSkillsGetGlobalState.mockResolvedValue({
+      expertsEnabled: false,
+      officeToolsEnabled: false,
+    })
+    mcpApiMocks.managedSkillsGetFamilyState.mockImplementation((family) =>
+      Promise.resolve({
+        family,
+        allEnabled: false,
+        skills:
+          family === "experts"
+            ? [
+                { skillId: "brainstorming", enabled: false, ready: true },
+                { skillId: "executing-plans", enabled: false, ready: true },
+              ]
+            : [
+                { skillId: "officecli-docx", enabled: false, ready: true },
+                { skillId: "officecli-xlsx", enabled: false, ready: true },
+              ],
+      })
+    )
+    mcpApiMocks.managedSkillsSetSkillEnabled.mockImplementation(
+      (family, skillId, enabled) =>
+        Promise.resolve({
+          family,
+          enabled,
+          skillId,
+          results: [],
+          touchedAgents: [],
+        })
+    )
+    mcpApiMocks.expertsList.mockResolvedValue([
+      {
+        metadata: {
+          id: "brainstorming",
+          category: "discovery",
+          icon: null,
+          sort_order: 1,
+          display_name: { en: "Brainstorming" },
+          description: { en: "desc" },
+          bundled_hash: "hash-a",
+        },
+        installed_centrally: true,
+        user_modified: false,
+        central_path: "C:/skills/brainstorming",
+      },
+      {
+        metadata: {
+          id: "executing-plans",
+          category: "execution",
+          icon: null,
+          sort_order: 2,
+          display_name: { en: "Executing Plans" },
+          description: { en: "desc" },
+          bundled_hash: "hash-b",
+        },
+        installed_centrally: true,
+        user_modified: false,
+        central_path: "C:/skills/executing-plans",
+      },
+    ])
+    mcpApiMocks.expertsReadContent.mockResolvedValue("# Skill")
+    mcpApiMocks.officecliDetect.mockResolvedValue({
+      installed: true,
+      version: "1.0.0",
+      path: "C:/officecli.exe",
+      runtimeError: null,
+    })
+    mcpApiMocks.officecliListSkills.mockResolvedValue([
+      {
+        id: "officecli-docx",
+        category: "documents",
+        icon: "file-text",
+        sortOrder: 1,
+        displayName: { en: "Documents" },
+        description: { en: "desc" },
+        installedCentrally: true,
+      },
+      {
+        id: "officecli-xlsx",
+        category: "spreadsheets",
+        icon: "sheet",
+        sortOrder: 2,
+        displayName: { en: "Spreadsheets" },
+        description: { en: "desc" },
+        installedCentrally: true,
+      },
+    ])
+  })
+
+  it("routes an expert row toggle through the experts family", async () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <ExpertsSettings />
+      </NextIntlClientProvider>
+    )
+
+    const toggle = await screen.findByRole("switch", {
+      name: "Brainstorming",
+    })
+    expect(mcpApiMocks.managedSkillsGetFamilyState).toHaveBeenCalledWith(
+      "experts"
+    )
+    const enableAll = screen.getByRole("switch", {
+      name: /enable all skills/i,
+    })
+    expect(enableAll).not.toBeChecked()
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(mcpApiMocks.managedSkillsSetSkillEnabled).toHaveBeenCalledWith(
+        "experts",
+        "brainstorming",
+        true
+      )
+    })
+    expect(enableAll).not.toBeChecked()
+
+    fireEvent.click(screen.getByRole("switch", { name: "Executing Plans" }))
+    await waitFor(() => {
+      expect(mcpApiMocks.managedSkillsSetSkillEnabled).toHaveBeenCalledWith(
+        "experts",
+        "executing-plans",
+        true
+      )
+      expect(enableAll).toBeChecked()
+    })
+  })
+
+  it("routes an Office row toggle through the office family", async () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <OfficeToolsSettings />
+      </NextIntlClientProvider>
+    )
+
+    const toggle = await screen.findByRole("switch", { name: "Documents" })
+    expect(mcpApiMocks.managedSkillsGetFamilyState).toHaveBeenCalledWith(
+      "office_tools"
+    )
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(mcpApiMocks.managedSkillsSetSkillEnabled).toHaveBeenCalledWith(
+        "office_tools",
+        "officecli-docx",
+        true
+      )
+    })
+  })
+})
+
+describe("McpSettings global distribution", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mcpApiMocks.mcpListMarketplaces.mockResolvedValue([])
+    mcpApiMocks.mcpScanLocal.mockResolvedValue([
+      {
+        id: "filesystem",
+        spec: { type: "stdio", command: "npx" },
+        apps: ["codex"],
+        enabled: true,
+      },
+    ])
+    mcpApiMocks.mcpSetServerEnabled.mockResolvedValue(null)
+  })
+
+  it("hides target-app selection and keeps one switch per MCP", async () => {
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <McpSettings />
+      </NextIntlClientProvider>
+    )
+
+    const toggle = await screen.findByRole("switch", { name: "filesystem" })
+    expect(toggle).toBeChecked()
+    expect(screen.queryByText("Enabled Apps")).not.toBeInTheDocument()
+
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(mcpApiMocks.mcpSetServerEnabled).toHaveBeenCalledWith(
+        "filesystem",
+        false
+      )
+    })
   })
 })

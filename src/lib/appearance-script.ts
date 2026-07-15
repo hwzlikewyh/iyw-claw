@@ -43,7 +43,7 @@ const SCRIPT = `
     var VALID_ZOOMS = [80, 90, 100, 110, 125, 150];
 
     var storedColor = localStorage.getItem("${STORAGE_KEY_THEME_COLOR}");
-    var color = VALID_COLORS.indexOf(storedColor) >= 0 ? storedColor : "neutral";
+    var color = VALID_COLORS.indexOf(storedColor) >= 0 ? storedColor : "blue";
     document.documentElement.setAttribute("data-theme", color);
 
     var storedZoom = parseInt(localStorage.getItem("${STORAGE_KEY_ZOOM_LEVEL}") || "", 10);

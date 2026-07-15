@@ -495,6 +495,10 @@ pub fn build_router(
             post(handlers::mcp::mcp_upsert_local_server),
         )
         .route(
+            "/mcp_set_server_enabled",
+            post(handlers::mcp::mcp_set_server_enabled),
+        )
+        .route(
             "/mcp_set_server_apps",
             post(handlers::mcp::mcp_set_server_apps),
         )
@@ -767,6 +771,23 @@ pub fn build_router(
         .route(
             "/codex_poll_device_code",
             post(handlers::acp::codex_poll_device_code),
+        )
+        // ─── Managed skills ───
+        .route(
+            "/managed_skills_get_global_state",
+            post(handlers::managed_skills::managed_skills_get_global_state),
+        )
+        .route(
+            "/managed_skills_set_global_enabled",
+            post(handlers::managed_skills::managed_skills_set_global_enabled),
+        )
+        .route(
+            "/managed_skills_get_family_state",
+            post(handlers::managed_skills::managed_skills_get_family_state),
+        )
+        .route(
+            "/managed_skills_set_skill_enabled",
+            post(handlers::managed_skills::managed_skills_set_skill_enabled),
         )
         // ─── Experts ───
         .route("/experts_list", post(handlers::experts::experts_list))

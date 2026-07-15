@@ -16,6 +16,7 @@ pub mod folders;
 pub mod git;
 pub mod iyw_account;
 pub mod logging;
+pub mod managed_skills;
 pub mod mcp;
 pub mod model_provider;
 pub mod office_tools;

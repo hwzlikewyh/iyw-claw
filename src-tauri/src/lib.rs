@@ -55,7 +55,8 @@ mod tauri_app {
         chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
         conversations, delegation as delegation_commands, experts as experts_commands,
         feedback as feedback_commands, file_io, folder_commands, folders,
-        iyw_account as iyw_account_commands, logging as logging_commands, mcp as mcp_commands,
+        iyw_account as iyw_account_commands, logging as logging_commands,
+        managed_skills as managed_skills_commands, mcp as mcp_commands,
         model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, question as question_commands,
         quick_messages as quick_messages_commands, remote_proxy as remote_proxy_commands,
@@ -397,6 +398,7 @@ mod tauri_app {
                 // Install bundled expert skills into the central store
                 // (`~/.iyw-claw/skills/`). Runs in the background and does
                 // not block startup; failures are logged but non-fatal.
+                let managed_distribution_db = db.conn.clone();
                 tauri::async_runtime::spawn(async move {
                     let report = crate::commands::experts::ensure_central_experts_installed().await;
                     if !report.errors.is_empty() {
@@ -412,6 +414,20 @@ mod tauri_app {
                             report.updated_count,
                             report.pending_user_review.len()
                         );
+                    }
+                    if let Err(error) = crate::commands::managed_skills::reconcile_all_core(
+                        &managed_distribution_db,
+                    )
+                    .await
+                    {
+                        tracing::warn!("[managed-skills] startup reconcile failed: {error}");
+                    }
+                    if let Err(error) = crate::commands::mcp_sync::reconcile_all_managed_mcp(
+                        &managed_distribution_db,
+                    )
+                    .await
+                    {
+                        tracing::warn!("[managed-mcp] startup reconcile failed: {error}");
                     }
                 });
 
@@ -988,6 +1004,10 @@ mod tauri_app {
                 acp_commands::opencode_uninstall_plugin,
                 acp_commands::codex_request_device_code,
                 acp_commands::codex_poll_device_code,
+                managed_skills_commands::managed_skills_get_global_state,
+                managed_skills_commands::managed_skills_set_global_enabled,
+                managed_skills_commands::managed_skills_get_family_state,
+                managed_skills_commands::managed_skills_set_skill_enabled,
                 experts_commands::experts_list,
                 experts_commands::experts_get_install_status,
                 experts_commands::experts_list_all_install_statuses,
@@ -1044,6 +1064,7 @@ mod tauri_app {
                 mcp_commands::mcp_get_marketplace_server_detail,
                 mcp_commands::mcp_install_from_marketplace,
                 mcp_commands::mcp_upsert_local_server,
+                mcp_commands::mcp_set_server_enabled,
                 mcp_commands::mcp_set_server_apps,
                 mcp_commands::mcp_remove_server,
                 notification::send_notification,

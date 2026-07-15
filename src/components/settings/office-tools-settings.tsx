@@ -11,6 +11,10 @@ import {
   SkillToggleList,
   type SkillToggleItem,
 } from "@/components/settings/skill-toggle-list"
+import {
+  mergeAllManagedSkillsEnabled,
+  mergeManagedSkillEnabled,
+} from "@/components/settings/skill-toggle-list-model"
 import { Switch } from "@/components/ui/switch"
 import { cn, randomUUID } from "@/lib/utils"
 import {
@@ -18,12 +22,13 @@ import {
   saveOfficeAutoPreview,
 } from "@/lib/office-preview-prefs"
 import {
-  acpListAgents,
+  managedSkillsGetFamilyState,
+  managedSkillsGetGlobalState,
+  managedSkillsSetGlobalEnabled,
+  managedSkillsSetSkillEnabled,
   officecliDetect,
   officecliInstall,
   officecliListSkills,
-  officecliSkillApplyLinks,
-  officecliSkillListAllInstallStatuses,
   officecliSkillReadContent,
   officecliSyncSkills,
   officecliUninstall,
@@ -31,8 +36,11 @@ import {
 import { invalidateAgentSkillsCache } from "@/hooks/use-agent-skills"
 import { useOfficecliInstallStream } from "@/hooks/use-officecli-install-stream"
 import { pickLocalized } from "@/lib/expert-presentation"
-import type { AcpAgentInfo, OfficecliInfo, OfficecliSkill } from "@/lib/types"
-import { piUsesCustomAgentDir } from "@/lib/pi-config"
+import type {
+  ManagedSkillFamilyState,
+  OfficecliInfo,
+  OfficecliSkill,
+} from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
 
 const CATEGORY_SORT: Record<string, number> = {
@@ -189,8 +197,9 @@ export function OfficeToolsSettings() {
   const installLogEndRef = useRef<HTMLDivElement | null>(null)
 
   const [skills, setSkills] = useState<OfficecliSkill[]>([])
-  const [agents, setAgents] = useState<AcpAgentInfo[]>([])
-  const [reloadKey, setReloadKey] = useState(0)
+  const [globalEnabled, setGlobalEnabled] = useState(false)
+  const [familyState, setFamilyState] =
+    useState<ManagedSkillFamilyState | null>(null)
 
   const translatedCategory = useCallback(
     (category: string): string => {
@@ -224,16 +233,14 @@ export function OfficeToolsSettings() {
 
   const refreshSkills = useCallback(async () => {
     try {
-      const [skillList, agentList] = await Promise.all([
+      const [skillList, globalState, nextFamilyState] = await Promise.all([
         officecliListSkills(),
-        acpListAgents(),
+        managedSkillsGetGlobalState(),
+        managedSkillsGetFamilyState("office_tools"),
       ])
       setSkills(skillList)
-      // A custom Pi directory is outside the managed global skill store.
-      setAgents(agentList.filter((agent) => !piUsesCustomAgentDir(agent)))
-      // Remount the list so it re-fetches the authoritative status snapshot
-      // (newly synced skills become enableable).
-      setReloadKey((k) => k + 1)
+      setGlobalEnabled(globalState.officeToolsEnabled)
+      setFamilyState(nextFamilyState)
     } catch (err) {
       toast.error(t("toasts.loadFailed"), { description: toErrorMessage(err) })
     }
@@ -440,16 +447,35 @@ export function OfficeToolsSettings() {
         ) : (
           <SkillToggleList
             skills={toggleSkills}
-            agents={agents}
-            statusReloadToken={reloadKey}
+            skillStates={familyState?.skills ?? []}
+            globalEnabled={familyState?.allEnabled ?? globalEnabled}
+            setGlobalEnabled={async (enabled) => {
+              const report = await managedSkillsSetGlobalEnabled(
+                "office_tools",
+                enabled
+              )
+              setGlobalEnabled(report.enabled)
+              setFamilyState((current) =>
+                mergeAllManagedSkillsEnabled(current, report.enabled)
+              )
+              return report
+            }}
+            setSkillEnabled={async (skillId, enabled) => {
+              const report = await managedSkillsSetSkillEnabled(
+                "office_tools",
+                skillId,
+                enabled
+              )
+              setFamilyState((current) =>
+                mergeManagedSkillEnabled(current, skillId, report.enabled)
+              )
+              return report
+            }}
             categoryOrder={CATEGORY_SORT}
             translateCategory={translatedCategory}
-            loadAllStatuses={officecliSkillListAllInstallStatuses}
-            applyLinks={officecliSkillApplyLinks}
             loadContent={loadContent}
             onApplied={(touched) => {
               touched.forEach((a) => invalidateAgentSkillsCache(a))
-              setReloadKey((key) => key + 1)
             }}
             searchPlaceholder={t("searchPlaceholder")}
             notReadyHint={installed ? t("syncFirst") : t("installFirst")}

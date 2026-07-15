@@ -22,11 +22,13 @@ use crate::acp::types::AgentSkillScope;
 use crate::app_error::AppCommandError;
 use crate::commands::acp::{
     preferred_scope_skill_dir, remove_skill_entry, resolve_command_on_path, scoped_skill_dirs,
-    skill_storage_spec, validate_skill_id,
+    validate_skill_id,
 };
 use crate::commands::experts::{
-    central_experts_dir, classify_link, create_link_raw, path_is_symlink, read_link_target,
-    ExpertInstallStatus, ExpertLinkState, LinkOp, LinkOpResult,
+    central_experts_dir, classify_link, managed_copy_is_owned, managed_link_is_owned,
+    path_is_symlink, read_link_target, reconcile_managed_link_entry, reconcile_managed_link_paths,
+    ExpertInstallStatus, ExpertLinkState, LinkOp, LinkOpResult, ManagedLinkChange,
+    ManagedLinkEntryError,
 };
 use crate::commands::folders::resolve_tree_path;
 use crate::models::agent::AgentType;
@@ -1254,10 +1256,26 @@ pub async fn officecli_list_skills() -> Vec<OfficecliSkill> {
 
 // ─── Commands: skill sync ──────────────────────────────────────────────
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn officecli_sync_skills() -> Result<SkillSyncReport, OfficeToolsError> {
+pub(crate) async fn officecli_sync_skills_core() -> Result<SkillSyncReport, OfficeToolsError> {
     let _guard = mutation_lock().lock().await;
     officecli_sync_skills_locked().await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn officecli_sync_skills(
+    db: tauri::State<'_, crate::db::AppDatabase>,
+) -> Result<SkillSyncReport, OfficeToolsError> {
+    let report = officecli_sync_skills_core().await?;
+    if let Err(error) = crate::commands::managed_skills::reconcile_persisted_family_core(
+        &db.conn,
+        crate::commands::managed_skills::ManagedSkillFamily::OfficeTools,
+    )
+    .await
+    {
+        tracing::warn!("[office] managed skill reconcile after sync failed: {error}");
+    }
+    Ok(report)
 }
 
 /// Sync the bundled OfficeCLI skills while the caller holds `mutation_lock`.
@@ -1372,30 +1390,61 @@ pub(crate) async fn officecli_bootstrap_core(
 pub async fn officecli_bootstrap(
     task_id: String,
     app: tauri::AppHandle,
+    db: tauri::State<'_, crate::db::AppDatabase>,
 ) -> Result<SkillSyncReport, OfficeToolsError> {
     let data_dir = tauri_effective_data_dir(&app)?;
-    officecli_bootstrap_core(&data_dir, task_id, &EventEmitter::Tauri(app)).await
+    let report = officecli_bootstrap_core(&data_dir, task_id, &EventEmitter::Tauri(app)).await?;
+    if let Err(error) = crate::commands::managed_skills::reconcile_persisted_family_core(
+        &db.conn,
+        crate::commands::managed_skills::ManagedSkillFamily::OfficeTools,
+    )
+    .await
+    {
+        tracing::warn!("[office] managed skill reconcile after bootstrap failed: {error}");
+    }
+    Ok(report)
 }
 
 // ─── Commands: skill link / unlink ─────────────────────────────────────
 
 fn supported_agents() -> Vec<AgentType> {
-    const ALL: &[AgentType] = &[
-        AgentType::ClaudeCode,
-        AgentType::Codex,
-        AgentType::OpenCode,
-        AgentType::Gemini,
-        AgentType::OpenClaw,
-        AgentType::Cline,
-        AgentType::Hermes,
-        AgentType::CodeBuddy,
-        AgentType::KimiCode,
-        AgentType::Pi,
-    ];
-    ALL.iter()
-        .filter(|a| skill_storage_spec(**a).is_some())
-        .copied()
+    crate::commands::managed_skills::supported_skill_agent_types()
+}
+
+pub(crate) fn managed_office_skill_ids() -> Vec<String> {
+    skill_defs()
+        .iter()
+        .map(|definition| definition.id.to_string())
         .collect()
+}
+
+pub(crate) fn managed_ready_office_skill_ids() -> Vec<String> {
+    skill_defs()
+        .iter()
+        .filter(|definition| skill_central_path(definition.id).exists())
+        .map(|definition| definition.id.to_string())
+        .collect()
+}
+
+pub(crate) fn managed_office_skill_has_owned_link(skill_id: &str, agents: &[AgentType]) -> bool {
+    let expected = skill_central_path(skill_id);
+    agents.iter().any(|agent_type| {
+        scoped_skill_dirs(*agent_type, AgentSkillScope::Global, None).is_ok_and(|dirs| {
+            dirs.into_iter()
+                .any(|dir| managed_link_is_owned(&expected, &dir.join(skill_id)))
+        })
+    })
+}
+
+fn office_error_from_managed(error: ManagedLinkEntryError, link_path: &Path) -> OfficeToolsError {
+    let path = link_path.to_string_lossy().to_string();
+    match error {
+        ManagedLinkEntryError::NameCollision => OfficeToolsError::NameCollision { path },
+        ManagedLinkEntryError::ForeignLink { found } => {
+            OfficeToolsError::ForeignLink { path, found }
+        }
+        ManagedLinkEntryError::Io(message) => OfficeToolsError::Io(message),
+    }
 }
 
 /// Link one office skill into one agent's skill dir. **Assumes the mutation
@@ -1419,40 +1468,9 @@ fn link_one_locked(
     }
 
     let link_path = agent_link_path(agent_type, &skill_id)?;
-    if let Some(parent) = link_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let mut copy_mode = false;
-    match create_link_raw(&central, &link_path) {
-        Ok(is_copy) => {
-            copy_mode = is_copy;
-        }
-        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
-            match classify_link(&link_path, &central) {
-                ExpertLinkState::LinkedToIywClaw => {}
-                ExpertLinkState::BlockedByRealDirectory => {
-                    return Err(OfficeToolsError::NameCollision {
-                        path: link_path.to_string_lossy().to_string(),
-                    });
-                }
-                ExpertLinkState::LinkedElsewhere | ExpertLinkState::Broken => {
-                    let found = read_link_target(&link_path)
-                        .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "<unknown>".into());
-                    return Err(OfficeToolsError::ForeignLink {
-                        path: link_path.to_string_lossy().to_string(),
-                        found,
-                    });
-                }
-                ExpertLinkState::NotLinked => {
-                    create_link_raw(&central, &link_path)
-                        .map_err(|e| OfficeToolsError::Io(format!("retry link failed: {e}")))?;
-                }
-            }
-        }
-        Err(err) => return Err(OfficeToolsError::Io(err.to_string())),
-    }
+    let change = reconcile_managed_link_entry(&central, &link_path, true)
+        .map_err(|error| office_error_from_managed(error, &link_path))?;
+    let copy_mode = matches!(change, ManagedLinkChange::Linked { copy_mode: true });
 
     let state = classify_link(&link_path, &central);
     let target_path = read_link_target(&link_path).map(|p| p.to_string_lossy().to_string());
@@ -1502,14 +1520,7 @@ fn unlink_one_locked(skill_id: &str, agent_type: AgentType) -> Result<(), Office
             continue;
         }
         let state = classify_link(&candidate, &central);
-        let should_remove = match state {
-            ExpertLinkState::LinkedToIywClaw => true,
-            ExpertLinkState::Broken => read_link_target(&candidate)
-                .map(|t| t.starts_with(&central))
-                .unwrap_or(false),
-            _ => false,
-        };
-        if should_remove {
+        if managed_link_is_owned(&central, &candidate) {
             remove_skill_entry(&candidate).map_err(|e| {
                 OfficeToolsError::Io(format!("remove link {}: {e}", candidate.display()))
             })?;
@@ -1523,6 +1534,104 @@ fn unlink_one_locked(skill_id: &str, agent_type: AgentType) -> Result<(), Office
         }
     }
     Ok(())
+}
+
+fn office_status_from_link_change(
+    skill_id: &str,
+    agent_type: AgentType,
+    link_change: (PathBuf, bool),
+) -> ExpertInstallStatus {
+    let (link_path, copy_mode) = link_change;
+    let central = skill_central_path(skill_id);
+    ExpertInstallStatus {
+        expert_id: skill_id.to_string(),
+        agent_type,
+        state: classify_link(&link_path, &central),
+        link_path: link_path.to_string_lossy().to_string(),
+        target_path: read_link_target(&link_path).map(|path| path.to_string_lossy().to_string()),
+        expected_target_path: central.to_string_lossy().to_string(),
+        copy_mode,
+    }
+}
+
+fn managed_office_link_paths(
+    skill_id: &str,
+    agent_type: AgentType,
+) -> Result<(PathBuf, Vec<PathBuf>), OfficeToolsError> {
+    let preferred = agent_link_path(agent_type, skill_id)?;
+    let paths = scoped_skill_dirs(agent_type, AgentSkillScope::Global, None)
+        .map_err(|_| OfficeToolsError::UnsupportedAgent(agent_type))?
+        .into_iter()
+        .map(|directory| directory.join(skill_id))
+        .collect();
+    Ok((preferred, paths))
+}
+
+fn managed_office_pair_result(
+    skill_id: &str,
+    agent_type: AgentType,
+    enable: bool,
+) -> Option<LinkOpResult> {
+    let central = skill_central_path(skill_id);
+    if enable && !central.exists() {
+        return None;
+    }
+    let (preferred, paths) = match managed_office_link_paths(skill_id, agent_type) {
+        Ok(paths) => paths,
+        Err(error) => return Some(office_link_failure(skill_id, agent_type, error.to_string())),
+    };
+    match reconcile_managed_link_paths(&central, &preferred, &paths, enable) {
+        Ok(changes) if changes.is_empty() => None,
+        Ok(_) if !enable => Some(office_link_success(skill_id, agent_type, None)),
+        Ok(changes) => changes.into_iter().find_map(|(path, change)| {
+            let ManagedLinkChange::Linked { copy_mode } = change else {
+                return None;
+            };
+            let status = office_status_from_link_change(skill_id, agent_type, (path, copy_mode));
+            Some(office_link_success(skill_id, agent_type, Some(status)))
+        }),
+        Err((path, error)) => Some(office_link_failure(
+            skill_id,
+            agent_type,
+            office_error_from_managed(error, &path).to_string(),
+        )),
+    }
+}
+
+fn office_link_success(
+    skill_id: &str,
+    agent_type: AgentType,
+    status: Option<ExpertInstallStatus>,
+) -> LinkOpResult {
+    LinkOpResult {
+        expert_id: skill_id.to_string(),
+        agent_type,
+        ok: true,
+        status,
+        error: None,
+    }
+}
+
+fn office_link_failure(skill_id: &str, agent_type: AgentType, error: String) -> LinkOpResult {
+    LinkOpResult {
+        expert_id: skill_id.to_string(),
+        agent_type,
+        ok: false,
+        status: None,
+        error: Some(error),
+    }
+}
+
+pub(crate) async fn reconcile_managed_office_tools(
+    targets: &[(AgentType, String, bool)],
+) -> Vec<LinkOpResult> {
+    let _guard = mutation_lock().lock().await;
+    targets
+        .iter()
+        .filter_map(|(agent_type, skill_id, enable)| {
+            managed_office_pair_result(skill_id, *agent_type, *enable)
+        })
+        .collect()
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
@@ -1551,7 +1660,7 @@ pub async fn officecli_skill_get_install_status(
             link_path: link_path.to_string_lossy().to_string(),
             target_path,
             expected_target_path: expected.to_string_lossy().to_string(),
-            copy_mode: false,
+            copy_mode: managed_copy_is_owned(&expected, &link_path),
         });
     }
     Ok(out)
@@ -1621,7 +1730,7 @@ pub async fn officecli_skill_list_all_install_statuses(
                 link_path: link_path.to_string_lossy().to_string(),
                 target_path,
                 expected_target_path: expected.to_string_lossy().to_string(),
-                copy_mode: false,
+                copy_mode: managed_copy_is_owned(&expected, &link_path),
             });
         }
     }
@@ -1751,6 +1860,7 @@ pub async fn stop_office_watch(root_path: String, path: String) -> Result<(), Ap
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::acp::skill_storage_spec;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use tokio::time::{timeout, Duration};
@@ -2072,6 +2182,26 @@ mod tests {
             .expect("snapshot returns Ok");
         let expected = skill_defs().len() * supported_agents().len();
         assert_eq!(rows.len(), expected);
+    }
+
+    #[test]
+    fn supported_agents_follow_registry_skill_capabilities() {
+        let expected = crate::acp::registry::all_acp_agents()
+            .into_iter()
+            .filter(|agent| skill_storage_spec(*agent).is_some())
+            .collect::<Vec<_>>();
+        assert_eq!(supported_agents(), expected);
+    }
+
+    #[test]
+    fn managed_ready_office_skill_ids_match_installed_central_entries() {
+        let expected = skill_defs()
+            .iter()
+            .filter(|definition| skill_central_path(definition.id).exists())
+            .map(|definition| definition.id.to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(managed_ready_office_skill_ids(), expected);
     }
 
     #[test]

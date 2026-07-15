@@ -23,6 +23,9 @@ import type {
   AgentSkillItem,
   AgentSkillsListResult,
   AgentSkillContent,
+  ManagedSkillFamily,
+  ManagedSkillFamilyState,
+  ManagedSkillSyncReport,
   FolderHistoryEntry,
   FolderDetail,
   DbConversationSummary,
@@ -360,6 +363,24 @@ export async function acpDeleteAgentSkill(params: {
   })
 }
 
+export async function managedSkillsGetFamilyState(
+  family: ManagedSkillFamily
+): Promise<ManagedSkillFamilyState> {
+  return invoke("managed_skills_get_family_state", { family })
+}
+
+export async function managedSkillsSetSkillEnabled(
+  family: ManagedSkillFamily,
+  skillId: string,
+  enabled: boolean
+): Promise<ManagedSkillSyncReport> {
+  return invoke("managed_skills_set_skill_enabled", {
+    family,
+    skillId,
+    enabled,
+  })
+}
+
 export async function getSystemProxySettings(): Promise<SystemProxySettings> {
   return invoke("get_system_proxy_settings")
 }
@@ -499,7 +520,6 @@ export async function mcpGetMarketplaceServerDetail(params: {
 export async function mcpInstallFromMarketplace(params: {
   providerId: string
   serverId: string
-  apps: McpAppType[]
   specOverride?: Record<string, unknown> | null
   optionId?: string | null
   protocol?: string | null
@@ -508,7 +528,6 @@ export async function mcpInstallFromMarketplace(params: {
   return invoke("mcp_install_from_marketplace", {
     providerId: params.providerId,
     serverId: params.serverId,
-    apps: params.apps,
     specOverride: params.specOverride ?? null,
     optionId: params.optionId ?? null,
     protocol: params.protocol ?? null,
@@ -519,13 +538,18 @@ export async function mcpInstallFromMarketplace(params: {
 export async function mcpUpsertLocalServer(params: {
   serverId: string
   spec: Record<string, unknown>
-  apps: McpAppType[]
 }): Promise<LocalMcpServer> {
   return invoke("mcp_upsert_local_server", {
     serverId: params.serverId,
     spec: params.spec,
-    apps: params.apps,
   })
+}
+
+export async function mcpSetServerEnabled(
+  serverId: string,
+  enabled: boolean
+): Promise<LocalMcpServer | null> {
+  return invoke("mcp_set_server_enabled", { serverId, enabled })
 }
 
 export async function mcpSetServerApps(

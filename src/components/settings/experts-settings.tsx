@@ -11,19 +11,23 @@ import {
   type SkillToggleItem,
 } from "@/components/settings/skill-toggle-list"
 import {
-  acpListAgents,
-  expertsApplyLinks,
+  mergeAllManagedSkillsEnabled,
+  mergeManagedSkillEnabled,
+} from "@/components/settings/skill-toggle-list-model"
+import {
   expertsList,
-  expertsListAllInstallStatuses,
   expertsOpenCentralDir,
   expertsReadContent,
+  managedSkillsGetFamilyState,
+  managedSkillsGetGlobalState,
+  managedSkillsSetGlobalEnabled,
+  managedSkillsSetSkillEnabled,
   openFolder,
 } from "@/lib/api"
 import { revealItemInDir } from "@/lib/platform"
 import { getActiveRemoteConnectionId, isDesktop } from "@/lib/transport"
 import { invalidateAgentSkillsCache } from "@/hooks/use-agent-skills"
-import { piUsesCustomAgentDir } from "@/lib/pi-config"
-import type { AcpAgentInfo, ExpertListItem } from "@/lib/types"
+import type { ExpertListItem, ManagedSkillFamilyState } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
 import { pickLocalized } from "@/lib/expert-presentation"
 
@@ -42,27 +46,28 @@ export function ExpertsSettings() {
   const locale = useLocale()
 
   const [experts, setExperts] = useState<ExpertListItem[]>([])
-  const [agents, setAgents] = useState<AcpAgentInfo[]>([])
+  const [globalEnabled, setGlobalEnabled] = useState(false)
+  const [familyState, setFamilyState] =
+    useState<ManagedSkillFamilyState | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [reloadKey, setReloadKey] = useState(0)
 
   const refresh = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
     try {
-      const [expertList, agentList] = await Promise.all([
+      const [expertList, globalState, nextFamilyState] = await Promise.all([
         expertsList(),
-        acpListAgents(),
+        managedSkillsGetGlobalState(),
+        managedSkillsGetFamilyState("experts"),
       ])
       setExperts(expertList)
-      // A custom Pi directory is outside the managed global skill store.
-      setAgents(agentList.filter((agent) => !piUsesCustomAgentDir(agent)))
-      setReloadKey((k) => k + 1)
+      setGlobalEnabled(globalState.expertsEnabled)
+      setFamilyState(nextFamilyState)
     } catch (err) {
       setLoadError(toErrorMessage(err))
       setExperts([])
-      setAgents([])
+      setFamilyState(null)
     } finally {
       setLoading(false)
     }
@@ -192,16 +197,35 @@ export function ExpertsSettings() {
         <div className="flex-1 min-h-0 min-w-0">
           <SkillToggleList
             skills={toggleSkills}
-            agents={agents}
-            statusReloadToken={reloadKey}
+            skillStates={familyState?.skills ?? []}
+            globalEnabled={familyState?.allEnabled ?? globalEnabled}
+            setGlobalEnabled={async (enabled) => {
+              const report = await managedSkillsSetGlobalEnabled(
+                "experts",
+                enabled
+              )
+              setGlobalEnabled(report.enabled)
+              setFamilyState((current) =>
+                mergeAllManagedSkillsEnabled(current, report.enabled)
+              )
+              return report
+            }}
+            setSkillEnabled={async (skillId, enabled) => {
+              const report = await managedSkillsSetSkillEnabled(
+                "experts",
+                skillId,
+                enabled
+              )
+              setFamilyState((current) =>
+                mergeManagedSkillEnabled(current, skillId, report.enabled)
+              )
+              return report
+            }}
             categoryOrder={CATEGORY_SORT}
             translateCategory={translatedCategory}
-            loadAllStatuses={expertsListAllInstallStatuses}
-            applyLinks={expertsApplyLinks}
             loadContent={expertsReadContent}
             onApplied={(touched) => {
               touched.forEach((a) => invalidateAgentSkillsCache(a))
-              setReloadKey((key) => key + 1)
             }}
             searchPlaceholder={t("searchPlaceholder")}
           />

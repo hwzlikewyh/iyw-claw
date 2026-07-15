@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::Duration;
 
+use sea_orm::DatabaseConnection;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -12,6 +14,7 @@ use crate::app_error::AppCommandError;
 
 const MARKETPLACE_OFFICIAL: &str = "official_registry";
 const MARKETPLACE_SMITHERY: &str = "smithery";
+const MCP_ATOMIC_SYMLINK_LIMIT: usize = 32;
 static MARKETPLACE_HTTP_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(8))
@@ -80,6 +83,7 @@ pub struct LocalMcpServer {
     pub id: String,
     pub spec: Value,
     pub apps: Vec<McpAppType>,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -154,9 +158,38 @@ pub struct McpMarketplaceServerDetail {
     pub spec: Value,
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn mcp_scan_local() -> Result<Vec<LocalMcpServer>, AppCommandError> {
-    scan_local_servers()
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn mcp_scan_local(
+    db: tauri::State<'_, crate::db::AppDatabase>,
+) -> Result<Vec<LocalMcpServer>, AppCommandError> {
+    mcp_scan_local_core(&db.conn).await
+}
+
+pub async fn mcp_scan_local_core(
+    conn: &DatabaseConnection,
+) -> Result<Vec<LocalMcpServer>, AppCommandError> {
+    let _guard = super::mcp_catalog::lock_operation().await;
+    let legacy = scan_local_servers();
+    let apps_by_id = legacy
+        .iter()
+        .map(|server| (server.id.clone(), server.apps.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let specs = legacy
+        .into_iter()
+        .map(|server| (server.id, server.spec))
+        .collect::<BTreeMap<_, _>>();
+    let catalog = super::mcp_catalog::load_or_import_unlocked(conn, || Ok(specs)).await?;
+    Ok(catalog
+        .servers
+        .into_iter()
+        .map(|(id, entry)| LocalMcpServer {
+            apps: apps_by_id.get(&id).cloned().unwrap_or_default(),
+            id,
+            spec: entry.spec,
+            enabled: entry.enabled,
+        })
+        .collect())
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
@@ -316,25 +349,79 @@ pub async fn mcp_get_marketplace_server_detail(
     }
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
 pub async fn mcp_install_from_marketplace(
     provider_id: String,
     server_id: String,
+    spec_override: Option<Value>,
+    option_id: Option<String>,
+    protocol: Option<String>,
+    parameter_values: Option<Value>,
+    db: tauri::State<'_, crate::db::AppDatabase>,
+) -> Result<LocalMcpServer, AppCommandError> {
+    mcp_install_from_marketplace_core(
+        &db.conn,
+        provider_id,
+        server_id,
+        spec_override,
+        option_id,
+        protocol,
+        parameter_values,
+    )
+    .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn mcp_upsert_local_server(
+    server_id: String,
+    spec: Value,
+    db: tauri::State<'_, crate::db::AppDatabase>,
+) -> Result<LocalMcpServer, AppCommandError> {
+    mcp_upsert_local_server_core(&db.conn, server_id, spec).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn mcp_set_server_enabled(
+    server_id: String,
+    enabled: bool,
+    db: tauri::State<'_, crate::db::AppDatabase>,
+) -> Result<Option<LocalMcpServer>, AppCommandError> {
+    mcp_set_server_enabled_core(&db.conn, server_id, enabled).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn mcp_set_server_apps(
+    server_id: String,
     apps: Vec<McpAppType>,
+    db: tauri::State<'_, crate::db::AppDatabase>,
+) -> Result<Option<LocalMcpServer>, AppCommandError> {
+    mcp_set_server_apps_core(&db.conn, server_id, apps).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn mcp_remove_server(
+    server_id: String,
+    db: tauri::State<'_, crate::db::AppDatabase>,
+) -> Result<bool, AppCommandError> {
+    mcp_remove_server_core(&db.conn, server_id).await
+}
+
+pub async fn mcp_install_from_marketplace_core(
+    conn: &DatabaseConnection,
+    provider_id: String,
+    server_id: String,
     spec_override: Option<Value>,
     option_id: Option<String>,
     protocol: Option<String>,
     parameter_values: Option<Value>,
 ) -> Result<LocalMcpServer, AppCommandError> {
     require_private_agent_storage_for_write()?;
-    let normalized_apps = normalize_apps(apps);
-    if normalized_apps.is_empty() {
-        return Err(mcp_invalid_input("at least one target app is required")
-            .with_i18n("errors.appsRequired", BTreeMap::new()));
-    }
-
     let selection = InstallSelection::new(option_id, protocol, parameter_values)?;
-
     let canonical_spec = if let Some(raw_spec) = spec_override.as_ref() {
         canonicalize_spec(raw_spec, "marketplace install override")?
     } else {
@@ -354,122 +441,94 @@ pub async fn mcp_install_from_marketplace(
             }
         }
     };
-
-    for app in &normalized_apps {
-        upsert_server_for_app(*app, &server_id, &canonical_spec)?;
-    }
-
-    find_local_server(&server_id)?.ok_or_else(|| {
-        mcp_configuration_invalid(format!(
-            "installed server '{server_id}', but failed to load it from local configuration"
-        ))
-    })
+    upsert_managed_server_and_reconcile(conn, &server_id, canonical_spec).await?;
+    find_managed_server(conn, &server_id).await
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn mcp_upsert_local_server(
+pub async fn mcp_upsert_local_server_core(
+    conn: &DatabaseConnection,
     server_id: String,
     spec: Value,
-    apps: Vec<McpAppType>,
 ) -> Result<LocalMcpServer, AppCommandError> {
     require_private_agent_storage_for_write()?;
     let canonical_spec = canonicalize_spec(&spec, "local MCP save")?;
-    let target_apps = normalize_apps(apps);
-    if target_apps.is_empty() {
-        return Err(mcp_invalid_input("at least one target app is required")
-            .with_i18n("errors.appsRequired", BTreeMap::new()));
-    }
-
-    let target_set = target_apps.iter().copied().collect::<BTreeSet<_>>();
-    let all_apps = [
-        McpAppType::ClaudeCode,
-        McpAppType::Codex,
-        McpAppType::Gemini,
-        McpAppType::OpenClaw,
-        McpAppType::OpenCode,
-        McpAppType::Cline,
-        McpAppType::Hermes,
-        McpAppType::CodeBuddy,
-        McpAppType::KimiCode,
-    ];
-
-    for app in all_apps {
-        if target_set.contains(&app) {
-            upsert_server_for_app(app, &server_id, &canonical_spec)?;
-        } else {
-            let _ = remove_server_for_app(app, &server_id)?;
-        }
-    }
-
-    find_local_server(&server_id)?.ok_or_else(|| {
-        mcp_configuration_invalid(format!(
-            "saved local MCP server '{server_id}', but failed to reload it"
-        ))
-    })
+    upsert_managed_server_and_reconcile(conn, &server_id, canonical_spec).await?;
+    find_managed_server(conn, &server_id).await
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn mcp_set_server_apps(
+async fn upsert_managed_server_and_reconcile(
+    conn: &DatabaseConnection,
+    server_id: &str,
+    spec: Value,
+) -> Result<(), AppCommandError> {
+    let _guard = super::mcp_catalog::lock_operation().await;
+    super::mcp_catalog::upsert_server_unlocked(conn, server_id, spec, scan_legacy_server_specs)
+        .await?;
+    super::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await
+}
+
+pub async fn mcp_set_server_enabled_core(
+    conn: &DatabaseConnection,
+    server_id: String,
+    enabled: bool,
+) -> Result<Option<LocalMcpServer>, AppCommandError> {
+    require_private_agent_storage_for_write()?;
+    let _guard = super::mcp_catalog::lock_operation().await;
+    let updated = super::mcp_catalog::set_server_enabled_unlocked(
+        conn,
+        &server_id,
+        enabled,
+        scan_legacy_server_specs,
+    )
+    .await?;
+    if updated.is_none() {
+        return Ok(None);
+    }
+    super::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await?;
+    drop(_guard);
+    Ok(mcp_scan_local_core(conn)
+        .await?
+        .into_iter()
+        .find(|server| server.id == server_id))
+}
+
+pub async fn mcp_set_server_apps_core(
+    conn: &DatabaseConnection,
     server_id: String,
     apps: Vec<McpAppType>,
 ) -> Result<Option<LocalMcpServer>, AppCommandError> {
-    require_private_agent_storage_for_write()?;
-    let target_apps = normalize_apps(apps);
-    let current = find_local_server(&server_id)?
-        .ok_or_else(|| mcp_not_found(format!("local MCP server not found: {server_id}")))?;
-
-    let target_set = target_apps.iter().copied().collect::<BTreeSet<_>>();
-    let current_set = current.apps.iter().copied().collect::<BTreeSet<_>>();
-
-    for app in current_set.difference(&target_set) {
-        remove_server_for_app(*app, &server_id)?;
-    }
-
-    for app in target_set.difference(&current_set) {
-        upsert_server_for_app(*app, &server_id, &current.spec)?;
-    }
-
-    find_local_server(&server_id)
+    mcp_set_server_enabled_core(conn, server_id, !apps.is_empty()).await
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn mcp_remove_server(
+pub async fn mcp_remove_server_core(
+    conn: &DatabaseConnection,
     server_id: String,
-    apps: Option<Vec<McpAppType>>,
 ) -> Result<bool, AppCommandError> {
     require_private_agent_storage_for_write()?;
-    let target_apps = match apps {
-        Some(selected) => normalize_apps(selected),
-        None => vec![
-            McpAppType::ClaudeCode,
-            McpAppType::Codex,
-            McpAppType::Gemini,
-            McpAppType::OpenClaw,
-            McpAppType::OpenCode,
-            McpAppType::Cline,
-            McpAppType::Hermes,
-            McpAppType::CodeBuddy,
-            McpAppType::KimiCode,
-        ],
-    };
-
-    if target_apps.is_empty() {
+    let _guard = super::mcp_catalog::lock_operation().await;
+    let removed =
+        super::mcp_catalog::remove_server_unlocked(conn, &server_id, scan_legacy_server_specs)
+            .await?;
+    if removed.is_none() {
         return Ok(false);
     }
-
-    let mut removed = false;
-    for app in target_apps {
-        removed |= remove_server_for_app(app, &server_id)?;
-    }
-    Ok(removed)
+    super::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await?;
+    Ok(true)
 }
 
-fn normalize_apps(apps: Vec<McpAppType>) -> Vec<McpAppType> {
-    let mut seen = BTreeSet::new();
-    for app in apps {
-        seen.insert(app);
-    }
-    seen.into_iter().collect()
+async fn find_managed_server(
+    conn: &DatabaseConnection,
+    server_id: &str,
+) -> Result<LocalMcpServer, AppCommandError> {
+    mcp_scan_local_core(conn)
+        .await?
+        .into_iter()
+        .find(|server| server.id == server_id)
+        .ok_or_else(|| {
+            mcp_configuration_invalid(format!(
+                "managed MCP server '{server_id}' was persisted but could not be reloaded"
+            ))
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -679,7 +738,7 @@ fn write_json_file(path: &Path, value: &Value) -> Result<(), AppCommandError> {
             path.display()
         ))
     })?;
-    fs::write(path, format!("{serialized}\n")).map_err(AppCommandError::io)
+    atomic_write_text(path, format!("{serialized}\n").as_bytes())
 }
 
 fn read_codex_root_toml() -> Result<toml::Value, AppCommandError> {
@@ -715,7 +774,166 @@ fn write_codex_root_toml(root: &toml::Value) -> Result<(), AppCommandError> {
             path.display()
         ))
     })?;
-    fs::write(&path, format!("{serialized}\n")).map_err(AppCommandError::io)
+    atomic_write_text(&path, format!("{serialized}\n").as_bytes())
+}
+
+fn atomic_write_text(path: &Path, bytes: &[u8]) -> Result<(), AppCommandError> {
+    atomic_write_text_with_permissions(path, bytes, false)
+}
+
+fn atomic_write_secret_text(path: &Path, bytes: &[u8]) -> Result<(), AppCommandError> {
+    atomic_write_text_with_permissions(path, bytes, true)
+}
+
+fn atomic_write_text_with_permissions(
+    path: &Path,
+    bytes: &[u8],
+    owner_only: bool,
+) -> Result<(), AppCommandError> {
+    let target = resolve_atomic_write_target(path)?;
+    let parent = target.parent().ok_or_else(|| {
+        mcp_invalid_input(format!("cannot resolve parent for {}", target.display()))
+    })?;
+    let temp_path = parent.join(format!(
+        ".iyw-claw-mcp-{}.{}.tmp",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
+    let permissions = fs::metadata(&target).ok().map(|meta| meta.permissions());
+    let result = write_and_replace_atomic(&temp_path, &target, bytes, permissions, owner_only);
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
+}
+
+fn resolve_atomic_write_target(path: &Path) -> Result<PathBuf, AppCommandError> {
+    let mut current = path.to_path_buf();
+    for _ in 0..MCP_ATOMIC_SYMLINK_LIMIT {
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let link = fs::read_link(&current).map_err(AppCommandError::io)?;
+                current = if link.is_absolute() {
+                    link
+                } else {
+                    current.parent().unwrap_or_else(|| Path::new("")).join(link)
+                };
+            }
+            Ok(_) => return Ok(current),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(current),
+            Err(error) => return Err(AppCommandError::io(error)),
+        }
+    }
+    Err(mcp_configuration_invalid(format!(
+        "too many symbolic links while resolving {}",
+        path.display()
+    )))
+}
+
+fn write_and_replace_atomic(
+    temp_path: &Path,
+    target_path: &Path,
+    bytes: &[u8],
+    permissions: Option<fs::Permissions>,
+    owner_only: bool,
+) -> Result<(), AppCommandError> {
+    let mut options = OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    if owner_only {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    #[cfg(not(unix))]
+    let _ = owner_only;
+    let mut temp = options.open(temp_path).map_err(AppCommandError::io)?;
+    temp.write_all(bytes).map_err(AppCommandError::io)?;
+    temp.flush().map_err(AppCommandError::io)?;
+    temp.sync_all().map_err(AppCommandError::io)?;
+    apply_atomic_permissions(temp_path, permissions, owner_only)?;
+    replace_atomic_file(temp_path, target_path)?;
+    sync_atomic_directory(target_path.parent().unwrap_or_else(|| Path::new("")))
+}
+
+fn apply_atomic_permissions(
+    path: &Path,
+    permissions: Option<fs::Permissions>,
+    owner_only: bool,
+) -> Result<(), AppCommandError> {
+    let Some(permissions) = permissions else {
+        return Ok(());
+    };
+    #[cfg(unix)]
+    let permissions = if owner_only {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = permissions;
+        if secret_permissions_are_too_open(permissions.mode()) {
+            permissions = fs::Permissions::from_mode(0o600);
+        }
+        permissions
+    } else {
+        permissions
+    };
+    #[cfg(not(unix))]
+    let _ = owner_only;
+    fs::set_permissions(path, permissions).map_err(AppCommandError::io)
+}
+
+#[cfg(any(unix, test))]
+fn secret_permissions_are_too_open(mode: u32) -> bool {
+    mode & 0o077 != 0
+}
+
+#[cfg(unix)]
+fn replace_atomic_file(temp_path: &Path, target_path: &Path) -> Result<(), AppCommandError> {
+    fs::rename(temp_path, target_path).map_err(AppCommandError::io)
+}
+
+#[cfg(target_os = "windows")]
+fn replace_atomic_file(temp_path: &Path, target_path: &Path) -> Result<(), AppCommandError> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+    let to_wide = |path: &Path| {
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>()
+    };
+    let source = to_wide(temp_path);
+    let target = to_wide(target_path);
+    let result = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            target.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        return Err(
+            AppCommandError::io_error("Failed to atomically replace MCP config")
+                .with_detail(std::io::Error::last_os_error().to_string()),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
+fn replace_atomic_file(temp_path: &Path, target_path: &Path) -> Result<(), AppCommandError> {
+    fs::rename(temp_path, target_path).map_err(AppCommandError::io)
+}
+
+#[cfg(unix)]
+fn sync_atomic_directory(path: &Path) -> Result<(), AppCommandError> {
+    fs::File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(AppCommandError::io)
+}
+
+#[cfg(not(unix))]
+fn sync_atomic_directory(_path: &Path) -> Result<(), AppCommandError> {
+    Ok(())
 }
 
 fn obj_as_string_map(value: Option<&Value>) -> Option<Map<String, Value>> {
@@ -2068,71 +2286,6 @@ fn read_openclaw_servers() -> Result<BTreeMap<String, Value>, AppCommandError> {
     Ok(out)
 }
 
-fn upsert_openclaw_server(id: &str, spec: &Value) -> Result<(), AppCommandError> {
-    let path = openclaw_config_path();
-    let mut root = read_json_file(&path)?;
-    if !root.is_object() {
-        root = json!({});
-    }
-
-    let canonical = canonicalize_spec(spec, "OpenClaw write")?;
-
-    let obj = root.as_object_mut().ok_or_else(|| {
-        mcp_configuration_invalid(format!("invalid JSON root in {}", path.display()))
-    })?;
-
-    if !obj.get("mcp").map(Value::is_object).unwrap_or(false) {
-        obj.insert("mcp".to_string(), json!({}));
-    }
-    let mcp = obj
-        .get_mut("mcp")
-        .and_then(Value::as_object_mut)
-        .ok_or_else(|| mcp_configuration_invalid(format!("invalid mcp in {}", path.display())))?;
-
-    if !mcp.get("servers").map(Value::is_object).unwrap_or(false) {
-        mcp.insert("servers".to_string(), Value::Object(Map::new()));
-    }
-    let servers = mcp
-        .get_mut("servers")
-        .and_then(Value::as_object_mut)
-        .ok_or_else(|| {
-            mcp_configuration_invalid(format!("invalid mcp.servers in {}", path.display()))
-        })?;
-    servers.insert(id.to_string(), canonical);
-
-    write_json_file(&path, &root)
-}
-
-fn remove_openclaw_server(id: &str) -> Result<bool, AppCommandError> {
-    let path = openclaw_config_path();
-    if !path.exists() {
-        return Ok(false);
-    }
-
-    let mut root = read_json_file(&path)?;
-    let Some(obj) = root.as_object_mut() else {
-        return Ok(false);
-    };
-    let Some(mcp) = obj.get_mut("mcp").and_then(Value::as_object_mut) else {
-        return Ok(false);
-    };
-    let Some(servers) = mcp.get_mut("servers").and_then(Value::as_object_mut) else {
-        return Ok(false);
-    };
-
-    let removed = servers.remove(id).is_some();
-    if removed {
-        if servers.is_empty() {
-            mcp.remove("servers");
-        }
-        if mcp.is_empty() {
-            obj.remove("mcp");
-        }
-        write_json_file(&path, &root)?;
-    }
-    Ok(removed)
-}
-
 // ---------------------------------------------------------------------------
 // Cline  (~/.cline/data/settings/cline_mcp_settings.json  →  mcpServers)
 // ---------------------------------------------------------------------------
@@ -2208,98 +2361,102 @@ fn remove_cline_server(id: &str) -> Result<bool, AppCommandError> {
     Ok(removed)
 }
 
-fn scan_local_servers() -> Result<Vec<LocalMcpServer>, AppCommandError> {
+fn scan_local_servers() -> Vec<LocalMcpServer> {
     let mut merged: BTreeMap<String, (Value, BTreeSet<McpAppType>)> = BTreeMap::new();
-
-    for (id, spec) in read_claude_servers()? {
-        let entry = merged
-            .entry(id)
-            .or_insert_with(|| (spec.clone(), BTreeSet::new()));
-        entry.1.insert(McpAppType::ClaudeCode);
+    let scans = [
+        (McpAppType::ClaudeCode, read_claude_servers()),
+        (McpAppType::Codex, read_codex_servers()),
+        (McpAppType::OpenCode, read_opencode_servers()),
+        (McpAppType::Gemini, read_gemini_servers()),
+        (McpAppType::OpenClaw, read_openclaw_servers()),
+        (McpAppType::Cline, read_cline_servers()),
+        (McpAppType::Hermes, read_hermes_servers()),
+        (McpAppType::CodeBuddy, read_codebuddy_servers()),
+        (McpAppType::KimiCode, read_kimi_code_servers()),
+    ];
+    for (app, scan) in scans {
+        merge_local_server_scan(&mut merged, app, scan);
     }
-
-    for (id, spec) in read_codex_servers()? {
-        let entry = merged
-            .entry(id)
-            .or_insert_with(|| (spec.clone(), BTreeSet::new()));
-        entry.1.insert(McpAppType::Codex);
-    }
-
-    for (id, spec) in read_opencode_servers()? {
-        let entry = merged
-            .entry(id)
-            .or_insert_with(|| (spec.clone(), BTreeSet::new()));
-        entry.1.insert(McpAppType::OpenCode);
-    }
-
-    for (id, spec) in read_gemini_servers()? {
-        let entry = merged
-            .entry(id)
-            .or_insert_with(|| (spec.clone(), BTreeSet::new()));
-        entry.1.insert(McpAppType::Gemini);
-    }
-
-    for (id, spec) in read_openclaw_servers()? {
-        let entry = merged
-            .entry(id)
-            .or_insert_with(|| (spec.clone(), BTreeSet::new()));
-        entry.1.insert(McpAppType::OpenClaw);
-    }
-
-    for (id, spec) in read_cline_servers()? {
-        let entry = merged
-            .entry(id)
-            .or_insert_with(|| (spec.clone(), BTreeSet::new()));
-        entry.1.insert(McpAppType::Cline);
-    }
-
-    for (id, spec) in read_hermes_servers()? {
-        let entry = merged
-            .entry(id)
-            .or_insert_with(|| (spec.clone(), BTreeSet::new()));
-        entry.1.insert(McpAppType::Hermes);
-    }
-
-    for (id, spec) in read_codebuddy_servers()? {
-        let entry = merged
-            .entry(id)
-            .or_insert_with(|| (spec.clone(), BTreeSet::new()));
-        entry.1.insert(McpAppType::CodeBuddy);
-    }
-
-    for (id, spec) in read_kimi_code_servers()? {
-        let entry = merged
-            .entry(id)
-            .or_insert_with(|| (spec.clone(), BTreeSet::new()));
-        entry.1.insert(McpAppType::KimiCode);
-    }
-
-    Ok(merged
+    merged
         .into_iter()
         .map(|(id, (spec, apps))| LocalMcpServer {
             id,
             spec,
             apps: apps.into_iter().collect(),
+            enabled: true,
         })
+        .collect()
+}
+
+fn merge_local_server_scan(
+    merged: &mut BTreeMap<String, (Value, BTreeSet<McpAppType>)>,
+    app: McpAppType,
+    scan: Result<BTreeMap<String, Value>, AppCommandError>,
+) {
+    let servers = match scan {
+        Ok(servers) => servers,
+        Err(error) => {
+            tracing::warn!(
+                "[MCP] skip {app:?} legacy scan: {}{}",
+                error.message,
+                error
+                    .detail
+                    .as_deref()
+                    .map(|detail| format!("; {detail}"))
+                    .unwrap_or_default()
+            );
+            return;
+        }
+    };
+    for (id, spec) in servers {
+        let entry = merged
+            .entry(id)
+            .or_insert_with(|| (spec.clone(), BTreeSet::new()));
+        entry.1.insert(app);
+    }
+}
+
+pub(crate) fn scan_legacy_server_specs() -> Result<BTreeMap<String, Value>, AppCommandError> {
+    Ok(scan_local_servers()
+        .into_iter()
+        .map(|server| (server.id, server.spec))
         .collect())
 }
 
-fn find_local_server(server_id: &str) -> Result<Option<LocalMcpServer>, AppCommandError> {
-    let servers = scan_local_servers()?;
-    Ok(servers.into_iter().find(|item| item.id == server_id))
+pub(crate) fn upsert_server_for_agent_type(
+    agent_type: crate::models::agent::AgentType,
+    id: &str,
+    spec: &Value,
+) -> Result<(), AppCommandError> {
+    use crate::models::agent::AgentType;
+    match agent_type {
+        AgentType::ClaudeCode => upsert_claude_server(id, spec),
+        AgentType::Codex => upsert_codex_server(id, spec),
+        AgentType::OpenCode => upsert_opencode_server(id, spec),
+        AgentType::Gemini => upsert_gemini_server(id, spec),
+        AgentType::Cline => upsert_cline_server(id, spec),
+        AgentType::Hermes => upsert_hermes_server(id, spec),
+        AgentType::CodeBuddy => upsert_codebuddy_server(id, spec),
+        AgentType::KimiCode => upsert_kimi_code_server(id, spec),
+        AgentType::OpenClaw | AgentType::Pi => Ok(()),
+    }
 }
 
-fn upsert_server_for_app(app: McpAppType, id: &str, spec: &Value) -> Result<(), AppCommandError> {
-    match app {
-        McpAppType::ClaudeCode => upsert_claude_server(id, spec),
-        McpAppType::Codex => upsert_codex_server(id, spec),
-        McpAppType::OpenCode => upsert_opencode_server(id, spec),
-        McpAppType::Gemini => upsert_gemini_server(id, spec),
-        McpAppType::OpenClaw => upsert_openclaw_server(id, spec),
-        McpAppType::Cline => upsert_cline_server(id, spec),
-        McpAppType::Hermes => upsert_hermes_server(id, spec),
-        McpAppType::CodeBuddy => upsert_codebuddy_server(id, spec),
-        McpAppType::KimiCode => upsert_kimi_code_server(id, spec),
+pub(crate) fn remove_server_for_agent_type(
+    agent_type: crate::models::agent::AgentType,
+    id: &str,
+) -> Result<bool, AppCommandError> {
+    use crate::models::agent::AgentType;
+    match agent_type {
+        AgentType::ClaudeCode => remove_claude_server(id),
+        AgentType::Codex => remove_codex_server(id),
+        AgentType::OpenCode => remove_opencode_server(id),
+        AgentType::Gemini => remove_gemini_server(id),
+        AgentType::Cline => remove_cline_server(id),
+        AgentType::Hermes => remove_hermes_server(id),
+        AgentType::CodeBuddy => remove_codebuddy_server(id),
+        AgentType::KimiCode => remove_kimi_code_server(id),
+        AgentType::OpenClaw | AgentType::Pi => Ok(false),
     }
 }
 
@@ -2573,8 +2730,8 @@ fn read_hermes_servers() -> Result<BTreeMap<String, Value>, AppCommandError> {
 }
 
 /// Insert/update a Hermes MCP server in `~/.hermes/config.yaml` (`mcp_servers`),
-/// preserving every other key. Written through the Hermes secret writer
-/// (owner-only perms, symlink-preserving) since the file can carry env secrets.
+/// preserving every other key. The atomic secret writer preserves existing
+/// permissions and resolves symlinks before replacing their target.
 /// Note: like the structured model save, this round-trips config.yaml through
 /// serde_yaml and so drops comments — consistent with iyw-claw's existing Hermes
 /// config edits.
@@ -2620,8 +2777,9 @@ fn upsert_hermes_server(id: &str, spec: &Value) -> Result<(), AppCommandError> {
     })?;
     crate::commands::acp::ensure_hermes_home_secure(&crate::commands::acp::hermes_home_dir())
         .map_err(|e| mcp_configuration_invalid(format!("prepare hermes home failed: {e}")))?;
-    crate::commands::acp::write_hermes_secret_file(&path, &yaml, "config.yaml")
-        .map_err(|e| mcp_configuration_invalid(format!("write hermes config.yaml failed: {e}")))?;
+    atomic_write_secret_text(&path, yaml.as_bytes()).map_err(|error| {
+        mcp_configuration_invalid("write hermes config.yaml failed").with_detail(error.to_string())
+    })?;
     Ok(())
 }
 
@@ -2658,25 +2816,12 @@ fn remove_hermes_server(id: &str) -> Result<bool, AppCommandError> {
         let yaml = serde_yaml::to_string(&root).map_err(|e| {
             mcp_configuration_invalid(format!("serialize hermes config.yaml failed: {e}"))
         })?;
-        crate::commands::acp::write_hermes_secret_file(&path, &yaml, "config.yaml").map_err(
-            |e| mcp_configuration_invalid(format!("write hermes config.yaml failed: {e}")),
-        )?;
+        atomic_write_secret_text(&path, yaml.as_bytes()).map_err(|error| {
+            mcp_configuration_invalid("write hermes config.yaml failed")
+                .with_detail(error.to_string())
+        })?;
     }
     Ok(removed)
-}
-
-fn remove_server_for_app(app: McpAppType, id: &str) -> Result<bool, AppCommandError> {
-    match app {
-        McpAppType::ClaudeCode => remove_claude_server(id),
-        McpAppType::Codex => remove_codex_server(id),
-        McpAppType::OpenCode => remove_opencode_server(id),
-        McpAppType::Gemini => remove_gemini_server(id),
-        McpAppType::OpenClaw => remove_openclaw_server(id),
-        McpAppType::Cline => remove_cline_server(id),
-        McpAppType::Hermes => remove_hermes_server(id),
-        McpAppType::CodeBuddy => remove_codebuddy_server(id),
-        McpAppType::KimiCode => remove_kimi_code_server(id),
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -4431,6 +4576,548 @@ fn resolve_smithery_install_spec_with_selection(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::{mcp_catalog, mcp_sync};
+
+    fn with_private_agent_storage<T>(run: impl FnOnce() -> T) -> T {
+        let temp = tempfile::tempdir().expect("private agent storage");
+        let storage_root = temp.path().join("agents");
+        let paths = crate::acp::agent_storage::AgentStoragePaths::new(storage_root.clone());
+        let config = crate::acp::agent_storage::AgentStorageConfig::confirmed(storage_root.clone());
+        let mut env: Vec<(String, Option<std::ffi::OsString>)> =
+            crate::acp::agent_storage::startup_profile_env(&paths, &config)
+                .into_iter()
+                .map(|(key, value)| (key, Some(value)))
+                .collect();
+        env.push((
+            crate::acp::agent_storage::STORAGE_ROOT_ENV.to_string(),
+            Some(storage_root.into_os_string()),
+        ));
+        temp_env::with_vars(env, run)
+    }
+
+    async fn seed_all_agents_disabled(conn: &sea_orm::DatabaseConnection) {
+        use crate::db::service::agent_setting_service::{
+            self, AgentDefaultInput, AgentSettingsUpdate,
+        };
+
+        let defaults = crate::acp::registry::all_acp_agents()
+            .into_iter()
+            .enumerate()
+            .map(|(index, agent_type)| AgentDefaultInput {
+                agent_type,
+                registry_id: crate::acp::registry::registry_id_for(agent_type).to_string(),
+                default_sort_order: index as i32,
+            })
+            .collect::<Vec<_>>();
+        agent_setting_service::ensure_defaults(conn, &defaults)
+            .await
+            .expect("seed agent defaults");
+        for default in defaults {
+            agent_setting_service::update(
+                conn,
+                default.agent_type,
+                AgentSettingsUpdate {
+                    enabled: false,
+                    env_json: None,
+                    model_provider_id: None,
+                },
+            )
+            .await
+            .expect("disable agent");
+        }
+    }
+
+    #[tokio::test]
+    async fn managed_catalog_imports_legacy_servers_as_disabled_and_merges_later_ids() {
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        let imported = BTreeMap::from([(
+            "legacy".to_string(),
+            json!({"type": "stdio", "command": "legacy-server"}),
+        )]);
+
+        let first = mcp_catalog::load_or_import(&db.conn, || Ok(imported))
+            .await
+            .expect("import missing catalog");
+        assert!(!first.servers["legacy"].enabled);
+        assert!(!first.servers["legacy"].managed);
+
+        let second = mcp_catalog::load_or_import(&db.conn, || {
+            Ok(BTreeMap::from([(
+                "new-scan".to_string(),
+                json!({"type": "stdio", "command": "must-not-import"}),
+            )]))
+        })
+        .await
+        .expect("load persisted catalog");
+        assert!(second.servers.contains_key("legacy"));
+        assert!(second.servers.contains_key("new-scan"));
+        assert!(!second.servers["new-scan"].enabled);
+        assert!(!second.servers["new-scan"].managed);
+    }
+
+    #[tokio::test]
+    async fn managed_catalog_tombstones_removed_legacy_until_explicit_upsert() {
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        let legacy_spec = json!({"type": "stdio", "command": "legacy"});
+        mcp_catalog::load_or_import(&db.conn, || {
+            Ok(BTreeMap::from([(
+                "legacy".to_string(),
+                legacy_spec.clone(),
+            )]))
+        })
+        .await
+        .expect("import legacy server");
+
+        mcp_catalog::remove_server(&db.conn, "legacy", || {
+            Ok(BTreeMap::from([(
+                "legacy".to_string(),
+                legacy_spec.clone(),
+            )]))
+        })
+        .await
+        .expect("tombstone legacy server");
+        let after_rescan = mcp_catalog::load_or_import(&db.conn, || {
+            Ok(BTreeMap::from([
+                ("legacy".to_string(), legacy_spec.clone()),
+                (
+                    "later".to_string(),
+                    json!({"type": "stdio", "command": "later"}),
+                ),
+            ]))
+        })
+        .await
+        .expect("merge later legacy server");
+
+        assert!(!after_rescan.servers.contains_key("legacy"));
+        assert!(after_rescan.tombstones.contains("legacy"));
+        assert!(after_rescan.servers.contains_key("later"));
+
+        let adopted = mcp_catalog::upsert_server(
+            &db.conn,
+            "legacy",
+            json!({"type": "stdio", "command": "adopted"}),
+            || Ok(BTreeMap::new()),
+        )
+        .await
+        .expect("explicitly adopt tombstoned server");
+        assert!(adopted.managed);
+        assert!(adopted.enabled);
+        let catalog = mcp_catalog::load_or_import(&db.conn, || Ok(BTreeMap::new()))
+            .await
+            .expect("reload adopted catalog");
+        assert!(!catalog.tombstones.contains("legacy"));
+    }
+
+    #[tokio::test]
+    async fn managed_catalog_v1_entries_without_ownership_remain_managed() {
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        crate::db::service::app_metadata_service::upsert_value(
+            &db.conn,
+            mcp_catalog::MANAGED_MCP_CATALOG_KEY,
+            r#"{"version":1,"servers":{"persisted":{"spec":{"type":"stdio","command":"server"},"enabled":true}}}"#,
+        )
+        .await
+        .expect("seed v1 catalog");
+
+        let catalog = mcp_catalog::load_or_import(&db.conn, || Ok(BTreeMap::new()))
+            .await
+            .expect("load compatible v1 catalog");
+
+        assert!(catalog.servers["persisted"].managed);
+        assert!(catalog.servers["persisted"].enabled);
+        assert!(catalog.tombstones.is_empty());
+    }
+
+    #[tokio::test]
+    async fn managed_catalog_upsert_preserves_existing_enabled_state() {
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        let first_spec = json!({"type": "stdio", "command": "first"});
+        let created =
+            mcp_catalog::upsert_server(&db.conn, "managed", first_spec, || Ok(BTreeMap::new()))
+                .await
+                .expect("create catalog entry");
+        assert!(created.enabled);
+
+        mcp_catalog::set_server_enabled(&db.conn, "managed", false, || Ok(BTreeMap::new()))
+            .await
+            .expect("disable catalog entry");
+        let second_spec = json!({"type": "stdio", "command": "second"});
+        let edited = mcp_catalog::upsert_server(&db.conn, "managed", second_spec.clone(), || {
+            Ok(BTreeMap::new())
+        })
+        .await
+        .expect("update catalog entry");
+
+        assert!(!edited.enabled);
+        assert!(edited.managed);
+        assert_eq!(edited.spec, second_spec);
+    }
+
+    #[tokio::test]
+    async fn managed_catalog_explicit_enable_adopts_unmanaged_legacy_entry() {
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        mcp_catalog::load_or_import(&db.conn, || {
+            Ok(BTreeMap::from([(
+                "legacy".to_string(),
+                json!({"type": "stdio", "command": "legacy"}),
+            )]))
+        })
+        .await
+        .expect("import unmanaged legacy entry");
+
+        let adopted =
+            mcp_catalog::set_server_enabled(&db.conn, "legacy", true, || Ok(BTreeMap::new()))
+                .await
+                .expect("adopt legacy entry")
+                .expect("legacy entry exists");
+
+        assert!(adopted.managed);
+        assert!(adopted.enabled);
+    }
+
+    #[tokio::test]
+    async fn managed_mcp_targets_include_only_enabled_supported_agents() {
+        use crate::db::service::agent_setting_service::{
+            self, AgentDefaultInput, AgentSettingsUpdate,
+        };
+        use crate::models::agent::AgentType;
+
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        let candidates = [
+            AgentType::Codex,
+            AgentType::Hermes,
+            AgentType::OpenClaw,
+            AgentType::Pi,
+        ];
+        let defaults = candidates
+            .iter()
+            .enumerate()
+            .map(|(index, agent_type)| AgentDefaultInput {
+                agent_type: *agent_type,
+                registry_id: format!("{agent_type:?}"),
+                default_sort_order: index as i32,
+            })
+            .collect::<Vec<_>>();
+        agent_setting_service::ensure_defaults(&db.conn, &defaults)
+            .await
+            .expect("seed agent settings");
+        for agent_type in [AgentType::Hermes, AgentType::OpenClaw, AgentType::Pi] {
+            agent_setting_service::update(
+                &db.conn,
+                agent_type,
+                AgentSettingsUpdate {
+                    enabled: true,
+                    env_json: None,
+                    model_provider_id: None,
+                },
+            )
+            .await
+            .expect("enable candidate");
+        }
+
+        let targets = mcp_sync::managed_target_agents(&db.conn)
+            .await
+            .expect("resolve managed targets");
+        assert_eq!(targets, vec![AgentType::Codex, AgentType::Hermes]);
+    }
+
+    #[test]
+    fn managed_mcp_reconcile_only_touches_catalog_owned_ids() {
+        use std::cell::RefCell;
+
+        let catalog = mcp_catalog::ManagedMcpCatalog {
+            version: 1,
+            servers: BTreeMap::from([
+                (
+                    "disabled".to_string(),
+                    mcp_catalog::ManagedMcpCatalogEntry {
+                        spec: json!({"type": "stdio", "command": "off"}),
+                        enabled: false,
+                        managed: true,
+                    },
+                ),
+                (
+                    "enabled".to_string(),
+                    mcp_catalog::ManagedMcpCatalogEntry {
+                        spec: json!({"type": "stdio", "command": "on"}),
+                        enabled: true,
+                        managed: true,
+                    },
+                ),
+                (
+                    "unmanaged".to_string(),
+                    mcp_catalog::ManagedMcpCatalogEntry {
+                        spec: json!({"type": "stdio", "command": "external"}),
+                        enabled: false,
+                        managed: false,
+                    },
+                ),
+            ]),
+            tombstones: BTreeSet::from(["removed".to_string()]),
+        };
+        let actions = RefCell::new(Vec::new());
+
+        mcp_sync::reconcile_catalog_for_agent_with(
+            &catalog,
+            true,
+            |id, _| {
+                actions.borrow_mut().push(format!("upsert:{id}"));
+                Ok(())
+            },
+            |id| {
+                actions.borrow_mut().push(format!("remove:{id}"));
+                Ok(false)
+            },
+        )
+        .expect("reconcile enabled agent");
+
+        assert_eq!(
+            actions.into_inner(),
+            vec!["remove:disabled", "upsert:enabled", "remove:removed"]
+        );
+    }
+
+    #[test]
+    fn managed_mcp_reconcile_collects_failures_and_continues() {
+        use std::cell::RefCell;
+
+        let catalog = mcp_catalog::ManagedMcpCatalog {
+            version: 1,
+            servers: BTreeMap::from([
+                (
+                    "a".to_string(),
+                    mcp_catalog::ManagedMcpCatalogEntry {
+                        spec: json!({"type": "stdio", "command": "a"}),
+                        enabled: true,
+                        managed: true,
+                    },
+                ),
+                (
+                    "b".to_string(),
+                    mcp_catalog::ManagedMcpCatalogEntry {
+                        spec: json!({"type": "stdio", "command": "b"}),
+                        enabled: true,
+                        managed: true,
+                    },
+                ),
+            ]),
+            tombstones: BTreeSet::from(["c".to_string()]),
+        };
+        let actions = RefCell::new(Vec::new());
+
+        let error = mcp_sync::reconcile_catalog_for_agent_with(
+            &catalog,
+            true,
+            |id, _| {
+                actions.borrow_mut().push(format!("upsert:{id}"));
+                Err(mcp_configuration_invalid(format!("upsert {id} failed")))
+            },
+            |id| {
+                actions.borrow_mut().push(format!("remove:{id}"));
+                Err(mcp_configuration_invalid(format!("remove {id} failed")))
+            },
+        )
+        .expect_err("all failures should be reported after reconciliation");
+
+        assert_eq!(
+            actions.into_inner(),
+            vec!["upsert:a", "upsert:b", "remove:c"]
+        );
+        let detail = error.detail.expect("aggregate failure detail");
+        assert!(detail.contains("a"));
+        assert!(detail.contains("b"));
+        assert!(detail.contains("c"));
+    }
+
+    #[test]
+    fn managed_mcp_legacy_scan_continues_after_one_agent_fails() {
+        let mut merged = BTreeMap::new();
+        merge_local_server_scan(
+            &mut merged,
+            McpAppType::Codex,
+            Err(mcp_configuration_invalid("invalid Codex config")),
+        );
+        merge_local_server_scan(
+            &mut merged,
+            McpAppType::Gemini,
+            Ok(BTreeMap::from([(
+                "healthy".to_string(),
+                json!({"type": "stdio", "command": "healthy"}),
+            )])),
+        );
+
+        assert_eq!(merged.len(), 1);
+        assert!(merged.contains_key("healthy"));
+        assert!(merged["healthy"].1.contains(&McpAppType::Gemini));
+    }
+
+    #[test]
+    fn managed_mcp_reconcile_skips_disabled_agent() {
+        use std::cell::RefCell;
+
+        let catalog = mcp_catalog::ManagedMcpCatalog {
+            version: 1,
+            servers: BTreeMap::from([
+                (
+                    "disabled".to_string(),
+                    mcp_catalog::ManagedMcpCatalogEntry {
+                        spec: json!({"type": "stdio", "command": "off"}),
+                        enabled: false,
+                        managed: true,
+                    },
+                ),
+                (
+                    "enabled".to_string(),
+                    mcp_catalog::ManagedMcpCatalogEntry {
+                        spec: json!({"type": "stdio", "command": "on"}),
+                        enabled: true,
+                        managed: true,
+                    },
+                ),
+            ]),
+            tombstones: BTreeSet::from(["removed".to_string()]),
+        };
+        let actions = RefCell::new(Vec::new());
+
+        mcp_sync::reconcile_catalog_for_agent_with(
+            &catalog,
+            false,
+            |id, _| {
+                actions.borrow_mut().push(format!("upsert:{id}"));
+                Ok(())
+            },
+            |id| {
+                actions.borrow_mut().push(format!("remove:{id}"));
+                Ok(false)
+            },
+        )
+        .expect("reconcile disabled agent");
+
+        assert!(actions.into_inner().is_empty());
+    }
+
+    #[tokio::test]
+    async fn managed_mcp_reconcile_unsupported_agent_is_noop() {
+        use crate::models::agent::AgentType;
+
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        mcp_catalog::load_or_import(&db.conn, || Ok(BTreeMap::new()))
+            .await
+            .expect("initialize empty catalog");
+
+        mcp_sync::reconcile_managed_mcp_for_agent(&db.conn, AgentType::OpenClaw, true)
+            .await
+            .expect("OpenClaw reconcile is a no-op");
+        mcp_sync::reconcile_managed_mcp_for_agent(&db.conn, AgentType::Pi, true)
+            .await
+            .expect("Pi reconcile is a no-op");
+    }
+
+    #[tokio::test]
+    async fn reconcile_all_managed_mcp_accepts_empty_catalog() {
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        mcp_catalog::load_or_import(&db.conn, || Ok(BTreeMap::new()))
+            .await
+            .expect("initialize empty catalog");
+
+        mcp_sync::reconcile_all_managed_mcp(&db.conn)
+            .await
+            .expect("reconcile empty catalog");
+    }
+
+    #[tokio::test]
+    async fn managed_scan_returns_disabled_catalog_entry() {
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        mcp_catalog::upsert_server(
+            &db.conn,
+            "disabled",
+            json!({"type": "stdio", "command": "server"}),
+            || Ok(BTreeMap::new()),
+        )
+        .await
+        .expect("seed catalog entry");
+        mcp_catalog::set_server_enabled(&db.conn, "disabled", false, || Ok(BTreeMap::new()))
+            .await
+            .expect("disable catalog entry");
+
+        let servers = mcp_scan_local_core(&db.conn)
+            .await
+            .expect("scan managed catalog");
+
+        let disabled = servers
+            .iter()
+            .find(|server| server.id == "disabled")
+            .expect("disabled managed server remains visible");
+        assert!(!disabled.enabled);
+    }
+
+    #[test]
+    fn managed_mcp_core_mutations_persist_enabled_state() {
+        with_private_agent_storage(|| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("test runtime");
+            runtime.block_on(async {
+                let db = crate::db::test_helpers::fresh_in_memory_db().await;
+                seed_all_agents_disabled(&db.conn).await;
+                let initial_spec = json!({"type": "stdio", "command": "market"});
+                let installed = mcp_install_from_marketplace_core(
+                    &db.conn,
+                    "test-provider".to_string(),
+                    "managed".to_string(),
+                    Some(initial_spec),
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .expect("install managed MCP");
+                assert!(installed.enabled);
+
+                let disabled = mcp_set_server_enabled_core(&db.conn, "managed".to_string(), false)
+                    .await
+                    .expect("disable managed MCP")
+                    .expect("managed MCP exists");
+                assert!(!disabled.enabled);
+
+                let edited_spec = json!({"type": "stdio", "command": "edited"});
+                let edited = mcp_upsert_local_server_core(
+                    &db.conn,
+                    "managed".to_string(),
+                    edited_spec.clone(),
+                )
+                .await
+                .expect("edit managed MCP");
+                assert!(!edited.enabled);
+                assert_eq!(edited.spec, edited_spec);
+
+                let legacy_enabled = mcp_set_server_apps_core(
+                    &db.conn,
+                    "managed".to_string(),
+                    vec![McpAppType::Codex],
+                )
+                .await
+                .expect("legacy non-empty apps enables server")
+                .expect("managed MCP exists");
+                assert!(legacy_enabled.enabled);
+                let legacy_disabled =
+                    mcp_set_server_apps_core(&db.conn, "managed".to_string(), Vec::new())
+                        .await
+                        .expect("legacy empty apps disables server")
+                        .expect("managed MCP exists");
+                assert!(!legacy_disabled.enabled);
+
+                assert!(mcp_remove_server_core(&db.conn, "managed".to_string())
+                    .await
+                    .expect("remove managed MCP"));
+                assert!(mcp_scan_local_core(&db.conn)
+                    .await
+                    .expect("scan empty catalog")
+                    .is_empty());
+            });
+        });
+    }
 
     #[test]
     fn mcp_profile_writes_require_initialized_private_storage() {
@@ -4445,6 +5132,53 @@ mod tests {
                     .contains("Agent storage is not initialized"));
             },
         );
+    }
+
+    #[test]
+    fn managed_mcp_atomic_write_replaces_existing_file_and_cleans_staging_file() {
+        let directory = tempfile::tempdir().expect("atomic MCP directory");
+        let path = directory.path().join("config.json");
+        fs::write(&path, b"old").expect("seed MCP config");
+
+        atomic_write_text(&path, b"new").expect("atomically replace MCP config");
+
+        assert_eq!(fs::read(&path).expect("read MCP config"), b"new");
+        let staging_files = fs::read_dir(directory.path())
+            .expect("list MCP directory")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".iyw-claw-mcp-")
+            })
+            .count();
+        assert_eq!(staging_files, 0);
+    }
+
+    #[test]
+    fn managed_mcp_secret_permissions_reject_group_or_world_access() {
+        assert!(!secret_permissions_are_too_open(0o600));
+        assert!(secret_permissions_are_too_open(0o640));
+        assert!(secret_permissions_are_too_open(0o604));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_mcp_atomic_write_preserves_symlink_and_replaces_its_target() {
+        let directory = tempfile::tempdir().expect("atomic MCP directory");
+        let target = directory.path().join("target.yaml");
+        let link = directory.path().join("config.yaml");
+        fs::write(&target, b"old").expect("seed MCP config target");
+        std::os::unix::fs::symlink(&target, &link).expect("link MCP config");
+
+        atomic_write_secret_text(&link, b"new").expect("replace linked MCP config target");
+
+        assert!(fs::symlink_metadata(&link)
+            .expect("read MCP link metadata")
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read(&target).expect("read MCP config target"), b"new");
     }
 
     #[test]
