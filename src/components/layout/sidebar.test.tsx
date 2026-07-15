@@ -171,7 +171,7 @@ describe("Sidebar — fixed action region", () => {
     const { findByText, getByText } = renderSidebar()
     await findByText("Not signed in")
 
-    fireEvent.click(getByText("Automations"))
+    fireEvent.click(getByText(enMessages.Folder.sidebar.automations))
     expect(spies.setRoute).toHaveBeenCalledWith("automations")
   })
 
