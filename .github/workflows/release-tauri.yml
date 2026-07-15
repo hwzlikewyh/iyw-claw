@@ -1,0 +1,227 @@
+name: Release Tauri Bundles
+
+on:
+  workflow_call:
+    inputs:
+      release_id:
+        required: true
+        type: string
+      release_tag:
+        required: true
+        type: string
+      release_body:
+        required: true
+        type: string
+      prerelease:
+        required: true
+        type: boolean
+
+env:
+  RUST_BACKTRACE: short
+  HUSKY: 0
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "macOS x64"
+            runner: "macos-latest"
+            target: "x86_64-apple-darwin"
+          - name: "macOS arm64"
+            runner: "macos-latest"
+            target: "aarch64-apple-darwin"
+          - name: "Linux x64"
+            runner: "ubuntu-22.04"
+            target: "x86_64-unknown-linux-gnu"
+          - name: "Linux arm64"
+            runner: "ubuntu-22.04"
+            target: "aarch64-unknown-linux-gnu"
+          - name: "Windows x64"
+            runner: "windows-2022"
+            target: "x86_64-pc-windows-msvc"
+          - name: "Windows arm64"
+            runner: "windows-latest"
+            target: "aarch64-pc-windows-msvc"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+
+      - name: Checkout release tooling
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-workflow
+          sparse-checkout: .github/scripts/release
+          sparse-checkout-cone-mode: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "pnpm"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          shared-key: ${{ matrix.target }}
+
+      - name: Install Linux x64 dependencies
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install Linux arm64 cross dependencies
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        shell: bash
+        run: bash .release-workflow/.github/scripts/release/setup-linux-arm64.sh desktop
+
+      - name: Verify Linux arm64 cross toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          command -v aarch64-linux-gnu-gcc
+          aarch64-linux-gnu-gcc -v
+          rustup target list --installed
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Stage iyw-claw-mcp sidecar
+        shell: bash
+        run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
+
+      - name: Verify iyw-claw-mcp sidecar
+        shell: bash
+        run: |
+          ext=""
+          case "${{ matrix.target }}" in
+            *windows*) ext=".exe" ;;
+          esac
+          file="src-tauri/binaries/iyw-claw-mcp-${{ matrix.target }}${ext}"
+          test -f "$file" || {
+            echo "::error::Sidecar $file is missing after prepare-sidecars"
+            exit 1
+          }
+          ls -la "$file"
+
+      - name: Import Apple Developer ID certificate
+        if: contains(matrix.target, 'apple-darwin')
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: bash .release-workflow/.github/scripts/release/import-apple-certificate.sh
+
+      - name: Resolve Apple Developer ID identity
+        if: contains(matrix.target, 'apple-darwin')
+        shell: bash
+        run: bash .release-workflow/.github/scripts/release/resolve-apple-identity.sh
+
+      - name: Build and upload Linux arm64
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ inputs.release_id }}
+          tagName: ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseDraft: true
+          prerelease: ${{ inputs.prerelease }}
+          tauriScript: pnpm tauri
+          args: --target ${{ matrix.target }} --bundles deb,rpm
+          includeUpdaterJson: false
+          retryAttempts: 2
+
+      - name: Build and upload Windows
+        if: contains(matrix.target, 'windows')
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ inputs.release_id }}
+          tagName: ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseDraft: true
+          prerelease: ${{ inputs.prerelease }}
+          tauriScript: pnpm tauri
+          args: --target ${{ matrix.target }} --bundles nsis
+          includeUpdaterJson: true
+          retryAttempts: 2
+
+      - name: Build and upload Linux x64
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ inputs.release_id }}
+          tagName: ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseDraft: true
+          prerelease: ${{ inputs.prerelease }}
+          tauriScript: pnpm tauri
+          args: --target ${{ matrix.target }} --bundles deb,rpm,appimage
+          includeUpdaterJson: true
+          retryAttempts: 2
+
+      - name: Build, sign, and upload macOS
+        if: contains(matrix.target, 'apple-darwin')
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          releaseId: ${{ inputs.release_id }}
+          tagName: ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseDraft: true
+          prerelease: ${{ inputs.prerelease }}
+          tauriScript: pnpm tauri
+          args: --target ${{ matrix.target }} --bundles app,dmg
+          includeUpdaterJson: true
+          retryAttempts: 2
+
+      - name: Delete Apple signing keychain
+        if: always() && contains(matrix.target, 'apple-darwin')
+        shell: bash
+        run: bash .release-workflow/.github/scripts/release/cleanup-apple-keychain.sh
