@@ -406,6 +406,10 @@ async fn async_main() -> ExitCode {
         {
             tracing::warn!("[managed-mcp] startup reconcile failed: {error}");
         }
+        match iyw_claw_lib::commands::internet_tools::bootstrap_core().await {
+            Ok(synced) => tracing::info!("[internet-tools] bootstrap ok: synced={synced}"),
+            Err(error) => tracing::warn!("[internet-tools] startup bootstrap failed: {error}"),
+        }
     });
 
     // Start chat channel background tasks (event subscriber, command dispatcher, scheduler, auto-connect)
