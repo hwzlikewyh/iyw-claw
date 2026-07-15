@@ -35,9 +35,18 @@ jobs:
           - name: "macOS arm64"
             runner: "macos-latest"
             target: "aarch64-apple-darwin"
+          - name: "Linux x64"
+            runner: "ubuntu-22.04"
+            target: "x86_64-unknown-linux-gnu"
+          - name: "Linux arm64"
+            runner: "ubuntu-22.04"
+            target: "aarch64-unknown-linux-gnu"
           - name: "Windows x64"
             runner: "windows-2022"
             target: "x86_64-pc-windows-msvc"
+          - name: "Windows 32-bit"
+            runner: "windows-2022"
+            target: "i686-pc-windows-msvc"
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -75,6 +84,29 @@ jobs:
           workspaces: "./src-tauri -> target"
           shared-key: ${{ matrix.target }}
 
+      - name: Install Linux x64 dependencies
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install Linux arm64 cross dependencies
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        shell: bash
+        run: bash .release-workflow/.github/scripts/release/setup-linux-arm64.sh desktop
+
+      - name: Verify Linux arm64 cross toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          command -v aarch64-linux-gnu-gcc
+          aarch64-linux-gnu-gcc -v
+          rustup target list --installed
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
@@ -96,6 +128,25 @@ jobs:
           }
           ls -la "$file"
 
+      - name: Build and upload Linux arm64
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ inputs.release_id }}
+          tagName: ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseDraft: true
+          prerelease: ${{ inputs.prerelease }}
+          tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
+          args: --target ${{ matrix.target }} --bundles deb,rpm
+          includeUpdaterJson: false
+          retryAttempts: 2
+
       - name: Build and upload Windows
         if: contains(matrix.target, 'windows')
         uses: tauri-apps/tauri-action@v0.6.1
@@ -110,8 +161,27 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
-          tauriScript: pnpm tauri
+          tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
           args: --target ${{ matrix.target }} --bundles nsis
+          includeUpdaterJson: true
+          retryAttempts: 2
+
+      - name: Build and upload Linux x64
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ inputs.release_id }}
+          tagName: ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseDraft: true
+          prerelease: ${{ inputs.prerelease }}
+          tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
+          args: --target ${{ matrix.target }} --bundles deb,rpm,appimage
           includeUpdaterJson: true
           retryAttempts: 2
 
@@ -129,7 +199,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
-          tauriScript: pnpm tauri
+          tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
           args: --target ${{ matrix.target }} --bundles app,dmg
           includeUpdaterJson: true
           retryAttempts: 2
