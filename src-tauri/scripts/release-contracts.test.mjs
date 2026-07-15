@@ -42,16 +42,18 @@ test("Windows x86 runtime assets are pinned end to end", () => {
     hooks,
     /IYW_CLAW_PREPARE_MANAGED_NODE_SCRIPT\}"[^\r\n]+-Version "\$\{IYW_CLAW_MANAGED_NODE_VERSION\}"/
   )
-  assert.match(
-    hooks,
-    /install-managed-node\.ps1" -Architecture "\$\{ARCH\}"/
-  )
+  assert.match(hooks, /install-managed-node\.ps1" -Architecture "\$\{ARCH\}"/)
   assert.match(
     hooks,
     /install-managed-node[^\r\n]+-Version "\$\{IYW_CLAW_MANAGED_NODE_VERSION\}"/
   )
-  assert.match(
-    hooks,
-    /install-managed-git\.ps1" -Architecture "\$\{ARCH\}"/
-  )
+  assert.match(hooks, /install-managed-git\.ps1" -Architecture "\$\{ARCH\}"/)
+})
+
+test("Linux arm64 setup uses resilient apt transport", () => {
+  const setup = read(".github/scripts/release/setup-linux-arm64.sh")
+
+  assert.doesNotMatch(setup, /^deb .*http:\/\//m)
+  assert.match(setup, /Acquire::ForceIPv4/)
+  assert.match(setup, /Acquire::Retries/)
 })
