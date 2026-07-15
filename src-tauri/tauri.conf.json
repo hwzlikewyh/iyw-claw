@@ -46,9 +46,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ4OEM3NkMyMTVENjdBODgKUldTSWV0WVZ3bmFNU0NnSzhpdFg2bXFmMHFidWd1eWpuZ2Y2WmU5QmVXdWVrU0ZpOCt2dnd6WW4K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUyMEM0ODREQTFDNERDMkMKUldRczNNU2hUVWdNVXFKSWdqNU56QkkvRVp5REpjalBuSUdnek5VdUJ2ZDIxcXRWMTUyT2pGOVgK",
       "endpoints": [
-        "https://github.com/xintaofei/iyw-claw/releases/latest/download/latest.json"
+        "https://github.com/hwzlikewyh/iyw-claw/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

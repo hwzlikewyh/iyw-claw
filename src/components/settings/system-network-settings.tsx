@@ -504,7 +504,7 @@ export function SystemNetworkSettings() {
                     size="sm"
                     onClick={() =>
                       openUrl(
-                        "https://github.com/xintaofei/iyw-claw/releases/latest"
+                        "https://github.com/hwzlikewyh/iyw-claw/releases/latest"
                       )
                     }
                   >

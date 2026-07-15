@@ -20,22 +20,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: "Linux x64"
-            runner: "ubuntu-22.04"
-            target: "x86_64-unknown-linux-gnu"
-            artifact: "iyw-claw-server-linux-x64"
-          - name: "Linux arm64"
-            runner: "ubuntu-22.04"
-            target: "aarch64-unknown-linux-gnu"
-            artifact: "iyw-claw-server-linux-arm64"
-          - name: "macOS x64"
-            runner: "macos-latest"
-            target: "x86_64-apple-darwin"
-            artifact: "iyw-claw-server-darwin-x64"
-          - name: "macOS arm64"
-            runner: "macos-latest"
-            target: "aarch64-apple-darwin"
-            artifact: "iyw-claw-server-darwin-arm64"
           - name: "Windows x64"
             runner: "windows-2022"
             target: "x86_64-pc-windows-msvc"
@@ -45,14 +29,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.release_tag }}
-
-      - name: Checkout release tooling
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          path: .release-workflow
-          sparse-checkout: .github/scripts/release
-          sparse-checkout-cone-mode: false
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -64,11 +40,6 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
           shared-key: server-${{ matrix.target }}
-
-      - name: Install Linux arm64 cross compiler
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        shell: bash
-        run: bash .release-workflow/.github/scripts/release/setup-linux-arm64.sh server
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -103,21 +74,7 @@ jobs:
             --features mcp-runtime \
             --target ${{ matrix.target }}
 
-      - name: Package Unix archive
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          package="dist/${{ matrix.artifact }}"
-          mkdir -p "$package"
-          cp "src-tauri/target/${{ matrix.target }}/release/iyw-claw-server" "$package/"
-          cp "src-tauri/target/${{ matrix.target }}/release/iyw-claw-mcp" "$package/"
-          chmod +x "$package/iyw-claw-server" "$package/iyw-claw-mcp"
-          cp -r out "$package/web"
-          tar -C dist -czf "dist/${{ matrix.artifact }}.tar.gz" "${{ matrix.artifact }}"
-
       - name: Package Windows archive
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $package = "dist/${{ matrix.artifact }}"
@@ -127,28 +84,7 @@ jobs:
           Copy-Item -Recurse out "$package/web"
           Compress-Archive -Path $package -DestinationPath "$package.zip"
 
-      - name: Smoke test Unix package
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          server="dist/${{ matrix.artifact }}/iyw-claw-server"
-          companion="dist/${{ matrix.artifact }}/iyw-claw-mcp"
-          test -x "$server"
-          test -x "$companion"
-
-          host_arch=$(uname -m)
-          case "${{ matrix.target }}:$host_arch" in
-            x86_64-unknown-linux-gnu:x86_64|x86_64-apple-darwin:x86_64|aarch64-apple-darwin:arm64)
-              "$companion" --help | grep -F 'iyw-claw-mcp --parent-connection-id'
-              ;;
-            *)
-              echo "Skipping executable smoke test for ${{ matrix.target }} on $host_arch"
-              ;;
-          esac
-
       - name: Smoke test Windows package
-        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $server = "dist/${{ matrix.artifact }}/iyw-claw-server.exe"
@@ -164,24 +100,7 @@ jobs:
             throw "iyw-claw-mcp --help output unexpected: $help"
           }
 
-      - name: Sign and checksum Unix archive
-        if: runner.os != 'Windows'
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          archive="dist/${{ matrix.artifact }}.tar.gz"
-          pnpm tauri signer sign "$archive"
-          test -f "$archive.sig"
-          (
-            cd dist
-            shasum -a 256 "${{ matrix.artifact }}.tar.gz" > "${{ matrix.artifact }}.tar.gz.sha256"
-          )
-
       - name: Sign and checksum Windows archive
-        if: runner.os == 'Windows'
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -195,20 +114,7 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
           "$hash  ${{ matrix.artifact }}.zip" | Out-File -Encoding ascii "$archive.sha256"
 
-      - name: Upload Unix release assets
-        if: runner.os != 'Windows'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          gh release upload "${{ inputs.release_tag }}" \
-            "dist/${{ matrix.artifact }}.tar.gz" \
-            "dist/${{ matrix.artifact }}.tar.gz.sig" \
-            "dist/${{ matrix.artifact }}.tar.gz.sha256" \
-            --clobber
-
       - name: Upload Windows release assets
-        if: runner.os == 'Windows'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
