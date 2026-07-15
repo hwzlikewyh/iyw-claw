@@ -8,8 +8,24 @@
 
 !define IYW_CLAW_INSTALL_REGISTRY_KEY "Software\iywclaw\iyw-claw"
 !define IYW_CLAW_NODE_VERSION "24.0.0"
+!define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
 
 Var IywClawRoot
+
+Function IywClawRestoreLogicalInstallRoot
+  ; Older installers persisted root\app as MUI's default directory while the
+  ; product-specific InstallRoot value already held the user-selected root.
+  ; Correct only the directory-page value; POSTINSTALL persists it after the
+  ; old uninstaller has finished using its internal root\app working directory.
+  ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
+  StrCmp $R8 "" iyw_guiinit_done 0
+  GetFullPathName $R9 "$R8\app"
+  GetFullPathName $R7 "$INSTDIR"
+  StrCmp $R7 $R9 0 iyw_guiinit_done
+  GetFullPathName $INSTDIR "$R8"
+
+  iyw_guiinit_done:
+FunctionEnd
 
 Function IywClawResolveInstallRoot
   ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
@@ -67,6 +83,11 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; Tauri persists the internal app directory as the next installer location.
+  ; Expose the logical root in the directory page while keeping binaries
+  ; isolated below root\app.
+  WriteRegStr SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "" "$IywClawRoot"
+
   ; ARCH is defined by Tauri's generated installer.nsi after this hook is
   ; included, so resolve architecture-specific assets when this macro expands.
   !if "${ARCH}" == "x64"
@@ -123,7 +144,13 @@ FunctionEnd
   StrCmp $IywClawRoot "" iyw_uninstall_done 0
   GetFullPathName $R8 "$IywClawRoot\app"
   GetFullPathName $R9 "$INSTDIR"
-  StrCmp $R8 $R9 iyw_remove_managed_dirs iyw_uninstall_done
+  StrCmp $R8 $R9 iyw_remove_managed_dirs 0
+  GetFullPathName $R7 "$IywClawRoot"
+  StrCmp $R9 $R7 iyw_uninstall_from_root iyw_uninstall_done
+
+  iyw_uninstall_from_root:
+    StrCpy $INSTDIR "$IywClawRoot\app"
+    SetOutPath "$INSTDIR"
 
   iyw_remove_managed_dirs:
     DetailPrint "正在删除可重建的私有运行环境..."

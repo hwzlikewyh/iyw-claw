@@ -17,6 +17,10 @@ import {
   type SettingsSection,
 } from "./settings-navigation"
 import { TurnBusyError, isTurnInProgressRejection } from "./turn-busy"
+import {
+  localFileReferenceForPrompt,
+  rewriteFileReferencesForPrompt,
+} from "./reference-link"
 import type { FolderThemeColor } from "./theme-presets"
 import type { UsageDashboardStats } from "./usage-stats"
 import type {
@@ -187,10 +191,22 @@ export async function acpPrompt(
   conversationId: number | null = null,
   clientMessageId: string | null = null
 ): Promise<void> {
+  const agentBlocks = blocks.flatMap((block): PromptInputBlock[] => {
+    if (block.type === "text") {
+      return [
+        { type: "text", text: rewriteFileReferencesForPrompt(block.text) },
+      ]
+    }
+    if (block.type === "resource_link") {
+      const text = localFileReferenceForPrompt(block.uri)
+      if (text) return [{ type: "text", text }]
+    }
+    return [block]
+  })
   try {
     await getTransport().call("acp_prompt", {
       connectionId,
-      blocks,
+      blocks: agentBlocks,
       folderId,
       conversationId,
       clientMessageId,
@@ -2149,6 +2165,29 @@ export async function stageLocalChatAttachment(
   return result.path
 }
 
+async function stageLocalChatAttachmentFile(
+  file: File,
+  sessionId?: string | null,
+  chatDir?: string | null
+): Promise<UploadAttachmentResult> {
+  const dataBase64 = arrayBufferToBase64(await file.arrayBuffer())
+  const result = await getShellTransport().call<{ path: string }>(
+    "stage_chat_attachment_bytes",
+    {
+      chatDir: chatDir ?? null,
+      sessionId: sessionId ?? null,
+      fileName: file.name,
+      dataBase64,
+    }
+  )
+  return {
+    path: result.path,
+    name: file.name,
+    size: file.size,
+    mimeType: file.type || null,
+  }
+}
+
 // Upload a single attachment to the server.
 //
 // Web mode: streams the file via multipart/form-data to the same origin the
@@ -2159,7 +2198,8 @@ export async function stageLocalChatAttachment(
 // it as a `file://` ResourceLink — identical shape on both transports.
 export async function uploadAttachment(
   file: File,
-  sessionId?: string | null
+  sessionId?: string | null,
+  chatDir?: string | null
 ): Promise<UploadAttachmentResult> {
   if (file.size === 0) {
     // Skip empty files at the entry — both the web and remote-desktop
@@ -2186,6 +2226,9 @@ export async function uploadAttachment(
         dataBase64: arrayBufferToBase64(buf),
       }
     )
+  }
+  if (isDesktop()) {
+    return stageLocalChatAttachmentFile(file, sessionId, chatDir)
   }
 
   const token = getIywClawToken()

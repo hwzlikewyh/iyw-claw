@@ -6011,6 +6011,45 @@ pub(crate) async fn acp_update_agent_preferences_and_refresh(
     .await)
 }
 
+pub(crate) async fn ensure_acp_working_dir(
+    data_dir: &Path,
+    working_dir: Option<&str>,
+) -> Result<(), AcpError> {
+    let Some(raw) = working_dir.filter(|value| !value.trim().is_empty()) else {
+        return Ok(());
+    };
+    let path = PathBuf::from(raw);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir().unwrap_or_default().join(path)
+    };
+    if path.is_dir() {
+        return Ok(());
+    }
+    if path.exists() {
+        return Err(AcpError::SpawnFailed(format!(
+            "working directory is not a directory: {}",
+            path.display()
+        )));
+    }
+    if crate::commands::chat_attachments::is_managed_chat_dir(data_dir, &path) {
+        crate::commands::chat_attachments::ensure_managed_chat_dir(data_dir, &path)
+            .await
+            .map_err(|error| {
+                AcpError::SpawnFailed(format!(
+                    "failed to restore managed Chat working directory {}: {error}",
+                    path.display()
+                ))
+            })?;
+        return Ok(());
+    }
+    Err(AcpError::SpawnFailed(format!(
+        "working directory does not exist: {}",
+        path.display()
+    )))
+}
+
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 #[allow(clippy::too_many_arguments)]
@@ -6035,6 +6074,7 @@ pub async fn acp_connect(
         .app_data_dir()
         .map(|p| crate::paths::resolve_effective_data_dir(&p))
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    ensure_acp_working_dir(&app_data_dir, working_dir.as_deref()).await?;
     let runtime_env =
         build_session_runtime_env(&db, agent_type, session_id.as_deref(), &app_data_dir).await?;
 

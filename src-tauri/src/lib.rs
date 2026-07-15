@@ -780,6 +780,7 @@ mod tauri_app {
                 conversations::create_chat_conversation,
                 conversations::create_chat_dir,
                 chat_attachment_commands::stage_chat_attachment,
+                chat_attachment_commands::stage_chat_attachment_bytes,
                 conversations::update_conversation_status,
                 conversations::update_conversation_title,
                 conversations::update_conversation_pinned,

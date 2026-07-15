@@ -62,6 +62,10 @@ pub async fn acp_connect(
     let db = &state.db;
     let manager = &state.connection_manager;
 
+    acp_commands::ensure_acp_working_dir(&state.data_dir, params.working_dir.as_deref())
+        .await
+        .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+
     let runtime_env = acp_commands::build_session_runtime_env(
         db,
         params.agent_type,

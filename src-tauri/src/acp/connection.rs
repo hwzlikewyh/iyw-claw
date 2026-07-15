@@ -6397,7 +6397,7 @@ mod tests {
     // iyw-claw-mcp stdio MCP out of every ACP session until the user
     // opts in via the settings panel.
     #[tokio::test]
-    async fn inject_IYW_CLAW_delegate_skipped_when_broker_disabled() {
+    async fn inject_iyw_claw_delegate_skipped_when_broker_disabled() {
         use crate::acp::delegation::broker::{ConversationDepthLookup, DelegationBroker};
         use crate::acp::delegation::listener::TokenRegistry;
         use crate::acp::delegation::spawner::{mock::MockSpawner, ConnectionSpawner};

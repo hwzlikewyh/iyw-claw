@@ -1,25 +1,32 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Eye, EyeOff, KeyRound, Loader2, Save, Trash2 } from "lucide-react"
+import { Loader2, Save } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import {
-  deleteChatNaturalRouterApiKey,
   getChatCommandPrefix,
   getChatNaturalRouterConfig,
-  saveChatNaturalRouterApiKey,
   setChatCommandPrefix,
   setChatNaturalRouterConfig,
 } from "@/lib/api"
-import type {
-  ChatNaturalRouterConfig,
-  ChatNaturalRouterConfigInput,
+import {
+  MANAGED_DEFAULT_MODEL,
+  MANAGED_MODEL_OPTIONS,
+  type ChatNaturalRouterConfig,
+  type ChatNaturalRouterConfigInput,
 } from "@/lib/types"
 
 const BUILT_IN_COMMANDS = [
@@ -38,9 +45,9 @@ const BUILT_IN_COMMANDS = [
 ] as const
 
 const DEFAULT_ROUTER_CONFIG: ChatNaturalRouterConfig = {
-  enabled: false,
-  apiUrl: "https://api.openai.com/v1/chat/completions",
-  model: "gpt-4o-mini",
+  enabled: true,
+  apiUrl: "",
+  model: MANAGED_DEFAULT_MODEL,
   timeoutMs: 6000,
   minConfidence: 0.72,
   hasApiKey: false,
@@ -56,12 +63,9 @@ export function ChannelCommandsTab() {
   const [routerDraft, setRouterDraft] = useState<ChatNaturalRouterConfigInput>(
     DEFAULT_ROUTER_CONFIG
   )
-  const [apiKey, setApiKey] = useState("")
-  const [showApiKey, setShowApiKey] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [routerSaving, setRouterSaving] = useState(false)
-  const [keySaving, setKeySaving] = useState(false)
 
   useEffect(() => {
     Promise.allSettled([getChatCommandPrefix(), getChatNaturalRouterConfig()])
@@ -110,21 +114,9 @@ export function ChannelCommandsTab() {
   const handleSaveRouter = useCallback(async () => {
     const next = {
       ...routerDraft,
-      apiUrl: routerDraft.apiUrl.trim(),
       model: routerDraft.model.trim(),
-      timeoutMs: Number(routerDraft.timeoutMs),
-      minConfidence: Number(routerDraft.minConfidence),
     }
-    if (
-      !next.apiUrl ||
-      !next.model ||
-      !Number.isFinite(next.timeoutMs) ||
-      next.timeoutMs < 1000 ||
-      next.timeoutMs > 30000 ||
-      !Number.isFinite(next.minConfidence) ||
-      next.minConfidence < 0 ||
-      next.minConfidence > 1
-    ) {
+    if (!MANAGED_MODEL_OPTIONS.some((model) => model === next.model)) {
       toast.error(t("routerConfigInvalid"))
       return
     }
@@ -145,45 +137,10 @@ export function ChannelCommandsTab() {
     }
   }, [routerDraft, t])
 
-  const handleSaveApiKey = useCallback(async () => {
-    const token = apiKey.trim()
-    if (!token) {
-      toast.error(t("routerApiKeyEmpty"))
-      return
-    }
-    setKeySaving(true)
-    try {
-      await saveChatNaturalRouterApiKey(token)
-      setApiKey("")
-      setRouterConfig((current) => ({ ...current, hasApiKey: true }))
-      toast.success(t("routerApiKeySaved"))
-    } catch {
-      toast.error(t("routerApiKeySaveFailed"))
-    } finally {
-      setKeySaving(false)
-    }
-  }, [apiKey, t])
-
-  const handleDeleteApiKey = useCallback(async () => {
-    setKeySaving(true)
-    try {
-      await deleteChatNaturalRouterApiKey()
-      setRouterConfig((current) => ({ ...current, hasApiKey: false }))
-      toast.success(t("routerApiKeyDeleted"))
-    } catch {
-      toast.error(t("routerApiKeyDeleteFailed"))
-    } finally {
-      setKeySaving(false)
-    }
-  }, [t])
-
   const dirty = inputPrefix !== prefix
   const routerDirty =
     routerDraft.enabled !== routerConfig.enabled ||
-    routerDraft.apiUrl !== routerConfig.apiUrl ||
-    routerDraft.model !== routerConfig.model ||
-    routerDraft.timeoutMs !== routerConfig.timeoutMs ||
-    routerDraft.minConfidence !== routerConfig.minConfidence
+    routerDraft.model !== routerConfig.model
 
   if (loading) {
     return (
@@ -221,79 +178,32 @@ export function ChannelCommandsTab() {
           />
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="chat-router-api-url" className="text-xs">
-              {t("routerApiUrlLabel")}
-            </Label>
-            <Input
-              id="chat-router-api-url"
-              value={routerDraft.apiUrl}
-              placeholder={t("routerApiUrlPlaceholder")}
-              onChange={(e) =>
-                setRouterDraft((current) => ({
-                  ...current,
-                  apiUrl: e.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
+        <div className="flex items-end gap-2">
+          <div className="min-w-0 flex-1 space-y-1.5">
             <Label htmlFor="chat-router-model" className="text-xs">
               {t("routerModelLabel")}
             </Label>
-            <Input
-              id="chat-router-model"
+            <Select
               value={routerDraft.model}
-              onChange={(e) =>
+              onValueChange={(model) =>
                 setRouterDraft((current) => ({
                   ...current,
-                  model: e.target.value,
+                  model,
                 }))
               }
-            />
+            >
+              <SelectTrigger id="chat-router-model" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {MANAGED_MODEL_OPTIONS.map((model) => (
+                  <SelectItem key={model} value={model}>
+                    {model}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="chat-router-timeout" className="text-xs">
-              {t("routerTimeoutLabel")}
-            </Label>
-            <Input
-              id="chat-router-timeout"
-              type="number"
-              min={1000}
-              max={30000}
-              step={500}
-              value={routerDraft.timeoutMs}
-              onChange={(e) =>
-                setRouterDraft((current) => ({
-                  ...current,
-                  timeoutMs: Number(e.target.value),
-                }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="chat-router-confidence" className="text-xs">
-              {t("routerConfidenceLabel")}
-            </Label>
-            <Input
-              id="chat-router-confidence"
-              type="number"
-              min={0}
-              max={1}
-              step={0.01}
-              value={routerDraft.minConfidence}
-              onChange={(e) =>
-                setRouterDraft((current) => ({
-                  ...current,
-                  minConfidence: Number(e.target.value),
-                }))
-              }
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
           <Button
             size="sm"
             disabled={!routerDirty || routerSaving}
@@ -306,62 +216,6 @@ export function ChannelCommandsTab() {
             )}
             {t("save")}
           </Button>
-          <span className="text-xs text-muted-foreground">
-            {routerConfig.hasApiKey
-              ? t("routerApiKeyStored")
-              : t("routerApiKeyMissing")}
-          </span>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="chat-router-api-key" className="text-xs">
-            {t("routerApiKeyLabel")}
-          </Label>
-          <div className="flex items-center gap-2">
-            <div className="relative min-w-0 flex-1">
-              <Input
-                id="chat-router-api-key"
-                type={showApiKey ? "text" : "password"}
-                value={apiKey}
-                placeholder={t("routerApiKeyPlaceholder")}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="pr-9"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2"
-                onClick={() => setShowApiKey((value) => !value)}
-                aria-label={t("routerApiKeyToggle")}
-              >
-                {showApiKey ? (
-                  <EyeOff className="h-3.5 w-3.5" />
-                ) : (
-                  <Eye className="h-3.5 w-3.5" />
-                )}
-              </Button>
-            </div>
-            <Button size="sm" disabled={keySaving} onClick={handleSaveApiKey}>
-              {keySaving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <KeyRound className="h-3.5 w-3.5 mr-1" />
-              )}
-              {t("routerApiKeySave")}
-            </Button>
-            {routerConfig.hasApiKey && (
-              <Button
-                size="icon"
-                variant="outline"
-                disabled={keySaving}
-                onClick={handleDeleteApiKey}
-                aria-label={t("routerApiKeyDelete")}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            )}
-          </div>
         </div>
       </section>
 

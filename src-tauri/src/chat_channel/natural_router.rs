@@ -193,9 +193,7 @@ fn text_matches_folder(text: &str, name: &str, path: &str) -> bool {
 }
 
 fn path_basename(path: &str) -> Option<&str> {
-    path.split(['/', '\\'])
-        .filter(|part| !part.is_empty())
-        .next_back()
+    path.split(['/', '\\']).rfind(|part| !part.is_empty())
 }
 
 async fn start_task_from_available_context(

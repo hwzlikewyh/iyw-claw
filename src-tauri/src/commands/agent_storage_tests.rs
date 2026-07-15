@@ -49,7 +49,7 @@ async fn uninitialized_status_returns_suggestion_without_active_root() {
     assert_eq!(status.active_root, None);
     assert_eq!(
         status.suggested_root,
-        Some(PathBuf::from("D:/Apps/iyw-claw-data"))
+        Some(PathBuf::from("D:/Apps/iyw-claw"))
     );
     assert!(!status.restart_required);
 }

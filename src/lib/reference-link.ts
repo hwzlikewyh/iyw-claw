@@ -79,6 +79,75 @@ export function buildFileUriWithRange(
   return range ? `${base}#${lineRangeFragment(range)}` : base
 }
 
+function unwrapLinkDestination(destination: string): string {
+  const raw =
+    destination.startsWith("<") && destination.endsWith(">")
+      ? destination.slice(1, -1)
+      : destination
+  return raw.replace(/\\([\\<>])/g, "$1")
+}
+
+function fileUriToPromptPath(uri: string): string | null {
+  if (!/^file:\/\//i.test(uri)) return null
+  let parsed: URL
+  try {
+    parsed = new URL(uri)
+  } catch {
+    return null
+  }
+
+  let path: string
+  try {
+    const pathname = decodeURIComponent(parsed.pathname)
+    if (parsed.host) {
+      path = `\\\\${decodeURIComponent(parsed.host)}${pathname.replace(/\//g, "\\")}`
+    } else if (/^\/[a-zA-Z]:[\\/]/.test(pathname)) {
+      path = pathname.slice(1).replace(/\//g, "\\")
+    } else {
+      path = pathname
+    }
+  } catch {
+    return null
+  }
+
+  return `${path}${parsed.search}${parsed.hash}`.replace(/[\r\n]+/g, " ")
+}
+
+function inlineCode(text: string): string {
+  const longest = Math.max(
+    0,
+    ...(text.match(/`+/g)?.map((run) => run.length) ?? [])
+  )
+  const fence = "`".repeat(longest + 1)
+  const padding = /^[`\s]|[`\s]$/.test(text) ? " " : ""
+  return `${fence}${padding}${text}${padding}${fence}`
+}
+
+/**
+ * Describe a local file as an ordinary filesystem path. ACP ResourceLinks and
+ * `file://` markdown links can be mistaken for MCP resources by an agent; this
+ * wording makes the intended reader explicit without carrying the file bytes.
+ */
+export function localFileReferenceForPrompt(uri: string): string | null {
+  const path = fileUriToPromptPath(unwrapLinkDestination(uri))
+  return path
+    ? `Local file path (use filesystem tools, not MCP resources): ${inlineCode(path)}`
+    : null
+}
+
+/** Replace only `file://` markdown links, preserving all other prompt text. */
+export function rewriteFileReferencesForPrompt(text: string): string {
+  let output = ""
+  for (const token of tokenizeReferenceLinks(text)) {
+    if (token.type === "text") {
+      output += token.value
+      continue
+    }
+    output += localFileReferenceForPrompt(token.destination) ?? token.raw
+  }
+  return output
+}
+
 /**
  * The badge label for a file selection: `foo.ts` with no range, `foo.ts:10` for
  * a single line, `foo.ts:10-25` for a span — matching how mainstream editors

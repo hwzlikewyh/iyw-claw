@@ -4,22 +4,19 @@ use reqwest::Url;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
+use crate::acp::provider_overlay::{
+    model_gateway_base_url_for, MANAGED_DEFAULT_MODEL, MANAGED_MODEL_IDS,
+};
 use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
+use crate::models::agent::AgentType;
 
 const ENABLED_KEY: &str = "chat_natural_router_enabled";
-const API_URL_KEY: &str = "chat_natural_router_api_url";
 const MODEL_KEY: &str = "chat_natural_router_model";
-const TIMEOUT_MS_KEY: &str = "chat_natural_router_timeout_ms";
-const MIN_CONFIDENCE_KEY: &str = "chat_natural_router_min_confidence";
 
-const DEFAULT_ENABLED: bool = false;
-const DEFAULT_API_URL: &str = "https://api.openai.com/v1/chat/completions";
-const DEFAULT_MODEL: &str = "gpt-4o-mini";
+const DEFAULT_ENABLED: bool = true;
 const DEFAULT_TIMEOUT_MS: u64 = 6000;
 const DEFAULT_MIN_CONFIDENCE: f32 = 0.72;
-const MIN_TIMEOUT_MS: u64 = 1000;
-const MAX_TIMEOUT_MS: u64 = 30000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -55,18 +52,24 @@ pub async fn get_chat_natural_router_config(
     db: &DatabaseConnection,
 ) -> Result<ChatNaturalRouterConfig, AppCommandError> {
     let enabled = metadata_bool(db, ENABLED_KEY, DEFAULT_ENABLED).await?;
-    let api_url = metadata_string(db, API_URL_KEY, DEFAULT_API_URL).await?;
-    let model = metadata_string(db, MODEL_KEY, DEFAULT_MODEL).await?;
-    let timeout_ms = metadata_u64(db, TIMEOUT_MS_KEY, DEFAULT_TIMEOUT_MS).await?;
-    let min_confidence = metadata_f32(db, MIN_CONFIDENCE_KEY, DEFAULT_MIN_CONFIDENCE).await?;
+    let api_url = normalize_chat_completions_url(&model_gateway_base_url_for(AgentType::Codex))?;
+    let stored_model = metadata_string(db, MODEL_KEY, MANAGED_DEFAULT_MODEL).await?;
+    let model = if MANAGED_MODEL_IDS.contains(&stored_model.as_str()) {
+        stored_model
+    } else {
+        MANAGED_DEFAULT_MODEL.to_string()
+    };
+    let has_api_key = crate::commands::iyw_account::iyw_account_access_token_core(db)
+        .await?
+        .is_some();
 
     Ok(ChatNaturalRouterConfig {
         enabled,
         api_url,
         model,
-        timeout_ms,
-        min_confidence,
-        has_api_key: crate::keyring_store::get_chat_router_token().is_some(),
+        timeout_ms: DEFAULT_TIMEOUT_MS,
+        min_confidence: DEFAULT_MIN_CONFIDENCE,
+        has_api_key,
     })
 }
 
@@ -74,38 +77,17 @@ pub async fn set_chat_natural_router_config(
     db: &DatabaseConnection,
     input: ChatNaturalRouterConfigInput,
 ) -> Result<(), AppCommandError> {
-    let api_url = normalize_chat_completions_url(&input.api_url)?;
     let model = input.model.trim();
-    if model.is_empty() {
+    if !MANAGED_MODEL_IDS.contains(&model) {
         return Err(AppCommandError::invalid_input(
-            "Router model must not be empty",
-        ));
-    }
-    if !(MIN_TIMEOUT_MS..=MAX_TIMEOUT_MS).contains(&input.timeout_ms) {
-        return Err(AppCommandError::invalid_input(format!(
-            "Router timeout must be between {MIN_TIMEOUT_MS} and {MAX_TIMEOUT_MS} ms"
-        )));
-    }
-    if !input.min_confidence.is_finite() || input.min_confidence < 0.0 || input.min_confidence > 1.0
-    {
-        return Err(AppCommandError::invalid_input(
-            "Router confidence must be between 0 and 1",
+            "Router model must be one of the managed Agent models",
         ));
     }
 
     app_metadata_service::upsert_value(db, ENABLED_KEY, bool_string(input.enabled))
         .await
         .map_err(AppCommandError::from)?;
-    app_metadata_service::upsert_value(db, API_URL_KEY, &api_url)
-        .await
-        .map_err(AppCommandError::from)?;
     app_metadata_service::upsert_value(db, MODEL_KEY, model)
-        .await
-        .map_err(AppCommandError::from)?;
-    app_metadata_service::upsert_value(db, TIMEOUT_MS_KEY, &input.timeout_ms.to_string())
-        .await
-        .map_err(AppCommandError::from)?;
-    app_metadata_service::upsert_value(db, MIN_CONFIDENCE_KEY, &input.min_confidence.to_string())
         .await
         .map_err(AppCommandError::from)?;
 
@@ -134,7 +116,10 @@ pub async fn get_runtime_config(
         return Ok(None);
     }
 
-    let Some(api_key) = crate::keyring_store::get_chat_router_token() else {
+    let api_key = crate::commands::iyw_account::iyw_account_access_token_core(db)
+        .await?
+        .map(|token| token.expose().to_string());
+    let Some(api_key) = api_key else {
         tracing::warn!("[ChatChannel] natural router enabled but API key is missing");
         return Ok(None);
     };
@@ -184,39 +169,6 @@ async fn metadata_bool(
     ))
 }
 
-async fn metadata_u64(
-    db: &DatabaseConnection,
-    key: &str,
-    default: u64,
-) -> Result<u64, AppCommandError> {
-    let Some(value) = app_metadata_service::get_value(db, key)
-        .await
-        .map_err(AppCommandError::from)?
-    else {
-        return Ok(default);
-    };
-    Ok(value.trim().parse().unwrap_or(default))
-}
-
-async fn metadata_f32(
-    db: &DatabaseConnection,
-    key: &str,
-    default: f32,
-) -> Result<f32, AppCommandError> {
-    let Some(value) = app_metadata_service::get_value(db, key)
-        .await
-        .map_err(AppCommandError::from)?
-    else {
-        return Ok(default);
-    };
-    let parsed = value.trim().parse().unwrap_or(default);
-    if parsed.is_finite() {
-        Ok(parsed)
-    } else {
-        Ok(default)
-    }
-}
-
 fn normalize_chat_completions_url(raw: &str) -> Result<String, AppCommandError> {
     let trimmed = raw.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -236,7 +188,11 @@ fn normalize_chat_completions_url(raw: &str) -> Result<String, AppCommandError> 
         return Ok(parsed.to_string().trim_end_matches('/').to_string());
     }
 
-    Ok(format!("{trimmed}/chat/completions"))
+    if parsed.path().trim_end_matches('/').ends_with("/v1") {
+        Ok(format!("{trimmed}/chat/completions"))
+    } else {
+        Ok(format!("{trimmed}/v1/chat/completions"))
+    }
 }
 
 #[cfg(test)]
@@ -249,6 +205,10 @@ mod tests {
         assert_eq!(
             normalize_chat_completions_url("https://api.openai.com/v1").unwrap(),
             "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            normalize_chat_completions_url("https://gateway.example/api").unwrap(),
+            "https://gateway.example/api/v1/chat/completions"
         );
         assert_eq!(
             normalize_chat_completions_url("https://openrouter.ai/api/v1/chat/completions")
@@ -268,9 +228,12 @@ mod tests {
         let default = get_chat_natural_router_config(&db.conn)
             .await
             .expect("get default");
-        assert!(!default.enabled);
-        assert_eq!(default.api_url, DEFAULT_API_URL);
-        assert_eq!(default.model, DEFAULT_MODEL);
+        assert!(default.enabled);
+        assert_eq!(
+            default.api_url,
+            normalize_chat_completions_url(&model_gateway_base_url_for(AgentType::Codex)).unwrap()
+        );
+        assert_eq!(default.model, MANAGED_DEFAULT_MODEL);
         assert_eq!(default.timeout_ms, DEFAULT_TIMEOUT_MS);
 
         set_chat_natural_router_config(
@@ -278,7 +241,7 @@ mod tests {
             ChatNaturalRouterConfigInput {
                 enabled: true,
                 api_url: "https://openrouter.ai/api/v1".to_string(),
-                model: "openai/gpt-4o-mini".to_string(),
+                model: MANAGED_MODEL_IDS[1].to_string(),
                 timeout_ms: 3000,
                 min_confidence: 0.8,
             },
@@ -292,10 +255,10 @@ mod tests {
         assert!(stored.enabled);
         assert_eq!(
             stored.api_url,
-            "https://openrouter.ai/api/v1/chat/completions"
+            normalize_chat_completions_url(&model_gateway_base_url_for(AgentType::Codex)).unwrap()
         );
-        assert_eq!(stored.model, "openai/gpt-4o-mini");
-        assert_eq!(stored.timeout_ms, 3000);
-        assert_eq!(stored.min_confidence, 0.8);
+        assert_eq!(stored.model, MANAGED_MODEL_IDS[1]);
+        assert_eq!(stored.timeout_ms, DEFAULT_TIMEOUT_MS);
+        assert_eq!(stored.min_confidence, DEFAULT_MIN_CONFIDENCE);
     }
 }

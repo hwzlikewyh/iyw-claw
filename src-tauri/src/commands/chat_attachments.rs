@@ -1,6 +1,15 @@
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "tauri-runtime")]
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+
 use crate::app_error::AppCommandError;
+
+const MAX_ATTACHMENT_BYTES: usize = 2 * 1024 * 1024;
+#[cfg(feature = "tauri-runtime")]
+const MAX_ATTACHMENT_BASE64_LEN: usize = MAX_ATTACHMENT_BYTES.div_ceil(3) * 4;
+const MAX_ATTACHMENT_NAME_CHARS: usize = 180;
+const CONVERSATION_ATTACHMENTS_DIR: &str = "conversation-attachments";
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,8 +36,20 @@ fn validate_chat_dir_layout(root: &Path, chat_dir: &Path) -> Result<(), AppComma
     Ok(())
 }
 
-async fn canonical_chat_dir(data_dir: &Path, chat_dir: &Path) -> Result<PathBuf, AppCommandError> {
-    let root = tokio::fs::canonicalize(data_dir.join("chat-sessions"))
+pub(crate) fn is_managed_chat_dir(data_dir: &Path, chat_dir: &Path) -> bool {
+    validate_chat_dir_layout(&data_dir.join("chat-sessions"), chat_dir).is_ok()
+}
+
+pub(crate) async fn ensure_managed_chat_dir(
+    data_dir: &Path,
+    chat_dir: &Path,
+) -> Result<PathBuf, AppCommandError> {
+    let root = data_dir.join("chat-sessions");
+    validate_chat_dir_layout(&root, chat_dir)?;
+    tokio::fs::create_dir_all(chat_dir)
+        .await
+        .map_err(AppCommandError::io)?;
+    let root = tokio::fs::canonicalize(root)
         .await
         .map_err(AppCommandError::io)?;
     let chat_dir = tokio::fs::canonicalize(chat_dir)
@@ -36,6 +57,51 @@ async fn canonical_chat_dir(data_dir: &Path, chat_dir: &Path) -> Result<PathBuf,
         .map_err(AppCommandError::io)?;
     validate_chat_dir_layout(&root, &chat_dir)?;
     Ok(chat_dir)
+}
+
+fn sanitize_file_name(raw: &str) -> String {
+    let base = Path::new(raw)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("file");
+    let cleaned: String = base
+        .chars()
+        .filter(|ch| !ch.is_control() && !matches!(ch, '<' | '>' | ':' | '"' | '|' | '?' | '*'))
+        .take(MAX_ATTACHMENT_NAME_CHARS)
+        .collect();
+    let cleaned = cleaned.trim().trim_end_matches(['.', ' ']);
+    if cleaned.is_empty() {
+        "file".to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+fn sanitize_session_bucket(raw: Option<&str>) -> String {
+    let cleaned: String = raw
+        .unwrap_or("conversation")
+        .chars()
+        .map(|ch| match ch {
+            ch if ch.is_ascii_alphanumeric() => ch,
+            '-' | '_' => ch,
+            _ => '_',
+        })
+        .take(80)
+        .collect();
+    let cleaned = cleaned.trim_matches('_');
+    if cleaned.is_empty() {
+        "conversation".to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+async fn new_attachment_dir(base: &Path) -> Result<PathBuf, AppCommandError> {
+    let dir = base.join(uuid::Uuid::new_v4().simple().to_string());
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(AppCommandError::io)?;
+    Ok(dir)
 }
 
 async fn canonical_source(source_path: &Path) -> Result<PathBuf, AppCommandError> {
@@ -73,19 +139,50 @@ pub async fn stage_chat_attachment_core(
     chat_dir: &Path,
     source_path: &Path,
 ) -> Result<StagedChatAttachment, AppCommandError> {
-    let chat_dir = canonical_chat_dir(data_dir, chat_dir).await?;
+    let chat_dir = ensure_managed_chat_dir(data_dir, chat_dir).await?;
     let source = canonical_source(source_path).await?;
     let file_name = source
         .file_name()
         .ok_or_else(|| AppCommandError::invalid_input("Attachment file name is missing"))?;
-    let attachment_dir = chat_dir
-        .join("attachments")
-        .join(uuid::Uuid::new_v4().simple().to_string());
-    tokio::fs::create_dir_all(&attachment_dir)
-        .await
-        .map_err(AppCommandError::io)?;
+    let attachment_dir = new_attachment_dir(&chat_dir.join("attachments")).await?;
     let destination = attachment_dir.join(file_name);
     if let Err(error) = tokio::fs::copy(&source, &destination).await {
+        let _ = tokio::fs::remove_dir_all(&attachment_dir).await;
+        return Err(AppCommandError::io(error));
+    }
+    Ok(StagedChatAttachment {
+        path: user_facing_path(&destination),
+    })
+}
+
+pub async fn stage_chat_attachment_bytes_core(
+    data_dir: &Path,
+    chat_dir: Option<&Path>,
+    session_id: Option<&str>,
+    file_name: &str,
+    bytes: &[u8],
+) -> Result<StagedChatAttachment, AppCommandError> {
+    if bytes.is_empty() {
+        return Err(AppCommandError::invalid_input("Attachment file is empty"));
+    }
+    if bytes.len() > MAX_ATTACHMENT_BYTES {
+        return Err(AppCommandError::invalid_input(
+            "Attachment exceeds the size limit",
+        ));
+    }
+
+    let base = if let Some(chat_dir) = chat_dir {
+        ensure_managed_chat_dir(data_dir, chat_dir)
+            .await?
+            .join("attachments")
+    } else {
+        data_dir
+            .join(CONVERSATION_ATTACHMENTS_DIR)
+            .join(sanitize_session_bucket(session_id))
+    };
+    let attachment_dir = new_attachment_dir(&base).await?;
+    let destination = attachment_dir.join(sanitize_file_name(file_name));
+    if let Err(error) = tokio::fs::write(&destination, bytes).await {
         let _ = tokio::fs::remove_dir_all(&attachment_dir).await;
         return Err(AppCommandError::io(error));
     }
@@ -113,6 +210,44 @@ pub async fn stage_chat_attachment(
     stage_chat_attachment_core(&data_dir, Path::new(&chat_dir), Path::new(&source_path)).await
 }
 
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn stage_chat_attachment_bytes(
+    app: tauri::AppHandle,
+    chat_dir: Option<String>,
+    session_id: Option<String>,
+    file_name: String,
+    data_base64: String,
+) -> Result<StagedChatAttachment, AppCommandError> {
+    use tauri::Manager;
+
+    if data_base64.len() > MAX_ATTACHMENT_BASE64_LEN {
+        return Err(AppCommandError::invalid_input(
+            "Attachment exceeds the size limit",
+        ));
+    }
+    let bytes = BASE64.decode(data_base64).map_err(|error| {
+        AppCommandError::invalid_input("Attachment payload is not valid base64")
+            .with_detail(error.to_string())
+    })?;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map(|path| crate::paths::resolve_effective_data_dir(&path))
+        .map_err(|error| {
+            AppCommandError::io_error("App data directory unavailable")
+                .with_detail(error.to_string())
+        })?;
+    stage_chat_attachment_bytes_core(
+        &data_dir,
+        chat_dir.as_deref().map(Path::new),
+        session_id.as_deref(),
+        &file_name,
+        &bytes,
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -120,7 +255,7 @@ mod tests {
     use tempfile::tempdir;
     use uuid::Uuid;
 
-    use super::stage_chat_attachment_core;
+    use super::{stage_chat_attachment_bytes_core, stage_chat_attachment_core};
 
     fn chat_dir(data_dir: &std::path::Path) -> PathBuf {
         data_dir
@@ -166,5 +301,25 @@ mod tests {
             .expect_err("outside target must be rejected");
 
         assert!(error.message.contains("managed Chat directory"));
+    }
+
+    #[tokio::test]
+    async fn stages_bytes_and_recreates_missing_managed_chat_directory() {
+        let data_dir = tempdir().expect("data dir");
+        let chat_dir = chat_dir(data_dir.path());
+
+        let staged = stage_chat_attachment_bytes_core(
+            data_dir.path(),
+            Some(&chat_dir),
+            Some("tab-1"),
+            "report.pdf",
+            b"pdf-bytes",
+        )
+        .await
+        .expect("stage bytes");
+        let staged_path = PathBuf::from(staged.path);
+
+        assert!(staged_path.starts_with(chat_dir.join("attachments")));
+        assert_eq!(std::fs::read(staged_path).unwrap(), b"pdf-bytes");
     }
 }

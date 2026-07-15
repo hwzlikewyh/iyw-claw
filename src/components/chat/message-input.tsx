@@ -56,7 +56,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
-import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
+import { cn, copyTextFromMenu } from "@/lib/utils"
 import {
   buildFileUri,
   buildFileUriWithRange,
@@ -71,7 +71,6 @@ import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabActions } from "@/contexts/tab-context"
 import {
-  readFileBase64,
   quickMessagesList,
   stageLocalChatAttachment,
   uploadAttachment,
@@ -327,26 +326,6 @@ function pointWithinElement(
   )
 }
 
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => {
-      reject(reader.error ?? new Error("Failed to read blob"))
-    }
-    reader.onload = () => {
-      if (typeof reader.result !== "string") {
-        reject(new Error("Unexpected non-string blob reader result"))
-        return
-      }
-      const markerIndex = reader.result.indexOf(",")
-      resolve(
-        markerIndex >= 0 ? reader.result.slice(markerIndex + 1) : reader.result
-      )
-    }
-    reader.readAsDataURL(blob)
-  })
-}
-
 function getFilePath(file: File): string | null {
   const withPath = file as File & { path?: string; webkitRelativePath?: string }
   if (typeof withPath.path === "string" && withPath.path.trim().length > 0) {
@@ -359,38 +338,6 @@ function getFilePath(file: File): string | null {
     return withPath.webkitRelativePath
   }
   return null
-}
-
-const TEXT_LIKE_MIME_PREFIXES = [
-  "text/",
-  "application/json",
-  "application/xml",
-  "application/yaml",
-  "application/x-yaml",
-  "application/toml",
-  "application/javascript",
-  "application/typescript",
-]
-const DRAG_DROP_IMAGE_MAX_BYTES = 20_000_000
-
-function isTextLikeFile(file: File): boolean {
-  const mime = file.type.toLowerCase()
-  if (mime) {
-    if (TEXT_LIKE_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix))) {
-      return true
-    }
-  }
-  const ext = file.name.split(".").pop()?.toLowerCase()
-  if (!ext) return false
-  return Boolean(
-    MIME_BY_EXT[ext]?.startsWith("text/") ||
-    ["json", "yaml", "yml", "xml", "toml", "md", "csv"].includes(ext)
-  )
-}
-
-function buildClipboardResourceUri(name: string): string {
-  const normalizedName = name.trim() || "clipboard-resource"
-  return `clipboard://${encodeURIComponent(normalizedName)}-${randomUUID()}`
 }
 
 // Non-image files attach as inline file badges in the editor (like `@`-file
@@ -449,12 +396,6 @@ function stripEmbeddedReferences(doc: JSONContent): JSONContent {
   return { ...doc, content }
 }
 
-function buildDataUri(base64Data: string, mimeType: string | null): string {
-  const safeMime =
-    mimeType && mimeType.trim() ? mimeType : "application/octet-stream"
-  return `data:${safeMime};base64,${base64Data}`
-}
-
 function SelectorLoadingChip({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
@@ -498,7 +439,6 @@ export function MessageInput({
   onConfigOptionChange,
   agentType,
   availableCommands,
-  promptCapabilities,
   attachmentTabId,
   stageAttachmentsInWorkingDir = false,
   draftStorageKey,
@@ -610,8 +550,6 @@ export function MessageInput({
   // Bridge so the early `onChange` handler can call the editor-driven slash
   // detection that is defined further down (after the slash state).
   const detectSlashTriggerRef = useRef<(() => void) | null>(null)
-  const canAttachImages = promptCapabilities.image
-
   useEffect(() => {
     if (isActive && !disabled && !isPrompting) {
       requestAnimationFrame(() => {
@@ -1291,7 +1229,11 @@ export function MessageInput({
             const idx = cursor++
             const file = accepted[idx]
             try {
-              const r = await uploadAttachment(file, attachmentTabId ?? null)
+              const r = await uploadAttachment(
+                file,
+                attachmentTabId ?? null,
+                stageAttachmentsInWorkingDir ? (defaultPath ?? null) : null
+              )
               uploaded.push(r.path)
             } catch (error) {
               if (isEmptyAttachmentError(error)) {
@@ -1338,189 +1280,49 @@ export function MessageInput({
         appendResourceAttachments(uploaded)
       }
     },
-    [appendResourceAttachments, attachmentTabId, tAttach]
+    [
+      appendResourceAttachments,
+      attachmentTabId,
+      defaultPath,
+      stageAttachmentsInWorkingDir,
+      tAttach,
+    ]
   )
 
-  const appendEmbeddedResources = useCallback(
-    (
-      resources: Array<{
-        uri: string
-        name: string
-        mimeType: string | null
-        text?: string | null
-        blob?: string | null
-      }>
-    ) => {
-      // Inline bytes (no real path): each becomes a sentinel file badge whose
-      // embedded `resource` block is reconciled back in at send time.
-      insertFileReferences(
-        resources.map((resource) => ({
-          name: resource.name,
-          realBlock: {
-            type: "resource" as const,
-            uri: resource.uri,
-            mime_type: resource.mimeType,
-            text: resource.text ?? null,
-            blob: resource.blob ?? null,
-          },
-        }))
-      )
-    },
-    [insertFileReferences]
-  )
-
-  // Path-less files (browser `File` objects: drag-drop in web mode, paste,
-  // or `<input type=file>` in any mode) need a real backing path before
-  // the agent can read them. Only the truly local desktop keeps the legacy
-  // base64/embedded fallback — web and remote-desktop both push through
-  // `uploadAndAppendFiles` so the resulting ResourceLink points at a real
-  // server-side file.
+  // Every attachment reaches the agent as a path. Native paths are optionally
+  // copied into a managed Chat directory; path-less browser/clipboard Files are
+  // staged first. No file bytes are embedded in the ACP prompt.
   const appendFilesAsResources = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return
-      const pathLinks: Array<{
-        uri: string
-        name: string
-        mimeType: string | null
-        dedupeKey: string
-      }> = []
-      const fallbackDataLinks: Array<{
-        uri: string
-        name: string
-        mimeType: string | null
-        dedupeKey: string
-      }> = []
-      const embeddedResources: Array<{
-        uri: string
-        name: string
-        mimeType: string | null
-        text?: string | null
-        blob?: string | null
-      }> = []
+      const localPaths: string[] = []
       const uploadCandidates: File[] = []
 
       for (const file of files) {
         const path = getFilePath(file)
-        const name = file.name || `resource-${randomUUID()}`
-        const mimeType = file.type || mimeTypeFromPath(name)
-        if (path) {
-          const uri = buildFileUri(path)
-          pathLinks.push({
-            uri,
-            name: fileNameFromPath(path),
-            mimeType: mimeTypeFromPath(path) ?? mimeType ?? null,
-            dedupeKey: uri,
-          })
-          continue
-        }
-
-        if (!showNativePaperclip) {
-          uploadCandidates.push(file)
-          continue
-        }
-
-        if (!promptCapabilities.embedded_context) {
-          const base64 = await blobToBase64(file)
-          const dataUri = buildDataUri(base64, mimeType ?? null)
-          fallbackDataLinks.push({
-            uri: dataUri,
-            name,
-            mimeType: mimeType ?? null,
-            dedupeKey: `${name}:${file.size}:${file.lastModified}`,
-          })
-          continue
-        }
-
-        const uri = buildClipboardResourceUri(name)
-        if (isTextLikeFile(file)) {
-          const textContent = await file.text()
-          embeddedResources.push({
-            uri,
-            name,
-            mimeType: mimeType ?? null,
-            text: textContent,
-          })
-        } else {
-          const blobContent = await blobToBase64(file)
-          embeddedResources.push({
-            uri,
-            name,
-            mimeType: mimeType ?? null,
-            blob: blobContent,
-          })
-        }
+        if (path && showNativePaperclip) localPaths.push(path)
+        else uploadCandidates.push(file)
       }
 
-      appendResourceLinks(pathLinks)
-      appendResourceLinks(fallbackDataLinks)
-      appendEmbeddedResources(embeddedResources)
+      if (localPaths.length > 0) {
+        const prepared = await preparePickedAttachmentPaths(localPaths, {
+          stageInChatDirectory: stageAttachmentsInWorkingDir,
+          chatDirectory: defaultPath,
+          stage: stageLocalChatAttachment,
+        })
+        appendResourceAttachments(prepared)
+      }
       if (uploadCandidates.length > 0) {
         await uploadAndAppendFiles(uploadCandidates)
       }
     },
     [
-      appendEmbeddedResources,
-      appendResourceLinks,
-      promptCapabilities.embedded_context,
+      appendResourceAttachments,
+      defaultPath,
       showNativePaperclip,
+      stageAttachmentsInWorkingDir,
       uploadAndAppendFiles,
     ]
-  )
-
-  const appendImageAttachments = useCallback(async (files: File[]) => {
-    if (files.length === 0) return
-    const parsed = await Promise.all(
-      files.map(async (file, index) => {
-        const mimeType =
-          file.type && file.type.startsWith("image/")
-            ? file.type
-            : (mimeTypeFromPath(file.name) ?? "image/png")
-        const base64Data = await blobToBase64(file)
-        return {
-          id: `image:${Date.now()}:${index}:${randomUUID()}`,
-          type: "image" as const,
-          data: base64Data,
-          uri: null,
-          name: file.name || `image-${Date.now()}-${index + 1}`,
-          mimeType,
-        }
-      })
-    )
-    setAttachments((prev) => [...prev, ...parsed])
-  }, [])
-
-  const appendImagePathAttachments = useCallback(
-    async (paths: string[]) => {
-      if (paths.length === 0 || !canAttachImages) return
-      const settled = await Promise.allSettled(
-        paths.map(async (path, index) => {
-          const data = await readFileBase64(path, DRAG_DROP_IMAGE_MAX_BYTES)
-          return {
-            id: `image:${Date.now()}:${index}:${randomUUID()}`,
-            type: "image" as const,
-            data,
-            uri: buildFileUri(path),
-            name: fileNameFromPath(path),
-            mimeType: mimeTypeFromPath(path) ?? "image/png",
-          }
-        })
-      )
-
-      const parsed: ImageInputAttachment[] = []
-      settled.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          parsed.push(result.value)
-          return
-        }
-        console.error(
-          `[MessageInput] drop image path failed (${paths[index]}):`,
-          result.reason
-        )
-      })
-      if (parsed.length === 0) return
-      setAttachments((prev) => [...prev, ...parsed])
-    },
-    [canAttachImages]
   )
 
   const appendPathsFromDrop = useCallback(
@@ -1530,26 +1332,14 @@ export function MessageInput({
         (path): path is string => typeof path === "string" && path.length > 0
       )
       if (normalized.length === 0) return
-
-      const imagePaths: string[] = []
-      const resourcePaths: string[] = []
-      for (const path of normalized) {
-        const mimeType = mimeTypeFromPath(path) ?? ""
-        if (canAttachImages && mimeType.startsWith("image/")) {
-          imagePaths.push(path)
-        } else {
-          resourcePaths.push(path)
-        }
-      }
-
-      if (imagePaths.length > 0) {
-        await appendImagePathAttachments(imagePaths)
-      }
-      if (resourcePaths.length > 0) {
-        appendResourceAttachments(resourcePaths)
-      }
+      const prepared = await preparePickedAttachmentPaths(normalized, {
+        stageInChatDirectory: stageAttachmentsInWorkingDir,
+        chatDirectory: defaultPath,
+        stage: stageLocalChatAttachment,
+      })
+      appendResourceAttachments(prepared)
     },
-    [appendImagePathAttachments, appendResourceAttachments, canAttachImages]
+    [appendResourceAttachments, defaultPath, stageAttachmentsInWorkingDir]
   )
 
   const appendPathsFromDropRef = useRef(appendPathsFromDrop)
@@ -1675,25 +1465,9 @@ export function MessageInput({
   const appendFilesFromInput = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return
-      const imageFiles: File[] = []
-      const resourceFiles: File[] = []
-      for (const file of files) {
-        const mimeType = file.type || mimeTypeFromPath(file.name) || ""
-        if (canAttachImages && mimeType.startsWith("image/")) {
-          imageFiles.push(file)
-        } else {
-          resourceFiles.push(file)
-        }
-      }
-
-      if (imageFiles.length > 0) {
-        await appendImageAttachments(imageFiles)
-      }
-      if (resourceFiles.length > 0) {
-        await appendFilesAsResources(resourceFiles)
-      }
+      await appendFilesAsResources(files)
     },
-    [appendFilesAsResources, appendImageAttachments, canAttachImages]
+    [appendFilesAsResources]
   )
 
   // Routed from RichComposer's `onPasteFiles`. Returns true when the paste was

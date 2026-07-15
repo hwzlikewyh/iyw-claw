@@ -5,6 +5,8 @@ import {
   buildFileUriWithRange,
   foldReferenceLinks,
   formatFileRangeLabel,
+  localFileReferenceForPrompt,
+  rewriteFileReferencesForPrompt,
   tokenizeReferenceLinks,
   unescapeReferenceLabel,
 } from "./reference-link"
@@ -27,6 +29,34 @@ describe("buildFileUri", () => {
     )
     expect(buildFileUri("\\\\server\\share\\doc.md")).toBe(
       "file://server/share/doc.md"
+    )
+  })
+})
+
+describe("ACP local file references", () => {
+  it("rewrites file links as filesystem paths instead of MCP resources", () => {
+    expect(
+      rewriteFileReferencesForPrompt(
+        "查看 [report.pdf](file:///F%3A/chat/report.pdf) 并总结"
+      )
+    ).toBe(
+      "查看 Local file path (use filesystem tools, not MCP resources): `F:\\chat\\report.pdf` 并总结"
+    )
+  })
+
+  it("preserves non-file links and line ranges", () => {
+    expect(
+      rewriteFileReferencesForPrompt(
+        "[会话](iyw-claw://session/12) [app.ts](file:///D%3A/repo/app.ts#L10-25)"
+      )
+    ).toBe(
+      "[会话](iyw-claw://session/12) Local file path (use filesystem tools, not MCP resources): `D:\\repo\\app.ts#L10-25`"
+    )
+  })
+
+  it("converts a file resource link into the same plain-path instruction", () => {
+    expect(localFileReferenceForPrompt("file:///tmp/a%20b.txt")).toBe(
+      "Local file path (use filesystem tools, not MCP resources): `/tmp/a b.txt`"
     )
   })
 })

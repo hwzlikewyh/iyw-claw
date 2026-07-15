@@ -532,17 +532,12 @@ pub enum AgentSkillLayout {
     SkillDirectory,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentSkillSyncMode {
+    #[default]
     Symlink,
     Copy,
-}
-
-impl Default for AgentSkillSyncMode {
-    fn default() -> Self {
-        Self::Symlink
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
