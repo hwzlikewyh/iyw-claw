@@ -79,6 +79,7 @@ fn merge_agent_env(
     // even when iyw-claw installed the binary outside the user's shell PATH — the
     // Windows self-managed dir, or `~/.local/bin` under a GUI launch.
     prepend_officecli_path(&mut merged);
+    prepend_internet_tools_path(&mut merged);
 
     merged.into_iter().collect()
 }
@@ -144,6 +145,16 @@ fn prepend_officecli_path(env: &mut BTreeMap<String, String>) {
     if let Some(dir) = crate::commands::office_tools::officecli_agent_path_dir() {
         let fallback = std::env::var("PATH").unwrap_or_default();
         prepend_dir_to_path_env(env, &dir.to_string_lossy(), &fallback, cfg!(windows));
+    }
+}
+
+fn prepend_internet_tools_path(env: &mut BTreeMap<String, String>) {
+    let fallback = std::env::var("PATH").unwrap_or_default();
+    for dir in crate::commands::internet_tools::private_tool_bin_dirs() {
+        prepend_dir_to_path_env(env, &dir.to_string_lossy(), &fallback, cfg!(windows));
+    }
+    for (key, value) in crate::commands::internet_tools::private_tool_environment() {
+        env.insert(key.to_string(), value.to_string_lossy().to_string());
     }
 }
 
@@ -732,6 +743,7 @@ pub async fn spawn_agent_connection(
     // child of the agent process, so the agent-env injection alone wouldn't reach
     // them right after install (before install.ps1's User-PATH change lands).
     prepend_officecli_path(&mut terminal_base_env);
+    prepend_internet_tools_path(&mut terminal_base_env);
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<ConnectionCommand>(32);
     let conn_id = connection_id.clone();

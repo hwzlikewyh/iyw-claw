@@ -18,6 +18,7 @@ pub mod feedback;
 pub mod file_io;
 pub mod folder_commands;
 pub mod folders;
+pub mod internet_tools;
 pub mod iyw_account;
 pub mod logging;
 pub mod managed_skills;

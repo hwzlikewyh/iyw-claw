@@ -34,7 +34,53 @@ pub fn find_cached_uv_tool(paths: &AgentStoragePaths, tool: &str) -> Option<Path
     (path.is_file() && is_binary_file_compatible(&path)).then_some(path)
 }
 
-fn uv_tool_dir_for(paths: &AgentStoragePaths) -> PathBuf {
+pub fn bundled_uv_tool_paths(executable: &Path) -> Option<(PathBuf, PathBuf)> {
+    let directory = executable.parent()?;
+    let (uv, uvx) = if cfg!(windows) {
+        ("uv.exe", "uvx.exe")
+    } else {
+        ("uv", "uvx")
+    };
+    Some((directory.join(uv), directory.join(uvx)))
+}
+
+pub fn seed_bundled_uv_tools(
+    paths: &AgentStoragePaths,
+    executable: &Path,
+) -> Result<bool, AcpError> {
+    let Some((bundled_uv, bundled_uvx)) = bundled_uv_tool_paths(executable) else {
+        return Ok(false);
+    };
+    if !bundled_uv.is_file() || !bundled_uvx.is_file() {
+        return Ok(false);
+    }
+    if !is_binary_file_compatible(&bundled_uv) || !is_binary_file_compatible(&bundled_uvx) {
+        return Ok(false);
+    }
+    if find_cached_uv_tool(paths, "uv").is_some() && find_cached_uv_tool(paths, "uvx").is_some() {
+        return Ok(false);
+    }
+    let staging = paths
+        .staging_dir()
+        .join(format!("uv-bundled-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&staging)
+        .map_err(|error| AcpError::DownloadFailed(error.to_string()))?;
+    let names = if cfg!(windows) {
+        [(bundled_uv, "uv.exe"), (bundled_uvx, "uvx.exe")]
+    } else {
+        [(bundled_uv, "uv"), (bundled_uvx, "uvx")]
+    };
+    for (source, name) in names {
+        let target = staging.join(name);
+        std::fs::copy(source, &target)
+            .map_err(|error| AcpError::DownloadFailed(error.to_string()))?;
+        set_executable_permissions(&target)?;
+    }
+    activate_staged_directory(paths, &staging, &uv_tool_dir_for(paths), "uv-runtime")?;
+    Ok(true)
+}
+
+pub fn uv_tool_dir_for(paths: &AgentStoragePaths) -> PathBuf {
     paths
         .uv_runtime_dir()
         .join(UV_TOOL_VERSION)
@@ -45,6 +91,7 @@ pub fn uv_runtime_env(paths: &AgentStoragePaths) -> BTreeMap<&'static str, PathB
     BTreeMap::from([
         ("UV_CACHE_DIR", paths.uv_cache_dir()),
         ("UV_TOOL_DIR", paths.uv_runtime_dir().join("tools")),
+        ("UV_TOOL_BIN_DIR", paths.uv_runtime_dir().join("bin")),
     ])
 }
 
@@ -56,6 +103,7 @@ fn uv_archive_url() -> Option<String> {
         "linux-aarch64" => ("aarch64-unknown-linux-gnu", "tar.gz"),
         "linux-x86_64" => ("x86_64-unknown-linux-gnu", "tar.gz"),
         "windows-aarch64" => ("aarch64-pc-windows-msvc", "zip"),
+        "windows-i686" => ("i686-pc-windows-msvc", "zip"),
         "windows-x86_64" => ("x86_64-pc-windows-msvc", "zip"),
         _ => return None,
     };
@@ -799,6 +847,15 @@ pub(crate) fn is_binary_file_compatible(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundled_uv_paths_are_resolved_next_to_application_binary() {
+        let executable = PathBuf::from("C:/Program Files/iyw-claw/iyw-claw.exe");
+        let (uv, uvx) = bundled_uv_tool_paths(&executable).expect("application directory");
+
+        assert_eq!(uv, PathBuf::from("C:/Program Files/iyw-claw/uv.exe"));
+        assert_eq!(uvx, PathBuf::from("C:/Program Files/iyw-claw/uvx.exe"));
+    }
     use crate::acp::agent_storage::AgentStoragePaths;
 
     fn write_compatible_test_binary(path: &Path) {
@@ -875,6 +932,10 @@ mod tests {
         assert_eq!(
             env.get("UV_TOOL_DIR"),
             Some(&root.join("runtime").join("uv").join("tools"))
+        );
+        assert_eq!(
+            env.get("UV_TOOL_BIN_DIR"),
+            Some(&root.join("runtime").join("uv").join("bin"))
         );
     }
 

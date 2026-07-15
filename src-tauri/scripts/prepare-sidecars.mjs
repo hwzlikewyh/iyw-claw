@@ -27,11 +27,17 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs"
 import { dirname, join, resolve } from "node:path"
+import { tmpdir } from "node:os"
+import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 
@@ -40,6 +46,8 @@ const SRC_TAURI = resolve(SCRIPT_DIR, "..")
 const BINARIES_DIR = join(SRC_TAURI, "binaries")
 const BIN_NAME = "iyw-claw-mcp"
 const CARGO_BIN_NAME = BIN_NAME.replaceAll("-", "_")
+const UV_VERSION = "0.8.10"
+const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000
 
 function log(msg) {
   console.log(`[prepare-sidecars] ${msg}`)
@@ -51,13 +59,15 @@ function die(msg) {
 }
 
 function parseArgs(argv) {
-  const args = { target: null }
+  const args = { target: null, uvOnly: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === "--target" && argv[i + 1]) {
       args.target = argv[++i]
     } else if (a.startsWith("--target=")) {
       args.target = a.slice("--target=".length)
+    } else if (a === "--uv-only") {
+      args.uvOnly = true
     }
   }
   return args
@@ -117,19 +127,131 @@ export function copyFileIfChanged(source, destination) {
   return true
 }
 
-function main() {
+export function resolveUvRelease(target) {
+  const platforms = {
+    "aarch64-apple-darwin": ["aarch64-apple-darwin", "tar.gz"],
+    "x86_64-apple-darwin": ["x86_64-apple-darwin", "tar.gz"],
+    "aarch64-unknown-linux-gnu": ["aarch64-unknown-linux-gnu", "tar.gz"],
+    "x86_64-unknown-linux-gnu": ["x86_64-unknown-linux-gnu", "tar.gz"],
+    "aarch64-pc-windows-msvc": ["aarch64-pc-windows-msvc", "zip"],
+    "i686-pc-windows-msvc": ["i686-pc-windows-msvc", "zip"],
+    "x86_64-pc-windows-msvc": ["x86_64-pc-windows-msvc", "zip"],
+  }
+  const spec = platforms[target]
+  if (!spec) die(`uv ${UV_VERSION} is not available for target ${target}`)
+  const [archiveTarget, extension] = spec
+  return {
+    extension,
+    url: `https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${archiveTarget}.${extension}`,
+  }
+}
+
+export function parseSha256(content) {
+  const digest = content.trim().split(/\s+/)[0]?.toLowerCase()
+  if (!digest || !/^[a-f0-9]{64}$/.test(digest)) {
+    throw new Error("invalid uv sha256 response")
+  }
+  return digest
+}
+
+async function download(url, label) {
+  try {
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+    })
+    if (!response.ok) die(`${label} download failed: HTTP ${response.status}`)
+    return response
+  } catch (error) {
+    die(`${label} download failed: ${error.message}`)
+  }
+}
+
+function findFile(root, name) {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name)
+    if (entry.isDirectory()) {
+      const found = findFile(path, name)
+      if (found) return found
+    } else if (entry.name === name) {
+      return path
+    }
+  }
+  return null
+}
+
+async function stageUvSidecars(target, isWindows) {
+  const ext = isWindows ? ".exe" : ""
+  const destinations = ["uv", "uvx"].map((name) =>
+    join(BINARIES_DIR, `${name}-${target}${ext}`)
+  )
+  const versionMarker = join(BINARIES_DIR, `uv-${target}.version`)
+  if (
+    readFileIfPresent(versionMarker) === UV_VERSION &&
+    destinations.every((path) => existsSync(path) && statSync(path).size > 0)
+  ) {
+    log(`uv ${UV_VERSION} sidecars already staged`)
+    return
+  }
+
+  const release = resolveUvRelease(target)
+  const work = mkdtempSync(join(tmpdir(), "iyw-claw-uv-"))
+  try {
+    const archive = join(work, `uv.${release.extension}`)
+    const extracted = join(work, "extracted")
+    mkdirSync(extracted, { recursive: true })
+    log(`downloading uv ${UV_VERSION} from ${release.url}`)
+    const response = await download(release.url, "uv")
+    const bytes = Buffer.from(await response.arrayBuffer())
+    const checksumResponse = await download(
+      `${release.url}.sha256`,
+      "uv checksum"
+    )
+    const expected = parseSha256(await checksumResponse.text())
+    const actual = createHash("sha256").update(bytes).digest("hex")
+    if (actual !== expected) die(`uv checksum mismatch: expected ${expected}, got ${actual}`)
+    writeFileSync(archive, bytes)
+    execFileSync("tar", ["-xf", archive, "-C", extracted], { stdio: "inherit" })
+
+    for (const name of ["uv", "uvx"]) {
+      const source = findFile(extracted, `${name}${ext}`)
+      if (!source) die(`${name}${ext} missing from uv archive`)
+      const destination = join(BINARIES_DIR, `${name}-${target}${ext}`)
+      copyFileIfChanged(source, destination)
+      if (!isWindows) chmodSync(destination, 0o755)
+      log(`staged ${name} sidecar at ${destination}`)
+    }
+    writeFileSync(versionMarker, UV_VERSION)
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
+}
+
+function readFileIfPresent(path) {
+  try {
+    return readFileSync(path, "utf8").trim()
+  } catch {
+    return null
+  }
+}
+
+async function main() {
   if (process.env.IYW_CLAW_SKIP_SIDECAR === "1") {
     log("IYW_CLAW_SKIP_SIDECAR=1 — skipping sidecar preparation")
     return
   }
 
-  const { target: cliTarget } = parseArgs(process.argv.slice(2))
+  const { target: cliTarget, uvOnly } = parseArgs(process.argv.slice(2))
   const target =
     cliTarget || process.env.TAURI_TARGET_TRIPLE || resolveHostTriple()
   const isWindows = target.includes("windows")
   const ext = isWindows ? ".exe" : ""
 
   log(`target triple: ${target}`)
+  if (uvOnly) {
+    await stageUvSidecars(target, isWindows)
+    return
+  }
+
   log(
     `building ${BIN_NAME} (--release --no-default-features --features mcp-runtime)`
   )
@@ -167,6 +289,10 @@ function main() {
       `bundle compatibility alias ${aliasChanged ? "staged" : "unchanged"} at ${compatPath}`
     )
   }
+
+  await stageUvSidecars(target, isWindows)
 }
 
-main()
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main()
+}
