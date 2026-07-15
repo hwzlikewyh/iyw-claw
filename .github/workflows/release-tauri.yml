@@ -143,7 +143,7 @@ jobs:
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
           tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
-          args: --target ${{ matrix.target }} --bundles deb,rpm
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm
           includeUpdaterJson: false
           retryAttempts: 2
 
@@ -162,7 +162,7 @@ jobs:
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
           tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
-          args: --target ${{ matrix.target }} --bundles nsis
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles nsis
           includeUpdaterJson: true
           retryAttempts: 2
 
@@ -181,7 +181,7 @@ jobs:
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
           tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
-          args: --target ${{ matrix.target }} --bundles deb,rpm,appimage
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm,appimage
           includeUpdaterJson: true
           retryAttempts: 2
 
@@ -200,6 +200,6 @@ jobs:
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
           tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
-          args: --target ${{ matrix.target }} --bundles app,dmg
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg
           includeUpdaterJson: true
           retryAttempts: 2
