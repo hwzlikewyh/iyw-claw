@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { parseSha256, resolveUvRelease } from "./prepare-sidecars.mjs"
+import {
+  parseSha256,
+  resolveExtractor,
+  resolveUvRelease,
+} from "./prepare-sidecars.mjs"
 
 test("maps supported targets to pinned uv release archives", () => {
   assert.deepEqual(resolveUvRelease("x86_64-pc-windows-msvc"), {
@@ -24,4 +28,18 @@ test("parses official sha256 sidecar content", () => {
     parseSha256(`${digest.toUpperCase()}  uv-x86_64-pc-windows-msvc.zip\n`),
     digest
   )
+})
+
+test("uses the native Windows extractor for zip archives", () => {
+  assert.deepEqual(
+    resolveExtractor("C:\\temp\\uv.zip", "C:\\temp\\out", true, "C:\\Windows"),
+    {
+      command: "C:\\Windows\\System32\\tar.exe",
+      args: ["-xf", "C:\\temp\\uv.zip", "-C", "C:\\temp\\out"],
+    }
+  )
+  assert.deepEqual(resolveExtractor("/tmp/uv.tar.gz", "/tmp/out", false), {
+    command: "tar",
+    args: ["-xf", "/tmp/uv.tar.gz", "-C", "/tmp/out"],
+  })
 })
