@@ -8,4 +8,10 @@ describe("settings visibility", () => {
       "/settings/logs"
     )
   })
+
+  it("shows internet tools in settings navigation", () => {
+    expect(SETTINGS_NAV_ITEMS.map((item) => item.href)).toContain(
+      "/settings/internet-tools"
+    )
+  })
 })

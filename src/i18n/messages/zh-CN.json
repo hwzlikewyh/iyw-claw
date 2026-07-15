@@ -51,6 +51,7 @@
       "model_providers": "模型供应商",
       "experts": "专家",
       "office_tools": "办公工具",
+      "internet_tools": "联网工具",
       "quick_messages": "快捷消息",
       "logs": "运行日志",
       "usage": "用量",
@@ -2411,7 +2412,15 @@
         "moreFiles": "+{count} 个更多文件",
         "plan": "计划",
         "allowedActions": "允许的操作",
-        "targetMode": "目标模式：{mode}"
+        "targetMode": "目标模式：{mode}",
+        "options": {
+          "allowOnce": "仅允许一次",
+          "allowForSession": "本会话允许",
+          "allowCommandsStartingWith": "允许以 {command} 开头的命令",
+          "allowAlways": "始终允许",
+          "reject": "拒绝",
+          "rejectAlways": "始终拒绝"
+        }
       },
       "questionDialog": {
         "title": "代理正在提问",
@@ -3140,6 +3149,69 @@
       "enableFailed": "启用专家失败",
       "disableFailed": "禁用专家失败",
       "openFolderFailed": "打开目录失败"
+    }
+  },
+  "InternetToolsSettings": {
+    "title": "联网工具",
+    "description": "管理 Agent Reach、OpenCLI、联网渠道和相关技能。",
+    "refresh": "刷新",
+    "install": "安装",
+    "update": "更新",
+    "repair": "修复",
+    "uninstall": "卸载",
+    "syncSkills": "同步技能",
+    "runDoctor": "运行诊断",
+    "checkConnection": "检查连接",
+    "configure": "配置渠道",
+    "browserExtension": "安装浏览器扩展",
+    "installed": "已安装",
+    "updateAvailable": "可更新",
+    "notRunnable": "无法运行",
+    "notInstalled": "未安装",
+    "expectedVersion": "目标版本 {version}",
+    "channelsTitle": "Agent Reach 渠道",
+    "channelsDescription": "显示每个渠道的实际可用状态和当前后端。",
+    "channelsEmpty": "运行诊断后查看渠道状态。",
+    "activeBackend": "当前后端：{backend}",
+    "skillsTitle": "联网技能",
+    "skillsEmpty": "安装工具并同步技能后，可在这里为智能体启用。",
+    "searchSkills": "搜索联网技能",
+    "installFirst": "请先安装并同步联网工具技能。",
+    "categories": {
+      "agentReach": "Agent Reach",
+      "opencli": "OpenCLI"
+    },
+    "configDialog": {
+      "title": "配置 Agent Reach",
+      "description": "凭据仅写入本机 Agent Reach 配置，提交后不会回显。",
+      "key": "配置项",
+      "value": "配置值",
+      "save": "保存配置",
+      "browser": "从浏览器导入",
+      "import": "导入登录信息",
+      "channels": "安装可选渠道",
+      "installChannels": "安装所选渠道",
+      "proxy": "网络代理",
+      "githubToken": "GitHub Token",
+      "groqKey": "Groq API Key",
+      "openaiKey": "OpenAI API Key",
+      "twitterCookies": "Twitter Cookies",
+      "youtubeCookies": "YouTube Cookies",
+      "xhsCookies": "小红书 Cookies"
+    },
+    "toasts": {
+      "loadFailed": "加载联网工具失败",
+      "installSuccess": "工具安装成功",
+      "installFailed": "工具安装失败",
+      "uninstallSuccess": "工具已卸载",
+      "uninstallFailed": "卸载工具失败",
+      "syncSuccess": "已同步 {count} 个技能",
+      "syncFailed": "同步技能失败",
+      "doctorFailed": "诊断失败",
+      "configureSuccess": "配置已保存",
+      "configureFailed": "保存配置失败",
+      "browserImported": "浏览器登录信息已导入",
+      "channelsInstalled": "可选渠道安装完成"
     }
   },
   "OfficeToolsSettings": {

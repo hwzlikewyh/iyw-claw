@@ -40,6 +40,8 @@ describe("settings navigation", () => {
     expect(buildSettingsPath("user-memory")).toBe("/settings/user-memory")
     expect(buildSettingsPath("logs")).toBe("/settings/logs")
     expect(normalizeSettingsSection("user-memory")).toBe("user-memory")
+    expect(buildSettingsPath("internet-tools")).toBe("/settings/internet-tools")
+    expect(normalizeSettingsSection("internet-tools")).toBe("internet-tools")
   })
 
   it("treats the removed web service settings section as the default page", () => {

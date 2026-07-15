@@ -1,10 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useTranslations } from "next-intl"
 import { ShieldAlert, Terminal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { acpRespondPermission } from "@/lib/api"
 import { parsePermissionToolCall } from "@/lib/permission-request"
+import { resolvePermissionOptionLabel } from "@/lib/permission-option-label"
 import type { PetPermissionSummary } from "@/lib/pet/types"
 import { cn } from "@/lib/utils"
 
@@ -25,6 +27,7 @@ export function PanelPermissionCard({
   permission,
 }: PanelPermissionCardProps) {
   const [busy, setBusy] = useState(false)
+  const t = useTranslations("Folder.chat.permissionDialog")
   const parsed = parsePermissionToolCall(permission.toolCall)
 
   const respond = (optionId: string) => {
@@ -81,6 +84,7 @@ export function PanelPermissionCard({
       <div className="mt-2 flex flex-wrap gap-1.5">
         {permission.options.map((opt) => {
           const isReject = opt.kind.startsWith("reject")
+          const label = resolvePermissionOptionLabel(opt)
           return (
             <Button
               key={opt.option_id}
@@ -90,7 +94,11 @@ export function PanelPermissionCard({
               className={cn("h-6 px-2 text-[11px]")}
               onClick={() => respond(opt.option_id)}
             >
-              {opt.name}
+              {label
+                ? t(`options.${label.key}`, {
+                    command: label.command ?? "",
+                  })
+                : opt.name}
             </Button>
           )
         })}

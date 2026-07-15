@@ -10,6 +10,7 @@ import { GeneralSettings } from "@/components/settings/general-settings"
 import { LogsSettings } from "@/components/settings/logs-settings"
 import { McpSettings } from "@/components/settings/mcp-settings"
 import { OfficeToolsSettings } from "@/components/settings/office-tools-settings"
+import { InternetToolsSettings } from "@/components/settings/internet-tools-settings"
 import { QuickMessagesSettings } from "@/components/settings/quick-messages-settings"
 import { ShortcutSettings } from "@/components/settings/shortcut-settings"
 import { SystemNetworkSettings } from "@/components/settings/system-network-settings"
@@ -47,6 +48,8 @@ function SettingsDialogBody({ section, agentType }: SettingsDialogState) {
       return <ExpertsSettings />
     case "office-tools":
       return <OfficeToolsSettings />
+    case "internet-tools":
+      return <InternetToolsSettings />
     case "quick-messages":
       return <QuickMessagesSettings />
     case "usage":

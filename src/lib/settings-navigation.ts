@@ -11,6 +11,7 @@ export type SettingsSection =
   | "mcp"
   | "experts"
   | "office-tools"
+  | "internet-tools"
   | "quick-messages"
   | "shortcuts"
   | "version-control"
@@ -43,6 +44,7 @@ export function normalizeSettingsSection(
     case "mcp":
     case "experts":
     case "office-tools":
+    case "internet-tools":
     case "quick-messages":
     case "shortcuts":
     case "version-control":

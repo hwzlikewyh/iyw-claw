@@ -1,6 +1,7 @@
 use std::fs;
 
 use super::*;
+use serde_json::json;
 
 #[test]
 fn install_specs_pin_agent_reach_and_opencli() {
@@ -66,4 +67,119 @@ fn private_runtime_exposes_uv_commands_and_environment() {
             ("MCPORTER_CONFIG", mcporter_config_path(&paths)),
         ]
     );
+}
+
+#[test]
+fn agent_reach_doctor_json_preserves_channel_diagnostics() {
+    let channels = parse_agent_reach_doctor_json(
+        r#"{
+          "github": {
+            "status": "ok",
+            "name": "GitHub repositories",
+            "message": "Ready",
+            "tier": 0,
+            "backends": ["gh CLI"],
+            "active_backend": "gh CLI"
+          },
+          "reddit": {
+            "status": "off",
+            "name": "Reddit",
+            "message": "Login required",
+            "tier": 1,
+            "backends": ["OpenCLI", "rdt-cli"],
+            "active_backend": null
+          }
+        }"#,
+    )
+    .expect("doctor JSON");
+
+    assert_eq!(channels.len(), 2);
+    assert_eq!(channels[0].id, "github");
+    assert_eq!(channels[0].status, InternetChannelHealth::Ok);
+    assert_eq!(channels[0].active_backend.as_deref(), Some("gh CLI"));
+    assert_eq!(channels[1].id, "reddit");
+    assert_eq!(channels[1].status, InternetChannelHealth::Off);
+    assert_eq!(channels[1].backends, vec!["OpenCLI", "rdt-cli"]);
+}
+
+#[test]
+fn internet_tool_wire_types_use_stable_case_conventions() {
+    assert_eq!(
+        serde_json::to_value(InternetToolId::AgentReach).unwrap(),
+        json!("agent_reach")
+    );
+    assert_eq!(
+        serde_json::to_value(InternetToolId::Opencli).unwrap(),
+        json!("opencli")
+    );
+    assert_eq!(
+        serde_json::to_value(InternetToolStatus::UpdateAvailable).unwrap(),
+        json!("update_available")
+    );
+}
+
+#[test]
+fn version_state_distinguishes_current_update_and_unhealthy_tools() {
+    assert_eq!(
+        tool_status(true, Some("1.5.0"), "1.5.0", None),
+        InternetToolStatus::Installed
+    );
+    assert_eq!(
+        tool_status(true, Some("1.4.0"), "1.5.0", None),
+        InternetToolStatus::UpdateAvailable
+    );
+    assert_eq!(
+        tool_status(true, None, "1.5.0", Some("failed to run")),
+        InternetToolStatus::NotRunnable
+    );
+    assert_eq!(
+        tool_status(false, None, "1.5.0", None),
+        InternetToolStatus::NotInstalled
+    );
+}
+
+#[test]
+fn configuration_and_channel_values_are_closed_enums() {
+    assert!(serde_json::from_value::<AgentReachConfigKey>(json!("github_token")).is_ok());
+    assert!(serde_json::from_value::<AgentReachConfigKey>(json!("arbitrary")).is_err());
+    assert!(serde_json::from_value::<SupportedBrowser>(json!("chrome")).is_ok());
+    assert!(serde_json::from_value::<SupportedBrowser>(json!("custom-browser")).is_err());
+    assert!(serde_json::from_value::<AgentReachChannel>(json!("xiaohongshu")).is_ok());
+    assert!(serde_json::from_value::<AgentReachChannel>(json!("shell-command")).is_err());
+}
+
+#[test]
+fn internet_skill_list_only_includes_managed_sources() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let central = temp.path().join("central");
+    fs::create_dir_all(central.join("agent-reach")).unwrap();
+    fs::write(central.join("agent-reach/SKILL.md"), "# Agent Reach").unwrap();
+    fs::create_dir_all(central.join("opencli-browser")).unwrap();
+    fs::write(central.join("opencli-browser/SKILL.md"), "# Browser").unwrap();
+    fs::create_dir_all(central.join("unrelated")).unwrap();
+    fs::write(central.join("unrelated/SKILL.md"), "# Ignore").unwrap();
+
+    let skills = list_internet_skills_from(&central);
+
+    assert_eq!(
+        skills
+            .iter()
+            .map(|skill| skill.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["agent-reach", "opencli-browser"]
+    );
+    assert!(skills.iter().all(|skill| skill.installed_centrally));
+}
+
+#[test]
+fn default_uninstall_plan_preserves_user_configuration() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let paths = AgentStoragePaths::new(temp.path().join("storage"));
+    let home_config = temp.path().join("home-agent-reach");
+
+    let plan = uninstall_targets(&paths, InternetToolId::AgentReach, false, &home_config);
+    assert!(!plan.contains(&home_config));
+
+    let destructive = uninstall_targets(&paths, InternetToolId::AgentReach, true, &home_config);
+    assert!(destructive.contains(&home_config));
 }

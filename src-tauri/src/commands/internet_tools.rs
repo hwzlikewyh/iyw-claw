@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -7,11 +7,16 @@ use tokio::sync::Mutex;
 
 use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::{binary_cache, npm_runtime};
-use crate::commands::experts::central_experts_dir;
 
-const AGENT_REACH_VERSION: &str = "1.5.0";
-const OPENCLI_VERSION: &str = "1.8.6";
-const MCPORTER_VERSION: &str = "0.9.0";
+mod types;
+pub use types::*;
+mod commands;
+pub(crate) use commands::*;
+mod bootstrap;
+pub use bootstrap::bootstrap_core;
+mod skills;
+use skills::*;
+
 const BOOTSTRAP_MARKER: &str = ".internet-tools-bootstrap.v1";
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -163,116 +168,92 @@ async fn run_install_command(
     Err(format!("{name} install failed: {tail}"))
 }
 
-fn find_agent_reach_skill(paths: &AgentStoragePaths) -> Option<PathBuf> {
-    walkdir::WalkDir::new(paths.uv_runtime_dir().join("tools"))
-        .max_depth(8)
-        .into_iter()
-        .filter_map(Result::ok)
-        .map(|entry| entry.into_path())
-        .find(|path| {
-            path.file_name().and_then(|name| name.to_str()) == Some("skill")
-                && path.join("SKILL.md").is_file()
-                && path
-                    .parent()
-                    .and_then(Path::file_name)
-                    .and_then(|name| name.to_str())
-                    == Some("agent_reach")
+async fn run_tool_output(
+    mut command: tokio::process::Command,
+    name: &str,
+    timeout: Duration,
+) -> Result<std::process::Output, String> {
+    command.kill_on_drop(true);
+    let child = command
+        .spawn()
+        .map_err(|error| format!("failed to start {name}: {error}"))?;
+    let pid = child.id();
+    match tokio::time::timeout(timeout, child.wait_with_output()).await {
+        Ok(result) => result.map_err(|error| format!("failed to wait for {name}: {error}")),
+        Err(_) => {
+            if let Some(pid) = pid {
+                let _ = kill_tree::tokio::kill_tree(pid).await;
+            }
+            Err(format!(
+                "{name} timed out after {} seconds",
+                timeout.as_secs()
+            ))
+        }
+    }
+}
+
+fn output_text(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !stdout.is_empty() {
+        return stdout;
+    }
+    String::from_utf8_lossy(&output.stderr).trim().to_string()
+}
+
+fn parse_version(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .map(|part| part.trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '.'))
+        .find(|part| {
+            part.trim_start_matches(['v', 'V'])
+                .split('.')
+                .all(|segment| !segment.is_empty() && segment.chars().all(|ch| ch.is_ascii_digit()))
         })
+        .map(|part| part.trim_start_matches(['v', 'V']).to_string())
 }
 
-fn copy_dir(source: &Path, target: &Path) -> Result<(), String> {
-    if target.exists() || fs::symlink_metadata(target).is_ok() {
-        crate::commands::acp::remove_skill_entry(target).map_err(|error| error.to_string())?;
-    }
-    fs::create_dir_all(target).map_err(|error| error.to_string())?;
-    for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let destination = target.join(entry.file_name());
-        if entry.path().is_dir() {
-            copy_dir(&entry.path(), &destination)?;
-        } else {
-            fs::copy(entry.path(), destination).map_err(|error| error.to_string())?;
-        }
-    }
-    Ok(())
-}
-
-fn sync_packaged_skills(
-    agent_reach_skill: &Path,
-    opencli_skills: &Path,
-    central: &Path,
-) -> Result<Vec<String>, String> {
-    fs::create_dir_all(central).map_err(|error| error.to_string())?;
-    copy_dir(agent_reach_skill, &central.join("agent-reach"))?;
-    let mut synced = vec!["agent-reach".to_string()];
-    for entry in fs::read_dir(opencli_skills).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let id = entry.file_name().to_string_lossy().to_string();
-        if !id.starts_with("opencli-") || !entry.path().join("SKILL.md").is_file() {
-            continue;
-        }
-        copy_dir(&entry.path(), &central.join(&id))?;
-        synced.push(id);
-    }
-    Ok(synced)
-}
-
-fn bootstrap_is_complete(paths: &AgentStoragePaths) -> bool {
-    let opencli_skills = opencli_prefix(paths).join("node_modules/@jackwener/opencli/skills");
-    fs::read_to_string(paths.root().join(BOOTSTRAP_MARKER))
-        .ok()
-        .as_deref()
-        == Some(bootstrap_marker_content().as_str())
-        && agent_reach_command_path(paths).is_file()
-        && opencli_command_path(paths).is_file()
-        && npm_tool_command_path(paths, "mcporter").is_file()
-        && mcporter_config_path(paths).is_file()
-        && central_experts_dir().join("agent-reach/SKILL.md").is_file()
-        && packaged_opencli_skills_complete(&opencli_skills, &central_experts_dir())
-}
-
-fn packaged_opencli_skills_complete(source: &Path, central: &Path) -> bool {
-    let Ok(entries) = fs::read_dir(source) else {
-        return false;
+async fn detect_tool(paths: &AgentStoragePaths, tool: InternetToolId) -> InternetToolInfo {
+    let path = match tool {
+        InternetToolId::AgentReach => agent_reach_command_path(paths),
+        InternetToolId::Opencli => opencli_command_path(paths),
     };
-    let mut found = false;
-    for entry in entries.flatten() {
-        let id = entry.file_name().to_string_lossy().to_string();
-        if !id.starts_with("opencli-") || !entry.path().join("SKILL.md").is_file() {
-            continue;
-        }
-        found = true;
-        if !central.join(id).join("SKILL.md").is_file() {
-            return false;
-        }
+    let installed = path.is_file();
+    let expected = expected_version(tool);
+    if !installed {
+        return InternetToolInfo {
+            id: tool,
+            status: InternetToolStatus::NotInstalled,
+            installed,
+            version: None,
+            expected_version: expected.to_string(),
+            path: None,
+            runtime_error: None,
+        };
     }
-    found
-}
 
-pub async fn bootstrap_core() -> Result<usize, String> {
-    let _guard = bootstrap_lock().lock().await;
-    let Some(paths) = AgentStoragePaths::active() else {
-        return Ok(0);
+    let mut command = crate::process::tokio_command(&path);
+    command
+        .arg("--version")
+        .envs(private_tool_environment_for(paths));
+    let output = run_tool_output(command, "tool version check", Duration::from_secs(20)).await;
+    let (version, runtime_error) = match output {
+        Ok(output) if output.status.success() => (parse_version(&output_text(&output)), None),
+        Ok(output) => (None, Some(output_text(&output))),
+        Err(error) => (None, Some(error)),
     };
-    if bootstrap_is_complete(&paths) {
-        crate::commands::acp::reconcile_shared_market_skills()
-            .map_err(|error| error.to_string())?;
-        return Ok(0);
+    InternetToolInfo {
+        id: tool,
+        status: tool_status(
+            installed,
+            version.as_deref(),
+            expected,
+            runtime_error.as_deref(),
+        ),
+        installed,
+        version,
+        expected_version: expected.to_string(),
+        path: Some(path.to_string_lossy().to_string()),
+        runtime_error,
     }
-    install_agent_reach(&paths).await?;
-    install_opencli(&paths).await?;
-    let agent_reach_skill = find_agent_reach_skill(&paths)
-        .ok_or_else(|| "Agent Reach packaged skill was not found".to_string())?;
-    let opencli_skills = opencli_prefix(&paths).join("node_modules/@jackwener/opencli/skills");
-    let synced = sync_packaged_skills(&agent_reach_skill, &opencli_skills, &central_experts_dir())?;
-    crate::commands::acp::publish_shared_market_skill_ids(&synced)
-        .map_err(|error| error.to_string())?;
-    fs::write(
-        paths.root().join(BOOTSTRAP_MARKER),
-        bootstrap_marker_content(),
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(synced.len())
 }
 
 pub(crate) fn private_tool_bin_dirs() -> Vec<PathBuf> {

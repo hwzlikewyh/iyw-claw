@@ -55,9 +55,9 @@ mod tauri_app {
         chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
         conversations, delegation as delegation_commands, experts as experts_commands,
         feedback as feedback_commands, file_io, folder_commands, folders,
-        iyw_account as iyw_account_commands, logging as logging_commands,
-        managed_skills as managed_skills_commands, mcp as mcp_commands,
-        model_provider as model_provider_commands, notification,
+        internet_tools as internet_tools_commands, iyw_account as iyw_account_commands,
+        logging as logging_commands, managed_skills as managed_skills_commands,
+        mcp as mcp_commands, model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, question as question_commands,
         quick_messages as quick_messages_commands, remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands, session_info as session_info_commands,
@@ -432,6 +432,14 @@ mod tauri_app {
                     match crate::commands::internet_tools::bootstrap_core().await {
                         Ok(synced) => {
                             tracing::info!("[internet-tools] bootstrap ok: synced={synced}");
+                            if let Err(error) = crate::commands::managed_skills::reconcile_persisted_family_core(
+                                &managed_distribution_db,
+                                crate::commands::managed_skills::ManagedSkillFamily::InternetTools,
+                            )
+                            .await
+                            {
+                                tracing::warn!("[internet-tools] managed skill reconcile failed: {error}");
+                            }
                         }
                         Err(error) => {
                             tracing::warn!("[internet-tools] startup bootstrap failed: {error}");
@@ -1016,6 +1024,7 @@ mod tauri_app {
                 managed_skills_commands::managed_skills_set_global_enabled,
                 managed_skills_commands::managed_skills_get_family_state,
                 managed_skills_commands::managed_skills_set_skill_enabled,
+                managed_skills_commands::managed_skills_reconcile_family,
                 experts_commands::experts_list,
                 experts_commands::experts_get_install_status,
                 experts_commands::experts_list_all_install_statuses,
@@ -1024,6 +1033,17 @@ mod tauri_app {
                 experts_commands::experts_apply_links,
                 experts_commands::experts_read_content,
                 experts_commands::experts_open_central_dir,
+                internet_tools_commands::internet_tools_detect,
+                internet_tools_commands::internet_tool_install,
+                internet_tools_commands::internet_tool_uninstall,
+                internet_tools_commands::internet_tools_sync_skills,
+                internet_tools_commands::internet_tools_list_skills,
+                internet_tools_commands::internet_tools_read_skill,
+                internet_tools_commands::internet_tools_agent_reach_doctor,
+                internet_tools_commands::internet_tools_opencli_doctor,
+                internet_tools_commands::internet_tools_configure_agent_reach,
+                internet_tools_commands::internet_tools_import_browser,
+                internet_tools_commands::internet_tools_install_channels,
                 office_tools_commands::officecli_detect,
                 office_tools_commands::officecli_bootstrap,
                 office_tools_commands::officecli_install,

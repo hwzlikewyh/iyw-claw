@@ -9,6 +9,7 @@ use crate::acp::registry;
 use crate::app_error::AppCommandError;
 use crate::commands::acp::skill_storage_spec;
 use crate::commands::experts::{self, LinkOpResult};
+use crate::commands::internet_tools;
 use crate::commands::office_tools;
 use crate::db::service::{agent_setting_service, app_metadata_service};
 #[cfg(feature = "tauri-runtime")]
@@ -17,8 +18,10 @@ use crate::models::agent::AgentType;
 
 pub const EXPERTS_POLICY_KEY: &str = "managed_skills.experts.enabled.v1";
 pub const OFFICE_TOOLS_POLICY_KEY: &str = "managed_skills.office_tools.enabled.v1";
+pub const INTERNET_TOOLS_POLICY_KEY: &str = "managed_skills.internet_tools.enabled.v1";
 pub const EXPERTS_OVERRIDES_KEY: &str = "managed_skills.experts.overrides.v1";
 pub const OFFICE_TOOLS_OVERRIDES_KEY: &str = "managed_skills.office_tools.overrides.v1";
+pub const INTERNET_TOOLS_OVERRIDES_KEY: &str = "managed_skills.internet_tools.overrides.v1";
 
 fn policy_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -37,6 +40,7 @@ pub(crate) fn supported_skill_agent_types() -> Vec<AgentType> {
 pub enum ManagedSkillFamily {
     Experts,
     OfficeTools,
+    InternetTools,
 }
 
 impl ManagedSkillFamily {
@@ -44,6 +48,7 @@ impl ManagedSkillFamily {
         match self {
             Self::Experts => EXPERTS_POLICY_KEY,
             Self::OfficeTools => OFFICE_TOOLS_POLICY_KEY,
+            Self::InternetTools => INTERNET_TOOLS_POLICY_KEY,
         }
     }
 
@@ -51,6 +56,7 @@ impl ManagedSkillFamily {
         match self {
             Self::Experts => EXPERTS_OVERRIDES_KEY,
             Self::OfficeTools => OFFICE_TOOLS_OVERRIDES_KEY,
+            Self::InternetTools => INTERNET_TOOLS_OVERRIDES_KEY,
         }
     }
 }
@@ -60,6 +66,7 @@ impl ManagedSkillFamily {
 pub struct ManagedSkillGlobalState {
     pub experts_enabled: bool,
     pub office_tools_enabled: bool,
+    pub internet_tools_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -96,6 +103,7 @@ fn family_skill_ids(family: ManagedSkillFamily) -> Vec<String> {
     match family {
         ManagedSkillFamily::Experts => experts::managed_expert_ids(),
         ManagedSkillFamily::OfficeTools => office_tools::managed_office_skill_ids(),
+        ManagedSkillFamily::InternetTools => internet_tools::managed_internet_skill_ids(),
     }
 }
 
@@ -103,6 +111,7 @@ fn family_ready_skill_ids(family: ManagedSkillFamily) -> Vec<String> {
     match family {
         ManagedSkillFamily::Experts => experts::managed_ready_expert_ids(),
         ManagedSkillFamily::OfficeTools => office_tools::managed_ready_office_skill_ids(),
+        ManagedSkillFamily::InternetTools => internet_tools::managed_ready_internet_skill_ids(),
     }
 }
 
@@ -258,6 +267,9 @@ async fn load_global_state(
         office_tools_enabled: load_policy(conn, OFFICE_TOOLS_POLICY_KEY)
             .await?
             .unwrap_or(false),
+        internet_tools_enabled: load_policy(conn, INTERNET_TOOLS_POLICY_KEY)
+            .await?
+            .unwrap_or(false),
     })
 }
 
@@ -362,6 +374,10 @@ async fn ensure_policies_migrated_locked(conn: &DatabaseConnection) -> Result<()
         office_tools::managed_office_skill_has_owned_link(skill_id, &agents)
     })
     .await?;
+    migrate_family_policy_with(conn, ManagedSkillFamily::InternetTools, |skill_id| {
+        internet_tools::managed_internet_skill_has_owned_link(skill_id, &agents)
+    })
+    .await?;
     Ok(())
 }
 
@@ -448,6 +464,9 @@ async fn reconcile_targets(
         ManagedSkillFamily::Experts => experts::reconcile_managed_experts(targets).await,
         ManagedSkillFamily::OfficeTools => {
             office_tools::reconcile_managed_office_tools(targets).await
+        }
+        ManagedSkillFamily::InternetTools => {
+            internet_tools::reconcile_managed_internet_tools(targets).await
         }
     };
     let touched_agents = touched_agents(&results);
@@ -546,7 +565,16 @@ pub async fn reconcile_all_core(
         &office_targets,
     )
     .await;
-    Ok(vec![experts, office_tools])
+    let internet_state = load_family_state(conn, ManagedSkillFamily::InternetTools).await?;
+    let internet_targets = expand_skill_targets(&agents, &desired_skills(&internet_state));
+    let internet_tools = reconcile_targets(
+        ManagedSkillFamily::InternetTools,
+        internet_state.all_enabled,
+        None,
+        &internet_targets,
+    )
+    .await;
+    Ok(vec![experts, office_tools, internet_tools])
 }
 
 pub async fn reconcile_agent_core(
@@ -585,7 +613,16 @@ pub async fn reconcile_agent_core(
         &office_targets,
     )
     .await;
-    Ok(vec![experts, office_tools])
+    let internet_state = load_family_state(conn, ManagedSkillFamily::InternetTools).await?;
+    let internet_targets = expand_skill_targets(&agents, &desired_skills(&internet_state));
+    let internet_tools = reconcile_targets(
+        ManagedSkillFamily::InternetTools,
+        internet_state.all_enabled,
+        None,
+        &internet_targets,
+    )
+    .await;
+    Ok(vec![experts, office_tools, internet_tools])
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -626,6 +663,15 @@ pub async fn managed_skills_set_skill_enabled(
     set_skill_enabled_core(&db.conn, family, skill_id, enabled).await
 }
 
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn managed_skills_reconcile_family(
+    family: ManagedSkillFamily,
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<ManagedSkillSyncReport, AppCommandError> {
+    reconcile_persisted_family_core(&db.conn, family).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -641,16 +687,22 @@ mod tests {
             serde_json::to_value(ManagedSkillFamily::OfficeTools).unwrap(),
             json!("office_tools")
         );
+        assert_eq!(
+            serde_json::to_value(ManagedSkillFamily::InternetTools).unwrap(),
+            json!("internet_tools")
+        );
 
         let state = ManagedSkillGlobalState {
             experts_enabled: true,
             office_tools_enabled: false,
+            internet_tools_enabled: true,
         };
         assert_eq!(
             serde_json::to_value(state).unwrap(),
             json!({
                 "expertsEnabled": true,
                 "officeToolsEnabled": false,
+                "internetToolsEnabled": true,
             })
         );
 

@@ -72,3 +72,12 @@ pub async fn managed_skills_set_skill_enabled(
         .await?,
     ))
 }
+
+pub async fn managed_skills_reconcile_family(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<FamilyParams>,
+) -> Result<Json<ManagedSkillSyncReport>, AppCommandError> {
+    Ok(Json(
+        managed_skills::reconcile_persisted_family_core(&state.db.conn, params.family).await?,
+    ))
+}

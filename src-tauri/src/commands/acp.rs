@@ -4911,17 +4911,6 @@ fn publish_shared_skill_to_all_agents(
     })
 }
 
-pub(crate) fn publish_shared_market_skill_ids(skill_ids: &[String]) -> Result<(), AcpError> {
-    for skill_id in skill_ids {
-        publish_shared_skill_to_all_agents(
-            AgentType::Codex,
-            skill_id,
-            AgentSkillSyncMode::default(),
-        )?;
-    }
-    Ok(())
-}
-
 pub(crate) fn reconcile_shared_market_skills() -> Result<(), AcpError> {
     let Some(paths) = AgentStoragePaths::active() else {
         return Ok(());
