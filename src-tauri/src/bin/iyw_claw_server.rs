@@ -407,7 +407,18 @@ async fn async_main() -> ExitCode {
             tracing::warn!("[managed-mcp] startup reconcile failed: {error}");
         }
         match iyw_claw_lib::commands::internet_tools::bootstrap_core().await {
-            Ok(synced) => tracing::info!("[internet-tools] bootstrap ok: synced={synced}"),
+            Ok(synced) => {
+                tracing::info!("[internet-tools] bootstrap ok: synced={synced}");
+                if let Err(error) =
+                    iyw_claw_lib::commands::managed_skills::reconcile_persisted_family_core(
+                        &managed_distribution_db,
+                        iyw_claw_lib::commands::managed_skills::ManagedSkillFamily::InternetTools,
+                    )
+                    .await
+                {
+                    tracing::warn!("[internet-tools] managed skill reconcile failed: {error}");
+                }
+            }
             Err(error) => tracing::warn!("[internet-tools] startup bootstrap failed: {error}"),
         }
     });

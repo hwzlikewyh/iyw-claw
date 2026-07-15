@@ -1624,11 +1624,12 @@ export interface LinkOpResult {
   error: string | null
 }
 
-export type ManagedSkillFamily = "experts" | "office_tools"
+export type ManagedSkillFamily = "experts" | "office_tools" | "internet_tools"
 
 export interface ManagedSkillGlobalState {
   expertsEnabled: boolean
   officeToolsEnabled: boolean
+  internetToolsEnabled: boolean
 }
 
 export interface ManagedSkillState {
@@ -1675,6 +1676,72 @@ export interface SkillSyncReport {
   synced: number
   errors: string[]
 }
+
+export type InternetToolId = "agent_reach" | "opencli"
+export type InternetToolStatus =
+  | "installed"
+  | "update_available"
+  | "not_runnable"
+  | "not_installed"
+
+export interface InternetToolInfo {
+  id: InternetToolId
+  status: InternetToolStatus
+  installed: boolean
+  version: string | null
+  expectedVersion: string
+  path: string | null
+  runtimeError: string | null
+}
+
+export type InternetChannelHealth = "ok" | "warn" | "error" | "off"
+
+export interface InternetChannelStatus {
+  id: string
+  status: InternetChannelHealth
+  name: string
+  message: string
+  tier: number
+  backends: string[]
+  activeBackend: string | null
+}
+
+export interface InternetToolSkill {
+  id: string
+  source: InternetToolId
+  installedCentrally: boolean
+}
+
+export interface InternetSkillSyncReport {
+  synced: number
+  skillIds: string[]
+  errors: string[]
+}
+
+export interface OpencliDoctorResult {
+  ok: boolean
+  message: string
+}
+
+export type AgentReachConfigKey =
+  | "proxy"
+  | "github_token"
+  | "groq_key"
+  | "openai_key"
+  | "twitter_cookies"
+  | "youtube_cookies"
+  | "xhs_cookies"
+
+export type SupportedBrowser = "chrome" | "edge" | "firefox" | "brave" | "opera"
+
+export type AgentReachChannel =
+  | "twitter"
+  | "xiaoyuzhou"
+  | "xueqiu"
+  | "xiaohongshu"
+  | "reddit"
+  | "bilibili"
+  | "linkedin"
 
 export interface SystemProxySettings {
   enabled: boolean

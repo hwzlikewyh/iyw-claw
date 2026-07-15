@@ -13,6 +13,7 @@ import {
   Bot,
   Brain,
   FileStack,
+  Globe2,
   GitBranch,
   Keyboard,
   Menu,
@@ -47,6 +48,7 @@ export interface SettingsNavItem {
     | "mcp"
     | "experts"
     | "office_tools"
+    | "internet_tools"
     | "quick_messages"
     | "shortcuts"
     | "version_control"
@@ -94,6 +96,11 @@ const SETTINGS_NAV_ITEMS_WITH_HIDDEN: SettingsNavItem[] = [
     href: "/settings/office-tools",
     labelKey: "office_tools",
     icon: FileStack,
+  },
+  {
+    href: "/settings/internet-tools",
+    labelKey: "internet_tools",
+    icon: Globe2,
   },
   {
     href: "/settings/agents",

@@ -14,6 +14,7 @@ pub mod files;
 pub mod folder_commands;
 pub mod folders;
 pub mod git;
+pub mod internet_tools;
 pub mod iyw_account;
 pub mod logging;
 pub mod managed_skills;

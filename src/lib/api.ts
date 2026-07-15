@@ -59,6 +59,15 @@ import type {
   ManagedSkillFamilyState,
   ManagedSkillGlobalState,
   ManagedSkillSyncReport,
+  AgentReachChannel,
+  AgentReachConfigKey,
+  InternetChannelStatus,
+  InternetSkillSyncReport,
+  InternetToolId,
+  InternetToolInfo,
+  InternetToolSkill,
+  OpencliDoctorResult,
+  SupportedBrowser,
   FolderHistoryEntry,
   FolderDetail,
   CreateChatConversationResult,
@@ -855,6 +864,12 @@ export async function managedSkillsSetSkillEnabled(
   })
 }
 
+export async function managedSkillsReconcileFamily(
+  family: ManagedSkillFamily
+): Promise<ManagedSkillSyncReport> {
+  return getTransport().call("managed_skills_reconcile_family", { family })
+}
+
 // ─── Experts (built-in expert skills) ───────────────────────────────────
 
 export async function expertsList(): Promise<ExpertListItem[]> {
@@ -907,6 +922,88 @@ export async function expertsReadContent(expertId: string): Promise<string> {
 
 export async function expertsOpenCentralDir(): Promise<string> {
   return getTransport().call("experts_open_central_dir")
+}
+
+// ─── Internet tools ───
+
+export async function internetToolsDetect(): Promise<InternetToolInfo[]> {
+  return getTransport().call("internet_tools_detect")
+}
+
+export async function internetToolInstall(
+  tool: InternetToolId
+): Promise<InternetToolInfo> {
+  return getTransport().call(
+    "internet_tool_install",
+    { tool },
+    { timeoutMs: 630_000 }
+  )
+}
+
+export async function internetToolUninstall(
+  tool: InternetToolId,
+  removeConfig = false
+): Promise<InternetToolInfo> {
+  return getTransport().call("internet_tool_uninstall", {
+    tool,
+    removeConfig,
+  })
+}
+
+export async function internetToolsSyncSkills(): Promise<InternetSkillSyncReport> {
+  return getTransport().call("internet_tools_sync_skills")
+}
+
+export async function internetToolsListSkills(): Promise<InternetToolSkill[]> {
+  return getTransport().call("internet_tools_list_skills")
+}
+
+export async function internetToolsReadSkill(skillId: string): Promise<string> {
+  return getTransport().call("internet_tools_read_skill", { skillId })
+}
+
+export async function internetToolsAgentReachDoctor(): Promise<
+  InternetChannelStatus[]
+> {
+  return getTransport().call("internet_tools_agent_reach_doctor", undefined, {
+    timeoutMs: 120_000,
+  })
+}
+
+export async function internetToolsOpencliDoctor(): Promise<OpencliDoctorResult> {
+  return getTransport().call("internet_tools_opencli_doctor", undefined, {
+    timeoutMs: 90_000,
+  })
+}
+
+export async function internetToolsConfigureAgentReach(
+  key: AgentReachConfigKey,
+  value: string
+): Promise<void> {
+  return getTransport().call("internet_tools_configure_agent_reach", {
+    key,
+    value,
+  })
+}
+
+export async function internetToolsImportBrowser(
+  browser: SupportedBrowser
+): Promise<void> {
+  return getTransport().call(
+    "internet_tools_import_browser",
+    { browser },
+    { timeoutMs: 150_000 }
+  )
+}
+
+export async function internetToolsInstallChannels(
+  channels: AgentReachChannel[]
+): Promise<InternetChannelStatus[]> {
+  return getTransport().call(
+    "internet_tools_install_channels",
+    { channels },
+    { timeoutMs: 630_000 }
+  )
 }
 
 // ─── Office tools ───

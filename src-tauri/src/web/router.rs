@@ -789,6 +789,10 @@ pub fn build_router(
             "/managed_skills_set_skill_enabled",
             post(handlers::managed_skills::managed_skills_set_skill_enabled),
         )
+        .route(
+            "/managed_skills_reconcile_family",
+            post(handlers::managed_skills::managed_skills_reconcile_family),
+        )
         // ─── Experts ───
         .route("/experts_list", post(handlers::experts::experts_list))
         .route(
@@ -818,6 +822,51 @@ pub fn build_router(
         .route(
             "/experts_open_central_dir",
             post(handlers::experts::experts_open_central_dir),
+        )
+        // ─── Internet tools ───
+        .route(
+            "/internet_tools_detect",
+            post(handlers::internet_tools::detect),
+        )
+        .route(
+            "/internet_tool_install",
+            post(handlers::internet_tools::install),
+        )
+        .route(
+            "/internet_tool_uninstall",
+            post(handlers::internet_tools::uninstall),
+        )
+        .route(
+            "/internet_tools_sync_skills",
+            post(handlers::internet_tools::sync_skills),
+        )
+        .route(
+            "/internet_tools_list_skills",
+            post(handlers::internet_tools::list_skills),
+        )
+        .route(
+            "/internet_tools_read_skill",
+            post(handlers::internet_tools::read_skill),
+        )
+        .route(
+            "/internet_tools_agent_reach_doctor",
+            post(handlers::internet_tools::agent_reach_doctor),
+        )
+        .route(
+            "/internet_tools_opencli_doctor",
+            post(handlers::internet_tools::opencli_doctor),
+        )
+        .route(
+            "/internet_tools_configure_agent_reach",
+            post(handlers::internet_tools::configure),
+        )
+        .route(
+            "/internet_tools_import_browser",
+            post(handlers::internet_tools::import_browser),
+        )
+        .route(
+            "/internet_tools_install_channels",
+            post(handlers::internet_tools::install_channels),
         )
         // ─── Office tools ───
         .route(

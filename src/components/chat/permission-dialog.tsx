@@ -18,6 +18,7 @@ import { UnifiedDiffPreview } from "@/components/diff/unified-diff-preview"
 import { MessageResponse } from "@/components/ai-elements/message"
 import type { PendingPermission } from "@/contexts/acp-connections-context"
 import { parsePermissionToolCall } from "@/lib/permission-request"
+import { resolvePermissionOptionLabel } from "@/lib/permission-option-label"
 
 interface PermissionDialogProps {
   permission: PendingPermission | null
@@ -211,6 +212,7 @@ export function PermissionDialog({
       <div className="mt-3 flex flex-wrap gap-2">
         {permission.options.map((opt) => {
           const isReject = opt.kind.startsWith("reject")
+          const label = resolvePermissionOptionLabel(opt)
           return (
             <Button
               key={opt.option_id}
@@ -218,7 +220,11 @@ export function PermissionDialog({
               className="h-auto min-h-9 whitespace-normal break-words text-left"
               onClick={() => onRespond(permission.request_id, opt.option_id)}
             >
-              {opt.name}
+              {label
+                ? t(`options.${label.key}`, {
+                    command: label.command ?? "",
+                  })
+                : opt.name}
             </Button>
           )
         })}

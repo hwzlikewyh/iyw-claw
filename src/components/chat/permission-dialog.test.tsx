@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { PermissionDialog } from "./permission-dialog"
 import enMessages from "@/i18n/messages/en.json"
+import zhMessages from "@/i18n/messages/zh-CN.json"
 import type { PendingPermission } from "@/contexts/acp-connections-context"
 
 // MessageResponse (Streamdown) pulls in async Shiki highlighting + the
@@ -17,9 +18,13 @@ vi.mock("@/components/ai-elements/message", () => ({
   ),
 }))
 
-function renderWithIntl(ui: React.ReactElement) {
+function renderWithIntl(
+  ui: React.ReactElement,
+  locale: "en" | "zh-CN" = "en",
+  messages = enMessages
+) {
   return render(
-    <NextIntlClientProvider locale="en" messages={enMessages}>
+    <NextIntlClientProvider locale={locale} messages={messages}>
       {ui}
     </NextIntlClientProvider>
   )
@@ -66,6 +71,46 @@ describe("PermissionDialog", () => {
       screen.getByRole("button", { name: "Allow once" })
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument()
+  })
+
+  it("localizes standard and command-scoped permission options", () => {
+    const permission: PendingPermission = {
+      request_id: "req-localized",
+      tool_call: null,
+      options: [
+        { option_id: "once", name: "Allow Once", kind: "allow_once" },
+        {
+          option_id: "session",
+          name: "Allow for Session",
+          kind: "allow_always",
+        },
+        {
+          option_id: "prefix",
+          name: "Allow Commands Starting With 'git status'",
+          kind: "allow_always",
+        },
+        { option_id: "reject", name: "Reject", kind: "reject_once" },
+      ],
+    }
+
+    renderWithIntl(
+      <PermissionDialog permission={permission} onRespond={() => {}} />,
+      "zh-CN",
+      zhMessages
+    )
+
+    expect(
+      screen.getByRole("button", { name: "仅允许一次" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "本会话允许" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", {
+        name: "允许以 'git status' 开头的命令",
+      })
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "拒绝" })).toBeInTheDocument()
   })
 
   it("invokes onRespond with the request_id + chosen option_id when clicked", () => {
