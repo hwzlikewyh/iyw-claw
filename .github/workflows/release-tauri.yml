@@ -114,19 +114,21 @@ jobs:
         shell: bash
         run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
 
-      - name: Verify iyw-claw-mcp sidecar
+      - name: Verify bundled sidecars
         shell: bash
         run: |
           ext=""
           case "${{ matrix.target }}" in
             *windows*) ext=".exe" ;;
           esac
-          file="src-tauri/binaries/iyw-claw-mcp-${{ matrix.target }}${ext}"
-          test -f "$file" || {
-            echo "::error::Sidecar $file is missing after prepare-sidecars"
-            exit 1
-          }
-          ls -la "$file"
+          for name in iyw-claw-mcp uv uvx; do
+            file="src-tauri/binaries/${name}-${{ matrix.target }}${ext}"
+            test -s "$file" || {
+              echo "::error::Sidecar $file is missing or empty after prepare-sidecars"
+              exit 1
+            }
+            ls -la "$file"
+          done
 
       - name: Build and upload Linux arm64
         if: matrix.target == 'aarch64-unknown-linux-gnu'
