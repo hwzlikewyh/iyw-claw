@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('x64', 'arm64')]
+    [ValidateSet('x86', 'x64', 'arm64')]
     [string]$Architecture,
 
     [Parameter(Mandatory = $true)]
@@ -16,6 +16,12 @@ $version = '2.55.0.2'
 $releaseTag = 'v2.55.0.windows.2'
 $releaseBaseUrl = "https://github.com/git-for-windows/git/releases/download/$releaseTag"
 $target = switch ($Architecture) {
+    'x86' {
+        [pscustomobject]@{
+            Asset = "MinGit-$version-32-bit.zip"
+            Sha256 = '04009f6150c1cec2d6779c51406c8c6a3f0133e57fa91c91eb8a030b93e68ccb'
+        }
+    }
     'x64' {
         [pscustomobject]@{
             Asset = "MinGit-$version-64-bit.zip"

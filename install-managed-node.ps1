@@ -1,5 +1,9 @@
 ﻿param(
     [Parameter(Mandatory = $true)]
+    [ValidateSet('x86', 'x64', 'arm64')]
+    [string]$Architecture,
+
+    [Parameter(Mandatory = $true)]
     [ValidatePattern('^\d+\.\d+\.\d+$')]
     [string]$Version,
 
@@ -109,8 +113,7 @@ function Test-NodeRuntime {
 }
 
 $runtimeRootPath = [IO.Path]::GetFullPath($RuntimeRoot)
-$architecture = Get-NodeArchitecture
-$platform = "win-$architecture"
+$platform = "win-$Architecture"
 $archiveName = "node-v$Version-$platform.zip"
 $targetDirectory = Join-Path $runtimeRootPath "node\$Version\$platform"
 $nodeRoot = Join-Path $runtimeRootPath 'node'
