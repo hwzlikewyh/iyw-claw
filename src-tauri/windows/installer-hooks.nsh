@@ -25,6 +25,19 @@ Function IywClawRestoreLogicalInstallRoot
   GetFullPathName $INSTDIR "$R8"
 
   iyw_guiinit_done:
+    ; A regular installer launch would show Tauri's reinstall choice page.
+    ; Relaunch an existing installation in passive update mode so the current
+    ; directory is reused and no uninstaller UI is shown.
+    ClearErrors
+    ${GetOptions} $CMDLINE "/UPDATE" $R6
+    IfErrors 0 iyw_guiinit_return
+    ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
+    StrCmp $R8 "" iyw_guiinit_return 0
+    ExecWait '"$EXEPATH" /P /UPDATE' $R6
+    SetErrorLevel $R6
+    Quit
+
+  iyw_guiinit_return:
 FunctionEnd
 
 Function IywClawResolveInstallRoot
@@ -77,9 +90,19 @@ FunctionEnd
 !macro NSIS_HOOK_PREINSTALL
   Call IywClawResolveInstallRoot
   DetailPrint "正在停止运行中的 iyw-claw 后台进程..."
+  nsExec::Exec 'taskkill /F /T /IM iyw-claw.exe'
+  Pop $0
   nsExec::Exec 'taskkill /F /T /IM iyw-claw-mcp.exe'
   Pop $0
   Sleep 500
+
+  ${If} $UpdateMode = 1
+    DetailPrint "正在替换 iyw-claw 应用文件..."
+    RMDir /r "$IywClawRoot\app"
+    CreateDirectory "$IywClawRoot\app"
+    StrCpy $INSTDIR "$IywClawRoot\app"
+    SetOutPath "$INSTDIR"
+  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -87,6 +110,11 @@ FunctionEnd
   ; Expose the logical root in the directory page while keeping binaries
   ; isolated below root\app.
   WriteRegStr SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "" "$IywClawRoot"
+
+  ${If} $UpdateMode = 1
+    DetailPrint "已保留现有运行环境、配置、数据和日志。"
+    Goto iyw_postinstall_done
+  ${EndIf}
 
   ; ARCH is defined by Tauri's generated installer.nsi after this hook is
   ; included, so resolve architecture-specific assets when this macro expands.
@@ -132,6 +160,8 @@ FunctionEnd
 
   iyw_git_done:
     DetailPrint "内核运行环境准备完成。"
+
+  iyw_postinstall_done:
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
@@ -139,6 +169,10 @@ FunctionEnd
   nsExec::Exec 'taskkill /F /T /IM iyw-claw-mcp.exe'
   Pop $0
   Sleep 500
+
+  ${If} $UpdateMode = 1
+    Goto iyw_uninstall_done
+  ${EndIf}
 
   ReadRegStr $IywClawRoot SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
   StrCmp $IywClawRoot "" iyw_uninstall_done 0
