@@ -74,31 +74,27 @@ impl AcpAgentMeta {
     }
 }
 
+fn platform_for(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("macos", "aarch64") => Some("darwin-aarch64"),
+        ("macos", "x86_64") => Some("darwin-x86_64"),
+        ("linux", "aarch64") => Some("linux-aarch64"),
+        ("linux", "x86_64") => Some("linux-x86_64"),
+        ("windows", "aarch64") => Some("windows-aarch64"),
+        ("windows", "x86") => Some("windows-i686"),
+        ("windows", "x86_64") => Some("windows-x86_64"),
+        _ => None,
+    }
+}
+
 pub fn current_platform() -> &'static str {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        "darwin-aarch64"
-    }
-    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    {
-        "darwin-x86_64"
-    }
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    {
-        "linux-aarch64"
-    }
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    {
-        "linux-x86_64"
-    }
-    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
-    {
-        "windows-aarch64"
-    }
-    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    {
-        "windows-x86_64"
-    }
+    platform_for(std::env::consts::OS, std::env::consts::ARCH).unwrap_or_else(|| {
+        panic!(
+            "unsupported platform: {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    })
 }
 
 pub fn all_acp_agents() -> Vec<AgentType> {
@@ -353,6 +349,11 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_x86_uses_i686_platform_key() {
+        assert_eq!(platform_for("windows", "x86"), Some("windows-i686"));
+    }
 
     fn assert_npx_version(
         agent_type: AgentType,
