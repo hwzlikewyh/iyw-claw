@@ -35,7 +35,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, resolve, win32 } from "node:path"
 import { tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
@@ -154,6 +154,20 @@ export function parseSha256(content) {
   return digest
 }
 
+export function resolveExtractor(
+  archive,
+  destination,
+  isWindows,
+  windowsRoot = process.env.SystemRoot || "C:\\Windows"
+) {
+  return {
+    command: isWindows
+      ? win32.join(windowsRoot, "System32", "tar.exe")
+      : "tar",
+    args: ["-xf", archive, "-C", destination],
+  }
+}
+
 async function download(url, label) {
   try {
     const response = await fetch(url, {
@@ -210,7 +224,10 @@ async function stageUvSidecars(target, isWindows) {
     const actual = createHash("sha256").update(bytes).digest("hex")
     if (actual !== expected) die(`uv checksum mismatch: expected ${expected}, got ${actual}`)
     writeFileSync(archive, bytes)
-    execFileSync("tar", ["-xf", archive, "-C", extracted], { stdio: "inherit" })
+    const extractor = resolveExtractor(archive, extracted, isWindows)
+    execFileSync(extractor.command, extractor.args, {
+      stdio: "inherit",
+    })
 
     for (const name of ["uv", "uvx"]) {
       const source = findFile(extracted, `${name}${ext}`)
