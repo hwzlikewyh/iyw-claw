@@ -4,18 +4,24 @@ set -euo pipefail
 
 mode="${1:?usage: setup-linux-arm64.sh <desktop|server>}"
 cat > /tmp/iyw-claw-sources.list <<'EOF'
-deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
-deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
-deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-backports main restricted universe multiverse
-deb [arch=amd64] http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse
+deb [arch=amd64] https://archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
+deb [arch=amd64] https://archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
+deb [arch=amd64] https://archive.ubuntu.com/ubuntu jammy-backports main restricted universe multiverse
+deb [arch=amd64] https://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse
 
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse
-deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse
+deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
+deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
+deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse
+deb [arch=arm64] https://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse
 EOF
 sudo mv /etc/apt/sources.list /etc/apt/sources.list.default
 sudo mv /tmp/iyw-claw-sources.list /etc/apt/sources.list
+sudo tee /etc/apt/apt.conf.d/99iyw-claw-network >/dev/null <<'EOF'
+Acquire::ForceIPv4 "true";
+Acquire::Retries "5";
+Acquire::http::Timeout "30";
+Acquire::https::Timeout "30";
+EOF
 sudo dpkg --add-architecture arm64
 sudo apt-get update
 
