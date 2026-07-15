@@ -57,6 +57,7 @@ export interface SettingsNavItem {
 }
 
 const SHOW_RUNTIME_LOGS_SETTINGS = false
+const SHOW_VERSION_CONTROL_SETTINGS = false
 
 const SETTINGS_NAV_ITEMS_WITH_HIDDEN: SettingsNavItem[] = [
   {
@@ -132,7 +133,9 @@ const SETTINGS_NAV_ITEMS_WITH_HIDDEN: SettingsNavItem[] = [
 ]
 
 export const SETTINGS_NAV_ITEMS = SETTINGS_NAV_ITEMS_WITH_HIDDEN.filter(
-  (item) => SHOW_RUNTIME_LOGS_SETTINGS || item.href !== "/settings/logs"
+  (item) =>
+    (SHOW_RUNTIME_LOGS_SETTINGS || item.href !== "/settings/logs") &&
+    (SHOW_VERSION_CONTROL_SETTINGS || item.href !== "/settings/version-control")
 )
 
 interface SettingsShellProps {

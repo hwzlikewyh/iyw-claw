@@ -1331,7 +1331,7 @@
       "sectionChats": "Discussion",
       "noChats": "Aucune discussion",
       "newChatAction": "Nouvelle discussion",
-      "automations": "Automatisations",
+      "automations": "Tâches planifiées",
       "skillsMarket": "Skill Market",
       "loadingSubsessions": "Chargement des sous-conversations…"
     },
@@ -3087,7 +3087,7 @@
   },
   "ExpertsSettings": {
     "title": "Compétences d'experts",
-    "description": "Activez des workflows de compétences soigneusement sélectionnés et éprouvés pour vos agents de codage IA. Chaque expert est une compétence autonome du projet superpowers — iyw-claw gère la copie centrale et la lie aux agents que vous choisissez.",
+    "description": "Activez des compétences expertes soigneusement sélectionnées pour tous les agents de codage IA pris en charge à l’aide d’un seul interrupteur.",
     "loading": "Chargement des experts…",
     "loadingContent": "Chargement du contenu…",
     "emptyExperts": "Aucun expert disponible. Vérifiez les journaux de l'application.",
@@ -3132,7 +3132,7 @@
   },
   "OfficeToolsSettings": {
     "title": "Outils Office",
-    "description": "Gérez les compétences OfficeCLI pour créer des fichiers Excel, Word et PowerPoint. Installez OfficeCLI, synchronisez les compétences et activez-les par agent.",
+    "description": "Gérez les compétences OfficeCLI pour créer des fichiers Excel, Word et PowerPoint, puis activez-les pour tous les agents pris en charge à l’aide d’un seul interrupteur.",
     "loadingContent": "Chargement du contenu…",
     "emptySkills": "Aucune compétence disponible. Installez OfficeCLI et synchronisez les compétences.",
     "emptySelection": "Sélectionnez une compétence pour voir son contenu et gérer l'activation.",
@@ -3583,7 +3583,7 @@
     "toggleDetails": "Afficher les détails"
   },
   "Automations": {
-    "title": "Automatisations",
+    "title": "Tâches planifiées",
     "new": "Nouvelle automatisation",
     "empty": "Aucune automatisation pour l'instant",
     "emptyHint": "Créez-en une pour exécuter une tâche d'agent planifiée ou à la demande.",

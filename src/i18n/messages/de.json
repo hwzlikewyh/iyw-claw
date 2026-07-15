@@ -1331,7 +1331,7 @@
       "sectionChats": "Chat",
       "noChats": "Keine Chats",
       "newChatAction": "Neuer Chat",
-      "automations": "Automatisierungen",
+      "automations": "Geplante Aufgaben",
       "skillsMarket": "Skill Market",
       "loadingSubsessions": "Unterkonversationen werden geladen…"
     },
@@ -3087,7 +3087,7 @@
   },
   "ExpertsSettings": {
     "title": "Experten-Skills",
-    "description": "Aktivieren Sie kuratierte, praxiserprobte Skill-Workflows für Ihre KI-Coding-Agents. Jeder Experte ist ein eigenständiger Skill aus dem superpowers-Projekt — iyw-claw verwaltet die zentrale Kopie und verknüpft sie mit den von Ihnen ausgewählten Agents.",
+    "description": "Aktivieren Sie kuratierte Experten-Skills mit einem einzigen Schalter für alle unterstützten KI-Coding-Agents.",
     "loading": "Experten werden geladen…",
     "loadingContent": "Inhalt wird geladen…",
     "emptyExperts": "Keine Experten verfügbar. Prüfen Sie die Anwendungsprotokolle.",
@@ -3132,7 +3132,7 @@
   },
   "OfficeToolsSettings": {
     "title": "Office-Tools",
-    "description": "Verwalten Sie OfficeCLI-Skills zum Erstellen von Excel-, Word- und PowerPoint-Dateien. Installieren Sie OfficeCLI, synchronisieren Sie Skills und aktivieren Sie sie pro Agent.",
+    "description": "Verwalten Sie OfficeCLI-Skills zum Erstellen von Excel-, Word- und PowerPoint-Dateien und aktivieren Sie sie mit einem einzigen Schalter für alle unterstützten Agents.",
     "loadingContent": "Inhalt wird geladen…",
     "emptySkills": "Keine Skills verfügbar. Installieren Sie OfficeCLI und synchronisieren Sie die Skills.",
     "emptySelection": "Wählen Sie einen Skill aus, um den Inhalt anzuzeigen und die Aktivierung zu verwalten.",
@@ -3583,7 +3583,7 @@
     "toggleDetails": "Details umschalten"
   },
   "Automations": {
-    "title": "Automatisierungen",
+    "title": "Geplante Aufgaben",
     "new": "Neue Automatisierung",
     "empty": "Noch keine Automatisierungen",
     "emptyHint": "Erstelle eine, um eine Agentenaufgabe geplant oder manuell auszuführen.",

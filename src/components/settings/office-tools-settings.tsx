@@ -1,33 +1,16 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import {
-  BarChart3,
-  Box,
-  Clapperboard,
-  ClipboardList,
-  Download,
-  FileSpreadsheet,
-  FileText,
-  GraduationCap,
-  Loader2,
-  Presentation,
-  RefreshCw,
-  Rocket,
-  Trash2,
-  TrendingUp,
-  type LucideIcon,
-  FileStack,
-} from "lucide-react"
+import { Download, Loader2, RefreshCw, Trash2 } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  SkillAgentMatrix,
-  type MatrixSkill,
-} from "@/components/settings/skill-agent-matrix"
+  SkillToggleList,
+  type SkillToggleItem,
+} from "@/components/settings/skill-toggle-list"
 import { Switch } from "@/components/ui/switch"
 import { cn, randomUUID } from "@/lib/utils"
 import {
@@ -48,39 +31,15 @@ import {
 import { invalidateAgentSkillsCache } from "@/hooks/use-agent-skills"
 import { useOfficecliInstallStream } from "@/hooks/use-officecli-install-stream"
 import { pickLocalized } from "@/lib/expert-presentation"
-import type {
-  AcpAgentInfo,
-  ExpertLinkState,
-  OfficecliInfo,
-  OfficecliSkill,
-} from "@/lib/types"
+import type { AcpAgentInfo, OfficecliInfo, OfficecliSkill } from "@/lib/types"
 import { piUsesCustomAgentDir } from "@/lib/pi-config"
 import { toErrorMessage } from "@/lib/app-error"
-
-const ICON_MAP: Record<string, LucideIcon> = {
-  FileStack,
-  Presentation,
-  Rocket,
-  Clapperboard,
-  Box,
-  FileText,
-  GraduationCap,
-  ClipboardList,
-  FileSpreadsheet,
-  TrendingUp,
-  BarChart3,
-}
 
 const CATEGORY_SORT: Record<string, number> = {
   general: 0,
   presentations: 1,
   documents: 2,
   spreadsheets: 3,
-}
-
-function getIcon(name: string | null | undefined): LucideIcon {
-  if (name && ICON_MAP[name]) return ICON_MAP[name]
-  return FileStack
 }
 
 // ─── Detection card ───────────────────────────────────────────────────
@@ -233,26 +192,6 @@ export function OfficeToolsSettings() {
   const [agents, setAgents] = useState<AcpAgentInfo[]>([])
   const [reloadKey, setReloadKey] = useState(0)
 
-  const translatedState = useCallback(
-    (state: ExpertLinkState): string => {
-      switch (state) {
-        case "not_linked":
-          return t("states.not_linked")
-        case "linked_to_iyw_claw":
-          return t("states.linked_to_iyw_claw")
-        case "linked_elsewhere":
-          return t("states.linked_elsewhere")
-        case "blocked_by_real_directory":
-          return t("states.blocked_by_real_directory")
-        case "broken":
-          return t("states.broken")
-        default:
-          return state
-      }
-    },
-    [t]
-  )
-
   const translatedCategory = useCallback(
     (category: string): string => {
       switch (category) {
@@ -290,10 +229,9 @@ export function OfficeToolsSettings() {
         acpListAgents(),
       ])
       setSkills(skillList)
-      // A pi pointed at a custom PI_CODING_AGENT_DIR isn't managed by the
-      // default-dir skill store, so it doesn't get a column here.
+      // A custom Pi directory is outside the managed global skill store.
       setAgents(agentList.filter((agent) => !piUsesCustomAgentDir(agent)))
-      // Remount the matrix so it re-fetches the authoritative status snapshot
+      // Remount the list so it re-fetches the authoritative status snapshot
       // (newly synced skills become enableable).
       setReloadKey((k) => k + 1)
     } catch (err) {
@@ -321,14 +259,13 @@ export function OfficeToolsSettings() {
     }
   }, [installStream.logs])
 
-  const matrixSkills = useMemo<MatrixSkill[]>(
+  const toggleSkills = useMemo<SkillToggleItem[]>(
     () =>
       skills.map((s) => ({
         id: s.id,
         category: s.category,
         displayName: pickLocalized(s.displayName, locale) || s.id,
         description: pickLocalized(s.description, locale),
-        icon: getIcon(s.icon),
         ready: s.installedCentrally,
         badge: s.installedCentrally
           ? undefined
@@ -338,7 +275,7 @@ export function OfficeToolsSettings() {
   )
 
   // Un-synced skills have no SKILL.md on disk; return empty rather than letting
-  // the matrix's detail drawer surface a load error.
+  // the detail drawer surface a load error.
   const loadContent = useCallback(
     (skillId: string) => {
       const skill = skills.find((s) => s.id === skillId)
@@ -501,19 +438,19 @@ export function OfficeToolsSettings() {
             {t("emptySkills")}
           </div>
         ) : (
-          <SkillAgentMatrix
-            key={reloadKey}
-            skills={matrixSkills}
+          <SkillToggleList
+            skills={toggleSkills}
             agents={agents}
+            statusReloadToken={reloadKey}
             categoryOrder={CATEGORY_SORT}
             translateCategory={translatedCategory}
-            translateState={translatedState}
             loadAllStatuses={officecliSkillListAllInstallStatuses}
             applyLinks={officecliSkillApplyLinks}
             loadContent={loadContent}
-            onApplied={(touched) =>
+            onApplied={(touched) => {
               touched.forEach((a) => invalidateAgentSkillsCache(a))
-            }
+              setReloadKey((key) => key + 1)
+            }}
             searchPlaceholder={t("searchPlaceholder")}
             notReadyHint={installed ? t("syncFirst") : t("installFirst")}
           />

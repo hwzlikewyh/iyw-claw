@@ -10,7 +10,7 @@ import {
   PanelLeft,
   PanelRight,
   SquarePen,
-  Zap,
+  CalendarClock,
   type LucideIcon,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
@@ -230,7 +230,7 @@ export function Sidebar() {
 
         <div className="mt-3 flex shrink-0 flex-col items-center gap-1.5 border-t border-sidebar-border/60 pt-3">
           <SidebarRailButton
-            icon={Zap}
+            icon={CalendarClock}
             label={t("automations")}
             active={routeId === "automations"}
             onClick={() => setRoute("automations")}
@@ -322,7 +322,7 @@ export function Sidebar() {
             </div>
           </div>
           <SidebarNavButton
-            icon={Zap}
+            icon={CalendarClock}
             label={t("automations")}
             active={routeId === "automations"}
             onClick={() => setRoute("automations")}

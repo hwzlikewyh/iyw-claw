@@ -19,6 +19,7 @@ import {
   acpDetectAgentLocalVersion,
   acpListAgents,
   acpPrepareNpxAgent,
+  officecliBootstrap,
 } from "@/lib/api"
 import { randomUUID } from "@/lib/utils"
 
@@ -36,13 +37,30 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<CodexBootstrapState>("idle")
   const runningRef = useRef(false)
   const taskIdRef = useRef(randomUUID())
-  const workspaceRef = useRef<HTMLDivElement>(null)
-  const blocked = status === "authenticated" && state !== "ready"
+  const officeTaskIdRef = useRef(randomUUID())
+  const officeBootstrapRef = useRef<Promise<void> | null>(null)
+  const authenticated = status === "authenticated"
+  const blocked = authenticated && state !== "ready"
+  const workspaceReady = authenticated && state === "ready"
+
+  const bootstrapOfficeCli = useCallback(() => {
+    if (officeBootstrapRef.current) return officeBootstrapRef.current
+    officeBootstrapRef.current = (async () => {
+      const report = await officecliBootstrap(officeTaskIdRef.current)
+      if (report.errors.length > 0) {
+        throw new Error(report.errors.join("\n"))
+      }
+    })().catch((error) => {
+      console.warn("[StartupCodexGate] OfficeCLI bootstrap failed:", error)
+    })
+    return officeBootstrapRef.current
+  }, [])
 
   const bootstrap = useCallback(async () => {
     if (runningRef.current) return
     runningRef.current = true
     setState("checking")
+    void bootstrapOfficeCli()
     try {
       const agents = await acpListAgents()
       const codex = agents.find((agent) => agent.agent_type === "codex")
@@ -67,19 +85,11 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     } finally {
       runningRef.current = false
     }
-  }, [refreshAgents])
+  }, [bootstrapOfficeCli, refreshAgents])
 
   useEffect(() => {
     if (status === "authenticated" && state === "idle") void bootstrap()
   }, [bootstrap, state, status])
-
-  useEffect(() => {
-    const roots = workspaceRef.current?.children ?? []
-    for (const root of roots) {
-      if (blocked) root.setAttribute("inert", "")
-      else root.removeAttribute("inert")
-    }
-  }, [blocked])
 
   const title =
     state === "installing" ? t("installingTitle") : t("checkingTitle")
@@ -90,9 +100,7 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <div ref={workspaceRef} inert={blocked ? true : undefined}>
-        {children}
-      </div>
+      {workspaceReady ? children : null}
       <Dialog open={blocked} onOpenChange={() => {}}>
         <DialogContent
           className="max-w-md rounded-lg"

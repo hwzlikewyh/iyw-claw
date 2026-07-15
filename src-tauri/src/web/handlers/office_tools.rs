@@ -47,19 +47,32 @@ pub struct OfficecliInstallParams {
     pub task_id: String,
 }
 
-pub async fn officecli_install(
+pub async fn officecli_bootstrap(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<OfficecliInstallParams>,
-) -> Result<Json<OfficecliInfo>, AppCommandError> {
+) -> Result<Json<SkillSyncReport>, AppCommandError> {
     let emitter = state.emitter.clone();
-    let result = ot::officecli_install_core(params.task_id, &emitter)
+    let result = ot::officecli_bootstrap_core(&state.data_dir, params.task_id, &emitter)
         .await
         .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
     Ok(Json(result))
 }
 
-pub async fn officecli_uninstall() -> Result<Json<OfficecliInfo>, AppCommandError> {
-    let result = ot::officecli_uninstall()
+pub async fn officecli_install(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<OfficecliInstallParams>,
+) -> Result<Json<OfficecliInfo>, AppCommandError> {
+    let emitter = state.emitter.clone();
+    let result = ot::officecli_install_core(&state.data_dir, params.task_id, &emitter)
+        .await
+        .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+    Ok(Json(result))
+}
+
+pub async fn officecli_uninstall(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<OfficecliInfo>, AppCommandError> {
+    let result = ot::officecli_uninstall_core(&state.data_dir)
         .await
         .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
     Ok(Json(result))

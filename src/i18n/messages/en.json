@@ -1331,7 +1331,7 @@
       "sectionChats": "Chat",
       "noChats": "No chats",
       "newChatAction": "New chat",
-      "automations": "Automations",
+      "automations": "Scheduled tasks",
       "skillsMarket": "Skill Market",
       "loadingSubsessions": "Loading sub-conversations…"
     },
@@ -3099,7 +3099,7 @@
   },
   "ExpertsSettings": {
     "title": "Expert Skills",
-    "description": "Enable curated, battle-tested skill workflows for your AI coding agents. Each expert is a standalone skill from the superpowers project — iyw-claw manages the central copy and links it into the agents you choose.",
+    "description": "Enable curated, battle-tested skill workflows for all supported AI coding agents with one switch.",
     "loading": "Loading experts…",
     "loadingContent": "Loading content…",
     "emptyExperts": "No experts available. Check the application logs.",
@@ -3144,7 +3144,7 @@
   },
   "OfficeToolsSettings": {
     "title": "Office Tools",
-    "description": "Manage OfficeCLI skills for creating Excel, Word, and PowerPoint files. Install OfficeCLI, sync skills, and enable them per agent.",
+    "description": "Manage OfficeCLI skills for creating Excel, Word, and PowerPoint files, then enable them for all supported agents with one switch.",
     "loadingContent": "Loading content…",
     "emptySkills": "No skills available. Install OfficeCLI and sync skills to get started.",
     "emptySelection": "Select a skill to see its content and manage activation.",
@@ -3583,7 +3583,7 @@
     "toggleDetails": "Toggle details"
   },
   "Automations": {
-    "title": "Automations",
+    "title": "Scheduled tasks",
     "new": "New automation",
     "empty": "No automations yet",
     "emptyHint": "Create one to run an agent task on a schedule or on demand.",

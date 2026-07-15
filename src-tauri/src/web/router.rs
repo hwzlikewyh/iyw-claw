@@ -804,6 +804,10 @@ pub fn build_router(
             post(handlers::office_tools::officecli_detect),
         )
         .route(
+            "/officecli_bootstrap",
+            post(handlers::office_tools::officecli_bootstrap),
+        )
+        .route(
             "/officecli_install",
             post(handlers::office_tools::officecli_install),
         )

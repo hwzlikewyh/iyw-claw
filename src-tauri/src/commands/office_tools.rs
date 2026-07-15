@@ -6,16 +6,17 @@
 //! (`~/.iyw-claw/skills/<id>/`) used by built-in experts. Enabling a skill for
 //! an agent reuses the expert system's symlink mechanism.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
+use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 use serde::Serialize;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 
 use crate::acp::types::AgentSkillScope;
 use crate::app_error::AppCommandError;
@@ -34,7 +35,7 @@ use crate::web::event_bridge::EventEmitter;
 
 // ─── Error type ─────────────────────────────────────────────────────────
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum OfficeToolsError {
     #[error("officecli is not installed")]
     NotInstalled,
@@ -239,6 +240,193 @@ fn skill_defs() -> &'static [SkillDef] {
 
 fn find_skill_def(id: &str) -> Option<&'static SkillDef> {
     skill_defs().iter().find(|s| s.id == id)
+}
+
+const OFFICECLI_BOOTSTRAP_MARKER: &str = ".officecli-bootstrap-complete.v1";
+const OFFICECLI_BOOTSTRAP_DISABLED_MARKER: &str = ".officecli-bootstrap-disabled.v1";
+
+type OfficecliBootstrapResult = Result<SkillSyncReport, OfficeToolsError>;
+
+struct OfficecliBootstrapAttempt {
+    result: watch::Sender<Option<OfficecliBootstrapResult>>,
+}
+
+impl OfficecliBootstrapAttempt {
+    fn new() -> Self {
+        let (result, _) = watch::channel(None);
+        Self { result }
+    }
+
+    async fn wait(&self) -> OfficecliBootstrapResult {
+        let mut receiver = self.result.subscribe();
+        receiver
+            .wait_for(|result| result.is_some())
+            .await
+            .expect("bootstrap attempt sender remains alive");
+        let result = receiver
+            .borrow()
+            .clone()
+            .expect("completed bootstrap publishes a result");
+        result
+    }
+
+    fn complete(&self, result: OfficecliBootstrapResult) {
+        self.result.send_replace(Some(result));
+    }
+}
+
+fn bootstrap_attempts() -> &'static StdMutex<HashMap<PathBuf, Arc<OfficecliBootstrapAttempt>>> {
+    static ATTEMPTS: OnceLock<StdMutex<HashMap<PathBuf, Arc<OfficecliBootstrapAttempt>>>> =
+        OnceLock::new();
+    ATTEMPTS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+fn acquire_bootstrap_attempt(marker_path: &Path) -> (Arc<OfficecliBootstrapAttempt>, bool) {
+    let mut attempts = bootstrap_attempts()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(attempt) = attempts.get(marker_path) {
+        return (Arc::clone(attempt), false);
+    }
+    let attempt = Arc::new(OfficecliBootstrapAttempt::new());
+    attempts.insert(marker_path.to_path_buf(), Arc::clone(&attempt));
+    (attempt, true)
+}
+
+struct BootstrapAttemptOwner {
+    marker_path: PathBuf,
+    attempt: Arc<OfficecliBootstrapAttempt>,
+}
+
+impl Drop for BootstrapAttemptOwner {
+    fn drop(&mut self) {
+        if self.attempt.result.borrow().is_none() {
+            self.attempt.complete(Err(OfficeToolsError::CommandFailed(
+                "OfficeCLI bootstrap attempt was cancelled".into(),
+            )));
+        }
+        let mut attempts = bootstrap_attempts()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let owned = attempts
+            .get(&self.marker_path)
+            .is_some_and(|current| Arc::ptr_eq(current, &self.attempt));
+        if owned {
+            attempts.remove(&self.marker_path);
+        }
+    }
+}
+
+fn officecli_bootstrap_marker_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(OFFICECLI_BOOTSTRAP_MARKER)
+}
+
+fn officecli_bootstrap_disabled_marker_path(data_dir: &Path) -> PathBuf {
+    data_dir.join(OFFICECLI_BOOTSTRAP_DISABLED_MARKER)
+}
+
+fn officecli_bootstrap_assets_complete(info: &OfficecliInfo, skill_root: &Path) -> bool {
+    info.installed
+        && info.runtime_error.is_none()
+        && skill_defs()
+            .iter()
+            .all(|skill| skill_root.join(skill.id).join("SKILL.md").is_file())
+}
+
+fn mark_officecli_bootstrap_disabled(data_dir: &Path) -> Result<(), OfficeToolsError> {
+    fs::create_dir_all(data_dir)?;
+    let complete = officecli_bootstrap_marker_path(data_dir);
+    if complete.exists() {
+        fs::remove_file(complete)?;
+    }
+    fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(officecli_bootstrap_disabled_marker_path(data_dir))?;
+    Ok(())
+}
+
+fn clear_officecli_bootstrap_disabled(data_dir: &Path) -> Result<(), OfficeToolsError> {
+    let disabled = officecli_bootstrap_disabled_marker_path(data_dir);
+    if disabled.exists() {
+        fs::remove_file(disabled)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn tauri_effective_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, OfficeToolsError> {
+    use tauri::Manager;
+
+    let fallback = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| OfficeToolsError::Io(error.to_string()))?;
+    Ok(crate::paths::resolve_effective_data_dir(&fallback))
+}
+
+async fn run_officecli_bootstrap_once<V, VFut, F, Fut>(
+    marker_path: &Path,
+    disabled_marker_path: &Path,
+    expected_sync_count: usize,
+    completion_is_valid: V,
+    operation: F,
+) -> Result<SkillSyncReport, OfficeToolsError>
+where
+    V: FnOnce() -> VFut,
+    VFut: Future<Output = Result<bool, OfficeToolsError>>,
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<SkillSyncReport, OfficeToolsError>>,
+{
+    let (attempt, is_owner) = acquire_bootstrap_attempt(marker_path);
+    if !is_owner {
+        return attempt.wait().await;
+    }
+    let _owner = BootstrapAttemptOwner {
+        marker_path: marker_path.to_path_buf(),
+        attempt: Arc::clone(&attempt),
+    };
+
+    let _guard = mutation_lock().lock().await;
+    let result = async {
+        if disabled_marker_path.is_file() {
+            return Ok(SkillSyncReport {
+                synced: 0,
+                errors: vec![],
+            });
+        }
+        if disabled_marker_path.exists() {
+            return Err(OfficeToolsError::Io(format!(
+                "OfficeCLI bootstrap opt-out marker is not a file: {}",
+                disabled_marker_path.display()
+            )));
+        }
+        if marker_path.is_file() && completion_is_valid().await? {
+            return Ok(SkillSyncReport {
+                synced: 0,
+                errors: vec![],
+            });
+        }
+        if marker_path.exists() {
+            fs::remove_file(marker_path)?;
+        }
+
+        let report = operation().await?;
+        if report.errors.is_empty() && report.synced == expected_sync_count {
+            if let Some(parent) = marker_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(marker_path)?;
+        }
+        Ok(report)
+    }
+    .await;
+    attempt.complete(result.clone());
+    result
 }
 
 pub(crate) fn is_officecli_skill_id(id: &str) -> bool {
@@ -507,7 +695,8 @@ pub async fn officecli_install(
     task_id: String,
     app: tauri::AppHandle,
 ) -> Result<OfficecliInfo, OfficeToolsError> {
-    officecli_install_core(task_id, &EventEmitter::Tauri(app)).await
+    let data_dir = tauri_effective_data_dir(&app)?;
+    officecli_install_core(&data_dir, task_id, &EventEmitter::Tauri(app)).await
 }
 
 /// Run the vendor's official installer script (mirror-first, GitHub fallback),
@@ -515,6 +704,7 @@ pub async fn officecli_install(
 /// script owns the download, checksum, install location, and — on Windows — the
 /// persistent User-PATH registration. See `officecli_install_command`.
 pub(crate) async fn officecli_install_core(
+    data_dir: &Path,
     task_id: String,
     emitter: &EventEmitter,
 ) -> Result<OfficecliInfo, OfficeToolsError> {
@@ -537,6 +727,31 @@ pub(crate) async fn officecli_install_core(
         }
     };
 
+    // Another client may have completed installation while this request waited
+    // for the process-wide mutation lock. Re-check under the lock so concurrent
+    // startup/manual requests never run the vendor installer twice.
+    let existing = officecli_detect().await;
+    if existing.installed && existing.runtime_error.is_none() {
+        emit_officecli_install_event(
+            emitter,
+            &task_id,
+            OfficecliInstallEventKind::Completed,
+            "OfficeCLI is already installed",
+        );
+        clear_officecli_bootstrap_disabled(data_dir)?;
+        return Ok(existing);
+    }
+
+    let info = officecli_install_locked(task_id, emitter).await?;
+    clear_officecli_bootstrap_disabled(data_dir)?;
+    Ok(info)
+}
+
+/// Run the installer while the caller holds `mutation_lock`.
+async fn officecli_install_locked(
+    task_id: String,
+    emitter: &EventEmitter,
+) -> Result<OfficecliInfo, OfficeToolsError> {
     emit_officecli_install_event(
         emitter,
         &task_id,
@@ -941,9 +1156,18 @@ fn officecli_install_command(os: InstallOs) -> OfficecliInstallCommand {
     }
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn officecli_uninstall() -> Result<OfficecliInfo, OfficeToolsError> {
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn officecli_uninstall(app: tauri::AppHandle) -> Result<OfficecliInfo, OfficeToolsError> {
+    let data_dir = tauri_effective_data_dir(&app)?;
+    officecli_uninstall_core(&data_dir).await
+}
+
+pub(crate) async fn officecli_uninstall_core(
+    data_dir: &Path,
+) -> Result<OfficecliInfo, OfficeToolsError> {
     let _guard = mutation_lock().lock().await;
+    mark_officecli_bootstrap_disabled(data_dir)?;
 
     // Operate on the official installer's primary install location directly,
     // not the PATH-resolved binary. This avoids removing a Homebrew/system
@@ -1033,6 +1257,11 @@ pub async fn officecli_list_skills() -> Vec<OfficecliSkill> {
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn officecli_sync_skills() -> Result<SkillSyncReport, OfficeToolsError> {
     let _guard = mutation_lock().lock().await;
+    officecli_sync_skills_locked().await
+}
+
+/// Sync the bundled OfficeCLI skills while the caller holds `mutation_lock`.
+async fn officecli_sync_skills_locked() -> Result<SkillSyncReport, OfficeToolsError> {
     let binary = resolve_officecli().ok_or(OfficeToolsError::NotInstalled)?;
 
     let central_dir = central_experts_dir();
@@ -1099,6 +1328,53 @@ pub async fn officecli_sync_skills() -> Result<SkillSyncReport, OfficeToolsError
     }
 
     Ok(report)
+}
+
+/// Atomically perform the backend's one-time OfficeCLI install + skill sync.
+/// A partial or failed sync leaves the marker absent so a later startup retries.
+pub(crate) async fn officecli_bootstrap_core(
+    data_dir: &Path,
+    task_id: String,
+    emitter: &EventEmitter,
+) -> Result<SkillSyncReport, OfficeToolsError> {
+    let marker_path = officecli_bootstrap_marker_path(data_dir);
+    let disabled_marker_path = officecli_bootstrap_disabled_marker_path(data_dir);
+    run_officecli_bootstrap_once(
+        &marker_path,
+        &disabled_marker_path,
+        skill_defs().len(),
+        || async {
+            let info = officecli_detect().await;
+            Ok(officecli_bootstrap_assets_complete(
+                &info,
+                &central_experts_dir(),
+            ))
+        },
+        || async move {
+            let info = officecli_detect().await;
+            if !info.installed {
+                emit_officecli_install_event(
+                    emitter,
+                    &task_id,
+                    OfficecliInstallEventKind::Started,
+                    "",
+                );
+                officecli_install_locked(task_id, emitter).await?;
+            }
+            officecli_sync_skills_locked().await
+        },
+    )
+    .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn officecli_bootstrap(
+    task_id: String,
+    app: tauri::AppHandle,
+) -> Result<SkillSyncReport, OfficeToolsError> {
+    let data_dir = tauri_effective_data_dir(&app)?;
+    officecli_bootstrap_core(&data_dir, task_id, &EventEmitter::Tauri(app)).await
 }
 
 // ─── Commands: skill link / unlink ─────────────────────────────────────
@@ -1475,11 +1751,267 @@ pub async fn stop_office_watch(root_path: String, path: String) -> Result<(), Ap
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use tokio::time::{timeout, Duration};
 
     // Tests use unknown skill ids so they never touch the developer's real skill
     // directories: office link/unlink both fail at `find_skill_def` for an
     // unknown id, before any filesystem access.
+
+    #[tokio::test]
+    async fn bootstrap_once_deduplicates_concurrent_callers() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let marker = Arc::new(dir.path().join("officecli-bootstrap-complete.v1"));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let disabled = Arc::new(dir.path().join("officecli-bootstrap-disabled.v1"));
+
+        let run = |marker: Arc<PathBuf>, disabled: Arc<PathBuf>, calls: Arc<AtomicUsize>| async move {
+            run_officecli_bootstrap_once(
+                &marker,
+                &disabled,
+                9,
+                || async { Ok(true) },
+                || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    Ok(SkillSyncReport {
+                        synced: 9,
+                        errors: vec![],
+                    })
+                },
+            )
+            .await
+        };
+
+        let (first, second) = tokio::join!(
+            run(
+                Arc::clone(&marker),
+                Arc::clone(&disabled),
+                Arc::clone(&calls)
+            ),
+            run(
+                Arc::clone(&marker),
+                Arc::clone(&disabled),
+                Arc::clone(&calls)
+            )
+        );
+
+        assert!(first.is_ok());
+        assert!(second.is_ok());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(marker.is_file());
+    }
+
+    #[tokio::test]
+    async fn partial_bootstrap_remains_retryable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let marker = dir.path().join("officecli-bootstrap-complete.v1");
+        let disabled = dir.path().join("officecli-bootstrap-disabled.v1");
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        for _ in 0..2 {
+            let calls = Arc::clone(&calls);
+            let report = run_officecli_bootstrap_once(
+                &marker,
+                &disabled,
+                9,
+                || async { Ok(true) },
+                || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(SkillSyncReport {
+                        synced: 8,
+                        errors: vec!["one skill failed".into()],
+                    })
+                },
+            )
+            .await
+            .expect("partial sync returns its report");
+
+            assert_eq!(report.errors.len(), 1);
+            assert!(!marker.exists());
+        }
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn concurrent_partial_bootstraps_share_one_attempt_then_retry_later() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let marker = Arc::new(dir.path().join("officecli-bootstrap-complete.v1"));
+        let disabled = Arc::new(dir.path().join("officecli-bootstrap-disabled.v1"));
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        let run = |marker: Arc<PathBuf>, disabled: Arc<PathBuf>, calls: Arc<AtomicUsize>| async move {
+            run_officecli_bootstrap_once(
+                &marker,
+                &disabled,
+                9,
+                || async { Ok(true) },
+                || async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    Ok(SkillSyncReport {
+                        synced: 8,
+                        errors: vec!["one skill failed".into()],
+                    })
+                },
+            )
+            .await
+        };
+
+        let (first, second) = tokio::join!(
+            run(
+                Arc::clone(&marker),
+                Arc::clone(&disabled),
+                Arc::clone(&calls)
+            ),
+            run(
+                Arc::clone(&marker),
+                Arc::clone(&disabled),
+                Arc::clone(&calls)
+            )
+        );
+
+        assert_eq!(first.expect("first report").errors.len(), 1);
+        assert_eq!(second.expect("shared report").errors.len(), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        run(
+            Arc::clone(&marker),
+            Arc::clone(&disabled),
+            Arc::clone(&calls),
+        )
+        .await
+        .expect("later call retries");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn incomplete_bootstrap_without_errors_remains_retryable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let marker = dir.path().join("officecli-bootstrap-complete.v1");
+        let disabled = dir.path().join("officecli-bootstrap-disabled.v1");
+
+        let report = run_officecli_bootstrap_once(
+            &marker,
+            &disabled,
+            9,
+            || async { Ok(true) },
+            || async {
+                Ok(SkillSyncReport {
+                    synced: 8,
+                    errors: vec![],
+                })
+            },
+        )
+        .await
+        .expect("incomplete sync returns its report");
+
+        assert_eq!(report.synced, 8);
+        assert!(!marker.exists());
+    }
+
+    #[tokio::test]
+    async fn stale_bootstrap_marker_revalidates_the_runtime() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let marker = dir.path().join("officecli-bootstrap-complete.v1");
+        let disabled = dir.path().join("officecli-bootstrap-disabled.v1");
+        fs::write(&marker, b"").expect("seed marker");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let operation_calls = Arc::clone(&calls);
+
+        let report = run_officecli_bootstrap_once(
+            &marker,
+            &disabled,
+            9,
+            || async { Ok(false) },
+            || async move {
+                operation_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(SkillSyncReport {
+                    synced: 9,
+                    errors: vec![],
+                })
+            },
+        )
+        .await
+        .expect("stale marker is repaired");
+
+        assert_eq!(report.synced, 9);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(marker.is_file());
+    }
+
+    #[tokio::test]
+    async fn bootstrap_opt_out_skips_the_operation() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let marker = dir.path().join("officecli-bootstrap-complete.v1");
+        let disabled = dir.path().join("officecli-bootstrap-disabled.v1");
+        fs::write(&disabled, b"").expect("seed opt-out");
+        let calls = Arc::new(AtomicUsize::new(0));
+        let operation_calls = Arc::clone(&calls);
+
+        let report = run_officecli_bootstrap_once(
+            &marker,
+            &disabled,
+            9,
+            || async { Ok(false) },
+            || async move {
+                operation_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(SkillSyncReport {
+                    synced: 9,
+                    errors: vec![],
+                })
+            },
+        )
+        .await
+        .expect("opt-out is a successful no-op");
+
+        assert_eq!(report.synced, 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn manual_uninstall_opt_out_can_be_cleared_by_manual_install() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let complete = officecli_bootstrap_marker_path(dir.path());
+        let disabled = officecli_bootstrap_disabled_marker_path(dir.path());
+        fs::write(&complete, b"").expect("seed completion marker");
+
+        mark_officecli_bootstrap_disabled(dir.path()).expect("record opt-out");
+        assert!(!complete.exists());
+        assert!(disabled.is_file());
+
+        clear_officecli_bootstrap_disabled(dir.path()).expect("clear opt-out");
+        assert!(!disabled.exists());
+    }
+
+    #[test]
+    fn bootstrap_completion_requires_healthy_binary_and_every_central_skill() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut info = OfficecliInfo {
+            installed: true,
+            version: Some("1.0.0".into()),
+            path: Some("officecli".into()),
+            runtime_error: Some("missing runtime".into()),
+        };
+
+        assert!(!officecli_bootstrap_assets_complete(&info, dir.path()));
+        info.runtime_error = None;
+        assert!(!officecli_bootstrap_assets_complete(&info, dir.path()));
+
+        for skill in skill_defs() {
+            let skill_dir = dir.path().join(skill.id);
+            fs::create_dir_all(&skill_dir).expect("create skill dir");
+            fs::write(skill_dir.join("SKILL.md"), b"# skill").expect("write skill");
+        }
+        assert!(officecli_bootstrap_assets_complete(&info, dir.path()));
+
+        fs::remove_file(dir.path().join(skill_defs()[0].id).join("SKILL.md"))
+            .expect("remove one skill");
+        assert!(!officecli_bootstrap_assets_complete(&info, dir.path()));
+    }
 
     #[tokio::test]
     async fn apply_links_does_not_deadlock() {

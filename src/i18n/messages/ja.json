@@ -1331,7 +1331,7 @@
       "sectionChats": "チャット",
       "noChats": "チャットがありません",
       "newChatAction": "新しいチャット",
-      "automations": "オートメーション",
+      "automations": "スケジュールタスク",
       "skillsMarket": "Skill Market",
       "loadingSubsessions": "サブ会話を読み込み中…"
     },
@@ -3087,7 +3087,7 @@
   },
   "ExpertsSettings": {
     "title": "エキスパートスキル",
-    "description": "AI コーディングエージェント向けに、厳選され実戦で検証されたスキルワークフローを有効にします。各エキスパートは superpowers プロジェクトの独立したスキルで、iyw-claw が中央コピーを管理し、選択したエージェントにリンクします。",
+    "description": "1 つの一括スイッチで、サポートされているすべての AI コーディングエージェントに厳選されたエキスパートスキルを有効化します。",
     "loading": "エキスパートを読み込み中…",
     "loadingContent": "コンテンツを読み込み中…",
     "emptyExperts": "利用可能なエキスパートがありません。アプリケーションログを確認してください。",
@@ -3132,7 +3132,7 @@
   },
   "OfficeToolsSettings": {
     "title": "Office ツール",
-    "description": "OfficeCLI スキルを管理し、Excel、Word、PowerPoint ファイルを作成します。OfficeCLI をインストールし、スキルを同期して、エージェントごとに有効化できます。",
+    "description": "Excel、Word、PowerPoint ファイルを作成する OfficeCLI スキルを管理し、1 つの一括スイッチでサポートされているすべてのエージェントに有効化します。",
     "loadingContent": "コンテンツを読み込み中…",
     "emptySkills": "スキルがありません。OfficeCLI をインストールしてスキルを同期してください。",
     "emptySelection": "スキルを選択して内容を確認し、有効化を管理します。",
@@ -3583,7 +3583,7 @@
     "toggleDetails": "詳細を切り替え"
   },
   "Automations": {
-    "title": "オートメーション",
+    "title": "スケジュールタスク",
     "new": "新規オートメーション",
     "empty": "オートメーションはまだありません",
     "emptyHint": "作成すると、エージェントのタスクをスケジュールまたは手動で実行できます。",

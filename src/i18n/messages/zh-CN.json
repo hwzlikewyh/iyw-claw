@@ -1331,7 +1331,7 @@
       "sectionChats": "聊天",
       "noChats": "没有聊天",
       "newChatAction": "新建聊天",
-      "automations": "自动化",
+      "automations": "定时任务",
       "skillsMarket": "技能市场",
       "loadingSubsessions": "正在加载子会话…"
     },
@@ -3099,7 +3099,7 @@
   },
   "ExpertsSettings": {
     "title": "专家技能",
-    "description": "为 AI 编码代理启用精心挑选、经过实战验证的技能工作流。每个专家都是 superpowers 项目中的独立技能 —— iyw-claw 维护中央副本，并将其软链接到你选择的代理目录。",
+    "description": "通过一个总开关，为所有支持的 AI 编码智能体启用精选专家技能。",
     "loading": "正在加载专家列表…",
     "loadingContent": "正在加载内容…",
     "emptyExperts": "当前没有可用的专家，请查看应用日志。",
@@ -3144,7 +3144,7 @@
   },
   "OfficeToolsSettings": {
     "title": "Office 工具",
-    "description": "管理 OfficeCLI 技能，用于创建 Excel、Word 和 PowerPoint 文件。安装 OfficeCLI，同步技能，并为每个智能体启用。",
+    "description": "管理用于创建 Excel、Word 和 PowerPoint 文件的 OfficeCLI 技能，并通过一个总开关为所有支持的智能体启用。",
     "loadingContent": "加载内容中…",
     "emptySkills": "暂无技能。请先安装 OfficeCLI 并同步技能。",
     "emptySelection": "选择一个技能查看内容和管理激活状态。",
@@ -3583,7 +3583,7 @@
     "toggleDetails": "切换详情"
   },
   "Automations": {
-    "title": "自动化",
+    "title": "定时任务",
     "new": "新建自动化",
     "empty": "暂无自动化",
     "emptyHint": "创建一个，让智能体按计划或手动执行任务。",

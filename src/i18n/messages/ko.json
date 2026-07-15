@@ -1331,7 +1331,7 @@
       "sectionChats": "채팅",
       "noChats": "채팅 없음",
       "newChatAction": "새 채팅",
-      "automations": "자동화",
+      "automations": "예약 작업",
       "skillsMarket": "Skill Market",
       "loadingSubsessions": "하위 대화 로드 중…"
     },
@@ -3087,7 +3087,7 @@
   },
   "ExpertsSettings": {
     "title": "전문가 스킬",
-    "description": "AI 코딩 에이전트를 위해 엄선되고 실전 검증된 스킬 워크플로를 활성화하세요. 각 전문가는 superpowers 프로젝트의 독립 실행형 스킬이며 — iyw-claw가 중앙 복사본을 관리하고 선택한 에이전트에 연결합니다.",
+    "description": "하나의 전체 스위치로 지원되는 모든 AI 코딩 에이전트에 엄선된 전문가 스킬을 활성화합니다.",
     "loading": "전문가 로딩 중…",
     "loadingContent": "콘텐츠 로딩 중…",
     "emptyExperts": "사용 가능한 전문가가 없습니다. 애플리케이션 로그를 확인하세요.",
@@ -3132,7 +3132,7 @@
   },
   "OfficeToolsSettings": {
     "title": "Office 도구",
-    "description": "OfficeCLI 스킬을 관리하여 Excel, Word, PowerPoint 파일을 생성합니다. OfficeCLI를 설치하고 스킬을 동기화한 후 에이전트별로 활성화할 수 있습니다.",
+    "description": "Excel, Word, PowerPoint 파일을 만드는 OfficeCLI 스킬을 관리하고 하나의 전체 스위치로 지원되는 모든 에이전트에 활성화합니다.",
     "loadingContent": "콘텐츠 로드 중…",
     "emptySkills": "스킬이 없습니다. OfficeCLI를 설치하고 스킬을 동기화하세요.",
     "emptySelection": "스킬을 선택하여 내용을 확인하고 활성화를 관리합니다.",
@@ -3583,7 +3583,7 @@
     "toggleDetails": "세부 정보 전환"
   },
   "Automations": {
-    "title": "자동화",
+    "title": "예약 작업",
     "new": "새 자동화",
     "empty": "아직 자동화가 없습니다",
     "emptyHint": "하나를 만들어 에이전트 작업을 예약하거나 수동으로 실행하세요.",

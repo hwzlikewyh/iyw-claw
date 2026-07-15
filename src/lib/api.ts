@@ -863,6 +863,17 @@ export async function officecliDetect(): Promise<OfficecliInfo> {
   return getTransport().call("officecli_detect")
 }
 
+export async function officecliBootstrap(
+  taskId: string
+): Promise<SkillSyncReport> {
+  return getTransport().call(
+    "officecli_bootstrap",
+    { taskId },
+    // Includes the installer's 600s backend deadline plus the full skill sync.
+    { timeoutMs: 900_000 }
+  )
+}
+
 export async function officecliInstall(taskId: string): Promise<OfficecliInfo> {
   // The vendor installer downloads + extracts a multi-MB binary; allow well
   // beyond the default 60s web-call timeout so slow networks don't surface a

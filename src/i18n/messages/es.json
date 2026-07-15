@@ -1331,7 +1331,7 @@
       "sectionChats": "Chat",
       "noChats": "Sin chats",
       "newChatAction": "Nuevo chat",
-      "automations": "Automatizaciones",
+      "automations": "Tareas programadas",
       "skillsMarket": "Skill Market",
       "loadingSubsessions": "Cargando subconversaciones…"
     },
@@ -3087,7 +3087,7 @@
   },
   "ExpertsSettings": {
     "title": "Habilidades de expertos",
-    "description": "Habilita flujos de trabajo de habilidades cuidadosamente seleccionadas y probadas en la práctica para tus agentes de codificación de IA. Cada experto es una habilidad independiente del proyecto superpowers — iyw-claw gestiona la copia central y la vincula a los agentes que elijas.",
+    "description": "Habilita habilidades expertas seleccionadas para todos los agentes de codificación de IA compatibles con un solo interruptor.",
     "loading": "Cargando expertos…",
     "loadingContent": "Cargando contenido…",
     "emptyExperts": "No hay expertos disponibles. Revisa los registros de la aplicación.",
@@ -3132,7 +3132,7 @@
   },
   "OfficeToolsSettings": {
     "title": "Herramientas Office",
-    "description": "Gestiona las habilidades de OfficeCLI para crear archivos Excel, Word y PowerPoint. Instala OfficeCLI, sincroniza habilidades y actívalas por agente.",
+    "description": "Gestiona las habilidades de OfficeCLI para crear archivos Excel, Word y PowerPoint, y actívalas para todos los agentes compatibles con un solo interruptor.",
     "loadingContent": "Cargando contenido…",
     "emptySkills": "No hay habilidades disponibles. Instala OfficeCLI y sincroniza las habilidades.",
     "emptySelection": "Selecciona una habilidad para ver su contenido y gestionar la activación.",
@@ -3583,7 +3583,7 @@
     "toggleDetails": "Mostrar detalles"
   },
   "Automations": {
-    "title": "Automatizaciones",
+    "title": "Tareas programadas",
     "new": "Nueva automatización",
     "empty": "Aún no hay automatizaciones",
     "emptyHint": "Crea una para ejecutar una tarea del agente de forma programada o manual.",

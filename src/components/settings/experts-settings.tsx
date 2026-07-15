@@ -7,9 +7,9 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import {
-  SkillAgentMatrix,
-  type MatrixSkill,
-} from "@/components/settings/skill-agent-matrix"
+  SkillToggleList,
+  type SkillToggleItem,
+} from "@/components/settings/skill-toggle-list"
 import {
   acpListAgents,
   expertsApplyLinks,
@@ -23,9 +23,9 @@ import { revealItemInDir } from "@/lib/platform"
 import { getActiveRemoteConnectionId, isDesktop } from "@/lib/transport"
 import { invalidateAgentSkillsCache } from "@/hooks/use-agent-skills"
 import { piUsesCustomAgentDir } from "@/lib/pi-config"
-import type { AcpAgentInfo, ExpertLinkState, ExpertListItem } from "@/lib/types"
+import type { AcpAgentInfo, ExpertListItem } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
-import { getExpertIcon, pickLocalized } from "@/lib/expert-presentation"
+import { pickLocalized } from "@/lib/expert-presentation"
 
 const CATEGORY_SORT: Record<string, number> = {
   discovery: 1,
@@ -56,8 +56,7 @@ export function ExpertsSettings() {
         acpListAgents(),
       ])
       setExperts(expertList)
-      // A pi pointed at a custom PI_CODING_AGENT_DIR isn't managed by the
-      // default-dir skill store, so it doesn't get a column here.
+      // A custom Pi directory is outside the managed global skill store.
       setAgents(agentList.filter((agent) => !piUsesCustomAgentDir(agent)))
       setReloadKey((k) => k + 1)
     } catch (err) {
@@ -99,27 +98,7 @@ export function ExpertsSettings() {
     [t]
   )
 
-  const translatedState = useCallback(
-    (state: ExpertLinkState): string => {
-      switch (state) {
-        case "not_linked":
-          return t("states.not_linked")
-        case "linked_to_iyw_claw":
-          return t("states.linked_to_iyw_claw")
-        case "linked_elsewhere":
-          return t("states.linked_elsewhere")
-        case "blocked_by_real_directory":
-          return t("states.blocked_by_real_directory")
-        case "broken":
-          return t("states.broken")
-        default:
-          return state
-      }
-    },
-    [t]
-  )
-
-  const matrixSkills = useMemo<MatrixSkill[]>(
+  const toggleSkills = useMemo<SkillToggleItem[]>(
     () =>
       experts.map((e) => ({
         id: e.metadata.id,
@@ -127,8 +106,7 @@ export function ExpertsSettings() {
         displayName:
           pickLocalized(e.metadata.display_name, locale) || e.metadata.id,
         description: pickLocalized(e.metadata.description, locale),
-        icon: getExpertIcon(e.metadata.icon),
-        ready: true,
+        ready: e.installed_centrally,
         badge: e.user_modified
           ? { label: t("badges.userModified"), tone: "amber" }
           : undefined,
@@ -212,19 +190,19 @@ export function ExpertsSettings() {
         </div>
       ) : (
         <div className="flex-1 min-h-0 min-w-0">
-          <SkillAgentMatrix
-            key={reloadKey}
-            skills={matrixSkills}
+          <SkillToggleList
+            skills={toggleSkills}
             agents={agents}
+            statusReloadToken={reloadKey}
             categoryOrder={CATEGORY_SORT}
             translateCategory={translatedCategory}
-            translateState={translatedState}
             loadAllStatuses={expertsListAllInstallStatuses}
             applyLinks={expertsApplyLinks}
             loadContent={expertsReadContent}
-            onApplied={(touched) =>
+            onApplied={(touched) => {
               touched.forEach((a) => invalidateAgentSkillsCache(a))
-            }
+              setReloadKey((key) => key + 1)
+            }}
             searchPlaceholder={t("searchPlaceholder")}
           />
         </div>

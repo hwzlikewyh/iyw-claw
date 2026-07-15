@@ -1331,7 +1331,7 @@
       "sectionChats": "Chat",
       "noChats": "Sem chats",
       "newChatAction": "Novo chat",
-      "automations": "Automações",
+      "automations": "Tarefas agendadas",
       "skillsMarket": "Skill Market",
       "loadingSubsessions": "Carregando subconversas…"
     },
@@ -3087,7 +3087,7 @@
   },
   "ExpertsSettings": {
     "title": "Habilidades de Especialista",
-    "description": "Ative fluxos de trabalho de habilidades selecionados e comprovados em campo para seus agentes de codificação de IA. Cada especialista é uma habilidade independente do projeto superpowers — o iyw-claw gerencia a cópia central e a vincula aos agentes escolhidos.",
+    "description": "Ative habilidades especializadas selecionadas para todos os agentes de codificação de IA compatíveis com um único interruptor.",
     "loading": "Carregando especialistas…",
     "loadingContent": "Carregando conteúdo…",
     "emptyExperts": "Nenhum especialista disponível. Verifique os logs da aplicação.",
@@ -3132,7 +3132,7 @@
   },
   "OfficeToolsSettings": {
     "title": "Ferramentas Office",
-    "description": "Gerencie as habilidades do OfficeCLI para criar arquivos Excel, Word e PowerPoint. Instale o OfficeCLI, sincronize as habilidades e ative-as por agente.",
+    "description": "Gerencie as habilidades do OfficeCLI para criar arquivos Excel, Word e PowerPoint e ative-as para todos os agentes compatíveis com um único interruptor.",
     "loadingContent": "Carregando conteúdo…",
     "emptySkills": "Nenhuma habilidade disponível. Instale o OfficeCLI e sincronize as habilidades.",
     "emptySelection": "Selecione uma habilidade para ver seu conteúdo e gerenciar a ativação.",
@@ -3583,7 +3583,7 @@
     "toggleDetails": "Alternar detalhes"
   },
   "Automations": {
-    "title": "Automações",
+    "title": "Tarefas agendadas",
     "new": "Nova automação",
     "empty": "Ainda não há automações",
     "emptyHint": "Crie uma para executar uma tarefa do agente de forma agendada ou manual.",

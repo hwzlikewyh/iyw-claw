@@ -996,6 +996,7 @@ mod tauri_app {
                 experts_commands::experts_read_content,
                 experts_commands::experts_open_central_dir,
                 office_tools_commands::officecli_detect,
+                office_tools_commands::officecli_bootstrap,
                 office_tools_commands::officecli_install,
                 office_tools_commands::officecli_uninstall,
                 office_tools_commands::officecli_list_skills,

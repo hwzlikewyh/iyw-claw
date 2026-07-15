@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react"
@@ -250,6 +251,10 @@ export function AppI18nProvider({
 
   const localeReady = appLocale === messagesLocale
   const appReady = languageSettingsLoaded && localeReady
+  const hasBootedRef = useRef(false)
+  useEffect(() => {
+    if (appReady) hasBootedRef.current = true
+  }, [appReady])
   const activeIntlLocale = toIntlLocale(messagesLocale)
 
   useEffect(() => {
@@ -270,7 +275,7 @@ export function AppI18nProvider({
   return (
     <AppI18nContext.Provider value={contextValue}>
       <NextIntlClientProvider locale={activeIntlLocale} messages={messages}>
-        {appReady ? children : <AppBootLoading />}
+        {appReady || hasBootedRef.current ? children : <AppBootLoading />}
       </NextIntlClientProvider>
     </AppI18nContext.Provider>
   )
