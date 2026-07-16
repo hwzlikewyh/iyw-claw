@@ -50,6 +50,18 @@ pub async fn get_value_conn<C: ConnectionTrait>(
     Ok(model.map(|m| m.value))
 }
 
+pub async fn list_values_by_key_prefix(
+    conn: &DatabaseConnection,
+    prefix: &str,
+) -> Result<Vec<String>, DbError> {
+    let rows = app_metadata::Entity::find()
+        .filter(app_metadata::Column::Key.starts_with(prefix))
+        .filter(app_metadata::Column::DeletedAt.is_null())
+        .all(conn)
+        .await?;
+    Ok(rows.into_iter().map(|row| row.value).collect())
+}
+
 pub async fn update_app_version(
     conn: &DatabaseConnection,
     app_version: &str,
