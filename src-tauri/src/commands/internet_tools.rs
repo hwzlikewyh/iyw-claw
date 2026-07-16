@@ -140,7 +140,10 @@ async fn run_install_command(
     mut command: tokio::process::Command,
     name: &str,
 ) -> Result<(), String> {
-    command.kill_on_drop(true);
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
     let child = command
         .spawn()
         .map_err(|error| format!("failed to start {name} installer: {error}"))?;
@@ -157,14 +160,19 @@ async fn run_install_command(
     if output.status.success() {
         return Ok(());
     }
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let detail = stderr.trim();
+    let detail = [stdout.trim(), stderr.trim()]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
     let tail = detail
         .char_indices()
         .rev()
         .nth(2_000)
         .map(|(index, _)| &detail[index..])
-        .unwrap_or(detail);
+        .unwrap_or(&detail);
     Err(format!("{name} install failed: {tail}"))
 }
 

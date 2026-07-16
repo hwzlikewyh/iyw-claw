@@ -9,6 +9,10 @@ import { AgentReachConfigDialog } from "./agent-reach-config-dialog"
 import { InternetChannelPanel } from "./internet-channel-panel"
 import { InternetToolCard } from "./internet-tool-card"
 import { SkillToggleList, type SkillToggleItem } from "./skill-toggle-list"
+import {
+  mergeAllManagedSkillsEnabled,
+  mergeManagedSkillEnabled,
+} from "./skill-toggle-list-model"
 import { Button } from "@/components/ui/button"
 import {
   managedSkillsGetFamilyState,
@@ -51,7 +55,7 @@ export function InternetToolsSettings() {
   const [family, setFamily] = useState<ManagedSkillFamilyState | null>(null)
   const [channels, setChannels] = useState<InternetChannelStatus[]>([])
   const [opencliDoctor, setOpencliDoctor] = useState("")
-  const [busyTool, setBusyTool] = useState<InternetToolId | null>(null)
+  const [busyTools, setBusyTools] = useState<Set<InternetToolId>>(new Set())
   const [busyConfig, setBusyConfig] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
 
@@ -81,9 +85,12 @@ export function InternetToolsSettings() {
   )
   const install = useCallback(
     async (id: InternetToolId) => {
-      setBusyTool(id)
+      setBusyTools((current) => new Set(current).add(id))
       try {
-        await internetToolInstall(id)
+        const installedTool = await internetToolInstall(id)
+        setTools((current) =>
+          current.map((item) => (item.id === id ? installedTool : item))
+        )
         await managedSkillsReconcileFamily("internet_tools")
         await refresh()
         toast.success(t("toasts.installSuccess"))
@@ -92,16 +99,23 @@ export function InternetToolsSettings() {
           description: toErrorMessage(error),
         })
       } finally {
-        setBusyTool(null)
+        setBusyTools((current) => {
+          const next = new Set(current)
+          next.delete(id)
+          return next
+        })
       }
     },
     [refresh, t]
   )
   const uninstall = useCallback(
     async (id: InternetToolId) => {
-      setBusyTool(id)
+      setBusyTools((current) => new Set(current).add(id))
       try {
-        await internetToolUninstall(id)
+        const uninstalledTool = await internetToolUninstall(id)
+        setTools((current) =>
+          current.map((item) => (item.id === id ? uninstalledTool : item))
+        )
         await refresh()
         toast.success(t("toasts.uninstallSuccess"))
       } catch (error) {
@@ -109,7 +123,11 @@ export function InternetToolsSettings() {
           description: toErrorMessage(error),
         })
       } finally {
-        setBusyTool(null)
+        setBusyTools((current) => {
+          const next = new Set(current)
+          next.delete(id)
+          return next
+        })
       }
     },
     [refresh, t]
@@ -198,7 +216,7 @@ export function InternetToolsSettings() {
         <InternetToolCard
           name="Agent Reach"
           info={tool("agent_reach")}
-          busy={busyTool === "agent_reach"}
+          busy={busyTools.has("agent_reach")}
           onInstall={() => void install("agent_reach")}
           onUninstall={() => void uninstall("agent_reach")}
           onDoctor={() => void doctorAgentReach()}
@@ -207,7 +225,7 @@ export function InternetToolsSettings() {
         <InternetToolCard
           name="OpenCLI"
           info={tool("opencli")}
-          busy={busyTool === "opencli"}
+          busy={busyTools.has("opencli")}
           onInstall={() => void install("opencli")}
           onUninstall={() => void uninstall("opencli")}
           onDoctor={() => void doctorOpencli()}
@@ -249,12 +267,27 @@ export function InternetToolsSettings() {
             skills={toggleSkills}
             skillStates={family.skills}
             globalEnabled={family.allEnabled}
-            setGlobalEnabled={(enabled) =>
-              managedSkillsSetGlobalEnabled("internet_tools", enabled)
-            }
-            setSkillEnabled={(skillId, enabled) =>
-              managedSkillsSetSkillEnabled("internet_tools", skillId, enabled)
-            }
+            setGlobalEnabled={async (enabled) => {
+              const report = await managedSkillsSetGlobalEnabled(
+                "internet_tools",
+                enabled
+              )
+              setFamily((current) =>
+                mergeAllManagedSkillsEnabled(current, report.enabled)
+              )
+              return report
+            }}
+            setSkillEnabled={async (skillId, enabled) => {
+              const report = await managedSkillsSetSkillEnabled(
+                "internet_tools",
+                skillId,
+                enabled
+              )
+              setFamily((current) =>
+                mergeManagedSkillEnabled(current, skillId, report.enabled)
+              )
+              return report
+            }}
             categoryOrder={{ agent_reach: 0, opencli: 1 }}
             translateCategory={(category) =>
               category === "agent_reach"
