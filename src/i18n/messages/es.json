@@ -2690,6 +2690,19 @@
         "remove": "Quitar",
         "noDiffDataAvailable": "No hay datos de diff disponibles para {filePath}"
       },
+      "workspaceFiles": {
+        "open": "Archivos del espacio de trabajo",
+        "title": "Archivos del espacio de trabajo actual",
+        "description": "Explora y previsualiza archivos del espacio de trabajo actual",
+        "treeLabel": "Archivos y carpetas",
+        "previewLabel": "Vista previa del archivo",
+        "loadingTree": "Cargando archivos...",
+        "loadingPreview": "Cargando vista previa...",
+        "empty": "Este espacio de trabajo está vacío",
+        "selectFile": "Selecciona un archivo para previsualizarlo",
+        "treeError": "No se pueden cargar los archivos del espacio de trabajo",
+        "previewError": "No se puede previsualizar este archivo"
+      },
       "replyArtifacts": {
         "title": "Archivos modificados",
         "fileCount": "{count, plural, one {# archivo} other {# archivos}}",

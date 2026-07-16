@@ -106,7 +106,7 @@ describe("ConversationMessageNav", () => {
   it("collapsed: shows the count chip and expands on click", () => {
     const { scrollApiRef } = makeScrollApi()
     const onToggle = vi.fn()
-    render(
+    const { container } = render(
       <ConversationMessageNav
         count={3}
         expanded={false}
@@ -117,6 +117,7 @@ describe("ConversationMessageNav", () => {
     )
     // No card while collapsed.
     expect(screen.queryByText("title")).not.toBeInTheDocument()
+    expect(container.querySelector(".lucide-message-circle")).not.toBeNull()
     fireEvent.click(screen.getByRole("button", { name: "collapsedSummary" }))
     expect(onToggle).toHaveBeenCalledWith(true)
   })

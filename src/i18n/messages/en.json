@@ -2690,6 +2690,19 @@
         "remove": "Remove",
         "noDiffDataAvailable": "No diff data available for {filePath}"
       },
+      "workspaceFiles": {
+        "open": "Workspace files",
+        "title": "Current workspace files",
+        "description": "Browse and preview files in the current workspace",
+        "treeLabel": "Files and folders",
+        "previewLabel": "File preview",
+        "loadingTree": "Loading files...",
+        "loadingPreview": "Loading preview...",
+        "empty": "This workspace is empty",
+        "selectFile": "Select a file to preview",
+        "treeError": "Unable to load workspace files",
+        "previewError": "Unable to preview this file"
+      },
       "replyArtifacts": {
         "title": "Files changed",
         "fileCount": "{count, plural, one {# file} other {# files}}",
