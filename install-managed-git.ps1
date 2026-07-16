@@ -1,5 +1,9 @@
 ﻿param(
     [Parameter(Mandatory = $true)]
+    [ValidateSet('x86', 'x64', 'arm64')]
+    [string]$Architecture,
+
+    [Parameter(Mandatory = $true)]
     [string]$RuntimeRoot,
 
     [string]$ArchivePath = '',
@@ -16,21 +20,22 @@ $ReleaseTag = 'v2.55.0.windows.2'
 $ReleaseBaseUrl = "https://github.com/git-for-windows/git/releases/download/$ReleaseTag"
 
 function Get-GitTarget {
-    $architecture = if ($env:PROCESSOR_ARCHITEW6432) {
-        $env:PROCESSOR_ARCHITEW6432
-    } else {
-        $env:PROCESSOR_ARCHITECTURE
-    }
-
-    switch ($architecture.ToUpperInvariant()) {
-        'AMD64' {
+    switch ($Architecture) {
+        'x86' {
+            return [pscustomobject]@{
+                Platform = 'win-x86'
+                Asset = "MinGit-$Version-32-bit.zip"
+                Sha256 = '04009f6150c1cec2d6779c51406c8c6a3f0133e57fa91c91eb8a030b93e68ccb'
+            }
+        }
+        'x64' {
             return [pscustomobject]@{
                 Platform = 'win-x64'
                 Asset = "MinGit-$Version-64-bit.zip"
                 Sha256 = 'e3ea2944cea4b3fabcd69c7c1669ef69b1b66c05ac7806d81224d0abad2dec31'
             }
         }
-        'ARM64' {
+        'arm64' {
             return [pscustomobject]@{
                 Platform = 'win-arm64'
                 Asset = "MinGit-$Version-arm64.zip"

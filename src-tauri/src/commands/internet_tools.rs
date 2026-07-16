@@ -91,11 +91,13 @@ async fn install_agent_reach(paths: &AgentStoragePaths) -> Result<(), String> {
         binary_cache::seed_bundled_uv_tools(paths, &executable)
             .map_err(|error| error.to_string())?;
     }
-    let uv = binary_cache::ensure_uv_tool(paths, |message| {
+    binary_cache::ensure_uv_tool(paths, |message| {
         tracing::info!("[internet-tools] {message}");
     })
     .await
     .map_err(|error| error.to_string())?;
+    let uv = binary_cache::find_cached_uv_tool(paths, "uv")
+        .ok_or_else(|| "uv missing after runtime installation".to_string())?;
     fs::create_dir_all(uv_tool_bin_dir(paths)).map_err(|error| error.to_string())?;
     let mut command = crate::process::tokio_command(uv);
     command
@@ -140,7 +142,10 @@ async fn run_install_command(
     mut command: tokio::process::Command,
     name: &str,
 ) -> Result<(), String> {
-    command.kill_on_drop(true);
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
     let child = command
         .spawn()
         .map_err(|error| format!("failed to start {name} installer: {error}"))?;
@@ -157,14 +162,19 @@ async fn run_install_command(
     if output.status.success() {
         return Ok(());
     }
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let detail = stderr.trim();
+    let detail = [stdout.trim(), stderr.trim()]
+        .into_iter()
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
     let tail = detail
         .char_indices()
         .rev()
         .nth(2_000)
         .map(|(index, _)| &detail[index..])
-        .unwrap_or(detail);
+        .unwrap_or(&detail);
     Err(format!("{name} install failed: {tail}"))
 }
 
@@ -173,7 +183,10 @@ async fn run_tool_output(
     name: &str,
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
-    command.kill_on_drop(true);
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
     let child = command
         .spawn()
         .map_err(|error| format!("failed to start {name}: {error}"))?;
