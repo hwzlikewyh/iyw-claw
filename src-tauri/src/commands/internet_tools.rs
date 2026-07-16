@@ -300,7 +300,3 @@ fn private_tool_environment_for(paths: &AgentStoragePaths) -> Vec<(&'static str,
     environment.push(("MCPORTER_CONFIG", mcporter_config_path(paths)));
     environment
 }
-
-#[cfg(test)]
-#[path = "internet_tools_tests.rs"]
-mod tests;

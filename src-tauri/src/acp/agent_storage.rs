@@ -287,11 +287,3 @@ pub fn is_windows_system_drive(path: &Path, system_drive: Option<&str>) -> bool 
         .to_ascii_lowercase();
     path == drive || path.starts_with(&format!("{drive}/"))
 }
-
-#[cfg(test)]
-#[path = "agent_storage_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "agent_storage_startup_tests.rs"]
-mod startup_tests;

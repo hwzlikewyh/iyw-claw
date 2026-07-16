@@ -149,5 +149,33 @@
         }
       }
     }
+  },
+  {
+    "name": "show_image",
+    "description": "Display one image directly in the iyw-claw conversation. Supports a local file path, HTTP/HTTPS URL, Data URI, or raw Base64 with mime_type.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Local image path, file URI, HTTP/HTTPS URL, Data URI, or raw Base64 image data."
+        },
+        "mime_type": {
+          "type": "string",
+          "description": "Image MIME type. Required when source is raw Base64."
+        },
+        "caption": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Optional caption shown with the image."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Optional display filename."
+        }
+      }
+    }
   }
 ]

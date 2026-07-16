@@ -2,7 +2,13 @@
 
 import { memo, useCallback, useState } from "react"
 import Image from "next/image"
-import { AlertCircle, Download, ImagePlus } from "lucide-react"
+import {
+  AlertCircle,
+  Download,
+  ExternalLink,
+  ImageIcon,
+  ImagePlus,
+} from "lucide-react"
 import { useTranslations } from "next-intl"
 import type { UserImageDisplay } from "@/lib/adapters/ai-elements-adapter"
 import type { ToolCallStatus } from "@/lib/types"
@@ -10,6 +16,15 @@ import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
 import { downloadImage } from "@/lib/image-download"
 import { toErrorMessage } from "@/lib/app-error"
 import { cn } from "@/lib/utils"
+import { isLocalDesktop, openPath, openUrl } from "@/lib/platform"
+
+export type ImagePresentation = "generated" | "displayed"
+
+export interface ImageSourceLink {
+  kind: "file" | "url"
+  target: string
+  label: string
+}
 
 interface GeneratedImagesBlockProps {
   /**
@@ -18,6 +33,9 @@ interface GeneratedImagesBlockProps {
    * one back (e.g. failed generations) or it hasn't streamed in yet.
    */
   revisedPrompt: string | null
+  caption?: string | null
+  presentation?: ImagePresentation
+  sourceLink?: ImageSourceLink | null
   /**
    * `null` while the agent has emitted the ToolCall but the image hasn't
    * arrived. The component renders an image-shaped skeleton placeholder
@@ -42,9 +60,8 @@ interface GeneratedImagesBlockProps {
 }
 
 /**
- * Renders one codex-acp v0.14+ image-generation `ContentBlock` as a
- * labeled, in-position card showing the optional revised prompt and a
- * single generated image.
+ * Renders one generated or agent-displayed image as a labeled, in-position
+ * card with an optional prompt/caption and external source link.
  *
  * Layout uses a container query (`@container/genimg`):
  *   - wide (≥ 28rem available): prompt on the left, image on the right
@@ -61,6 +78,9 @@ interface GeneratedImagesBlockProps {
  */
 export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
   revisedPrompt,
+  caption,
+  presentation = "generated",
+  sourceLink,
   image,
   status,
   className,
@@ -91,6 +111,25 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
 
   const trimmedPrompt =
     typeof revisedPrompt === "string" ? revisedPrompt.trim() : ""
+  const trimmedCaption = typeof caption === "string" ? caption.trim() : ""
+  const description =
+    presentation === "displayed" ? trimmedCaption : trimmedPrompt
+  const canOpenSource =
+    sourceLink?.kind === "url" ||
+    (sourceLink?.kind === "file" && isLocalDesktop())
+
+  const handleOpenSource = useCallback(async () => {
+    if (!sourceLink || !canOpenSource) return
+    try {
+      if (sourceLink.kind === "url") {
+        await openUrl(sourceLink.target)
+      } else {
+        await openPath(sourceLink.target)
+      }
+    } catch (err) {
+      window.alert(t("imageSourceOpenFailed", { message: toErrorMessage(err) }))
+    }
+  }, [canOpenSource, sourceLink, t])
 
   return (
     <div
@@ -100,14 +139,22 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
       )}
     >
       <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-        <ImagePlus className="h-3.5 w-3.5 text-primary" />
-        <span>{t("imageGeneration")}</span>
+        {presentation === "displayed" ? (
+          <ImageIcon className="h-3.5 w-3.5 text-primary" />
+        ) : (
+          <ImagePlus className="h-3.5 w-3.5 text-primary" />
+        )}
+        <span>
+          {t(
+            presentation === "displayed" ? "imageDisplayed" : "imageGeneration"
+          )}
+        </span>
       </div>
 
       <div className="mt-2.5 flex flex-col gap-3 @[28rem]/genimg:flex-row @[28rem]/genimg:items-start">
-        {trimmedPrompt.length > 0 ? (
+        {description.length > 0 ? (
           <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">
-            {trimmedPrompt}
+            {description}
           </div>
         ) : null}
 
@@ -164,6 +211,30 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
           </div>
         )}
       </div>
+
+      {sourceLink ? (
+        <div className="mt-2.5 flex min-w-0 items-start gap-1.5 border-t border-border/60 pt-2 text-xs text-muted-foreground">
+          <span className="shrink-0">{t("imageSource")}:</span>
+          {canOpenSource ? (
+            <button
+              type="button"
+              onClick={() => void handleOpenSource()}
+              className="flex min-w-0 items-start gap-1 text-left text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
+              title={sourceLink.target}
+            >
+              <span className="break-all">{sourceLink.label}</span>
+              <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
+            </button>
+          ) : (
+            <span className="min-w-0">
+              <span className="break-all text-foreground/80">
+                {sourceLink.label}
+              </span>{" "}
+              <span>({t("imageSourceUnavailable")})</span>
+            </span>
+          )}
+        </div>
+      ) : null}
 
       <ImagePreviewDialog
         src={image ? `data:${image.mime_type};base64,${image.data}` : ""}

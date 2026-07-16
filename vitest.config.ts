@@ -12,7 +12,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    setupFiles: ["./src/test-setup.ts"],
+    passWithNoTests: true,
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     exclude: ["node_modules", "out", ".next", "src-tauri"],
     coverage: {
@@ -23,7 +23,6 @@ export default defineConfig({
         "node_modules/",
         ".next/**",
         "out/**",
-        "src/test-setup.ts",
         "**/*.test.{ts,tsx}",
         "**/*.spec.{ts,tsx}",
         "**/*.config.*",

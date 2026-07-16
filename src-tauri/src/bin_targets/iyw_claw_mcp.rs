@@ -3,7 +3,8 @@
 //! (`delegate_to_agent` etc.), `check_user_feedback` (pull the user's mid-turn
 //! steering notes), `ask_user_question` (block on a multiple-choice card), and
 //! `get_session_info` (resolve a referenced session by id), gated by the
-//! `--features` groups (`delegation` / `feedback` / `ask` / `sessions`).
+//! `--features` groups (`delegation` / `feedback` / `ask` / `sessions` /
+//! `images`).
 //!
 //! The agent's MCP config (injected by iyw-claw via `load_mcp_servers_for_agent`)
 //! spawns this binary with three required flags:
@@ -27,6 +28,7 @@
 //! interleaved frames never corrupt the wire.
 
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -53,6 +55,8 @@ struct Args {
     /// feature gating; see `CompanionFeatures::parse` (defaults to
     /// delegation-only).
     features: Option<String>,
+    /// Base directory used to resolve relative paths passed to `show_image`.
+    working_dir: PathBuf,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -61,6 +65,7 @@ fn parse_args() -> Result<Args, String> {
     let mut token = None;
     let mut parent_pid = None;
     let mut features = None;
+    let mut working_dir = None;
 
     let mut iter = std::env::args().skip(1);
     while let Some(arg) = iter.next() {
@@ -98,9 +103,15 @@ fn parse_args() -> Result<Args, String> {
                         .ok_or_else(|| "--features requires a value".to_string())?,
                 );
             }
+            "--working-dir" => {
+                working_dir =
+                    Some(PathBuf::from(iter.next().ok_or_else(|| {
+                        "--working-dir requires a value".to_string()
+                    })?));
+            }
             "--help" | "-h" => {
                 println!(
-                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions]"
+                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images] [--working-dir <path>]"
                 );
                 std::process::exit(0);
             }
@@ -114,6 +125,8 @@ fn parse_args() -> Result<Args, String> {
         token: token.ok_or_else(|| "missing --token".to_string())?,
         parent_pid,
         features,
+        working_dir: working_dir
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
     })
 }
 
@@ -150,6 +163,7 @@ async fn main() -> ExitCode {
         parent_connection_id: args.parent_connection_id,
         socket_path: args.socket_path,
         token: args.token,
+        working_dir: args.working_dir,
         features: CompanionFeatures::parse(args.features.as_deref()),
     };
 

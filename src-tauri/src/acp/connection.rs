@@ -1380,21 +1380,19 @@ fn is_executable_file(path: &Path) -> bool {
     true
 }
 
-/// Append the built-in `iyw-claw-mcp` MCP entry if delegation is enabled
-/// AND the companion binary is present on disk. Returns the per-launch token
-/// that was registered, or `None` when injection was skipped (disabled by
-/// config, or binary missing).
+/// Append the built-in `iyw-claw-mcp` MCP entry when its binary is present.
+/// Image display is always exposed; other tool groups follow their settings.
+/// Returns the per-launch token, or `None` when the binary is missing.
 ///
 /// When the binary is missing we log a single-line warning and skip
 /// injection rather than register the token + emit a phantom McpServerStdio
 /// pointing at a non-existent path. Phantom injection would have made every
 /// new ACP session ship a guaranteed-to-fail MCP server entry: stricter
 /// agents (Claude Code) refuse the whole session; lax agents lose the
-/// delegate tool silently. Skipping leaves the agent fully functional minus
-/// `delegate_to_agent`, which is the right degradation when iyw-claw-mcp didn't
-/// make it into the install.
-/// The `--features` value for a companion launch given the four feature flags,
-/// or `None` when none is enabled (the companion isn't injected at all).
+/// companion tools silently. Skipping leaves the agent functional without the
+/// built-in companion features when iyw-claw-mcp didn't make it into the install.
+/// The `--features` value for a companion launch. Image display is always on;
+/// the remaining tool groups follow their settings flags.
 /// Pulled out as a pure function so the inject/skip decision is unit-testable
 /// without a real binary on disk or a live broker.
 fn companion_features_arg(
@@ -1402,11 +1400,8 @@ fn companion_features_arg(
     feedback_enabled: bool,
     ask_enabled: bool,
     sessions_enabled: bool,
-) -> Option<String> {
-    if !delegation_enabled && !feedback_enabled && !ask_enabled && !sessions_enabled {
-        return None;
-    }
-    let mut features: Vec<&str> = Vec::new();
+) -> String {
+    let mut features: Vec<&str> = vec!["images"];
     if delegation_enabled {
         features.push("delegation");
     }
@@ -1419,7 +1414,7 @@ fn companion_features_arg(
     if sessions_enabled {
         features.push("sessions");
     }
-    Some(features.join(","))
+    features.join(",")
 }
 
 /// Outcome of injecting the `iyw-claw-mcp` companion: the per-launch token to
@@ -1436,26 +1431,23 @@ async fn inject_iyw_claw_mcp(
     parent_connection_id: &str,
     working_dir: &Path,
 ) -> Option<CompanionInjection> {
-    // iyw-claw-mcp carries BOTH the delegation tools and the live-feedback tool.
-    // Inject it when EITHER feature is enabled; the `--features` arg tells the
-    // companion which tool groups to expose so a disabled feature's tools never
-    // surface to the LLM. (Historically this was gated on delegation alone.)
+    // `images` keeps the companion enabled for every MCP-capable session. The
+    // remaining feature groups stay independently gated by their settings.
     let delegation_enabled = injection.broker.config_snapshot().await.enabled;
     let feedback_enabled = injection.feedback.is_enabled().await;
     let ask_enabled = injection.ask.is_enabled().await;
     let sessions_enabled = injection.sessions.is_enabled().await;
-    // `None` (no feature enabled) short-circuits the whole injection.
     let features_arg = companion_features_arg(
         delegation_enabled,
         feedback_enabled,
         ask_enabled,
         sessions_enabled,
-    )?;
+    );
     let Some(binary_path) = locate_iyw_claw_mcp_binary() else {
         tracing::warn!(
             "[delegation][WARN] iyw-claw-mcp companion binary not found (checked IYW_CLAW_MCP_BIN, \
              exe sibling, and PATH); skipping delegate_to_agent / check_user_feedback / \
-             ask_user_question / get_session_info tool injection for connection \
+             ask_user_question / get_session_info / show_image tool injection for connection \
              {parent_connection_id}. Reinstall iyw-claw or set IYW_CLAW_MCP_BIN to fix."
         );
         return None;
@@ -1485,9 +1477,11 @@ async fn inject_iyw_claw_mcp(
         // (any platform).
         "--parent-pid".to_string(),
         std::process::id().to_string(),
-        // Tool groups to expose this launch (delegation / feedback / ask / sessions).
+        // Tool groups to expose this launch (images is always enabled).
         "--features".to_string(),
         features_arg,
+        "--working-dir".to_string(),
+        working_dir.to_string_lossy().to_string(),
     ]);
     servers.push(McpServer::Stdio(server));
     Some(CompanionInjection {
@@ -6399,121 +6393,36 @@ mod tests {
         ));
     }
 
-    // ─── inject_iyw_claw_mcp: enabled=false short-circuit ──────────
-    //
-    // Guards the "default off" product contract: when the broker config has
-    // `enabled: false` (the new production default for fresh installs), the
-    // delegate-MCP injection must not push a server entry and must not
-    // register a per-launch token. The early return at the top of
-    // `inject_iyw_claw_mcp` is the single chokepoint that keeps a
-    // iyw-claw-mcp stdio MCP out of every ACP session until the user
-    // opts in via the settings panel.
-    #[tokio::test]
-    async fn inject_iyw_claw_delegate_skipped_when_broker_disabled() {
-        use crate::acp::delegation::broker::{ConversationDepthLookup, DelegationBroker};
-        use crate::acp::delegation::listener::TokenRegistry;
-        use crate::acp::delegation::spawner::{mock::MockSpawner, ConnectionSpawner};
-        use crate::acp::delegation::types::DelegationError;
-
-        struct EmptyLookup;
-        #[async_trait::async_trait]
-        impl ConversationDepthLookup for EmptyLookup {
-            async fn parent_of(&self, _id: i32) -> Result<Option<i32>, DelegationError> {
-                Ok(None)
-            }
-        }
-
-        let broker = Arc::new(DelegationBroker::new(
-            Arc::new(MockSpawner::default()) as Arc<dyn ConnectionSpawner>,
-            Arc::new(EmptyLookup) as Arc<dyn ConversationDepthLookup>,
-        ));
-        // No set_config call: broker carries its default config, which is
-        // `enabled: false` after the product-default flip. This is the
-        // exact state a fresh install reaches before the user touches the
-        // settings panel. Feedback is likewise disabled by default, so with
-        // BOTH features off the companion isn't injected at all.
-        struct NoQuestions;
-        #[async_trait::async_trait]
-        impl crate::acp::question::SessionQuestionAccess for NoQuestions {
-            async fn register_question(
-                &self,
-                _parent_connection_id: &str,
-                _questions: Vec<crate::acp::question::QuestionSpec>,
-            ) -> Option<crate::acp::question::RegisteredQuestion> {
-                None
-            }
-            async fn cancel_question(&self, _parent_connection_id: &str, _question_id: &str) {}
-            async fn cancel_questions_by_parent(&self, _parent_connection_id: &str) {}
-        }
-        let injection = DelegationInjection {
-            broker,
-            tokens: Arc::new(TokenRegistry::default()),
-            socket_path: std::path::PathBuf::from("/tmp/iyw-claw-mcp.sock"),
-            feedback: crate::acp::feedback::FeedbackRuntimeConfig::new(),
-            ask: crate::acp::question::QuestionRuntimeConfig::new(),
-            sessions: crate::acp::session_info::SessionInfoRuntimeConfig::new(),
-            questions: Arc::new(NoQuestions)
-                as Arc<dyn crate::acp::question::SessionQuestionAccess>,
-        };
-
-        let mut servers: Vec<McpServer> = Vec::new();
-        let result = inject_iyw_claw_mcp(
-            &mut servers,
-            &injection,
-            "parent-conn",
-            std::path::Path::new("/tmp"),
-        )
-        .await;
-
-        assert!(result.is_none(), "disabled broker must return None");
-        assert!(
-            servers.is_empty(),
-            "disabled broker must not push any MCP server entry; got {servers:?}"
-        );
-        // Token registry stays untouched — no lookup should resolve to a
-        // valid entry because nothing was registered.
-        assert!(
-            injection.tokens.lookup("any-token").await.is_none(),
-            "disabled broker must not register a delegate token"
-        );
-    }
-
-    // ─── companion_features_arg: inject/skip decision + --features value ──
-    //
-    // The companion now carries two independently-toggled tool groups. It is
-    // injected when EITHER is on, and the `--features` arg names exactly the
-    // enabled groups so the companion hides the rest. Crucially, feedback alone
-    // must still inject the companion (the historical delegation-only gate would
-    // have skipped it).
+    // ─── companion_features_arg: always-on images + optional groups ──
     #[test]
     fn companion_features_arg_inject_skip_decision() {
-        // All off → no companion at all.
-        assert_eq!(companion_features_arg(false, false, false, false), None);
+        // Image display is always present, even when every optional group is off.
+        assert_eq!(companion_features_arg(false, false, false, false), "images");
         // Delegation only.
         assert_eq!(
             companion_features_arg(true, false, false, false),
-            Some("delegation".to_string())
+            "images,delegation"
         );
         // Feedback only — the decoupling: companion injected for feedback even
         // when delegation is off.
         assert_eq!(
             companion_features_arg(false, true, false, false),
-            Some("feedback".to_string())
+            "images,feedback"
         );
         // Ask only — likewise injects the companion on its own.
         assert_eq!(
             companion_features_arg(false, false, true, false),
-            Some("ask".to_string())
+            "images,ask"
         );
         // Sessions only — likewise injects the companion on its own.
         assert_eq!(
             companion_features_arg(false, false, false, true),
-            Some("sessions".to_string())
+            "images,sessions"
         );
         // All on → comma-joined, in declaration order.
         assert_eq!(
             companion_features_arg(true, true, true, true),
-            Some("delegation,feedback,ask,sessions".to_string())
+            "images,delegation,feedback,ask,sessions"
         );
     }
 }

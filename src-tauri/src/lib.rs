@@ -302,15 +302,18 @@ mod tauri_app {
                 ))
                 .map_err(|e| e.to_string())?;
 
-                if let Some(selected_root) = desktop_bootstrap.selected_root() {
-                    tauri::async_runtime::block_on(
-                        crate::desktop_bootstrap::ensure_initial_agent_storage(
-                            &database.conn,
-                            selected_root,
-                        ),
-                    )
-                    .map_err(|error| error.to_string())?;
-                }
+                let initial_agent_root =
+                    crate::desktop_bootstrap::initial_agent_storage_root(
+                        desktop_bootstrap.selected_root(),
+                        &effective_data_dir,
+                    );
+                tauri::async_runtime::block_on(
+                    crate::desktop_bootstrap::ensure_initial_agent_storage(
+                        &database.conn,
+                        &initial_agent_root,
+                    ),
+                )
+                .map_err(|error| error.to_string())?;
 
                 match tauri::async_runtime::block_on(crate::acp::agent_storage::load_config(
                     &database.conn,

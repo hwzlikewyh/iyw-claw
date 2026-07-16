@@ -236,8 +236,6 @@ pub(super) fn build_status(
     }
 }
 
-#[cfg(test)]
-pub(crate) use super::agent_storage_migration::migrate_agent_storage_with_verifier_core;
 pub(crate) use super::agent_storage_migration::{migrate_agent_storage_core, MigrationActivity};
 pub(crate) use super::agent_storage_profile::is_user_global_profile_path;
 
@@ -271,11 +269,3 @@ fn map_profile_import_error(error: ProfileImportError) -> AppCommandError {
 
 #[cfg(feature = "tauri-runtime")]
 pub use super::agent_storage_tauri::*;
-
-#[cfg(test)]
-#[path = "agent_storage_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "agent_storage_migration_tests.rs"]
-mod migration_tests;

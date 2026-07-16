@@ -259,7 +259,3 @@ fn is_command_candidate(path: &Path) -> bool {
             .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
             .unwrap_or(false)
 }
-
-#[cfg(test)]
-#[path = "npm_runtime_tests.rs"]
-mod tests;

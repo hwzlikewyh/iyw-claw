@@ -158,6 +158,15 @@ export type ContentBlock =
       status?: ToolCallStatus | null
     }
   | {
+      /** Frontend representation of the built-in MCP `show_image` tool. */
+      type: "display_image"
+      caption: string | null
+      name: string
+      source_kind: "file" | "url" | null
+      source: string | null
+      image: ImageData
+    }
+  | {
       type: "tool_use"
       tool_use_id: string | null
       tool_name: string
