@@ -22,6 +22,7 @@ import { COLLAB_AGENT_TOOL_NAME, mergeCollabOp } from "@/lib/collab-tool"
 import { collapseLiveCollabBlocks } from "@/lib/collab-collapse"
 import { kimiTodoWriteEntries } from "@/lib/plan-parse"
 import { toErrorMessage } from "@/lib/app-error"
+import { parseDisplayImageMetadata } from "@/lib/display-image-metadata"
 
 /**
  * Conversation-runtime shared state as a Zustand store — the per-conversation
@@ -666,6 +667,32 @@ export function buildStreamingTurnsFromLiveMessage(
       case "tool_call": {
         // Skip child tool calls — they are nested inside Agent cards
         if (childToolCallIds.has(block.info.tool_call_id)) break
+
+        const displayedImage = parseDisplayImageMetadata(block.info.content)
+        const displayedImages = block.info.images ?? []
+        if (displayedImage && displayedImages.length > 0) {
+          for (const image of displayedImages) {
+            currentBlocks.push({
+              type: "display_image",
+              caption: displayedImage.caption,
+              name: displayedImage.name,
+              source_kind: displayedImage.sourceKind,
+              source: displayedImage.source,
+              image: {
+                data: image.data,
+                mime_type: image.mime_type,
+                uri: image.uri ?? null,
+              },
+            })
+          }
+          if (
+            block.info.status === "completed" ||
+            block.info.status === "failed"
+          ) {
+            currentGroupHasCompletedTool = true
+          }
+          break
+        }
 
         // codex-acp v0.14+ image generation surfaces as a `ToolCall` whose
         // ACP-wire shape is `(title="Image generation", kind=Other,

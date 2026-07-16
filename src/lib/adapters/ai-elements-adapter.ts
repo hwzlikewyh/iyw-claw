@@ -24,6 +24,10 @@ import {
   tokenizeReferenceLinks,
   unescapeReferenceLabel,
 } from "@/lib/reference-link"
+import {
+  parseDisplayImageMetadata,
+  type DisplayImageSourceKind,
+} from "@/lib/display-image-metadata"
 
 /**
  * Adapted content part types for AI SDK Elements components
@@ -71,6 +75,14 @@ export type AdaptedGeneratedImagePart = {
   /** `null` while the agent has emitted the ToolCall but no image yet. */
   image: UserImageDisplay | null
   status: ToolCallStatus | null
+}
+
+export type AdaptedDisplayedImagePart = {
+  type: "displayed-image"
+  caption: string | null
+  image: UserImageDisplay
+  sourceKind: DisplayImageSourceKind | null
+  source: string | null
 }
 
 export type AdaptedGoalRunPart = {
@@ -137,6 +149,7 @@ export type AdaptedContentPart =
     }
   | AdaptedGoalRunPart
   | AdaptedGeneratedImagePart
+  | AdaptedDisplayedImagePart
   | AdaptedPlanPart
 
 export interface UserResourceDisplay {
@@ -985,6 +998,20 @@ function adaptContentBlock(
       }
     }
 
+    case "display_image":
+      return {
+        type: "displayed-image",
+        caption: block.caption,
+        image: {
+          name: block.name,
+          data: block.image.data,
+          mime_type: block.image.mime_type,
+          uri: block.image.uri ?? null,
+        },
+        sourceKind: block.source_kind,
+        source: block.source,
+      }
+
     case "plan":
       return {
         type: "plan",
@@ -1027,12 +1054,29 @@ function deriveImageNameFromImageData(img: {
  */
 function adaptImageToolResultParts(result: {
   images?: ImageData[] | null
-}): AdaptedGeneratedImagePart[] | null {
+  output_preview?: string | null
+}): (AdaptedGeneratedImagePart | AdaptedDisplayedImagePart)[] | null {
   const images = result.images
   if (!images || images.length === 0) return null
-  const parts: AdaptedGeneratedImagePart[] = []
+  const metadata = parseDisplayImageMetadata(result.output_preview)
+  const parts: (AdaptedGeneratedImagePart | AdaptedDisplayedImagePart)[] = []
   for (const img of images) {
     if (!img.data || !img.mime_type) continue
+    if (metadata) {
+      parts.push({
+        type: "displayed-image",
+        caption: metadata.caption,
+        image: {
+          name: metadata.name,
+          data: img.data,
+          mime_type: img.mime_type,
+          uri: img.uri ?? null,
+        },
+        sourceKind: metadata.sourceKind,
+        source: metadata.source,
+      })
+      continue
+    }
     parts.push({
       type: "generated-image",
       // A Read has no model-revised prompt — only codex image generation does.
