@@ -60,9 +60,8 @@ interface GeneratedImagesBlockProps {
 }
 
 /**
- * Renders one codex-acp v0.14+ image-generation `ContentBlock` as a
- * labeled, in-position card showing the optional revised prompt and a
- * single generated image.
+ * Renders one generated or agent-displayed image as a labeled, in-position
+ * card with an optional prompt/caption and external source link.
  *
  * Layout uses a container query (`@container/genimg`):
  *   - wide (≥ 28rem available): prompt on the left, image on the right

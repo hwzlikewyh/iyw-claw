@@ -1297,6 +1297,47 @@ mod tests {
             .contains("does not match"));
     }
 
+    #[tokio::test]
+    async fn show_image_accepts_avif_from_compatible_brand() {
+        let avif = b"\0\0\0\x18ftypmif1\0\0\0\0avif";
+        let result = crate::acp::delegation::image_tool::execute(
+            json!({ "source": STANDARD.encode(avif), "mime_type": "image/avif" }),
+            PathBuf::from("."),
+        )
+        .await;
+
+        assert_eq!(result["isError"], false);
+        assert_eq!(result["content"][1]["mimeType"], "image/avif");
+    }
+
+    #[tokio::test]
+    async fn show_image_accepts_generic_http_content_type() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request).await;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                PNG_BYTES.len()
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+            stream.write_all(PNG_BYTES).await.unwrap();
+        });
+        let result = crate::acp::delegation::image_tool::execute(
+            json!({ "source": format!("http://{address}/image") }),
+            PathBuf::from("."),
+        )
+        .await;
+        server.await.unwrap();
+
+        assert_png_success(&result);
+    }
+
     fn ctx() -> CompanionContext {
         // Delegation-only by default so the existing delegation-focused tests
         // keep seeing exactly the three delegation tools.

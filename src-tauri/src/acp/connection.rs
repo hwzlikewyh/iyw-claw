@@ -1380,19 +1380,17 @@ fn is_executable_file(path: &Path) -> bool {
     true
 }
 
-/// Append the built-in `iyw-claw-mcp` MCP entry if delegation is enabled
-/// AND the companion binary is present on disk. Returns the per-launch token
-/// that was registered, or `None` when injection was skipped (disabled by
-/// config, or binary missing).
+/// Append the built-in `iyw-claw-mcp` MCP entry when its binary is present.
+/// Image display is always exposed; other tool groups follow their settings.
+/// Returns the per-launch token, or `None` when the binary is missing.
 ///
 /// When the binary is missing we log a single-line warning and skip
 /// injection rather than register the token + emit a phantom McpServerStdio
 /// pointing at a non-existent path. Phantom injection would have made every
 /// new ACP session ship a guaranteed-to-fail MCP server entry: stricter
 /// agents (Claude Code) refuse the whole session; lax agents lose the
-/// delegate tool silently. Skipping leaves the agent fully functional minus
-/// `delegate_to_agent`, which is the right degradation when iyw-claw-mcp didn't
-/// make it into the install.
+/// companion tools silently. Skipping leaves the agent functional without the
+/// built-in companion features when iyw-claw-mcp didn't make it into the install.
 /// The `--features` value for a companion launch. Image display is always on;
 /// the remaining tool groups follow their settings flags.
 /// Pulled out as a pure function so the inject/skip decision is unit-testable
@@ -1433,10 +1431,8 @@ async fn inject_iyw_claw_mcp(
     parent_connection_id: &str,
     working_dir: &Path,
 ) -> Option<CompanionInjection> {
-    // iyw-claw-mcp carries BOTH the delegation tools and the live-feedback tool.
-    // Inject it when EITHER feature is enabled; the `--features` arg tells the
-    // companion which tool groups to expose so a disabled feature's tools never
-    // surface to the LLM. (Historically this was gated on delegation alone.)
+    // `images` keeps the companion enabled for every MCP-capable session. The
+    // remaining feature groups stay independently gated by their settings.
     let delegation_enabled = injection.broker.config_snapshot().await.enabled;
     let feedback_enabled = injection.feedback.is_enabled().await;
     let ask_enabled = injection.ask.is_enabled().await;
@@ -1451,7 +1447,7 @@ async fn inject_iyw_claw_mcp(
         tracing::warn!(
             "[delegation][WARN] iyw-claw-mcp companion binary not found (checked IYW_CLAW_MCP_BIN, \
              exe sibling, and PATH); skipping delegate_to_agent / check_user_feedback / \
-             ask_user_question / get_session_info tool injection for connection \
+             ask_user_question / get_session_info / show_image tool injection for connection \
              {parent_connection_id}. Reinstall iyw-claw or set IYW_CLAW_MCP_BIN to fix."
         );
         return None;

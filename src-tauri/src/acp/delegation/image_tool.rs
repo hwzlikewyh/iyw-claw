@@ -10,7 +10,6 @@ pub const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_BASE64_LEN: usize = MAX_IMAGE_BYTES.div_ceil(3) * 4;
 const SIZE_ERROR: &str = "image exceeds the 10 MiB limit";
-
 #[derive(Debug, Deserialize)]
 struct ImageArguments {
     source: String,
@@ -18,7 +17,6 @@ struct ImageArguments {
     caption: Option<String>,
     name: Option<String>,
 }
-
 struct LoadedSource {
     bytes: Vec<u8>,
     declared_mime: Option<String>,
@@ -26,13 +24,11 @@ struct LoadedSource {
     source: Option<String>,
     name: Option<String>,
 }
-
 struct LoadedImage {
     bytes: Vec<u8>,
     mime_type: &'static str,
     metadata: Value,
 }
-
 pub async fn execute(arguments: Value, working_dir: PathBuf) -> Value {
     match load_image(arguments, &working_dir).await {
         Ok(image) => image.success_result(),
@@ -189,6 +185,7 @@ async fn load_url(source: &str) -> Result<LoadedSource, String> {
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
+        .and_then(normalize_mime)
         .map(str::to_string);
     let mut bytes = Vec::new();
     let mut stream = response.bytes_stream();
@@ -243,7 +240,6 @@ fn ensure_size(size: usize) -> Result<(), String> {
         Ok(())
     }
 }
-
 fn normalize_mime(value: &str) -> Option<&'static str> {
     let mime = value.split(';').next()?.trim().to_ascii_lowercase();
     match mime.as_str() {
@@ -257,7 +253,6 @@ fn normalize_mime(value: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-
 fn detect_mime(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Some("image/png");
@@ -274,7 +269,12 @@ fn detect_mime(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"BM") {
         return Some("image/bmp");
     }
-    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" && matches!(&bytes[8..12], b"avif" | b"avis") {
+    if bytes.len() >= 12
+        && &bytes[4..8] == b"ftyp"
+        && bytes[8..]
+            .chunks_exact(4)
+            .any(|brand| brand == b"avif" || brand == b"avis")
+    {
         return Some("image/avif");
     }
     let text = std::str::from_utf8(bytes)

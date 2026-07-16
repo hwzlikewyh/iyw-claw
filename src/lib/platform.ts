@@ -72,11 +72,11 @@ export function getEventStream(): EventStream | null {
  * Open a URL in the default browser (desktop) or new tab (web).
  */
 export async function openUrl(url: string): Promise<void> {
-  if (isDesktop() && getActiveRemoteConnectionId() === null) {
+  if (isDesktop()) {
     const { openUrl: tauriOpenUrl } = await import("@tauri-apps/plugin-opener")
     await tauriOpenUrl(url)
   } else {
-    window.open(url, "_blank")
+    window.open(url, "_blank", "noopener,noreferrer")
   }
 }
 
