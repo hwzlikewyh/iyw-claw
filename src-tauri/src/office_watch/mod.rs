@@ -43,8 +43,10 @@ use crate::process::tokio_command;
 // ─── Tunables ───────────────────────────────────────────────────────────
 
 /// Upper bound on how long we wait for a freshly-spawned watch server to
-/// announce readiness (its `Watch: http://…:<port>` stdout line) before giving up.
-const READY_TIMEOUT: Duration = Duration::from_secs(8);
+/// announce readiness (its `Watch: http://…:<port>` stdout line) before giving
+/// up. OfficeCLI renders the initial document before announcing the server, and
+/// complex documents can take well beyond eight seconds on slower machines.
+const READY_TIMEOUT: Duration = Duration::from_secs(60);
 /// Per-attempt TCP connect timeout for the post-announce reachability confirm.
 const READY_CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 /// Hard cap on concurrent watch processes — a backstop against a pathological
@@ -839,6 +841,14 @@ mod tests {
         // Other lines are ignored — crucially `Watching:` is not a false match.
         assert_eq!(parse_watch_port("Watching: /tmp/p.docx"), None);
         assert_eq!(parse_watch_port("Press Ctrl+C to stop."), None);
+    }
+
+    #[test]
+    fn ready_timeout_allows_complex_documents_to_render() {
+        assert!(
+            READY_TIMEOUT >= Duration::from_secs(30),
+            "officecli initial rendering can exceed the old 8-second timeout"
+        );
     }
 
     /// Seed a live watch entry (real `sleep` child bound conceptually to `port`).

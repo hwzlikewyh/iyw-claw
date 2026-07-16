@@ -77,6 +77,24 @@ async fn send_broker_cancel(socket_path: &str, req: &BrokerCancelRequest) {
 /// broker's [`super::types::DelegationRequest`].
 pub const TOOL_SCHEMA_JSON: &str = include_str!("tool_schema.json");
 
+/// Machine-readable contract used by the parent process to reject stale
+/// sidecars before they reach an agent's MCP startup path.
+pub fn binary_capabilities() -> Value {
+    let tools = serde_json::from_str::<Value>(TOOL_SCHEMA_JSON)
+        .ok()
+        .and_then(|schema| schema.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|tool| tool.get("name")?.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    json!({
+        "name": "iyw-claw-mcp",
+        "version": env!("CARGO_PKG_VERSION"),
+        "protocol_version": 1,
+        "tools": tools,
+    })
+}
+
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
@@ -1222,6 +1240,20 @@ mod tests {
         assert_eq!(result["content"][1]["type"], "image");
         assert_eq!(result["content"][1]["mimeType"], "image/png");
         assert_eq!(result["isError"], false);
+    }
+
+    #[test]
+    fn binary_capabilities_advertise_show_image() {
+        let capabilities = binary_capabilities();
+
+        assert_eq!(capabilities["name"], "iyw-claw-mcp");
+        assert_eq!(capabilities["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(capabilities["protocol_version"], 1);
+        assert!(capabilities["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "show_image"));
     }
 
     #[test]

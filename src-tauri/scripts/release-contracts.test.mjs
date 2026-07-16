@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
+import { createBuildPlan } from "./build-desktop.mjs"
+
 const root = new URL("../../", import.meta.url)
 const read = (path) => readFileSync(fileURLToPath(new URL(path, root)), "utf8")
 
@@ -56,4 +58,34 @@ test("Linux arm64 setup uses resilient apt transport", () => {
   assert.doesNotMatch(setup, /^deb .*http:\/\//m)
   assert.match(setup, /Acquire::ForceIPv4/)
   assert.match(setup, /Acquire::Retries/)
+})
+
+test("bundle-only builds prepare sidecars before packaging", () => {
+  const plan = createBuildPlan("tauri.js", {
+    bundleOnly: true,
+    jobs: null,
+    noSign: true,
+    reuseAssets: false,
+    verbose: false,
+  })
+
+  assert.deepEqual(
+    plan.steps.map((step) => step.label),
+    ["sidecar preparation", "NSIS bundle"]
+  )
+})
+
+test("reuse-assets builds prepare sidecars before compilation", () => {
+  const plan = createBuildPlan("tauri.js", {
+    bundleOnly: false,
+    jobs: null,
+    noSign: true,
+    reuseAssets: true,
+    verbose: false,
+  })
+
+  assert.deepEqual(
+    plan.steps.map((step) => step.label),
+    ["sidecar preparation", "release build and bundle"]
+  )
 })

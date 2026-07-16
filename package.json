@@ -1,11 +1,12 @@
 {
   "name": "iyw-claw",
   "private": true,
-  "version": "0.0.9",
+  "version": "0.1.0",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
+    "clean:build": "node scripts/clean-build-artifacts.mjs",
     "lint": "eslint",
     "tauri": "tauri",
     "tauri:build:local": "tauri build --debug",

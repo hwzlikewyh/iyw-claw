@@ -1,6 +1,6 @@
 [package]
 name = "iyw-claw"
-version = "0.0.9"
+version = "0.1.0"
 description = "Agent Code Generation App"
 authors = ["feitao"]
 edition = "2021"
@@ -138,6 +138,17 @@ junction = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# This crate is built repeatedly with several feature sets. Full debug info plus
+# incremental caches grows into tens of gigabytes per feature/worktree on
+# Windows. Keep line tables for useful backtraces while bounding disk usage.
+[profile.dev]
+debug = 1
+incremental = false
+
+[profile.test]
+debug = 1
+incremental = false
 
 [dev-dependencies]
 tempfile = "3"

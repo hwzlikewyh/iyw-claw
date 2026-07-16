@@ -1343,7 +1343,7 @@ fn locate_iyw_claw_mcp_binary() -> Option<PathBuf> {
 
     if let Some(raw) = std::env::var_os("IYW_CLAW_MCP_BIN") {
         let candidate = PathBuf::from(raw);
-        if is_executable_file(&candidate) {
+        if is_compatible_companion(&candidate) {
             return Some(candidate);
         }
     }
@@ -1353,14 +1353,66 @@ fn locate_iyw_claw_mcp_binary() -> Option<PathBuf> {
         .and_then(|p| p.parent().map(Path::to_path_buf))
     {
         let candidate = dir.join(filename);
-        if is_executable_file(&candidate) {
+        if is_compatible_companion(&candidate) {
             return Some(candidate);
         }
     }
 
     which::which(filename)
         .ok()
-        .filter(|p| is_executable_file(p))
+        .filter(|p| is_compatible_companion(p))
+}
+
+fn is_compatible_companion(path: &Path) -> bool {
+    if !is_executable_file(path) {
+        return false;
+    }
+    let output = crate::process::std_command(path)
+        .arg("--capabilities")
+        .output();
+    let result = output
+        .map_err(|error| format!("capability probe failed: {error}"))
+        .and_then(|output| {
+            if !output.status.success() {
+                return Err(format!("capability probe exited with {}", output.status));
+            }
+            String::from_utf8(output.stdout)
+                .map_err(|error| format!("capability output is not UTF-8: {error}"))
+        })
+        .and_then(|stdout| validate_companion_capabilities(&stdout));
+    if let Err(error) = result {
+        tracing::warn!(
+            "[ACP] ignoring incompatible iyw-claw-mcp at {}: {error}",
+            path.display()
+        );
+        return false;
+    }
+    true
+}
+
+fn validate_companion_capabilities(raw: &str) -> Result<(), String> {
+    let manifest: serde_json::Value =
+        serde_json::from_str(raw.trim()).map_err(|error| error.to_string())?;
+    if manifest["name"] != "iyw-claw-mcp" {
+        return Err("unexpected companion name".into());
+    }
+    if manifest["version"] != env!("CARGO_PKG_VERSION") {
+        return Err(format!(
+            "version mismatch: expected {}, got {}",
+            env!("CARGO_PKG_VERSION"),
+            manifest["version"]
+        ));
+    }
+    if manifest["protocol_version"] != 1 {
+        return Err("unsupported companion protocol version".into());
+    }
+    let has_show_image = manifest["tools"]
+        .as_array()
+        .is_some_and(|tools| tools.iter().any(|tool| tool == "show_image"));
+    if !has_show_image {
+        return Err("show_image capability is missing".into());
+    }
+    Ok(())
 }
 
 fn is_executable_file(path: &Path) -> bool {
@@ -6424,5 +6476,32 @@ mod tests {
             companion_features_arg(true, true, true, true),
             "images,delegation,feedback,ask,sessions"
         );
+    }
+
+    #[test]
+    fn companion_capabilities_require_matching_version_and_show_image() {
+        let compatible = serde_json::json!({
+            "name": "iyw-claw-mcp",
+            "version": env!("CARGO_PKG_VERSION"),
+            "protocol_version": 1,
+            "tools": ["show_image"],
+        });
+        assert!(validate_companion_capabilities(&compatible.to_string()).is_ok());
+
+        let old_version = serde_json::json!({
+            "name": "iyw-claw-mcp",
+            "version": "0.0.5",
+            "protocol_version": 1,
+            "tools": ["show_image"],
+        });
+        assert!(validate_companion_capabilities(&old_version.to_string()).is_err());
+
+        let missing_tool = serde_json::json!({
+            "name": "iyw-claw-mcp",
+            "version": env!("CARGO_PKG_VERSION"),
+            "protocol_version": 1,
+            "tools": [],
+        });
+        assert!(validate_companion_capabilities(&missing_tool.to_string()).is_err());
     }
 }

@@ -94,8 +94,12 @@ export function createBuildPlan(tauriCli, options) {
   if (options.noSign) {
     bundle.args.push("--no-sign")
   }
+  const prepareSidecars = {
+    label: "sidecar preparation",
+    args: [join(REPO_ROOT, "src-tauri", "scripts", "prepare-sidecars.mjs")],
+  }
   if (options.bundleOnly) {
-    return { env, steps: [bundle] }
+    return { env, steps: [prepareSidecars, bundle] }
   }
 
   const buildArgs = [tauriCli, "build"]
@@ -111,7 +115,10 @@ export function createBuildPlan(tauriCli, options) {
   buildArgs.push("--", "--timings")
   return {
     env,
-    steps: [{ label: "release build and bundle", args: buildArgs }],
+    steps: [
+      ...(options.reuseAssets ? [prepareSidecars] : []),
+      { label: "release build and bundle", args: buildArgs },
+    ],
   }
 }
 
@@ -139,7 +146,7 @@ function main() {
   const options = parseBuildOptions(process.argv.slice(2))
   if (options.reuseAssets) {
     console.log(
-      "[desktop-build] reusing existing out/ and sidecar assets; run the production build after either changes"
+      "[desktop-build] reusing existing out/ assets; sidecars will be rebuilt"
     )
   }
   const tauriCli = join(
