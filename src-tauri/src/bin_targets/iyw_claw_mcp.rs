@@ -33,8 +33,8 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use iyw_claw_lib::acp::delegation::companion::{
-    dispatch_line, drain_and_cancel_all, CompanionContext, CompanionFeatures, InflightCalls,
-    JsonRpcResponse, LineAction, SpawnResult,
+    binary_capabilities, dispatch_line, drain_and_cancel_all, CompanionContext, CompanionFeatures,
+    InflightCalls, JsonRpcResponse, LineAction, SpawnResult,
 };
 use iyw_claw_lib::acp::delegation::parent_watcher::{wait_for_parent_exit, DEFAULT_POLL_INTERVAL};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
@@ -113,6 +113,10 @@ fn parse_args() -> Result<Args, String> {
                 println!(
                     "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images] [--working-dir <path>]"
                 );
+                std::process::exit(0);
+            }
+            "--capabilities" => {
+                println!("{}", binary_capabilities());
                 std::process::exit(0);
             }
             other => return Err(format!("unknown arg: {other}")),
