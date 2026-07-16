@@ -5,13 +5,13 @@
 //! The companion speaks newline-delimited JSON-RPC 2.0 on stdio:
 //! one request → one response per line, with concurrent dispatch so
 //! `notifications/cancelled` can race an in-flight `tools/call`. It exposes up
-//! to six tools — `delegate_to_agent` (async; returns a `task_id` ack),
+//! to seven tools — `delegate_to_agent` (async; returns a `task_id` ack),
 //! `get_delegation_status` (poll/long-poll for the result), `cancel_delegation`,
 //! `check_user_feedback` (pull the user's mid-turn steering notes),
 //! `ask_user_question` (block on a multiple-choice card), and `get_session_info`
-//! (resolve a referenced session by id) — whose schemas are embedded at compile
+//! (resolve a referenced session by id), and `show_image` — whose schemas are embedded at compile
 //! time from [`TOOL_SCHEMA_JSON`] and gated by the `--features` groups (delegation
-//! / feedback / ask / sessions). Only `delegate_to_agent` registers a broker-side
+//! / feedback / ask / sessions / images). Only `delegate_to_agent` registers a broker-side
 //! cancel handle; canceling a status / cancel / feedback / session round-trip
 //! merely suppresses its response — and for `check_user_feedback` also skips the
 //! delivery commit, so a cancelled note stays pending.
@@ -34,6 +34,7 @@
 //!    notification finds nothing and is silently ignored.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -138,6 +139,7 @@ pub struct CompanionFeatures {
     pub feedback: bool,
     pub ask: bool,
     pub sessions: bool,
+    pub images: bool,
 }
 
 impl CompanionFeatures {
@@ -153,6 +155,7 @@ impl CompanionFeatures {
                 feedback: false,
                 ask: false,
                 sessions: false,
+                images: false,
             };
         };
         let mut f = Self {
@@ -160,6 +163,7 @@ impl CompanionFeatures {
             feedback: false,
             ask: false,
             sessions: false,
+            images: false,
         };
         for tok in s.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             match tok {
@@ -167,6 +171,7 @@ impl CompanionFeatures {
                 "feedback" => f.feedback = true,
                 "ask" => f.ask = true,
                 "sessions" => f.sessions = true,
+                "images" => f.images = true,
                 _ => {}
             }
         }
@@ -179,6 +184,7 @@ impl CompanionFeatures {
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask,
             "get_session_info" => self.sessions,
+            "show_image" => self.images,
             "delegate_to_agent" | "get_delegation_status" | "cancel_delegation" => self.delegation,
             _ => false,
         }
@@ -192,6 +198,7 @@ pub struct CompanionContext {
     pub parent_connection_id: String,
     pub socket_path: String,
     pub token: String,
+    pub working_dir: PathBuf,
     /// Tool groups this launch exposes (see [`CompanionFeatures`]).
     pub features: CompanionFeatures,
 }
@@ -395,6 +402,7 @@ async fn build_tools_call_spawn(
         return LineAction::Respond(err(id, -32602, format!("unknown tool: {name}")));
     }
     match name.as_str() {
+        "show_image" => register_and_spawn_local(inflight, id, arguments, ctx.working_dir).await,
         "delegate_to_agent" => {
             // MCP clients (Codex / Claude Code) generally do NOT populate
             // `_meta.tool_use_id` when calling an MCP server. We still surface it
@@ -541,6 +549,47 @@ async fn build_tools_call_spawn(
         }
         other => LineAction::Respond(err(id, -32602, format!("unknown tool: {other}"))),
     }
+}
+
+async fn register_and_spawn_local(
+    inflight: Arc<InflightCalls>,
+    id: Value,
+    arguments: Value,
+    working_dir: PathBuf,
+) -> LineAction {
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    let id_key = request_id_key(&id);
+    inflight
+        .register(
+            id_key.clone(),
+            InflightEntry {
+                external_handle: None,
+                cancel_tx,
+            },
+        )
+        .await;
+    let response_id = id.clone();
+    let task_key = id_key.clone();
+    let task_inflight = inflight.clone();
+    let future = Box::pin(async move {
+        let response = tokio::select! {
+            biased;
+            _ = cancel_rx => None,
+            result = crate::acp::delegation::image_tool::execute(arguments, working_dir) => {
+                Some(ok(response_id, result))
+            }
+        };
+        let _ = task_inflight.take(&task_key).await;
+        SpawnResult {
+            response,
+            after_relay: None,
+        }
+    });
+    LineAction::Spawn(SpawnedCall {
+        request_id: id,
+        request_id_key: id_key,
+        future,
+    })
 }
 
 /// Register the inflight entry and build the [`SpawnedCall`] that races the
@@ -1163,7 +1212,90 @@ pub fn render_task_report(report: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
     use super::*;
+
+    const PNG_BYTES: &[u8] = b"\x89PNG\r\n\x1a\nfixture";
+
+    fn assert_png_success(result: &Value) {
+        assert_eq!(result["content"][1]["type"], "image");
+        assert_eq!(result["content"][1]["mimeType"], "image/png");
+        assert_eq!(result["isError"], false);
+    }
+
+    #[test]
+    fn show_image_is_gated_by_images_feature() {
+        let features = CompanionFeatures::parse(Some("images"));
+
+        assert!(features.images);
+        assert!(features.allows_tool("show_image"));
+        assert!(!features.allows_tool("delegate_to_agent"));
+    }
+
+    #[tokio::test]
+    async fn show_image_accepts_data_uri_and_raw_base64() {
+        let encoded = STANDARD.encode(PNG_BYTES);
+        let data_uri = format!("data:image/png;base64,{encoded}");
+        let first = crate::acp::delegation::image_tool::execute(
+            json!({ "source": data_uri }),
+            PathBuf::from("."),
+        )
+        .await;
+        assert_png_success(&first);
+        assert!(first["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("iyw_claw_display_image"));
+
+        let second = crate::acp::delegation::image_tool::execute(
+            json!({ "source": encoded, "mime_type": "image/png" }),
+            PathBuf::from("."),
+        )
+        .await;
+        assert_png_success(&second);
+    }
+
+    #[tokio::test]
+    async fn show_image_resolves_relative_local_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("chart.png"), PNG_BYTES).unwrap();
+        let result = crate::acp::delegation::image_tool::execute(
+            json!({ "source": "chart.png" }),
+            dir.path().to_path_buf(),
+        )
+        .await;
+        assert_png_success(&result);
+        let metadata = result["content"][0]["text"].as_str().unwrap();
+        assert!(metadata.contains("chart.png"));
+        assert!(metadata.contains("\"source_kind\":\"file\""));
+    }
+
+    #[tokio::test]
+    async fn show_image_rejects_oversize_and_mime_mismatch() {
+        let oversized = vec![0_u8; crate::acp::delegation::image_tool::MAX_IMAGE_BYTES + 1];
+        let too_large = crate::acp::delegation::image_tool::execute(
+            json!({ "source": STANDARD.encode(oversized), "mime_type": "image/png" }),
+            PathBuf::from("."),
+        )
+        .await;
+        assert_eq!(too_large["isError"], true);
+        assert!(too_large["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("10 MiB"));
+
+        let mismatch = crate::acp::delegation::image_tool::execute(
+            json!({ "source": STANDARD.encode(PNG_BYTES), "mime_type": "image/jpeg" }),
+            PathBuf::from("."),
+        )
+        .await;
+        assert_eq!(mismatch["isError"], true);
+        assert!(mismatch["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("does not match"));
+    }
 
     fn ctx() -> CompanionContext {
         // Delegation-only by default so the existing delegation-focused tests
@@ -1173,6 +1305,7 @@ mod tests {
             feedback: false,
             ask: false,
             sessions: false,
+            images: false,
         })
     }
 
@@ -1181,6 +1314,7 @@ mod tests {
             parent_connection_id: "p1".into(),
             socket_path: "/tmp/iyw-claw-mcp-companion-test-nope.sock".into(),
             token: "tok".into(),
+            working_dir: PathBuf::from("."),
             features,
         }
     }
@@ -1643,24 +1777,28 @@ mod tests {
         feedback: true,
         ask: false,
         sessions: false,
+        images: false,
     };
     const BOTH: CompanionFeatures = CompanionFeatures {
         delegation: true,
         feedback: true,
         ask: false,
         sessions: false,
+        images: false,
     };
     const ASK_ONLY: CompanionFeatures = CompanionFeatures {
         delegation: false,
         feedback: false,
         ask: true,
         sessions: false,
+        images: false,
     };
     const SESSIONS_ONLY: CompanionFeatures = CompanionFeatures {
         delegation: false,
         feedback: false,
         ask: false,
         sessions: true,
+        images: false,
     };
 
     fn list_tool_names(action: LineAction) -> Vec<String> {
@@ -2191,6 +2329,7 @@ mod tests {
             parent_connection_id: "p".into(),
             socket_path: sock,
             token: "tok".into(),
+            working_dir: PathBuf::from("."),
             features: FEEDBACK_ONLY,
         };
         let inflight = Arc::new(InflightCalls::new());
