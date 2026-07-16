@@ -680,6 +680,7 @@
     },
     "title": "Agent SDK Management",
     "description": "Manage Agent SDK connection, enabled state, environment variables, config management and version preflight info in one place.",
+    "agentAliasDescription": "Connect and manage {name} through the Agent SDK.",
     "loadingAgents": "Loading agent list...",
     "agentList": "Agent List",
     "emptyNoAgent": "No available agent.",

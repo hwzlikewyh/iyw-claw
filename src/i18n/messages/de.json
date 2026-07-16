@@ -680,6 +680,7 @@
     },
     "title": "Agent SDK-Verwaltung",
     "description": "Verwalten Sie Agent-SDK-Verbindung, Aktivierungsstatus, Umgebungsvariablen, Konfigurationsverwaltung und Versions-Preflight-Infos zentral an einem Ort.",
+    "agentAliasDescription": "{name} über das Agent SDK verbinden und verwalten.",
     "loadingAgents": "Agentenliste wird geladen...",
     "agentList": "Agentenliste",
     "emptyNoAgent": "Keine verfügbaren Agenten.",

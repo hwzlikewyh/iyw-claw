@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import { useTranslations } from "next-intl"
 import { Eye, EyeOff, Loader2, Save } from "lucide-react"
 import { toast } from "sonner"
 
@@ -15,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import type { AcpAgentInfo } from "@/lib/types"
+import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 
 const CODEBUDDY_API_KEY_ENV = "CODEBUDDY_API_KEY"
 const CODEBUDDY_ENVIRONMENT_ENV = "CODEBUDDY_INTERNET_ENVIRONMENT"
@@ -123,7 +123,7 @@ export function CodeBuddyConfigPanel({
   saving: boolean
   onSave: (env: Record<string, string>, enabled: boolean) => Promise<unknown>
 }) {
-  const t = useTranslations("AcpAgentSettings")
+  const t = useAgentSdkTranslations()
   const [apiKey, setApiKey] = useState(
     () => agent.env[CODEBUDDY_API_KEY_ENV] ?? ""
   )
