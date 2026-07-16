@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    passWithNoTests: true,
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     exclude: ["node_modules", "out", ".next", "src-tauri"],
     coverage: {
