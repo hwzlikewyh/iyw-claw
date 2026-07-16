@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { useTranslations } from "next-intl"
 import { ExternalLink, Eye, EyeOff, Loader2, Plug } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -30,6 +29,7 @@ import {
   customProviderIdIssue,
 } from "@/lib/opencode-connect"
 import type { OpenCodeCatalogProvider } from "@/lib/types"
+import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 
 const NPM_OPTIONS = [
   DEFAULT_OPENAI_COMPATIBLE_NPM,
@@ -74,7 +74,7 @@ export function OpenCodeConnectDialog({
   editProviderId,
   onConnect,
 }: OpenCodeConnectDialogProps) {
-  const t = useTranslations("AcpAgentSettings")
+  const t = useAgentSdkTranslations()
 
   const [selected, setSelected] = useState("")
   const [providerQuery, setProviderQuery] = useState("")
@@ -365,7 +365,7 @@ export function OpenCodeCustomProviderDialog({
   authJsonText,
   onConnect,
 }: OpenCodeCustomProviderDialogProps) {
-  const t = useTranslations("AcpAgentSettings")
+  const t = useAgentSdkTranslations()
 
   const [customId, setCustomId] = useState("")
   const [customName, setCustomName] = useState("")

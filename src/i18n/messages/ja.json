@@ -680,6 +680,7 @@
     },
     "title": "Agent SDK 管理",
     "description": "Agent SDK の接続、有効化状態、環境変数、設定管理、バージョン事前チェック情報を一元管理します。",
+    "agentAliasDescription": "Agent SDK を通じて{name}に接続し、管理します。",
     "loadingAgents": "エージェント一覧を読み込み中...",
     "agentList": "エージェント一覧",
     "emptyNoAgent": "利用可能なエージェントがありません。",

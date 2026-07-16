@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react"
 import { Reorder, useDragControls } from "motion/react"
-import { useLocale, useTranslations } from "next-intl"
+import { useLocale } from "next-intl"
 import { useSearchParams } from "next/navigation"
 import {
   AlertCircle,
@@ -128,7 +128,9 @@ import {
 } from "@/lib/opencode-connect"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import { getInstallErrorHintKey } from "@/lib/agent-install-error"
+import { presentAgentSdkAgents } from "@/lib/agent-sdk-presentation"
 import { useAgentInstallStream } from "@/hooks/use-agent-install-stream"
+import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 import { relaunchApp } from "@/lib/updater"
 import { OpencodePluginsModal } from "./opencode-plugins-modal"
 import { CodeBuddyConfigPanel } from "./codebuddy-config-panel"
@@ -3514,7 +3516,7 @@ function KimiCodeConfigPanel({
   agent: AcpAgentInfo
   onSaved: () => Promise<void>
 }) {
-  const t = useTranslations("AcpAgentSettings")
+  const t = useAgentSdkTranslations()
   const config = useMemo(
     () => parseKimiManagedConfig(agent.config_json),
     [agent.config_json]
@@ -4020,9 +4022,6 @@ interface AcpAgentSettingsProps {
   initialAgentType?: AgentType | null
 }
 
-// Keep hidden agents registered and configurable in the backend while limiting
-// this settings page to the agents currently exposed by the product.
-const VISIBLE_AGENT_TYPES = new Set<AgentType>(["codex"])
 const SHOW_AGENT_ENVIRONMENT_SETTINGS = false
 const SHOW_AGENT_CONFIGURATION_SETTINGS = false
 const SHOW_AGENT_STORAGE_SETTINGS = false
@@ -4031,7 +4030,7 @@ export function AcpAgentSettings({
   initialAgentType = null,
 }: AcpAgentSettingsProps) {
   const locale = useLocale()
-  const t = useTranslations("AcpAgentSettings")
+  const t = useAgentSdkTranslations()
   const rawTranslator = t as unknown as AcpTranslator
   acpTranslator = (key, values) => rawTranslator(key, values)
   const searchParams = useSearchParams()
@@ -4140,12 +4139,10 @@ export function AcpAgentSettings({
 
   const visibleAgents = useMemo(
     () =>
-      agents
-        .filter((agent) => VISIBLE_AGENT_TYPES.has(agent.agent_type))
-        .sort(
-          (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)
-        ),
-    [agents]
+      presentAgentSdkAgents(agents, (name) =>
+        t("agentAliasDescription", { name })
+      ),
+    [agents, t]
   )
   const canReorderAgents = visibleAgents.length > 1
   const selectedAgent = useMemo(
@@ -9141,7 +9138,9 @@ responses_websockets_v2 = true`}
                 ) : selectedAgent.agent_type === "cline" ? (
                   <div className="space-y-3 rounded-md border bg-muted/10 p-3">
                     <div>
-                      <label className="text-xs font-medium">Cline</label>
+                      <label className="text-xs font-medium">
+                        {selectedAgent.name}
+                      </label>
                       <p className="mt-1 text-[11px] text-muted-foreground">
                         {t("cline.configDescription")}
                       </p>

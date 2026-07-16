@@ -680,6 +680,7 @@
     },
     "title": "إدارة Agent SDK",
     "description": "أدر اتصال Agent SDK وحالة التمكين ومتغيرات البيئة وإدارة الإعدادات ومعلومات فحص الإصدار المسبق في مكان واحد.",
+    "agentAliasDescription": "اتصل بـ {name} وأدره عبر Agent SDK.",
     "loadingAgents": "جارٍ تحميل قائمة الوكلاء...",
     "agentList": "قائمة الوكلاء",
     "emptyNoAgent": "لا يوجد وكيل متاح.",

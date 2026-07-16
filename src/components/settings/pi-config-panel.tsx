@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { useTranslations } from "next-intl"
 import { KeyRound, Loader2, Save, ShieldCheck } from "lucide-react"
 import { toast } from "sonner"
 
@@ -17,6 +16,7 @@ import {
 } from "@/components/ui/select"
 import { acpUpdatePiConfig, loadPiConfig } from "@/lib/api"
 import type { AcpAgentInfo } from "@/lib/types"
+import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 
 /**
  * Per-agent `env_json` flag gating launch-time workspace-trust seeding. Absent or
@@ -66,7 +66,7 @@ export function PiConfigPanel({
   onSaveEnv: (env: Record<string, string>, enabled: boolean) => Promise<unknown>
   onSaved: () => Promise<void>
 }) {
-  const t = useTranslations("AcpAgentSettings")
+  const t = useAgentSdkTranslations()
 
   // The model remains user-selectable; the provider is always iyw-claw.
   const [model, setModel] = useState("")

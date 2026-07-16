@@ -680,6 +680,7 @@
     },
     "title": "Agent SDK管理",
     "description": "统一管理 Agent 的连接SDK、启用状态、环境变量、配置管理与版本预检信息。",
+    "agentAliasDescription": "通过 Agent SDK 连接和管理{name}。",
     "loadingAgents": "加载 Agent 列表中...",
     "agentList": "Agent 列表",
     "emptyNoAgent": "暂无可用 Agent。",

@@ -10,7 +10,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Download, Loader2, RefreshCw, Trash2 } from "lucide-react"
-import { useTranslations } from "next-intl"
 import {
   opencodeListPlugins,
   opencodeInstallPlugins,
@@ -19,6 +18,7 @@ import {
 import { usePluginInstallStream } from "@/hooks/use-plugin-install-stream"
 import { randomUUID } from "@/lib/utils"
 import type { PluginCheckSummary, PluginInfo } from "@/lib/types"
+import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 
 interface OpencodePluginsModalProps {
   open: boolean
@@ -31,7 +31,7 @@ export function OpencodePluginsModal({
   onOpenChange,
   onCompleted,
 }: OpencodePluginsModalProps) {
-  const t = useTranslations("AcpAgentSettings")
+  const t = useAgentSdkTranslations()
   const [summary, setSummary] = useState<PluginCheckSummary | null>(null)
   const [loading, setLoading] = useState(false)
   const [uninstalling, setUninstalling] = useState<string | null>(null)

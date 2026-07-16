@@ -680,6 +680,7 @@
     },
     "title": "Agent SDK 관리",
     "description": "Agent SDK 연결, 활성화 상태, 환경 변수, 구성 관리, 버전 사전 점검 정보를 한곳에서 관리합니다.",
+    "agentAliasDescription": "Agent SDK를 통해 {name}에 연결하고 관리합니다.",
     "loadingAgents": "에이전트 목록 불러오는 중...",
     "agentList": "에이전트 목록",
     "emptyNoAgent": "사용 가능한 에이전트가 없습니다.",

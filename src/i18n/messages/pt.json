@@ -680,6 +680,7 @@
     },
     "title": "Gerenciamento do SDK de agentes",
     "description": "Gerencie em um só lugar a conexão do SDK de agentes, estado habilitado, variáveis de ambiente, gerenciamento de configuração e informações de preflight de versão.",
+    "agentAliasDescription": "Conecte e gerencie {name} pelo SDK de agentes.",
     "loadingAgents": "Carregando lista de agentes...",
     "agentList": "Lista de agentes",
     "emptyNoAgent": "Nenhum agente disponível.",
