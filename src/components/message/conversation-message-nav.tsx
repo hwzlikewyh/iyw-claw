@@ -5,7 +5,7 @@ import {
   ChevronDownIcon,
   ChevronRight,
   FileIcon,
-  MapPinned,
+  MessageCircle,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useActiveFolder } from "@/contexts/active-folder-context"
@@ -112,7 +112,7 @@ export const ConversationMessageNav = memo(function ConversationMessageNav({
     // own layout + pointer behavior.
     return (
       <CollapsedOverlayChip
-        icon={<MapPinned className="size-3" />}
+        icon={<MessageCircle className="size-3" />}
         summary={t("collapsedSummary", { count })}
         onClick={() => onToggle(true)}
       />
@@ -124,7 +124,7 @@ export const ConversationMessageNav = memo(function ConversationMessageNav({
       <div className="pointer-events-auto w-72 max-w-full rounded-xl border bg-card/60 hover:bg-card/95 shadow-lg backdrop-blur transition-colors supports-[backdrop-filter]:bg-card/50 supports-[backdrop-filter]:hover:bg-card/85">
         <div className="flex items-center justify-between border-b px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
-            <MapPinned className="h-4 w-4 text-muted-foreground" />
+            <MessageCircle className="h-4 w-4 text-muted-foreground" />
             <span className="truncate text-sm font-medium">{t("title")}</span>
             <Badge variant="secondary" className="h-5">
               {count}

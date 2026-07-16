@@ -2690,6 +2690,19 @@
         "remove": "移除",
         "noDiffDataAvailable": "未找到 {filePath} 的差异数据"
       },
+      "workspaceFiles": {
+        "open": "工作区文件",
+        "title": "当前工作区文件",
+        "description": "浏览并预览当前工作区中的文件",
+        "treeLabel": "文件和文件夹",
+        "previewLabel": "文件预览",
+        "loadingTree": "正在加载文件...",
+        "loadingPreview": "正在加载预览...",
+        "empty": "当前工作区为空",
+        "selectFile": "选择文件以预览",
+        "treeError": "无法加载工作区文件",
+        "previewError": "无法预览此文件"
+      },
       "replyArtifacts": {
         "title": "改动文件",
         "fileCount": "{count} 个文件",

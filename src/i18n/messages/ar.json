@@ -2690,6 +2690,19 @@
         "remove": "إزالة",
         "noDiffDataAvailable": "لا توجد بيانات diff متاحة لـ {filePath}"
       },
+      "workspaceFiles": {
+        "open": "ملفات مساحة العمل",
+        "title": "ملفات مساحة العمل الحالية",
+        "description": "تصفح ومعاينة الملفات في مساحة العمل الحالية",
+        "treeLabel": "الملفات والمجلدات",
+        "previewLabel": "معاينة الملف",
+        "loadingTree": "جارٍ تحميل الملفات...",
+        "loadingPreview": "جارٍ تحميل المعاينة...",
+        "empty": "مساحة العمل هذه فارغة",
+        "selectFile": "اختر ملفًا لمعاينته",
+        "treeError": "تعذر تحميل ملفات مساحة العمل",
+        "previewError": "تعذرت معاينة هذا الملف"
+      },
       "replyArtifacts": {
         "title": "الملفات المتغيرة",
         "fileCount": "{count, plural, one {# ملف} other {# ملفات}}",

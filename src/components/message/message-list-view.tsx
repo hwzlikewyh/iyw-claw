@@ -62,6 +62,7 @@ import {
   ConversationMessageNav,
   type MessageNavEntry,
 } from "@/components/message/conversation-message-nav"
+import { WorkspaceFilesDialog } from "@/components/message/workspace-files-dialog"
 import type { MessageScrollContextValue } from "@/components/message/message-scroll-context"
 import { extractSessionFilesGrouped } from "@/lib/session-files"
 import { unescapeComposerText } from "@/lib/composer-copy-text"
@@ -935,6 +936,7 @@ export function MessageListView({
             scrollApiRef={scrollApiRef}
           />
         )}
+        {showMessageNav && <WorkspaceFilesDialog />}
       </div>
     </div>
   )

@@ -872,6 +872,7 @@ impl CodexParser {
         // BEFORE the goal — there the flag stays false and nothing is synthesized.
         let mut goal_opens_session = false;
         let mut last_turn_context_ts: Option<DateTime<Utc>> = None;
+        let mut turn_model_contexts: Vec<(DateTime<Utc>, String)> = Vec::new();
         let mut context_window_used_tokens: Option<u64> = None;
         let mut context_window_max_tokens: Option<u64> = None;
         let mut latest_total_usage: Option<TurnUsage> = None;
@@ -973,14 +974,20 @@ impl CodexParser {
                 "turn_context" => {
                     // A new API turn means any prior agent lifecycle is complete.
                     active_agent_count = 0;
+                    let turn_model = value
+                        .get("payload")
+                        .and_then(|p| p.get("model"))
+                        .and_then(|m| m.as_str())
+                        .map(str::trim)
+                        .filter(|model| !model.is_empty());
                     if model.is_none() {
-                        model = value
-                            .get("payload")
-                            .and_then(|p| p.get("model"))
-                            .and_then(|m| m.as_str())
-                            .map(|s| s.to_string());
+                        model = turn_model.map(str::to_owned);
                     }
                     last_turn_context_ts = parse_codex_timestamp(&value);
+                    if let (Some(timestamp), Some(turn_model)) = (last_turn_context_ts, turn_model)
+                    {
+                        turn_model_contexts.push((timestamp, turn_model.to_owned()));
+                    }
                 }
                 "event_msg" => {
                     if let Some(payload) = value.get("payload") {
@@ -1883,6 +1890,7 @@ impl CodexParser {
         let folder_name = folder_path.as_ref().map(|p| folder_name_from_path(p));
 
         let mut turns = group_into_turns(messages);
+        assign_codex_turn_models(&mut turns, &turn_model_contexts);
         super::relocate_orphaned_tool_results(&mut turns);
         super::structurize_read_tool_output(&mut turns);
         super::resolve_patch_line_numbers(&mut turns, cwd.as_deref());
@@ -1916,6 +1924,19 @@ impl CodexParser {
             turns,
             session_stats,
         })
+    }
+}
+
+fn assign_codex_turn_models(turns: &mut [MessageTurn], contexts: &[(DateTime<Utc>, String)]) {
+    for turn in turns
+        .iter_mut()
+        .filter(|turn| matches!(turn.role, TurnRole::Assistant) && turn.model.is_none())
+    {
+        turn.model = contexts
+            .iter()
+            .rev()
+            .find(|(timestamp, _)| *timestamp <= turn.timestamp)
+            .map(|(_, model)| model.clone());
     }
 }
 
@@ -2693,6 +2714,12 @@ mod tests {
         assert_eq!(total_usage.cache_read_input_tokens, 8000);
         assert_eq!(total_usage.output_tokens, 1200);
         assert_eq!(stats.total_tokens, Some(129200));
+        let assistant = detail
+            .turns
+            .iter()
+            .find(|turn| matches!(turn.role, TurnRole::Assistant))
+            .expect("assistant turn");
+        assert_eq!(assistant.model.as_deref(), Some("gpt-5-codex"));
         let pct = stats
             .context_window_usage_percent
             .expect("context window percent present");

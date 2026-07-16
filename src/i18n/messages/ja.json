@@ -2690,6 +2690,19 @@
         "remove": "削除",
         "noDiffDataAvailable": "{filePath} の差分データがありません"
       },
+      "workspaceFiles": {
+        "open": "ワークスペースファイル",
+        "title": "現在のワークスペースファイル",
+        "description": "現在のワークスペース内のファイルを参照してプレビューします",
+        "treeLabel": "ファイルとフォルダー",
+        "previewLabel": "ファイルプレビュー",
+        "loadingTree": "ファイルを読み込んでいます...",
+        "loadingPreview": "プレビューを読み込んでいます...",
+        "empty": "ワークスペースは空です",
+        "selectFile": "プレビューするファイルを選択",
+        "treeError": "ワークスペースファイルを読み込めません",
+        "previewError": "このファイルをプレビューできません"
+      },
       "replyArtifacts": {
         "title": "変更されたファイル",
         "fileCount": "{count, plural, one {# 個のファイル} other {# 個のファイル}}",

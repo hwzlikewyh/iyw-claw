@@ -52,6 +52,22 @@ pub async fn get_dashboard(conn: &DatabaseConnection) -> Result<UsageDashboardSt
     Ok(decode(raw, "usage dashboard")?.unwrap_or_default())
 }
 
+pub async fn list_session_snapshots(
+    conn: &DatabaseConnection,
+) -> Result<Vec<SessionUsageSnapshot>, DbError> {
+    let values = app_metadata_service::list_values_by_key_prefix(conn, SESSION_KEY_PREFIX).await?;
+    Ok(values
+        .into_iter()
+        .filter_map(|value| match serde_json::from_str(&value) {
+            Ok(snapshot) => Some(snapshot),
+            Err(error) => {
+                tracing::warn!("ignoring invalid usage session snapshot: {error}");
+                None
+            }
+        })
+        .collect())
+}
+
 pub async fn upsert_session_snapshot(
     conn: &DatabaseConnection,
     snapshot: SessionUsageSnapshot,
@@ -87,7 +103,9 @@ mod tests {
     use crate::db::test_helpers::fresh_in_memory_db;
     use crate::models::TurnUsage;
 
-    use super::{get_dashboard, upsert_session_snapshot, SessionUsageSnapshot};
+    use super::{
+        get_dashboard, list_session_snapshots, upsert_session_snapshot, SessionUsageSnapshot,
+    };
 
     fn snapshot(
         conversation_id: i32,
@@ -200,5 +218,35 @@ mod tests {
         assert_eq!(dashboard.daily_rows[1].date, "2026-07-10");
         assert_eq!(dashboard.daily_rows[1].sessions, 2);
         assert_eq!(dashboard.daily_rows[1].total, 330);
+    }
+
+    #[tokio::test]
+    async fn lists_only_persisted_usage_session_snapshots() {
+        let db = fresh_in_memory_db().await;
+        upsert_session_snapshot(&db.conn, snapshot(9, "2026-07-10", "auto", 100, 20, 0, 0))
+            .await
+            .expect("upsert");
+
+        let snapshots = list_session_snapshots(&db.conn).await.expect("snapshots");
+
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0].conversation_id, 9);
+        assert_eq!(snapshots[0].model, "auto");
+    }
+
+    #[tokio::test]
+    async fn ignores_invalid_usage_session_snapshot_entries() {
+        let db = fresh_in_memory_db().await;
+        crate::db::service::app_metadata_service::upsert_value(
+            &db.conn,
+            "usage.session.v1.invalid",
+            "not-json",
+        )
+        .await
+        .expect("seed invalid snapshot");
+
+        let snapshots = list_session_snapshots(&db.conn).await.expect("snapshots");
+
+        assert!(snapshots.is_empty());
     }
 }

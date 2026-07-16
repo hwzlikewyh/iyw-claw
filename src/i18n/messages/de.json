@@ -2690,6 +2690,19 @@
         "remove": "Entfernen",
         "noDiffDataAvailable": "Keine Diff-Daten verfügbar für {filePath}"
       },
+      "workspaceFiles": {
+        "open": "Arbeitsbereichsdateien",
+        "title": "Dateien im aktuellen Arbeitsbereich",
+        "description": "Dateien im aktuellen Arbeitsbereich durchsuchen und anzeigen",
+        "treeLabel": "Dateien und Ordner",
+        "previewLabel": "Dateivorschau",
+        "loadingTree": "Dateien werden geladen...",
+        "loadingPreview": "Vorschau wird geladen...",
+        "empty": "Dieser Arbeitsbereich ist leer",
+        "selectFile": "Datei für Vorschau auswählen",
+        "treeError": "Arbeitsbereichsdateien konnten nicht geladen werden",
+        "previewError": "Diese Datei kann nicht angezeigt werden"
+      },
       "replyArtifacts": {
         "title": "Geänderte Dateien",
         "fileCount": "{count, plural, one {# Datei} other {# Dateien}}",
