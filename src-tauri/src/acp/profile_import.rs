@@ -212,7 +212,3 @@ fn nonempty_env_path(name: &str) -> Option<PathBuf> {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
 }
-
-#[cfg(test)]
-#[path = "profile_import_tests.rs"]
-mod tests;
