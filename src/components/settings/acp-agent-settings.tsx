@@ -4024,7 +4024,8 @@ interface AcpAgentSettingsProps {
 // this settings page to the agents currently exposed by the product.
 const VISIBLE_AGENT_TYPES = new Set<AgentType>(["codex"])
 const SHOW_AGENT_ENVIRONMENT_SETTINGS = false
-const SHOW_AGENT_CONFIGURATION_SETTINGS = true
+const SHOW_AGENT_CONFIGURATION_SETTINGS = false
+const SHOW_AGENT_STORAGE_SETTINGS = false
 
 export function AcpAgentSettings({
   initialAgentType = null,
@@ -7200,21 +7201,25 @@ export function AcpAgentSettings({
         </div>
       )}
 
-      <AgentStorageSettings
-        status={agentStorageStatus}
-        selectedAgent={
-          selectedAgent
-            ? {
-                agentType: selectedAgent.agent_type,
-                name: selectedAgent.name,
-              }
-            : null
-        }
-        onStatusChange={(next) => {
-          setAgentStorageStatus(next)
-          setAgentStorageInitialized(next.initialized && !next.restartRequired)
-        }}
-      />
+      {SHOW_AGENT_STORAGE_SETTINGS ? (
+        <AgentStorageSettings
+          status={agentStorageStatus}
+          selectedAgent={
+            selectedAgent
+              ? {
+                  agentType: selectedAgent.agent_type,
+                  name: selectedAgent.name,
+                }
+              : null
+          }
+          onStatusChange={(next) => {
+            setAgentStorageStatus(next)
+            setAgentStorageInitialized(
+              next.initialized && !next.restartRequired
+            )
+          }}
+        />
+      ) : null}
 
       <div className="flex-1 min-h-0 grid gap-3 lg:grid-cols-[minmax(240px,320px)_1fr]">
         <div className="min-h-0 min-w-0 rounded-lg border bg-card flex flex-col overflow-hidden">

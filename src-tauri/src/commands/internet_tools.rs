@@ -91,11 +91,13 @@ async fn install_agent_reach(paths: &AgentStoragePaths) -> Result<(), String> {
         binary_cache::seed_bundled_uv_tools(paths, &executable)
             .map_err(|error| error.to_string())?;
     }
-    let uv = binary_cache::ensure_uv_tool(paths, |message| {
+    binary_cache::ensure_uv_tool(paths, |message| {
         tracing::info!("[internet-tools] {message}");
     })
     .await
     .map_err(|error| error.to_string())?;
+    let uv = binary_cache::find_cached_uv_tool(paths, "uv")
+        .ok_or_else(|| "uv missing after runtime installation".to_string())?;
     fs::create_dir_all(uv_tool_bin_dir(paths)).map_err(|error| error.to_string())?;
     let mut command = crate::process::tokio_command(uv);
     command
@@ -181,7 +183,10 @@ async fn run_tool_output(
     name: &str,
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
-    command.kill_on_drop(true);
+    command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
     let child = command
         .spawn()
         .map_err(|error| format!("failed to start {name}: {error}"))?;
