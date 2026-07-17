@@ -73,7 +73,6 @@ import {
   getPromptDraftDisplayText,
 } from "@/lib/prompt-draft"
 import {
-  AGENT_LABELS,
   type AgentType,
   type ContentBlock,
   type EventEnvelope,
@@ -82,6 +81,7 @@ import {
   type QuestionAnswer,
   type UserMessageBlock,
 } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import {
   getSavedModeId,
   saveModePreference,
@@ -1384,7 +1384,7 @@ const ConversationTabView = memo(function ConversationTabView({
       status={connStatus}
       promptCapabilities={conn.promptCapabilities}
       defaultPath={workingDirForConnection}
-      agentName={AGENT_LABELS[selectedAgent]}
+      agentName={getAgentDisplayName(selectedAgent)}
       error={conn.error}
       claudeApiRetry={conn.claudeApiRetry}
       pendingPermission={conn.pendingPermission}
@@ -1444,10 +1444,7 @@ const ConversationTabView = memo(function ConversationTabView({
           <div className="flex-[1.18]" />
           <div className="mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-6 px-4 py-4">
             <WelcomeHero />
-            <QuickActions
-              onSelect={handleQuickAction}
-              agentType={selectedAgent}
-            />
+            <QuickActions onSelect={handleQuickAction} />
             <div className="flex justify-center">
               <AgentSelector
                 defaultAgentType={selectedAgent}
@@ -1485,7 +1482,7 @@ const ConversationTabView = memo(function ConversationTabView({
               status={composerConnStatus}
               promptCapabilities={conn.promptCapabilities}
               defaultPath={workingDirForConnection}
-              agentName={AGENT_LABELS[selectedAgent]}
+              agentName={getAgentDisplayName(selectedAgent)}
               onFocus={handleFocus}
               onSend={handleSend}
               onCancel={handleCancel}
@@ -1562,7 +1559,7 @@ const ConversationTabView = memo(function ConversationTabView({
         }}
         onSubmit={feedback.submit}
         submitting={feedback.submitting}
-        agentName={AGENT_LABELS[selectedAgent]}
+        agentName={getAgentDisplayName(selectedAgent)}
       />
     </ConversationShell>
   )

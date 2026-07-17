@@ -46,7 +46,8 @@ import {
 } from "@/contexts/acp-connections-context"
 import { PermissionDialog } from "@/components/chat/permission-dialog"
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
-import { AGENT_LABELS, type AgentType, type QuestionAnswer } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
+import type { AgentType, QuestionAnswer } from "@/lib/types"
 
 interface Props {
   open: boolean
@@ -357,7 +358,7 @@ function SubAgentSessionBody({
           )}
         </span>
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-          {agentType ? AGENT_LABELS[agentType] : t("unknownAgent")}
+          {agentType ? getAgentDisplayName(agentType) : t("unknownAgent")}
         </span>
       </div>
       {childPendingPermission && (

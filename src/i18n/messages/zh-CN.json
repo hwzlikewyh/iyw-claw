@@ -55,8 +55,7 @@
       "quick_messages": "快捷消息",
       "logs": "运行日志",
       "usage": "用量",
-      "user_memory": "用户记忆",
-      "science": "科学研究"
+      "user_memory": "用户记忆"
     }
   },
   "AppearanceSettings": {
@@ -1153,23 +1152,7 @@
   "GeneralSettings": {
     "loading": "加载中...",
     "sectionTitle": "常规",
-    "sectionDescription": "集中管理默认终端、渲染加速以及多智能体协同等通用偏好。",
-    "terminalTitle": "默认终端",
-    "terminalDescription": "选择从终端标签栏或文件树打开新终端时使用的 Shell。",
-    "defaultTerminalShell": "默认 Shell",
-    "terminalSystemDefault": "系统默认",
-    "terminalPowerShell7": "PowerShell 7 (pwsh)",
-    "terminalWindowsPowerShell": "Windows PowerShell",
-    "terminalCmd": "命令提示符 (cmd)",
-    "terminalSaveFailed": "保存终端设置失败：{message}",
-    "terminalShellCustom": "自定义路径",
-    "terminalShellCustomPath": "Shell 路径",
-    "terminalShellCustomPlaceholder": "/usr/local/bin/fish",
-    "terminalShellCustomSave": "保存",
-    "terminalShellCustomHint": "支持绝对路径，或 PATH 中可解析的命令名。",
-    "terminalShellNotInstalled": "未安装",
-    "terminalShellNotFoundWarning": "当前主机上不存在此路径。",
-    "terminalCurrentShell": "当前使用：{path}",
+    "sectionDescription": "集中管理渲染加速以及多智能体协同等通用偏好。",
     "renderingTitle": "渲染加速",
     "renderingDescription": "如果应用出现黑屏或渲染异常（常见于 AMD 显卡或部分 Intel 集成显卡），可关闭硬件加速。仅 Windows 桌面端生效。",
     "disableHardwareAcceleration": "禁用硬件加速",
@@ -2377,8 +2360,7 @@
           "tabs": {
             "office": "日常办公",
             "coding": "代码开发",
-            "common": "常用",
-            "research": "科学研究"
+            "common": "常用"
           },
           "coding": {
             "brainstormingDesc": "动手前先梳理意图与需求",
@@ -3965,40 +3947,6 @@
         "description": "更高层的价值观、审美、语气和决策原则。",
         "placeholder": "记录用户的价值观、审美、表达风格、动机边界和深层决策原则。"
       }
-    }
-  },
-  "ScienceSettings": {
-    "title": "科学研究技能",
-    "description": "为你的 AI 编码智能体启用精选的科学研究技能：假设生成、实验设计、统计、可视化、批判性评估与文献检索。iyw-claw 管理中央副本，并将每个技能链接到你选择的智能体。",
-    "loading": "正在加载科学研究技能…",
-    "emptySkills": "没有可用的科学研究技能。请检查应用日志。",
-    "searchPlaceholder": "按名称、ID 或描述搜索科学研究技能",
-    "categories": {
-      "ideation": "构思",
-      "design": "研究设计",
-      "analysis": "分析",
-      "visualization": "可视化",
-      "evaluation": "评估",
-      "literature": "文献"
-    },
-    "states": {
-      "not_linked": "未启用",
-      "linked_to_codeg": "已启用",
-      "linked_elsewhere": "冲突 — 已有其他链接",
-      "blocked_by_real_directory": "冲突 — 已有同名的自定义 skill 占用",
-      "broken": "链接损坏"
-    },
-    "badges": {
-      "userModified": "用户修改过",
-      "needsKey": "需要密钥",
-      "needsSetup": "可能需环境"
-    },
-    "actions": {
-      "openCentralDir": "打开中央目录",
-      "refresh": "刷新"
-    },
-    "toasts": {
-      "openFolderFailed": "打开目录失败"
     }
   }
 }

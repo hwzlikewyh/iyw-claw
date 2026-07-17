@@ -55,8 +55,7 @@
       "quick_messages": "Quick Messages",
       "logs": "Runtime Logs",
       "usage": "Usage",
-      "user_memory": "User Memory",
-      "science": "Science"
+      "user_memory": "User Memory"
     }
   },
   "AppearanceSettings": {
@@ -1153,23 +1152,7 @@
   "GeneralSettings": {
     "loading": "Loading...",
     "sectionTitle": "General",
-    "sectionDescription": "Centralized preferences for the default terminal, rendering acceleration, and multi-agent delegation.",
-    "terminalTitle": "Default Terminal",
-    "terminalDescription": "Choose the shell used when opening new terminal tabs from the terminal bar or file tree.",
-    "defaultTerminalShell": "Default shell",
-    "terminalSystemDefault": "System default",
-    "terminalPowerShell7": "PowerShell 7 (pwsh)",
-    "terminalWindowsPowerShell": "Windows PowerShell",
-    "terminalCmd": "Command Prompt (cmd)",
-    "terminalSaveFailed": "Failed to save terminal settings: {message}",
-    "terminalShellCustom": "Custom path",
-    "terminalShellCustomPath": "Shell path",
-    "terminalShellCustomPlaceholder": "/usr/local/bin/fish",
-    "terminalShellCustomSave": "Save",
-    "terminalShellCustomHint": "Provide an absolute path or a name resolvable on PATH.",
-    "terminalShellNotInstalled": "not installed",
-    "terminalShellNotFoundWarning": "This path doesn't exist on this host.",
-    "terminalCurrentShell": "Currently using: {path}",
+    "sectionDescription": "Centralized preferences for rendering acceleration and multi-agent delegation.",
     "renderingTitle": "Rendering",
     "renderingDescription": "Disable hardware acceleration if the app shows a black screen or rendering glitches (common on certain AMD GPUs or Intel integrated GPUs). Only takes effect on the Windows desktop build.",
     "disableHardwareAcceleration": "Disable hardware acceleration",
@@ -2377,8 +2360,7 @@
           "tabs": {
             "office": "Office Work",
             "coding": "Code Development",
-            "common": "Common",
-            "research": "Scientific Research"
+            "common": "Common"
           },
           "coding": {
             "brainstormingDesc": "Explore intent & requirements before building",
@@ -3965,40 +3947,6 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
-    }
-  },
-  "ScienceSettings": {
-    "title": "Scientific Research Skills",
-    "description": "Enable curated scientific-research skills for your AI coding agents — hypothesis generation, experimental design, statistics, visualization, critical appraisal, and literature search. iyw-claw manages a central copy and links each skill into the agents you choose.",
-    "loading": "Loading science skills…",
-    "emptySkills": "No science skills available. Check the application logs.",
-    "searchPlaceholder": "Search science skills by name, id, or description",
-    "categories": {
-      "ideation": "Ideation",
-      "design": "Study Design",
-      "analysis": "Analysis",
-      "visualization": "Visualization",
-      "evaluation": "Evaluation",
-      "literature": "Literature"
-    },
-    "states": {
-      "not_linked": "Not enabled",
-      "linked_to_codeg": "Enabled",
-      "linked_elsewhere": "Blocked — another link exists",
-      "blocked_by_real_directory": "Blocked — a custom skill occupies this name",
-      "broken": "Broken link"
-    },
-    "badges": {
-      "userModified": "User modified",
-      "needsKey": "Needs API key",
-      "needsSetup": "May need setup"
-    },
-    "actions": {
-      "openCentralDir": "Open central folder",
-      "refresh": "Refresh"
-    },
-    "toasts": {
-      "openFolderFailed": "Failed to open folder"
     }
   }
 }

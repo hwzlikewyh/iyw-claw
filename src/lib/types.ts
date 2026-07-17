@@ -1636,20 +1636,6 @@ export interface ExpertListItem {
   central_path: string
 }
 
-export interface ScienceMetadata extends ExpertMetadata {
-  featured: boolean
-  accent: string | null
-  needs_key: boolean
-  needs_env: boolean
-}
-
-export interface ScienceListItem {
-  metadata: ScienceMetadata
-  installed_centrally: boolean
-  user_modified: boolean
-  central_path: string
-}
-
 export type ExpertLinkState =
   | "not_linked"
   | "linked_to_iyw_claw"
@@ -1685,15 +1671,10 @@ export interface LinkOpResult {
   error: string | null
 }
 
-export type ManagedSkillFamily =
-  | "experts"
-  | "science"
-  | "office_tools"
-  | "internet_tools"
+export type ManagedSkillFamily = "experts" | "office_tools" | "internet_tools"
 
 export interface ManagedSkillGlobalState {
   expertsEnabled: boolean
-  scienceEnabled: boolean
   officeToolsEnabled: boolean
   internetToolsEnabled: boolean
 }
@@ -1830,23 +1811,6 @@ export type LanguageMode = "system" | "manual"
 export interface SystemLanguageSettings {
   mode: LanguageMode
   language: AppLocale
-}
-
-export interface SystemTerminalSettings {
-  default_shell: string | null
-}
-
-export interface TerminalShellOption {
-  id: string
-  label_key: string
-  value: string | null
-  exists: boolean
-  accepts_custom_path: boolean
-}
-
-export interface AvailableTerminalShells {
-  options: TerminalShellOption[]
-  resolved_shell: string
 }
 
 export interface SystemRenderingSettings {

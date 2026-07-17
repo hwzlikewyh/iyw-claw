@@ -1,8 +1,10 @@
 import { ALL_AGENT_TYPES, type AcpAgentInfo, type AgentType } from "@/lib/types"
 
-export const AGENT_SDK_ALIASES = {
+export const AGENT_SDK_ALIASES: Record<AgentType, string> = {
   codex: "星河",
+  hermes: "赫尔墨斯",
   open_code: "云舟",
+  open_claw: "开放之爪",
   code_buddy: "青岚",
   claude_code: "远山",
   gemini: "流光",
@@ -10,7 +12,11 @@ export const AGENT_SDK_ALIASES = {
   kimi_code: "月白",
   pi: "墨川",
   grok: "知微",
-} as const satisfies Partial<Record<AgentType, string>>
+}
+
+export function getAgentDisplayName(agentType: AgentType): string {
+  return AGENT_SDK_ALIASES[agentType]
+}
 
 const VISIBLE_AGENT_TYPES = new Set<AgentType>(ALL_AGENT_TYPES)
 
@@ -54,9 +60,7 @@ export function presentAgentSdkAgents(
   return agents
     .filter((agent) => VISIBLE_AGENT_TYPES.has(agent.agent_type))
     .map((agent) => {
-      const alias =
-        AGENT_SDK_ALIASES[agent.agent_type as keyof typeof AGENT_SDK_ALIASES]
-      if (!alias) return agent
+      const alias = getAgentDisplayName(agent.agent_type)
       return {
         ...agent,
         name: alias,

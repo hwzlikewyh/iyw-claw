@@ -55,8 +55,7 @@
       "quick_messages": "رسائل سريعة",
       "logs": "سجلات التشغيل",
       "usage": "Usage",
-      "user_memory": "User Memory",
-      "science": "البحث العلمي"
+      "user_memory": "User Memory"
     }
   },
   "AppearanceSettings": {
@@ -1153,23 +1152,7 @@
   "GeneralSettings": {
     "loading": "جارٍ التحميل...",
     "sectionTitle": "عام",
-    "sectionDescription": "تفضيلات موحّدة للطرفية الافتراضية وتسريع العرض وتفويض الوكلاء المتعدّدين.",
-    "terminalTitle": "الطرفية الافتراضية",
-    "terminalDescription": "اختر الصدفة المستخدمة عند فتح علامات تبويب طرفية جديدة من شريط الطرفية أو شجرة الملفات.",
-    "defaultTerminalShell": "الصدفة الافتراضية",
-    "terminalSystemDefault": "افتراضي النظام",
-    "terminalPowerShell7": "PowerShell 7 (pwsh)",
-    "terminalWindowsPowerShell": "Windows PowerShell",
-    "terminalCmd": "موجّه الأوامر (cmd)",
-    "terminalSaveFailed": "فشل حفظ إعدادات الطرفية: {message}",
-    "terminalShellCustom": "مسار مخصص",
-    "terminalShellCustomPath": "مسار الصدفة",
-    "terminalShellCustomPlaceholder": "/usr/local/bin/fish",
-    "terminalShellCustomSave": "حفظ",
-    "terminalShellCustomHint": "أدخل مساراً مطلقاً أو اسماً يمكن حلّه عبر PATH.",
-    "terminalShellNotInstalled": "غير مثبّت",
-    "terminalShellNotFoundWarning": "هذا المسار غير موجود على هذا المضيف.",
-    "terminalCurrentShell": "قيد الاستخدام: {path}",
+    "sectionDescription": "تفضيلات موحّدة لتسريع العرض وتفويض الوكلاء المتعدّدين.",
     "renderingTitle": "العرض",
     "renderingDescription": "أوقف تشغيل تسريع الأجهزة إذا ظهرت شاشة سوداء أو أخطاء في العرض (شائع على بعض كروت AMD أو كروت Intel المدمجة). يسري على إصدار سطح المكتب لويندوز فقط.",
     "disableHardwareAcceleration": "تعطيل تسريع الأجهزة",
@@ -2377,8 +2360,7 @@
           "tabs": {
             "office": "الأعمال المكتبية",
             "coding": "تطوير الكود",
-            "common": "شائع",
-            "research": "البحث العلمي"
+            "common": "شائع"
           },
           "coding": {
             "brainstormingDesc": "استكشف النية والمتطلبات قبل البناء",
@@ -3965,40 +3947,6 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
-    }
-  },
-  "ScienceSettings": {
-    "title": "مهارات البحث العلمي",
-    "description": "فعّل مهارات البحث العلمي المنسّقة لوكلاء البرمجة بالذكاء الاصطناعي: توليد الفرضيات، وتصميم التجارب، والإحصاء، والتصور، والتقييم النقدي، والبحث في الأدبيات. يدير iyw-claw نسخة مركزية ويربط كل مهارة بالوكلاء الذين تختارهم.",
-    "loading": "جارٍ تحميل مهارات البحث العلمي…",
-    "emptySkills": "لا توجد مهارات بحث علمي متاحة. تحقّق من سجلات التطبيق.",
-    "searchPlaceholder": "ابحث في مهارات البحث العلمي بالاسم أو المعرّف أو الوصف",
-    "categories": {
-      "ideation": "توليد الأفكار",
-      "design": "تصميم الدراسة",
-      "analysis": "التحليل",
-      "visualization": "التصور",
-      "evaluation": "التقييم",
-      "literature": "الأدبيات"
-    },
-    "states": {
-      "not_linked": "غير مُفعَّل",
-      "linked_to_codeg": "مُفعَّل",
-      "linked_elsewhere": "محظور — يوجد رابط آخر",
-      "blocked_by_real_directory": "محظور — مهارة مخصصة تشغل هذا الاسم",
-      "broken": "رابط معطوب"
-    },
-    "badges": {
-      "userModified": "عُدِّل من قبل المستخدم",
-      "needsKey": "يتطلب مفتاحًا",
-      "needsSetup": "قد يتطلب إعدادًا"
-    },
-    "actions": {
-      "openCentralDir": "فتح المجلد المركزي",
-      "refresh": "تحديث"
-    },
-    "toasts": {
-      "openFolderFailed": "فشل فتح المجلد"
     }
   }
 }

@@ -10,8 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { getSystemTerminalSettings, terminalKill } from "@/lib/api"
-import { getTransport } from "@/lib/transport"
+import { terminalKill } from "@/lib/api"
 import { randomUUID } from "@/lib/utils"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 
@@ -27,8 +26,6 @@ export interface TerminalTab {
 const DEFAULT_HEIGHT = 300
 const MIN_HEIGHT = 150
 const MAX_HEIGHT = 600
-const TERMINAL_SETTINGS_UPDATED_EVENT = "app://terminal-settings-updated"
-
 interface TerminalContextValue {
   isOpen: boolean
   height: number
@@ -75,9 +72,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const tabCounterRef = useRef(0)
   const [exitedTerminals, setExitedTerminals] = useState<Set<string>>(new Set())
-  const [defaultTerminalShell, setDefaultTerminalShell] = useState<
-    string | null
-  >(null)
   // Keep a ref of tabs for cleanup on unmount (effect [] captures stale state)
   const tabsRef = useRef(tabs)
   useEffect(() => {
@@ -86,47 +80,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
 
   const folderPath = activeFolder?.path ?? ""
   const currentFolderId = activeFolderId ?? 0
-  const resolveTerminalShell = useCallback(
-    (shell?: string) => shell ?? defaultTerminalShell ?? undefined,
-    [defaultTerminalShell]
-  )
-
-  useEffect(() => {
-    let cancelled = false
-    let unlisten: (() => void) | undefined
-
-    getSystemTerminalSettings()
-      .then((settings) => {
-        if (!cancelled) setDefaultTerminalShell(settings.default_shell)
-      })
-      .catch((err) => {
-        console.error("[terminal] load terminal settings failed:", err)
-      })
-
-    getTransport()
-      .subscribe<{ default_shell: string | null }>(
-        TERMINAL_SETTINGS_UPDATED_EVENT,
-        (settings) => {
-          setDefaultTerminalShell(settings.default_shell)
-        }
-      )
-      .then((dispose) => {
-        if (cancelled) {
-          dispose()
-          return
-        }
-        unlisten = dispose
-      })
-      .catch((err) => {
-        console.error("[terminal] subscribe terminal settings failed:", err)
-      })
-
-    return () => {
-      cancelled = true
-      unlisten?.()
-    }
-  }, [])
-
   const markTerminalExited = useCallback((id: string) => {
     setExitedTerminals((prev) => {
       if (prev.has(id)) return prev
@@ -170,7 +123,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           folderId: currentFolderId,
           title: `Terminal ${nextCounter}`,
           workingDir: folderPath,
-          shell: resolveTerminalShell(),
         },
       ]
     })
@@ -180,7 +132,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       if (!folderPath) return null
       return autoId
     })
-  }, [folderPath, currentFolderId, resolveTerminalShell])
+  }, [folderPath, currentFolderId])
 
   const createTerminalWithCommand = useCallback(
     async (title: string, command: string) => {
@@ -197,7 +149,6 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           folderId: currentFolderId,
           title,
           workingDir: folderPath,
-          shell: resolveTerminalShell(),
           initialCommand: command,
         },
       ])
@@ -205,7 +156,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
 
       return id
     },
-    [folderPath, currentFolderId, resolveTerminalShell]
+    [folderPath, currentFolderId]
   )
 
   const createTerminalInDirectory = useCallback(
@@ -224,14 +175,14 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
           folderId: currentFolderId,
           title: title ?? defaultTitle,
           workingDir,
-          shell: resolveTerminalShell(shell),
+          shell,
         },
       ])
       setActiveTabId(id)
 
       return id
     },
-    [currentFolderId, resolveTerminalShell]
+    [currentFolderId]
   )
 
   const createTerminal = useCallback(async () => {

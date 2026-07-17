@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react"
 import {
   expertsListAllInstallStatuses,
   officecliSkillListAllInstallStatuses,
-  scienceListAllInstallStatuses,
 } from "@/lib/api"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
 import { piUsesCustomAgentDir } from "@/lib/pi-config"
@@ -39,10 +38,9 @@ async function loadSnapshot(): Promise<ExpertInstallStatus[] | null> {
   const myGeneration = generation
   const request: Promise<ExpertInstallStatus[] | null> = Promise.all([
     expertsListAllInstallStatuses(),
-    scienceListAllInstallStatuses(),
     officecliSkillListAllInstallStatuses(),
   ])
-    .then(([experts, science, office]) => {
+    .then(([experts, office]) => {
       // Only clear the shared handle if it still points at *this* request: a
       // focus refresh may have superseded it, and nulling unconditionally would
       // orphan the newer in-flight request and let a concurrent mount kick off a
@@ -51,7 +49,7 @@ async function loadSnapshot(): Promise<ExpertInstallStatus[] | null> {
       // A newer invalidation superseded this request while it was in flight —
       // discard its result so it can't clobber the fresher snapshot.
       if (myGeneration !== generation) return cached
-      const merged = [...experts, ...science, ...office]
+      const merged = [...experts, ...office]
       cached = merged
       for (const notify of subscribers) notify(merged)
       return merged
@@ -103,7 +101,7 @@ function releaseFocusRefresh(): void {
 }
 
 /**
- * Returns the set of built-in expert, science, and office skill ids currently
+ * Returns the set of built-in expert and office skill ids currently
  * enabled — i.e. symlinked into the given agent's skill directory — for the
  * passed agent. Mirrors the settings page's "enabled" definition: a
  * `(skillId, agentType)` pair counts as enabled only when its install status is

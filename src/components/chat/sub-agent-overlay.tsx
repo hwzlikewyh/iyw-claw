@@ -29,7 +29,7 @@ import {
   useDelegationCardModel,
   type DelegationCardSource,
 } from "@/hooks/use-delegation-card-model"
-import { AGENT_LABELS } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 
 interface SubAgentOverlayProps {
   /** The `delegate_to_agent` tool calls in the last assistant reply. */
@@ -145,7 +145,7 @@ const SubAgentOverlayRow = memo(function SubAgentOverlayRow({
           )}
         </span>
         <span className="min-w-0 truncate text-xs font-semibold text-foreground">
-          {agentType ? AGENT_LABELS[agentType] : t("unknownAgent")}
+          {agentType ? getAgentDisplayName(agentType) : t("unknownAgent")}
         </span>
         {taskId && (
           <span

@@ -13,7 +13,6 @@ import {
   Cog,
   Copy,
   FileStack,
-  FlaskConical,
   Folder,
   FolderSearch,
   GitFork,
@@ -91,7 +90,7 @@ import { ServerFileBrowserDialog } from "@/components/shared/server-file-browser
 import { toast } from "sonner"
 import { preparePickedAttachmentPaths } from "./chat-attachment-staging"
 import { disposeTauriListener } from "@/lib/tauri-listener"
-import { AGENT_LABELS } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import type {
   AgentSkillItem,
   AgentType,
@@ -101,7 +100,6 @@ import type {
   PromptDraft,
   PromptInputBlock,
   QuickMessage,
-  ScienceListItem,
   SessionConfigOptionInfo,
   SessionModeInfo,
 } from "@/lib/types"
@@ -138,12 +136,10 @@ import {
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { useAgentSkills } from "@/hooks/use-agent-skills"
 import { useBuiltInExperts } from "@/hooks/use-built-in-experts"
-import { useBuiltInScience } from "@/hooks/use-built-in-science"
 import { useEnabledSkillIds } from "@/hooks/use-enabled-skill-ids"
 import { useScrollbarSafeDismiss } from "@/hooks/use-scrollbar-safe-dismiss"
 import { getExpertIcon, pickLocalized } from "@/lib/expert-presentation"
 import { OFFICE_ACTIONS, type OfficeAction } from "@/lib/office-actions"
-import { RESEARCH_ACTIONS } from "@/lib/research-actions"
 import { excludeChatFolders, filterTopLevelFolders } from "@/lib/folder-display"
 import {
   clearMessageInputDraftV2,
@@ -504,7 +500,6 @@ export function MessageInput({
   const locale = useLocale()
   const tQa = useTranslations("Folder.chat.welcomePanel.quickActions")
   const experts = useBuiltInExperts()
-  const science = useBuiltInScience()
   const {
     enabledIds,
     ready: skillStatusReady,
@@ -1649,14 +1644,6 @@ export function MessageInput({
       ),
     [experts]
   )
-  const researchShortcuts = useMemo(() => {
-    const byId = new Map(science.map((item) => [item.metadata.id, item]))
-    return RESEARCH_ACTIONS.flatMap((action) => {
-      const item = byId.get(action.skillId)
-      return item ? [{ action, item }] : []
-    })
-  }, [science])
-
   const isSkillLocked = useCallback(
     (id: string) => !!agentType && skillStatusReady && !enabledIds.has(id),
     [agentType, skillStatusReady, enabledIds]
@@ -1664,7 +1651,7 @@ export function MessageInput({
 
   const notifySkillNotEnabled = useCallback(
     (skillLabel: string, section: SettingsSection) => {
-      const agentLabel = agentType ? AGENT_LABELS[agentType] : ""
+      const agentLabel = agentType ? getAgentDisplayName(agentType) : ""
       toast.warning(
         tQa("notEnabled.title", { skill: skillLabel, agent: agentLabel }),
         {
@@ -1738,19 +1725,6 @@ export function MessageInput({
       )
     },
     [tQa, isSkillLocked, notifySkillNotEnabled, insertSkillShortcut]
-  )
-
-  const handleScienceShortcut = useCallback(
-    (item: ScienceListItem) => {
-      const label =
-        pickLocalized(item.metadata.display_name, locale) || item.metadata.id
-      if (isSkillLocked(item.metadata.id)) {
-        notifySkillNotEnabled(label, "science")
-        return
-      }
-      insertSkillShortcut({ id: item.metadata.id, label }, "")
-    },
-    [locale, isSkillLocked, notifySkillNotEnabled, insertSkillShortcut]
   )
 
   const handlePickFiles = useCallback(async () => {
@@ -3086,45 +3060,6 @@ export function MessageInput({
                                   <DropdownMenuItem
                                     key={item.metadata.id}
                                     onClick={() => handleExpertShortcut(item)}
-                                  >
-                                    <Icon className="size-4" />
-                                    <span className="flex-1 truncate">
-                                      {label}
-                                    </span>
-                                    {isSkillLocked(item.metadata.id) && (
-                                      <Lock className="ml-auto size-3.5 shrink-0 text-muted-foreground/70" />
-                                    )}
-                                  </DropdownMenuItem>
-                                )
-                              })}
-                            </DropdownMenuSubContent>
-                          </DropdownMenuSub>
-                          <DropdownMenuSub>
-                            <DropdownMenuSubTrigger
-                              disabled={researchShortcuts.length === 0}
-                            >
-                              <FlaskConical className="size-4" />
-                              {tQa("tabs.research")}
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent
-                              className="min-w-44 overflow-y-auto"
-                              style={{
-                                maxWidth: "min(20rem, calc(100vw - 1rem))",
-                                maxHeight:
-                                  "min(32rem, var(--radix-dropdown-menu-content-available-height))",
-                              }}
-                            >
-                              {researchShortcuts.map(({ action, item }) => {
-                                const Icon = action.icon
-                                const label =
-                                  pickLocalized(
-                                    item.metadata.display_name,
-                                    locale
-                                  ) || item.metadata.id
-                                return (
-                                  <DropdownMenuItem
-                                    key={item.metadata.id}
-                                    onClick={() => handleScienceShortcut(item)}
                                   >
                                     <Icon className="size-4" />
                                     <span className="flex-1 truncate">
