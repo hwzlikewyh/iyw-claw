@@ -1448,7 +1448,7 @@ const ConversationTabView = memo(function ConversationTabView({
               onSelect={handleQuickAction}
               agentType={selectedAgent}
             />
-            <div className="hidden" aria-hidden="true">
+            <div className="flex justify-center">
               <AgentSelector
                 defaultAgentType={selectedAgent}
                 onSelect={handleAgentSelect}
@@ -1462,7 +1462,6 @@ const ConversationTabView = memo(function ConversationTabView({
                 }}
                 onOpenAgentsSettings={handleOpenAgentsSettings}
                 disabled={isConnecting || dbConversationId != null}
-                variant="settings"
               />
             </div>
             {autoConnectError || agentConnectError ? (
