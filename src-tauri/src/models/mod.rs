@@ -36,9 +36,8 @@ pub use remote_workspace_connection::RemoteWorkspaceConnectionInfo;
 #[cfg(feature = "tauri-runtime")]
 pub use system::SystemRenderingSettings;
 pub use system::{
-    AvailableTerminalShells, GitCredentials, GitDetectResult, GitHubAccountsSettings,
-    GitHubTokenValidation, GitSettings, SystemLanguageSettings, SystemProxySettings,
-    SystemTerminalSettings, TerminalShellOption,
+    GitCredentials, GitDetectResult, GitHubAccountsSettings, GitHubTokenValidation, GitSettings,
+    SystemLanguageSettings, SystemProxySettings,
 };
 pub use usage::{
     SessionUsageSnapshot, UsageBreakdown, UsageDailyRow, UsageDashboardStats, UsageModelRow,

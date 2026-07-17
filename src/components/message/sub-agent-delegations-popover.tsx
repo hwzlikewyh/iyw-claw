@@ -17,7 +17,7 @@ import {
   useDelegationCardModel,
   type DelegationCardSource,
 } from "@/hooks/use-delegation-card-model"
-import { AGENT_LABELS } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 
 interface SubAgentDelegationsPopoverProps {
   delegations: DelegationCardSource[]
@@ -107,7 +107,7 @@ export const SubAgentDelegationRow = memo(function SubAgentDelegationRow({
           )}
         </span>
         <span className="min-w-0 truncate text-xs font-semibold text-foreground">
-          {agentType ? AGENT_LABELS[agentType] : t("unknownAgent")}
+          {agentType ? getAgentDisplayName(agentType) : t("unknownAgent")}
         </span>
         {taskId && (
           <span

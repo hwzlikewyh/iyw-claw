@@ -55,8 +55,7 @@
       "quick_messages": "Schnellnachrichten",
       "logs": "Laufzeitprotokolle",
       "usage": "Usage",
-      "user_memory": "User Memory",
-      "science": "Wissenschaft"
+      "user_memory": "User Memory"
     }
   },
   "AppearanceSettings": {
@@ -1153,23 +1152,7 @@
   "GeneralSettings": {
     "loading": "Wird geladen...",
     "sectionTitle": "Allgemein",
-    "sectionDescription": "Zentrale Einstellungen für das Standardterminal, die Rendering-Beschleunigung und die Multi-Agent-Delegation.",
-    "terminalTitle": "Standardterminal",
-    "terminalDescription": "Wähle die Shell, die beim Öffnen neuer Terminal-Tabs aus der Terminalleiste oder dem Dateibaum verwendet wird.",
-    "defaultTerminalShell": "Standard-Shell",
-    "terminalSystemDefault": "Systemstandard",
-    "terminalPowerShell7": "PowerShell 7 (pwsh)",
-    "terminalWindowsPowerShell": "Windows PowerShell",
-    "terminalCmd": "Eingabeaufforderung (cmd)",
-    "terminalSaveFailed": "Speichern der Terminaleinstellungen fehlgeschlagen: {message}",
-    "terminalShellCustom": "Benutzerdefinierter Pfad",
-    "terminalShellCustomPath": "Shell-Pfad",
-    "terminalShellCustomPlaceholder": "/usr/local/bin/fish",
-    "terminalShellCustomSave": "Speichern",
-    "terminalShellCustomHint": "Absoluten Pfad oder einen über PATH auflösbaren Namen angeben.",
-    "terminalShellNotInstalled": "nicht installiert",
-    "terminalShellNotFoundWarning": "Dieser Pfad existiert auf diesem Host nicht.",
-    "terminalCurrentShell": "Aktuell verwendet: {path}",
+    "sectionDescription": "Zentrale Einstellungen für Rendering-Beschleunigung und Multi-Agent-Delegation.",
     "renderingTitle": "Rendering",
     "renderingDescription": "Deaktivieren Sie die Hardwarebeschleunigung, wenn die App einen schwarzen Bildschirm oder Render-Fehler zeigt (häufig bei bestimmten AMD-GPUs oder integrierten Intel-GPUs). Wirkt sich nur auf die Windows-Desktop-Version aus.",
     "disableHardwareAcceleration": "Hardwarebeschleunigung deaktivieren",
@@ -2377,8 +2360,7 @@
           "tabs": {
             "office": "Büroarbeit",
             "coding": "Code-Entwicklung",
-            "common": "Häufig",
-            "research": "Forschung"
+            "common": "Häufig"
           },
           "coding": {
             "brainstormingDesc": "Absicht & Anforderungen vor dem Bauen klären",
@@ -3965,40 +3947,6 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
-    }
-  },
-  "ScienceSettings": {
-    "title": "Wissenschaftliche Skills",
-    "description": "Aktiviere kuratierte wissenschaftliche Skills für deine KI-Coding-Agents — Hypothesengenerierung, Versuchsplanung, Statistik, Visualisierung, kritische Bewertung und Literatursuche. iyw-claw verwaltet eine zentrale Kopie und verlinkt jeden Skill in die von dir gewählten Agents.",
-    "loading": "Wissenschaftliche Skills werden geladen…",
-    "emptySkills": "Keine wissenschaftlichen Skills verfügbar. Prüfe die Anwendungsprotokolle.",
-    "searchPlaceholder": "Wissenschaftliche Skills nach Name, ID oder Beschreibung suchen",
-    "categories": {
-      "ideation": "Ideenfindung",
-      "design": "Studiendesign",
-      "analysis": "Analyse",
-      "visualization": "Visualisierung",
-      "evaluation": "Bewertung",
-      "literature": "Literatur"
-    },
-    "states": {
-      "not_linked": "Nicht aktiviert",
-      "linked_to_codeg": "Aktiviert",
-      "linked_elsewhere": "Blockiert — ein anderer Link existiert",
-      "blocked_by_real_directory": "Blockiert — ein benutzerdefinierter Skill belegt diesen Namen",
-      "broken": "Defekter Link"
-    },
-    "badges": {
-      "userModified": "Vom Benutzer geändert",
-      "needsKey": "API-Schlüssel nötig",
-      "needsSetup": "Ggf. Einrichtung nötig"
-    },
-    "actions": {
-      "openCentralDir": "Zentralen Ordner öffnen",
-      "refresh": "Aktualisieren"
-    },
-    "toasts": {
-      "openFolderFailed": "Ordner konnte nicht geöffnet werden"
     }
   }
 }

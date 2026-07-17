@@ -58,7 +58,8 @@ import type {
   ConversationStatus,
   DbConversationSummary,
 } from "@/lib/types"
-import { AGENT_LABELS, ALL_AGENT_TYPES, STATUS_ORDER } from "@/lib/types"
+import { ALL_AGENT_TYPES, STATUS_ORDER } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { cn } from "@/lib/utils"
 import { formatConversationTitle } from "@/lib/conversation-title"
 import { toErrorMessage } from "@/lib/app-error"
@@ -281,7 +282,7 @@ export function ConversationManageDialog({
                     <SelectItem key={at} value={at}>
                       <span className="flex items-center gap-2">
                         <AgentIcon agentType={at} className="h-3.5 w-3.5" />
-                        {AGENT_LABELS[at]}
+                        {getAgentDisplayName(at)}
                       </span>
                     </SelectItem>
                   ))}

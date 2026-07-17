@@ -12,7 +12,6 @@ import { McpSettings } from "@/components/settings/mcp-settings"
 import { OfficeToolsSettings } from "@/components/settings/office-tools-settings"
 import { InternetToolsSettings } from "@/components/settings/internet-tools-settings"
 import { QuickMessagesSettings } from "@/components/settings/quick-messages-settings"
-import { ScienceSettings } from "@/components/settings/science-settings"
 import { ShortcutSettings } from "@/components/settings/shortcut-settings"
 import { SystemNetworkSettings } from "@/components/settings/system-network-settings"
 import { UsageSettings } from "@/components/settings/usage-settings"
@@ -47,8 +46,6 @@ function SettingsDialogBody({ section, agentType }: SettingsDialogState) {
       return <McpSettings />
     case "experts":
       return <ExpertsSettings />
-    case "science":
-      return <ScienceSettings />
     case "office-tools":
       return <OfficeToolsSettings />
     case "internet-tools":

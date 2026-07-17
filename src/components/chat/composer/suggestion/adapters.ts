@@ -1,8 +1,8 @@
 import type { FlatFileEntry } from "@/hooks/use-file-tree"
 import { formatConversationTitle } from "@/lib/conversation-title"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { buildFileUri } from "@/lib/reference-link"
 import {
-  AGENT_LABELS,
   type AcpAgentInfo,
   type DbConversationSummary,
   type GitLogEntry,
@@ -46,7 +46,7 @@ export function agentToSuggestion(agent: AcpAgentInfo): SuggestionItem {
     reference: {
       refType: "agent",
       id: agent.agent_type,
-      label: agent.name || AGENT_LABELS[agent.agent_type],
+      label: getAgentDisplayName(agent.agent_type),
       uri: `iyw-claw://agent/${agent.agent_type}`,
       meta: { agentType: agent.agent_type, available: agent.available },
     },

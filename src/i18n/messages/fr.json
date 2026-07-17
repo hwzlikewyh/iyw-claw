@@ -55,8 +55,7 @@
       "quick_messages": "Messages rapides",
       "logs": "Journaux d'exécution",
       "usage": "Usage",
-      "user_memory": "User Memory",
-      "science": "Science"
+      "user_memory": "User Memory"
     }
   },
   "AppearanceSettings": {
@@ -1153,23 +1152,7 @@
   "GeneralSettings": {
     "loading": "Chargement...",
     "sectionTitle": "Général",
-    "sectionDescription": "Préférences centralisées pour le terminal par défaut, l'accélération du rendu et la délégation multi-agents.",
-    "terminalTitle": "Terminal par défaut",
-    "terminalDescription": "Choisis le shell utilisé lors de l’ouverture de nouveaux onglets de terminal depuis la barre du terminal ou l’arborescence des fichiers.",
-    "defaultTerminalShell": "Shell par défaut",
-    "terminalSystemDefault": "Par défaut système",
-    "terminalPowerShell7": "PowerShell 7 (pwsh)",
-    "terminalWindowsPowerShell": "Windows PowerShell",
-    "terminalCmd": "Invite de commandes (cmd)",
-    "terminalSaveFailed": "Échec de l’enregistrement des paramètres du terminal : {message}",
-    "terminalShellCustom": "Chemin personnalisé",
-    "terminalShellCustomPath": "Chemin du shell",
-    "terminalShellCustomPlaceholder": "/usr/local/bin/fish",
-    "terminalShellCustomSave": "Enregistrer",
-    "terminalShellCustomHint": "Indiquez un chemin absolu ou un nom résolvable via PATH.",
-    "terminalShellNotInstalled": "non installé",
-    "terminalShellNotFoundWarning": "Ce chemin n’existe pas sur cet hôte.",
-    "terminalCurrentShell": "Actuellement utilisé : {path}",
+    "sectionDescription": "Préférences centralisées pour l'accélération du rendu et la délégation multi-agents.",
     "renderingTitle": "Rendu",
     "renderingDescription": "Désactivez l’accélération matérielle si l’application affiche un écran noir ou des défauts de rendu (fréquent sur certaines GPU AMD ou GPU Intel intégrées). N’a d’effet que sur la version Windows de bureau.",
     "disableHardwareAcceleration": "Désactiver l’accélération matérielle",
@@ -2377,8 +2360,7 @@
           "tabs": {
             "office": "Bureautique",
             "coding": "Développement",
-            "common": "Fréquents",
-            "research": "Recherche"
+            "common": "Fréquents"
           },
           "coding": {
             "brainstormingDesc": "Explorer intention et besoins avant de coder",
@@ -3965,40 +3947,6 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
-    }
-  },
-  "ScienceSettings": {
-    "title": "Compétences de recherche scientifique",
-    "description": "Activez des compétences de recherche scientifique sélectionnées pour vos agents de codage IA : génération d'hypothèses, plan d'expérience, statistiques, visualisation, évaluation critique et recherche bibliographique. iyw-claw gère une copie centrale et relie chaque compétence aux agents que vous choisissez.",
-    "loading": "Chargement des compétences scientifiques…",
-    "emptySkills": "Aucune compétence scientifique disponible. Consultez les journaux de l'application.",
-    "searchPlaceholder": "Rechercher des compétences scientifiques par nom, id ou description",
-    "categories": {
-      "ideation": "Idéation",
-      "design": "Plan d'étude",
-      "analysis": "Analyse",
-      "visualization": "Visualisation",
-      "evaluation": "Évaluation",
-      "literature": "Littérature"
-    },
-    "states": {
-      "not_linked": "Non activé",
-      "linked_to_codeg": "Activé",
-      "linked_elsewhere": "Bloqué — un autre lien existe",
-      "blocked_by_real_directory": "Bloqué — une compétence personnalisée occupe ce nom",
-      "broken": "Lien cassé"
-    },
-    "badges": {
-      "userModified": "Modifié par l'utilisateur",
-      "needsKey": "Clé API requise",
-      "needsSetup": "Configuration possible"
-    },
-    "actions": {
-      "openCentralDir": "Ouvrir le dossier central",
-      "refresh": "Actualiser"
-    },
-    "toasts": {
-      "openFolderFailed": "Échec de l'ouverture du dossier"
     }
   }
 }

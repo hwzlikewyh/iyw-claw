@@ -55,8 +55,7 @@
       "quick_messages": "クイックメッセージ",
       "logs": "実行ログ",
       "usage": "Usage",
-      "user_memory": "User Memory",
-      "science": "科学研究"
+      "user_memory": "User Memory"
     }
   },
   "AppearanceSettings": {
@@ -1153,23 +1152,7 @@
   "GeneralSettings": {
     "loading": "読み込み中...",
     "sectionTitle": "一般",
-    "sectionDescription": "デフォルトターミナル、レンダリング高速化、マルチエージェント委譲などの共通設定をここで一括管理します。",
-    "terminalTitle": "デフォルトターミナル",
-    "terminalDescription": "ターミナルバーやファイルツリーから新しいターミナルタブを開く際に使うシェルを選択します。",
-    "defaultTerminalShell": "デフォルトシェル",
-    "terminalSystemDefault": "システムデフォルト",
-    "terminalPowerShell7": "PowerShell 7 (pwsh)",
-    "terminalWindowsPowerShell": "Windows PowerShell",
-    "terminalCmd": "コマンドプロンプト (cmd)",
-    "terminalSaveFailed": "ターミナル設定の保存に失敗しました: {message}",
-    "terminalShellCustom": "カスタムパス",
-    "terminalShellCustomPath": "Shell パス",
-    "terminalShellCustomPlaceholder": "/usr/local/bin/fish",
-    "terminalShellCustomSave": "保存",
-    "terminalShellCustomHint": "絶対パス、または PATH で解決可能なコマンド名を指定します。",
-    "terminalShellNotInstalled": "未インストール",
-    "terminalShellNotFoundWarning": "このパスはホスト上に存在しません。",
-    "terminalCurrentShell": "現在使用中: {path}",
+    "sectionDescription": "レンダリング高速化やマルチエージェント委譲などの共通設定をここで一括管理します。",
     "renderingTitle": "レンダリング",
     "renderingDescription": "アプリで黒画面や描画不具合が発生する場合（一部の AMD GPU や Intel 内蔵 GPU で報告あり）、ハードウェアアクセラレーションを無効化してください。Windows デスクトップ版のみ有効です。",
     "disableHardwareAcceleration": "ハードウェアアクセラレーションを無効化",
@@ -2377,8 +2360,7 @@
           "tabs": {
             "office": "日常業務",
             "coding": "コード開発",
-            "common": "よく使う",
-            "research": "科学研究"
+            "common": "よく使う"
           },
           "coding": {
             "brainstormingDesc": "着手前に意図と要件を整理",
@@ -3965,40 +3947,6 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
-    }
-  },
-  "ScienceSettings": {
-    "title": "科学研究スキル",
-    "description": "AI コーディングエージェント向けに厳選した科学研究スキル（仮説生成・実験計画・統計・可視化・批判的評価・文献検索）を有効化します。iyw-claw が中央コピーを管理し、選んだエージェントに各スキルをリンクします。",
-    "loading": "科学研究スキルを読み込み中…",
-    "emptySkills": "利用可能な科学研究スキルがありません。アプリのログを確認してください。",
-    "searchPlaceholder": "名前・ID・説明で科学研究スキルを検索",
-    "categories": {
-      "ideation": "アイデア出し",
-      "design": "研究デザイン",
-      "analysis": "分析",
-      "visualization": "可視化",
-      "evaluation": "評価",
-      "literature": "文献"
-    },
-    "states": {
-      "not_linked": "未有効",
-      "linked_to_codeg": "有効",
-      "linked_elsewhere": "ブロック — 別のリンクが存在",
-      "blocked_by_real_directory": "ブロック — カスタムスキルがこの名前を占有",
-      "broken": "壊れたリンク"
-    },
-    "badges": {
-      "userModified": "ユーザーにより変更",
-      "needsKey": "APIキーが必要",
-      "needsSetup": "環境構築が必要な場合あり"
-    },
-    "actions": {
-      "openCentralDir": "中央フォルダを開く",
-      "refresh": "更新"
-    },
-    "toasts": {
-      "openFolderFailed": "フォルダを開けませんでした"
     }
   }
 }

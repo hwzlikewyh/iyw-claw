@@ -58,12 +58,10 @@ import type {
   FileSaveResult,
   WorkspaceSnapshotResponse,
   GitLogResult,
-  AvailableTerminalShells,
   AppLocale,
   SystemLanguageSettings,
   SystemProxySettings,
   SystemRenderingSettings,
-  SystemTerminalSettings,
   GitCredentials,
   GitDetectResult,
   GitSettings,
@@ -406,24 +404,6 @@ export async function updateSystemLanguageSettings(
 
 export async function setTrayLocale(locale: AppLocale): Promise<void> {
   return invoke("set_tray_locale", { locale })
-}
-
-export async function getSystemTerminalSettings(): Promise<SystemTerminalSettings> {
-  return invoke("get_system_terminal_settings")
-}
-
-export async function updateSystemTerminalSettings(
-  settings: SystemTerminalSettings
-): Promise<SystemTerminalSettings> {
-  return invoke("update_system_terminal_settings", { settings })
-}
-
-export async function getAvailableTerminalShells(): Promise<AvailableTerminalShells> {
-  return invoke("get_available_terminal_shells")
-}
-
-export async function probeTerminalShellPath(path: string): Promise<boolean> {
-  return invoke("probe_terminal_shell_path", { path })
 }
 
 export async function getSystemRenderingSettings(): Promise<SystemRenderingSettings> {

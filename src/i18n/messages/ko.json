@@ -55,8 +55,7 @@
       "quick_messages": "빠른 메시지",
       "logs": "실행 로그",
       "usage": "Usage",
-      "user_memory": "User Memory",
-      "science": "과학 연구"
+      "user_memory": "User Memory"
     }
   },
   "AppearanceSettings": {
@@ -1153,23 +1152,7 @@
   "GeneralSettings": {
     "loading": "로딩 중...",
     "sectionTitle": "일반",
-    "sectionDescription": "기본 터미널, 렌더링 가속, 다중 에이전트 위임 등 공용 환경설정을 한곳에서 관리합니다.",
-    "terminalTitle": "기본 터미널",
-    "terminalDescription": "터미널 바 또는 파일 트리에서 새 터미널 탭을 열 때 사용할 셸을 선택합니다.",
-    "defaultTerminalShell": "기본 셸",
-    "terminalSystemDefault": "시스템 기본값",
-    "terminalPowerShell7": "PowerShell 7 (pwsh)",
-    "terminalWindowsPowerShell": "Windows PowerShell",
-    "terminalCmd": "명령 프롬프트 (cmd)",
-    "terminalSaveFailed": "터미널 설정 저장 실패: {message}",
-    "terminalShellCustom": "사용자 지정 경로",
-    "terminalShellCustomPath": "Shell 경로",
-    "terminalShellCustomPlaceholder": "/usr/local/bin/fish",
-    "terminalShellCustomSave": "저장",
-    "terminalShellCustomHint": "절대 경로 또는 PATH에서 찾을 수 있는 명령 이름을 입력하세요.",
-    "terminalShellNotInstalled": "설치되지 않음",
-    "terminalShellNotFoundWarning": "이 경로는 현재 호스트에 존재하지 않습니다.",
-    "terminalCurrentShell": "현재 사용 중: {path}",
+    "sectionDescription": "렌더링 가속, 다중 에이전트 위임 등 공용 환경설정을 한곳에서 관리합니다.",
     "renderingTitle": "렌더링",
     "renderingDescription": "앱이 검은 화면이 되거나 렌더링 문제가 발생하면(일부 AMD GPU 또는 Intel 내장 GPU에서 보고됨) 하드웨어 가속을 끄세요. Windows 데스크톱에서만 적용됩니다.",
     "disableHardwareAcceleration": "하드웨어 가속 비활성화",
@@ -2377,8 +2360,7 @@
           "tabs": {
             "office": "일상 업무",
             "coding": "코드 개발",
-            "common": "자주 사용",
-            "research": "과학 연구"
+            "common": "자주 사용"
           },
           "coding": {
             "brainstormingDesc": "구현 전 의도와 요구사항 탐색",
@@ -3965,40 +3947,6 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
-    }
-  },
-  "ScienceSettings": {
-    "title": "과학 연구 스킬",
-    "description": "AI 코딩 에이전트를 위한 엄선된 과학 연구 스킬(가설 생성, 실험 설계, 통계, 시각화, 비판적 평가, 문헌 검색)을 활성화합니다. iyw-claw가 중앙 복사본을 관리하고 선택한 에이전트에 각 스킬을 연결합니다.",
-    "loading": "과학 연구 스킬 불러오는 중…",
-    "emptySkills": "사용 가능한 과학 연구 스킬이 없습니다. 애플리케이션 로그를 확인하세요.",
-    "searchPlaceholder": "이름, ID 또는 설명으로 과학 연구 스킬 검색",
-    "categories": {
-      "ideation": "아이디어",
-      "design": "연구 설계",
-      "analysis": "분석",
-      "visualization": "시각화",
-      "evaluation": "평가",
-      "literature": "문헌"
-    },
-    "states": {
-      "not_linked": "활성화되지 않음",
-      "linked_to_codeg": "활성화됨",
-      "linked_elsewhere": "차단됨 — 다른 링크가 존재함",
-      "blocked_by_real_directory": "차단됨 — 사용자 정의 스킬이 이 이름을 점유 중",
-      "broken": "손상된 링크"
-    },
-    "badges": {
-      "userModified": "사용자가 수정함",
-      "needsKey": "API 키 필요",
-      "needsSetup": "설정 필요할 수 있음"
-    },
-    "actions": {
-      "openCentralDir": "중앙 폴더 열기",
-      "refresh": "새로고침"
-    },
-    "toasts": {
-      "openFolderFailed": "폴더를 열지 못했습니다"
     }
   }
 }

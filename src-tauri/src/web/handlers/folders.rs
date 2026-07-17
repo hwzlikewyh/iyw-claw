@@ -268,7 +268,6 @@ pub async fn open_settings_window(
         Some("agents") => "settings/agents",
         Some("mcp") => "settings/mcp",
         Some("experts") => "settings/experts",
-        Some("science") => "settings/science",
         Some("office-tools") => "settings/office-tools",
         Some("quick-messages") => "settings/quick-messages",
         Some("shortcuts") => "settings/shortcuts",

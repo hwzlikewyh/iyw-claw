@@ -11,7 +11,6 @@ use crate::commands::acp::skill_storage_spec;
 use crate::commands::experts::{self, LinkOpResult};
 use crate::commands::internet_tools;
 use crate::commands::office_tools;
-use crate::commands::science;
 use crate::db::service::{agent_setting_service, app_metadata_service};
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
@@ -20,11 +19,9 @@ use crate::models::agent::AgentType;
 pub const EXPERTS_POLICY_KEY: &str = "managed_skills.experts.enabled.v1";
 pub const OFFICE_TOOLS_POLICY_KEY: &str = "managed_skills.office_tools.enabled.v1";
 pub const INTERNET_TOOLS_POLICY_KEY: &str = "managed_skills.internet_tools.enabled.v1";
-pub const SCIENCE_POLICY_KEY: &str = "managed_skills.science.enabled.v1";
 pub const EXPERTS_OVERRIDES_KEY: &str = "managed_skills.experts.overrides.v1";
 pub const OFFICE_TOOLS_OVERRIDES_KEY: &str = "managed_skills.office_tools.overrides.v1";
 pub const INTERNET_TOOLS_OVERRIDES_KEY: &str = "managed_skills.internet_tools.overrides.v1";
-pub const SCIENCE_OVERRIDES_KEY: &str = "managed_skills.science.overrides.v1";
 
 fn policy_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -42,14 +39,12 @@ pub(crate) fn supported_skill_agent_types() -> Vec<AgentType> {
 #[serde(rename_all = "snake_case")]
 pub enum ManagedSkillFamily {
     Experts,
-    Science,
     OfficeTools,
     InternetTools,
 }
 
-const MANAGED_SKILL_FAMILIES: [ManagedSkillFamily; 4] = [
+const MANAGED_SKILL_FAMILIES: [ManagedSkillFamily; 3] = [
     ManagedSkillFamily::Experts,
-    ManagedSkillFamily::Science,
     ManagedSkillFamily::OfficeTools,
     ManagedSkillFamily::InternetTools,
 ];
@@ -58,7 +53,6 @@ impl ManagedSkillFamily {
     fn policy_key(self) -> &'static str {
         match self {
             Self::Experts => EXPERTS_POLICY_KEY,
-            Self::Science => SCIENCE_POLICY_KEY,
             Self::OfficeTools => OFFICE_TOOLS_POLICY_KEY,
             Self::InternetTools => INTERNET_TOOLS_POLICY_KEY,
         }
@@ -67,7 +61,6 @@ impl ManagedSkillFamily {
     fn overrides_key(self) -> &'static str {
         match self {
             Self::Experts => EXPERTS_OVERRIDES_KEY,
-            Self::Science => SCIENCE_OVERRIDES_KEY,
             Self::OfficeTools => OFFICE_TOOLS_OVERRIDES_KEY,
             Self::InternetTools => INTERNET_TOOLS_OVERRIDES_KEY,
         }
@@ -78,7 +71,6 @@ impl ManagedSkillFamily {
 #[serde(rename_all = "camelCase")]
 pub struct ManagedSkillGlobalState {
     pub experts_enabled: bool,
-    pub science_enabled: bool,
     pub office_tools_enabled: bool,
     pub internet_tools_enabled: bool,
 }
@@ -116,7 +108,6 @@ fn normalized_override(default_enabled: bool, enabled: bool) -> Option<bool> {
 fn family_skill_ids(family: ManagedSkillFamily) -> Vec<String> {
     match family {
         ManagedSkillFamily::Experts => experts::managed_expert_ids(),
-        ManagedSkillFamily::Science => science::managed_science_ids(),
         ManagedSkillFamily::OfficeTools => office_tools::managed_office_skill_ids(),
         ManagedSkillFamily::InternetTools => internet_tools::managed_internet_skill_ids(),
     }
@@ -125,7 +116,6 @@ fn family_skill_ids(family: ManagedSkillFamily) -> Vec<String> {
 fn family_ready_skill_ids(family: ManagedSkillFamily) -> Vec<String> {
     match family {
         ManagedSkillFamily::Experts => experts::managed_ready_expert_ids(),
-        ManagedSkillFamily::Science => science::managed_ready_science_ids(),
         ManagedSkillFamily::OfficeTools => office_tools::managed_ready_office_skill_ids(),
         ManagedSkillFamily::InternetTools => internet_tools::managed_ready_internet_skill_ids(),
     }
@@ -280,9 +270,6 @@ async fn load_global_state(
         experts_enabled: load_policy(conn, EXPERTS_POLICY_KEY)
             .await?
             .unwrap_or(false),
-        science_enabled: load_policy(conn, SCIENCE_POLICY_KEY)
-            .await?
-            .unwrap_or(false),
         office_tools_enabled: load_policy(conn, OFFICE_TOOLS_POLICY_KEY)
             .await?
             .unwrap_or(false),
@@ -389,10 +376,6 @@ async fn ensure_policies_migrated_locked(conn: &DatabaseConnection) -> Result<()
         experts::managed_expert_has_owned_link(skill_id, &agents)
     })
     .await?;
-    migrate_family_policy_with(conn, ManagedSkillFamily::Science, |skill_id| {
-        science::managed_science_has_owned_link(skill_id, &agents)
-    })
-    .await?;
     migrate_family_policy_with(conn, ManagedSkillFamily::OfficeTools, |skill_id| {
         office_tools::managed_office_skill_has_owned_link(skill_id, &agents)
     })
@@ -485,7 +468,6 @@ async fn reconcile_targets(
 ) -> ManagedSkillSyncReport {
     let results = match family {
         ManagedSkillFamily::Experts => experts::reconcile_managed_experts(targets).await,
-        ManagedSkillFamily::Science => science::reconcile_managed_science(targets).await,
         ManagedSkillFamily::OfficeTools => {
             office_tools::reconcile_managed_office_tools(targets).await
         }
@@ -674,14 +656,8 @@ mod tests {
             serde_json::to_value(ManagedSkillFamily::InternetTools).unwrap(),
             json!("internet_tools")
         );
-        assert_eq!(
-            serde_json::to_value(ManagedSkillFamily::Science).unwrap(),
-            json!("science")
-        );
-
         let state = ManagedSkillGlobalState {
             experts_enabled: true,
-            science_enabled: false,
             office_tools_enabled: false,
             internet_tools_enabled: true,
         };
@@ -689,7 +665,6 @@ mod tests {
             serde_json::to_value(state).unwrap(),
             json!({
                 "expertsEnabled": true,
-                "scienceEnabled": false,
                 "officeToolsEnabled": false,
                 "internetToolsEnabled": true,
             })
@@ -842,7 +817,6 @@ mod tests {
         let state = get_global_state_core(&db.conn).await.unwrap();
 
         assert!(state.experts_enabled);
-        assert!(!state.science_enabled);
         assert!(!state.office_tools_enabled);
     }
 
@@ -890,13 +864,6 @@ mod tests {
         );
         assert_eq!(
             app_metadata_service::get_value(&db.conn, OFFICE_TOOLS_POLICY_KEY)
-                .await
-                .unwrap()
-                .as_deref(),
-            Some("false")
-        );
-        assert_eq!(
-            app_metadata_service::get_value(&db.conn, SCIENCE_POLICY_KEY)
                 .await
                 .unwrap()
                 .as_deref(),

@@ -55,8 +55,7 @@
       "quick_messages": "Mensagens rápidas",
       "logs": "Registros de execução",
       "usage": "Usage",
-      "user_memory": "User Memory",
-      "science": "Ciência"
+      "user_memory": "User Memory"
     }
   },
   "AppearanceSettings": {
@@ -1153,23 +1152,7 @@
   "GeneralSettings": {
     "loading": "Carregando...",
     "sectionTitle": "Geral",
-    "sectionDescription": "Preferências centralizadas para o terminal padrão, aceleração de renderização e delegação multi-agente.",
-    "terminalTitle": "Terminal padrão",
-    "terminalDescription": "Escolha o shell usado ao abrir novas abas de terminal a partir da barra do terminal ou da árvore de arquivos.",
-    "defaultTerminalShell": "Shell padrão",
-    "terminalSystemDefault": "Padrão do sistema",
-    "terminalPowerShell7": "PowerShell 7 (pwsh)",
-    "terminalWindowsPowerShell": "Windows PowerShell",
-    "terminalCmd": "Prompt de Comando (cmd)",
-    "terminalSaveFailed": "Falha ao salvar as configurações do terminal: {message}",
-    "terminalShellCustom": "Caminho personalizado",
-    "terminalShellCustomPath": "Caminho do shell",
-    "terminalShellCustomPlaceholder": "/usr/local/bin/fish",
-    "terminalShellCustomSave": "Salvar",
-    "terminalShellCustomHint": "Informe um caminho absoluto ou um nome resolvível pelo PATH.",
-    "terminalShellNotInstalled": "não instalado",
-    "terminalShellNotFoundWarning": "Este caminho não existe neste host.",
-    "terminalCurrentShell": "Em uso: {path}",
+    "sectionDescription": "Preferências centralizadas para aceleração de renderização e delegação multi-agente.",
     "renderingTitle": "Renderização",
     "renderingDescription": "Desative a aceleração de hardware se o aplicativo apresentar tela preta ou falhas de renderização (comum em certas GPUs AMD ou GPUs Intel integradas). Aplica-se apenas à versão desktop do Windows.",
     "disableHardwareAcceleration": "Desativar aceleração de hardware",
@@ -2377,8 +2360,7 @@
           "tabs": {
             "office": "Escritório",
             "coding": "Desenvolvimento",
-            "common": "Comuns",
-            "research": "Pesquisa"
+            "common": "Comuns"
           },
           "coding": {
             "brainstormingDesc": "Explore intenção e requisitos antes de construir",
@@ -3965,40 +3947,6 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
-    }
-  },
-  "ScienceSettings": {
-    "title": "Habilidades de pesquisa científica",
-    "description": "Ative habilidades de pesquisa científica selecionadas para seus agentes de código com IA: geração de hipóteses, delineamento experimental, estatística, visualização, avaliação crítica e busca de literatura. O iyw-claw gerencia uma cópia central e vincula cada habilidade aos agentes que você escolher.",
-    "loading": "Carregando habilidades científicas…",
-    "emptySkills": "Nenhuma habilidade científica disponível. Verifique os registros do aplicativo.",
-    "searchPlaceholder": "Pesquisar habilidades científicas por nome, id ou descrição",
-    "categories": {
-      "ideation": "Ideação",
-      "design": "Delineamento",
-      "analysis": "Análise",
-      "visualization": "Visualização",
-      "evaluation": "Avaliação",
-      "literature": "Literatura"
-    },
-    "states": {
-      "not_linked": "Não ativado",
-      "linked_to_codeg": "Ativado",
-      "linked_elsewhere": "Bloqueado — outro vínculo existe",
-      "blocked_by_real_directory": "Bloqueado — uma habilidade personalizada ocupa este nome",
-      "broken": "Vínculo quebrado"
-    },
-    "badges": {
-      "userModified": "Modificado pelo usuário",
-      "needsKey": "Requer chave",
-      "needsSetup": "Pode exigir configuração"
-    },
-    "actions": {
-      "openCentralDir": "Abrir pasta central",
-      "refresh": "Atualizar"
-    },
-    "toasts": {
-      "openFolderFailed": "Falha ao abrir a pasta"
     }
   }
 }

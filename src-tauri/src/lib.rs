@@ -60,10 +60,9 @@ mod tauri_app {
         mcp as mcp_commands, model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, question as question_commands,
         quick_messages as quick_messages_commands, remote_proxy as remote_proxy_commands,
-        remote_workspace as remote_workspace_commands, science as science_commands,
-        session_info as session_info_commands, system_settings, terminal as terminal_commands,
-        usage as usage_commands, version_control, windows,
-        workspace_state as workspace_state_commands,
+        remote_workspace as remote_workspace_commands, session_info as session_info_commands,
+        system_settings, terminal as terminal_commands, usage as usage_commands, version_control,
+        windows, workspace_state as workspace_state_commands,
     };
     use crate::terminal::manager::TerminalManager;
     use crate::{db, git_credential, network, paths, process, web};
@@ -417,22 +416,6 @@ mod tauri_app {
                             report.installed_count,
                             report.updated_count,
                             report.pending_user_review.len()
-                        );
-                    }
-                    let science_report =
-                        crate::commands::science::ensure_central_science_installed().await;
-                    if !science_report.errors.is_empty() {
-                        tracing::error!(
-                            "[Science] install finished with {} error(s): {:?}",
-                            science_report.errors.len(),
-                            science_report.errors
-                        );
-                    } else {
-                        tracing::info!(
-                            "[Science] install ok: installed={} updated={} pending_review={}",
-                            science_report.installed_count,
-                            science_report.updated_count,
-                            science_report.pending_user_review.len()
                         );
                     }
                     if let Err(error) = crate::commands::managed_skills::reconcile_all_core(
@@ -958,10 +941,6 @@ mod tauri_app {
                 system_settings::update_system_proxy_settings,
                 system_settings::get_system_language_settings,
                 system_settings::update_system_language_settings,
-                system_settings::get_system_terminal_settings,
-                system_settings::update_system_terminal_settings,
-                system_settings::get_available_terminal_shells,
-                system_settings::probe_terminal_shell_path,
                 system_settings::get_system_rendering_settings,
                 system_settings::update_system_rendering_settings,
                 agent_storage_commands::get_agent_storage_status,
@@ -1056,10 +1035,6 @@ mod tauri_app {
                 experts_commands::experts_apply_links,
                 experts_commands::experts_read_content,
                 experts_commands::experts_open_central_dir,
-                science_commands::science_list,
-                science_commands::science_list_all_install_statuses,
-                science_commands::science_read_content,
-                science_commands::science_open_central_dir,
                 internet_tools_commands::internet_tools_detect,
                 internet_tools_commands::internet_tool_install,
                 internet_tools_commands::internet_tool_uninstall,

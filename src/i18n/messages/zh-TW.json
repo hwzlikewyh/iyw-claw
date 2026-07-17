@@ -55,8 +55,7 @@
       "quick_messages": "快捷訊息",
       "logs": "執行日誌",
       "usage": "用量",
-      "user_memory": "用户记忆",
-      "science": "科學研究"
+      "user_memory": "用户记忆"
     }
   },
   "AppearanceSettings": {
@@ -1153,23 +1152,7 @@
   "GeneralSettings": {
     "loading": "載入中...",
     "sectionTitle": "一般",
-    "sectionDescription": "集中管理預設終端機、渲染加速以及多智能體協同等通用偏好。",
-    "terminalTitle": "預設終端",
-    "terminalDescription": "選擇從終端標籤列或檔案樹開啟新終端時使用的 Shell。",
-    "defaultTerminalShell": "預設 Shell",
-    "terminalSystemDefault": "系統預設",
-    "terminalPowerShell7": "PowerShell 7 (pwsh)",
-    "terminalWindowsPowerShell": "Windows PowerShell",
-    "terminalCmd": "命令提示字元 (cmd)",
-    "terminalSaveFailed": "儲存終端設定失敗：{message}",
-    "terminalShellCustom": "自訂路徑",
-    "terminalShellCustomPath": "Shell 路徑",
-    "terminalShellCustomPlaceholder": "/usr/local/bin/fish",
-    "terminalShellCustomSave": "儲存",
-    "terminalShellCustomHint": "支援絕對路徑，或 PATH 中可解析的命令名。",
-    "terminalShellNotInstalled": "未安裝",
-    "terminalShellNotFoundWarning": "目前主機上不存在此路徑。",
-    "terminalCurrentShell": "目前使用：{path}",
+    "sectionDescription": "集中管理渲染加速以及多智能體協同等通用偏好。",
     "renderingTitle": "渲染加速",
     "renderingDescription": "若應用出現黑屏或渲染異常（常見於 AMD 顯示卡或部分 Intel 內顯），可關閉硬體加速。僅 Windows 桌面端生效。",
     "disableHardwareAcceleration": "停用硬體加速",
@@ -2377,8 +2360,7 @@
           "tabs": {
             "office": "日常辦公",
             "coding": "程式開發",
-            "common": "常用",
-            "research": "科學研究"
+            "common": "常用"
           },
           "coding": {
             "brainstormingDesc": "動手前先梳理意圖與需求",
@@ -3965,40 +3947,6 @@
         "description": "更高层的价值观、审美、语气和决策原则。",
         "placeholder": "记录用户的价值观、审美、表达风格、动机边界和深层决策原则。"
       }
-    }
-  },
-  "ScienceSettings": {
-    "title": "科學研究技能",
-    "description": "為你的 AI 編碼智能體啟用精選的科學研究技能：假設生成、實驗設計、統計、視覺化、批判性評估與文獻檢索。iyw-claw 管理中央副本，並將每個技能連結到你選擇的智能體。",
-    "loading": "正在載入科學研究技能…",
-    "emptySkills": "沒有可用的科學研究技能。請檢查應用程式日誌。",
-    "searchPlaceholder": "依名稱、ID 或描述搜尋科學研究技能",
-    "categories": {
-      "ideation": "構思",
-      "design": "研究設計",
-      "analysis": "分析",
-      "visualization": "視覺化",
-      "evaluation": "評估",
-      "literature": "文獻"
-    },
-    "states": {
-      "not_linked": "未啟用",
-      "linked_to_codeg": "已啟用",
-      "linked_elsewhere": "衝突 — 已有其他連結",
-      "blocked_by_real_directory": "衝突 — 已有同名的自訂 skill 佔用",
-      "broken": "連結損壞"
-    },
-    "badges": {
-      "userModified": "使用者修改過",
-      "needsKey": "需要金鑰",
-      "needsSetup": "可能需環境"
-    },
-    "actions": {
-      "openCentralDir": "開啟中央目錄",
-      "refresh": "重新整理"
-    },
-    "toasts": {
-      "openFolderFailed": "開啟目錄失敗"
     }
   }
 }

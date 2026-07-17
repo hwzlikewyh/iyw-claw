@@ -59,7 +59,6 @@ import type {
   ManagedSkillFamily,
   ManagedSkillFamilyState,
   ManagedSkillGlobalState,
-  ScienceListItem,
   ManagedSkillSyncReport,
   AgentReachChannel,
   AgentReachConfigKey,
@@ -106,14 +105,12 @@ import type {
   FileSaveResult,
   WorkspaceSnapshotResponse,
   GitLogResult,
-  AvailableTerminalShells,
   SystemLanguageSettings,
   IywAccountProfile,
   IywWechatPollingResult,
   IywWechatQrcode,
   SystemProxySettings,
   SystemRenderingSettings,
-  SystemTerminalSettings,
   LogSettings,
   LogSettingsView,
   LogRecord,
@@ -936,24 +933,6 @@ export async function expertsOpenCentralDir(): Promise<string> {
   return getTransport().call("experts_open_central_dir")
 }
 
-export async function scienceList(): Promise<ScienceListItem[]> {
-  return getTransport().call("science_list")
-}
-
-export async function scienceListAllInstallStatuses(): Promise<
-  ExpertInstallStatus[]
-> {
-  return getTransport().call("science_list_all_install_statuses")
-}
-
-export async function scienceReadContent(skillId: string): Promise<string> {
-  return getTransport().call("science_read_content", { skillId })
-}
-
-export async function scienceOpenCentralDir(): Promise<string> {
-  return getTransport().call("science_open_central_dir")
-}
-
 // ─── Internet tools ───
 
 export async function internetToolsDetect(): Promise<InternetToolInfo[]> {
@@ -1174,24 +1153,6 @@ export async function updateSystemLanguageSettings(
   settings: SystemLanguageSettings
 ): Promise<SystemLanguageSettings> {
   return getTransport().call("update_system_language_settings", { settings })
-}
-
-export async function getSystemTerminalSettings(): Promise<SystemTerminalSettings> {
-  return getTransport().call("get_system_terminal_settings")
-}
-
-export async function updateSystemTerminalSettings(
-  settings: SystemTerminalSettings
-): Promise<SystemTerminalSettings> {
-  return getTransport().call("update_system_terminal_settings", { settings })
-}
-
-export async function getAvailableTerminalShells(): Promise<AvailableTerminalShells> {
-  return getTransport().call("get_available_terminal_shells")
-}
-
-export async function probeTerminalShellPath(path: string): Promise<boolean> {
-  return getTransport().call("probe_terminal_shell_path", { path })
 }
 
 export async function getSystemRenderingSettings(): Promise<SystemRenderingSettings> {

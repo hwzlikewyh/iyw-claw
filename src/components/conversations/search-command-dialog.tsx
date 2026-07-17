@@ -18,7 +18,8 @@ import type {
   DbConversationSummary,
 } from "@/lib/types"
 import { useFileTree, type FlatFileEntry } from "@/hooks/use-file-tree"
-import { AGENT_LABELS, compareAgentType } from "@/lib/types"
+import { compareAgentType } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { AgentIcon } from "@/components/agent-icon"
 import { ConversationStatusDot } from "@/components/conversations/conversation-status-dot"
 import {
@@ -265,7 +266,7 @@ export function SearchCommandDialog({
               )}
             >
               <AgentIcon agentType={at} className="w-3.5 h-3.5" />
-              {AGENT_LABELS[at]}
+              {getAgentDisplayName(at)}
             </button>
           ))}
         </div>
@@ -298,7 +299,7 @@ export function SearchCommandDialog({
                         t("untitledConversation")}
                     </span>
                     <span className="text-xs text-muted-foreground shrink-0">
-                      {AGENT_LABELS[conv.agent_type]}
+                      {getAgentDisplayName(conv.agent_type)}
                     </span>
                     <span className="text-xs text-muted-foreground shrink-0">
                       {formatDistanceToNow(new Date(conv.created_at), {

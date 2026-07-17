@@ -547,28 +547,12 @@ pub fn build_router(
             post(handlers::system_settings::get_system_proxy_settings),
         )
         .route(
-            "/get_system_terminal_settings",
-            post(handlers::system_settings::get_system_terminal_settings),
-        )
-        .route(
-            "/get_available_terminal_shells",
-            post(handlers::system_settings::get_available_terminal_shells),
-        )
-        .route(
-            "/probe_terminal_shell_path",
-            post(handlers::system_settings::probe_terminal_shell_path),
-        )
-        .route(
             "/update_system_proxy_settings",
             post(handlers::system_settings::update_system_proxy_settings),
         )
         .route(
             "/update_system_language_settings",
             post(handlers::system_settings::update_system_language_settings),
-        )
-        .route(
-            "/update_system_terminal_settings",
-            post(handlers::system_settings::update_system_terminal_settings),
         )
         // ─── Agent storage ───
         .route(
@@ -824,20 +808,6 @@ pub fn build_router(
         .route(
             "/experts_open_central_dir",
             post(handlers::experts::experts_open_central_dir),
-        )
-        // ─── Scientific research skills ───
-        .route("/science_list", post(handlers::science::list))
-        .route(
-            "/science_list_all_install_statuses",
-            post(handlers::science::list_all_install_statuses),
-        )
-        .route(
-            "/science_read_content",
-            post(handlers::science::read_content),
-        )
-        .route(
-            "/science_open_central_dir",
-            post(handlers::science::open_central_dir),
         )
         // ─── Internet tools ───
         .route(

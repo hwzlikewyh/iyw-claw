@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl"
 import { Settings2 } from "lucide-react"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
 import type { AgentType, AcpAgentInfo } from "@/lib/types"
-import { AGENT_LABELS } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { AgentIcon } from "@/components/agent-icon"
 import { cn } from "@/lib/utils"
 
@@ -198,7 +198,7 @@ export function AgentSelector({
       <div className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
         <AgentIcon agentType={currentAgent.agent_type} className="h-4 w-4" />
         <span className="max-w-40 truncate text-foreground">
-          {AGENT_LABELS[currentAgent.agent_type]}
+          {getAgentDisplayName(currentAgent.agent_type)}
         </span>
         {onOpenAgentsSettings ? (
           <button
@@ -236,7 +236,9 @@ export function AgentSelector({
           <button
             key={agent.agent_type}
             ref={setItemRef(agent.agent_type)}
-            title={!isSelected ? AGENT_LABELS[agent.agent_type] : undefined}
+            title={
+              !isSelected ? getAgentDisplayName(agent.agent_type) : undefined
+            }
             disabled={disabled || !agent.available}
             onClick={() => handleSelect(agent.agent_type)}
             className={cn(
@@ -266,7 +268,7 @@ export function AgentSelector({
                   isSelected ? "opacity-100" : "opacity-0"
                 )}
               >
-                {AGENT_LABELS[agent.agent_type]}
+                {getAgentDisplayName(agent.agent_type)}
               </span>
             </span>
           </button>
