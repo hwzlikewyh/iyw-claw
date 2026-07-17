@@ -42,7 +42,7 @@
       "appearance": "المظهر",
       "agents": "الوكلاء",
       "mcp": "MCP",
-      "skills": "Skills",
+      "skills": "حزم المهارات",
       "shortcuts": "الاختصارات",
       "version_control": "التحكم بالإصدارات",
       "system": "النظام",
@@ -56,6 +56,13 @@
       "logs": "سجلات التشغيل",
       "usage": "Usage",
       "user_memory": "User Memory"
+    }
+  },
+  "SkillPacksSettings": {
+    "tabs": {
+      "experts": "مهارات الخبراء",
+      "officeTools": "أدوات المكتب",
+      "internetTools": "أدوات الإنترنت"
     }
   },
   "AppearanceSettings": {

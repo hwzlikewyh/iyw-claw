@@ -5,12 +5,10 @@ import { useTranslations } from "next-intl"
 import { AcpAgentSettings } from "@/components/settings/acp-agent-settings"
 import { AppearanceSettings } from "@/components/settings/appearance-settings"
 import { ChatChannelSettings } from "@/components/settings/chat-channel-settings"
-import { ExpertsSettings } from "@/components/settings/experts-settings"
 import { GeneralSettings } from "@/components/settings/general-settings"
 import { LogsSettings } from "@/components/settings/logs-settings"
 import { McpSettings } from "@/components/settings/mcp-settings"
-import { OfficeToolsSettings } from "@/components/settings/office-tools-settings"
-import { InternetToolsSettings } from "@/components/settings/internet-tools-settings"
+import { SkillPacksSettings } from "@/components/settings/skill-packs-settings"
 import { QuickMessagesSettings } from "@/components/settings/quick-messages-settings"
 import { ShortcutSettings } from "@/components/settings/shortcut-settings"
 import { SystemNetworkSettings } from "@/components/settings/system-network-settings"
@@ -24,7 +22,7 @@ import {
   OPEN_SETTINGS_DIALOG_EVENT,
   normalizeSettingsSection,
   settingsPathToSection,
-  settingsSectionToPath,
+  settingsSectionToNavPath,
   type OpenSettingsDialogDetail,
 } from "@/lib/settings-navigation"
 import type { AgentType } from "@/lib/types"
@@ -45,11 +43,13 @@ function SettingsDialogBody({ section, agentType }: SettingsDialogState) {
     case "mcp":
       return <McpSettings />
     case "experts":
-      return <ExpertsSettings />
+      return <SkillPacksSettings initialCategory="experts" />
     case "office-tools":
-      return <OfficeToolsSettings />
+      return <SkillPacksSettings initialCategory="office-tools" />
     case "internet-tools":
-      return <InternetToolsSettings />
+      return <SkillPacksSettings initialCategory="internet-tools" />
+    case "skills":
+      return <SkillPacksSettings />
     case "quick-messages":
       return <QuickMessagesSettings />
     case "usage":
@@ -67,7 +67,6 @@ function SettingsDialogBody({ section, agentType }: SettingsDialogState) {
     case "logs":
       return <LogsSettings />
     case "general":
-    case "skills":
     case "model-providers":
     default:
       return <GeneralSettings />
@@ -132,7 +131,7 @@ export function SettingsDialog() {
   }, [openSettings])
 
   const activePath = useMemo(
-    () => settingsSectionToPath(state.section),
+    () => settingsSectionToNavPath(state.section),
     [state.section]
   )
 

@@ -1,5 +1,5 @@
-import { InternetToolsSettings } from "@/components/settings/internet-tools-settings"
+import { SkillPacksSettings } from "@/components/settings/skill-packs-settings"
 
 export default function SettingsInternetToolsPage() {
-  return <InternetToolsSettings />
+  return <SkillPacksSettings initialCategory="internet-tools" />
 }

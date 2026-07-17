@@ -199,8 +199,8 @@ export function InternetToolsSettings() {
 
   return (
     <div className="flex h-full min-h-0 flex-col p-3 md:p-4">
-      <div className="flex items-start justify-between gap-4 pb-4">
-        <div>
+      <div className="flex flex-col items-start justify-between gap-3 pb-4 sm:flex-row">
+        <div className="min-w-0">
           <h2 className="text-base font-semibold">{t("title")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {t("description")}
@@ -300,7 +300,7 @@ export function InternetToolsSettings() {
             notReadyHint={t("installFirst")}
           />
         ) : (
-          <div className="flex h-full min-h-28 items-center justify-center border bg-card text-sm text-muted-foreground">
+          <div className="flex h-full min-h-28 items-center justify-center border bg-card px-4 text-center text-sm text-muted-foreground">
             {t("skillsEmpty")}
           </div>
         )}

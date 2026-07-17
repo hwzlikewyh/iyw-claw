@@ -42,7 +42,7 @@
       "appearance": "外觀",
       "agents": "智能體",
       "mcp": "MCP",
-      "skills": "Skills",
+      "skills": "技能包",
       "shortcuts": "快捷鍵",
       "version_control": "版本控制",
       "system": "系統",
@@ -56,6 +56,13 @@
       "logs": "執行日誌",
       "usage": "用量",
       "user_memory": "用户记忆"
+    }
+  },
+  "SkillPacksSettings": {
+    "tabs": {
+      "experts": "專家技能",
+      "officeTools": "辦公工具",
+      "internetTools": "聯網工具"
     }
   },
   "AppearanceSettings": {

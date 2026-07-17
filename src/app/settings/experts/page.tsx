@@ -1,5 +1,5 @@
-import { ExpertsSettings } from "@/components/settings/experts-settings"
+import { SkillPacksSettings } from "@/components/settings/skill-packs-settings"
 
 export default function SettingsExpertsPage() {
-  return <ExpertsSettings />
+  return <SkillPacksSettings initialCategory="experts" />
 }

@@ -1,5 +1,5 @@
-import { OfficeToolsSettings } from "@/components/settings/office-tools-settings"
+import { SkillPacksSettings } from "@/components/settings/skill-packs-settings"
 
 export default function SettingsOfficeToolsPage() {
-  return <OfficeToolsSettings />
+  return <SkillPacksSettings initialCategory="office-tools" />
 }

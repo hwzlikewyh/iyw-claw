@@ -88,7 +88,7 @@ function DetectionCard({
             : "border-muted bg-muted/5"
       )}
     >
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold">OfficeCLI</h3>
@@ -136,7 +136,7 @@ function DetectionCard({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           {installed ? (
             <>
               <Button
@@ -374,8 +374,8 @@ export function OfficeToolsSettings() {
 
   return (
     <div className="h-full flex flex-col p-3 md:p-4">
-      <div className="flex items-center justify-between gap-3 pb-4">
-        <div>
+      <div className="flex flex-col items-start justify-between gap-3 pb-4 sm:flex-row sm:items-center">
+        <div className="min-w-0">
           <h2 className="text-base font-semibold">{t("title")}</h2>
           <p className="text-xs text-muted-foreground mt-1">
             {t("description")}
@@ -441,7 +441,7 @@ export function OfficeToolsSettings() {
 
       <div className="flex-1 min-h-0 min-w-0 mt-4">
         {skills.length === 0 ? (
-          <div className="h-full rounded-lg border bg-card flex items-center justify-center text-sm text-muted-foreground">
+          <div className="flex h-full items-center justify-center rounded-lg border bg-card px-4 text-center text-sm text-muted-foreground">
             {t("emptySkills")}
           </div>
         ) : (
