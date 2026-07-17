@@ -52,9 +52,8 @@ export function SidebarAccountSettings() {
     <>
       <div
         className={cn(
-          "group flex min-h-14 w-full items-center gap-2.5 rounded-lg",
-          "border border-sidebar-border/60 bg-sidebar-accent/55 px-2 py-2",
-          "transition-colors hover:bg-sidebar-accent"
+          "group flex min-h-12 w-full items-center gap-2.5 rounded-md",
+          "px-1.5 py-1.5 transition-colors hover:bg-sidebar-accent/70"
         )}
       >
         <button
@@ -86,7 +85,7 @@ export function SidebarAccountSettings() {
         <button
           type="button"
           aria-label={t("openSettings")}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border bg-sidebar shadow-sm hover:bg-background focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
           onClick={handleOpenSettings}
         >
           <Settings className="h-3.5 w-3.5" />
