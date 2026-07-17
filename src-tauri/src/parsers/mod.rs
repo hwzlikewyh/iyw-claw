@@ -1,8 +1,11 @@
 pub mod claude;
+pub(crate) mod claude_background;
+pub(crate) mod claude_tail;
 pub mod cline;
 pub mod codebuddy;
 pub mod codex;
 pub mod gemini;
+pub mod grok;
 pub mod hermes;
 pub mod kimi_code;
 pub mod openclaw;
@@ -125,6 +128,12 @@ pub fn external_transcript_sources() -> Vec<ExternalSource> {
             // `models.json`) under `~/.pi/agent` are never archived.
             agent: "pi",
             root: pi::resolve_pi_sessions_dir(),
+            is_file: false,
+            include_top: None,
+        },
+        ExternalSource {
+            agent: "grok",
+            root: grok::resolve_grok_home_dir().join("sessions"),
             is_file: false,
             include_top: None,
         },
@@ -474,6 +483,21 @@ pub fn infer_context_window_max_tokens(model: Option<&str>) -> Option<u64> {
     }
     if normalized.starts_with("kimi") {
         return Some(262_144);
+    }
+    if normalized.starts_with("grok") {
+        if normalized.contains("4.5") {
+            return Some(500_000);
+        }
+        if normalized.contains("4.3") || normalized.contains("4.20") {
+            return Some(1_000_000);
+        }
+        if normalized.contains("code") || normalized.contains("build") {
+            return Some(256_000);
+        }
+        if normalized.contains("fast") {
+            return Some(2_000_000);
+        }
+        return Some(256_000);
     }
 
     match normalized.as_str() {
@@ -1159,6 +1183,26 @@ mod tests {
         assert_eq!(
             infer_context_window_max_tokens(Some("claude-sonnet-4-6 [1.5M]")),
             Some(1_500_000)
+        );
+        assert_eq!(
+            infer_context_window_max_tokens(Some("grok-4.5")),
+            Some(500_000)
+        );
+        assert_eq!(
+            infer_context_window_max_tokens(Some("grok-4.20-0309-reasoning")),
+            Some(1_000_000)
+        );
+        assert_eq!(
+            infer_context_window_max_tokens(Some("grok-code-fast-1")),
+            Some(256_000)
+        );
+        assert_eq!(
+            infer_context_window_max_tokens(Some("grok-4-fast")),
+            Some(2_000_000)
+        );
+        assert_eq!(
+            infer_context_window_max_tokens(Some("grok-7-experimental")),
+            Some(256_000)
         );
         assert_eq!(infer_context_window_max_tokens(Some("unknown-model")), None);
     }

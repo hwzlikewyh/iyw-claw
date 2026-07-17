@@ -91,11 +91,12 @@ impl ProfileSourceRoots {
             AgentType::CodeBuddy => self.home.join(".codebuddy"),
             AgentType::KimiCode => self.home.join(".kimi-code"),
             AgentType::Pi => self.home.join(".pi").join("agent"),
+            AgentType::Grok => self.home.join(".grok"),
         }
     }
 }
 
-fn resolved_profile_paths() -> [(AgentType, PathBuf); 9] {
+fn resolved_profile_paths() -> [(AgentType, PathBuf); 10] {
     [
         (
             AgentType::ClaudeCode,
@@ -130,6 +131,10 @@ fn resolved_profile_paths() -> [(AgentType, PathBuf); 9] {
             crate::parsers::kimi_code::resolve_kimi_code_home_dir(),
         ),
         (AgentType::Pi, crate::parsers::profile_paths::pi_agent_dir()),
+        (
+            AgentType::Grok,
+            crate::parsers::grok::resolve_grok_home_dir(),
+        ),
     ]
 }
 

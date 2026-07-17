@@ -1696,3 +1696,14 @@
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
+
+/* Applied only for explicit sidebar, aux-panel, and terminal toggles. */
+.panel-slide-animating > [data-panel] {
+  transition: flex-grow 240ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-slide-animating > [data-panel] {
+    transition: none;
+  }
+}

@@ -8,6 +8,33 @@ pub const MANAGED_MODEL_IDS: [&str; 3] = [
 ];
 pub const MANAGED_DEFAULT_MODEL: &str = MANAGED_MODEL_IDS[0];
 
+pub(crate) const CODEBUDDY_CONFLICTING_ENV_KEYS: &[&str] = &[
+    "ANTHROPIC_URL",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_CUSTOM_HEADERS",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_REASONING_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_CUSTOM_MODEL_OPTION",
+    "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME",
+    "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION",
+    "CODEBUDDY_AUTH_TOKEN",
+    "CODEBUDDY_INTERNET_ENVIRONMENT",
+];
+
+pub(crate) fn is_codebuddy_conflicting_env_key(key: &str) -> bool {
+    const ANTHROPIC_PREFIX: &str = "ANTHROPIC_";
+    key.get(..ANTHROPIC_PREFIX.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(ANTHROPIC_PREFIX))
+        || CODEBUDDY_CONFLICTING_ENV_KEYS
+            .iter()
+            .any(|candidate| key.eq_ignore_ascii_case(candidate))
+}
+
 pub(crate) fn patch_codex_toml(raw: &str, base_url: &str) -> Result<String, String> {
     let mut value = parse_toml_root(raw)?;
     let root = value
@@ -69,16 +96,48 @@ pub(crate) fn patch_kimi_toml(raw: &str, base_url: &str) -> Result<String, Strin
     toml::to_string_pretty(&value).map_err(|error| error.to_string())
 }
 
+pub(crate) fn patch_grok_toml(raw: &str, base_url: &str) -> Result<String, String> {
+    let mut value = parse_toml_root(raw)?;
+    let root = value
+        .as_table_mut()
+        .ok_or("grok config root must be a TOML table")?;
+    let selected_model = root
+        .get("models")
+        .and_then(toml::Value::as_table)
+        .and_then(|models| models.get("default"))
+        .and_then(toml::Value::as_str)
+        .filter(|model| MANAGED_MODEL_IDS.contains(model))
+        .unwrap_or(MANAGED_DEFAULT_MODEL)
+        .to_string();
+    table_entry(root, "models")?.insert("default".into(), toml::Value::String(selected_model));
+    let models = table_entry(root, "model")?;
+    models.clear();
+    for model_id in MANAGED_MODEL_IDS {
+        let model = table_entry(models, model_id)?;
+        model.insert("model".into(), toml::Value::String(model_id.into()));
+        model.insert("base_url".into(), toml::Value::String(base_url.into()));
+        model.insert(
+            "api_backend".into(),
+            toml::Value::String("chat_completions".into()),
+        );
+        model.insert("context_window".into(), toml::Value::Integer(1_000_000));
+    }
+    toml::to_string_pretty(&value).map_err(|error| error.to_string())
+}
+
 pub(crate) fn patch_json_config(
     agent: AgentType,
     mut value: serde_json::Value,
     base_url: &str,
 ) -> Result<serde_json::Value, String> {
+    if agent == AgentType::Gemini {
+        return Ok(value);
+    }
     let root = value
         .as_object_mut()
         .ok_or("agent config root must be a JSON object")?;
     match agent {
-        AgentType::ClaudeCode | AgentType::CodeBuddy => {
+        AgentType::ClaudeCode => {
             set_json(root, &["env"], "ANTHROPIC_BASE_URL", base_url);
             set_json(root, &["env"], "ANTHROPIC_MODEL", MANAGED_DEFAULT_MODEL);
             set_json(
@@ -100,9 +159,29 @@ pub(crate) fn patch_json_config(
                 MANAGED_MODEL_IDS[2],
             );
         }
-        AgentType::Gemini => {
-            set_json(root, &["env"], "GOOGLE_GEMINI_BASE_URL", base_url);
-            set_json(root, &["env"], "GEMINI_MODEL", MANAGED_DEFAULT_MODEL);
+        AgentType::CodeBuddy => {
+            let env = ensure_json_object(root, &["env"]);
+            env.retain(|key, _| !is_codebuddy_conflicting_env_key(key));
+            env.insert(
+                "CODEBUDDY_BASE_URL".into(),
+                serde_json::Value::String(base_url.into()),
+            );
+            env.insert(
+                "CODEBUDDY_MODEL".into(),
+                serde_json::Value::String(MANAGED_MODEL_IDS[0].into()),
+            );
+            env.insert(
+                "CODEBUDDY_BIG_SLOW_MODEL".into(),
+                serde_json::Value::String(MANAGED_MODEL_IDS[0].into()),
+            );
+            env.insert(
+                "CODEBUDDY_SMALL_FAST_MODEL".into(),
+                serde_json::Value::String(MANAGED_MODEL_IDS[2].into()),
+            );
+            env.insert(
+                "CODEBUDDY_CODE_SUBAGENT_MODEL".into(),
+                serde_json::Value::String(MANAGED_MODEL_IDS[2].into()),
+            );
         }
         AgentType::OpenCode => {
             let providers = ensure_json_object(root, &["provider"]);
@@ -280,4 +359,167 @@ fn managed_model_array() -> serde_json::Value {
             .map(|model| serde_json::json!({"id": model, "name": model}))
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_overlay_is_a_noop() {
+        let original = serde_json::json!({
+            "env": {
+                "GOOGLE_GEMINI_BASE_URL": "https://gemini.example",
+                "GEMINI_MODEL": "gemini-native"
+            },
+            "theme": "custom"
+        });
+        let patched = patch_json_config(
+            AgentType::Gemini,
+            original.clone(),
+            "https://gateway.example/v1",
+        )
+        .expect("Gemini remains untouched");
+
+        assert_eq!(patched, original);
+    }
+
+    #[test]
+    fn claude_gateway_overlay_uses_messages_base_and_managed_models() {
+        let base_url = "https://gateway.iyw.cn/iyw-fusion-api/anthropic";
+        let patched =
+            patch_json_config(AgentType::ClaudeCode, serde_json::json!({}), base_url).unwrap();
+        assert_eq!(patched["env"]["ANTHROPIC_BASE_URL"], base_url);
+        assert_eq!(patched["env"]["ANTHROPIC_MODEL"], MANAGED_DEFAULT_MODEL);
+        assert_eq!(
+            patched["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+            MANAGED_MODEL_IDS[2]
+        );
+    }
+
+    #[test]
+    fn codebuddy_overlay_uses_openai_base_and_clears_anthropic_env() {
+        let raw = serde_json::json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://old.example/anthropic",
+                "ANTHROPIC_AUTH_TOKEN": "old-token",
+                "ANTHROPIC_MODEL": "old-model",
+                "ANTHROPIC_FUTURE_OPTION": "must-not-leak",
+                "CODEBUDDY_INTERNET_ENVIRONMENT": "internal",
+                "CODEBUDDY_AUTH_TOKEN": "old-oauth",
+                "KEEP": "custom"
+            },
+            "theme": "custom"
+        });
+        let base_url = "https://gateway.iyw.cn/iyw-fusion-api/v1";
+        let patched = patch_json_config(AgentType::CodeBuddy, raw, base_url).unwrap();
+        let env = patched["env"].as_object().expect("env object");
+        assert_eq!(
+            env.get("CODEBUDDY_BASE_URL").and_then(|v| v.as_str()),
+            Some(base_url)
+        );
+        assert_eq!(
+            env.get("CODEBUDDY_MODEL").and_then(|v| v.as_str()),
+            Some(MANAGED_MODEL_IDS[0])
+        );
+        assert_eq!(
+            env.get("CODEBUDDY_BIG_SLOW_MODEL").and_then(|v| v.as_str()),
+            Some(MANAGED_MODEL_IDS[0])
+        );
+        assert_eq!(
+            env.get("CODEBUDDY_SMALL_FAST_MODEL")
+                .and_then(|v| v.as_str()),
+            Some(MANAGED_MODEL_IDS[2])
+        );
+        assert_eq!(
+            env.get("CODEBUDDY_CODE_SUBAGENT_MODEL")
+                .and_then(|v| v.as_str()),
+            Some(MANAGED_MODEL_IDS[2])
+        );
+        assert_eq!(env.get("KEEP").and_then(|v| v.as_str()), Some("custom"));
+        assert!(!env.keys().any(|key| key.starts_with("ANTHROPIC_")));
+        assert!(!env.contains_key("CODEBUDDY_INTERNET_ENVIRONMENT"));
+        assert!(!env.contains_key("CODEBUDDY_AUTH_TOKEN"));
+    }
+
+    #[test]
+    fn responses_gateway_overlays_declare_the_responses_wire_api() {
+        let base_url = "https://gateway.iyw.cn/iyw-fusion-api/v1";
+        let codex: toml::Value = patch_codex_toml("", base_url).unwrap().parse().unwrap();
+        assert_eq!(
+            codex["model_providers"][MANAGED_PROVIDER_ID]["base_url"].as_str(),
+            Some(base_url)
+        );
+        assert_eq!(
+            codex["model_providers"][MANAGED_PROVIDER_ID]["wire_api"].as_str(),
+            Some("responses")
+        );
+
+        let openclaw =
+            patch_json_config(AgentType::OpenClaw, serde_json::json!({}), base_url).unwrap();
+        assert_eq!(
+            openclaw["models"]["providers"][MANAGED_PROVIDER_ID]["api"],
+            "openai-responses"
+        );
+        let pi = patch_pi_models_json(serde_json::json!({}), base_url, None).unwrap();
+        assert_eq!(
+            pi["providers"][MANAGED_PROVIDER_ID]["api"],
+            "openai-responses"
+        );
+    }
+
+    #[test]
+    fn openai_compatible_gateway_overlays_use_v1_and_managed_models() {
+        let base_url = "https://gateway.iyw.cn/iyw-fusion-api/v1";
+        let grok: toml::Value = patch_grok_toml("", base_url).unwrap().parse().unwrap();
+        assert_eq!(
+            grok["model"][MANAGED_DEFAULT_MODEL]["base_url"].as_str(),
+            Some(base_url)
+        );
+        assert_eq!(
+            grok["model"][MANAGED_DEFAULT_MODEL]["api_backend"].as_str(),
+            Some("chat_completions")
+        );
+
+        let kimi: toml::Value = patch_kimi_toml("", base_url).unwrap().parse().unwrap();
+        assert_eq!(
+            kimi["providers"][MANAGED_PROVIDER_ID]["base_url"].as_str(),
+            Some(base_url)
+        );
+        let hermes: serde_yaml::Value =
+            serde_yaml::from_str(&patch_hermes_yaml("", base_url).unwrap()).unwrap();
+        assert_eq!(hermes["model"]["base_url"].as_str(), Some(base_url));
+    }
+
+    #[test]
+    fn grok_overlay_writes_managed_models_and_preserves_unrelated_sections() {
+        let raw = "[ui]\npermission_mode = \"acceptEdits\"\n\n\
+                   [model.custom]\nmodel = \"custom\"\nbase_url = \"https://old/v1\"\n\n\
+                   [models]\ndefault = \"custom\"\n\n\
+                   [mcp_servers.files]\ncommand = \"npx\"\n";
+        let patched = patch_grok_toml(raw, "https://gateway.example/v1").expect("overlay");
+        let root: toml::Value = patched.parse().expect("TOML");
+        assert_eq!(root["ui"]["permission_mode"].as_str(), Some("acceptEdits"));
+        assert_eq!(
+            root["mcp_servers"]["files"]["command"].as_str(),
+            Some("npx")
+        );
+        assert_eq!(
+            root["models"]["default"].as_str(),
+            Some(MANAGED_DEFAULT_MODEL)
+        );
+        let models = root["model"].as_table().expect("managed model table");
+        assert_eq!(models.len(), MANAGED_MODEL_IDS.len());
+        for model_id in MANAGED_MODEL_IDS {
+            let model = models[model_id].as_table().expect("model entry");
+            assert_eq!(model["model"].as_str(), Some(model_id));
+            assert_eq!(
+                model["base_url"].as_str(),
+                Some("https://gateway.example/v1")
+            );
+            assert_eq!(model["api_backend"].as_str(), Some("chat_completions"));
+            assert_eq!(model["context_window"].as_integer(), Some(1_000_000));
+            assert!(!model.contains_key("api_key"));
+        }
+    }
 }

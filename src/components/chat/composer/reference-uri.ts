@@ -118,10 +118,8 @@ export function parseIywClawReferenceUri(
     }
     return {
       refType: "skill",
-      // The link text keeps the literal token (`/build` / `$deploy`); fall back
-      // to a `/`-prefixed id only if it was somehow empty.
       id,
-      label: label || `/${id}`,
+      label: (label || id).replace(/^[/$]/, "") || id,
       uri,
       meta: null,
     }

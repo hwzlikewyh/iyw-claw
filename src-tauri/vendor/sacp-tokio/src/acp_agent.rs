@@ -3,6 +3,7 @@
 //! This module provides [`AcpAgent`], a convenient wrapper around [`sacp::schema::McpServer`]
 //! that can be parsed from either a command string or JSON configuration.
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -86,6 +87,7 @@ pub struct AcpAgent {
     server: sacp::schema::McpServer,
     debug_callback: Option<Arc<dyn Fn(&str, LineDirection) + Send + Sync + 'static>>,
     current_dir: Option<PathBuf>,
+    removed_envs: Vec<OsString>,
 }
 
 impl std::fmt::Debug for AcpAgent {
@@ -97,6 +99,7 @@ impl std::fmt::Debug for AcpAgent {
                 &self.debug_callback.as_ref().map(|_| "..."),
             )
             .field("current_dir", &self.current_dir)
+            .field("removed_envs", &self.removed_envs)
             .finish()
     }
 }
@@ -108,6 +111,7 @@ impl AcpAgent {
             server,
             debug_callback: None,
             current_dir: None,
+            removed_envs: Vec::new(),
         }
     }
 
@@ -176,6 +180,43 @@ impl AcpAgent {
         self
     }
 
+    /// Remove selected variables from the final child environment.
+    ///
+    /// Removals take precedence over variables configured on the stdio server.
+    pub fn with_removed_envs<I, K>(mut self, keys: I) -> Self
+    where
+        I: IntoIterator<Item = K>,
+        K: Into<OsString>,
+    {
+        self.removed_envs.extend(keys.into_iter().map(Into::into));
+        self
+    }
+
+    fn command_for_stdio(
+        &self,
+        stdio: &sacp::schema::McpServerStdio,
+    ) -> tokio::process::Command {
+        let mut cmd = tokio::process::Command::new(&stdio.command);
+        cmd.args(&stdio.args);
+        for env_var in &stdio.env {
+            cmd.env(&env_var.name, &env_var.value);
+        }
+        for key in &self.removed_envs {
+            cmd.env_remove(key);
+        }
+        if let Some(dir) = &self.current_dir {
+            cmd.current_dir(dir);
+        }
+        #[cfg(windows)]
+        {
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        cmd.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        cmd
+    }
+
     /// Spawn the process and get stdio streams.
     /// Used internally by the Component trait implementation.
     pub fn spawn_process(
@@ -191,22 +232,7 @@ impl AcpAgent {
     > {
         match &self.server {
             sacp::schema::McpServer::Stdio(stdio) => {
-                let mut cmd = tokio::process::Command::new(&stdio.command);
-                cmd.args(&stdio.args);
-                for env_var in &stdio.env {
-                    cmd.env(&env_var.name, &env_var.value);
-                }
-                if let Some(dir) = &self.current_dir {
-                    cmd.current_dir(dir);
-                }
-                #[cfg(windows)]
-                {
-                    cmd.creation_flags(CREATE_NO_WINDOW);
-                }
-                cmd.stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped());
-
+                let mut cmd = self.command_for_stdio(stdio);
                 let mut child = cmd.spawn().map_err(sacp::Error::into_internal_error)?;
 
                 let child_stdin = child
@@ -484,6 +510,7 @@ impl AcpAgent {
             ),
             debug_callback: None,
             current_dir: None,
+            removed_envs: Vec::new(),
         })
     }
 }
@@ -528,6 +555,7 @@ impl FromStr for AcpAgent {
                 server,
                 debug_callback: None,
                 current_dir: None,
+                removed_envs: Vec::new(),
             });
         }
 
@@ -648,6 +676,27 @@ mod tests {
             .with_current_dir("/some/dir");
         // The directory is private; surfaced via Debug so callers can confirm.
         assert!(format!("{agent:?}").contains("/some/dir"));
+    }
+
+    #[test]
+    fn removed_envs_are_applied_to_spawn_command() {
+        let agent = AcpAgent::from_args(["BLOCKED=explicit", "python"])
+            .unwrap()
+            .with_removed_envs(["BLOCKED", "INHERITED"]);
+        let stdio = match &agent.server {
+            sacp::schema::McpServer::Stdio(stdio) => stdio,
+            _ => panic!("Expected Stdio variant"),
+        };
+
+        let command = agent.command_for_stdio(stdio);
+        let removed = command
+            .as_std()
+            .get_envs()
+            .filter_map(|(key, value)| value.is_none().then(|| key.to_os_string()))
+            .collect::<Vec<_>>();
+
+        assert!(removed.contains(&std::ffi::OsString::from("BLOCKED")));
+        assert!(removed.contains(&std::ffi::OsString::from("INHERITED")));
     }
 
     #[cfg(unix)]

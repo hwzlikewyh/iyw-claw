@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use chrono::{DateTime, Utc};
@@ -73,7 +73,7 @@ fn command_args_regex() -> &'static Regex {
 /// user message whose string content holds `<command-name>`, `<command-message>`
 /// and `<command-args>` tags. Reconstruct the original input as `/name args`
 /// (e.g. `/init 初始化`). Returns `None` when no `<command-name>` tag is present.
-fn slash_command_display(text: &str) -> Option<String> {
+pub(crate) fn slash_command_display(text: &str) -> Option<String> {
     let name = command_name_regex()
         .captures(text)
         .and_then(|c| c.get(1))
@@ -95,7 +95,9 @@ fn slash_command_display(text: &str) -> Option<String> {
 
 /// A user JSONL entry's slash command, if its string content carries command
 /// tags. Returns `(display, promptId)`.
-fn slash_command_value_display(value: &serde_json::Value) -> Option<(String, Option<String>)> {
+pub(crate) fn slash_command_value_display(
+    value: &serde_json::Value,
+) -> Option<(String, Option<String>)> {
     let text = value
         .get("message")
         .and_then(|m| m.get("content"))
@@ -113,7 +115,10 @@ fn slash_command_value_display(value: &serde_json::Value) -> Option<(String, Opt
 /// `isMeta` user message sharing the command's `promptId`. Client-side commands
 /// (`/model`, `/compact`) are instead followed by `<local-command-stdout>` and
 /// never match, so they stay hidden.
-fn is_slash_command_expansion(value: &serde_json::Value, prompt_id: Option<&str>) -> bool {
+pub(crate) fn is_slash_command_expansion(
+    value: &serde_json::Value,
+    prompt_id: Option<&str>,
+) -> bool {
     if value.get("type").and_then(|t| t.as_str()) != Some("user") {
         return false;
     }
@@ -144,7 +149,7 @@ fn is_slash_command_expansion(value: &serde_json::Value, prompt_id: Option<&str>
 ///
 /// Each hunk in `structuredPatch` has `oldStart`, `oldLines`, `newStart`,
 /// `newLines`, and `lines` (prefixed with ` `, `+`, or `-`).
-fn rebuild_diff_from_structured_patch(
+pub(crate) fn rebuild_diff_from_structured_patch(
     file_path: &str,
     structured_patch: &serde_json::Value,
 ) -> Option<String> {
@@ -180,7 +185,7 @@ fn rebuild_diff_from_structured_patch(
     Some(output)
 }
 
-fn is_meta_message(value: &serde_json::Value) -> bool {
+pub(crate) fn is_meta_message(value: &serde_json::Value) -> bool {
     value
         .get("isMeta")
         .and_then(|v| v.as_bool())
@@ -191,12 +196,12 @@ fn is_meta_message(value: &serde_json::Value) -> bool {
 /// Claude Code for local commands like `/context` or `/model`).
 /// These carry `model: "<synthetic>"` and all-zero usage, so they should be
 /// excluded from conversation turns and stats.
-const CONTEXT_CONTINUATION_PREFIX: &str =
+pub(crate) const CONTEXT_CONTINUATION_PREFIX: &str =
     "This session is being continued from a previous conversation";
 
 /// Detect Claude Code context continuation summary messages.
 /// These are injected as "user" type but are actually system context.
-fn is_context_continuation(content: &[ContentBlock]) -> bool {
+pub(crate) fn is_context_continuation(content: &[ContentBlock]) -> bool {
     content.iter().any(|block| {
         if let ContentBlock::Text { text } = block {
             text.starts_with(CONTEXT_CONTINUATION_PREFIX)
@@ -206,7 +211,7 @@ fn is_context_continuation(content: &[ContentBlock]) -> bool {
     })
 }
 
-fn is_synthetic_assistant(value: &serde_json::Value) -> bool {
+pub(crate) fn is_synthetic_assistant(value: &serde_json::Value) -> bool {
     value
         .get("message")
         .and_then(|m| m.get("model"))
@@ -483,6 +488,30 @@ pub(crate) fn resolve_claude_config_dir() -> PathBuf {
     resolve_claude_config_dir_from(std::env::var_os("CLAUDE_CONFIG_DIR"), dirs::home_dir())
 }
 
+pub(crate) fn find_session_file(session_id: &str) -> Option<PathBuf> {
+    find_session_file_in(&resolve_claude_config_dir().join("projects"), session_id)
+}
+
+pub(crate) fn find_session_file_in(base_dir: &Path, session_id: &str) -> Option<PathBuf> {
+    if !is_safe_subagent_id(session_id) {
+        return None;
+    }
+    for entry in fs::read_dir(base_dir).ok()? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let project_dir = entry.path();
+        if !project_dir.is_dir() {
+            continue;
+        }
+        let candidate = project_dir.join(format!("{session_id}.jsonl"));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 fn resolve_claude_config_dir_from(
     claude_config_dir_env: Option<std::ffi::OsString>,
     home_dir: Option<PathBuf>,
@@ -586,8 +615,9 @@ impl ClaudeParser {
         path: &PathBuf,
         conversation_id: &str,
     ) -> Result<ConversationDetail, ParseError> {
-        let file = fs::File::open(path)?;
-        let reader = BufReader::new(file);
+        let bytes = fs::read(path)?;
+        let transcript_watermark = bytes.len() as u64;
+        let reader = BufReader::new(bytes.as_slice());
 
         let mut messages = Vec::new();
         let mut cwd: Option<String> = None;
@@ -602,6 +632,8 @@ impl ClaudeParser {
         // `is_slash_command_expansion`. Client commands (`/model`) never confirm
         // and are dropped, so they stay hidden as before.
         let mut pending_command: Option<(UnifiedMessage, Option<String>)> = None;
+        let mut background_lifecycle =
+            crate::parsers::claude_background::BackgroundLifecycle::new();
 
         for line in reader.lines() {
             let line = match line {
@@ -636,6 +668,7 @@ impl ClaudeParser {
             if is_meta_message(&value) {
                 continue;
             }
+            background_lifecycle.observe_notification(&value);
 
             // Claude Code records its own AI-generated title as a dedicated
             // `{"type":"ai-title","aiTitle":...}` entry. Prefer it over the first
@@ -737,6 +770,7 @@ impl ClaudeParser {
 
                     // Check toolUseResult for structured patch and agent execution stats
                     if let Some(tur) = value.get("toolUseResult") {
+                        background_lifecycle.observe_ack(tur, &content);
                         if let Some(sp) = tur.get("structuredPatch") {
                             let fp = tur
                                 .get("filePath")
@@ -1014,6 +1048,8 @@ impl ClaudeParser {
             }
         }
 
+        background_lifecycle.apply(&mut messages);
+
         let folder_path = cwd.clone();
         let folder_name = folder_path.as_ref().map(|p| folder_name_from_path(p));
 
@@ -1053,11 +1089,12 @@ impl ClaudeParser {
             summary,
             turns,
             session_stats,
+            transcript_watermark: Some(transcript_watermark),
         })
     }
 }
 
-fn parse_timestamp(value: &serde_json::Value) -> Option<DateTime<Utc>> {
+pub(crate) fn parse_timestamp(value: &serde_json::Value) -> Option<DateTime<Utc>> {
     value
         .get("timestamp")
         .and_then(|t| t.as_str())
@@ -1087,7 +1124,7 @@ fn extract_user_text(value: &serde_json::Value) -> Option<String> {
     None
 }
 
-fn extract_user_content(value: &serde_json::Value) -> Vec<ContentBlock> {
+pub(crate) fn extract_user_content(value: &serde_json::Value) -> Vec<ContentBlock> {
     let mut blocks = Vec::new();
     let message = match value.get("message") {
         Some(m) => m,
@@ -1207,7 +1244,7 @@ fn parse_data_uri_image(raw: &str) -> Option<(String, String)> {
     Some((mime_type.to_string(), data.to_string()))
 }
 
-fn extract_assistant_content(value: &serde_json::Value) -> Vec<ContentBlock> {
+pub(crate) fn extract_assistant_content(value: &serde_json::Value) -> Vec<ContentBlock> {
     let mut blocks = Vec::new();
     let message = match value.get("message") {
         Some(m) => m,
@@ -1262,7 +1299,7 @@ fn extract_assistant_content(value: &serde_json::Value) -> Vec<ContentBlock> {
     blocks
 }
 
-fn extract_usage(value: &serde_json::Value) -> Option<TurnUsage> {
+pub(crate) fn extract_usage(value: &serde_json::Value) -> Option<TurnUsage> {
     let usage = value.get("message")?.get("usage")?;
     Some(TurnUsage {
         input_tokens: usage
@@ -1284,7 +1321,7 @@ fn extract_usage(value: &serde_json::Value) -> Option<TurnUsage> {
     })
 }
 
-fn extract_agent_execution_stats(tur: &serde_json::Value) -> AgentExecutionStats {
+pub(crate) fn extract_agent_execution_stats(tur: &serde_json::Value) -> AgentExecutionStats {
     let tool_stats = tur.get("toolStats");
     AgentExecutionStats {
         agent_type: tur
@@ -1339,7 +1376,7 @@ fn extract_agent_execution_stats(tur: &serde_json::Value) -> AgentExecutionStats
 /// assistant messages with tool_use blocks, followed by user messages
 /// with tool_result blocks. We pair them by tool_use_id and produce
 /// a compact list of `AgentToolCall` records.
-fn parse_subagent_tool_calls(path: &PathBuf) -> Vec<AgentToolCall> {
+pub(crate) fn parse_subagent_tool_calls(path: &PathBuf) -> Vec<AgentToolCall> {
     let file = match fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return Vec::new(),
@@ -1505,7 +1542,7 @@ fn is_tool_result_only(msg: &UnifiedMessage) -> bool {
 /// Group flat messages into conversation turns.
 /// Claude Code rule: assistant msg + following tool-result-only user msgs
 /// merge into one Assistant turn.
-fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
+pub(crate) fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
     let mut turns = Vec::new();
     let mut i = 0;
 
@@ -1595,6 +1632,107 @@ mod tests {
             Some(500_000)
         );
         assert_eq!(parse_model_capacity_suffix("claude-sonnet-4-6"), None);
+    }
+
+    #[test]
+    fn find_session_file_scans_project_dirs_and_rejects_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("project-a");
+        std::fs::create_dir_all(&project).unwrap();
+        let expected = project.join("abc-123.jsonl");
+        std::fs::write(&expected, "").unwrap();
+
+        assert_eq!(find_session_file_in(dir.path(), "abc-123"), Some(expected));
+        assert!(find_session_file_in(dir.path(), "missing").is_none());
+        assert!(find_session_file_in(dir.path(), "../abc-123").is_none());
+        assert!(find_session_file_in(dir.path(), "").is_none());
+    }
+
+    #[test]
+    fn cold_detail_reports_exact_watermark_and_folds_background_lifecycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.jsonl");
+        let records = [
+            json!({
+                "type": "assistant",
+                "uuid": "assistant-1",
+                "timestamp": "2026-07-16T10:00:00Z",
+                "message": {
+                    "role": "assistant",
+                    "model": "claude-sonnet-4-6",
+                    "content": [{
+                        "type": "tool_use",
+                        "id": "toolu-agent",
+                        "name": "Agent",
+                        "input": { "prompt": "check" }
+                    }]
+                }
+            }),
+            json!({
+                "type": "user",
+                "uuid": "ack-1",
+                "timestamp": "2026-07-16T10:00:01Z",
+                "message": {
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": "toolu-agent",
+                        "content": "Async agent launched successfully"
+                    }]
+                },
+                "toolUseResult": {
+                    "status": "async_launched",
+                    "agentId": "agent-1"
+                }
+            }),
+            json!({
+                "type": "user",
+                "uuid": "notification-1",
+                "timestamp": "2026-07-16T10:00:02Z",
+                "message": {
+                    "role": "user",
+                    "content": "<task-notification>\n<task-id>agent-1</task-id>\n<status>completed</status>\n<summary>Done</summary>\n<result>Verified</result>\n</task-notification>"
+                }
+            }),
+        ];
+        let mut file = std::fs::File::create(&path).unwrap();
+        for record in records {
+            writeln!(file, "{record}").unwrap();
+        }
+        drop(file);
+
+        let detail = ClaudeParser::with_base_dir(PathBuf::new())
+            .parse_conversation_detail(&path, "session-1")
+            .unwrap();
+        assert_eq!(
+            detail.transcript_watermark,
+            Some(std::fs::metadata(&path).unwrap().len())
+        );
+        let marker = detail
+            .turns
+            .iter()
+            .flat_map(|turn| turn.blocks.iter())
+            .find_map(|block| match block {
+                ContentBlock::ToolResult {
+                    output_preview: Some(output),
+                    ..
+                } if output
+                    .starts_with(crate::parsers::claude_background::BACKGROUND_TASK_MARKER) =>
+                {
+                    Some(output)
+                }
+                _ => None,
+            })
+            .expect("cold detail rewrites the launch result marker");
+        let payload: serde_json::Value = serde_json::from_str(
+            marker
+                .strip_prefix(crate::parsers::claude_background::BACKGROUND_TASK_MARKER)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(payload["task_id"], "agent-1");
+        assert_eq!(payload["status"], "completed");
+        assert_eq!(payload["result"], "Verified");
     }
 
     #[test]

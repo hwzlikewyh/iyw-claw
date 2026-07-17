@@ -8,7 +8,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-/// Sprite-sheet geometry locked to the Codex format.
+/// Sprite-sheet geometry. The width and frame cell stay fixed while newer
+/// marketplace pets append animation rows below the base nine-row layout.
 pub const SPRITE_SHEET_WIDTH: u32 = 1536;
 pub const SPRITE_SHEET_HEIGHT: u32 = 1872;
 #[allow(dead_code)]
@@ -17,7 +18,6 @@ pub const SPRITE_GRID_COLS: u32 = 8;
 pub const SPRITE_GRID_ROWS: u32 = 9;
 #[allow(dead_code)]
 pub const SPRITE_FRAME_WIDTH: u32 = SPRITE_SHEET_WIDTH / SPRITE_GRID_COLS; // 192
-#[allow(dead_code)]
 pub const SPRITE_FRAME_HEIGHT: u32 = SPRITE_SHEET_HEIGHT / SPRITE_GRID_ROWS; // 208
 
 /// Filename codex writes inside each pet directory. Stored as a relative path
@@ -71,6 +71,8 @@ pub struct PetManifest {
     /// round-trip compatibility but ignore the value when locating the asset
     /// (see `SPRITESHEET_FILENAME`).
     pub spritesheet_path: String,
+    #[serde(flatten, default)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Flattened summary returned to the frontend's pet list / picker.

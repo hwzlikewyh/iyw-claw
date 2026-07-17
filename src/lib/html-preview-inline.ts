@@ -732,7 +732,7 @@ const CSP_STRICT = [
   "font-src data:",
   "script-src 'none'",
   "form-action 'none'",
-  "base-uri 'none'",
+  "base-uri about:",
   "frame-src 'none'",
 ].join("; ")
 
@@ -748,7 +748,7 @@ const CSP_TRUSTED = [
   "script-src 'unsafe-inline' 'unsafe-eval' data: blob: https: http:",
   "connect-src https: http:",
   "form-action https: http:",
-  "base-uri 'none'",
+  "base-uri about:",
   "frame-src 'none'",
 ].join("; ")
 
@@ -764,14 +764,14 @@ export function withSandboxCsp(
   options?: { trusted?: boolean }
 ): string {
   const csp = options?.trusted ? CSP_TRUSTED : CSP_STRICT
-  const meta = `<meta http-equiv="Content-Security-Policy" content="${csp}">`
+  const head = `<meta http-equiv="Content-Security-Policy" content="${csp}"><base href="about:srcdoc">`
   const headEnd = realStartTagEnd(html, "head")
   if (headEnd != null) {
-    return html.slice(0, headEnd) + meta + html.slice(headEnd)
+    return html.slice(0, headEnd) + head + html.slice(headEnd)
   }
   const htmlEnd = realStartTagEnd(html, "html")
   if (htmlEnd != null) {
-    return html.slice(0, htmlEnd) + `<head>${meta}</head>` + html.slice(htmlEnd)
+    return html.slice(0, htmlEnd) + `<head>${head}</head>` + html.slice(htmlEnd)
   }
-  return `<head>${meta}</head>${html}`
+  return `<head>${head}</head>${html}`
 }

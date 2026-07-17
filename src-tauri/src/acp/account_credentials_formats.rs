@@ -1,5 +1,7 @@
 use crate::models::agent::AgentType;
 
+use super::provider_overlay_formats::is_codebuddy_conflicting_env_key;
+
 const MANAGED_PROVIDER_ID: &str = "iyw-claw";
 
 pub(crate) fn patch_json_credential(
@@ -7,21 +9,20 @@ pub(crate) fn patch_json_credential(
     raw: &str,
     token: Option<&str>,
 ) -> Result<String, String> {
+    if agent == AgentType::Gemini {
+        return Ok(raw.to_string());
+    }
     let mut root = parse_json_object(raw)?;
     match agent {
-        AgentType::ClaudeCode | AgentType::CodeBuddy => {
+        AgentType::ClaudeCode => {
             patch_nested_json(&mut root, &["env"], "ANTHROPIC_AUTH_TOKEN", token);
             patch_anthropic_custom_headers(&mut root, token);
         }
-        AgentType::Gemini => {
-            patch_nested_json(&mut root, &["env"], "GEMINI_API_KEY", token);
-            let custom_headers = token.map(|value| format!("token: {value}"));
-            patch_nested_json(
-                &mut root,
-                &["env"],
-                "GEMINI_CLI_CUSTOM_HEADERS",
-                custom_headers.as_deref(),
-            );
+        AgentType::CodeBuddy => {
+            if let Some(env) = existing_json_object(&mut root, &["env"]) {
+                env.retain(|key, _| !is_codebuddy_conflicting_env_key(key));
+            }
+            patch_nested_json(&mut root, &["env"], "CODEBUDDY_API_KEY", token);
         }
         AgentType::OpenClaw => {
             patch_nested_json(
@@ -313,4 +314,70 @@ fn existing_toml_table<'a>(
         current = current.get_mut(*segment)?.as_table_mut()?;
     }
     Some(current)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_credential_patch_is_a_noop() {
+        let raw = r#"{
+  "env": {
+    "GEMINI_API_KEY": "native-key",
+    "GEMINI_CLI_CUSTOM_HEADERS": "x-native: true"
+  }
+}
+"#;
+
+        assert_eq!(
+            patch_json_credential(AgentType::Gemini, raw, Some("managed-token")).unwrap(),
+            raw
+        );
+        assert_eq!(
+            patch_json_credential(AgentType::Gemini, raw, None).unwrap(),
+            raw
+        );
+    }
+
+    #[test]
+    fn codebuddy_credential_patch_uses_native_key_and_cleans_legacy_auth() {
+        let raw = r#"{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "old-token",
+    "ANTHROPIC_CUSTOM_HEADERS": "token: old-token\nx-keep: yes",
+    "ANTHROPIC_MODEL": "old-model",
+    "ANTHROPIC_FUTURE_OPTION": "must-not-leak",
+    "CODEBUDDY_AUTH_TOKEN": "old-oauth-token",
+    "KEEP": "custom"
+  }
+}
+"#;
+
+        let patched = patch_json_credential(AgentType::CodeBuddy, raw, Some("managed-token"))
+            .expect("patch CodeBuddy credentials");
+        let value: serde_json::Value = serde_json::from_str(&patched).expect("valid JSON");
+        let env = value["env"].as_object().expect("env object");
+        assert_eq!(
+            env.get("CODEBUDDY_API_KEY")
+                .and_then(|value| value.as_str()),
+            Some("managed-token")
+        );
+        assert_eq!(
+            env.get("KEEP").and_then(|value| value.as_str()),
+            Some("custom")
+        );
+        assert!(!env.contains_key("CODEBUDDY_AUTH_TOKEN"));
+        assert!(!env.keys().any(|key| key.starts_with("ANTHROPIC_")));
+
+        let cleared = patch_json_credential(AgentType::CodeBuddy, &patched, None)
+            .expect("clear CodeBuddy credentials");
+        let value: serde_json::Value = serde_json::from_str(&cleared).expect("valid JSON");
+        let env = value["env"].as_object().expect("env object");
+        assert!(!env.contains_key("CODEBUDDY_API_KEY"));
+        assert_eq!(
+            env.get("KEEP").and_then(|value| value.as_str()),
+            Some("custom")
+        );
+    }
 }

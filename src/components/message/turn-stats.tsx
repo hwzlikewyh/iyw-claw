@@ -183,12 +183,14 @@ export function TurnStats({
                     {formatTokenCount(usage.input_tokens)}
                   </span>
                 </div>
-                <div className="flex justify-between gap-3">
-                  <span>{t("tokenOutput")}</span>
-                  <span className="font-mono tabular-nums">
-                    {formatTokenCount(usage.output_tokens)}
-                  </span>
-                </div>
+                {usage.output_tokens > 0 && (
+                  <div className="flex justify-between gap-3">
+                    <span>{t("tokenOutput")}</span>
+                    <span className="font-mono tabular-nums">
+                      {formatTokenCount(usage.output_tokens)}
+                    </span>
+                  </div>
+                )}
                 {usage.cache_read_input_tokens > 0 && (
                   <div className="flex justify-between gap-3">
                     <span>{t("tokenCacheRead")}</span>

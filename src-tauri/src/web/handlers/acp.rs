@@ -355,6 +355,16 @@ pub struct AcpConnectionIdParams {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AcpForkParams {
+    pub connection_id: String,
+    #[serde(default)]
+    pub conversation_id: Option<i32>,
+    #[serde(default)]
+    pub folder_id: Option<i32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AcpSetModeParams {
     pub connection_id: String,
     pub mode_id: String,
@@ -430,11 +440,16 @@ pub async fn acp_cancel(
 
 pub async fn acp_fork(
     Extension(state): Extension<Arc<AppState>>,
-    Json(params): Json<AcpConnectionIdParams>,
+    Json(params): Json<AcpForkParams>,
 ) -> Result<Json<ForkResultInfo>, AppCommandError> {
     let manager = &state.connection_manager;
     let result = manager
-        .fork_session(&state.db, &params.connection_id)
+        .fork_session(
+            &state.db,
+            &params.connection_id,
+            params.conversation_id,
+            params.folder_id,
+        )
         .await
         .map_err(|e| {
             let message = e.to_string();

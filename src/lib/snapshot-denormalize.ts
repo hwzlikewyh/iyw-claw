@@ -24,8 +24,8 @@ import type {
 
 /**
  * Snapshot-derived subset of ConnectionState. Fields not present here
- * (pendingQuestion, claudeApiRetry, error, contextKey, agentType,
- * workingDir) are frontend-only or set elsewhere and must not be touched
+ * (pendingQuestion, claudeApiRetry, contextKey, agentType, workingDir) are
+ * frontend-only or set elsewhere and must not be touched
  * by HYDRATE_FROM_SNAPSHOT.
  */
 export interface SnapshotPatch {
@@ -61,6 +61,8 @@ export interface SnapshotPatch {
    *  that the one-shot `session_config_stale` event won't replay. */
   configStale: boolean
   configStaleKind: ConfigStaleKind | null
+  backgroundOutstanding: number
+  lastError: string | null
   eventSeq: number
   /** Live sub-agent delegations carried by the snapshot. Consumed directly at
    *  the attach call sites to re-seed `DelegationProvider` bindings (see
@@ -117,9 +119,21 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
     supportsFork: wire.fork_supported,
     configStale: wire.config_stale ?? false,
     configStaleKind: wire.config_stale_kind ?? null,
+    backgroundOutstanding: wire.background_outstanding ?? 0,
+    lastError: normalizeLastError(wire.last_error),
     eventSeq: wire.event_seq,
     activeDelegations: wire.active_delegations ?? [],
   }
+}
+
+function normalizeLastError(
+  lastError: LiveSessionSnapshot["last_error"]
+): string | null {
+  const message =
+    lastError && typeof lastError.message === "string"
+      ? lastError.message.trim()
+      : ""
+  return message || null
 }
 
 function denormalizeLiveMessage(

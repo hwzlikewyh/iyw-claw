@@ -201,6 +201,7 @@ impl AgentStoragePaths {
                 single_profile_env(config_dir.join("kimi-code"), "KIMI_CODE_HOME")
             }
             AgentType::Pi => single_profile_env(config_dir.join("pi"), "PI_CODING_AGENT_DIR"),
+            AgentType::Grok => single_profile_env(config_dir.join("grok"), "GROK_HOME"),
         };
         AgentProfilePaths { root, env }
     }

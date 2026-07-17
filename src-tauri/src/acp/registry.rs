@@ -109,6 +109,7 @@ pub fn all_acp_agents() -> Vec<AgentType> {
         AgentType::Cline,
         AgentType::KimiCode,
         AgentType::Pi,
+        AgentType::Grok,
     ]
 }
 
@@ -124,6 +125,7 @@ pub fn registry_id_for(agent_type: AgentType) -> &'static str {
         AgentType::CodeBuddy => "codebuddy-code",
         AgentType::KimiCode => "kimi-code",
         AgentType::Pi => "pi-acp",
+        AgentType::Grok => "grok-build",
     }
 }
 
@@ -139,6 +141,7 @@ pub fn from_registry_id(id: &str) -> Option<AgentType> {
         "codebuddy-code" => Some(AgentType::CodeBuddy),
         "kimi-code" => Some(AgentType::KimiCode),
         "pi-acp" => Some(AgentType::Pi),
+        "grok-build" => Some(AgentType::Grok),
         _ => None,
     }
 }
@@ -170,12 +173,11 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             description: "ACP adapter for OpenAI's coding assistant",
             // codex-acp moved from zed-industries (Rust binary) to the
             // agentclientprotocol org (TypeScript rewrite, npx-distributed).
-            // 1.1.4 bundles `@openai/codex` 0.144.4 and drives `codex
-            // app-server`; it preserves MCP tool namespaces through custom
-            // tool calls, fixing `unsupported call: show_image`. Since 1.0.1 it also resolves the resumed
+            // 1.1.0 bundles `@openai/codex` 0.142.5 and drives `codex
+            // app-server`; since 1.0.1 it also resolves the resumed
             // `model_provider` from `~/.codex/config.toml` (#224), so iyw-claw no
             // longer injects `MODEL_PROVIDER` to keep resumed sessions on the
-            // custom provider. 1.1.0 (#263) and later report `/goal` transitions as a
+            // custom provider. 1.1.0 (#263) also reports `/goal` transitions as a
             // structured `session_info_update` (`_meta.codex.goal`) rather than
             // live agent text — see `crate::acp::codex_goal`.
             distribution: AgentDistribution::Npx {
@@ -344,6 +346,20 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
                 node_required: Some("22.0.0"),
             },
         },
+        AgentType::Grok => AcpAgentMeta {
+            agent_type,
+            supports_mcp: true,
+            name: "知微",
+            description: "xAI's official coding agent and CLI (ACP via grok agent stdio)",
+            distribution: AgentDistribution::Npx {
+                version: "0.2.101",
+                package: "@xai-official/grok@0.2.101",
+                cmd: "grok",
+                args: &["agent", "stdio"],
+                env: &[],
+                node_required: Some("20.0.0"),
+            },
+        },
     }
 }
 
@@ -451,8 +467,15 @@ mod tests {
                 AgentType::Cline,
                 AgentType::KimiCode,
                 AgentType::Pi,
+                AgentType::Grok,
             ]
         );
+    }
+
+    #[test]
+    fn grok_registry_id_round_trips() {
+        assert_eq!(registry_id_for(AgentType::Grok), "grok-build");
+        assert_eq!(from_registry_id("grok-build"), Some(AgentType::Grok));
     }
 
     #[test]
@@ -495,6 +518,12 @@ mod tests {
             None,
         );
         assert_npx_version(AgentType::Pi, "0.0.31", "pi-acp@0.0.31", Some("22.0.0"));
+        assert_npx_version(
+            AgentType::Grok,
+            "0.2.101",
+            "@xai-official/grok@0.2.101",
+            Some("20.0.0"),
+        );
         assert_binary_version(
             AgentType::OpenCode,
             "1.17.13",

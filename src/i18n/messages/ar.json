@@ -55,7 +55,8 @@
       "quick_messages": "رسائل سريعة",
       "logs": "سجلات التشغيل",
       "usage": "Usage",
-      "user_memory": "User Memory"
+      "user_memory": "User Memory",
+      "science": "البحث العلمي"
     }
   },
   "AppearanceSettings": {
@@ -2124,10 +2125,12 @@
           "spawnFailed": "تعذر بدء تشغيل {agent}: {message}",
           "downloadFailed": "فشل تنزيل {agent}: {message}",
           "sessionLoadResourceNotFound": "فشل تحميل جلسة {agent}. أعد التحميل لإعادة المحاولة، أو ابدأ محادثة جديدة.",
+          "sessionLoadUnavailable": "تعذّر على {agent} استعادة هذه الجلسة، فقد تكون انتهت أو توقّف الوكيل. أعد التحميل لإعادة المحاولة، أو ابدأ محادثة جديدة.",
           "turnFailedRefusal": "رفض {agent} متابعة هذه الجولة. يدل ذلك غالبًا على خطأ في الخلفية أو البوابة. يرجى مراجعة سجلات الوكيل.",
           "turnFailedMaxTokens": "بلغ {agent} الحد الأقصى للرموز المسموح بها في هذه الجولة.",
           "turnFailedMaxTurnRequests": "بلغ {agent} الحد الأقصى لعدد الطلبات المسموح بها في هذه الجولة.",
           "turnFailedUnknown": "أنهى {agent} الجولة بسبب توقف غير معروف.",
+          "grokModelSwitchIncompatibleAgent": "لا يمكن لـ {agent} التبديل إلى هذا النموذج في محادثة قائمة. ابدأ جلسة جديدة لاستخدامه.",
           "turnFailedEmpty": "أنهى {agent} الجولة دون إنتاج أي رد. يرجى التحقق من إعدادات الوكيل."
         },
         "unableReadAgentConfig": "تعذر قراءة إعدادات الوكيل: {message}",
@@ -2363,7 +2366,9 @@
           },
           "tabs": {
             "office": "الأعمال المكتبية",
-            "coding": "تطوير الكود"
+            "coding": "تطوير الكود",
+            "common": "شائع",
+            "research": "البحث العلمي"
           },
           "coding": {
             "brainstormingDesc": "استكشف النية والمتطلبات قبل البناء",
@@ -2485,7 +2490,7 @@
         "elapsedHours": "{value}س",
         "elapsedMinutes": "{value}د",
         "elapsedSeconds": "{value}ث",
-        "toolUseCount": "{count} أداة {count, plural, one {use} other {uses}}"
+        "toolUseCount": "{count} استخدام للأداة"
       },
       "tool": {
         "parameters": "المعلمات",
@@ -2770,6 +2775,16 @@
         "opWait": "جلب نتيجة الوكيل الفرعي",
         "opClose": "إغلاق الوكيل الفرعي",
         "opResume": "استئناف الوكيل الفرعي"
+      },
+      "backgroundTasks": {
+        "running": "{count, plural, one {مهمة خلفية واحدة قيد التشغيل} two {مهمتا خلفية قيد التشغيل} few {# مهام خلفية قيد التشغيل} other {# مهمة خلفية قيد التشغيل}}",
+        "settling": "جارٍ مزامنة نتائج الخلفية...",
+        "settledFallback": "انتهت مهمة الخلفية ({status})",
+        "cardRunning": "قيد التشغيل في الخلفية",
+        "cardLaunchedPending": "بدأت مهمة الخلفية",
+        "cardCompleted": "اكتملت مهمة الخلفية",
+        "cardFinishedWithStatus": "انتهت مهمة الخلفية ({status})",
+        "cardResultPending": "لم تصل النتيجة بعد"
       }
     },
     "diffPreview": {
@@ -2868,6 +2883,11 @@
     "channelType": "نوع القناة",
     "lark": "Lark (Feishu)",
     "weixin": "WeChat",
+    "telegram": "Telegram",
+    "telegramBotToken": "رمز البوت",
+    "telegramChatId": "معرف المحادثة",
+    "telegramChatIdPlaceholder": "-100123456789 أو @username",
+    "telegramTopicMode": "وضع مجموعة المواضيع",
     "dailyReport": "التقرير اليومي",
     "dailyReportTime": "وقت التقرير",
     "nameRequired": "اسم القناة مطلوب.",
@@ -3183,7 +3203,10 @@
     "skillsEmpty": "ثبّت الأدوات وزامن المهارات لتفعيلها.",
     "searchSkills": "البحث في مهارات الإنترنت",
     "installFirst": "ثبّت مهارات الإنترنت وزامنها أولاً.",
-    "categories": { "agentReach": "Agent Reach", "opencli": "OpenCLI" },
+    "categories": {
+      "agentReach": "Agent Reach",
+      "opencli": "OpenCLI"
+    },
     "configDialog": {
       "title": "إعداد Agent Reach",
       "description": "تُحفظ بيانات الاعتماد محلياً فقط ولا تُعرض مرة أخرى.",
@@ -3350,7 +3373,7 @@
       "deleteConfirm": "حذف الحيوان «{name}»؟ سيُحذف من القرص.",
       "summon": "استدعاء نافذة الحيوان",
       "openCodexHelp": "يجب أن توجد حيوانات Codex داخل ~/.codex/pets/. لم يُعثر على شيء.",
-      "specRequirement": "يجب أن يكون السبرايت PNG أو WebP بحجم 1536x1872 مع شفافية.",
+      "specRequirement": "يجب أن يكون السبرايت بعرض 1536 بكسل وارتفاع من مضاعفات 208 بكسل (مثل 1872 أو 2288)، بصيغة PNG أو WebP مع شفافية.",
       "form": {
         "id": "معرف الحيوان",
         "idHelp": "حروف صغيرة، أرقام، '-' و '_' فقط. حد أقصى 64 حرفًا.",
@@ -3932,6 +3955,40 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
+    }
+  },
+  "ScienceSettings": {
+    "title": "مهارات البحث العلمي",
+    "description": "فعّل مهارات البحث العلمي المنسّقة لوكلاء البرمجة بالذكاء الاصطناعي: توليد الفرضيات، وتصميم التجارب، والإحصاء، والتصور، والتقييم النقدي، والبحث في الأدبيات. يدير iyw-claw نسخة مركزية ويربط كل مهارة بالوكلاء الذين تختارهم.",
+    "loading": "جارٍ تحميل مهارات البحث العلمي…",
+    "emptySkills": "لا توجد مهارات بحث علمي متاحة. تحقّق من سجلات التطبيق.",
+    "searchPlaceholder": "ابحث في مهارات البحث العلمي بالاسم أو المعرّف أو الوصف",
+    "categories": {
+      "ideation": "توليد الأفكار",
+      "design": "تصميم الدراسة",
+      "analysis": "التحليل",
+      "visualization": "التصور",
+      "evaluation": "التقييم",
+      "literature": "الأدبيات"
+    },
+    "states": {
+      "not_linked": "غير مُفعَّل",
+      "linked_to_codeg": "مُفعَّل",
+      "linked_elsewhere": "محظور — يوجد رابط آخر",
+      "blocked_by_real_directory": "محظور — مهارة مخصصة تشغل هذا الاسم",
+      "broken": "رابط معطوب"
+    },
+    "badges": {
+      "userModified": "عُدِّل من قبل المستخدم",
+      "needsKey": "يتطلب مفتاحًا",
+      "needsSetup": "قد يتطلب إعدادًا"
+    },
+    "actions": {
+      "openCentralDir": "فتح المجلد المركزي",
+      "refresh": "تحديث"
+    },
+    "toasts": {
+      "openFolderFailed": "فشل فتح المجلد"
     }
   }
 }

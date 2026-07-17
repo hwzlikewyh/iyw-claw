@@ -823,6 +823,20 @@ pub fn build_router(
             "/experts_open_central_dir",
             post(handlers::experts::experts_open_central_dir),
         )
+        // ─── Scientific research skills ───
+        .route("/science_list", post(handlers::science::list))
+        .route(
+            "/science_list_all_install_statuses",
+            post(handlers::science::list_all_install_statuses),
+        )
+        .route(
+            "/science_read_content",
+            post(handlers::science::read_content),
+        )
+        .route(
+            "/science_open_central_dir",
+            post(handlers::science::open_central_dir),
+        )
         // ─── Internet tools ───
         .route(
             "/internet_tools_detect",

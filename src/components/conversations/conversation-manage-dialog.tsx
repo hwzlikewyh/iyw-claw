@@ -63,6 +63,7 @@ import { cn } from "@/lib/utils"
 import { formatConversationTitle } from "@/lib/conversation-title"
 import { toErrorMessage } from "@/lib/app-error"
 import { ConversationStatusDot } from "@/components/conversations/conversation-status-dot"
+import { resolveConversationFolderScope } from "./conversation-folder-scope"
 
 interface ConversationManageDialogProps {
   open: boolean
@@ -106,7 +107,13 @@ export function ConversationManageDialog({
   const refreshConversations = useAppWorkspaceStore(
     (s) => s.refreshConversations
   )
+  const allFolders = useAppWorkspaceStore((s) => s.allFolders)
   const { closeConversationTab } = useTabActions()
+
+  const queryFolderIds = useMemo(
+    () => resolveConversationFolderScope(folderId, allFolders),
+    [allFolders, folderId]
+  )
 
   const [search, setSearch] = useState("")
   const [agentFilter, setAgentFilter] = useState<AgentType | "all">("all")
@@ -140,7 +147,7 @@ export function ConversationManageDialog({
       setLoading(true)
       try {
         const data = await listAllConversations({
-          folder_ids: [folderId],
+          folder_ids: queryFolderIds,
           search: search.trim() || null,
           agent_type: agentFilter === "all" ? null : agentFilter,
           status: statusFilter === "all" ? null : statusFilter,
@@ -157,7 +164,7 @@ export function ConversationManageDialog({
       }
     }, 300)
     return () => clearTimeout(timer)
-  }, [open, folderId, search, agentFilter, statusFilter, refreshKey])
+  }, [open, queryFolderIds, search, agentFilter, statusFilter, refreshKey])
 
   const toggleOne = useCallback((id: number) => {
     setSelected((prev) => {

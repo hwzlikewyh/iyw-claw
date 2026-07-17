@@ -55,7 +55,8 @@
       "quick_messages": "快捷消息",
       "logs": "运行日志",
       "usage": "用量",
-      "user_memory": "用户记忆"
+      "user_memory": "用户记忆",
+      "science": "科学研究"
     }
   },
   "AppearanceSettings": {
@@ -2124,10 +2125,12 @@
           "spawnFailed": "启动 {agent} 失败：{message}",
           "downloadFailed": "{agent} 下载失败：{message}",
           "sessionLoadResourceNotFound": "{agent} 会话加载失败，可重新加载重试，或开始新会话。",
+          "sessionLoadUnavailable": "{agent} 无法恢复此会话，它可能已结束或 agent 已停止。可重新加载重试，或开始新会话。",
           "turnFailedRefusal": "{agent} 拒绝继续本轮回复，通常意味着后端或网关出错，请检查代理日志。",
           "turnFailedMaxTokens": "{agent} 已达到本轮回复的最大 Token 限制。",
           "turnFailedMaxTurnRequests": "{agent} 已达到本轮回复允许的最大请求次数。",
           "turnFailedUnknown": "{agent} 以未知的停止原因结束了本轮回复。",
+          "grokModelSwitchIncompatibleAgent": "{agent} 无法在已有对话中切换到该模型，请新建会话以使用它。",
           "turnFailedEmpty": "{agent} 本轮没有产生任何回复就结束了，请检查代理配置。"
         },
         "unableReadAgentConfig": "无法读取 Agent 配置：{message}",
@@ -2363,7 +2366,9 @@
           },
           "tabs": {
             "office": "日常办公",
-            "coding": "代码开发"
+            "coding": "代码开发",
+            "common": "常用",
+            "research": "科学研究"
           },
           "coding": {
             "brainstormingDesc": "动手前先梳理意图与需求",
@@ -2485,7 +2490,7 @@
         "elapsedHours": "{value} 小时",
         "elapsedMinutes": "{value} 分钟",
         "elapsedSeconds": "{value} 秒",
-        "toolUseCount": "{count} 个工具 {count, plural, one {use} other {uses}}"
+        "toolUseCount": "{count} 次工具调用"
       },
       "tool": {
         "parameters": "参数",
@@ -2770,6 +2775,16 @@
         "opWait": "获取子智能体结果",
         "opClose": "结束子智能体",
         "opResume": "恢复子智能体"
+      },
+      "backgroundTasks": {
+        "running": "{count} 个后台任务运行中",
+        "settling": "正在同步后台结果...",
+        "settledFallback": "后台任务已结束（{status}）",
+        "cardRunning": "后台运行中",
+        "cardLaunchedPending": "已启动后台任务",
+        "cardCompleted": "后台任务已完成",
+        "cardFinishedWithStatus": "后台任务已结束（{status}）",
+        "cardResultPending": "结果尚未返回"
       }
     },
     "diffPreview": {
@@ -2880,6 +2895,11 @@
     "channelType": "渠道类型",
     "lark": "飞书",
     "weixin": "微信",
+    "telegram": "Telegram",
+    "telegramBotToken": "机器人 Token",
+    "telegramChatId": "Chat ID",
+    "telegramChatIdPlaceholder": "-100123456789 或 @用户名",
+    "telegramTopicMode": "话题群模式",
     "dailyReport": "每日报告",
     "dailyReportTime": "推送时间",
     "nameRequired": "请输入渠道名称。",
@@ -3365,7 +3385,7 @@
       "deleteConfirm": "确认删除宠物 \"{name}\" 吗？会从磁盘上一并移除。",
       "summon": "召唤宠物窗口",
       "openCodexHelp": "Codex 宠物需位于 ~/.codex/pets/ 目录下,但未找到。",
-      "specRequirement": "精灵图必须是 1536x1872 像素的带透明通道 PNG 或 WebP。",
+      "specRequirement": "精灵图宽度必须为 1536 像素，高度需为 208 像素的整数倍（如 1872 或 2288），并为带透明通道的 PNG 或 WebP。",
       "form": {
         "id": "宠物 ID",
         "idHelp": "仅允许小写字母、数字、'-' 和 '_',最多 64 字符。",
@@ -3935,6 +3955,40 @@
         "description": "更高层的价值观、审美、语气和决策原则。",
         "placeholder": "记录用户的价值观、审美、表达风格、动机边界和深层决策原则。"
       }
+    }
+  },
+  "ScienceSettings": {
+    "title": "科学研究技能",
+    "description": "为你的 AI 编码智能体启用精选的科学研究技能：假设生成、实验设计、统计、可视化、批判性评估与文献检索。iyw-claw 管理中央副本，并将每个技能链接到你选择的智能体。",
+    "loading": "正在加载科学研究技能…",
+    "emptySkills": "没有可用的科学研究技能。请检查应用日志。",
+    "searchPlaceholder": "按名称、ID 或描述搜索科学研究技能",
+    "categories": {
+      "ideation": "构思",
+      "design": "研究设计",
+      "analysis": "分析",
+      "visualization": "可视化",
+      "evaluation": "评估",
+      "literature": "文献"
+    },
+    "states": {
+      "not_linked": "未启用",
+      "linked_to_codeg": "已启用",
+      "linked_elsewhere": "冲突 — 已有其他链接",
+      "blocked_by_real_directory": "冲突 — 已有同名的自定义 skill 占用",
+      "broken": "链接损坏"
+    },
+    "badges": {
+      "userModified": "用户修改过",
+      "needsKey": "需要密钥",
+      "needsSetup": "可能需环境"
+    },
+    "actions": {
+      "openCentralDir": "打开中央目录",
+      "refresh": "刷新"
+    },
+    "toasts": {
+      "openFolderFailed": "打开目录失败"
     }
   }
 }

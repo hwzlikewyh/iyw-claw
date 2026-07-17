@@ -755,6 +755,7 @@ mod tests {
         ActiveSession {
             channel_id,
             sender_id: sender_id.to_string(),
+            target: crate::chat_channel::types::ChannelMessageTarget::channel(channel_id),
             conversation_id: 1,
             connection_id: "conn-1".to_string(),
             agent_type: AgentType::Codex,

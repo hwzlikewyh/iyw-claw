@@ -55,7 +55,8 @@
       "quick_messages": "Messages rapides",
       "logs": "Journaux d'exécution",
       "usage": "Usage",
-      "user_memory": "User Memory"
+      "user_memory": "User Memory",
+      "science": "Science"
     }
   },
   "AppearanceSettings": {
@@ -2124,10 +2125,12 @@
           "spawnFailed": "Impossible de démarrer {agent} : {message}",
           "downloadFailed": "Échec du téléchargement de {agent} : {message}",
           "sessionLoadResourceNotFound": "Échec du chargement de la session de {agent}. Rechargez pour réessayer ou démarrez une nouvelle conversation.",
+          "sessionLoadUnavailable": "{agent} n'a pas pu restaurer cette session ; elle a peut-être pris fin ou l'agent s'est arrêté. Rechargez pour réessayer ou démarrez une nouvelle conversation.",
           "turnFailedRefusal": "{agent} a refusé de poursuivre ce tour. Cela indique souvent une erreur de backend ou de passerelle. Vérifiez les journaux de l'agent.",
           "turnFailedMaxTokens": "{agent} a atteint la limite maximale de jetons pour ce tour.",
           "turnFailedMaxTurnRequests": "{agent} a atteint le nombre maximal de requêtes autorisées pour ce tour.",
           "turnFailedUnknown": "{agent} a terminé le tour avec une raison d'arrêt inconnue.",
+          "grokModelSwitchIncompatibleAgent": "{agent} ne peut pas basculer vers ce modèle dans une conversation existante. Démarrez une nouvelle session pour l'utiliser.",
           "turnFailedEmpty": "{agent} a terminé le tour sans produire de réponse. Vérifiez la configuration de l'agent."
         },
         "unableReadAgentConfig": "Impossible de lire la configuration de l'agent : {message}",
@@ -2363,7 +2366,9 @@
           },
           "tabs": {
             "office": "Bureautique",
-            "coding": "Développement"
+            "coding": "Développement",
+            "common": "Fréquents",
+            "research": "Recherche"
           },
           "coding": {
             "brainstormingDesc": "Explorer intention et besoins avant de coder",
@@ -2485,7 +2490,7 @@
         "elapsedHours": "{value} h",
         "elapsedMinutes": "{value} min",
         "elapsedSeconds": "{value} s",
-        "toolUseCount": "{count} outil {count, plural, one {use} other {uses}}"
+        "toolUseCount": "{count, plural, one {# appel d'outil} other {# appels d'outil}}"
       },
       "tool": {
         "parameters": "Paramètres",
@@ -2770,6 +2775,16 @@
         "opWait": "Récupération du résultat du sous-agent",
         "opClose": "Fermeture du sous-agent",
         "opResume": "Reprise du sous-agent"
+      },
+      "backgroundTasks": {
+        "running": "{count, plural, one {# tâche en arrière-plan en cours} other {# tâches en arrière-plan en cours}}",
+        "settling": "Synchronisation des résultats d'arrière-plan...",
+        "settledFallback": "Tâche en arrière-plan terminée ({status})",
+        "cardRunning": "En cours d'exécution en arrière-plan",
+        "cardLaunchedPending": "Tâche lancée en arrière-plan",
+        "cardCompleted": "Tâche en arrière-plan terminée",
+        "cardFinishedWithStatus": "Tâche en arrière-plan terminée ({status})",
+        "cardResultPending": "Résultat pas encore reçu"
       }
     },
     "diffPreview": {
@@ -2868,6 +2883,11 @@
     "channelType": "Type de canal",
     "lark": "Lark (Feishu)",
     "weixin": "WeChat",
+    "telegram": "Telegram",
+    "telegramBotToken": "Jeton du bot",
+    "telegramChatId": "ID du chat",
+    "telegramChatIdPlaceholder": "-100123456789 ou @nom_utilisateur",
+    "telegramTopicMode": "Mode groupe de sujets",
     "dailyReport": "Rapport quotidien",
     "dailyReportTime": "Heure du rapport",
     "nameRequired": "Le nom du canal est requis.",
@@ -3183,7 +3203,10 @@
     "skillsEmpty": "Installez les outils et synchronisez les skills.",
     "searchSkills": "Rechercher des skills Internet",
     "installFirst": "Installez et synchronisez d’abord les skills.",
-    "categories": { "agentReach": "Agent Reach", "opencli": "OpenCLI" },
+    "categories": {
+      "agentReach": "Agent Reach",
+      "opencli": "OpenCLI"
+    },
     "configDialog": {
       "title": "Configurer Agent Reach",
       "description": "Les identifiants restent locaux et ne sont pas réaffichés.",
@@ -3350,7 +3373,7 @@
       "deleteConfirm": "Supprimer la mascotte « {name} » ? Elle sera retirée du disque.",
       "summon": "Invoquer la fenêtre de la mascotte",
       "openCodexHelp": "Les mascottes Codex doivent être dans ~/.codex/pets/. Aucune trouvée.",
-      "specRequirement": "Le sprite doit être un PNG/WebP 1536x1872 avec transparence.",
+      "specRequirement": "Le sprite doit faire 1536px de large avec une hauteur multiple de 208px (par ex. 1872 ou 2288), en PNG/WebP avec transparence.",
       "form": {
         "id": "ID mascotte",
         "idHelp": "Lettres minuscules, chiffres, '-' et '_'. Max 64 caractères.",
@@ -3932,6 +3955,40 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
+    }
+  },
+  "ScienceSettings": {
+    "title": "Compétences de recherche scientifique",
+    "description": "Activez des compétences de recherche scientifique sélectionnées pour vos agents de codage IA : génération d'hypothèses, plan d'expérience, statistiques, visualisation, évaluation critique et recherche bibliographique. iyw-claw gère une copie centrale et relie chaque compétence aux agents que vous choisissez.",
+    "loading": "Chargement des compétences scientifiques…",
+    "emptySkills": "Aucune compétence scientifique disponible. Consultez les journaux de l'application.",
+    "searchPlaceholder": "Rechercher des compétences scientifiques par nom, id ou description",
+    "categories": {
+      "ideation": "Idéation",
+      "design": "Plan d'étude",
+      "analysis": "Analyse",
+      "visualization": "Visualisation",
+      "evaluation": "Évaluation",
+      "literature": "Littérature"
+    },
+    "states": {
+      "not_linked": "Non activé",
+      "linked_to_codeg": "Activé",
+      "linked_elsewhere": "Bloqué — un autre lien existe",
+      "blocked_by_real_directory": "Bloqué — une compétence personnalisée occupe ce nom",
+      "broken": "Lien cassé"
+    },
+    "badges": {
+      "userModified": "Modifié par l'utilisateur",
+      "needsKey": "Clé API requise",
+      "needsSetup": "Configuration possible"
+    },
+    "actions": {
+      "openCentralDir": "Ouvrir le dossier central",
+      "refresh": "Actualiser"
+    },
+    "toasts": {
+      "openFolderFailed": "Échec de l'ouverture du dossier"
     }
   }
 }

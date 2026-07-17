@@ -19,6 +19,7 @@ pub(crate) fn is_user_global_profile_path(
         AgentType::CodeBuddy => home.join(".codebuddy"),
         AgentType::KimiCode => home.join(".kimi-code"),
         AgentType::Pi => home.join(".pi").join("agent"),
+        AgentType::Grok => home.join(".grok"),
     };
     comparable_path(candidate) == comparable_path(&expected)
 }

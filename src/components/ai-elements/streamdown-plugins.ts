@@ -10,7 +10,7 @@ type PluginConfig = NonNullable<ComponentProps<typeof Streamdown>["plugins"]>
 type CodePlugin = NonNullable<PluginConfig["code"]>
 type MathPlugin = NonNullable<PluginConfig["math"]>
 type MermaidPlugin = NonNullable<PluginConfig["mermaid"]>
-type HeavyKind = "code" | "math" | "mermaid"
+export type HeavyKind = "code" | "math" | "mermaid"
 
 // --- Why this module exists --------------------------------------------------
 //
@@ -122,6 +122,11 @@ function ensure(kind: HeavyKind): void {
       .catch(() => {})
       .finally(settle)
   }
+}
+
+/** Start the existing at-most-once loader before the first matching render. */
+export function prefetchHeavyPlugins(kinds: HeavyKind[]): void {
+  for (const kind of kinds) ensure(kind)
 }
 
 export type HeavyPluginNeeds = Record<HeavyKind, boolean>

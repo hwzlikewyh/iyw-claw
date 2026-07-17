@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use sea_orm::DatabaseConnection;
@@ -33,6 +34,9 @@ pub(crate) async fn sync_agent_credentials(
     conn: &DatabaseConnection,
     agent: AgentType,
 ) -> Result<(), AppCommandError> {
+    if !super::provider_overlay::uses_managed_gateway(agent) {
+        return Ok(());
+    }
     let token = require_access_token(conn).await?;
     let profile = active_profile_root(agent).map_err(profile_resolution_error)?;
     write_agent_credentials_at_profile(agent, &profile, Some(&token))
@@ -45,12 +49,22 @@ pub(crate) async fn sync_agent_credentials_for_acp(
 ) -> Result<(), crate::acp::error::AcpError> {
     sync_agent_credentials(conn, agent)
         .await
-        .map_err(|error| match error.code {
-            AppErrorCode::AuthenticationFailed => {
-                crate::acp::error::AcpError::AuthenticationRequired
-            }
-            _ => crate::acp::error::AcpError::protocol(error.to_string()),
-        })
+        .map_err(credentials_acp_error)
+}
+
+pub(crate) async fn inject_runtime_credential_for_acp(
+    conn: &DatabaseConnection,
+    agent: AgentType,
+    runtime_env: &mut BTreeMap<String, String>,
+) -> Result<(), crate::acp::error::AcpError> {
+    if !matches!(agent, AgentType::CodeBuddy | AgentType::Grok) {
+        return Ok(());
+    }
+    let token = require_access_token(conn)
+        .await
+        .map_err(credentials_acp_error)?;
+    apply_runtime_credential(agent, runtime_env, &token);
+    Ok(())
 }
 
 pub(crate) async fn sync_existing_agent_credentials(
@@ -58,6 +72,9 @@ pub(crate) async fn sync_existing_agent_credentials(
 ) -> Result<(), AppCommandError> {
     let token = require_access_token(conn).await?;
     for agent in crate::acp::registry::all_acp_agents() {
+        if !super::provider_overlay::uses_managed_gateway(agent) {
+            continue;
+        }
         let profile = active_profile_root(agent).map_err(profile_resolution_error)?;
         if profile.exists() {
             write_agent_credentials_at_profile(agent, &profile, Some(&token))
@@ -70,6 +87,9 @@ pub(crate) async fn sync_existing_agent_credentials(
 pub(crate) fn clear_existing_agent_credentials() -> Result<(), String> {
     let mut errors = Vec::new();
     for agent in crate::acp::registry::all_acp_agents() {
+        if !super::provider_overlay::uses_managed_gateway(agent) {
+            continue;
+        }
         match active_profile_root(agent) {
             Ok(profile) if profile.exists() => {
                 if let Err(error) = write_agent_credentials_at_profile(agent, &profile, None) {
@@ -95,17 +115,43 @@ async fn require_access_token(
         })
 }
 
+fn credentials_acp_error(error: AppCommandError) -> crate::acp::error::AcpError {
+    match error.code {
+        AppErrorCode::AuthenticationFailed => crate::acp::error::AcpError::AuthenticationRequired,
+        _ => crate::acp::error::AcpError::protocol(error.to_string()),
+    }
+}
+
+fn apply_runtime_credential(
+    agent: AgentType,
+    runtime_env: &mut BTreeMap<String, String>,
+    token: &AccountAccessToken,
+) {
+    match agent {
+        AgentType::CodeBuddy => {
+            runtime_env.insert("CODEBUDDY_API_KEY".into(), token.expose().into());
+        }
+        AgentType::Grok => {
+            runtime_env.insert("XAI_API_KEY".into(), token.expose().into());
+        }
+        _ => {}
+    }
+}
+
 pub(crate) fn write_agent_credentials_at_profile(
     agent: AgentType,
     profile: &Path,
     token: Option<&AccountAccessToken>,
 ) -> Result<(), String> {
+    if !super::provider_overlay::uses_managed_gateway(agent) {
+        return Ok(());
+    }
     let token = token.map(AccountAccessToken::expose);
     if token.is_none() && !profile.exists() {
         return Ok(());
     }
     match agent {
-        AgentType::ClaudeCode | AgentType::CodeBuddy | AgentType::Gemini => {
+        AgentType::ClaudeCode | AgentType::CodeBuddy => {
             patch_file(profile.join("settings.json"), token, |raw| {
                 patch_json_credential(agent, raw, token)
             })
@@ -158,6 +204,10 @@ pub(crate) fn write_agent_credentials_at_profile(
                 patch_json_gateway_header(agent, raw, token)
             })
         }
+        AgentType::Gemini => Ok(()),
+        // Grok's auth.json is an opaque login cache. Gateway credentials are
+        // injected through XAI_API_KEY at process launch instead of rewriting it.
+        AgentType::Grok => Ok(()),
     }
 }
 
@@ -192,4 +242,38 @@ fn patch_file(
     let raw = read_optional(&path)?;
     let next = patch(&raw).map_err(|error| format!("{}: {error}", path.display()))?;
     write_if_changed(&path, &raw, &next)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    #[test]
+    fn grok_receives_account_token_through_native_runtime_key() {
+        let token = AccountAccessToken::new("managed-token").expect("token");
+        let mut grok_env = BTreeMap::new();
+        apply_runtime_credential(AgentType::Grok, &mut grok_env, &token);
+        assert_eq!(
+            grok_env.get("XAI_API_KEY").map(String::as_str),
+            Some("managed-token")
+        );
+
+        let mut codex_env = BTreeMap::new();
+        apply_runtime_credential(AgentType::Codex, &mut codex_env, &token);
+        assert!(codex_env.is_empty());
+    }
+
+    #[test]
+    fn codebuddy_receives_account_token_through_native_runtime_key() {
+        let token = AccountAccessToken::new("managed-token").expect("token");
+        let mut codebuddy_env = BTreeMap::new();
+        apply_runtime_credential(AgentType::CodeBuddy, &mut codebuddy_env, &token);
+        assert_eq!(
+            codebuddy_env.get("CODEBUDDY_API_KEY").map(String::as_str),
+            Some("managed-token")
+        );
+        assert!(!codebuddy_env.contains_key("ANTHROPIC_AUTH_TOKEN"));
+    }
 }

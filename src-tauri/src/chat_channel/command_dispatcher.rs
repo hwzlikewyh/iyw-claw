@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -6,12 +7,13 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
 use super::command_handlers;
+use super::command_response::{send_dispatch_message, DispatchResponse};
 use super::i18n::{self, Lang};
 use super::manager::ChatChannelManager;
 use super::natural_router::{self, NaturalRouteDecision};
 use super::session_bridge::SessionBridge;
 use super::session_commands;
-use super::types::IncomingCommand;
+use super::types::{ChannelMessageTarget, IncomingCommand, RichMessage};
 use crate::acp::manager::ConnectionManager;
 use crate::db::service::{
     app_metadata_service, chat_channel_message_log_service, sender_context_service,
@@ -60,6 +62,7 @@ pub fn spawn_command_dispatcher(
     mut command_rx: mpsc::Receiver<IncomingCommand>,
     manager: ChatChannelManager,
     db_conn: DatabaseConnection,
+    data_dir: PathBuf,
     conn_mgr: ConnectionManager,
     emitter: EventEmitter,
     bridge: Arc<Mutex<SessionBridge>>,
@@ -90,7 +93,7 @@ pub fn spawn_command_dispatcher(
 
             config.refresh_if_needed(&db_conn).await;
 
-            let response = dispatch_command(
+            let mut response = dispatch_command(
                 text,
                 &config.prefix,
                 &db_conn,
@@ -98,46 +101,38 @@ pub fn spawn_command_dispatcher(
                 &conn_mgr,
                 &emitter,
                 &bridge,
+                &data_dir,
                 cmd.channel_id,
                 &cmd.sender_id,
+                &cmd.target,
+                cmd.callback_data.as_deref(),
                 config.lang,
             )
             .await;
 
-            tracing::info!(
-                "[ChatChannel] dispatch result: title={:?}, body_len={}",
-                response.title,
-                response.body.len()
-            );
-
-            if response.is_silent() {
-                continue;
+            for (message, target) in response.take_messages() {
+                send_dispatch_message(&db_conn, &manager, cmd.channel_id, text, message, target)
+                    .await;
             }
 
-            // Send response back via the same channel
-            let send_result = manager.send_to_channel(cmd.channel_id, &response).await;
-            let (status, error_detail) = match &send_result {
-                Ok(_) => ("sent", None),
-                Err(e) => {
-                    tracing::error!(
-                        "[ChatChannel] failed to send response for {:?} to channel {}: {e}",
-                        text,
-                        cmd.channel_id
-                    );
-                    ("failed", Some(e.to_string()))
+            if let Some(action) = response.post_action.take() {
+                if let Some((message, target)) =
+                    session_commands::handle_post_action(action, &db_conn, &conn_mgr, &bridge).await
+                {
+                    let mut response = DispatchResponse::current(message, &target);
+                    for (message, target) in response.take_messages() {
+                        send_dispatch_message(
+                            &db_conn,
+                            &manager,
+                            cmd.channel_id,
+                            text,
+                            message,
+                            target,
+                        )
+                        .await;
+                    }
                 }
-            };
-
-            let _ = chat_channel_message_log_service::create_log(
-                &db_conn,
-                cmd.channel_id,
-                "outbound",
-                "command_response",
-                &response.to_plain_text(),
-                status,
-                error_detail,
-            )
-            .await;
+            }
         }
     })
 }
@@ -151,16 +146,49 @@ async fn dispatch_command(
     conn_mgr: &ConnectionManager,
     emitter: &EventEmitter,
     bridge: &Arc<Mutex<SessionBridge>>,
+    data_dir: &Path,
     channel_id: i32,
     sender_id: &str,
+    target: &ChannelMessageTarget,
+    callback_data: Option<&str>,
     lang: Lang,
-) -> super::types::RichMessage {
+) -> DispatchResponse {
+    if let Some(data) = callback_data {
+        return DispatchResponse::current(
+            session_commands::handle_callback(db, data, channel_id, sender_id, lang, prefix).await,
+            target,
+        );
+    }
+
     // Strip prefix; if text doesn't start with it, try as follow-up
     let without_prefix = match text.strip_prefix(prefix) {
         Some(rest) => rest,
         None => {
+            if target.is_telegram_general_topic() {
+                return DispatchResponse::none(target);
+            }
+            if target.is_telegram_forum_topic() {
+                return DispatchResponse::current(
+                    session_commands::handle_followup(session_commands::FollowupRequest {
+                        db,
+                        text,
+                        channel_id,
+                        sender_id,
+                        target,
+                        conn_mgr,
+                        emitter,
+                        bridge,
+                        data_dir,
+                        lang,
+                        prefix,
+                    })
+                    .await,
+                    target,
+                );
+            }
             return dispatch_natural_message(
-                text, prefix, db, manager, conn_mgr, emitter, bridge, channel_id, sender_id, lang,
+                text, prefix, db, manager, conn_mgr, emitter, bridge, data_dir, channel_id,
+                sender_id, target, lang,
             )
             .await;
         }
@@ -174,57 +202,109 @@ async fn dispatch_command(
         // Existing commands
         "search" => {
             if args.is_empty() {
-                super::types::RichMessage::info(i18n::search_usage(lang, prefix))
-                    .with_title(i18n::invalid_args_title(lang))
+                DispatchResponse::current(
+                    RichMessage::info(i18n::search_usage(lang, prefix))
+                        .with_title(i18n::invalid_args_title(lang)),
+                    target,
+                )
             } else {
-                command_handlers::handle_search(db, args, lang).await
+                DispatchResponse::current(
+                    command_handlers::handle_search(db, args, lang).await,
+                    target,
+                )
             }
         }
-        "today" => command_handlers::handle_today(db, lang).await,
-        "status" => command_handlers::handle_status(manager, lang).await,
-        "help" | "start" => command_handlers::handle_help(prefix, lang),
+        "today" => {
+            DispatchResponse::current(command_handlers::handle_today(db, lang).await, target)
+        }
+        "status" => {
+            DispatchResponse::current(command_handlers::handle_status(manager, lang).await, target)
+        }
+        "help" | "start" => {
+            DispatchResponse::current(command_handlers::handle_help(prefix, lang), target)
+        }
 
         // Session commands
         "folder" => {
-            session_commands::handle_folder(db, args, channel_id, sender_id, lang, prefix).await
+            if args.is_empty() {
+                DispatchResponse::from_session_message(
+                    session_commands::handle_folder_picker(db, channel_id, sender_id, lang, prefix)
+                        .await,
+                    target,
+                )
+            } else {
+                DispatchResponse::current(
+                    session_commands::handle_folder(db, args, channel_id, sender_id, lang, prefix)
+                        .await,
+                    target,
+                )
+            }
         }
         "agent" => {
-            session_commands::handle_agent(db, args, channel_id, sender_id, lang, prefix).await
+            if args.is_empty() {
+                DispatchResponse::from_session_message(
+                    session_commands::handle_agent_picker(db, channel_id, sender_id, lang, prefix)
+                        .await,
+                    target,
+                )
+            } else {
+                DispatchResponse::current(
+                    session_commands::handle_agent(db, args, channel_id, sender_id, lang, prefix)
+                        .await,
+                    target,
+                )
+            }
         }
-        "new" | "task" | "do" => {
+        "new" | "task" | "do" => DispatchResponse::from_command_result(
             session_commands::handle_task(
-                db, args, channel_id, sender_id, conn_mgr, emitter, bridge, lang, prefix,
+                db, args, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge, lang,
+                prefix, data_dir,
             )
-            .await
-        }
-        "sessions" => {
-            session_commands::handle_sessions(db, channel_id, sender_id, lang, prefix).await
-        }
-        "resume" => {
+            .await,
+        ),
+        "sessions" => DispatchResponse::current(
+            session_commands::handle_sessions(db, channel_id, sender_id, target, lang, prefix)
+                .await,
+            target,
+        ),
+        "resume" => DispatchResponse::current(
             session_commands::handle_resume(
-                db, args, channel_id, sender_id, conn_mgr, emitter, bridge, lang, prefix,
+                db, args, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge, lang,
+                prefix, data_dir,
             )
-            .await
-        }
-        "cancel" => {
-            session_commands::handle_cancel(db, channel_id, sender_id, conn_mgr, bridge, lang).await
-        }
+            .await,
+            target,
+        ),
+        "cancel" => DispatchResponse::current(
+            session_commands::handle_cancel(
+                db, channel_id, sender_id, target, conn_mgr, bridge, lang,
+            )
+            .await,
+            target,
+        ),
         "approve" => {
             let always = args.eq_ignore_ascii_case("always");
-            session_commands::handle_permission_response(
-                true, always, db, channel_id, sender_id, conn_mgr, bridge, lang,
+            DispatchResponse::current(
+                session_commands::handle_permission_response(
+                    true, always, db, channel_id, sender_id, target, conn_mgr, bridge, lang,
+                )
+                .await,
+                target,
             )
-            .await
         }
-        "deny" => {
+        "deny" => DispatchResponse::current(
             session_commands::handle_permission_response(
-                false, false, db, channel_id, sender_id, conn_mgr, bridge, lang,
+                false, false, db, channel_id, sender_id, target, conn_mgr, bridge, lang,
             )
-            .await
-        }
+            .await,
+            target,
+        ),
 
-        _ => super::types::RichMessage::info(i18n::unknown_command(lang, prefix, &command))
-            .with_title(i18n::unknown_command_title(lang)),
+        _ => DispatchResponse::current(
+            RichMessage::info(i18n::unknown_command(lang, prefix, &command))
+                .with_title(i18n::unknown_command_title(lang)),
+            target,
+        ),
     }
 }
 
@@ -237,10 +317,12 @@ async fn dispatch_natural_message(
     conn_mgr: &ConnectionManager,
     emitter: &EventEmitter,
     bridge: &Arc<Mutex<SessionBridge>>,
+    data_dir: &Path,
     channel_id: i32,
     sender_id: &str,
+    target: &ChannelMessageTarget,
     lang: Lang,
-) -> super::types::RichMessage {
+) -> DispatchResponse {
     let decision =
         natural_router::route_natural_message(db, bridge, channel_id, sender_id, text, lang).await;
     tracing::info!(
@@ -251,35 +333,44 @@ async fn dispatch_natural_message(
     );
 
     match decision {
-        NaturalRouteDecision::ContinueSession => {
+        NaturalRouteDecision::ContinueSession => DispatchResponse::current(
             session_commands::handle_followup(session_commands::FollowupRequest {
                 db,
                 text,
                 channel_id,
                 sender_id,
+                target,
                 conn_mgr,
                 emitter,
                 bridge,
+                data_dir,
                 lang,
                 prefix,
             })
-            .await
-        }
-        NaturalRouteDecision::ApprovePermission { always } => {
+            .await,
+            target,
+        ),
+        NaturalRouteDecision::ApprovePermission { always } => DispatchResponse::current(
             session_commands::handle_permission_response(
-                true, always, db, channel_id, sender_id, conn_mgr, bridge, lang,
+                true, always, db, channel_id, sender_id, target, conn_mgr, bridge, lang,
             )
-            .await
-        }
-        NaturalRouteDecision::DenyPermission => {
+            .await,
+            target,
+        ),
+        NaturalRouteDecision::DenyPermission => DispatchResponse::current(
             session_commands::handle_permission_response(
-                false, false, db, channel_id, sender_id, conn_mgr, bridge, lang,
+                false, false, db, channel_id, sender_id, target, conn_mgr, bridge, lang,
             )
-            .await
-        }
-        NaturalRouteDecision::CancelSession => {
-            session_commands::handle_cancel(db, channel_id, sender_id, conn_mgr, bridge, lang).await
-        }
+            .await,
+            target,
+        ),
+        NaturalRouteDecision::CancelSession => DispatchResponse::current(
+            session_commands::handle_cancel(
+                db, channel_id, sender_id, target, conn_mgr, bridge, lang,
+            )
+            .await,
+            target,
+        ),
         NaturalRouteDecision::StartTask {
             task,
             folder_id,
@@ -295,23 +386,113 @@ async fn dispatch_natural_message(
                 Some(natural_router::agent_type_to_wire(agent_type)),
             )
             .await;
-            session_commands::handle_task(
-                db, &task, channel_id, sender_id, conn_mgr, emitter, bridge, lang, prefix,
+            DispatchResponse::from_command_result(
+                session_commands::handle_task(
+                    db, &task, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge,
+                    lang, prefix, data_dir,
+                )
+                .await,
             )
-            .await
         }
-        NaturalRouteDecision::ShowStatus => command_handlers::handle_status(manager, lang).await,
-        NaturalRouteDecision::ShowToday => command_handlers::handle_today(db, lang).await,
-        NaturalRouteDecision::SearchHistory { keyword } => {
-            command_handlers::handle_search(db, &keyword, lang).await
+        NaturalRouteDecision::ShowStatus => {
+            DispatchResponse::current(command_handlers::handle_status(manager, lang).await, target)
         }
+        NaturalRouteDecision::ShowToday => {
+            DispatchResponse::current(command_handlers::handle_today(db, lang).await, target)
+        }
+        NaturalRouteDecision::SearchHistory { keyword } => DispatchResponse::current(
+            command_handlers::handle_search(db, &keyword, lang).await,
+            target,
+        ),
         NaturalRouteDecision::AskClarification { message } => {
             tracing::info!(
                 "[ChatChannel] natural message needs clarification; suppressing canned \
                  channel reply: {}",
                 message
             );
-            super::types::RichMessage::info("")
+            DispatchResponse::none(target)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::service::{chat_channel_service, sender_context_service};
+    use crate::db::test_helpers::{fresh_in_memory_db, seed_folder};
+
+    async fn seed_telegram_channel(db: &crate::db::AppDatabase) -> i32 {
+        chat_channel_service::create(
+            &db.conn,
+            "Telegram test".into(),
+            "telegram".into(),
+            serde_json::json!({ "chat_id": "-100123", "topic_mode": true }).to_string(),
+            true,
+            false,
+            None,
+        )
+        .await
+        .expect("seed channel")
+        .id
+    }
+
+    #[tokio::test]
+    async fn callback_data_dispatches_without_a_command_prefix() {
+        let db = fresh_in_memory_db().await;
+        let channel_id = seed_telegram_channel(&db).await;
+        let folder_id = seed_folder(&db, "/tmp/iyw-claw-dispatch-callback").await;
+        let target = ChannelMessageTarget::telegram_general(channel_id, "-100123");
+        let bridge = Arc::new(Mutex::new(SessionBridge::new()));
+
+        let response = dispatch_command(
+            "ignored callback label",
+            "/",
+            &db.conn,
+            &ChatChannelManager::new(),
+            &ConnectionManager::new(),
+            &EventEmitter::Noop,
+            &bridge,
+            Path::new("/tmp/iyw-claw-dispatch-data"),
+            channel_id,
+            "sender-1",
+            &target,
+            Some(&format!("cfg:folder:{folder_id}")),
+            Lang::En,
+        )
+        .await;
+        let context = sender_context_service::get_or_create(&db.conn, channel_id, "sender-1")
+            .await
+            .expect("context");
+
+        assert!(response.message.is_some());
+        assert_eq!(context.current_folder_id, Some(folder_id));
+    }
+
+    #[tokio::test]
+    async fn general_topic_plain_text_produces_no_response() {
+        let db = fresh_in_memory_db().await;
+        let channel_id = seed_telegram_channel(&db).await;
+        let target = ChannelMessageTarget::telegram_general(channel_id, "-100123");
+        let bridge = Arc::new(Mutex::new(SessionBridge::new()));
+
+        let response = dispatch_command(
+            "hello group",
+            "/",
+            &db.conn,
+            &ChatChannelManager::new(),
+            &ConnectionManager::new(),
+            &EventEmitter::Noop,
+            &bridge,
+            Path::new("/tmp/iyw-claw-dispatch-data"),
+            channel_id,
+            "sender-1",
+            &target,
+            None,
+            Lang::En,
+        )
+        .await;
+
+        assert!(response.message.is_none());
+        assert_eq!(response.target, target);
     }
 }

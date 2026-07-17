@@ -244,14 +244,15 @@ pub async fn update_external_id(
     conversation_id: i32,
     external_id: String,
 ) -> Result<(), DbError> {
-    let conv = conversation::Entity::find_by_id(conversation_id)
-        .one(conn)
-        .await?
-        .ok_or_else(|| DbError::Migration(format!("Conversation not found: {conversation_id}")))?;
-    let mut active: conversation::ActiveModel = conv.into();
-    active.external_id = Set(Some(external_id));
-    active.updated_at = Set(Utc::now());
-    active.update(conn).await?;
+    use sea_orm::sea_query::Expr;
+
+    conversation::Entity::update_many()
+        .col_expr(conversation::Column::ExternalId, Expr::value(external_id))
+        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(conversation::Column::Id.eq(conversation_id))
+        .filter(conversation::Column::DeletedAt.is_null())
+        .exec(conn)
+        .await?;
     Ok(())
 }
 
@@ -513,7 +514,7 @@ pub async fn list_all(
     Ok(summaries)
 }
 
-/// List delegation children of a single parent conversation, oldest first.
+/// List delegation children of a single parent conversation, newest first.
 /// Returns rows where `parent_id == parent_conversation_id`. Soft-deleted
 /// children are filtered out so a removed sub-session stays hidden in the
 /// parent's tool-call view too.
@@ -524,7 +525,8 @@ pub async fn list_children(
     let rows = conversation::Entity::find()
         .filter(conversation::Column::ParentId.eq(parent_conversation_id))
         .filter(conversation::Column::DeletedAt.is_null())
-        .order_by_asc(conversation::Column::CreatedAt)
+        .order_by_desc(conversation::Column::CreatedAt)
+        .order_by_desc(conversation::Column::Id)
         .all(conn)
         .await?;
     let mut summaries: Vec<DbConversationSummary> = rows.into_iter().map(conv_to_summary).collect();
@@ -758,6 +760,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_children_orders_newest_first() {
+        let db = fresh_in_memory_db().await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-list-children-order").await;
+        let parent = create(
+            &db.conn,
+            folder,
+            AgentType::ClaudeCode,
+            Some("parent".into()),
+            None,
+        )
+        .await
+        .expect("parent");
+        let make_link = |suffix: &str| DelegationLink {
+            parent_conversation_id: parent.id,
+            parent_tool_use_id: format!("tool-{suffix}"),
+            delegation_call_id: format!("call-{suffix}"),
+        };
+        let first = create_with_delegation(
+            &db.conn,
+            folder,
+            AgentType::Codex,
+            Some("first".into()),
+            None,
+            Some(make_link("first")),
+        )
+        .await
+        .expect("first");
+        let second = create_with_delegation(
+            &db.conn,
+            folder,
+            AgentType::Codex,
+            Some("second".into()),
+            None,
+            Some(make_link("second")),
+        )
+        .await
+        .expect("second");
+
+        let ids: Vec<i32> = list_children(&db.conn, parent.id)
+            .await
+            .expect("children")
+            .into_iter()
+            .map(|child| child.id)
+            .collect();
+        assert_eq!(ids, vec![second.id, first.id]);
+    }
+
+    #[tokio::test]
     async fn create_leaves_title_unlocked() {
         let db = fresh_in_memory_db().await;
         let folder = seed_folder(&db, "/tmp/iyw-claw-title-unlocked").await;
@@ -790,6 +840,56 @@ mod tests {
         let summary = get_by_id(&db.conn, row.id).await.expect("get");
         assert_eq!(summary.title.as_deref(), Some("My name"));
         assert!(summary.title_locked, "manual rename must lock the title");
+    }
+
+    #[tokio::test]
+    async fn update_external_id_skips_soft_deleted_row() {
+        let db = fresh_in_memory_db().await;
+        let folder = seed_folder(&db, "/tmp/iyw-claw-extid-deleted").await;
+        let row = create(
+            &db.conn,
+            folder,
+            AgentType::ClaudeCode,
+            Some("Doomed".into()),
+            None,
+        )
+        .await
+        .expect("create");
+        update_external_id(&db.conn, row.id, "session-S1".into())
+            .await
+            .expect("seed external_id");
+        soft_delete(&db.conn, row.id).await.expect("soft delete");
+
+        update_external_id(&db.conn, row.id, "session-S2".into())
+            .await
+            .expect("stale SessionStarted should be a no-op");
+
+        let raw = conversation::Entity::find_by_id(row.id)
+            .one(&db.conn)
+            .await
+            .expect("query")
+            .expect("soft-deleted row");
+        assert!(raw.deleted_at.is_some());
+        assert_eq!(raw.external_id.as_deref(), Some("session-S1"));
+
+        let live = create(
+            &db.conn,
+            folder,
+            AgentType::ClaudeCode,
+            Some("Live".into()),
+            None,
+        )
+        .await
+        .expect("create live");
+        update_external_id(&db.conn, live.id, "session-S9".into())
+            .await
+            .expect("live update");
+        let live_raw = conversation::Entity::find_by_id(live.id)
+            .one(&db.conn)
+            .await
+            .expect("query live")
+            .expect("live row");
+        assert_eq!(live_raw.external_id.as_deref(), Some("session-S9"));
     }
 
     #[tokio::test]

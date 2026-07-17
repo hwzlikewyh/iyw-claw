@@ -1,5 +1,4 @@
 import type { Extensions } from "@tiptap/core"
-import { Markdown } from "@tiptap/markdown"
 import { Placeholder } from "@tiptap/extension-placeholder"
 import StarterKit from "@tiptap/starter-kit"
 
@@ -71,12 +70,20 @@ export function buildComposerExtensions(
 ): Extensions {
   const extensions: Extensions = [
     StarterKit.configure({
-      link: {
-        autolink: false,
-        linkOnPaste: false,
-        openOnClick: false,
-        shouldAutoLink: () => false,
-      },
+      blockquote: false,
+      bold: false,
+      bulletList: false,
+      code: false,
+      codeBlock: false,
+      heading: false,
+      horizontalRule: false,
+      italic: false,
+      link: false,
+      listItem: false,
+      listKeymap: false,
+      orderedList: false,
+      strike: false,
+      underline: false,
     }),
     Placeholder.configure({
       placeholder: options.placeholder ?? "",
@@ -84,7 +91,6 @@ export function buildComposerExtensions(
       // composer reads as empty rather than as a hint.
       showOnlyWhenEditable: true,
     }),
-    Markdown,
     Reference,
     // Keeps the selection visible when focus moves to the right-click menu.
     InactiveSelectionHighlight,

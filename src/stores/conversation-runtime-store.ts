@@ -23,6 +23,10 @@ import { collapseLiveCollabBlocks } from "@/lib/collab-collapse"
 import { kimiTodoWriteEntries } from "@/lib/plan-parse"
 import { toErrorMessage } from "@/lib/app-error"
 import { parseDisplayImageMetadata } from "@/lib/display-image-metadata"
+import { computeTurnMetadataPatches } from "@/stores/turn-metadata"
+import { BACKGROUND_TASK_MARKER } from "@/lib/background-agent"
+
+export { computeTurnMetadataPatches } from "@/stores/turn-metadata"
 
 /**
  * Conversation-runtime shared state as a Zustand store — the per-conversation
@@ -55,9 +59,25 @@ export interface ConversationTimelineTurn {
   inProgressToolCallIds?: Set<string>
 }
 
+export interface BackgroundOverlayEntry {
+  turn: MessageTurn
+  watermark: number
+}
+
+export interface PendingBackgroundSettlement {
+  toolUseId: string
+  taskId: string
+  status: string
+  summary: string | null
+  result: string | null
+}
+
+export const BACKGROUND_OVERLAY_HARD_CAP = 300
+
 export interface ConversationRuntimeSession {
   conversationId: number
   externalId: string | null
+  dbConversationId: number | null
 
   // DB data (cold open only)
   detail: DbConversationDetail | null
@@ -73,6 +93,8 @@ export interface ConversationRuntimeSession {
 
   // Active session accumulated turns (promoted optimistic + completed streaming)
   localTurns: MessageTurn[]
+  backgroundTurns: BackgroundOverlayEntry[]
+  pendingBackgroundSettlements: PendingBackgroundSettlement[]
 
   // Temporary state
   optimisticTurns: MessageTurn[]
@@ -102,6 +124,10 @@ export interface ConversationRuntimeSession {
 
   // Session-level stats (token usage, context window, etc.)
   sessionStats: SessionStats | null
+
+  // Assistant turns already persisted before the current local batch began.
+  // Captured at send time so mid-stream detail refreshes cannot move it.
+  historyAssistantBaseline: number | null
 
   // Cleanup
   pendingCleanup: boolean
@@ -175,6 +201,17 @@ type Action =
       liveMessage?: LiveMessage | null
     }
   | {
+      type: "APPLY_BACKGROUND_ACTIVITY"
+      conversationId: number
+      turns: MessageTurn[]
+      watermark: number
+    }
+  | {
+      type: "RESOLVE_BACKGROUND_TASK"
+      conversationId: number
+      settlement: PendingBackgroundSettlement
+    }
+  | {
       type: "APPEND_OPTIMISTIC_TURN"
       conversationId: number
       turn: MessageTurn
@@ -221,6 +258,11 @@ type Action =
       externalId: string | null
     }
   | {
+      type: "SET_DB_CONVERSATION_ID"
+      conversationId: number
+      dbConversationId: number | null
+    }
+  | {
       type: "SET_SYNC_STATE"
       conversationId: number
       syncState: ConversationSyncState
@@ -261,11 +303,14 @@ function createEmptySession(
   return {
     conversationId,
     externalId: null,
+    dbConversationId: null,
     detail: null,
     detailLoading: false,
     detailError: null,
     acpLoadError: null,
     localTurns: [],
+    backgroundTurns: [],
+    pendingBackgroundSettlements: [],
     optimisticTurns: [],
     liveMessage: null,
     syncState: "idle",
@@ -273,8 +318,26 @@ function createEmptySession(
     liveOwnsActiveTurn: false,
     delegationKickoffText: null,
     sessionStats: null,
+    historyAssistantBaseline: null,
     pendingCleanup: false,
   }
+}
+
+function batchStartHistoryBaseline(
+  current: ConversationRuntimeSession,
+  promptId: string
+): number | null {
+  if (current.localTurns.length > 0 || current.optimisticTurns.length > 0) {
+    return current.historyAssistantBaseline
+  }
+  const turns = current.detail?.turns ?? []
+  const inFlightId = current.detail?.in_flight_user_turn_id ?? null
+  const cutoff =
+    inFlightId === promptId
+      ? turns.findIndex((turn) => turn.role === "user" && turn.id === promptId)
+      : -1
+  const history = cutoff === -1 ? turns : turns.slice(0, cutoff + 1)
+  return history.filter((turn) => turn.role === "assistant").length
 }
 
 interface BuiltStreamingTurns {
@@ -933,6 +996,90 @@ function userTurnContentKey(turn: MessageTurn): string {
   )
 }
 
+function applyBackgroundSettlementToTurns(
+  turns: MessageTurn[],
+  settlement: PendingBackgroundSettlement
+): { turns: MessageTurn[]; matched: boolean } {
+  const marker =
+    BACKGROUND_TASK_MARKER +
+    JSON.stringify({
+      task_id: settlement.taskId,
+      status: settlement.status,
+      summary: settlement.summary,
+      result: settlement.result,
+    })
+  let matched = false
+  let changed = false
+  const nextTurns = turns.map((turn) => {
+    let turnChanged = false
+    const blocks = turn.blocks.map((block) => {
+      if (
+        block.type !== "tool_result" ||
+        block.tool_use_id !== settlement.toolUseId
+      ) {
+        return block
+      }
+      matched = true
+      if (block.output_preview === marker) return block
+      changed = true
+      turnChanged = true
+      return { ...block, output_preview: marker }
+    })
+    return turnChanged ? { ...turn, blocks } : turn
+  })
+  return { turns: changed ? nextTurns : turns, matched }
+}
+
+function patchBackgroundSettlement(
+  current: ConversationRuntimeSession,
+  settlement: PendingBackgroundSettlement
+): ConversationRuntimeSession {
+  const local = applyBackgroundSettlementToTurns(current.localTurns, settlement)
+  const optimistic = applyBackgroundSettlementToTurns(
+    current.optimisticTurns,
+    settlement
+  )
+  const detailResult = current.detail
+    ? applyBackgroundSettlementToTurns(current.detail.turns, settlement)
+    : null
+  const matched =
+    local.matched || optimistic.matched || detailResult?.matched === true
+  const pending = matched
+    ? current.pendingBackgroundSettlements.filter(
+        (item) => item.toolUseId !== settlement.toolUseId
+      )
+    : [
+        ...current.pendingBackgroundSettlements.filter(
+          (item) => item.toolUseId !== settlement.toolUseId
+        ),
+        settlement,
+      ]
+  return {
+    ...current,
+    localTurns: local.turns,
+    optimisticTurns: optimistic.turns,
+    detail:
+      current.detail && detailResult
+        ? { ...current.detail, turns: detailResult.turns }
+        : current.detail,
+    pendingBackgroundSettlements: pending,
+  }
+}
+
+function drainBackgroundSettlements(
+  turns: MessageTurn[],
+  pending: PendingBackgroundSettlement[]
+): { turns: MessageTurn[]; pending: PendingBackgroundSettlement[] } {
+  let nextTurns = turns
+  const remaining: PendingBackgroundSettlement[] = []
+  for (const settlement of pending) {
+    const result = applyBackgroundSettlementToTurns(nextTurns, settlement)
+    nextTurns = result.turns
+    if (!result.matched) remaining.push(settlement)
+  }
+  return { turns: nextTurns, pending: remaining }
+}
+
 function reducer(
   state: ConversationRuntimeState,
   action: Action
@@ -975,6 +1122,13 @@ function reducer(
         detailIsInFlight
       const keepAllLiveBuffers =
         action.preserveLive === true || detailIsInFlight
+      const detailWatermark = action.detail.transcript_watermark ?? null
+      const retainedBackground =
+        detailWatermark === null
+          ? current.backgroundTurns
+          : current.backgroundTurns.filter(
+              (entry) => entry.watermark > detailWatermark
+            )
 
       const nextSession: ConversationRuntimeSession = {
         ...current,
@@ -983,6 +1137,10 @@ function reducer(
         detailError: null,
         externalId: nextExternalId ?? current.externalId,
         sessionStats: action.detail.session_stats ?? current.sessionStats,
+        backgroundTurns:
+          retainedBackground.length === current.backgroundTurns.length
+            ? current.backgroundTurns
+            : retainedBackground,
         ...(isActivelyInteracting
           ? keepAllLiveBuffers
             ? {}
@@ -1085,15 +1243,54 @@ function reducer(
           : promotedRaw.filter(
               (turn, i) => promotedLastIndexById.get(turn.id) === i
             )
+      const drained = drainBackgroundSettlements(
+        promoted,
+        current.pendingBackgroundSettlements
+      )
 
       return updateSessionInState(state, action.conversationId, () => ({
         ...current,
-        localTurns: promoted,
+        localTurns: drained.turns,
+        pendingBackgroundSettlements: drained.pending,
         optimisticTurns: [],
         liveMessage: null,
         syncState: "idle",
         activeTurnToken: null,
       }))
+    }
+
+    case "APPLY_BACKGROUND_ACTIVITY": {
+      if (action.turns.length === 0) return state
+      return updateSessionInState(state, action.conversationId, (current) => {
+        const indexById = new Map<string, number>()
+        current.backgroundTurns.forEach((entry, index) => {
+          indexById.set(entry.turn.id, index)
+        })
+        const entries = current.backgroundTurns.slice()
+        for (const turn of action.turns) {
+          const entry = { turn, watermark: action.watermark }
+          const index = indexById.get(turn.id)
+          if (index === undefined) {
+            indexById.set(turn.id, entries.length)
+            entries.push(entry)
+          } else {
+            entries[index] = entry
+          }
+        }
+        const bounded =
+          entries.length > BACKGROUND_OVERLAY_HARD_CAP
+            ? entries.slice(entries.length - BACKGROUND_OVERLAY_HARD_CAP)
+            : entries
+        return { ...current, backgroundTurns: bounded }
+      })
+    }
+
+    case "RESOLVE_BACKGROUND_TASK": {
+      const current = state.byConversationId.get(action.conversationId)
+      if (!current) return state
+      return updateSessionInState(state, action.conversationId, () =>
+        patchBackgroundSettlement(current, action.settlement)
+      )
     }
 
     case "APPEND_OPTIMISTIC_TURN":
@@ -1102,6 +1299,10 @@ function reducer(
         optimisticTurns: [...current.optimisticTurns, action.turn],
         syncState: "awaiting_persist",
         activeTurnToken: action.turnToken,
+        historyAssistantBaseline: batchStartHistoryBaseline(
+          current,
+          action.turn.id
+        ),
       }))
 
     case "REMOVE_OPTIMISTIC_TURN": {
@@ -1128,6 +1329,14 @@ function reducer(
         state.byConversationId.get(action.conversationId) ??
         createEmptySession(action.conversationId)
       const id = action.turn.id
+      const nextBaseline = batchStartHistoryBaseline(current, id)
+      const captureOnly = (): ConversationRuntimeState =>
+        nextBaseline === current.historyAssistantBaseline
+          ? state
+          : updateSessionInState(state, action.conversationId, (session) => ({
+              ...session,
+              historyAssistantBaseline: nextBaseline,
+            }))
       // EXACT-id dedup (not a heuristic): the sender's OWN optimistic turn
       // shares this id — the UI threaded its optimistic turn id to the backend,
       // which echoed it as the `user_message` message_id — so the sender drops
@@ -1156,7 +1365,7 @@ function reducer(
         (current.detail?.turns.some((t) => t.id === id && t.role === "user") ??
           false)
       ) {
-        return state
+        return captureOnly()
       }
       // CONTENT dedup against persisted history. The exact-id guard above is
       // blind to the prompt once the agent has written it to its JSONL
@@ -1195,7 +1404,7 @@ function reducer(
         lastPersisted?.role === "user" &&
         userTurnContentKey(lastPersisted) === userTurnContentKey(action.turn)
       ) {
-        return state
+        return captureOnly()
       }
       // Append as an optimistic turn so it flows through the EXISTING promotion
       // (COMPLETE_TURN → localTurns) and reset-on-fetch machinery, identical to
@@ -1206,6 +1415,7 @@ function reducer(
       return updateSessionInState(state, action.conversationId, (s) => ({
         ...s,
         optimisticTurns: [...s.optimisticTurns, action.turn],
+        historyAssistantBaseline: nextBaseline,
       }))
     }
 
@@ -1265,6 +1475,18 @@ function reducer(
       }
     }
 
+    case "SET_DB_CONVERSATION_ID": {
+      const current = state.byConversationId.get(action.conversationId)
+      if (current?.dbConversationId === action.dbConversationId) return state
+      const base = current ?? createEmptySession(action.conversationId)
+      const nextByConversationId = new Map(state.byConversationId)
+      nextByConversationId.set(action.conversationId, {
+        ...base,
+        dbConversationId: action.dbConversationId,
+      })
+      return { ...state, byConversationId: nextByConversationId }
+    }
+
     case "SET_SYNC_STATE":
       return updateSessionInState(state, action.conversationId, (current) => ({
         ...current,
@@ -1296,6 +1518,8 @@ function reducer(
         liveOwnsActiveTurn: to.liveOwnsActiveTurn || from.liveOwnsActiveTurn,
         delegationKickoffText:
           to.delegationKickoffText ?? from.delegationKickoffText,
+        historyAssistantBaseline:
+          from.historyAssistantBaseline ?? to.historyAssistantBaseline,
       }
 
       const nextByConversationId = new Map(state.byConversationId)
@@ -1444,12 +1668,25 @@ export interface RuntimeActions {
   ) => void
   removeOptimisticTurn: (conversationId: number, id: string) => void
   appendViewerUserTurn: (conversationId: number, turn: MessageTurn) => void
+  applyBackgroundActivity: (
+    conversationId: number,
+    turns: MessageTurn[],
+    watermark: number
+  ) => void
+  resolveBackgroundTask: (
+    conversationId: number,
+    settlement: PendingBackgroundSettlement
+  ) => void
   setLiveMessage: (
     conversationId: number,
     liveMessage: LiveMessage | null,
     isLive?: boolean
   ) => void
   setExternalId: (conversationId: number, externalId: string | null) => void
+  setDbConversationId: (
+    conversationId: number,
+    dbConversationId: number | null
+  ) => void
   setSyncState: (
     conversationId: number,
     syncState: ConversationSyncState
@@ -1514,6 +1751,37 @@ function isLatestGeneration(
   generation: number
 ): boolean {
   return fetchGeneration.get(conversationId) === generation
+}
+
+function mergeTimelineByTimestamp(
+  left: ConversationTimelineTurn[],
+  right: ConversationTimelineTurn[]
+): ConversationTimelineTurn[] {
+  if (left.length === 0) return right
+  if (right.length === 0) return left
+  const merged: ConversationTimelineTurn[] = []
+  let leftIndex = 0
+  let rightIndex = 0
+  while (leftIndex < left.length && rightIndex < right.length) {
+    const leftTime = Date.parse(left[leftIndex].turn.timestamp) || 0
+    const rightTime = Date.parse(right[rightIndex].turn.timestamp) || 0
+    if (leftTime <= rightTime) {
+      merged.push(left[leftIndex])
+      leftIndex += 1
+    } else {
+      merged.push(right[rightIndex])
+      rightIndex += 1
+    }
+  }
+  while (leftIndex < left.length) {
+    merged.push(left[leftIndex])
+    leftIndex += 1
+  }
+  while (rightIndex < right.length) {
+    merged.push(right[rightIndex])
+    rightIndex += 1
+  }
+  return merged
 }
 
 /**
@@ -1647,6 +1915,14 @@ function computeTimeline(
       phase: "persisted",
     })
   )
+  const background: ConversationTimelineTurn[] = session.backgroundTurns.map(
+    (entry) => ({
+      key: `background-${conversationId}-${entry.turn.id}`,
+      turn: entry.turn,
+      phase: "persisted" as const,
+    })
+  )
+  const localAndBackground = mergeTimelineByTimestamp(local, background)
 
   // Phase 3: Optimistic turns (pending user messages)
   const optimistic: ConversationTimelineTurn[] = session.optimisticTurns.map(
@@ -1663,7 +1939,7 @@ function computeTimeline(
     ? buildStreamingTurnsFromLiveMessage(conversationId, streamingMessage)
     : null
 
-  const result = [...persisted, ...local, ...optimistic]
+  const result = [...persisted, ...localAndBackground, ...optimistic]
 
   if (built) {
     for (const [i, turn] of built.turns.entries()) {
@@ -1778,9 +2054,12 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
     conversationId: number,
     options?: { preserveLive?: boolean }
   ): void => {
+    const fetchId =
+      get().byConversationId.get(conversationId)?.dbConversationId ??
+      conversationId
     const generation = bumpFetchGeneration(conversationId)
     dispatch({ type: "FETCH_DETAIL_START", conversationId })
-    getFolderConversation(conversationId)
+    getFolderConversation(fetchId)
       .then((detail) => {
         if (!isLatestGeneration(conversationId, generation)) return
         dispatch({
@@ -1833,89 +2112,11 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
             const parsedAssistantTurns = parsed.turns.filter(
               (t) => t.role === "assistant"
             )
-
-            const offset =
-              parsedAssistantTurns.length - localAssistantIndices.length
-            const patches: Array<{
-              index: number
-              usage?: TurnUsage | null
-              duration_ms?: number | null
-              model?: string | null
-              completed_at?: string | null
-            }> = []
-
-            for (let i = 0; i < localAssistantIndices.length; i++) {
-              const parsedIdx = offset + i
-              let usageToApply: TurnUsage | null | undefined
-              let durationToApply: number | null | undefined
-              let modelToApply: string | null | undefined
-              // For the merged-sub-turn case (offset > 0), the latest
-              // completion is parsed[offset + i] (the sub-turn we matched);
-              // earlier rolled-in parsed turns precede it in time, so we
-              // don't aggregate completion timestamps.
-              let completedAtToApply: string | null | undefined
-
-              if (parsedIdx >= 0 && parsedIdx < parsedAssistantTurns.length) {
-                const pt = parsedAssistantTurns[parsedIdx]
-                usageToApply = pt.usage
-                durationToApply = pt.duration_ms
-                modelToApply = pt.model
-                completedAtToApply = pt.completed_at
-              }
-
-              // When the parser splits the response into more sub-turns
-              // than the live stream did (offset > 0), roll the leading
-              // unmatched parsed turns' usage/duration into local[0] so
-              // that sum(local) equals sum(parsed). Without this, the
-              // mid-stream stats row under-reports tokens vs. a fresh
-              // historical reload, which clears localTurns and shows
-              // every parsed turn directly.
-              if (i === 0 && offset > 0) {
-                for (let j = 0; j < offset; j++) {
-                  const extra = parsedAssistantTurns[j]
-                  if (extra.usage) {
-                    if (!usageToApply) {
-                      usageToApply = { ...extra.usage }
-                    } else {
-                      usageToApply = {
-                        input_tokens:
-                          usageToApply.input_tokens + extra.usage.input_tokens,
-                        output_tokens:
-                          usageToApply.output_tokens +
-                          extra.usage.output_tokens,
-                        cache_creation_input_tokens:
-                          usageToApply.cache_creation_input_tokens +
-                          extra.usage.cache_creation_input_tokens,
-                        cache_read_input_tokens:
-                          usageToApply.cache_read_input_tokens +
-                          extra.usage.cache_read_input_tokens,
-                      }
-                    }
-                  }
-                  if (typeof extra.duration_ms === "number") {
-                    durationToApply = (durationToApply ?? 0) + extra.duration_ms
-                  }
-                  if (!modelToApply && extra.model) {
-                    modelToApply = extra.model
-                  }
-                }
-              }
-
-              if (
-                !usageToApply &&
-                !durationToApply &&
-                !modelToApply &&
-                !completedAtToApply
-              )
-                continue
-              patches.push({
-                index: localAssistantIndices[i],
-                usage: usageToApply,
-                duration_ms: durationToApply,
-                model: modelToApply,
-                completed_at: completedAtToApply,
-              })
-            }
+            const patches = computeTurnMetadataPatches({
+              localAssistantIndices,
+              parsedAssistantTurns,
+              persistedAssistantCount: cur.historyAssistantBaseline ?? 0,
+            })
 
             if (patches.length > 0 || parsed.session_stats) {
               dispatch({
@@ -1926,8 +2127,16 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
               })
             }
 
-            const latestPatch = patches[patches.length - 1]
-            if (!latestPatch?.usage && attempt < 1) {
+            const lastLocalAssistantIndex =
+              localAssistantIndices[localAssistantIndices.length - 1]
+            const latestCoverage = patches.find(
+              (patch) => patch.index === lastLocalAssistantIndex
+            )
+            if (
+              lastLocalAssistantIndex !== undefined &&
+              !latestCoverage?.usage &&
+              attempt < 1
+            ) {
               trySync(attempt + 1)
             }
           })
@@ -1962,6 +2171,19 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
       dispatch({ type: "REMOVE_OPTIMISTIC_TURN", conversationId, id }),
     appendViewerUserTurn: (conversationId, turn) =>
       dispatch({ type: "APPEND_VIEWER_USER_TURN", conversationId, turn }),
+    applyBackgroundActivity: (conversationId, turns, watermark) =>
+      dispatch({
+        type: "APPLY_BACKGROUND_ACTIVITY",
+        conversationId,
+        turns,
+        watermark,
+      }),
+    resolveBackgroundTask: (conversationId, settlement) =>
+      dispatch({
+        type: "RESOLVE_BACKGROUND_TASK",
+        conversationId,
+        settlement,
+      }),
     setLiveMessage: (conversationId, liveMessage, isLive) =>
       dispatch({
         type: "SET_LIVE_MESSAGE",
@@ -1971,6 +2193,12 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
       }),
     setExternalId: (conversationId, externalId) =>
       dispatch({ type: "SET_EXTERNAL_ID", conversationId, externalId }),
+    setDbConversationId: (conversationId, dbConversationId) =>
+      dispatch({
+        type: "SET_DB_CONVERSATION_ID",
+        conversationId,
+        dbConversationId,
+      }),
     setSyncState: (conversationId, syncState) =>
       dispatch({ type: "SET_SYNC_STATE", conversationId, syncState }),
     migrateConversation: (fromConversationId, toConversationId) =>

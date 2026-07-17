@@ -128,7 +128,10 @@ import {
 } from "@/lib/opencode-connect"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import { getInstallErrorHintKey } from "@/lib/agent-install-error"
-import { presentAgentSdkAgents } from "@/lib/agent-sdk-presentation"
+import {
+  isAgentSdkConfigurationVisible,
+  presentAgentSdkAgents,
+} from "@/lib/agent-sdk-presentation"
 import { useAgentInstallStream } from "@/hooks/use-agent-install-stream"
 import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 import { relaunchApp } from "@/lib/updater"
@@ -1508,6 +1511,8 @@ function normalizeCodexModels(
   _modelIds: readonly string[],
   _defaultModel: string
 ): string[] {
+  void _modelIds
+  void _defaultModel
   return [...MANAGED_MODEL_OPTIONS]
 }
 
@@ -4023,8 +4028,14 @@ interface AcpAgentSettingsProps {
 }
 
 const SHOW_AGENT_ENVIRONMENT_SETTINGS = false
-const SHOW_AGENT_CONFIGURATION_SETTINGS = false
 const SHOW_AGENT_STORAGE_SETTINGS = false
+
+function agentConfigurationClassName(agentType: AgentType): string {
+  return cn(
+    "space-y-3 rounded-md border bg-muted/10 p-3",
+    !isAgentSdkConfigurationVisible(agentType) && "hidden"
+  )
+}
 
 export function AcpAgentSettings({
   initialAgentType = null,
@@ -7551,9 +7562,8 @@ export function AcpAgentSettings({
 
                 {selectedAgent.agent_type === "codex" ? (
                   <div
-                    className={cn(
-                      "space-y-3 rounded-md border bg-muted/10 p-3",
-                      !SHOW_AGENT_CONFIGURATION_SETTINGS && "hidden"
+                    className={agentConfigurationClassName(
+                      selectedAgent.agent_type
                     )}
                   >
                     <div>
@@ -8012,7 +8022,11 @@ responses_websockets_v2 = true`}
                     </div>
                   </div>
                 ) : selectedAgent.agent_type === "gemini" ? (
-                  <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+                  <div
+                    className={agentConfigurationClassName(
+                      selectedAgent.agent_type
+                    )}
+                  >
                     <div>
                       <label className="text-xs font-medium">
                         {t("gemini.authConfig")}
@@ -8308,7 +8322,11 @@ responses_websockets_v2 = true`}
                     </div>
                   </div>
                 ) : selectedAgent.agent_type === "open_code" ? (
-                  <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+                  <div
+                    className={agentConfigurationClassName(
+                      selectedAgent.agent_type
+                    )}
+                  >
                     <div>
                       <label className="text-xs font-medium">
                         {t("openCode.configManagement")}
@@ -9136,7 +9154,11 @@ responses_websockets_v2 = true`}
                     </div>
                   </div>
                 ) : selectedAgent.agent_type === "cline" ? (
-                  <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+                  <div
+                    className={agentConfigurationClassName(
+                      selectedAgent.agent_type
+                    )}
+                  >
                     <div>
                       <label className="text-xs font-medium">
                         {selectedAgent.name}
@@ -9295,7 +9317,11 @@ responses_websockets_v2 = true`}
                     </div>
                   </div>
                 ) : selectedAgent.agent_type === "open_claw" ? (
-                  <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+                  <div
+                    className={agentConfigurationClassName(
+                      selectedAgent.agent_type
+                    )}
+                  >
                     <div>
                       <label className="text-xs font-medium">
                         {t("openClaw.gatewayConfig")}
@@ -9441,7 +9467,11 @@ responses_websockets_v2 = true`}
                     </div>
                   </div>
                 ) : selectedAgent.agent_type === "hermes" ? (
-                  <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+                  <div
+                    className={agentConfigurationClassName(
+                      selectedAgent.agent_type
+                    )}
+                  >
                     <div>
                       <label className="text-xs font-medium">
                         {t("hermes.configManagement")}
@@ -9730,23 +9760,27 @@ responses_websockets_v2 = true`}
                     </details>
                   </div>
                 ) : selectedAgent.agent_type === "code_buddy" ? (
-                  <CodeBuddyConfigPanel
-                    agent={selectedAgent}
-                    saving={Boolean(savingEnv[selectedAgent.agent_type])}
-                    onSave={(env, enabled) =>
-                      persistEnv(
-                        selectedAgent.agent_type,
-                        enabled,
-                        envMapToText(env),
-                        null
-                      )
-                    }
-                  />
+                  isAgentSdkConfigurationVisible(selectedAgent.agent_type) ? (
+                    <CodeBuddyConfigPanel
+                      agent={selectedAgent}
+                      saving={Boolean(savingEnv[selectedAgent.agent_type])}
+                      onSave={(env, enabled) =>
+                        persistEnv(
+                          selectedAgent.agent_type,
+                          enabled,
+                          envMapToText(env),
+                          null
+                        )
+                      }
+                    />
+                  ) : null
                 ) : selectedAgent.agent_type === "kimi_code" ? (
-                  <KimiCodeConfigPanel
-                    agent={selectedAgent}
-                    onSaved={refreshAgents}
-                  />
+                  isAgentSdkConfigurationVisible(selectedAgent.agent_type) ? (
+                    <KimiCodeConfigPanel
+                      agent={selectedAgent}
+                      onSaved={refreshAgents}
+                    />
+                  ) : null
                 ) : selectedAgent.agent_type === "pi" ? (
                   <PiConfigPanel
                     agent={selectedAgent}
@@ -9761,7 +9795,11 @@ responses_websockets_v2 = true`}
                     onSaved={refreshAgents}
                   />
                 ) : (
-                  <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+                  <div
+                    className={agentConfigurationClassName(
+                      selectedAgent.agent_type
+                    )}
+                  >
                     <div>
                       <label className="text-xs font-medium">
                         {t("configManagement")}

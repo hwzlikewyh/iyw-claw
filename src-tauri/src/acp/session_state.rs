@@ -210,6 +210,7 @@ pub struct SessionState {
     pub connection_id: String,
     pub conversation_id: Option<i32>,
     pub external_id: Option<String>,
+    pub external_id_changed_at: Option<std::time::SystemTime>,
     pub agent_type: AgentType,
     pub working_dir: Option<PathBuf>,
     pub owner_window_label: String,
@@ -251,10 +252,16 @@ pub struct SessionState {
     /// Size is human-bounded (one entry per note the user types this turn).
     pub feedback: Vec<FeedbackItem>,
 
+    /// Launched but unresolved Claude background tasks mirrored from the
+    /// transcript watcher. A recent watcher heartbeat keeps the CLI alive.
+    pub background_outstanding: u32,
+    pub background_activity_at: Option<DateTime<Utc>>,
+
     // ACP 协商出的能力
     pub modes: Option<SessionModeStateInfo>,
     pub current_mode: Option<String>,
     pub config_options: Option<Vec<SessionConfigOptionInfo>>,
+    pub(crate) grok_effort_specs: Option<crate::acp::grok::EffortSpecs>,
     pub prompt_capabilities: Option<PromptCapabilitiesInfo>,
     pub fork_supported: bool,
     pub available_commands: Vec<AvailableCommandInfo>,
@@ -355,6 +362,7 @@ pub struct SessionState {
     /// seeing success. Not serialized: it is a connection-loop liveness flag,
     /// not part of the client-visible snapshot.
     pub turn_in_flight: bool,
+    pub last_turn_ended_abnormally: bool,
 
     /// True when the agent's effective settings changed after this connection
     /// was spawned — the running process is still on its launch-time config and
@@ -382,6 +390,7 @@ impl SessionState {
             connection_id,
             conversation_id: None,
             external_id: None,
+            external_id_changed_at: None,
             agent_type,
             working_dir,
             owner_window_label,
@@ -393,9 +402,12 @@ impl SessionState {
             pending_question: None,
             active_delegations: BTreeMap::new(),
             feedback: Vec::new(),
+            background_outstanding: 0,
+            background_activity_at: None,
             modes: None,
             current_mode: None,
             config_options: None,
+            grok_effort_specs: None,
             prompt_capabilities: None,
             fork_supported: false,
             available_commands: Vec::new(),
@@ -413,6 +425,7 @@ impl SessionState {
             pending_user_message: None,
             pending_user_message_started_at: None,
             turn_in_flight: false,
+            last_turn_ended_abnormally: false,
             config_stale: false,
             config_stale_kind: None,
         }
@@ -461,6 +474,9 @@ impl SessionState {
     pub fn apply_event(&mut self, payload: &AcpEvent) {
         match payload {
             AcpEvent::SessionStarted { session_id } => {
+                if self.external_id.as_deref() != Some(session_id.as_str()) {
+                    self.external_id_changed_at = Some(std::time::SystemTime::now());
+                }
                 self.external_id = Some(session_id.clone());
                 self.status = ConnectionStatus::Connected;
                 // Fire the dedup waiter (if any). Take()-and-send is
@@ -474,6 +490,9 @@ impl SessionState {
                 }
             }
             AcpEvent::StatusChanged { status } => {
+                if matches!(status, ConnectionStatus::Prompting) {
+                    self.last_error = None;
+                }
                 self.status = status.clone();
             }
             AcpEvent::SessionModes { modes } => {
@@ -633,7 +652,8 @@ impl SessionState {
                     self.pending_question = None;
                 }
             }
-            AcpEvent::TurnComplete { .. } => {
+            AcpEvent::TurnComplete { stop_reason, .. } => {
+                self.last_turn_ended_abnormally = stop_reason != "end_turn";
                 // Snapshot the just-finished turn's FINAL assistant text — what
                 // `get_delegation_status` returns as the child result. We take
                 // the Text blocks that follow the LAST tool call (the agent's
@@ -816,6 +836,10 @@ impl SessionState {
                     }
                 }
             }
+            AcpEvent::BackgroundActivity { outstanding, .. } => {
+                self.background_outstanding = *outstanding;
+                self.background_activity_at = Some(Utc::now());
+            }
             AcpEvent::ClaudeSdkMessage { .. }
             | AcpEvent::SessionLoadFailed { .. }
             | AcpEvent::UserPromptSent { .. } => {
@@ -824,6 +848,15 @@ impl SessionState {
             }
         }
         self.last_activity_at = Utc::now();
+    }
+
+    pub fn has_active_background_work(&self, now: DateTime<Utc>) -> bool {
+        if self.background_outstanding == 0 {
+            return false;
+        }
+        self.background_activity_at
+            .map(|at| now.signed_duration_since(at) < background_keepalive_max_age())
+            .unwrap_or(false)
     }
 
     /// A single-line "what the sub-agent is doing right now" hint, used by the
@@ -1075,6 +1108,7 @@ impl SessionState {
             pending_user_message: self.pending_user_message.clone(),
             active_delegations: self.active_delegations.values().cloned().collect(),
             feedback: self.feedback.clone(),
+            background_outstanding: self.background_outstanding,
             feedback_tool_available: self.feedback_tool_available,
             modes: self.modes.clone(),
             current_mode: self.current_mode.clone(),
@@ -1086,9 +1120,26 @@ impl SessionState {
             selectors_ready: self.selectors_ready,
             config_stale: self.config_stale,
             config_stale_kind: self.config_stale_kind,
+            last_error: self.last_error.clone(),
             event_seq: self.event_seq,
         }
     }
+}
+
+pub(crate) fn background_keepalive_max_age() -> chrono::Duration {
+    static SECS: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    let secs = *SECS.get_or_init(|| {
+        [
+            "IYW_CLAW_ACP_BACKGROUND_KEEPALIVE_MAX_SECS",
+            "CODEG_ACP_BACKGROUND_KEEPALIVE_MAX_SECS",
+        ]
+        .into_iter()
+        .find_map(|key| std::env::var(key).ok())
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value >= 0)
+        .unwrap_or(3600)
+    });
+    chrono::Duration::seconds(secs)
 }
 
 /// `to_snapshot()` 的输出——前端可消费的 wire shape。
@@ -1127,6 +1178,8 @@ pub struct LiveSessionSnapshot {
     /// wire so every snapshot stays byte-identical with the pre-feature shape.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub feedback: Vec<FeedbackItem>,
+    #[serde(default, skip_serializing_if = "u32_is_zero")]
+    pub background_outstanding: u32,
     /// Whether this agent has the `check_user_feedback` tool (see
     /// `SessionState.feedback_tool_available`). `#[serde(default)]` so older
     /// payloads deserialize to `false`; the frontend gates the feedback bar on
@@ -1152,7 +1205,13 @@ pub struct LiveSessionSnapshot {
     /// byte-identical with the pre-feature wire shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_stale_kind: Option<ConfigStaleKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<SessionLastError>,
     pub event_seq: u64,
+}
+
+fn u32_is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 /// Last non-empty line of `s`, trimmed. `None` if every line is blank.
@@ -1256,6 +1315,58 @@ mod tests {
     }
 
     #[test]
+    fn background_activity_mirrors_outstanding_and_gates_keepalive() {
+        let mut state = fresh_state();
+        assert!(!state.has_active_background_work(Utc::now()));
+
+        state.apply_event(&AcpEvent::BackgroundActivity {
+            session_id: "session-1".into(),
+            turns: vec![],
+            outstanding: 2,
+            settled: vec![],
+            watermark: 42,
+        });
+        assert_eq!(state.background_outstanding, 2);
+        let now = Utc::now();
+        assert!(state.has_active_background_work(now));
+
+        let expired = now + background_keepalive_max_age() + chrono::Duration::seconds(1);
+        assert!(!state.has_active_background_work(expired));
+
+        state.apply_event(&AcpEvent::BackgroundActivity {
+            session_id: "session-1".into(),
+            turns: vec![],
+            outstanding: 0,
+            settled: vec![],
+            watermark: 43,
+        });
+        assert!(!state.has_active_background_work(Utc::now()));
+    }
+
+    #[test]
+    fn snapshot_carries_background_outstanding_and_skips_zero_on_wire() {
+        let mut state = fresh_state();
+        state.apply_event(&AcpEvent::BackgroundActivity {
+            session_id: "session-1".into(),
+            turns: vec![],
+            outstanding: 3,
+            settled: vec![],
+            watermark: 0,
+        });
+
+        assert_eq!(state.to_snapshot().background_outstanding, 3);
+        let json = serde_json::to_value(state.to_snapshot()).unwrap();
+        assert_eq!(
+            json.get("background_outstanding")
+                .and_then(|value| value.as_u64()),
+            Some(3)
+        );
+
+        let json = serde_json::to_value(fresh_state().to_snapshot()).unwrap();
+        assert!(json.get("background_outstanding").is_none());
+    }
+
+    #[test]
     fn new_session_starts_with_seq_zero_and_connecting_status() {
         let s = fresh_state();
         assert_eq!(s.event_seq, 0);
@@ -1268,6 +1379,50 @@ mod tests {
         assert!(s.available_commands.is_empty());
         assert!(!s.selectors_ready);
         assert!(s.pending_user_message.is_none());
+    }
+
+    #[test]
+    fn session_started_tracks_only_real_external_id_changes() {
+        let mut state = fresh_state();
+        state.apply_event(&AcpEvent::SessionStarted {
+            session_id: "session-1".into(),
+        });
+        assert!(state.external_id_changed_at.is_some());
+
+        state.external_id_changed_at = Some(std::time::SystemTime::UNIX_EPOCH);
+        state.apply_event(&AcpEvent::SessionStarted {
+            session_id: "session-1".into(),
+        });
+        assert_eq!(
+            state.external_id_changed_at,
+            Some(std::time::SystemTime::UNIX_EPOCH)
+        );
+
+        state.apply_event(&AcpEvent::SessionStarted {
+            session_id: "session-2".into(),
+        });
+        assert_ne!(
+            state.external_id_changed_at,
+            Some(std::time::SystemTime::UNIX_EPOCH)
+        );
+    }
+
+    #[test]
+    fn turn_complete_records_whether_the_turn_ended_abnormally() {
+        let mut state = fresh_state();
+        state.apply_event(&AcpEvent::TurnComplete {
+            session_id: "session-1".into(),
+            stop_reason: "end_turn".into(),
+            agent_type: "claude_code".into(),
+        });
+        assert!(!state.last_turn_ended_abnormally);
+
+        state.apply_event(&AcpEvent::TurnComplete {
+            session_id: "session-1".into(),
+            stop_reason: "cancelled".into(),
+            agent_type: "claude_code".into(),
+        });
+        assert!(state.last_turn_ended_abnormally);
     }
 
     fn text_user_message(id: &str, text: &str) -> AcpEvent {
@@ -1345,6 +1500,34 @@ mod tests {
             !empty_json.contains("pending_user_message"),
             "no-pending snapshot must omit the field"
         );
+    }
+
+    #[test]
+    fn snapshot_carries_last_error_until_the_next_prompt() {
+        let mut state = fresh_state();
+        state.apply_event(&AcpEvent::Error {
+            message: "ACP protocol error: forbidden".into(),
+            agent_type: "claude_code".into(),
+            code: Some("forbidden".into()),
+            terminal: true,
+        });
+
+        let snapshot = state.to_snapshot();
+        assert_eq!(
+            snapshot.last_error,
+            Some(SessionLastError {
+                message: "ACP protocol error: forbidden".into(),
+                code: Some("forbidden".into()),
+            })
+        );
+        let json = serde_json::to_string(&snapshot).expect("serialize");
+        let decoded: LiveSessionSnapshot = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded.last_error, snapshot.last_error);
+
+        state.apply_event(&AcpEvent::StatusChanged {
+            status: ConnectionStatus::Prompting,
+        });
+        assert!(state.to_snapshot().last_error.is_none());
     }
 
     #[test]

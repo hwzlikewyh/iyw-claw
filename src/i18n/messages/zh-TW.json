@@ -55,7 +55,8 @@
       "quick_messages": "快捷訊息",
       "logs": "執行日誌",
       "usage": "用量",
-      "user_memory": "用户记忆"
+      "user_memory": "用户记忆",
+      "science": "科學研究"
     }
   },
   "AppearanceSettings": {
@@ -2124,10 +2125,12 @@
           "spawnFailed": "啟動 {agent} 失敗：{message}",
           "downloadFailed": "{agent} 下載失敗：{message}",
           "sessionLoadResourceNotFound": "{agent} 會話載入失敗，可重新載入重試，或開始新會話。",
+          "sessionLoadUnavailable": "{agent} 無法還原此會話，它可能已結束或 agent 已停止。可重新載入重試，或開始新會話。",
           "turnFailedRefusal": "{agent} 拒絕繼續此輪回覆，通常代表後端或網關出錯，請檢查代理日誌。",
           "turnFailedMaxTokens": "{agent} 已達到此輪回覆的最大 Token 限制。",
           "turnFailedMaxTurnRequests": "{agent} 已達到此輪回覆允許的最大請求次數。",
           "turnFailedUnknown": "{agent} 以未知的停止原因結束了此輪回覆。",
+          "grokModelSwitchIncompatibleAgent": "{agent} 無法在既有對話中切換到該模型，請新建工作階段以使用它。",
           "turnFailedEmpty": "{agent} 此輪沒有產生任何回覆就結束了，請檢查代理設定。"
         },
         "unableReadAgentConfig": "無法讀取 Agent 設定：{message}",
@@ -2363,7 +2366,9 @@
           },
           "tabs": {
             "office": "日常辦公",
-            "coding": "程式開發"
+            "coding": "程式開發",
+            "common": "常用",
+            "research": "科學研究"
           },
           "coding": {
             "brainstormingDesc": "動手前先梳理意圖與需求",
@@ -2485,7 +2490,7 @@
         "elapsedHours": "{value} 小時",
         "elapsedMinutes": "{value} 分鐘",
         "elapsedSeconds": "{value} 秒",
-        "toolUseCount": "{count} 个工具 {count, plural, one {use} other {uses}}"
+        "toolUseCount": "{count} 次工具呼叫"
       },
       "tool": {
         "parameters": "參數",
@@ -2770,6 +2775,16 @@
         "opWait": "取得子智能體結果",
         "opClose": "結束子智能體",
         "opResume": "恢復子智能體"
+      },
+      "backgroundTasks": {
+        "running": "{count} 個背景任務執行中",
+        "settling": "正在同步背景結果...",
+        "settledFallback": "背景任務已結束（{status}）",
+        "cardRunning": "背景執行中",
+        "cardLaunchedPending": "已啟動背景任務",
+        "cardCompleted": "背景任務已完成",
+        "cardFinishedWithStatus": "背景任務已結束（{status}）",
+        "cardResultPending": "結果尚未返回"
       }
     },
     "diffPreview": {
@@ -2868,6 +2883,11 @@
     "channelType": "頻道類型",
     "lark": "飛書",
     "weixin": "微信",
+    "telegram": "Telegram",
+    "telegramBotToken": "機器人 Token",
+    "telegramChatId": "Chat ID",
+    "telegramChatIdPlaceholder": "-100123456789 或 @使用者名稱",
+    "telegramTopicMode": "話題群模式",
     "dailyReport": "每日報告",
     "dailyReportTime": "推送時間",
     "nameRequired": "請輸入頻道名稱。",
@@ -3183,7 +3203,10 @@
     "skillsEmpty": "安裝工具並同步技能後即可啟用。",
     "searchSkills": "搜尋聯網技能",
     "installFirst": "請先安裝並同步聯網技能。",
-    "categories": { "agentReach": "Agent Reach", "opencli": "OpenCLI" },
+    "categories": {
+      "agentReach": "Agent Reach",
+      "opencli": "OpenCLI"
+    },
     "configDialog": {
       "title": "設定 Agent Reach",
       "description": "憑證僅寫入本機設定，提交後不會再次顯示。",
@@ -3350,7 +3373,7 @@
       "deleteConfirm": "確認刪除寵物「{name}」嗎？會從磁碟上一併移除。",
       "summon": "召喚寵物視窗",
       "openCodexHelp": "Codex 寵物需位於 ~/.codex/pets/ 目錄下,但未找到。",
-      "specRequirement": "精靈圖必須是 1536x1872 像素帶透明通道的 PNG 或 WebP。",
+      "specRequirement": "精靈圖寬度必須為 1536 像素，高度需為 208 像素的整數倍（如 1872 或 2288），並為帶透明通道的 PNG 或 WebP。",
       "form": {
         "id": "寵物 ID",
         "idHelp": "僅允許小寫字母、數字、'-' 和 '_',最多 64 字元。",
@@ -3932,6 +3955,40 @@
         "description": "更高层的价值观、审美、语气和决策原则。",
         "placeholder": "记录用户的价值观、审美、表达风格、动机边界和深层决策原则。"
       }
+    }
+  },
+  "ScienceSettings": {
+    "title": "科學研究技能",
+    "description": "為你的 AI 編碼智能體啟用精選的科學研究技能：假設生成、實驗設計、統計、視覺化、批判性評估與文獻檢索。iyw-claw 管理中央副本，並將每個技能連結到你選擇的智能體。",
+    "loading": "正在載入科學研究技能…",
+    "emptySkills": "沒有可用的科學研究技能。請檢查應用程式日誌。",
+    "searchPlaceholder": "依名稱、ID 或描述搜尋科學研究技能",
+    "categories": {
+      "ideation": "構思",
+      "design": "研究設計",
+      "analysis": "分析",
+      "visualization": "視覺化",
+      "evaluation": "評估",
+      "literature": "文獻"
+    },
+    "states": {
+      "not_linked": "未啟用",
+      "linked_to_codeg": "已啟用",
+      "linked_elsewhere": "衝突 — 已有其他連結",
+      "blocked_by_real_directory": "衝突 — 已有同名的自訂 skill 佔用",
+      "broken": "連結損壞"
+    },
+    "badges": {
+      "userModified": "使用者修改過",
+      "needsKey": "需要金鑰",
+      "needsSetup": "可能需環境"
+    },
+    "actions": {
+      "openCentralDir": "開啟中央目錄",
+      "refresh": "重新整理"
+    },
+    "toasts": {
+      "openFolderFailed": "開啟目錄失敗"
     }
   }
 }

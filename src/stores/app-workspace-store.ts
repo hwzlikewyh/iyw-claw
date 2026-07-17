@@ -210,7 +210,14 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
         ...patch,
         ...(bumpUpdatedAt ? { updated_at: new Date().toISOString() } : {}),
       }
-      set(withConversations(next))
+      // These local patches cannot affect aggregate stats. Preserve the stats
+      // reference so status/title/pin events do not wake every stats subscriber.
+      const statsAffecting = "message_count" in patch || "agent_type" in patch
+      set(
+        statsAffecting
+          ? withConversations(next)
+          : { conversations: next, stats: get().stats }
+      )
     },
 
     // Insert-or-replace a conversation by id (create + field updates). Root-only:

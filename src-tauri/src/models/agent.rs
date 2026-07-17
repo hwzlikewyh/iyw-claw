@@ -14,6 +14,7 @@ pub enum AgentType {
     CodeBuddy,
     KimiCode,
     Pi,
+    Grok,
 }
 
 impl fmt::Display for AgentType {
@@ -29,6 +30,18 @@ impl fmt::Display for AgentType {
             AgentType::CodeBuddy => write!(f, "CodeBuddy"),
             AgentType::KimiCode => write!(f, "Kimi Code"),
             AgentType::Pi => write!(f, "Pi"),
+            AgentType::Grok => write!(f, "知微"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn grok_keeps_wire_id_and_uses_local_alias() {
+        assert_eq!(serde_json::to_value(AgentType::Grok).unwrap(), "grok");
+        assert_eq!(AgentType::Grok.to_string(), "知微");
     }
 }

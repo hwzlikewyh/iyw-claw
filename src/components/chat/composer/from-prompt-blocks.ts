@@ -31,7 +31,7 @@ import type { ReferenceAttrs } from "./types"
  * `attachments`. Pure and deterministic given an injected `makeId`.
  */
 export type RestoreSegment =
-  | { kind: "markdown"; text: string }
+  | { kind: "text"; text: string }
   | { kind: "reference"; attrs: ReferenceAttrs }
 
 export interface RestoredDraft {
@@ -50,7 +50,7 @@ export function blocksToRestoredDraft(
     switch (block.type) {
       case "text": {
         if (block.text.trim().length > 0) {
-          segments.push({ kind: "markdown", text: block.text })
+          segments.push({ kind: "text", text: block.text })
         }
         break
       }

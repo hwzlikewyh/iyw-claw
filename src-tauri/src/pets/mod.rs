@@ -29,7 +29,8 @@ use image::{ImageFormat, ImageReader};
 use crate::app_error::AppCommandError;
 use crate::models::pet::{
     NewPetInput, PetDetail, PetManifest, PetMetaPatch, PetSpriteAsset, PetSummary,
-    PET_MANIFEST_FILENAME, SPRITESHEET_FILENAME, SPRITE_SHEET_HEIGHT, SPRITE_SHEET_WIDTH,
+    PET_MANIFEST_FILENAME, SPRITESHEET_FILENAME, SPRITE_FRAME_HEIGHT, SPRITE_GRID_ROWS,
+    SPRITE_SHEET_WIDTH,
 };
 use crate::paths::iyw_claw_pets_root;
 
@@ -39,6 +40,7 @@ const MIN_SPRITE_BYTES: usize = 1024;
 /// Cap raw sprite uploads at 16 MiB. A correctly-encoded 1536×1872 WebP is
 /// usually well under 1 MiB; this is purely a guardrail.
 const MAX_SPRITE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_SPRITE_ROWS: u32 = 32;
 
 /// Detected sprite-sheet container.
 #[derive(Debug, Clone, Copy)]
@@ -97,12 +99,7 @@ pub fn validate_spritesheet(bytes: &[u8]) -> Result<SpriteFormat, AppCommandErro
     let img = reader
         .decode()
         .map_err(|e| AppCommandError::invalid_input(format!("Cannot decode sprite: {e}")))?;
-    let (w, h) = (img.width(), img.height());
-    if w != SPRITE_SHEET_WIDTH || h != SPRITE_SHEET_HEIGHT {
-        return Err(AppCommandError::invalid_input(format!(
-            "Spritesheet must be {SPRITE_SHEET_WIDTH}x{SPRITE_SHEET_HEIGHT} pixels (got {w}x{h})."
-        )));
-    }
+    check_sprite_dimensions(img.width(), img.height())?;
     if !img.color().has_alpha() {
         return Err(AppCommandError::invalid_input(
             "Spritesheet must contain an alpha channel (transparent background).",
@@ -110,6 +107,31 @@ pub fn validate_spritesheet(bytes: &[u8]) -> Result<SpriteFormat, AppCommandErro
     }
 
     Ok(detected)
+}
+
+fn check_sprite_dimensions(width: u32, height: u32) -> Result<(), AppCommandError> {
+    if width != SPRITE_SHEET_WIDTH {
+        return Err(AppCommandError::invalid_input(format!(
+            "Spritesheet must be {SPRITE_SHEET_WIDTH}px wide; got width {width}."
+        )));
+    }
+    if height == 0 || !height.is_multiple_of(SPRITE_FRAME_HEIGHT) {
+        return Err(AppCommandError::invalid_input(format!(
+            "Spritesheet height must be a whole multiple of {SPRITE_FRAME_HEIGHT}px; got {height}."
+        )));
+    }
+    let rows = height / SPRITE_FRAME_HEIGHT;
+    if rows < SPRITE_GRID_ROWS {
+        return Err(AppCommandError::invalid_input(format!(
+            "Spritesheet must have at least {SPRITE_GRID_ROWS} rows; got {rows}."
+        )));
+    }
+    if rows > MAX_SPRITE_ROWS {
+        return Err(AppCommandError::invalid_input(format!(
+            "Spritesheet has too many rows ({rows}); the maximum is {MAX_SPRITE_ROWS}."
+        )));
+    }
+    Ok(())
 }
 
 /// Slug-validate a pet id. Returns `Err` on invalid input. Defense in depth:
@@ -348,6 +370,7 @@ pub fn add_pet(input: NewPetInput) -> Result<PetSummary, AppCommandError> {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty()),
         spritesheet_path: SPRITESHEET_FILENAME.to_string(),
+        extra: serde_json::Map::new(),
     };
     if let Err(err) = write_manifest_atomic(&tmp_dir, &manifest) {
         let _ = fs::remove_dir_all(&tmp_dir);
@@ -422,6 +445,7 @@ pub fn delete_pet(id: &str) -> Result<(), AppCommandError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::pet::SPRITE_SHEET_HEIGHT;
 
     // Filesystem-touching tests rely on `IYW_CLAW_HOME`, which is shared global
     // state. Cargo runs tests in parallel, so we'd need cross-binary
@@ -515,5 +539,24 @@ mod tests {
             .unwrap();
         let format = validate_spritesheet(&bytes).unwrap();
         assert!(matches!(format, SpriteFormat::Png));
+    }
+
+    #[test]
+    fn sprite_dimensions_accept_v1_and_v2_rows() {
+        assert!(check_sprite_dimensions(SPRITE_SHEET_WIDTH, 1872).is_ok());
+        assert!(check_sprite_dimensions(SPRITE_SHEET_WIDTH, 2288).is_ok());
+        assert!(check_sprite_dimensions(SPRITE_SHEET_WIDTH, 2000).is_err());
+        assert!(check_sprite_dimensions(SPRITE_SHEET_WIDTH, 8 * 208).is_err());
+    }
+
+    #[test]
+    fn pet_manifest_preserves_unknown_v2_fields() {
+        let raw = r#"{"id":"cat","displayName":"Cat","spritesheetPath":"spritesheet.webp","spriteVersionNumber":2,"kind":"creature"}"#;
+        let manifest: PetManifest = serde_json::from_str(raw).expect("manifest");
+        assert_eq!(manifest.extra["spriteVersionNumber"], 2);
+        assert_eq!(manifest.extra["kind"], "creature");
+        let serialized = serde_json::to_value(manifest).expect("serialize");
+        assert_eq!(serialized["spriteVersionNumber"], 2);
+        assert_eq!(serialized["kind"], "creature");
     }
 }

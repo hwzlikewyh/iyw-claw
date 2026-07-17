@@ -9,6 +9,7 @@ export const AGENT_SDK_ALIASES = {
   cline: "逐风",
   kimi_code: "月白",
   pi: "墨川",
+  grok: "知微",
 } as const satisfies Partial<Record<AgentType, string>>
 
 const VISIBLE_AGENT_TYPES = new Set<AgentType>(ALL_AGENT_TYPES)
@@ -24,7 +25,14 @@ const BRAND_TEXT_REPLACEMENTS: ReadonlyArray<readonly [RegExp, string]> = [
   [/Cline/g, "逐风"],
   [/Kimi Code/g, "月白"],
   [/\bPi\b/g, "墨川"],
+  [/Grok Build/g, "知微"],
+  [/\bGrok\b/g, "知微"],
 ]
+
+export function isAgentSdkConfigurationVisible(agentType: AgentType): boolean {
+  void agentType
+  return false
+}
 
 export function maskAgentSdkBrandText(text: string): string {
   return BRAND_TEXT_REPLACEMENTS.reduce(

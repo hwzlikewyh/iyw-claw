@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   AGENT_SDK_ALIASES,
+  isAgentSdkConfigurationVisible,
   maskAgentSdkBrandText,
   presentAgentSdkAgents,
 } from "@/lib/agent-sdk-presentation"
@@ -59,6 +60,7 @@ describe("Agent SDK presentation", () => {
       cline: "逐风",
       kimi_code: "月白",
       pi: "墨川",
+      grok: "知微",
     })
 
     const presented = presentAgentSdkAgents(agents, (name) => `${name} SDK`)
@@ -74,6 +76,7 @@ describe("Agent SDK presentation", () => {
       cline: "逐风",
       kimi_code: "月白",
       pi: "墨川",
+      grok: "知微",
       hermes: "Hermes Agent",
       open_claw: "OpenClaw",
     })
@@ -93,12 +96,20 @@ describe("Agent SDK presentation", () => {
   it("masks visible brand names without changing technical identifiers", () => {
     expect(
       maskAgentSdkBrandText(
-        "Codex CLI, OpenCode, CodeBuddy, Claude Code, Gemini CLI, Cline, Kimi Code, Pi"
+        "Codex CLI, OpenCode, CodeBuddy, Claude Code, Gemini CLI, Cline, Kimi Code, Pi, Grok Build, Grok"
       )
-    ).toBe("星河, 云舟, 青岚, 远山, 流光, 逐风, 月白, 墨川")
+    ).toBe("星河, 云舟, 青岚, 远山, 流光, 逐风, 月白, 墨川, 知微, 知微")
 
     const technical =
       "GEMINI_API_KEY opencode.json CODEBUDDY_API_KEY ~/.cline/data ~/.pi/agent gemini"
     expect(maskAgentSdkBrandText(technical)).toBe(technical)
+  })
+
+  it("keeps provider, gateway, model, and auth configuration hidden", () => {
+    expect(
+      [...ALL_AGENT_TYPES, "grok" as AgentType].every(
+        (agentType) => !isAgentSdkConfigurationVisible(agentType)
+      )
+    ).toBe(true)
   })
 })

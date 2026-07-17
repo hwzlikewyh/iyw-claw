@@ -2,6 +2,8 @@
 
 import type { JSONContent } from "@tiptap/core"
 
+import { sanitizeComposerDraftDoc } from "./composer-draft-sanitize"
+
 interface PersistedDraftState {
   text: string
 }
@@ -180,7 +182,7 @@ export function clearMessageInputDraft(draftKey: string): void {
 
 /**
  * Result of loading a v2 draft: a parsed composer document, a legacy v1 Markdown
- * string to hydrate via `setMarkdown` (migration), or null when no draft exists.
+ * string to hydrate via `setText` (migration), or null when no draft exists.
  */
 export type LoadedDraftV2 =
   | { kind: "doc"; doc: JSONContent }
@@ -190,7 +192,7 @@ export type LoadedDraftV2 =
 /**
  * Load the persisted composer draft for a key. Prefers the v2 document; falls
  * back to a v1 text draft (returned as `legacyMarkdown` for the host to hydrate
- * as Markdown), or null. The v1 draft is left in place on read — it is only
+ * as plain text), or null. The v1 draft is left in place on read — it is only
  * cleared once a v2 document is actually saved ({@link saveMessageInputDraftV2}),
  * so an unedited migration is never lost.
  */
@@ -204,8 +206,11 @@ export function loadMessageInputDraftV2(draftKey: string): LoadedDraftV2 {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<PersistedDraftStateV2>
         if (isTiptapDoc(parsed?.doc)) {
-          draftDocCache.set(draftKey, parsed.doc)
-          return { kind: "doc", doc: parsed.doc }
+          // Down-migrate documents saved by the former rich-text schema so
+          // unsupported blocks and marks cannot make setContent drop the draft.
+          const doc = sanitizeComposerDraftDoc(parsed.doc)
+          draftDocCache.set(draftKey, doc)
+          return { kind: "doc", doc }
         }
       }
     } catch {

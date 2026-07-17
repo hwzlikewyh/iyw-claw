@@ -9,6 +9,7 @@ export type AgentType =
   | "code_buddy"
   | "kimi_code"
   | "pi"
+  | "grok"
 
 export type AppErrorCode =
   | "invalid_input"
@@ -248,6 +249,7 @@ export interface ConversationDetail {
   summary: ConversationSummary
   turns: MessageTurn[]
   session_stats?: SessionStats | null
+  transcript_watermark?: number | null
 }
 
 export interface FolderInfo {
@@ -432,6 +434,7 @@ export interface DbConversationDetail {
   summary: DbConversationSummary
   turns: MessageTurn[]
   session_stats?: SessionStats | null
+  transcript_watermark?: number | null
   /**
    * Id of the persisted user turn the backend identified as the in-flight prompt
    * (present only while a turn is running on this conversation's connection). The
@@ -489,6 +492,7 @@ export const AGENT_DISPLAY_ORDER: AgentType[] = [
   "cline",
   "kimi_code",
   "pi",
+  "grok",
 ]
 
 const AGENT_DISPLAY_ORDER_INDEX = new Map(
@@ -512,6 +516,7 @@ export const ALL_AGENT_TYPES: AgentType[] = [
   "cline",
   "kimi_code",
   "pi",
+  "grok",
 ]
 
 export const MODEL_PROVIDER_AGENT_TYPES: AgentType[] = [
@@ -810,6 +815,7 @@ export const AGENT_LABELS: Record<AgentType, string> = {
   code_buddy: "CodeBuddy",
   kimi_code: "Kimi Code",
   pi: "Pi",
+  grok: "知微",
 }
 
 export const AGENT_COLORS: Record<AgentType, string> = {
@@ -823,6 +829,7 @@ export const AGENT_COLORS: Record<AgentType, string> = {
   code_buddy: "bg-[#0052D9]",
   kimi_code: "bg-[#1783FF]",
   pi: "bg-[#0D9488]",
+  grok: "bg-neutral-900",
 }
 
 // ACP connection status (matches Rust ConnectionStatus)
@@ -1071,6 +1078,15 @@ export interface SessionUsageUpdateInfo {
   size: number
 }
 
+export interface BackgroundSettledInfo {
+  task_id: string
+  status: string
+  summary?: string | null
+  tool_use_id?: string | null
+  result?: string | null
+  wire_visible?: boolean
+}
+
 /**
  * Wire-level image attached to a tool call (e.g. codex image generation).
  * Mirrors Rust's `ToolCallImageInfo`. Reused by snapshot endpoints and
@@ -1211,6 +1227,14 @@ export type AcpEvent =
       type: "usage_update"
       used: number
       size: number
+    }
+  | {
+      type: "background_activity"
+      session_id: string
+      turns?: MessageTurn[]
+      outstanding: number
+      settled?: BackgroundSettledInfo[]
+      watermark: number
     }
   /**
    * A `delegate_to_agent` MCP tool call from the parent agent has spawned a
@@ -1449,6 +1473,11 @@ export interface FeedbackItem {
   delivered_at?: string | null
 }
 
+export interface SessionLastError {
+  message: string
+  code?: string | null
+}
+
 export interface LiveSessionSnapshot {
   connection_id: string
   conversation_id: number | null
@@ -1473,6 +1502,8 @@ export interface LiveSessionSnapshot {
   /** Live-feedback notes for the current turn. Absent on older payloads /
    *  when empty (then treated as `[]`). */
   feedback?: FeedbackItem[]
+  /** Launched but unresolved Claude background tasks. Absent means zero. */
+  background_outstanding?: number
   /** Whether this agent has the `check_user_feedback` tool (fixed at launch).
    *  The frontend gates the feedback bar on this — the agent's real capability —
    *  not the (possibly later-toggled) global setting. Absent → `false`. */
@@ -1490,6 +1521,8 @@ export interface LiveSessionSnapshot {
   config_stale?: boolean
   /** Which settings surface drifted; present only while `config_stale`. */
   config_stale_kind?: ConfigStaleKind | null
+  /** Latest unresolved runtime error, recoverable after reconnect. */
+  last_error?: SessionLastError | null
   event_seq: number
 }
 
@@ -1598,6 +1631,20 @@ export interface ExpertListItem {
   central_path: string
 }
 
+export interface ScienceMetadata extends ExpertMetadata {
+  featured: boolean
+  accent: string | null
+  needs_key: boolean
+  needs_env: boolean
+}
+
+export interface ScienceListItem {
+  metadata: ScienceMetadata
+  installed_centrally: boolean
+  user_modified: boolean
+  central_path: string
+}
+
 export type ExpertLinkState =
   | "not_linked"
   | "linked_to_iyw_claw"
@@ -1633,10 +1680,15 @@ export interface LinkOpResult {
   error: string | null
 }
 
-export type ManagedSkillFamily = "experts" | "office_tools" | "internet_tools"
+export type ManagedSkillFamily =
+  | "experts"
+  | "science"
+  | "office_tools"
+  | "internet_tools"
 
 export interface ManagedSkillGlobalState {
   expertsEnabled: boolean
+  scienceEnabled: boolean
   officeToolsEnabled: boolean
   internetToolsEnabled: boolean
 }
@@ -1926,6 +1978,7 @@ export type McpAppType =
   | "hermes"
   | "code_buddy"
   | "kimi_code"
+  | "grok"
 
 export interface LocalMcpServer {
   id: string
@@ -2361,7 +2414,7 @@ export interface OfficecliInstallEvent {
 
 // ─── Chat Channels ───
 
-export type ChannelType = "lark" | "weixin"
+export type ChannelType = "lark" | "telegram" | "weixin"
 
 /** One configured event-notification webhook sink. */
 export interface WebhookConfig {

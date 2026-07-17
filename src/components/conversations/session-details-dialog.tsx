@@ -68,6 +68,25 @@ function formatDuration(ms: number): string {
   return `${trimZero((minutes / 60).toFixed(1))}h`
 }
 
+function parseTimestampMs(value: string): number | null {
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+export function resolveSessionDurationMs(
+  summary: DbConversationSummary,
+  stats: SessionStats | null
+): number {
+  const parsedDuration = stats?.total_duration_ms ?? 0
+  if (parsedDuration > 0) return parsedDuration
+  if (summary.status !== "completed") return 0
+
+  const startedAt = parseTimestampMs(summary.created_at)
+  const endedAt = parseTimestampMs(summary.updated_at)
+  if (startedAt == null || endedAt == null || endedAt <= startedAt) return 0
+  return endedAt - startedAt
+}
+
 /**
  * One label-above-value cell inside a responsive `<dl>` grid. Stacking the
  * label on top keeps values left-aligned and tight against their label (no
@@ -242,7 +261,7 @@ export function SessionDetailsDialog({
     ctxUsed,
     ctxMax
   )
-  const durationMs = stats?.total_duration_ms ?? 0
+  const durationMs = resolveSessionDurationMs(summary, stats)
   // Never coerce an unknown `used` to 0 — some parsers infer the model's
   // context cap without any usage figure, so render "— / max" rather than a
   // bogus "0 / max".

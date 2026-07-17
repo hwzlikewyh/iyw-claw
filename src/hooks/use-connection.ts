@@ -69,6 +69,8 @@ export interface UseConnectionReturn {
   /** True for a delegation-spawned child connection (broker-owned). The stale
    *  banner hides for these — the user can't restart a broker-owned process. */
   isDelegationChild: boolean
+  backgroundOutstanding: number
+  backgroundSettleSyncingSince: number | null
   connect: (
     agentType: AgentType,
     workingDir?: string,
@@ -204,6 +206,9 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   const configStaleKind = connection?.configStaleKind ?? null
   const configStaleDismissed = connection?.configStaleDismissed ?? false
   const isDelegationChild = connection?.isDelegationChild ?? false
+  const backgroundOutstanding = connection?.backgroundOutstanding ?? 0
+  const backgroundSettleSyncingSince =
+    connection?.backgroundSettleSyncingSince ?? null
 
   const connect = useCallback(
     (
@@ -302,6 +307,8 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       configStaleKind,
       configStaleDismissed,
       isDelegationChild,
+      backgroundOutstanding,
+      backgroundSettleSyncingSince,
       connect,
       disconnect,
       reapplyConfig,
@@ -337,6 +344,8 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       configStaleKind,
       configStaleDismissed,
       isDelegationChild,
+      backgroundOutstanding,
+      backgroundSettleSyncingSince,
       connect,
       disconnect,
       reapplyConfig,

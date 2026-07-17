@@ -55,7 +55,8 @@
       "quick_messages": "Mensagens rápidas",
       "logs": "Registros de execução",
       "usage": "Usage",
-      "user_memory": "User Memory"
+      "user_memory": "User Memory",
+      "science": "Ciência"
     }
   },
   "AppearanceSettings": {
@@ -2124,10 +2125,12 @@
           "spawnFailed": "Falha ao iniciar {agent}: {message}",
           "downloadFailed": "Falha no download de {agent}: {message}",
           "sessionLoadResourceNotFound": "Falha ao carregar a sessão de {agent}. Recarregue para tentar novamente ou inicie uma nova conversa.",
+          "sessionLoadUnavailable": "{agent} não conseguiu restaurar esta sessão; ela pode ter terminado ou o agente parou. Recarregue para tentar novamente ou inicie uma nova conversa.",
           "turnFailedRefusal": "{agent} recusou continuar este turno. Costuma indicar um erro de backend ou gateway. Confira os logs do agente.",
           "turnFailedMaxTokens": "{agent} atingiu o limite máximo de tokens para este turno.",
           "turnFailedMaxTurnRequests": "{agent} atingiu o número máximo de solicitações permitidas para este turno.",
           "turnFailedUnknown": "{agent} encerrou o turno com um motivo de parada desconhecido.",
+          "grokModelSwitchIncompatibleAgent": "{agent} não pode mudar para esse modelo em uma conversa existente. Inicie uma nova sessão para usá-lo.",
           "turnFailedEmpty": "{agent} encerrou o turno sem produzir nenhuma resposta. Confira a configuração do agente."
         },
         "unableReadAgentConfig": "Não foi possível ler a configuração do agente: {message}",
@@ -2363,7 +2366,9 @@
           },
           "tabs": {
             "office": "Escritório",
-            "coding": "Desenvolvimento"
+            "coding": "Desenvolvimento",
+            "common": "Comuns",
+            "research": "Pesquisa"
           },
           "coding": {
             "brainstormingDesc": "Explore intenção e requisitos antes de construir",
@@ -2485,7 +2490,7 @@
         "elapsedHours": "{value} h",
         "elapsedMinutes": "{value} min",
         "elapsedSeconds": "{value} s",
-        "toolUseCount": "{count} ferramenta {count, plural, one {use} other {uses}}"
+        "toolUseCount": "{count, plural, one {# uso de ferramenta} other {# usos de ferramenta}}"
       },
       "tool": {
         "parameters": "Parâmetros",
@@ -2770,6 +2775,16 @@
         "opWait": "Obtendo resultado do subagente",
         "opClose": "Encerrando subagente",
         "opResume": "Retomando subagente"
+      },
+      "backgroundTasks": {
+        "running": "{count, plural, one {# tarefa em segundo plano em execução} other {# tarefas em segundo plano em execução}}",
+        "settling": "Sincronizando resultados em segundo plano...",
+        "settledFallback": "Tarefa em segundo plano concluída ({status})",
+        "cardRunning": "Executando em segundo plano",
+        "cardLaunchedPending": "Tarefa iniciada em segundo plano",
+        "cardCompleted": "Tarefa em segundo plano concluída",
+        "cardFinishedWithStatus": "Tarefa em segundo plano encerrada ({status})",
+        "cardResultPending": "Resultado ainda não retornou"
       }
     },
     "diffPreview": {
@@ -2868,6 +2883,11 @@
     "channelType": "Tipo de canal",
     "lark": "Lark (Feishu)",
     "weixin": "WeChat",
+    "telegram": "Telegram",
+    "telegramBotToken": "Token do bot",
+    "telegramChatId": "ID do chat",
+    "telegramChatIdPlaceholder": "-100123456789 ou @usuario",
+    "telegramTopicMode": "Modo de grupo por tópicos",
     "dailyReport": "Relatório diário",
     "dailyReportTime": "Horário do relatório",
     "nameRequired": "O nome do canal é obrigatório.",
@@ -3183,7 +3203,10 @@
     "skillsEmpty": "Instale as ferramentas e sincronize as habilidades.",
     "searchSkills": "Pesquisar habilidades de Internet",
     "installFirst": "Instale e sincronize as habilidades primeiro.",
-    "categories": { "agentReach": "Agent Reach", "opencli": "OpenCLI" },
+    "categories": {
+      "agentReach": "Agent Reach",
+      "opencli": "OpenCLI"
+    },
     "configDialog": {
       "title": "Configurar Agent Reach",
       "description": "As credenciais ficam apenas no dispositivo e não são exibidas novamente.",
@@ -3350,7 +3373,7 @@
       "deleteConfirm": "Excluir o pet \"{name}\"? Será removido do disco.",
       "summon": "Invocar janela do pet",
       "openCodexHelp": "Pets do Codex precisam estar em ~/.codex/pets/. Nenhum encontrado.",
-      "specRequirement": "O sprite precisa ser PNG ou WebP 1536x1872 com transparência.",
+      "specRequirement": "O sprite precisa ter 1536px de largura e altura múltipla de 208px (ex.: 1872 ou 2288), em PNG ou WebP com transparência.",
       "form": {
         "id": "ID do pet",
         "idHelp": "Minúsculas, dígitos, '-' e '_'. Máx 64 caracteres.",
@@ -3932,6 +3955,40 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
+    }
+  },
+  "ScienceSettings": {
+    "title": "Habilidades de pesquisa científica",
+    "description": "Ative habilidades de pesquisa científica selecionadas para seus agentes de código com IA: geração de hipóteses, delineamento experimental, estatística, visualização, avaliação crítica e busca de literatura. O iyw-claw gerencia uma cópia central e vincula cada habilidade aos agentes que você escolher.",
+    "loading": "Carregando habilidades científicas…",
+    "emptySkills": "Nenhuma habilidade científica disponível. Verifique os registros do aplicativo.",
+    "searchPlaceholder": "Pesquisar habilidades científicas por nome, id ou descrição",
+    "categories": {
+      "ideation": "Ideação",
+      "design": "Delineamento",
+      "analysis": "Análise",
+      "visualization": "Visualização",
+      "evaluation": "Avaliação",
+      "literature": "Literatura"
+    },
+    "states": {
+      "not_linked": "Não ativado",
+      "linked_to_codeg": "Ativado",
+      "linked_elsewhere": "Bloqueado — outro vínculo existe",
+      "blocked_by_real_directory": "Bloqueado — uma habilidade personalizada ocupa este nome",
+      "broken": "Vínculo quebrado"
+    },
+    "badges": {
+      "userModified": "Modificado pelo usuário",
+      "needsKey": "Requer chave",
+      "needsSetup": "Pode exigir configuração"
+    },
+    "actions": {
+      "openCentralDir": "Abrir pasta central",
+      "refresh": "Atualizar"
+    },
+    "toasts": {
+      "openFolderFailed": "Falha ao abrir a pasta"
     }
   }
 }
