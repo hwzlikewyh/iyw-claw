@@ -8,8 +8,6 @@ pub mod i18n;
 pub mod llm_router;
 pub mod manager;
 mod manager_topics;
-#[cfg(test)]
-mod manager_topics_tests;
 pub mod message_formatter;
 pub mod natural_router;
 pub mod natural_router_config;

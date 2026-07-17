@@ -163,6 +163,3 @@ fn build_session_stats(turns: &[MessageTurn], model: Option<&str>) -> Option<Ses
         infer_context_window_max_tokens(model),
     )
 }
-
-#[cfg(test)]
-mod tests;

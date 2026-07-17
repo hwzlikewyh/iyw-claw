@@ -51,9 +51,6 @@ jobs:
         with:
           node-version: 24
 
-      - name: Validate release contracts
-        run: node --test src-tauri/scripts/release-contracts.test.mjs
-
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 

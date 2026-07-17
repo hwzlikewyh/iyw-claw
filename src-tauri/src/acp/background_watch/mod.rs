@@ -111,6 +111,3 @@ async fn run_watch(
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

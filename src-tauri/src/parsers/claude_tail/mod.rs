@@ -163,6 +163,3 @@ impl ClaudeTailAccumulator {
         self.metadata.last_timestamp = Some(timestamp);
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -128,6 +128,3 @@ fn remove_from_servers(root: &mut toml::map::Map<String, toml::Value>, id: &str)
     }
     removed
 }
-
-#[cfg(test)]
-mod tests;

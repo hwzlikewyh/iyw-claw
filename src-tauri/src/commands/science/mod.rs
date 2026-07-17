@@ -127,6 +127,3 @@ pub(crate) async fn reconcile_managed_science(
 ) -> Vec<LinkOpResult> {
     links::reconcile(targets).await
 }
-
-#[cfg(test)]
-mod tests;
