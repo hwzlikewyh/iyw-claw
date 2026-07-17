@@ -17,6 +17,7 @@ import {
 import { acpUpdatePiConfig, loadPiConfig } from "@/lib/api"
 import type { AcpAgentInfo } from "@/lib/types"
 import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
+import { isAgentSdkConfigurationVisible } from "@/lib/agent-sdk-presentation"
 
 /**
  * Per-agent `env_json` flag gating launch-time workspace-trust seeding. Absent or
@@ -67,8 +68,10 @@ export function PiConfigPanel({
   onSaved: () => Promise<void>
 }) {
   const t = useAgentSdkTranslations()
+  const showManagedConfig = isAgentSdkConfigurationVisible(agent.agent_type)
 
-  // The model remains user-selectable; the provider is always iyw-claw.
+  // The managed provider/model fields stay backend-owned; workspace trust is
+  // the only Pi setting exposed in this panel.
   const [model, setModel] = useState("")
   const [thinkingLevel, setThinkingLevel] = useState("")
   const [savingCreds, setSavingCreds] = useState(false)
@@ -147,74 +150,76 @@ export function PiConfigPanel({
   return (
     <div className="space-y-4">
       {/* Credentials / model — pi's native settings.json / auth.json */}
-      <div className="space-y-3 rounded-md border bg-muted/10 p-3">
-        <div>
-          <label className="flex items-center gap-1.5 text-xs font-medium">
-            <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
-            {t("pi.configManagement")}
-          </label>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            {t("pi.configDescription")}
-          </p>
-        </div>
+      {showManagedConfig && (
+        <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-medium">
+              <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
+              {t("pi.configManagement")}
+            </label>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {t("pi.configDescription")}
+            </p>
+          </div>
 
-        <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground">
-            {t("pi.modelLabel")}
-          </label>
-          <Input
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-            placeholder="claude-sonnet-4-20250514"
-            spellCheck={false}
-            disabled={savingCreds || loadingCreds}
-          />
-        </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] text-muted-foreground">
+              {t("pi.modelLabel")}
+            </label>
+            <Input
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+              placeholder="claude-sonnet-4-20250514"
+              spellCheck={false}
+              disabled={savingCreds || loadingCreds}
+            />
+          </div>
 
-        <div className="space-y-1.5">
-          <label className="text-[11px] text-muted-foreground">
-            {t("pi.thinkingLabel")}
-          </label>
-          <Select
-            value={thinkingLevel || "off"}
-            onValueChange={(value) => setThinkingLevel(value)}
-            disabled={savingCreds || loadingCreds}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="start">
-              {PI_THINKING_LEVELS.map((level) => (
-                <SelectItem key={level} value={level}>
-                  {t(`pi.thinking.${level}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] text-muted-foreground">
+              {t("pi.thinkingLabel")}
+            </label>
+            <Select
+              value={thinkingLevel || "off"}
+              onValueChange={(value) => setThinkingLevel(value)}
+              disabled={savingCreds || loadingCreds}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {PI_THINKING_LEVELS.map((level) => (
+                  <SelectItem key={level} value={level}>
+                    {t(`pi.thinking.${level}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleSaveCreds}
-            disabled={savingCreds || loadingCreds || credsIncomplete}
-            className="gap-1.5"
-          >
-            {savingCreds ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                {t("actions.saving")}
-              </>
-            ) : (
-              <>
-                <Save className="h-3.5 w-3.5" />
-                {t("pi.saveConfig")}
-              </>
-            )}
-          </Button>
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSaveCreds}
+              disabled={savingCreds || loadingCreds || credsIncomplete}
+              className="gap-1.5"
+            >
+              {savingCreds ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {t("actions.saving")}
+                </>
+              ) : (
+                <>
+                  <Save className="h-3.5 w-3.5" />
+                  {t("pi.saveConfig")}
+                </>
+              )}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Workspace trust — auto-trust the folder iyw-claw launches pi into */}
       <div className="space-y-2 rounded-md border bg-muted/10 p-3">

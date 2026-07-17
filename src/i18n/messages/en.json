@@ -55,7 +55,8 @@
       "quick_messages": "Quick Messages",
       "logs": "Runtime Logs",
       "usage": "Usage",
-      "user_memory": "User Memory"
+      "user_memory": "User Memory",
+      "science": "Science"
     }
   },
   "AppearanceSettings": {
@@ -2124,10 +2125,12 @@
           "spawnFailed": "Failed to start {agent}: {message}",
           "downloadFailed": "{agent} download failed: {message}",
           "sessionLoadResourceNotFound": "{agent} session failed to load. Reload to retry, or start a new conversation.",
+          "sessionLoadUnavailable": "{agent} couldn't restore this session — it may have ended or the agent stopped. Reload to retry, or start a new conversation.",
           "turnFailedRefusal": "{agent} refused to continue this turn. This often indicates a backend or gateway error — check the agent's logs.",
           "turnFailedMaxTokens": "{agent} reached the maximum token limit for this turn.",
           "turnFailedMaxTurnRequests": "{agent} reached the maximum number of allowed requests for this turn.",
           "turnFailedUnknown": "{agent} ended the turn with an unrecognized stop reason.",
+          "grokModelSwitchIncompatibleAgent": "{agent} can't switch to that model in an existing conversation. Start a new session to use it.",
           "turnFailedEmpty": "{agent} ended the turn without producing any response. Please check the agent's configuration."
         },
         "unableReadAgentConfig": "Unable to read Agent config: {message}",
@@ -2363,7 +2366,9 @@
           },
           "tabs": {
             "office": "Office Work",
-            "coding": "Code Development"
+            "coding": "Code Development",
+            "common": "Common",
+            "research": "Scientific Research"
           },
           "coding": {
             "brainstormingDesc": "Explore intent & requirements before building",
@@ -2770,6 +2775,16 @@
         "opWait": "Fetching sub-agent result",
         "opClose": "Closing sub-agent",
         "opResume": "Resuming sub-agent"
+      },
+      "backgroundTasks": {
+        "running": "{count, plural, one {# background task running} other {# background tasks running}}",
+        "settling": "Syncing background results...",
+        "settledFallback": "Background task finished ({status})",
+        "cardRunning": "Running in background",
+        "cardLaunchedPending": "Launched in background",
+        "cardCompleted": "Background task completed",
+        "cardFinishedWithStatus": "Background task finished ({status})",
+        "cardResultPending": "Result not returned yet"
       }
     },
     "diffPreview": {
@@ -2880,6 +2895,11 @@
     "channelType": "Channel Type",
     "lark": "Lark (Feishu)",
     "weixin": "WeChat",
+    "telegram": "Telegram",
+    "telegramBotToken": "Bot Token",
+    "telegramChatId": "Chat ID",
+    "telegramChatIdPlaceholder": "-100123456789 or @username",
+    "telegramTopicMode": "Topic group mode",
     "dailyReport": "Daily Report",
     "dailyReportTime": "Report Time",
     "nameRequired": "Channel name is required.",
@@ -3195,7 +3215,10 @@
     "skillsEmpty": "Install the tools and sync skills to enable them for agents.",
     "searchSkills": "Search internet skills",
     "installFirst": "Install and sync internet tool skills first.",
-    "categories": { "agentReach": "Agent Reach", "opencli": "OpenCLI" },
+    "categories": {
+      "agentReach": "Agent Reach",
+      "opencli": "OpenCLI"
+    },
     "configDialog": {
       "title": "Configure Agent Reach",
       "description": "Credentials are written only to the local Agent Reach config and are not displayed again.",
@@ -3362,7 +3385,7 @@
       "deleteConfirm": "Delete pet \"{name}\"? It will be removed from disk.",
       "summon": "Summon pet window",
       "openCodexHelp": "Codex pets must be installed under ~/.codex/pets/. None found.",
-      "specRequirement": "Spritesheet must be 1536x1872 PNG or WebP with transparency.",
+      "specRequirement": "Spritesheet must be 1536px wide with a height in 208px rows (e.g. 1872 or 2288), PNG or WebP with transparency.",
       "form": {
         "id": "Pet ID",
         "idHelp": "Lowercase letters, digits, '-' and '_'. Max 64 chars.",
@@ -3932,6 +3955,40 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
+    }
+  },
+  "ScienceSettings": {
+    "title": "Scientific Research Skills",
+    "description": "Enable curated scientific-research skills for your AI coding agents — hypothesis generation, experimental design, statistics, visualization, critical appraisal, and literature search. iyw-claw manages a central copy and links each skill into the agents you choose.",
+    "loading": "Loading science skills…",
+    "emptySkills": "No science skills available. Check the application logs.",
+    "searchPlaceholder": "Search science skills by name, id, or description",
+    "categories": {
+      "ideation": "Ideation",
+      "design": "Study Design",
+      "analysis": "Analysis",
+      "visualization": "Visualization",
+      "evaluation": "Evaluation",
+      "literature": "Literature"
+    },
+    "states": {
+      "not_linked": "Not enabled",
+      "linked_to_codeg": "Enabled",
+      "linked_elsewhere": "Blocked — another link exists",
+      "blocked_by_real_directory": "Blocked — a custom skill occupies this name",
+      "broken": "Broken link"
+    },
+    "badges": {
+      "userModified": "User modified",
+      "needsKey": "Needs API key",
+      "needsSetup": "May need setup"
+    },
+    "actions": {
+      "openCentralDir": "Open central folder",
+      "refresh": "Refresh"
+    },
+    "toasts": {
+      "openFolderFailed": "Failed to open folder"
     }
   }
 }

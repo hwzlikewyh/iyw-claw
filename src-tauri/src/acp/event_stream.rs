@@ -416,12 +416,108 @@ fn estimate_envelope_size(envelope: &EventEnvelope) -> usize {
                 + blocks.len().saturating_sub(1)
                 + blocks.iter().map(user_block_size).sum::<usize>()
         }
+        AcpEvent::BackgroundActivity {
+            session_id,
+            turns,
+            outstanding: _,
+            settled,
+            watermark: _,
+        } => {
+            json_str_len(session_id)
+                + turns.len().saturating_sub(1)
+                + turns.iter().map(message_turn_size).sum::<usize>()
+                + settled
+                    .iter()
+                    .map(|item| {
+                        128 + json_str_len(&item.task_id)
+                            + json_str_len(&item.status)
+                            + opt_str_size(&item.summary)
+                            + opt_str_size(&item.tool_use_id)
+                            + opt_str_size(&item.result)
+                    })
+                    .sum::<usize>()
+        }
         // Small, infrequent variants: an exact serialized length is cheap here
         // and preserves the prior threshold behavior; the 256 fallback only
         // guards the (practically impossible) serialization failure.
         other => serde_json::to_vec(other).map_or(256, |v| v.len()),
     };
     base + payload
+}
+
+fn message_turn_size(turn: &crate::models::message::MessageTurn) -> usize {
+    384 + json_str_len(&turn.id)
+        + opt_str_size(&turn.model)
+        + turn.blocks.len().saturating_sub(1)
+        + turn.blocks.iter().map(content_block_size).sum::<usize>()
+}
+
+fn content_block_size(block: &crate::models::message::ContentBlock) -> usize {
+    use crate::models::message::ContentBlock as Block;
+
+    match block {
+        Block::Text { text } | Block::Thinking { text } => 32 + json_str_len(text),
+        Block::Image {
+            data,
+            mime_type,
+            uri,
+        } => 64 + json_str_len(data) + json_str_len(mime_type) + opt_str_size(uri),
+        Block::ImageGeneration {
+            revised_prompt,
+            image,
+        } => {
+            64 + opt_str_size(revised_prompt)
+                + image.as_ref().map_or(0, |item| {
+                    64 + json_str_len(&item.data)
+                        + json_str_len(&item.mime_type)
+                        + opt_str_size(&item.uri)
+                })
+        }
+        Block::ToolUse {
+            tool_use_id,
+            tool_name,
+            input_preview,
+            meta,
+        } => {
+            96 + opt_str_size(tool_use_id)
+                + json_str_len(tool_name)
+                + opt_str_size(input_preview)
+                + opt_json_size(meta)
+        }
+        Block::ToolResult {
+            tool_use_id,
+            output_preview,
+            is_error: _,
+            agent_stats,
+            images,
+        } => {
+            128 + opt_str_size(tool_use_id)
+                + opt_str_size(output_preview)
+                + agent_stats.as_ref().map_or(0, agent_stats_size)
+                + images
+                    .iter()
+                    .map(|item| {
+                        64 + json_str_len(&item.data)
+                            + json_str_len(&item.mime_type)
+                            + opt_str_size(&item.uri)
+                    })
+                    .sum::<usize>()
+        }
+    }
+}
+
+fn agent_stats_size(stats: &crate::models::message::AgentExecutionStats) -> usize {
+    640 + opt_str_size(&stats.agent_type)
+        + opt_str_size(&stats.status)
+        + stats
+            .tool_calls
+            .iter()
+            .map(|call| {
+                96 + json_str_len(&call.tool_name)
+                    + opt_str_size(&call.input_preview)
+                    + opt_str_size(&call.output_preview)
+            })
+            .sum::<usize>()
 }
 
 #[cfg(test)]
@@ -471,6 +567,29 @@ mod tests {
                 }],
             },
         })
+    }
+
+    #[test]
+    fn background_turn_structural_size_covers_serialized_payload() {
+        let turn = crate::models::message::MessageTurn {
+            id: "bg-\"escaped\"".into(),
+            role: crate::models::message::TurnRole::Assistant,
+            blocks: vec![crate::models::message::ContentBlock::Text {
+                text: "result\nwith\tescapes".repeat(64),
+            }],
+            timestamp: chrono::Utc::now(),
+            usage: None,
+            duration_ms: None,
+            model: Some("claude-sonnet".into()),
+            completed_at: Some(chrono::Utc::now()),
+        };
+        let structural = message_turn_size(&turn);
+        let serialized = serde_json::to_vec(&turn).expect("serialize").len();
+
+        assert!(
+            structural >= serialized,
+            "structural estimate {structural} < serialized {serialized}"
+        );
     }
 
     #[test]
@@ -796,6 +915,103 @@ mod tests {
         for env in &cases {
             assert_ge_serialized(env);
         }
+    }
+
+    #[test]
+    fn estimate_never_undercounts_background_activity() {
+        use crate::models::message::{
+            AgentExecutionStats, AgentToolCall, ContentBlock, ImageData, MessageTurn, TurnRole,
+            TurnUsage,
+        };
+
+        let image = ImageData {
+            data: "QUJD".repeat(64),
+            mime_type: "image/png".into(),
+            uri: Some("file:///tmp/quoted.png".into()),
+        };
+        let turn = MessageTurn {
+            id: "bg-123456-0".into(),
+            role: TurnRole::Assistant,
+            blocks: vec![
+                ContentBlock::Text {
+                    text: "\"\\\n\t".repeat(300),
+                },
+                ContentBlock::Thinking {
+                    text: "thinking\n".repeat(100),
+                },
+                ContentBlock::Image {
+                    data: "AAAA".repeat(32),
+                    mime_type: "image/jpeg".into(),
+                    uri: None,
+                },
+                ContentBlock::ImageGeneration {
+                    revised_prompt: Some("prompt \"revised\"".into()),
+                    image: Some(image.clone()),
+                },
+                ContentBlock::ToolUse {
+                    tool_use_id: Some("toolu_01ABC".into()),
+                    tool_name: "Bash".into(),
+                    input_preview: Some("{\"command\":\"pnpm build\"}".into()),
+                    meta: Some(serde_json::json!({"iyw-claw.delegation": {"status": "running"}})),
+                },
+                ContentBlock::ToolResult {
+                    tool_use_id: Some("toolu_01ABC".into()),
+                    output_preview: Some("output\nwith\tescapes\"".repeat(50)),
+                    is_error: true,
+                    agent_stats: Some(AgentExecutionStats {
+                        agent_type: Some("Explore".into()),
+                        status: Some("completed".into()),
+                        total_duration_ms: Some(u64::MAX),
+                        total_tokens: Some(u64::MAX),
+                        total_tool_use_count: Some(u32::MAX),
+                        read_count: Some(u32::MAX),
+                        search_count: Some(u32::MAX),
+                        bash_count: Some(u32::MAX),
+                        edit_file_count: Some(u32::MAX),
+                        lines_added: Some(u32::MAX),
+                        lines_removed: Some(u32::MAX),
+                        other_tool_count: Some(u32::MAX),
+                        tool_calls: vec![AgentToolCall {
+                            tool_name: "Read".into(),
+                            input_preview: Some("{\"file_path\":\"/a/b\"}".into()),
+                            output_preview: Some("line\n".repeat(40)),
+                            is_error: false,
+                        }],
+                    }),
+                    images: vec![image],
+                },
+            ],
+            timestamp: chrono::Utc::now(),
+            usage: Some(TurnUsage {
+                input_tokens: u64::MAX,
+                output_tokens: u64::MAX,
+                cache_creation_input_tokens: u64::MAX,
+                cache_read_input_tokens: u64::MAX,
+            }),
+            duration_ms: Some(u64::MAX),
+            model: Some("claude-sonnet".into()),
+            completed_at: Some(chrono::Utc::now()),
+        };
+        let envelope = Arc::new(EventEnvelope {
+            seq: u64::MAX,
+            connection_id: "conn-escaped".into(),
+            payload: AcpEvent::BackgroundActivity {
+                session_id: "session-1".into(),
+                turns: vec![turn.clone(), turn],
+                outstanding: u32::MAX,
+                settled: vec![crate::acp::types::BackgroundSettledInfo {
+                    task_id: "agent-1".into(),
+                    status: "completed".into(),
+                    summary: Some("Agent finished".into()),
+                    tool_use_id: Some("toolu_01".into()),
+                    result: Some("Build \"log\"\n\t".repeat(2048)),
+                    wire_visible: true,
+                }],
+                watermark: u64::MAX,
+            },
+        });
+
+        assert_ge_serialized(&envelope);
     }
 
     #[test]

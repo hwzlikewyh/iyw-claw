@@ -299,7 +299,12 @@ impl WatchEventBatch {
         !self.overflowed && self.changed_paths.is_empty()
     }
 
-    fn ingest_event(&mut self, root_canonical: &Path, event: notify::Event) {
+    fn ingest_event(
+        &mut self,
+        root_canonical: &Path,
+        git_watch_dirs: &[GitWatchDir],
+        event: notify::Event,
+    ) {
         if !should_emit_watch_event(&event.kind) {
             return;
         }
@@ -310,19 +315,9 @@ impl WatchEventBatch {
 
         let mut has_relevant_path = false;
         for path in event.paths {
-            if is_ignored_watch_path(&path, root_canonical) {
+            let Some(relative) = classify_watch_path(&path, root_canonical, git_watch_dirs) else {
                 continue;
-            }
-
-            let relative = if let Ok(relative) = path.strip_prefix(root_canonical) {
-                normalize_slash_path(relative)
-            } else {
-                normalize_slash_path(&path)
             };
-
-            if relative.is_empty() {
-                continue;
-            }
 
             self.changed_paths.insert(relative);
             has_relevant_path = true;
@@ -347,10 +342,11 @@ impl WatchEventBatch {
     fn kind(&self, root_canonical: &Path) -> String {
         let has_missing_path = !self.has_remove
             && !self.overflowed
-            && self
-                .changed_paths
-                .iter()
-                .any(|p| !root_canonical.join(p).exists());
+            && self.changed_paths.iter().any(|path| {
+                !path.starts_with(".git/")
+                    && path.as_str() != ".git"
+                    && !root_canonical.join(path).exists()
+            });
 
         if self.has_remove || has_missing_path {
             "remove".to_string()
@@ -613,6 +609,101 @@ fn is_ignored_watch_path(path: &Path, root: &Path) -> bool {
             .iter()
             .any(|ignored| *ignored == component_name.as_ref())
     })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GitWatchDir {
+    path: PathBuf,
+    logical_base: &'static str,
+}
+
+fn classify_watch_path(
+    path: &Path,
+    root_canonical: &Path,
+    git_watch_dirs: &[GitWatchDir],
+) -> Option<String> {
+    if let Ok(relative) = path.strip_prefix(root_canonical) {
+        if is_ignored_watch_path(path, root_canonical) {
+            return None;
+        }
+        let normalized = normalize_slash_path(relative);
+        return (!normalized.is_empty()).then_some(normalized);
+    }
+
+    for dir in git_watch_dirs {
+        let Ok(relative) = path.strip_prefix(&dir.path) else {
+            continue;
+        };
+        let normalized = normalize_slash_path(relative);
+        if normalized.is_empty() {
+            return None;
+        }
+        let synthetic = format!("{}/{normalized}", dir.logical_base);
+        return is_allowed_git_watch_path(Path::new(&synthetic)).then_some(synthetic);
+    }
+    None
+}
+
+fn resolve_worktree_git_watch_dirs(root_canonical: &Path) -> Vec<GitWatchDir> {
+    let dot_git = root_canonical.join(".git");
+    let Ok(metadata) = std::fs::symlink_metadata(&dot_git) else {
+        return Vec::new();
+    };
+    if !metadata.file_type().is_file() {
+        return Vec::new();
+    }
+
+    let Ok(contents) = std::fs::read_to_string(&dot_git) else {
+        return Vec::new();
+    };
+    let Some(raw) = contents
+        .lines()
+        .find_map(|line| line.strip_prefix("gitdir:"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Vec::new();
+    };
+    let private = PathBuf::from(raw);
+    let private = if private.is_absolute() {
+        private
+    } else {
+        root_canonical.join(private)
+    };
+    let Ok(private) = std::fs::canonicalize(private) else {
+        return Vec::new();
+    };
+    if private.starts_with(root_canonical) {
+        return Vec::new();
+    }
+
+    let Ok(common_raw) = std::fs::read_to_string(private.join("commondir")) else {
+        return Vec::new();
+    };
+    let common_raw = common_raw.trim();
+    if common_raw.is_empty() {
+        return Vec::new();
+    }
+
+    let mut dirs = vec![GitWatchDir {
+        path: private.clone(),
+        logical_base: ".git",
+    }];
+    let common = PathBuf::from(common_raw);
+    let common = if common.is_absolute() {
+        common
+    } else {
+        private.join(common)
+    };
+    if let Ok(common_refs) = std::fs::canonicalize(common.join("refs")) {
+        if !common_refs.starts_with(root_canonical) && !common_refs.starts_with(&private) {
+            dirs.push(GitWatchDir {
+                path: common_refs,
+                logical_base: ".git/refs",
+            });
+        }
+    }
+    dirs
 }
 
 fn should_emit_watch_event(kind: &EventKind) -> bool {
@@ -896,6 +987,7 @@ async fn flush_watch_batch(
     emit_event(emitter, "folder://workspace-state-event", event);
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_workspace_watch_event_loop(
     mut event_rx: mpsc::Receiver<notify::Event>,
     dropped_events: Arc<AtomicBool>,
@@ -903,8 +995,10 @@ async fn run_workspace_watch_event_loop(
     emitter: EventEmitter,
     root_display: String,
     root_canonical: PathBuf,
+    git_watch_dirs: Vec<GitWatchDir>,
     full_subscribers: Arc<AtomicUsize>,
 ) {
+    let git_watch_dirs = git_watch_dirs.as_slice();
     let debounce = Duration::from_millis(WATCH_DEBOUNCE_MS);
     let max_batch_window = Duration::from_millis(WATCH_MAX_BATCH_WINDOW_MS);
     let mut batch = WatchEventBatch::default();
@@ -921,7 +1015,7 @@ async fn run_workspace_watch_event_loop(
         if batch.is_empty() {
             match event_rx.recv().await {
                 Some(event) => {
-                    batch.ingest_event(&root_canonical, event);
+                    batch.ingest_event(&root_canonical, git_watch_dirs, event);
                     if !batch.is_empty() {
                         batch_started_at = Some(Instant::now());
                     }
@@ -931,7 +1025,7 @@ async fn run_workspace_watch_event_loop(
         } else {
             match tokio::time::timeout(debounce, event_rx.recv()).await {
                 Ok(Some(event)) => {
-                    batch.ingest_event(&root_canonical, event);
+                    batch.ingest_event(&root_canonical, git_watch_dirs, event);
                 }
                 Ok(None) => {
                     flush_watch_batch(
@@ -963,7 +1057,7 @@ async fn run_workspace_watch_event_loop(
         }
 
         while let Ok(next_event) = event_rx.try_recv() {
-            batch.ingest_event(&root_canonical, next_event);
+            batch.ingest_event(&root_canonical, git_watch_dirs, next_event);
         }
 
         if dropped_events.swap(false, Ordering::AcqRel) {
@@ -1126,6 +1220,11 @@ pub async fn start_workspace_state_stream_core(
     // paths-only stream (file-tab watching) skips them entirely and holds
     // empty tree/git snapshots until a full subscriber upgrades it.
     let initial_is_git_repo = is_git_repo(&root_canonical);
+    let git_watch_dirs = if initial_is_git_repo {
+        resolve_worktree_git_watch_dirs(&root_canonical)
+    } else {
+        Vec::new()
+    };
     let initial_tree = if wants_tree_git {
         folders::get_file_tree(root_path.clone(), Some(WORKSPACE_TREE_MAX_DEPTH))
             .await
@@ -1154,6 +1253,7 @@ pub async fn start_workspace_state_stream_core(
     let emitter_for_task = emitter.clone();
     let root_display_for_task = root_path.clone();
     let root_canonical_for_task = root_canonical.clone();
+    let git_watch_dirs_for_task = git_watch_dirs.clone();
     let dropped_events_for_task = Arc::clone(&dropped_events);
     let full_subscribers_for_task = Arc::clone(&full_subscribers);
     let mut task = Some(tokio::spawn(async move {
@@ -1164,6 +1264,7 @@ pub async fn start_workspace_state_stream_core(
             emitter_for_task,
             root_display_for_task,
             root_canonical_for_task,
+            git_watch_dirs_for_task,
             full_subscribers_for_task,
         )
         .await;
@@ -1215,6 +1316,17 @@ pub async fn start_workspace_state_stream_core(
         }
         if let Ok(mut guard) = state.lock() {
             guard.degraded = true;
+        }
+    } else if let Some(active_watcher) = watcher.as_mut() {
+        for dir in &git_watch_dirs {
+            if let Err(err) = active_watcher.watch(&dir.path, RecursiveMode::Recursive) {
+                tracing::info!(
+                    "[workspace-state-watch] worktree git-dir watch failed for {} ({}): {}",
+                    root_path,
+                    dir.path.display(),
+                    err
+                );
+            }
         }
     }
 
@@ -1843,5 +1955,67 @@ mod tests {
             git_slot.payload.as_slice(),
             [WorkspaceDelta::GitReplace { .. }]
         ));
+    }
+
+    fn make_linked_worktree(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
+        let common = root.join("main/.git");
+        std::fs::create_dir_all(common.join("refs/heads")).expect("common refs");
+        let private = common.join("worktrees/wt");
+        std::fs::create_dir_all(&private).expect("private git dir");
+        std::fs::write(private.join("commondir"), "../..\n").expect("commondir");
+
+        let worktree = root.join("wt");
+        std::fs::create_dir_all(&worktree).expect("worktree");
+        let private = std::fs::canonicalize(private).expect("canonical private");
+        std::fs::write(
+            worktree.join(".git"),
+            format!("gitdir: {}\n", private.display()),
+        )
+        .expect("gitdir pointer");
+
+        (
+            std::fs::canonicalize(worktree).expect("canonical worktree"),
+            private,
+            std::fs::canonicalize(common.join("refs")).expect("canonical refs"),
+        )
+    }
+
+    #[test]
+    fn resolves_linked_worktree_private_git_and_shared_refs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = std::fs::canonicalize(dir.path()).expect("canonical root");
+        let (worktree, private, refs) = make_linked_worktree(&root);
+
+        assert_eq!(
+            resolve_worktree_git_watch_dirs(&worktree),
+            vec![
+                GitWatchDir {
+                    path: private,
+                    logical_base: ".git",
+                },
+                GitWatchDir {
+                    path: refs,
+                    logical_base: ".git/refs",
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn maps_external_worktree_index_to_logical_git_path() {
+        let root = Path::new("/workspace/wt");
+        let dirs = vec![GitWatchDir {
+            path: PathBuf::from("/workspace/main/.git/worktrees/wt"),
+            logical_base: ".git",
+        }];
+
+        assert_eq!(
+            classify_watch_path(
+                Path::new("/workspace/main/.git/worktrees/wt/index"),
+                root,
+                &dirs,
+            ),
+            Some(".git/index".to_string())
+        );
     }
 }

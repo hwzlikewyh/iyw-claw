@@ -8,6 +8,15 @@ import { useConnection, type UseConnectionReturn } from "@/hooks/use-connection"
 import { TurnBusyError } from "@/lib/turn-busy"
 import { AGENT_LABELS, type AgentType, type PromptDraft } from "@/lib/types"
 
+export function shouldDisconnectOnUnmount(args: {
+  status: string | null
+  isViewer: boolean
+  backgroundOutstanding: number
+}): boolean {
+  if (args.isViewer) return true
+  return args.status !== "prompting" && args.backgroundOutstanding === 0
+}
+
 interface UseConnectionLifecycleOptions {
   contextKey: string
   agentType: AgentType
@@ -125,6 +134,10 @@ export function useConnectionLifecycle({
   useEffect(() => {
     isViewerRef.current = conn.isViewer
   }, [conn.isViewer])
+  const backgroundOutstandingRef = useRef(conn.backgroundOutstanding)
+  useEffect(() => {
+    backgroundOutstandingRef.current = conn.backgroundOutstanding
+  }, [conn.backgroundOutstanding])
   const contextKeyRef = useRef(contextKey)
   useEffect(() => {
     contextKeyRef.current = contextKey
@@ -291,7 +304,13 @@ export function useConnectionLifecycle({
       // mid-turn is safe and leaves the owner's agent untouched. And it's
       // necessary: the idle sweep skips viewers, so a viewer left attached
       // here would leak its WS subscription until the whole provider unmounts.
-      if (statusRef.current !== "prompting" || isViewerRef.current) {
+      if (
+        shouldDisconnectOnUnmount({
+          status: statusRef.current,
+          isViewer: isViewerRef.current,
+          backgroundOutstanding: backgroundOutstandingRef.current,
+        })
+      ) {
         connDisconnectRef.current().catch(() => {})
       }
       if (taskIdRef.current) {

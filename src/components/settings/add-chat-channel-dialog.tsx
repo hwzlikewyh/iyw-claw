@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { createChatChannel, saveChatChannelToken } from "@/lib/api"
+import { buildChatChannelConfig } from "@/lib/chat-channel-config"
 import type { ChannelType } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
 
@@ -45,6 +46,7 @@ export function AddChatChannelDialog({
   const [token, setToken] = useState("")
   const [chatId, setChatId] = useState("")
   const [appId, setAppId] = useState("")
+  const [topicMode, setTopicMode] = useState(false)
   const [baseUrl, setBaseUrl] = useState("https://ilinkai.weixin.qq.com")
   const [dailyReportEnabled, setDailyReportEnabled] = useState(false)
   const [dailyReportTime, setDailyReportTime] = useState("18:00")
@@ -55,6 +57,7 @@ export function AddChatChannelDialog({
     setToken("")
     setChatId("")
     setAppId("")
+    setTopicMode(false)
     setBaseUrl("https://ilinkai.weixin.qq.com")
     setDailyReportEnabled(false)
     setDailyReportTime("18:00")
@@ -86,10 +89,12 @@ export function AddChatChannelDialog({
     setLoading(true)
     setError(null)
     try {
-      const configJson =
-        channelType === "weixin"
-          ? JSON.stringify({ base_url: baseUrl })
-          : JSON.stringify({ app_id: appId, chat_id: chatId })
+      const configJson = buildChatChannelConfig(channelType, {
+        appId,
+        baseUrl,
+        chatId,
+        topicMode,
+      })
 
       const channel = await createChatChannel({
         name: name.trim(),
@@ -118,6 +123,7 @@ export function AddChatChannelDialog({
     chatId,
     channelType,
     appId,
+    topicMode,
     baseUrl,
     dailyReportEnabled,
     dailyReportTime,
@@ -154,6 +160,7 @@ export function AddChatChannelDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="lark">{t("lark")}</SelectItem>
+                <SelectItem value="telegram">{t("telegram")}</SelectItem>
                 <SelectItem value="weixin">{t("weixin")}</SelectItem>
               </SelectContent>
             </Select>
@@ -172,7 +179,11 @@ export function AddChatChannelDialog({
 
           {channelType !== "weixin" && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">App Secret</label>
+              <label className="text-xs font-medium">
+                {channelType === "telegram"
+                  ? t("telegramBotToken")
+                  : "App Secret"}
+              </label>
               <Input
                 type="password"
                 value={token}
@@ -184,12 +195,27 @@ export function AddChatChannelDialog({
 
           {channelType !== "weixin" && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">Chat ID</label>
+              <label className="text-xs font-medium">
+                {channelType === "telegram" ? t("telegramChatId") : "Chat ID"}
+              </label>
               <Input
                 value={chatId}
                 onChange={(e) => setChatId(e.target.value)}
-                placeholder="oc_xxxxx"
+                placeholder={
+                  channelType === "telegram"
+                    ? t("telegramChatIdPlaceholder")
+                    : "oc_xxxxx"
+                }
               />
+            </div>
+          )}
+
+          {channelType === "telegram" && (
+            <div className="flex items-center justify-between gap-4">
+              <label className="text-xs font-medium">
+                {t("telegramTopicMode")}
+              </label>
+              <Switch checked={topicMode} onCheckedChange={setTopicMode} />
             </div>
           )}
 

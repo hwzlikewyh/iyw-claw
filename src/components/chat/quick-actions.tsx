@@ -1,5 +1,8 @@
 "use client"
 
+import { useMemo, useState } from "react"
+import { useLocale, useTranslations } from "next-intl"
+import { toast } from "sonner"
 import {
   BarChart3,
   CalendarCheck,
@@ -12,7 +15,18 @@ import {
 
 import { cn } from "@/lib/utils"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
-import type { AgentType } from "@/lib/types"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useBuiltInScience } from "@/hooks/use-built-in-science"
+import { useEnabledSkillIds } from "@/hooks/use-enabled-skill-ids"
+import { openSettingsWindow } from "@/lib/api"
+import { pickLocalized } from "@/lib/expert-presentation"
+import { RESEARCH_ACTIONS } from "@/lib/research-actions"
+import {
+  loadQuickActionsTab,
+  saveQuickActionsTab,
+  type QuickActionsTab,
+} from "@/lib/quick-actions-tab-storage"
+import { AGENT_LABELS, type AgentType } from "@/lib/types"
 
 interface SuggestedPrompt {
   id: string
@@ -98,33 +112,121 @@ interface QuickActionsProps {
   agentType: AgentType | null
 }
 
-export function QuickActions({ onSelect }: QuickActionsProps) {
+export function QuickActions({ onSelect, agentType }: QuickActionsProps) {
+  const locale = useLocale()
+  const t = useTranslations("Folder.chat.welcomePanel.quickActions")
+  const science = useBuiltInScience()
+  const [tab, setTab] = useState<QuickActionsTab>(loadQuickActionsTab)
+  const { enabledIds, ready, supported } = useEnabledSkillIds(agentType)
+  const research = useMemo(() => {
+    const byId = new Map(science.map((item) => [item.metadata.id, item]))
+    return RESEARCH_ACTIONS.flatMap((action) => {
+      const item = byId.get(action.skillId)
+      return item ? [{ action, item }] : []
+    })
+  }, [science])
+
+  const selectResearch = (entry: (typeof research)[number]) => {
+    const label =
+      pickLocalized(entry.item.metadata.display_name, locale) ||
+      entry.item.metadata.id
+    if (agentType && ready && !enabledIds.has(entry.item.metadata.id)) {
+      toast.warning(
+        t("notEnabled.title", {
+          skill: label,
+          agent: AGENT_LABELS[agentType],
+        }),
+        {
+          description: t("notEnabled.description"),
+          action: {
+            label: t("notEnabled.action"),
+            onClick: () => void openSettingsWindow("science"),
+          },
+        }
+      )
+      return
+    }
+    onSelect({
+      text: "",
+      skill: { id: entry.item.metadata.id, label },
+    })
+  }
+
   return (
-    <section className="space-y-2">
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {SUGGESTED_PROMPTS.map((item) => {
-          const Icon = item.icon
-          return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelect({ text: item.prompt })}
-              className={cn(
-                "group flex min-h-20 flex-col items-start gap-1.5 rounded-lg border bg-card/50 px-3 py-2.5 text-left transition-colors",
-                TONE_CLASSES[item.tone]
-              )}
-            >
-              <Icon aria-hidden className="h-4 w-4 shrink-0" />
-              <span className="text-sm font-medium text-foreground">
-                {item.title}
-              </span>
-              <span className="line-clamp-1 text-xs text-muted-foreground">
-                {item.description}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-    </section>
+    <Tabs
+      value={tab}
+      onValueChange={(value) => {
+        const next = value as QuickActionsTab
+        setTab(next)
+        saveQuickActionsTab(next)
+      }}
+      className="space-y-2"
+    >
+      <TabsList className="mx-auto">
+        <TabsTrigger value="common">{t("tabs.common")}</TabsTrigger>
+        <TabsTrigger value="research" disabled={!supported}>
+          {t("tabs.research")}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="common">
+        <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {SUGGESTED_PROMPTS.map((item) => {
+            const Icon = item.icon
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelect({ text: item.prompt })}
+                className={cn(
+                  "group flex min-h-20 flex-col items-start gap-1.5 rounded-lg border bg-card/50 px-3 py-2.5 text-left transition-colors",
+                  TONE_CLASSES[item.tone]
+                )}
+              >
+                <Icon aria-hidden className="h-4 w-4 shrink-0" />
+                <span className="text-sm font-medium text-foreground">
+                  {item.title}
+                </span>
+                <span className="line-clamp-1 text-xs text-muted-foreground">
+                  {item.description}
+                </span>
+              </button>
+            )
+          })}
+        </section>
+      </TabsContent>
+      <TabsContent value="research">
+        <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {research.map((entry, index) => {
+            const Icon = entry.action.icon
+            const label =
+              pickLocalized(entry.item.metadata.display_name, locale) ||
+              entry.item.metadata.id
+            return (
+              <button
+                key={entry.item.metadata.id}
+                type="button"
+                onClick={() => selectResearch(entry)}
+                className={cn(
+                  "group flex min-h-20 flex-col items-start gap-1.5 rounded-lg border bg-card/50 px-3 py-2.5 text-left transition-colors",
+                  TONE_CLASSES[
+                    (["amber", "blue", "green", "pink", "purple", "slate"][
+                      index % 6
+                    ] ?? "slate") as SuggestedPrompt["tone"]
+                  ]
+                )}
+              >
+                <Icon aria-hidden className="h-4 w-4 shrink-0" />
+                <span className="text-sm font-medium text-foreground">
+                  {label}
+                </span>
+                <span className="line-clamp-1 text-xs text-muted-foreground">
+                  {pickLocalized(entry.item.metadata.description, locale)}
+                </span>
+              </button>
+            )
+          })}
+        </section>
+      </TabsContent>
+    </Tabs>
   )
 }

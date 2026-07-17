@@ -5,8 +5,8 @@ use crate::acp::agent_storage::AgentStoragePaths;
 use crate::models::agent::AgentType;
 
 use super::provider_overlay::{
-    model_gateway_base_url_for, patch_codex_toml, patch_hermes_yaml, patch_json_config,
-    patch_kimi_toml, patch_pi_models_json,
+    model_gateway_base_url_for, patch_codex_toml, patch_grok_toml, patch_hermes_yaml,
+    patch_json_config, patch_kimi_toml, patch_pi_models_json,
 };
 
 pub fn enforce_all_provider_overlays(paths: &AgentStoragePaths) -> Result<(), String> {
@@ -46,6 +46,9 @@ pub fn enforce_provider_overlay(agent: AgentType, paths: &AgentStoragePaths) -> 
 }
 
 fn enforce_provider_overlay_at_root(agent: AgentType, profile: &Path) -> Result<(), String> {
+    if !super::provider_overlay::uses_managed_gateway(agent) {
+        return Ok(());
+    }
     let base_url = model_gateway_base_url_for(agent);
     match agent {
         AgentType::Codex => patch_text(&profile.join("config.toml"), |raw| {
@@ -96,6 +99,9 @@ fn enforce_provider_overlay_at_root(agent: AgentType, profile: &Path) -> Result<
                 patch_json_config(agent, value, &base_url)
             })
         }
+        AgentType::Grok => patch_text(&profile.join("config.toml"), |raw| {
+            patch_grok_toml(raw, &base_url)
+        }),
     }
 }
 
@@ -114,6 +120,7 @@ pub(crate) fn active_profile_root(agent: AgentType) -> Result<PathBuf, String> {
         AgentType::CodeBuddy => required_env_path("CODEBUDDY_CONFIG_DIR"),
         AgentType::KimiCode => required_env_path("KIMI_CODE_HOME"),
         AgentType::Pi => required_env_path("PI_CODING_AGENT_DIR"),
+        AgentType::Grok => required_env_path("GROK_HOME"),
     }
 }
 

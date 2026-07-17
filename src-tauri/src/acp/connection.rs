@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -29,6 +30,7 @@ use sacp_tokio::AcpAgent;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::acp::agent_storage::AgentStoragePaths;
+use crate::acp::background_watch;
 use crate::acp::error::AcpError;
 use crate::acp::file_system_runtime::{FileSystemRuntime, FileSystemRuntimeError};
 use crate::acp::npm_runtime;
@@ -309,6 +311,25 @@ fn pi_launch_preflight(runtime_env: &BTreeMap<String, String>) -> Option<String>
     ))
 }
 
+fn inherited_env_keys_to_remove(agent_type: AgentType) -> Vec<OsString> {
+    if agent_type != AgentType::CodeBuddy {
+        return Vec::new();
+    }
+
+    let mut keys = crate::acp::provider_overlay::CODEBUDDY_CONFLICTING_ENV_KEYS
+        .iter()
+        .map(OsString::from)
+        .collect::<Vec<_>>();
+    keys.extend(std::env::vars_os().filter_map(|(key, _)| {
+        key.to_str()
+            .is_some_and(crate::acp::provider_overlay::is_codebuddy_conflicting_env_key)
+            .then_some(key)
+    }));
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
 async fn build_agent(
     agent_type: AgentType,
     runtime_env: &BTreeMap<String, String>,
@@ -401,8 +422,10 @@ async fn build_agent(
                 parts.push(format!("{k}={v}"));
             }
             parts.push(command.to_string_lossy().into_owned());
-            for a in args {
-                parts.push((*a).into());
+            if agent_type == AgentType::Grok {
+                parts.extend(crate::acp::grok::launch_args(args));
+            } else {
+                parts.extend(args.iter().map(|arg| (*arg).to_string()));
             }
             // Translate OpenClaw-specific env vars to CLI flags
             if agent_type == AgentType::OpenClaw {
@@ -637,7 +660,8 @@ async fn build_agent(
                 })
                 .map_err(|e| AcpError::SpawnFailed(e.to_string()))
         }
-    }?;
+    }?
+    .with_removed_envs(inherited_env_keys_to_remove(agent_type));
 
     // Run the agent subprocess in the session's working directory rather than
     // iyw-claw's own process cwd (a desktop app launched from the Dock often
@@ -1093,6 +1117,19 @@ async fn emit_session_config_options_values(
     .await;
 }
 
+async fn emit_session_config_options_info(
+    state: &Arc<RwLock<SessionState>>,
+    emitter: &EventEmitter,
+    config_options: Vec<SessionConfigOptionInfo>,
+) {
+    emit_with_state(
+        state,
+        emitter,
+        AcpEvent::SessionConfigOptions { config_options },
+    )
+    .await;
+}
+
 async fn emit_selectors_ready(state: &Arc<RwLock<SessionState>>, emitter: &EventEmitter) {
     emit_with_state(state, emitter, AcpEvent::SelectorsReady).await;
 }
@@ -1217,13 +1254,34 @@ fn build_resume_session_request(
 async fn send_resume_session(
     cx: &ConnectionTo<Agent>,
     req: ResumeSessionRequest,
-) -> Result<ResumeSessionResponse, sacp::Error> {
+) -> Result<(ResumeSessionResponse, Option<serde_json::Value>), sacp::Error> {
     let untyped_req = UntypedMessage::new("session/resume", req)
         .map_err(|e| sacp::util::internal_error(format!("Failed to build resume request: {e}")))?;
 
     let raw_response = cx.send_request_to(Agent, untyped_req).block_task().await?;
-    serde_json::from_value(raw_response)
-        .map_err(|e| sacp::util::internal_error(format!("Failed to parse resume response: {e}")))
+    let models = raw_response.get("models").cloned();
+    let response = serde_json::from_value(raw_response)
+        .map_err(|e| sacp::util::internal_error(format!("Failed to parse resume response: {e}")))?;
+    Ok((response, models))
+}
+
+async fn send_new_session_capturing_models(
+    cx: &ConnectionTo<Agent>,
+    agent_type: AgentType,
+    req: NewSessionRequest,
+) -> Result<(NewSessionResponse, Option<serde_json::Value>), sacp::Error> {
+    if agent_type != AgentType::Grok {
+        return Ok((cx.send_request_to(Agent, req).block_task().await?, None));
+    }
+    let request = UntypedMessage::new("session/new", req).map_err(|error| {
+        sacp::util::internal_error(format!("Failed to build new_session request: {error}"))
+    })?;
+    let raw_response = cx.send_request_to(Agent, request).block_task().await?;
+    let models = raw_response.get("models").cloned();
+    let response = serde_json::from_value(raw_response).map_err(|error| {
+        sacp::util::internal_error(format!("Failed to parse new_session response: {error}"))
+    })?;
+    Ok((response, models))
 }
 
 /// Whether MCP servers forwarded over the ACP wire (`session/new.mcpServers`)
@@ -1239,18 +1297,24 @@ fn agent_delivers_wire_mcp(agent_type: AgentType) -> bool {
     !matches!(agent_type, AgentType::Pi)
 }
 
+fn agent_reads_native_mcp_config(agent_type: AgentType) -> bool {
+    matches!(
+        agent_type,
+        AgentType::Hermes | AgentType::KimiCode | AgentType::Grok
+    )
+}
+
 /// Load MCP servers configured for `agent_type` and convert them into the
 /// ACP wire format. Errors and unsupported entries are logged and skipped so
 /// a single malformed entry never blocks a session from starting.
 fn load_mcp_servers_for_agent(agent_type: AgentType) -> Vec<McpServer> {
-    // Hermes and Kimi Code each read their own native MCP config at launch —
+    // Hermes, Kimi Code, and Grok read their own native MCP config at launch —
     // Hermes from `~/.hermes/config.yaml` (`mcp_servers`, registered as
     // `mcp-<name>` toolsets), Kimi Code from `~/.kimi-code/mcp.json`
-    // (`mcpServers`). iyw-claw manages those files directly via the MCP settings
-    // UI, so forwarding the same servers over the ACP wire here would
-    // double-register them — skip it. (The built-in `iyw-claw-mcp` companion is
-    // injected separately by `inject_iyw_claw_mcp`, so it still reaches them.)
-    if matches!(agent_type, AgentType::Hermes | AgentType::KimiCode) {
+    // (`mcpServers`), and Grok from `config.toml` (`[mcp_servers.<name>]`).
+    // Forwarding the same entries over ACP would register every tool twice.
+    // The built-in `iyw-claw-mcp` companion is injected separately below.
+    if agent_reads_native_mcp_config(agent_type) {
         return Vec::new();
     }
     let entries = match crate::commands::mcp::read_servers_for_agent_type(agent_type) {
@@ -1682,6 +1746,15 @@ async fn run_connection(
     let emitter_clone = emitter.clone();
     let perms = pending_perms.clone();
     let state_outer = Arc::clone(&state);
+    let prompt_ledger = background_watch::PromptLedger::shared();
+    let _background_watch = background_watch::spawn_if_claude(
+        &connection_id,
+        agent_type,
+        Arc::clone(&state),
+        emitter.clone(),
+        cwd_string.clone(),
+        Arc::clone(&prompt_ledger),
+    );
 
     Client
         .builder()
@@ -1988,12 +2061,17 @@ async fn run_connection(
                         mcp_servers.clone(),
                     );
                     match send_resume_session(&cx, resume_req).await {
-                        Ok(resume_resp) => {
+                        Ok((resume_resp, grok_models_raw)) => {
                             let initial_config_options = resume_resp.config_options.clone();
                             let new_resp = NewSessionResponse::new(SessionId::new(sid.clone()))
                                 .modes(resume_resp.modes)
                                 .config_options(resume_resp.config_options)
                                 .meta(resume_resp.meta);
+                            let grok_meta = (agent_type == AgentType::Grok)
+                                .then(|| new_resp.meta.clone())
+                                .flatten();
+                            let grok_effort_specs = (agent_type == AgentType::Grok)
+                                .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
                             let mut session = cx.attach_session(new_resp, Default::default())?;
 
                             // No drain: session/resume does not replay history,
@@ -2010,21 +2088,17 @@ async fn run_connection(
                             )
                             .await;
                             emit_session_modes(&state, &emitter_clone, session.modes()).await;
-                            let updated_config_options = apply_preferred_session_options(
+                            apply_and_emit_session_config_options(
                                 &cx,
                                 &mut session,
                                 &state,
                                 &emitter_clone,
+                                agent_type,
+                                grok_meta.as_ref(),
+                                grok_effort_specs.as_ref(),
                                 preferred_mode_id.as_deref(),
                                 &preferred_config_values,
                                 initial_config_options.unwrap_or_default(),
-                            )
-                            .await;
-                            emit_session_config_options_values(
-                                &state,
-                                &emitter_clone,
-                                agent_type,
-                                updated_config_options,
                             )
                             .await;
                             emit_selectors_ready(&state, &emitter_clone).await;
@@ -2040,6 +2114,7 @@ async fn run_connection(
                                 terminal_runtime.clone(),
                                 &cwd_string,
                                 supports_fork,
+                                &prompt_ledger,
                                 delegation_injection.as_ref(),
                             )
                             .await;
@@ -2060,6 +2135,7 @@ async fn run_connection(
                                 terminal_runtime.clone(),
                                 &cwd,
                                 &cwd_string,
+                                &prompt_ledger,
                                 delegation_injection.as_ref(),
                             )
                             .await;
@@ -2102,6 +2178,9 @@ async fn run_connection(
                             .modes(load_resp.modes)
                             .config_options(load_resp.config_options)
                             .meta(load_resp.meta);
+                        let grok_meta = (agent_type == AgentType::Grok)
+                            .then(|| new_resp.meta.clone())
+                            .flatten();
                         let mut session = cx.attach_session(new_resp, Default::default())?;
 
                         // Drain historical replay notifications from session/load,
@@ -2167,21 +2246,17 @@ async fn run_connection(
                         )
                         .await;
                         emit_session_modes(&state, &emitter_clone, session.modes()).await;
-                        let updated_config_options = apply_preferred_session_options(
+                        apply_and_emit_session_config_options(
                             &cx,
                             &mut session,
                             &state,
                             &emitter_clone,
+                            agent_type,
+                            grok_meta.as_ref(),
+                            None,
                             preferred_mode_id.as_deref(),
                             &preferred_config_values,
                             initial_config_options.unwrap_or_default(),
-                        )
-                        .await;
-                        emit_session_config_options_values(
-                            &state,
-                            &emitter_clone,
-                            agent_type,
-                            updated_config_options,
                         )
                         .await;
                         emit_selectors_ready(&state, &emitter_clone).await;
@@ -2197,6 +2272,7 @@ async fn run_connection(
                             terminal_runtime.clone(),
                             &cwd_string,
                             supports_fork,
+                            &prompt_ledger,
                             delegation_injection.as_ref(),
                         )
                         .await;
@@ -2213,42 +2289,27 @@ async fn run_connection(
                             terminal_runtime.clone(),
                             &cwd,
                             &cwd_string,
+                            &prompt_ledger,
                             delegation_injection.as_ref(),
                         )
                         .await
                     }
                     Err(e) => {
-                        // session/load failed (e.g. agent doesn't support resume,
-                        // or ephemeral forked session).
-                        // Fall back to session/new so the tab still works.
+                        // Do not silently replace an unrecoverable historical
+                        // session with a new one. The frontend lets the user
+                        // retry the load or explicitly start a new conversation.
                         let err_str = e.to_string();
-                        let is_resource_not_found = matches!(
-                            e.code,
-                            sacp::schema::ErrorCode::ResourceNotFound
-                        );
-                        tracing::warn!(
-                            "[ACP] session/load failed ({}){}",
-                            err_str,
-                            if is_resource_not_found {
-                                ", surfacing as session_load_failed"
-                            } else {
-                                ", falling back to session/new"
-                            }
-                        );
-                        // ResourceNotFound (-32002): the agent has no record of
-                        // this session_id (deleted/expired/never existed).
-                        // Don't auto-fallback to session/new — that would
-                        // silently orphan the historical context. Surface to
-                        // the frontend so the user can choose between Reload
-                        // (transient agent restart) and New conversation.
-                        if is_resource_not_found {
+                        if let Some(code) = classify_session_load_failure(e.code, &err_str) {
+                            tracing::warn!(
+                                "[ACP] session/load failed ({err_str}); surfacing as session_load_failed={code}"
+                            );
                             emit_with_state(
                                 &state,
                                 &emitter_clone,
                                 AcpEvent::SessionLoadFailed {
                                     session_id: sid.clone(),
                                     message: err_str,
-                                    code: "resource_not_found".to_string(),
+                                    code: code.to_string(),
                                 },
                             )
                             .await;
@@ -2262,6 +2323,9 @@ async fn run_connection(
                             .await;
                             return Ok(());
                         }
+                        tracing::warn!(
+                            "[ACP] session/load failed ({err_str}), falling back to session/new"
+                        );
                         // Only emit a visible error for unexpected failures;
                         // "Method not found" is expected for agents that don't
                         // support session resume (e.g. Cline).
@@ -2286,19 +2350,19 @@ async fn run_connection(
                             )
                             .await;
                         }
-                        let new_resp = cx
-                            .send_request_to(
-                                Agent,
-                                build_new_session_request(
-                                    agent_type,
-                                    &cwd,
-                                    mcp_servers.clone(),
-                                ),
-                            )
-                            .block_task()
-                            .await?;
+                        let (new_resp, grok_models_raw) = send_new_session_capturing_models(
+                            &cx,
+                            agent_type,
+                            build_new_session_request(agent_type, &cwd, mcp_servers.clone()),
+                        )
+                        .await?;
                         let fallback_sid = new_resp.session_id.0.to_string();
                         let initial_config_options = new_resp.config_options.clone();
+                        let grok_meta = (agent_type == AgentType::Grok)
+                            .then(|| new_resp.meta.clone())
+                            .flatten();
+                        let grok_effort_specs = (agent_type == AgentType::Grok)
+                            .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
                         let mut session = cx.attach_session(new_resp, Default::default())?;
                         emit_with_state(
                             &state,
@@ -2309,21 +2373,17 @@ async fn run_connection(
                         )
                         .await;
                         emit_session_modes(&state, &emitter_clone, session.modes()).await;
-                        let updated_config_options = apply_preferred_session_options(
+                        apply_and_emit_session_config_options(
                             &cx,
                             &mut session,
                             &state,
                             &emitter_clone,
+                            agent_type,
+                            grok_meta.as_ref(),
+                            grok_effort_specs.as_ref(),
                             preferred_mode_id.as_deref(),
                             &preferred_config_values,
                             initial_config_options.unwrap_or_default(),
-                        )
-                        .await;
-                        emit_session_config_options_values(
-                            &state,
-                            &emitter_clone,
-                            agent_type,
-                            updated_config_options,
                         )
                         .await;
                         emit_selectors_ready(&state, &emitter_clone).await;
@@ -2339,6 +2399,7 @@ async fn run_connection(
                             terminal_runtime.clone(),
                             &cwd_string,
                             supports_fork,
+                            &prompt_ledger,
                             delegation_injection.as_ref(),
                         )
                         .await;
@@ -2357,6 +2418,7 @@ async fn run_connection(
                             terminal_runtime.clone(),
                             &cwd,
                             &cwd_string,
+                            &prompt_ledger,
                             delegation_injection.as_ref(),
                         )
                         .await
@@ -2364,15 +2426,19 @@ async fn run_connection(
                 }
             } else {
                 // Create new session
-                let new_resp = cx
-                    .send_request_to(
-                        Agent,
-                        build_new_session_request(agent_type, &cwd, mcp_servers.clone()),
-                    )
-                    .block_task()
-                    .await?;
+                let (new_resp, grok_models_raw) = send_new_session_capturing_models(
+                    &cx,
+                    agent_type,
+                    build_new_session_request(agent_type, &cwd, mcp_servers.clone()),
+                )
+                .await?;
                 let sid = new_resp.session_id.0.to_string();
                 let initial_config_options = new_resp.config_options.clone();
+                let grok_meta = (agent_type == AgentType::Grok)
+                    .then(|| new_resp.meta.clone())
+                    .flatten();
+                let grok_effort_specs = (agent_type == AgentType::Grok)
+                    .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
                 let mut session = cx.attach_session(new_resp, Default::default())?;
                 emit_with_state(
                     &state,
@@ -2383,21 +2449,17 @@ async fn run_connection(
                 )
                 .await;
                 emit_session_modes(&state, &emitter_clone, session.modes()).await;
-                let updated_config_options = apply_preferred_session_options(
+                apply_and_emit_session_config_options(
                     &cx,
                     &mut session,
                     &state,
                     &emitter_clone,
+                    agent_type,
+                    grok_meta.as_ref(),
+                    grok_effort_specs.as_ref(),
                     preferred_mode_id.as_deref(),
                     &preferred_config_values,
                     initial_config_options.unwrap_or_default(),
-                )
-                .await;
-                emit_session_config_options_values(
-                    &state,
-                    &emitter_clone,
-                    agent_type,
-                    updated_config_options,
                 )
                 .await;
                 emit_selectors_ready(&state, &emitter_clone).await;
@@ -2413,6 +2475,7 @@ async fn run_connection(
                     terminal_runtime.clone(),
                     &cwd_string,
                     supports_fork,
+                    &prompt_ledger,
                     delegation_injection.as_ref(),
                 )
                 .await;
@@ -2429,6 +2492,7 @@ async fn run_connection(
                     terminal_runtime.clone(),
                     &cwd,
                     &cwd_string,
+                    &prompt_ledger,
                     delegation_injection.as_ref(),
                 )
                 .await
@@ -2566,6 +2630,12 @@ async fn set_session_config_option(
     config_id: String,
     value_id: String,
 ) -> Result<(), sacp::Error> {
+    if agent_type == AgentType::Grok {
+        return crate::acp::grok::set_config_option(
+            cx, session_id, state, emitter, config_id, value_id,
+        )
+        .await;
+    }
     let updated = set_session_config_option_inner(cx, session_id, config_id, value_id).await?;
     emit_session_config_options_values(state, emitter, agent_type, updated).await;
     Ok(())
@@ -2675,6 +2745,48 @@ async fn apply_preferred_session_options(
     }
 
     options
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn apply_and_emit_session_config_options(
+    cx: &ConnectionTo<Agent>,
+    session: &mut sacp::ActiveSession<'_, Agent>,
+    state: &Arc<RwLock<SessionState>>,
+    emitter: &EventEmitter,
+    agent_type: AgentType,
+    grok_meta: Option<&serde_json::Map<String, serde_json::Value>>,
+    grok_effort_specs: Option<&crate::acp::grok::EffortSpecs>,
+    preferred_mode_id: Option<&str>,
+    preferred_config_values: &BTreeMap<String, String>,
+    initial_config_options: Vec<SessionConfigOption>,
+) {
+    if agent_type == AgentType::Grok {
+        let specs = grok_effort_specs.cloned().unwrap_or_default();
+        let mut options =
+            crate::acp::grok::synthesize_options(grok_meta, &specs).unwrap_or_default();
+        state.write().await.grok_effort_specs = (!specs.is_empty()).then_some(specs.clone());
+        crate::acp::grok::apply_preferred_options(
+            cx,
+            session.session_id(),
+            &mut options,
+            preferred_config_values,
+            &specs,
+        )
+        .await;
+        emit_session_config_options_info(state, emitter, options).await;
+        return;
+    }
+    let updated = apply_preferred_session_options(
+        cx,
+        session,
+        state,
+        emitter,
+        preferred_mode_id,
+        preferred_config_values,
+        initial_config_options,
+    )
+    .await;
+    emit_session_config_options_values(state, emitter, agent_type, updated).await;
 }
 
 const TERMINAL_POLL_INTERVAL_MS: u64 = 200;
@@ -3277,6 +3389,7 @@ async fn handle_fork_or_exit(
     terminal_runtime: Arc<TerminalRuntime>,
     _cwd: &std::path::Path,
     cwd_string: &str,
+    prompt_ledger: &background_watch::PromptLedger,
     // Threaded through from run_connection so the forked session's
     // run_conversation_loop call has the same delegation cascade
     // capability as the original.
@@ -3345,6 +3458,7 @@ async fn handle_fork_or_exit(
         terminal_runtime.clone(),
         cwd_string,
         true, // fork already succeeded on this process
+        prompt_ledger,
         delegation_injection,
     )
     .await;
@@ -3363,6 +3477,7 @@ async fn handle_fork_or_exit(
         terminal_runtime,
         _cwd,
         cwd_string,
+        prompt_ledger,
         delegation_injection,
     ))
     .await
@@ -3385,6 +3500,21 @@ fn stop_reason_to_str(reason: StopReason) -> &'static str {
         StopReason::MaxTurnRequests => "max_turn_requests",
         _ => "unknown",
     }
+}
+
+fn classify_session_load_failure(
+    code: sacp::schema::ErrorCode,
+    message: &str,
+) -> Option<&'static str> {
+    if matches!(code, sacp::schema::ErrorCode::ResourceNotFound) {
+        return Some("resource_not_found");
+    }
+
+    const UNRECOVERABLE: &[&str] = &["process exited", "session has ended", "Session not found"];
+    UNRECOVERABLE
+        .iter()
+        .any(|signature| message.contains(signature))
+        .then_some("session_unavailable")
 }
 
 /// Recognize adapter diagnostics that were incorrectly emitted as agent text.
@@ -3494,6 +3624,7 @@ async fn run_conversation_loop<'a>(
     terminal_runtime: Arc<TerminalRuntime>,
     cwd: &str,
     supports_fork: bool,
+    prompt_ledger: &background_watch::PromptLedger,
     // Source of the broker reference used to cascade-cancel pending
     // delegations on parent prompt cancel / non-success TurnComplete.
     // `None` for test paths that don't wire delegation.
@@ -3550,6 +3681,7 @@ async fn run_conversation_loop<'a>(
                 blocks,
                 user_message,
             }) => {
+                prompt_ledger.record_prompt_blocks(&blocks);
                 let prompt_blocks = map_prompt_blocks(blocks);
                 if prompt_blocks.is_empty() {
                     // Defensive: the manager rejects empty prompts before the
@@ -4883,7 +5015,15 @@ async fn emit_conversation_update(
             // `Diff` from `content` — it's the same edit re-serialized hunklessly,
             // which would otherwise double the event and skew the header +/- stats.
             // Blank raw_input is treated as absent (matches the frontend guard).
-            let own_raw_input = json_value_to_text(&tc.raw_input).filter(|t| !t.trim().is_empty());
+            let grok_use_tool = (agent_type == AgentType::Grok)
+                .then(|| crate::acp::grok::unwrap_use_tool(tc.raw_input.as_ref()))
+                .flatten();
+            let own_raw_input = match &grok_use_tool {
+                Some((_, input)) => {
+                    json_value_to_text(&Some(input.clone())).filter(|text| !text.trim().is_empty())
+                }
+                None => json_value_to_text(&tc.raw_input).filter(|text| !text.trim().is_empty()),
+            };
             let synthesized_edit = if own_raw_input.is_none() {
                 synthesize_edit_input_from_diffs(&tc.content)
             } else {
@@ -4898,10 +5038,15 @@ async fn emit_conversation_update(
             // Initial tool_call notification — the frontend reducer
             // treats `raw_output` as a full replacement, so we bypass
             // the diff path and seed the cache with the current snapshot.
-            let raw_output = json_value_to_text(&tc.raw_output)
-                .map(|text| unwrap_codebuddy_deferred_output(agent_type, &text).unwrap_or(text))
-                .map(|text| structurize_live_output(&text))
-                .and_then(|text| raw_output_cache.seed(&tool_call_id, &text));
+            let raw_output_text = if agent_type == AgentType::Grok {
+                crate::acp::grok::live_tool_output(&content, &tc.raw_output)
+            } else {
+                json_value_to_text(&tc.raw_output)
+                    .map(|text| unwrap_codebuddy_deferred_output(agent_type, &text).unwrap_or(text))
+                    .map(|text| structurize_live_output(&text))
+            };
+            let raw_output =
+                raw_output_text.and_then(|text| raw_output_cache.seed(&tool_call_id, &text));
             let locations = if tc.locations.is_empty() {
                 None
             } else {
@@ -4922,6 +5067,11 @@ async fn emit_conversation_update(
             // user task descriptions (PII-adjacent) and would create noise in
             // server-mode log sinks. The opaque tool_call_id is enough to
             // correlate these events with downstream traces.
+            if let Some((name, _)) = &grok_use_tool {
+                cb_state
+                    .title_overrides
+                    .insert(tool_call_id.clone(), name.clone());
+            }
             // Resolve (and record) any authoritative title rewrite so a later
             // status-only update can't downgrade this card (see fn doc).
             let title = resolve_rewritten_title(
@@ -4971,8 +5121,16 @@ async fn emit_conversation_update(
             // edit may first arrive on an update. Drop the redundant Diff from
             // `content` when hoisted. The reducer preserves a prior raw_input on
             // status-only updates (`action.raw_input ?? block.info.raw_input`).
+            let grok_use_tool = (agent_type == AgentType::Grok)
+                .then(|| crate::acp::grok::unwrap_use_tool(tcu.fields.raw_input.as_ref()))
+                .flatten();
             let own_raw_input =
-                json_value_to_text(&tcu.fields.raw_input).filter(|t| !t.trim().is_empty());
+                match &grok_use_tool {
+                    Some((_, input)) => json_value_to_text(&Some(input.clone()))
+                        .filter(|text| !text.trim().is_empty()),
+                    None => json_value_to_text(&tcu.fields.raw_input)
+                        .filter(|text| !text.trim().is_empty()),
+                };
             let synthesized_edit = if own_raw_input.is_none() {
                 tcu.fields
                     .content
@@ -5001,9 +5159,13 @@ async fn emit_conversation_update(
             // with `raw_output_append=true`, collapsing the O(N²) transfer
             // problem to O(N) while capping any single emitted chunk to
             // MAX_SINGLE_EMIT_BYTES.
-            let raw_output_text = json_value_to_text(&tcu.fields.raw_output)
-                .map(|text| unwrap_codebuddy_deferred_output(agent_type, &text).unwrap_or(text))
-                .map(|text| structurize_live_output(&text));
+            let raw_output_text = if agent_type == AgentType::Grok {
+                crate::acp::grok::live_tool_output(&content, &tcu.fields.raw_output)
+            } else {
+                json_value_to_text(&tcu.fields.raw_output)
+                    .map(|text| unwrap_codebuddy_deferred_output(agent_type, &text).unwrap_or(text))
+                    .map(|text| structurize_live_output(&text))
+            };
             let (raw_output, raw_output_append) = match raw_output_text {
                 Some(text) => match raw_output_cache.consume(&tool_call_id, &text) {
                     Some((payload, append)) => (Some(payload), Some(append)),
@@ -5023,6 +5185,11 @@ async fn emit_conversation_update(
             let meta = tcu.meta.clone().map(serde_json::Value::Object);
             let status = tcu.fields.status.map(|s| format!("{:?}", s).to_lowercase());
             raw_output_cache.remove_if_final(&tool_call_id, status.as_deref());
+            if let Some((name, _)) = &grok_use_tool {
+                cb_state
+                    .title_overrides
+                    .insert(tool_call_id.clone(), name.clone());
+            }
             // Re-assert any authoritative title rewrite (see fn doc): an update
             // that carries the subagent/deferred marker classifies (and records)
             // the card, and — the key fix — a later status-only update that LOST
@@ -5183,6 +5350,88 @@ mod tests {
     use super::*;
     use sacp::schema::Diff;
 
+    #[tokio::test]
+    async fn grok_live_use_tool_is_unwrapped_across_sparse_updates() {
+        let state = Arc::new(RwLock::new(SessionState::new(
+            "conn-grok".to_string(),
+            AgentType::Grok,
+            None,
+            "main".to_string(),
+            None,
+        )));
+        let emitter = EventEmitter::Noop;
+        let mut cache = ToolCallOutputCache::default();
+        let mut live_state = CodeBuddyLiveState::default();
+        let call = serde_json::from_value(serde_json::json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "call-d",
+            "title": "use_tool",
+            "rawInput": {
+                "tool_name": "iyw-claw-mcp__delegate_to_agent",
+                "tool_input": {"agent_type": "codex", "task": "run build"}
+            }
+        }))
+        .expect("tool call");
+        emit_conversation_update(
+            &state,
+            &emitter,
+            AgentType::Grok,
+            call,
+            None,
+            &mut cache,
+            &mut live_state,
+        )
+        .await;
+        let update = serde_json::from_value(serde_json::json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call-d",
+            "title": "use_tool",
+            "status": "completed",
+            "rawOutput": {
+                "type": "MCP",
+                "output": {"OkayOutput": "Delegation successful. task_id=abc"}
+            }
+        }))
+        .expect("tool update");
+        emit_conversation_update(
+            &state,
+            &emitter,
+            AgentType::Grok,
+            update,
+            None,
+            &mut cache,
+            &mut live_state,
+        )
+        .await;
+
+        let events = state.read().await.recent_events_after(0).expect("events");
+        let call = events.iter().find_map(|event| match &event.payload {
+            AcpEvent::ToolCall {
+                title, raw_input, ..
+            } => Some((title, raw_input)),
+            _ => None,
+        });
+        assert!(matches!(
+            call,
+            Some((title, Some(input)))
+                if title == "iyw-claw-mcp__delegate_to_agent"
+                    && input.contains("\"task\":\"run build\"")
+                    && !input.contains("tool_input")
+        ));
+        let update = events.iter().find_map(|event| match &event.payload {
+            AcpEvent::ToolCallUpdate {
+                title, raw_output, ..
+            } => Some((title, raw_output)),
+            _ => None,
+        });
+        assert!(matches!(
+            update,
+            Some((Some(title), Some(output)))
+                if title == "iyw-claw-mcp__delegate_to_agent"
+                    && output.contains("task_id=abc")
+        ));
+    }
+
     #[test]
     fn codex_model_metadata_fallback_warning_is_not_rendered() {
         let warning = "Warning: Model metadata for `gpt-5.6-sol` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.";
@@ -5213,6 +5462,74 @@ mod tests {
             AgentType::Codex,
             "I could not find model metadata in this source file."
         ));
+    }
+
+    #[test]
+    fn classify_load_failure_resource_not_found_maps_to_code() {
+        assert_eq!(
+            classify_session_load_failure(
+                sacp::schema::ErrorCode::ResourceNotFound,
+                "session abc not found",
+            ),
+            Some("resource_not_found"),
+        );
+        assert_eq!(
+            classify_session_load_failure(
+                sacp::schema::ErrorCode::ResourceNotFound,
+                "process exited with code 1",
+            ),
+            Some("resource_not_found"),
+        );
+    }
+
+    #[test]
+    fn classify_load_failure_crash_and_ended_map_to_unavailable() {
+        assert_eq!(
+            classify_session_load_failure(
+                sacp::schema::ErrorCode::InternalError,
+                "Internal error: { \"details\": \"Claude Code process exited with code 1\" }",
+            ),
+            Some("session_unavailable"),
+        );
+        assert_eq!(
+            classify_session_load_failure(
+                sacp::schema::ErrorCode::InternalError,
+                "The Claude Agent session has ended. Please start a new session.",
+            ),
+            Some("session_unavailable"),
+        );
+        assert_eq!(
+            classify_session_load_failure(
+                sacp::schema::ErrorCode::InternalError,
+                "Session not found",
+            ),
+            Some("session_unavailable"),
+        );
+    }
+
+    #[test]
+    fn classify_load_failure_keeps_existing_behavior_for_recoverable_errors() {
+        assert_eq!(
+            classify_session_load_failure(
+                sacp::schema::ErrorCode::MethodNotFound,
+                "Method not found",
+            ),
+            None,
+        );
+        assert_eq!(
+            classify_session_load_failure(
+                sacp::schema::ErrorCode::AuthRequired,
+                "Authentication required",
+            ),
+            None,
+        );
+        assert_eq!(
+            classify_session_load_failure(
+                sacp::schema::ErrorCode::InternalError,
+                "some unrelated transient failure",
+            ),
+            None,
+        );
     }
 
     fn diff_content(path: &str, old: Option<&str>, new: &str) -> ToolCallContent {
@@ -5356,6 +5673,57 @@ mod tests {
 
         assert!(!merged.contains_key(crate::commands::acp::MANAGED_AGENT_VERSION_ENV));
         assert_eq!(merged.get("USER_SETTING").map(String::as_str), Some("kept"));
+    }
+
+    #[test]
+    fn only_codebuddy_removes_conflicting_parent_environment() {
+        let removed = inherited_env_keys_to_remove(AgentType::CodeBuddy);
+
+        assert!(removed.contains(&OsString::from("CODEBUDDY_AUTH_TOKEN")));
+        assert!(removed.contains(&OsString::from("CODEBUDDY_INTERNET_ENVIRONMENT")));
+        assert!(removed.contains(&OsString::from("ANTHROPIC_BASE_URL")));
+        assert!(removed.contains(&OsString::from("ANTHROPIC_AUTH_TOKEN")));
+        assert!(inherited_env_keys_to_remove(AgentType::Codex).is_empty());
+    }
+
+    #[test]
+    fn acp_agent_removed_environment_is_absent_from_child_process() {
+        use tokio::io::AsyncReadExt;
+
+        const KEY: &str = "IYW_CLAW_REMOVED_ENV_TEST";
+        let command = if cfg!(windows) {
+            vec![
+                "cmd.exe".to_string(),
+                "/D".to_string(),
+                "/C".to_string(),
+                format!("if defined {KEY} (echo present) else (echo missing)"),
+            ]
+        } else {
+            vec![
+                "/bin/sh".to_string(),
+                "-c".to_string(),
+                format!("if [ -z \"${{{KEY}+x}}\" ]; then printf missing; else printf present; fi"),
+            ]
+        };
+        let mut args = vec![format!("{KEY}=explicit")];
+        args.extend(command);
+        let agent = AcpAgent::from_args(args).unwrap().with_removed_envs([KEY]);
+
+        let output = tokio::runtime::Runtime::new()
+            .expect("tokio runtime")
+            .block_on(async {
+                let (_stdin, mut stdout, _stderr, mut child) =
+                    agent.spawn_process().expect("spawn test child");
+                let mut output = String::new();
+                stdout
+                    .read_to_string(&mut output)
+                    .await
+                    .expect("read test child stdout");
+                child.wait().await.expect("wait for test child");
+                output
+            });
+
+        assert_eq!(output.trim(), "missing");
     }
 
     #[test]
@@ -5536,6 +5904,14 @@ mod tests {
         );
 
         assert!(req.meta.is_none());
+    }
+
+    #[test]
+    fn native_mcp_agents_skip_duplicate_wire_forwarding() {
+        for agent_type in [AgentType::Hermes, AgentType::KimiCode, AgentType::Grok] {
+            assert!(agent_reads_native_mcp_config(agent_type));
+        }
+        assert!(!agent_reads_native_mcp_config(AgentType::Codex));
     }
 
     // OpenClaw rejects MCP server *entries* over the ACP wire, not the

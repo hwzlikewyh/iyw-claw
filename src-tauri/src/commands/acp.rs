@@ -4180,6 +4180,13 @@ pub(crate) fn load_agent_local_config_json(agent_type: AgentType) -> Option<Stri
     serde_json::to_string_pretty(&parsed).ok()
 }
 
+/// Read the raw Grok native config used by the settings panel and ACP launch.
+/// Grok stores this file as TOML rather than JSON, so it needs its own
+/// fingerprint input instead of going through `load_agent_local_config_json`.
+fn load_grok_config_toml_raw() -> Option<String> {
+    fs::read_to_string(crate::parsers::grok::resolve_grok_home_dir().join("config.toml")).ok()
+}
+
 fn merge_json_values(base: &mut serde_json::Value, patch: &serde_json::Value) {
     if let (Some(base_obj), Some(patch_obj)) = (base.as_object_mut(), patch.as_object()) {
         for (key, patch_value) in patch_obj {
@@ -4364,6 +4371,11 @@ pub(crate) fn skill_storage_spec(agent_type: AgentType) -> Option<SkillStorageSp
             kind: SkillStorageKind::SkillDirectoryOrMarkdownFile,
             global_dirs: with_user_shared_agent_skills(vec![pi_agent_dir().join("skills")]),
             project_rel_dirs: vec![".pi/skills", ".agents/skills"],
+        }),
+        AgentType::Grok => Some(SkillStorageSpec {
+            kind: SkillStorageKind::SkillDirectoryOnly,
+            global_dirs: vec![crate::parsers::grok::resolve_grok_home_dir().join("skills")],
+            project_rel_dirs: vec![".grok/skills"],
         }),
     }
 }
@@ -5309,6 +5321,8 @@ fn agent_env_keys(agent_type: AgentType) -> (&'static str, &'static str, &'stati
             "KIMI_MODEL_API_KEY",
             "KIMI_MODEL_NAME",
         ),
+        AgentType::CodeBuddy => ("CODEBUDDY_BASE_URL", "CODEBUDDY_API_KEY", "CODEBUDDY_MODEL"),
+        AgentType::Grok => ("GROK_XAI_API_BASE_URL", "XAI_API_KEY", "GROK_DEFAULT_MODEL"),
         _ => ("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL"),
     }
 }
@@ -5382,6 +5396,7 @@ fn managed_profile_env_keys(agent_type: AgentType) -> &'static [&'static str] {
             "PI_CODING_AGENT_DIR",
             "PI_CODING_AGENT_SESSION_DIR",
         ],
+        AgentType::Grok => &["GROK_HOME"],
     }
 }
 
@@ -5428,6 +5443,7 @@ const CLAUDE_MODEL_KEY_MAP: &[(&str, &str)] = &[
 /// - Codex: returns `OPENAI_MODEL` so the provider can override env_json (the
 ///   root `model` in `config.toml` is handled separately by
 ///   `provider_codex_model_action`).
+/// - CodeBuddy: returns `CODEBUDDY_MODEL`.
 /// - Others: returns `OPENAI_MODEL`.
 pub(crate) fn parse_provider_model(
     agent_type: AgentType,
@@ -5459,6 +5475,12 @@ pub(crate) fn parse_provider_model(
         AgentType::KimiCode => {
             out.insert(
                 "KIMI_MODEL_NAME".to_string(),
+                trimmed_raw.map(str::to_string),
+            );
+        }
+        AgentType::CodeBuddy => {
+            out.insert(
+                "CODEBUDDY_MODEL".to_string(),
                 trimmed_raw.map(str::to_string),
             );
         }
@@ -5680,6 +5702,10 @@ fn cascade_update_agent_config(
             // Pi settings panel (`acp_update_pi_config`); it does not participate
             // in the model-provider credential cascade.
         }
+        AgentType::Grok => {
+            // Grok receives gateway credentials through its launch environment;
+            // never overwrite its native config.toml or cached login state.
+        }
     }
     Ok(())
 }
@@ -5842,6 +5868,12 @@ pub(crate) async fn build_session_runtime_env(
         build_runtime_env_from_setting(agent_type, setting.as_ref(), local_config_json.as_deref());
     remove_managed_profile_env(agent_type, &mut runtime_env);
     crate::acp::provider_overlay::apply_provider_runtime_env(agent_type, &mut runtime_env);
+    crate::acp::account_credentials::inject_runtime_credential_for_acp(
+        &db.conn,
+        agent_type,
+        &mut runtime_env,
+    )
+    .await?;
     runtime_env.remove(MANAGED_AGENT_VERSION_ENV);
     if let Some(version) = setting
         .as_ref()
@@ -5922,6 +5954,15 @@ pub(crate) fn fingerprint_config(
     hasher.update(b"\x01native\x01");
     if let Some(native) = load_agent_local_config_json(agent_type) {
         hasher.update(native.as_bytes());
+    }
+    // Grok's native TOML is edited through its settings surface and is not
+    // represented by the generic JSON projection above. Include it explicitly
+    // so model, MCP, and permission changes mark running sessions stale.
+    if agent_type == AgentType::Grok {
+        hasher.update(b"\x01grok_toml\x01");
+        if let Some(toml) = load_grok_config_toml_raw() {
+            hasher.update(toml.as_bytes());
+        }
     }
     format!("{:x}", hasher.finalize())
 }
@@ -6230,10 +6271,14 @@ pub async fn acp_cancel(
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn acp_fork(
     connection_id: String,
+    conversation_id: Option<i32>,
+    folder_id: Option<i32>,
     db: State<'_, AppDatabase>,
     manager: State<'_, ConnectionManager>,
 ) -> Result<ForkResultInfo, AcpError> {
-    manager.fork_session(&db, &connection_id).await
+    manager
+        .fork_session(&db, &connection_id, conversation_id, folder_id)
+        .await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -8764,6 +8809,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn grok_agent_settings_use_native_environment_keys() {
+        assert_eq!(
+            agent_env_keys(AgentType::Grok),
+            ("GROK_XAI_API_BASE_URL", "XAI_API_KEY", "GROK_DEFAULT_MODEL")
+        );
+    }
+
+    #[test]
+    fn codebuddy_agent_settings_use_native_environment_keys() {
+        assert_eq!(
+            agent_env_keys(AgentType::CodeBuddy),
+            ("CODEBUDDY_BASE_URL", "CODEBUDDY_API_KEY", "CODEBUDDY_MODEL")
+        );
+        let models = parse_provider_model(AgentType::CodeBuddy, Some("deepseek-v4-pro"));
+        assert_eq!(
+            models
+                .get("CODEBUDDY_MODEL")
+                .and_then(|value| value.as_deref()),
+            Some("deepseek-v4-pro")
+        );
+        assert!(!models.keys().any(|key| key.starts_with("OPENAI_")));
+    }
+
+    #[test]
     fn agent_enablement_reconcile_runs_only_when_enabled_state_changes() {
         assert!(enabled_state_changed(false, true));
         assert!(enabled_state_changed(true, false));
@@ -9447,6 +9516,32 @@ wire_api = "chat"
         let mut env_volatile = env.clone();
         env_volatile.insert("OPENCLAW_RESET_SESSION".to_string(), "1".to_string());
         assert_eq!(fp1, fingerprint_config(agent, &env_volatile));
+    }
+
+    #[test]
+    fn grok_fingerprint_tracks_config_toml_changes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+        temp_env::with_var("GROK_HOME", Some(dir.path()), || {
+            let env: BTreeMap<String, String> = BTreeMap::new();
+            let empty_fp = fingerprint_config(AgentType::Grok, &env);
+
+            std::fs::write(&path, "[models]\ndefault_reasoning_effort = \"low\"\n")
+                .expect("write low");
+            let low_fp = fingerprint_config(AgentType::Grok, &env);
+            assert_ne!(
+                empty_fp, low_fp,
+                "adding ~/.grok/config.toml must change the fingerprint"
+            );
+
+            std::fs::write(&path, "[models]\ndefault_reasoning_effort = \"high\"\n")
+                .expect("write high");
+            let high_fp = fingerprint_config(AgentType::Grok, &env);
+            assert_ne!(
+                low_fp, high_fp,
+                "changing default_reasoning_effort must change the fingerprint"
+            );
+        });
     }
 
     #[tokio::test]

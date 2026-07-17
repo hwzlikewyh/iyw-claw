@@ -1,4 +1,5 @@
 import type { Editor, JSONContent } from "@tiptap/core"
+import type { MarkdownManager } from "@tiptap/markdown"
 
 /** The subset of a `marked` block token we inspect (structurally typed to avoid
  *  a direct `marked` dependency). A `list` token carries per-item `task` flags. */
@@ -43,7 +44,7 @@ export function buildResilientMarkdownNodes(
   editor: Editor,
   markdown: string
 ): JSONContent[] {
-  const md = editor.markdown
+  const md = (editor as Editor & { markdown?: MarkdownManager }).markdown
   // No marked instance (older/misconfigured build): keep it all as one block.
   if (!md || !md.hasMarked()) return [sourceParagraph(markdown)]
 
@@ -83,7 +84,7 @@ export function buildResilientMarkdownNodes(
  */
 function parseBlockIfSupported(
   editor: Editor,
-  md: NonNullable<Editor["markdown"]>,
+  md: MarkdownManager,
   raw: string
 ): JSONContent[] | null {
   try {

@@ -55,7 +55,8 @@
       "quick_messages": "Schnellnachrichten",
       "logs": "Laufzeitprotokolle",
       "usage": "Usage",
-      "user_memory": "User Memory"
+      "user_memory": "User Memory",
+      "science": "Wissenschaft"
     }
   },
   "AppearanceSettings": {
@@ -2124,10 +2125,12 @@
           "spawnFailed": "{agent} konnte nicht gestartet werden: {message}",
           "downloadFailed": "{agent}-Download fehlgeschlagen: {message}",
           "sessionLoadResourceNotFound": "{agent}-Sitzung konnte nicht geladen werden. Neu laden, um es erneut zu versuchen, oder eine neue Konversation starten.",
+          "sessionLoadUnavailable": "{agent} konnte diese Sitzung nicht wiederherstellen – sie wurde möglicherweise beendet oder der Agent wurde gestoppt. Neu laden, um es erneut zu versuchen, oder eine neue Konversation starten.",
           "turnFailedRefusal": "{agent} hat die Fortsetzung dieser Runde abgelehnt. Häufig deutet das auf einen Backend- oder Gateway-Fehler hin. Bitte prüfen Sie die Agent-Logs.",
           "turnFailedMaxTokens": "{agent} hat das Token-Limit für diese Runde erreicht.",
           "turnFailedMaxTurnRequests": "{agent} hat die maximale Anzahl zulässiger Anfragen für diese Runde erreicht.",
           "turnFailedUnknown": "{agent} hat die Runde mit einem unbekannten Stoppgrund beendet.",
+          "grokModelSwitchIncompatibleAgent": "{agent} kann in einer bestehenden Unterhaltung nicht zu diesem Modell wechseln. Starte eine neue Sitzung, um es zu verwenden.",
           "turnFailedEmpty": "{agent} hat die Runde ohne jegliche Antwort beendet. Bitte prüfen Sie die Agent-Konfiguration."
         },
         "unableReadAgentConfig": "Agenten-Konfiguration kann nicht gelesen werden: {message}",
@@ -2363,7 +2366,9 @@
           },
           "tabs": {
             "office": "Büroarbeit",
-            "coding": "Code-Entwicklung"
+            "coding": "Code-Entwicklung",
+            "common": "Häufig",
+            "research": "Forschung"
           },
           "coding": {
             "brainstormingDesc": "Absicht & Anforderungen vor dem Bauen klären",
@@ -2485,7 +2490,7 @@
         "elapsedHours": "{value} Std",
         "elapsedMinutes": "{value} Min",
         "elapsedSeconds": "{value} Sek",
-        "toolUseCount": "{count} Tool {count, plural, one {use} other {uses}}"
+        "toolUseCount": "{count, plural, one {# Tool-Aufruf} other {# Tool-Aufrufe}}"
       },
       "tool": {
         "parameters": "Parameter",
@@ -2770,6 +2775,16 @@
         "opWait": "Sub-Agent-Ergebnis wird abgerufen",
         "opClose": "Sub-Agent wird geschlossen",
         "opResume": "Sub-Agent wird fortgesetzt"
+      },
+      "backgroundTasks": {
+        "running": "{count, plural, one {# Hintergrundaufgabe läuft} other {# Hintergrundaufgaben laufen}}",
+        "settling": "Hintergrundergebnisse werden synchronisiert...",
+        "settledFallback": "Hintergrundaufgabe beendet ({status})",
+        "cardRunning": "Läuft im Hintergrund",
+        "cardLaunchedPending": "Hintergrundaufgabe gestartet",
+        "cardCompleted": "Hintergrundaufgabe abgeschlossen",
+        "cardFinishedWithStatus": "Hintergrundaufgabe beendet ({status})",
+        "cardResultPending": "Ergebnis steht noch aus"
       }
     },
     "diffPreview": {
@@ -2868,6 +2883,11 @@
     "channelType": "Kanaltyp",
     "lark": "Lark (Feishu)",
     "weixin": "WeChat",
+    "telegram": "Telegram",
+    "telegramBotToken": "Bot-Token",
+    "telegramChatId": "Chat-ID",
+    "telegramChatIdPlaceholder": "-100123456789 oder @benutzername",
+    "telegramTopicMode": "Themengruppenmodus",
     "dailyReport": "Tagesbericht",
     "dailyReportTime": "Berichtszeit",
     "nameRequired": "Kanalname ist erforderlich.",
@@ -3183,7 +3203,10 @@
     "skillsEmpty": "Tools installieren und Skills synchronisieren.",
     "searchSkills": "Internet-Skills suchen",
     "installFirst": "Zuerst Internet-Skills installieren und synchronisieren.",
-    "categories": { "agentReach": "Agent Reach", "opencli": "OpenCLI" },
+    "categories": {
+      "agentReach": "Agent Reach",
+      "opencli": "OpenCLI"
+    },
     "configDialog": {
       "title": "Agent Reach konfigurieren",
       "description": "Zugangsdaten werden nur lokal gespeichert und nicht erneut angezeigt.",
@@ -3350,7 +3373,7 @@
       "deleteConfirm": "Pet „{name}\" löschen? Auch von der Festplatte entfernt.",
       "summon": "Pet-Fenster aufrufen",
       "openCodexHelp": "Codex-Pets müssen in ~/.codex/pets/ liegen. Nichts gefunden.",
-      "specRequirement": "Sprite-Sheet muss 1536x1872 PNG oder WebP mit Transparenz sein.",
+      "specRequirement": "Sprite-Sheet muss 1536px breit sein, mit einer Höhe als Vielfaches von 208px (z. B. 1872 oder 2288), als PNG oder WebP mit Transparenz.",
       "form": {
         "id": "Pet-ID",
         "idHelp": "Kleinbuchstaben, Ziffern, '-' und '_'. Max 64 Zeichen.",
@@ -3932,6 +3955,40 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
+    }
+  },
+  "ScienceSettings": {
+    "title": "Wissenschaftliche Skills",
+    "description": "Aktiviere kuratierte wissenschaftliche Skills für deine KI-Coding-Agents — Hypothesengenerierung, Versuchsplanung, Statistik, Visualisierung, kritische Bewertung und Literatursuche. iyw-claw verwaltet eine zentrale Kopie und verlinkt jeden Skill in die von dir gewählten Agents.",
+    "loading": "Wissenschaftliche Skills werden geladen…",
+    "emptySkills": "Keine wissenschaftlichen Skills verfügbar. Prüfe die Anwendungsprotokolle.",
+    "searchPlaceholder": "Wissenschaftliche Skills nach Name, ID oder Beschreibung suchen",
+    "categories": {
+      "ideation": "Ideenfindung",
+      "design": "Studiendesign",
+      "analysis": "Analyse",
+      "visualization": "Visualisierung",
+      "evaluation": "Bewertung",
+      "literature": "Literatur"
+    },
+    "states": {
+      "not_linked": "Nicht aktiviert",
+      "linked_to_codeg": "Aktiviert",
+      "linked_elsewhere": "Blockiert — ein anderer Link existiert",
+      "blocked_by_real_directory": "Blockiert — ein benutzerdefinierter Skill belegt diesen Namen",
+      "broken": "Defekter Link"
+    },
+    "badges": {
+      "userModified": "Vom Benutzer geändert",
+      "needsKey": "API-Schlüssel nötig",
+      "needsSetup": "Ggf. Einrichtung nötig"
+    },
+    "actions": {
+      "openCentralDir": "Zentralen Ordner öffnen",
+      "refresh": "Aktualisieren"
+    },
+    "toasts": {
+      "openFolderFailed": "Ordner konnte nicht geöffnet werden"
     }
   }
 }

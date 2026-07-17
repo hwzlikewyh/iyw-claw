@@ -5,10 +5,13 @@ import { useTranslations } from "next-intl"
 import {
   PET_FRAME_DURATIONS_MS,
   PET_STATE_ROW,
-  SPRITE_BACKGROUND_SIZE,
   backgroundPositionFor,
+  filmstripFrameCount,
+  spriteBackgroundSize,
+  spriteRowsFromHeight,
   type PetState,
 } from "@/lib/pet/animation"
+import { useImageNaturalSize } from "@/lib/pet/use-image-natural-size"
 
 export const PET_ACTION_PREVIEW_STATES = [
   "idle",
@@ -58,6 +61,10 @@ export function PetActionPreviewGrid({
   source,
 }: PetActionPreviewGridProps) {
   const t = useTranslations("Pet.marketplace")
+  const size = useImageNaturalSize(source.url)
+  const rows = spriteRowsFromHeight(size?.height)
+  const measuredFrames = size ? filmstripFrameCount(size.width, size.height) : 0
+  const totalFrames = Math.max(MARKETPLACE_PREVIEW_TOTAL_FRAMES, measuredFrames)
 
   return (
     <div className="grid grid-cols-3 gap-1">
@@ -68,6 +75,8 @@ export function PetActionPreviewGrid({
             key={state}
             source={source}
             state={state}
+            rows={rows}
+            totalFrames={totalFrames}
             label={`${petName} ${actionName}`}
             actionName={actionName}
           />
@@ -80,19 +89,23 @@ export function PetActionPreviewGrid({
 function PetActionPreviewCell({
   source,
   state,
+  rows,
+  totalFrames,
   label,
   actionName,
 }: {
   source: PetActionPreviewSource
   state: PetState
+  rows: number
+  totalFrames: number
   label: string
   actionName: string
 }) {
   const col = usePetActionPreviewFrame(state)
   const frameStyle =
     source.type === "marketplace"
-      ? marketplacePreviewFrameStyle(source.url, state, col)
-      : spritesheetPreviewFrameStyle(source.url, state, col)
+      ? marketplacePreviewFrameStyle(source.url, state, col, totalFrames)
+      : spritesheetPreviewFrameStyle(source.url, state, col, rows)
 
   return (
     <div className="min-w-0 p-1">
@@ -144,13 +157,14 @@ function usePetActionPreviewFrame(state: PetState): number {
 function marketplacePreviewFrameStyle(
   previewUrl: string,
   state: PetState,
-  col: number
+  col: number,
+  totalFrames: number
 ): CSSProperties {
   const frame = MARKETPLACE_PREVIEW_FRAME_START[state] + col
-  const x = (frame / (MARKETPLACE_PREVIEW_TOTAL_FRAMES - 1)) * 100
+  const x = (frame / Math.max(1, totalFrames - 1)) * 100
   return {
     backgroundImage: `url("${previewUrl}")`,
-    backgroundSize: `${MARKETPLACE_PREVIEW_TOTAL_FRAMES * 100}% 100%`,
+    backgroundSize: `${totalFrames * 100}% 100%`,
     backgroundPosition: `${x}% 0%`,
   }
 }
@@ -158,11 +172,12 @@ function marketplacePreviewFrameStyle(
 function spritesheetPreviewFrameStyle(
   spritesheetUrl: string,
   state: PetState,
-  col: number
+  col: number,
+  rows: number
 ): CSSProperties {
   return {
     backgroundImage: `url("${spritesheetUrl}")`,
-    backgroundSize: SPRITE_BACKGROUND_SIZE,
-    backgroundPosition: backgroundPositionFor(PET_STATE_ROW[state], col),
+    backgroundSize: spriteBackgroundSize(rows),
+    backgroundPosition: backgroundPositionFor(PET_STATE_ROW[state], col, rows),
   }
 }

@@ -60,6 +60,7 @@ import { FileWorkspacePanel } from "@/components/files/file-workspace-panel"
 import { ExternalConflictDialog } from "@/components/files/external-conflict-dialog"
 import { SettingsDialog } from "@/components/settings/settings-dialog"
 import { AppToaster } from "@/components/ui/app-toaster"
+import { HeavyPluginsWarmup } from "@/components/ai-elements/heavy-plugins-warmup"
 import { DeepLinkBootstrap } from "@/components/workspace/deep-link-bootstrap"
 import {
   ResizableHandle,
@@ -101,6 +102,7 @@ const COLLAPSED_SIDEBAR_WIDTH_PX = 52
 const MIN_CENTER_WIDTH_PX = 420
 const MIN_WORKSPACE_HEIGHT_PX = 220
 const LAYOUT_EPSILON = 0.25
+const PANEL_SLIDE_CLEANUP_MS = 300
 
 function TabKeysSync() {
   const tabs = useTabStore((s) => s.tabs)
@@ -152,6 +154,31 @@ function resolvePanelSizeRange(
   const minSize = clamp(toPercent(minPixels, safeTotal), 0, 100)
   const maxSize = clamp(toPercent(maxPixels, safeTotal), minSize, 100)
   return { minSize, maxSize }
+}
+
+/** Animate explicit open/close toggles, but not initial persisted-state restore. */
+function usePanelSlideOnToggle(open: boolean, ready: boolean): boolean {
+  const [animating, setAnimating] = useState(false)
+  const [slideSeq, setSlideSeq] = useState(0)
+  const [prevOpen, setPrevOpen] = useState<boolean | null>(null)
+
+  if (ready) {
+    if (prevOpen === null) {
+      setPrevOpen(open)
+    } else if (prevOpen !== open) {
+      setPrevOpen(open)
+      setAnimating(true)
+      setSlideSeq((sequence) => sequence + 1)
+    }
+  }
+
+  useEffect(() => {
+    if (slideSeq === 0) return
+    const timer = setTimeout(() => setAnimating(false), PANEL_SLIDE_CLEANUP_MS)
+    return () => clearTimeout(timer)
+  }, [slideSeq])
+
+  return animating
 }
 
 function WorkspaceContent({ children }: { children: React.ReactNode }) {
@@ -407,6 +434,7 @@ function MobileFolderWorkspaceShell({
 function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
   const {
     isOpen: sidebarOpen,
+    restored: sidebarRestored,
     width: sidebarWidth,
     minWidth: sidebarMinWidth,
     maxWidth: sidebarMaxWidth,
@@ -414,6 +442,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
   } = useSidebarContext()
   const {
     isOpen: auxOpen,
+    restored: auxRestored,
     width: auxWidth,
     minWidth: auxMinWidth,
     maxWidth: auxMaxWidth,
@@ -426,6 +455,11 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
     maxHeight: terminalMaxHeight,
     setHeight: setTerminalHeight,
   } = useTerminalContext()
+
+  const sidebarAnimating = usePanelSlideOnToggle(sidebarOpen, sidebarRestored)
+  const auxAnimating = usePanelSlideOnToggle(auxOpen, auxRestored)
+  const terminalAnimating = usePanelSlideOnToggle(terminalOpen, true)
+  const shellSlideAnimating = sidebarAnimating || auxAnimating
 
   const shellGroupRef = useRef<ImperativePanelGroupHandle | null>(null)
   const mainGroupRef = useRef<ImperativePanelGroupHandle | null>(null)
@@ -744,6 +778,7 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
         ref={shellGroupRef}
         direction="horizontal"
         onLayout={handleShellLayout}
+        className={shellSlideAnimating ? "panel-slide-animating" : undefined}
       >
         <ResizablePanel
           id={FOLDER_SHELL_LEFT_PANEL_ID}
@@ -788,6 +823,9 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
               ref={mainGroupRef}
               direction="vertical"
               onLayout={handleMainLayout}
+              className={
+                terminalAnimating ? "panel-slide-animating" : undefined
+              }
             >
               <ResizablePanel
                 id={FOLDER_MAIN_WORKSPACE_PANEL_ID}
@@ -911,6 +949,7 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                           <TabProvider>
                             <WorkspaceDocumentTitle />
                             <TabKeysSync />
+                            <HeavyPluginsWarmup />
                             <DeepLinkBootstrap />
                             <SidebarViewOptionsProvider>
                               <SettingsDialog />

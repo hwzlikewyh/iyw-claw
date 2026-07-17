@@ -2,9 +2,16 @@
 
 import { useEffect, useState } from "react"
 import type { BeforeMount } from "@monaco-editor/react"
+import type { editor as MonacoEditorNs } from "monaco-editor"
 
 export const MONACO_LIGHT_THEME = "iyw-claw-light"
 export const MONACO_DARK_THEME = "iyw-claw-dark"
+
+export const MONACO_UNICODE_HIGHLIGHT_OPTIONS: MonacoEditorNs.IUnicodeHighlightOptions =
+  {
+    ambiguousCharacters: false,
+    nonBasicASCII: false,
+  }
 
 export const monacoTokenRules = {
   light: [
@@ -350,9 +357,45 @@ const fixPythonTripleQuotes: BeforeMount = (monaco) => {
   })
 }
 
+export const configureLanguageValidation: BeforeMount = (monaco) => {
+  const ts = monaco.languages.typescript
+  if (ts) {
+    const compilerOptions = {
+      allowJs: true,
+      allowNonTsExtensions: true,
+      jsx: ts.JsxEmit.Preserve,
+      target: ts.ScriptTarget.ESNext,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeJs,
+      esModuleInterop: true,
+      noEmit: true,
+    }
+    const diagnosticsOptions = {
+      noSemanticValidation: true,
+      noSyntaxValidation: false,
+      noSuggestionDiagnostics: true,
+    }
+    ts.typescriptDefaults.setCompilerOptions(compilerOptions)
+    ts.javascriptDefaults.setCompilerOptions(compilerOptions)
+    ts.typescriptDefaults.setDiagnosticsOptions(diagnosticsOptions)
+    ts.javascriptDefaults.setDiagnosticsOptions(diagnosticsOptions)
+  }
+
+  const json = monaco.languages.json
+  if (json) {
+    json.jsonDefaults.setDiagnosticsOptions({
+      validate: true,
+      enableSchemaRequest: false,
+      schemaRequest: "ignore",
+      schemaValidation: "ignore",
+    })
+  }
+}
+
 export const defineMonacoThemes: BeforeMount = (monaco) => {
   defineDiffLanguage(monaco)
   fixPythonTripleQuotes(monaco)
+  configureLanguageValidation(monaco)
 
   monaco.editor.defineTheme(MONACO_LIGHT_THEME, {
     base: "vs",

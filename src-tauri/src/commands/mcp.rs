@@ -12,6 +12,8 @@ use serde_json::{json, Map, Value};
 
 use crate::app_error::AppCommandError;
 
+mod grok;
+
 const MARKETPLACE_OFFICIAL: &str = "official_registry";
 const MARKETPLACE_SMITHERY: &str = "smithery";
 const MCP_ATOMIC_SYMLINK_LIMIT: usize = 32;
@@ -76,6 +78,7 @@ pub enum McpAppType {
     Hermes,
     CodeBuddy,
     KimiCode,
+    Grok,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2373,6 +2376,7 @@ fn scan_local_servers() -> Vec<LocalMcpServer> {
         (McpAppType::Hermes, read_hermes_servers()),
         (McpAppType::CodeBuddy, read_codebuddy_servers()),
         (McpAppType::KimiCode, read_kimi_code_servers()),
+        (McpAppType::Grok, grok::read_servers()),
     ];
     for (app, scan) in scans {
         merge_local_server_scan(&mut merged, app, scan);
@@ -2438,6 +2442,7 @@ pub(crate) fn upsert_server_for_agent_type(
         AgentType::Hermes => upsert_hermes_server(id, spec),
         AgentType::CodeBuddy => upsert_codebuddy_server(id, spec),
         AgentType::KimiCode => upsert_kimi_code_server(id, spec),
+        AgentType::Grok => grok::upsert_server(id, spec),
         AgentType::OpenClaw | AgentType::Pi => Ok(()),
     }
 }
@@ -2456,6 +2461,7 @@ pub(crate) fn remove_server_for_agent_type(
         AgentType::Hermes => remove_hermes_server(id),
         AgentType::CodeBuddy => remove_codebuddy_server(id),
         AgentType::KimiCode => remove_kimi_code_server(id),
+        AgentType::Grok => grok::remove_server(id),
         AgentType::OpenClaw | AgentType::Pi => Ok(false),
     }
 }
@@ -2477,6 +2483,7 @@ pub fn read_servers_for_agent_type(
         // pi-acp drops ACP-wire MCP and pi has no native MCP (it needs a
         // third-party extension), so iyw-claw manages no MCP servers for pi (v1).
         AgentType::Pi => Ok(BTreeMap::new()),
+        AgentType::Grok => grok::read_servers(),
     }
 }
 

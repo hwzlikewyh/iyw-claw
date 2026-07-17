@@ -22,6 +22,7 @@ import {
 } from "@/lib/api"
 import type { ChatChannelInfo } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
+import { buildChatChannelConfig } from "@/lib/chat-channel-config"
 
 interface EditChatChannelDialogProps {
   open: boolean
@@ -45,6 +46,7 @@ export function EditChatChannelDialog({
   const [token, setToken] = useState("")
   const [chatId, setChatId] = useState(config.chat_id ?? "")
   const [appId, setAppId] = useState(config.app_id ?? "")
+  const [topicMode, setTopicMode] = useState(config.topic_mode ?? false)
   const [baseUrl] = useState(config.base_url ?? "")
   const [dailyReportEnabled, setDailyReportEnabled] = useState(
     channel.daily_report_enabled
@@ -75,10 +77,12 @@ export function EditChatChannelDialog({
     setLoading(true)
     setError(null)
     try {
-      const configJson =
-        channel.channel_type === "weixin"
-          ? JSON.stringify({ base_url: baseUrl })
-          : JSON.stringify({ app_id: appId, chat_id: chatId })
+      const configJson = buildChatChannelConfig(channel.channel_type, {
+        appId,
+        baseUrl,
+        chatId,
+        topicMode,
+      })
 
       await updateChatChannel({
         id: channel.id,
@@ -107,6 +111,7 @@ export function EditChatChannelDialog({
     chatId,
     channel,
     appId,
+    topicMode,
     baseUrl,
     dailyReportEnabled,
     dailyReportTime,
@@ -145,7 +150,11 @@ export function EditChatChannelDialog({
 
           {channel.channel_type !== "weixin" && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">App Secret</label>
+              <label className="text-xs font-medium">
+                {channel.channel_type === "telegram"
+                  ? t("telegramBotToken")
+                  : "App Secret"}
+              </label>
               <Input
                 type="password"
                 value={token}
@@ -159,12 +168,29 @@ export function EditChatChannelDialog({
 
           {channel.channel_type !== "weixin" && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">Chat ID</label>
+              <label className="text-xs font-medium">
+                {channel.channel_type === "telegram"
+                  ? t("telegramChatId")
+                  : "Chat ID"}
+              </label>
               <Input
                 value={chatId}
                 onChange={(e) => setChatId(e.target.value)}
-                placeholder="oc_xxxxx"
+                placeholder={
+                  channel.channel_type === "telegram"
+                    ? t("telegramChatIdPlaceholder")
+                    : "oc_xxxxx"
+                }
               />
+            </div>
+          )}
+
+          {channel.channel_type === "telegram" && (
+            <div className="flex items-center justify-between gap-4">
+              <label className="text-xs font-medium">
+                {t("telegramTopicMode")}
+              </label>
+              <Switch checked={topicMode} onCheckedChange={setTopicMode} />
             </div>
           )}
 

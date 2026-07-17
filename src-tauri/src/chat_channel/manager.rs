@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
@@ -143,6 +144,19 @@ impl ChatChannelManager {
         backend.send_rich_message(message).await
     }
 
+    pub(super) async fn backend_for(
+        &self,
+        channel_id: i32,
+    ) -> Result<Arc<dyn ChatChannelBackend>, ChatChannelError> {
+        self.inner
+            .channels
+            .lock()
+            .await
+            .get(&channel_id)
+            .map(|channel| channel.backend.clone())
+            .ok_or(ChatChannelError::NotFound(channel_id))
+    }
+
     pub async fn send_to_all(&self, message: &RichMessage) {
         let backends: Vec<Arc<dyn ChatChannelBackend>> = {
             let channels = self.inner.channels.lock().await;
@@ -223,6 +237,7 @@ impl ChatChannelManager {
         broadcaster: Arc<WebEventBroadcaster>,
         bus: Arc<crate::acp::InternalEventBus>,
         db_conn: DatabaseConnection,
+        data_dir: PathBuf,
         conn_mgr: ConnectionManager,
         emitter: EventEmitter,
     ) {
@@ -261,6 +276,7 @@ impl ChatChannelManager {
                 command_rx,
                 manager_for_cmds,
                 db_conn.clone(),
+                data_dir,
                 conn_mgr,
                 emitter,
                 bridge,

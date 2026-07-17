@@ -1923,6 +1923,7 @@ impl CodexParser {
             summary,
             turns,
             session_stats,
+            transcript_watermark: None,
         })
     }
 }

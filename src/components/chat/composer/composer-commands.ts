@@ -4,6 +4,7 @@ import type { PromptInputBlock } from "@/lib/types"
 
 import type { InputAttachment } from "../message-input-attachments"
 import { blocksToRestoredDraft } from "./from-prompt-blocks"
+import { textToInlineContent } from "./plain-text-content"
 import type { ReferenceAttrs } from "./types"
 
 /**
@@ -100,6 +101,40 @@ export function applyExpertReference(
   chain.insertContentAt(1, badge).setTextSelection(3).run()
 }
 
+export function restampSkillPrefixes(
+  editor: Editor,
+  prefix: "/" | "$"
+): boolean {
+  const updates: { pos: number; attrs: ReferenceAttrs }[] = []
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name !== "reference") return true
+    const attrs = node.attrs as ReferenceAttrs
+    if (
+      attrs.refType === "skill" &&
+      attrs.meta?.scope != null &&
+      attrs.meta.invocationPrefix !== prefix
+    ) {
+      updates.push({
+        pos,
+        attrs: {
+          ...attrs,
+          meta: { ...attrs.meta, invocationPrefix: prefix },
+        },
+      })
+    }
+    return true
+  })
+  if (updates.length === 0) return false
+
+  const transaction = editor.state.tr
+  for (const { pos, attrs } of updates) {
+    transaction.setNodeMarkup(pos, undefined, attrs)
+  }
+  transaction.setMeta("addToHistory", false)
+  editor.view.dispatch(transaction)
+  return true
+}
+
 /**
  * Replay a previously-sent `PromptInputBlock[]` (a queued message's draft) back
  * into the editor: prose + reference badges in order, returning the out-of-band
@@ -115,8 +150,8 @@ export function restoreBlocksIntoEditor(
   let chain = editor.chain().clearContent()
   for (const segment of segments) {
     chain =
-      segment.kind === "markdown"
-        ? chain.insertContent(segment.text, { contentType: "markdown" })
+      segment.kind === "text"
+        ? chain.insertContent(textToInlineContent(segment.text))
         : chain.insertReference(segment.attrs)
   }
   chain.focus("end").run()

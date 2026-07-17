@@ -3,7 +3,21 @@ fn main() {
     {
         ensure_sidecar_placeholders();
         tauri_build::build();
+        link_windows_test_manifest();
     }
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn link_windows_test_manifest() {
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if !target.contains("windows") {
+        return;
+    }
+
+    let dependency = "/MANIFESTDEPENDENCY:type='win32' \
+        name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
+        processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'";
+    println!("cargo:rustc-link-arg={dependency}");
 }
 
 /// Tauri's bundler validates that every `bundle.externalBin` path resolves

@@ -377,26 +377,25 @@ const FolderPicker = memo(function FolderPicker({
                 </CommandItem>
               ))}
             </CommandGroup>
-            <CommandSeparator />
-            {/* Pinned to the bottom: folderless "chat mode". A stable, plain
-                `value` (no folder name/path) keeps it visible under any search
-                filter so the entry point is always reachable. */}
-            <CommandGroup forceMount>
-              <CommandItem
-                value="__chat_mode__ no folder chat mode"
-                forceMount
-                onSelect={() => {
-                  setOpen(false)
-                  onSelectChatMode()
-                }}
-              >
-                <MessageSquare className="h-4 w-4" />
-                <span className="flex-1 truncate font-medium">
-                  {labelChatMode}
-                </span>
-                {isChatMode && <Check className="h-4 w-4 shrink-0" />}
-              </CommandItem>
-            </CommandGroup>
+            <div className="sticky bottom-0 bg-popover">
+              <CommandSeparator />
+              <CommandGroup forceMount>
+                <CommandItem
+                  value="__chat_mode__ no folder chat mode"
+                  forceMount
+                  onSelect={() => {
+                    setOpen(false)
+                    onSelectChatMode()
+                  }}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  <span className="flex-1 truncate font-medium">
+                    {labelChatMode}
+                  </span>
+                  {isChatMode && <Check className="h-4 w-4 shrink-0" />}
+                </CommandItem>
+              </CommandGroup>
+            </div>
           </CommandList>
         </Command>
       </PopoverContent>

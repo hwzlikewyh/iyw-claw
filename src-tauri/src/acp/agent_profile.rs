@@ -100,6 +100,7 @@ fn override_profile_env(agent_type: AgentType, root: &Path) -> BTreeMap<&'static
         AgentType::CodeBuddy => single_profile_env(root, "CODEBUDDY_CONFIG_DIR"),
         AgentType::KimiCode => single_profile_env(root, "KIMI_CODE_HOME"),
         AgentType::Pi => single_profile_env(root, "PI_CODING_AGENT_DIR"),
+        AgentType::Grok => single_profile_env(root, "GROK_HOME"),
     }
 }
 

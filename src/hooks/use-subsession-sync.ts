@@ -15,16 +15,16 @@ import {
 
 type ChildrenMap = Map<number, DbConversationSummary[]>
 
-// Ascending by created_at (ISO-8601 strings sort lexicographically as time),
+// Descending by created_at (ISO-8601 strings sort lexicographically as time),
 // id as a stable tie-break — matching the backend `list_children` ORDER BY
-// created_at ASC so an inserted child lands in the same position a refetch would.
-function byCreatedAtAsc(
+// created_at DESC, id DESC so a live insert matches a refetch.
+function byCreatedAtDesc(
   a: DbConversationSummary,
   b: DbConversationSummary
 ): number {
-  if (a.created_at < b.created_at) return -1
-  if (a.created_at > b.created_at) return 1
-  return a.id - b.id
+  if (a.created_at > b.created_at) return -1
+  if (a.created_at < b.created_at) return 1
+  return b.id - a.id
 }
 
 // FIFO bound for the deleted-child tombstone set (mirrors the root list's
@@ -84,7 +84,7 @@ export function useSubsessionSync(params: {
           nextArr = existing.slice()
           nextArr[idx] = summary
         } else {
-          nextArr = [...existing, summary].sort(byCreatedAtAsc)
+          nextArr = [...existing, summary].sort(byCreatedAtDesc)
         }
         const next = new Map(prev)
         next.set(parentId, nextArr)

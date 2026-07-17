@@ -2,10 +2,12 @@
 
 import { useMemo } from "react"
 import {
-  SPRITE_BACKGROUND_SIZE,
   backgroundPositionFor,
+  spriteBackgroundSize,
+  spriteRowsFromHeight,
   type PetState,
 } from "@/lib/pet/animation"
+import { useImageNaturalSize } from "@/lib/pet/use-image-natural-size"
 import { usePetAnimator } from "../_hooks/usePetAnimator"
 
 export interface PetSpriteProps {
@@ -30,6 +32,8 @@ export function PetSprite({
     () => `url("${spritesheetUrl}")`,
     [spritesheetUrl]
   )
+  const size = useImageNaturalSize(spritesheetUrl)
+  const rows = spriteRowsFromHeight(size?.height)
 
   return (
     <div
@@ -40,8 +44,8 @@ export function PetSprite({
         height: `${FRAME_HEIGHT * scale}px`,
         backgroundImage,
         backgroundRepeat: "no-repeat",
-        backgroundSize: SPRITE_BACKGROUND_SIZE,
-        backgroundPosition: backgroundPositionFor(row, col),
+        backgroundSize: spriteBackgroundSize(rows),
+        backgroundPosition: backgroundPositionFor(row, col, rows),
         imageRendering: "pixelated",
       }}
     />

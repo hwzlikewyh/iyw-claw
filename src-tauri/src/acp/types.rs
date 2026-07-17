@@ -215,6 +215,18 @@ pub enum AcpEvent {
     AvailableCommands { commands: Vec<AvailableCommandInfo> },
     /// Session usage/context window updated during conversation
     UsageUpdate { used: u64, size: u64 },
+    /// Claude transcript activity that occurred outside an iyw-claw prompt
+    /// turn. The transcript is authoritative for these turns; live ACP deltas
+    /// received out of turn are deliberately not used as a second render path.
+    BackgroundActivity {
+        session_id: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        turns: Vec<crate::models::message::MessageTurn>,
+        outstanding: u32,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        settled: Vec<BackgroundSettledInfo>,
+        watermark: u64,
+    },
     /// A `delegate_to_agent` MCP tool call from the parent agent has spawned a
     /// child sub-session and the child's prompt is in flight. Emitted as soon
     /// as the broker registers the pending call. The frontend uses this to
@@ -303,6 +315,21 @@ pub enum AcpEvent {
     /// snapshot attach (web reconnect, window refresh, new tile) recovers the
     /// staleness the one-shot event won't replay for it.
     SessionConfigStale { stale: bool, kind: ConfigStaleKind },
+}
+
+/// One background task settlement surfaced from the Claude transcript.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundSettledInfo {
+    pub task_id: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_use_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+    #[serde(default)]
+    pub wire_visible: bool,
 }
 
 /// Which settings surface drifted, so the frontend can word the

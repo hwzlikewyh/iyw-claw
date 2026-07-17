@@ -1615,6 +1615,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn handle_event_session_started_skips_soft_deleted_conversation() {
+        use crate::db::entities::conversation;
+        use crate::web::event_bridge::WebEventBroadcaster;
+        use sea_orm::EntityTrait;
+
+        let db = test_helpers::fresh_in_memory_db().await;
+        let folder_id = test_helpers::seed_folder(&db, "/tmp/test-sess-deleted").await;
+        let conv =
+            conversation_service::create(&db.conn, folder_id, AgentType::ClaudeCode, None, None)
+                .await
+                .unwrap();
+        conversation_service::update_external_id(&db.conn, conv.id, "session-S1".into())
+            .await
+            .unwrap();
+        conversation_service::soft_delete(&db.conn, conv.id)
+            .await
+            .unwrap();
+        let before = conversation::Entity::find_by_id(conv.id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("soft-deleted row");
+
+        let broadcaster = Arc::new(WebEventBroadcaster::new());
+        let mut rx = broadcaster.subscribe();
+        let mgr = ConnectionManager::new();
+        {
+            let mut map = mgr.connections.lock().await;
+            let mut conn = fake_connection_with_state("c1", Some(conv.id));
+            conn.emitter = EventEmitter::test_web_only(broadcaster);
+            map.insert("c1".to_string(), conn);
+        }
+        let env = EventEnvelope {
+            seq: 1,
+            connection_id: "c1".to_string(),
+            payload: AcpEvent::SessionStarted {
+                session_id: "session-S2".into(),
+            },
+        };
+        handle_event(&db.conn, &mgr, &env, None).await.unwrap();
+
+        let after = conversation::Entity::find_by_id(conv.id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("row still exists");
+        assert!(after.deleted_at.is_some());
+        assert_eq!(after.external_id.as_deref(), Some("session-S1"));
+        assert_eq!(after.updated_at, before.updated_at);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
     async fn handle_event_is_noop_when_no_conversation_bound() {
         let db = test_helpers::fresh_in_memory_db().await;
         // Seed a sentinel conversation row that should remain untouched.

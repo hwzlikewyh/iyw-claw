@@ -58,6 +58,7 @@ import type {
   ManagedSkillFamily,
   ManagedSkillFamilyState,
   ManagedSkillGlobalState,
+  ScienceListItem,
   ManagedSkillSyncReport,
   AgentReachChannel,
   AgentReachConfigKey,
@@ -259,9 +260,17 @@ export interface ForkResult {
   siblingConversationId: number
 }
 
-export async function acpFork(connectionId: string): Promise<ForkResult> {
+export async function acpFork(
+  connectionId: string,
+  conversationId?: number | null,
+  folderId?: number | null
+): Promise<ForkResult> {
   try {
-    return await getTransport().call("acp_fork", { connectionId })
+    return await getTransport().call("acp_fork", {
+      connectionId,
+      conversationId: conversationId ?? null,
+      folderId: folderId ?? null,
+    })
   } catch (e) {
     // A fork is serialized with prompts on the backend: it returns
     // TurnInProgress while a turn is in flight. Surface it as TurnBusyError so
@@ -922,6 +931,24 @@ export async function expertsReadContent(expertId: string): Promise<string> {
 
 export async function expertsOpenCentralDir(): Promise<string> {
   return getTransport().call("experts_open_central_dir")
+}
+
+export async function scienceList(): Promise<ScienceListItem[]> {
+  return getTransport().call("science_list")
+}
+
+export async function scienceListAllInstallStatuses(): Promise<
+  ExpertInstallStatus[]
+> {
+  return getTransport().call("science_list_all_install_statuses")
+}
+
+export async function scienceReadContent(skillId: string): Promise<string> {
+  return getTransport().call("science_read_content", { skillId })
+}
+
+export async function scienceOpenCentralDir(): Promise<string> {
+  return getTransport().call("science_open_central_dir")
 }
 
 // ─── Internet tools ───

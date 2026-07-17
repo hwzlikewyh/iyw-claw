@@ -55,7 +55,8 @@
       "quick_messages": "クイックメッセージ",
       "logs": "実行ログ",
       "usage": "Usage",
-      "user_memory": "User Memory"
+      "user_memory": "User Memory",
+      "science": "科学研究"
     }
   },
   "AppearanceSettings": {
@@ -2124,10 +2125,12 @@
           "spawnFailed": "{agent} の起動に失敗しました: {message}",
           "downloadFailed": "{agent} のダウンロードに失敗しました: {message}",
           "sessionLoadResourceNotFound": "{agent} セッションの読み込みに失敗しました。再読み込みして再試行するか、新しい会話を開始してください。",
+          "sessionLoadUnavailable": "{agent} はこのセッションを復元できませんでした。セッションが終了したか、エージェントが停止した可能性があります。再読み込みして再試行するか、新しい会話を開始してください。",
           "turnFailedRefusal": "{agent} がこのターンの続行を拒否しました。バックエンドまたはゲートウェイのエラーが原因の可能性があります。エージェントのログを確認してください。",
           "turnFailedMaxTokens": "{agent} がこのターンの最大トークン数に達しました。",
           "turnFailedMaxTurnRequests": "{agent} がこのターンで許可された最大リクエスト数に達しました。",
           "turnFailedUnknown": "{agent} が不明な停止理由でターンを終了しました。",
+          "grokModelSwitchIncompatibleAgent": "{agent} は既存の会話ではこのモデルに切り替えられません。新しいセッションを開始して使用してください。",
           "turnFailedEmpty": "{agent} は応答を生成せずにターンを終了しました。エージェントの設定を確認してください。"
         },
         "unableReadAgentConfig": "エージェント設定を読み取れません: {message}",
@@ -2363,7 +2366,9 @@
           },
           "tabs": {
             "office": "日常業務",
-            "coding": "コード開発"
+            "coding": "コード開発",
+            "common": "よく使う",
+            "research": "科学研究"
           },
           "coding": {
             "brainstormingDesc": "着手前に意図と要件を整理",
@@ -2485,7 +2490,7 @@
         "elapsedHours": "{value}時間",
         "elapsedMinutes": "{value}分",
         "elapsedSeconds": "{value}秒",
-        "toolUseCount": "{count} 個のツール {count, plural, one {use} other {uses}}"
+        "toolUseCount": "{count} 回のツール使用"
       },
       "tool": {
         "parameters": "パラメーター",
@@ -2770,6 +2775,16 @@
         "opWait": "サブエージェントの結果を取得中",
         "opClose": "サブエージェントを終了中",
         "opResume": "サブエージェントを再開中"
+      },
+      "backgroundTasks": {
+        "running": "{count} 件のバックグラウンドタスクを実行中",
+        "settling": "バックグラウンド結果を同期中...",
+        "settledFallback": "バックグラウンドタスクが終了しました（{status}）",
+        "cardRunning": "バックグラウンドで実行中",
+        "cardLaunchedPending": "バックグラウンドタスクを開始しました",
+        "cardCompleted": "バックグラウンドタスクが完了しました",
+        "cardFinishedWithStatus": "バックグラウンドタスクが終了しました（{status}）",
+        "cardResultPending": "結果はまだ返っていません"
       }
     },
     "diffPreview": {
@@ -2868,6 +2883,11 @@
     "channelType": "チャンネルタイプ",
     "lark": "Lark（飛書）",
     "weixin": "WeChat",
+    "telegram": "Telegram",
+    "telegramBotToken": "Bot Token",
+    "telegramChatId": "Chat ID",
+    "telegramChatIdPlaceholder": "-100123456789 または @username",
+    "telegramTopicMode": "トピックグループモード",
     "dailyReport": "デイリーレポート",
     "dailyReportTime": "送信時刻",
     "nameRequired": "チャンネル名を入力してください。",
@@ -3183,7 +3203,10 @@
     "skillsEmpty": "ツールをインストールしてスキルを同期してください。",
     "searchSkills": "インターネットスキルを検索",
     "installFirst": "先にスキルをインストールして同期してください。",
-    "categories": { "agentReach": "Agent Reach", "opencli": "OpenCLI" },
+    "categories": {
+      "agentReach": "Agent Reach",
+      "opencli": "OpenCLI"
+    },
     "configDialog": {
       "title": "Agent Reach を設定",
       "description": "認証情報はローカルにのみ保存され、再表示されません。",
@@ -3350,7 +3373,7 @@
       "deleteConfirm": "ペット「{name}」を削除しますか?ディスクからも削除されます。",
       "summon": "ペットウィンドウを呼び出す",
       "openCodexHelp": "Codex ペットは ~/.codex/pets/ 配下に配置する必要があります。見つかりません。",
-      "specRequirement": "スプライトシートは 1536x1872 ピクセル、透過 PNG / WebP 形式である必要があります。",
+      "specRequirement": "スプライトシートは幅 1536 ピクセル、高さは 208 ピクセルの倍数（例: 1872 または 2288）で、透過 PNG / WebP 形式である必要があります。",
       "form": {
         "id": "ペット ID",
         "idHelp": "英小文字、数字、'-'、'_' のみ。最大 64 文字。",
@@ -3932,6 +3955,40 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
+    }
+  },
+  "ScienceSettings": {
+    "title": "科学研究スキル",
+    "description": "AI コーディングエージェント向けに厳選した科学研究スキル（仮説生成・実験計画・統計・可視化・批判的評価・文献検索）を有効化します。iyw-claw が中央コピーを管理し、選んだエージェントに各スキルをリンクします。",
+    "loading": "科学研究スキルを読み込み中…",
+    "emptySkills": "利用可能な科学研究スキルがありません。アプリのログを確認してください。",
+    "searchPlaceholder": "名前・ID・説明で科学研究スキルを検索",
+    "categories": {
+      "ideation": "アイデア出し",
+      "design": "研究デザイン",
+      "analysis": "分析",
+      "visualization": "可視化",
+      "evaluation": "評価",
+      "literature": "文献"
+    },
+    "states": {
+      "not_linked": "未有効",
+      "linked_to_codeg": "有効",
+      "linked_elsewhere": "ブロック — 別のリンクが存在",
+      "blocked_by_real_directory": "ブロック — カスタムスキルがこの名前を占有",
+      "broken": "壊れたリンク"
+    },
+    "badges": {
+      "userModified": "ユーザーにより変更",
+      "needsKey": "APIキーが必要",
+      "needsSetup": "環境構築が必要な場合あり"
+    },
+    "actions": {
+      "openCentralDir": "中央フォルダを開く",
+      "refresh": "更新"
+    },
+    "toasts": {
+      "openFolderFailed": "フォルダを開けませんでした"
     }
   }
 }

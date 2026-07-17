@@ -8,6 +8,7 @@ use tokio::task::JoinHandle;
 
 use super::i18n::Lang;
 use super::session_bridge::{PendingPermission, SessionBridge};
+use super::session_topic;
 #[cfg(test)]
 use super::tool_detail::truncate_str;
 use super::types::{MessageLevel, RichMessage};
@@ -245,6 +246,7 @@ async fn handle_acp_envelope(
             if let Some(session) = guard.get_mut(connection_id) {
                 let channel_id = session.channel_id;
                 let sender_id = session.sender_id.clone();
+                let target = session.target.clone();
 
                 let auto_approve =
                     sender_context_service::get_or_create(db, channel_id, &sender_id)
@@ -290,7 +292,7 @@ async fn handle_acp_envelope(
                     fields: Vec::new(),
                     level: MessageLevel::Warning,
                 };
-                let _ = manager.send_to_channel(channel_id, &msg).await;
+                let _ = manager.send_to_target(&target, &msg).await;
             }
         }
 
@@ -298,6 +300,7 @@ async fn handle_acp_envelope(
             let mut guard = bridge.lock().await;
             if let Some(session) = guard.get_mut(connection_id) {
                 let channel_id = session.channel_id;
+                let target = session.target.clone();
                 let conv_id = session.conversation_id;
                 let content = std::mem::take(&mut session.content_buffer);
                 session.tool_calls.clear();
@@ -314,7 +317,7 @@ async fn handle_acp_envelope(
 
                 if !body.trim().is_empty() {
                     let msg = RichMessage::info(body);
-                    let _ = manager.send_to_channel(channel_id, &msg).await;
+                    let _ = manager.send_to_target(&target, &msg).await;
                 } else if !content.trim().is_empty() {
                     tracing::info!(
                         "[SessionEventSub] assistant completion suppressed after channel \
@@ -388,6 +391,7 @@ async fn handle_acp_envelope(
             if let Some(session) = guard.remove(connection_id) {
                 let channel_id = session.channel_id;
                 let sender_id = session.sender_id.clone();
+                let target = session.target.clone();
                 let conv_id = session.conversation_id;
                 drop(guard);
 
@@ -405,7 +409,7 @@ async fn handle_acp_envelope(
                     crate::db::entities::conversation::ConversationStatus::Cancelled,
                 )
                 .await;
-                let _ = sender_context_service::clear_session(db, channel_id, &sender_id).await;
+                session_topic::clear_route(db, channel_id, &sender_id, &target).await;
             }
         }
 
@@ -418,9 +422,10 @@ async fn handle_acp_envelope(
                 if let Some(session) = guard.remove(connection_id) {
                     let channel_id = session.channel_id;
                     let sender_id = session.sender_id.clone();
+                    let target = session.target.clone();
                     drop(guard);
 
-                    let _ = sender_context_service::clear_session(db, channel_id, &sender_id).await;
+                    session_topic::clear_route(db, channel_id, &sender_id, &target).await;
                 }
             }
         }
@@ -923,6 +928,7 @@ mod async_relay_dedup_tests {
             ActiveSession {
                 channel_id: 7,
                 sender_id: "u".into(),
+                target: crate::chat_channel::types::ChannelMessageTarget::channel(7),
                 conversation_id: 1,
                 connection_id: "conn".into(),
                 agent_type: AgentType::ClaudeCode,
@@ -1437,6 +1443,7 @@ mod error_terminal_gate_tests {
             ActiveSession {
                 channel_id: 7,
                 sender_id: "u1".into(),
+                target: crate::chat_channel::types::ChannelMessageTarget::channel(7),
                 conversation_id: conv_id,
                 connection_id: connection_id.to_string(),
                 agent_type: AgentType::ClaudeCode,

@@ -40,18 +40,18 @@ export function compareByCreatedAtDesc(
 }
 
 /**
- * Oldest-created first, id as a stable tie-break — matching the backend
- * `list_children` ORDER BY created_at ASC so a merged/inserted child lands where
+ * Newest-created first, id as a stable tie-break — matching the backend
+ * `list_children` ORDER BY created_at DESC, id DESC so a merged/inserted child lands where
  * a refetch would put it.
  */
-export function compareByCreatedAtAsc(
+export function compareByChildCreatedAtDesc(
   left: DbConversationSummary,
   right: DbConversationSummary
 ): number {
   const createdDiff =
-    parseTimestamp(left.created_at) - parseTimestamp(right.created_at)
+    parseTimestamp(right.created_at) - parseTimestamp(left.created_at)
   if (createdDiff !== 0) return createdDiff
-  return left.id - right.id
+  return right.id - left.id
 }
 
 /**
@@ -350,7 +350,7 @@ const EMPTY_CHILDREN: ReadonlyMap<number, readonly DbConversationSummary[]> =
  * from live events (buffered into the lazy-load placeholder while the fetch was
  * in flight). Keyed by id with the live event winning, so a child created or
  * updated after the fetch's DB query is never lost — closing the lazy-load
- * lost-update race. Sorted created_at-ascending to match `list_children`.
+ * lost-update race. Sorted newest-first to match `list_children`.
  */
 export function mergeChildrenById(
   snapshot: readonly DbConversationSummary[],
@@ -359,7 +359,7 @@ export function mergeChildrenById(
   const byId = new Map<number, DbConversationSummary>()
   for (const c of snapshot) byId.set(c.id, c)
   for (const b of buffered) byId.set(b.id, b)
-  return [...byId.values()].sort(compareByCreatedAtAsc)
+  return [...byId.values()].sort(compareByChildCreatedAtDesc)
 }
 
 /**

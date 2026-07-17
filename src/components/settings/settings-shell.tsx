@@ -12,6 +12,7 @@ import {
   BarChart3,
   Bot,
   Brain,
+  FlaskConical,
   FileStack,
   Globe2,
   GitBranch,
@@ -47,6 +48,7 @@ export interface SettingsNavItem {
     | "agents"
     | "mcp"
     | "experts"
+    | "science"
     | "office_tools"
     | "internet_tools"
     | "quick_messages"
@@ -91,6 +93,11 @@ const SETTINGS_NAV_ITEMS_WITH_HIDDEN: SettingsNavItem[] = [
     href: "/settings/experts",
     labelKey: "experts",
     icon: Sparkles,
+  },
+  {
+    href: "/settings/science",
+    labelKey: "science",
+    icon: FlaskConical,
   },
   {
     href: "/settings/office-tools",

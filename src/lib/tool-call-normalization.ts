@@ -3,6 +3,7 @@ import { COLLAB_AGENT_TOOL_NAME, isCodexCollabInput } from "@/lib/collab-tool"
 const EXACT_TOOL_NAME_ALIASES: Record<string, string> = {
   shell_command: "bash",
   "functions.shell_command": "bash",
+  run_terminal_command: "bash",
   exec_command: "exec_command",
   "functions.exec_command": "exec_command",
   "functions.read": "read",
@@ -414,6 +415,9 @@ export function inferLiveToolName(params: {
     const normalizedMeta = normalizeToolName(metaToolName)
     if (DELEGATION_COMPANION_TOOLS.has(normalizedMeta)) return normalizedMeta
   }
+
+  const titleCompanion = normalizeToolName(params.title ?? "")
+  if (DELEGATION_COMPANION_TOOLS.has(titleCompanion)) return titleCompanion
 
   // Input-shape detection runs FIRST so cross-agent heuristics (Claude Code
   // `Task` tool routed via `subagent_type`, OpenCode sub-agent calls, etc.)

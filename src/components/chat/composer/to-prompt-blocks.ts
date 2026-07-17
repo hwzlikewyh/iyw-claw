@@ -1,8 +1,11 @@
-import type { Editor, JSONContent } from "@tiptap/core"
+import type { Editor } from "@tiptap/core"
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 
 import type { PromptInputBlock } from "@/lib/types"
 
+import { referenceToMarkdown } from "./reference-text"
 import { isEmbeddedReferenceUri } from "./reference-uri"
+import type { ReferenceAttrs } from "./types"
 
 /**
  * Send serialization: turn the composer document into the prose portion of a
@@ -38,47 +41,35 @@ import { isEmbeddedReferenceUri } from "./reference-uri"
  * placed it.
  */
 export function docToPromptBlocks(editor: Editor): PromptInputBlock[] {
-  const doc = editor.getJSON()
-  const stripped = stripEmbeddedReferences(doc)
-  const text = serializeMarkdown(editor, stripped).trim()
+  const text = serializeDocToText(editor.state.doc).trim()
   return text ? [{ type: "text", text }] : []
 }
 
-/** A display-only embedded-attachment reference (`iyw-claw://embedded/…`): dropped
- *  from the prose here, its bytes appended out of band by the host. The
- *  synthetic uri points at no fetchable target, so it must never reach the
- *  agent — neither inline nor as a ResourceLink. */
-function isEmbeddedReference(node: JSONContent): boolean {
-  return (
-    node.type === "reference" &&
-    typeof node.attrs?.uri === "string" &&
-    isEmbeddedReferenceUri(node.attrs.uri)
-  )
-}
-
-/**
- * Deep-clone `node`, dropping every embedded-attachment reference from the inline
- * content (the host emits their bytes-bearing blocks separately). Every other
- * node — including file references, which serialize to an inline
- * `[label](file://uri)` link — is left intact so it stays in place in the prose.
- * Dropping (rather than replacing with placeholder text) leaves the surrounding
- * prose untouched; any incidental double space collapses on render and is
- * harmless to the agent.
- */
-function stripEmbeddedReferences(node: JSONContent): JSONContent {
-  if (!node.content) return node
-  const content: JSONContent[] = []
-  for (const child of node.content) {
-    if (isEmbeddedReference(child)) {
-      continue
+export function composerLeafText(
+  leaf: ProseMirrorNode,
+  options?: { keepEmbedded?: boolean }
+): string {
+  if (leaf.type.name === "reference") {
+    const attrs = leaf.attrs as ReferenceAttrs
+    if (
+      !options?.keepEmbedded &&
+      typeof attrs.uri === "string" &&
+      isEmbeddedReferenceUri(attrs.uri)
+    ) {
+      return ""
     }
-    content.push(stripEmbeddedReferences(child))
+    return referenceToMarkdown(attrs)
   }
-  return { ...node, content }
+  if (leaf.type.name === "hardBreak") return "\n"
+  return ""
 }
 
-/** The Markdown manager is always present (the Markdown extension is always loaded). */
-function serializeMarkdown(editor: Editor, doc: JSONContent): string {
-  if (!editor.markdown) throw new Error("Markdown extension not loaded")
-  return editor.markdown.serialize(doc)
+export function serializeDocToText(doc: ProseMirrorNode): string {
+  return doc.textBetween(0, doc.content.size, "\n", composerLeafText)
+}
+
+export function serializeDocToDisplayText(doc: ProseMirrorNode): string {
+  return doc.textBetween(0, doc.content.size, "\n", (leaf) =>
+    composerLeafText(leaf, { keepEmbedded: true })
+  )
 }

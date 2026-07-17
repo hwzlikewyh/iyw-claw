@@ -69,6 +69,10 @@ import {
 } from "@/lib/selector-prefs-storage"
 import { useAlertContext, type AlertAction } from "@/contexts/alert-context"
 import { useActiveFolder } from "@/contexts/active-folder-context"
+import {
+  getConversationIdByExternalIdFromStore,
+  useConversationRuntimeStore,
+} from "@/stores/conversation-runtime-store"
 
 // ── Shared types (re-exported for consumers) ──
 
@@ -178,8 +182,8 @@ export interface ConnectionState {
   claudeApiRetry: ClaudeApiRetryState | null
   error: string | null
   /**
-   * Set when the agent rejected `session/load` non-recoverably (currently
-   * only `Resource not found` for an expired/missing historical session).
+   * Set when the agent rejected `session/load` non-recoverably, including an
+   * expired historical session or a process/session that ended during load.
    * Distinct from `error` because the UI surfaces it inline in the message
    * list with reload / new-conversation actions, instead of as a toast.
    * Cleared on the next CONNECTION_CREATED for the same key, or by
@@ -253,6 +257,9 @@ export interface ConnectionState {
    * the snapshot — dismissal is per-client UI state.
    */
   configStaleDismissed: boolean
+  backgroundOutstanding: number
+  backgroundSettleSyncingSince: number | null
+  outOfTurnToolCalls: ReadonlyMap<string, ToolCallInfo> | null
 }
 
 type ConnectRequest = {
@@ -299,6 +306,13 @@ type Action =
       type: "STATUS_CHANGED"
       contextKey: string
       status: ConnectionStatus
+    }
+  | {
+      type: "SET_BACKGROUND_OUTSTANDING"
+      contextKey: string
+      outstanding: number
+      outOfTurnSettleCount: number
+      turnsCount: number
     }
   | StreamingAction
   | { type: "STREAM_BATCH"; actions: StreamingAction[] }
@@ -943,6 +957,7 @@ function applyStreamingAction(
   conn: ConnectionState,
   action: StreamingAction
 ): ConnectionState | null {
+  if (conn.status !== "prompting") return null
   // CONTENT_DELTA with empty text is a true no-op. THINKING with empty text
   // is allowed to create the initial placeholder block so the UI can show
   // a "Thinking..." indicator immediately (and for newer Claude models that
@@ -988,6 +1003,26 @@ function applyStreamingAction(
   }
 }
 
+const OUT_OF_TURN_TOOL_CALL_CAP = 8
+const OVERLAY_FOLD_THRESHOLD = 60
+const OVERLAY_FOLD_MIN_INTERVAL_MS = 30_000
+const overlayFoldRefetchAt = new Map<number, number>()
+
+function recordOutOfTurnToolCall(
+  existing: ReadonlyMap<string, ToolCallInfo> | null,
+  info: ToolCallInfo
+): ReadonlyMap<string, ToolCallInfo> {
+  const next = new Map(existing ?? [])
+  next.delete(info.tool_call_id)
+  next.set(info.tool_call_id, info)
+  while (next.size > OUT_OF_TURN_TOOL_CALL_CAP) {
+    const oldest = next.keys().next().value
+    if (oldest === undefined) break
+    next.delete(oldest)
+  }
+  return next
+}
+
 function connectionsReducer(
   state: ConnectionsMap,
   action: Action
@@ -1029,6 +1064,9 @@ function connectionsReducer(
         configStale: false,
         configStaleKind: null,
         configStaleDismissed: false,
+        backgroundOutstanding: 0,
+        backgroundSettleSyncingSince: null,
+        outOfTurnToolCalls: null,
       })
       return next
     }
@@ -1082,6 +1120,9 @@ function connectionsReducer(
         configStale: false,
         configStaleKind: null,
         configStaleDismissed: false,
+        backgroundOutstanding: 0,
+        backgroundSettleSyncingSince: null,
+        outOfTurnToolCalls: null,
       })
       return next
     }
@@ -1130,7 +1171,7 @@ function connectionsReducer(
       // Race guard: the snapshot may have been generated BEFORE events
       // that have since arrived and been applied to in-memory state.
       // Mutable fields (status, sessionId, liveMessage, pendingPermission,
-      // usage) are fresher in memory than in the snapshot and must NOT be
+      // usage, error) are fresher in memory than in the snapshot and must NOT be
       // overwritten — but the latched/fill-null fields above are still
       // applied so the once-per-lifetime bits can recover.
       if (action.patch.eventSeq <= current.lastAppliedSeq) {
@@ -1183,6 +1224,8 @@ function connectionsReducer(
         // preserved via `...current`.
         configStale: action.patch.configStale,
         configStaleKind: action.patch.configStaleKind,
+        backgroundOutstanding: action.patch.backgroundOutstanding,
+        error: action.patch.lastError,
         lastAppliedSeq: action.patch.eventSeq,
       })
       return next
@@ -1236,6 +1279,7 @@ function connectionsReducer(
         updated.pendingQuestion = null
         updated.claudeApiRetry = null
         updated.error = null
+        updated.outOfTurnToolCalls = null
       } else if (conn.status === "prompting") {
         // Prompt cycle ended: clear in-flight Claude API retry banner.
         updated.claudeApiRetry = null
@@ -1245,6 +1289,30 @@ function connectionsReducer(
         updated.pendingAskQuestion = null
       }
       next.set(action.contextKey, updated)
+      return next
+    }
+
+    case "SET_BACKGROUND_OUTSTANDING": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      const syncingSince =
+        action.outOfTurnSettleCount > 0
+          ? Date.now()
+          : action.turnsCount > 0
+            ? null
+            : conn.backgroundSettleSyncingSince
+      if (
+        conn.backgroundOutstanding === action.outstanding &&
+        conn.backgroundSettleSyncingSince === syncingSince
+      ) {
+        return state
+      }
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        backgroundOutstanding: action.outstanding,
+        backgroundSettleSyncingSince: syncingSince,
+      })
       return next
     }
 
@@ -1300,6 +1368,27 @@ function connectionsReducer(
     case "TOOL_CALL": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
+      if (conn.status !== "prompting") {
+        const next = new Map(state)
+        next.set(action.contextKey, {
+          ...conn,
+          outOfTurnToolCalls: recordOutOfTurnToolCall(conn.outOfTurnToolCalls, {
+            tool_call_id: action.tool_call_id,
+            title: action.title,
+            kind: action.kind,
+            status: action.status,
+            content: action.content,
+            raw_input: action.raw_input,
+            raw_output_chunks:
+              action.raw_output !== null ? [action.raw_output] : [],
+            raw_output_total_bytes: action.raw_output?.length ?? 0,
+            locations: action.locations,
+            meta: action.meta,
+            images: action.images ?? [],
+          }),
+        })
+        return next
+      }
       const prev = ensureLiveMessage(conn.liveMessage)
       const existingIndex = prev.content.findIndex(
         (b) =>
@@ -1377,6 +1466,46 @@ function connectionsReducer(
     case "TOOL_CALL_UPDATE": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
+      if (conn.status !== "prompting") {
+        const existing = conn.outOfTurnToolCalls?.get(action.tool_call_id)
+        const merged: ToolCallInfo = existing
+          ? {
+              ...existing,
+              title: action.title ?? existing.title,
+              status: action.status ?? existing.status,
+              content: action.content ?? existing.content,
+              raw_input: action.raw_input ?? existing.raw_input,
+              locations: action.locations ?? existing.locations,
+              meta: action.meta ?? existing.meta,
+              images: action.images !== null ? action.images : existing.images,
+            }
+          : {
+              tool_call_id: action.tool_call_id,
+              title: action.title ?? action.fallback_title,
+              kind: action.fallback_kind,
+              status: action.status ?? "pending",
+              content: action.content,
+              raw_input: action.raw_input,
+              raw_output_chunks: [],
+              raw_output_total_bytes: 0,
+              locations: action.locations,
+              meta: action.meta,
+              images: action.images ?? [],
+            }
+        const next = new Map(state)
+        next.set(action.contextKey, {
+          ...conn,
+          outOfTurnToolCalls: recordOutOfTurnToolCall(
+            conn.outOfTurnToolCalls,
+            merged
+          ),
+          pendingPermission: mergePendingPermissionWithLiveInfo(
+            conn.pendingPermission,
+            merged
+          ),
+        })
+        return next
+      }
       const prev = ensureLiveMessage(conn.liveMessage)
       const existingIndex = prev.content.findIndex(
         (b) =>
@@ -1502,9 +1631,13 @@ function connectionsReducer(
       if (!conn) return state
       let updatedLiveMessage = conn.liveMessage
       const permissionCallId = extractPermissionToolCallId(action.tool_call)
-      const existingInfo = updatedLiveMessage
-        ? findLiveToolCallInfo(updatedLiveMessage.content, permissionCallId)
-        : null
+      const existingInfo =
+        (updatedLiveMessage
+          ? findLiveToolCallInfo(updatedLiveMessage.content, permissionCallId)
+          : null) ??
+        (permissionCallId
+          ? (conn.outOfTurnToolCalls?.get(permissionCallId) ?? null)
+          : null)
       const permissionToolCall = mergePermissionToolCallWithLiveInfo(
         action.tool_call,
         existingInfo
@@ -1811,6 +1944,7 @@ function connectionsReducer(
     case "PLAN_UPDATE": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
+      if (conn.status !== "prompting") return state
       const prev = ensureLiveMessage(conn.liveMessage)
       const nonPlanContent = prev.content.filter(
         (block) => block.type !== "plan"
@@ -2702,6 +2836,78 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             questionId: e.question_id,
           })
           break
+        case "background_activity": {
+          dispatch({
+            type: "SET_BACKGROUND_OUTSTANDING",
+            contextKey,
+            outstanding: e.outstanding,
+            outOfTurnSettleCount:
+              e.settled?.filter((settled) => !settled.wire_visible).length ?? 0,
+            turnsCount: e.turns?.length ?? 0,
+          })
+          const conversationId = getConversationIdByExternalIdFromStore(
+            e.session_id
+          )
+          if (conversationId != null && e.turns && e.turns.length > 0) {
+            const runtime = useConversationRuntimeStore.getState()
+            runtime.actions.applyBackgroundActivity(
+              conversationId,
+              e.turns,
+              e.watermark
+            )
+            const session = useConversationRuntimeStore
+              .getState()
+              .byConversationId.get(conversationId)
+            const now = Date.now()
+            const lastFold = overlayFoldRefetchAt.get(conversationId) ?? 0
+            if (
+              session &&
+              session.backgroundTurns.length > OVERLAY_FOLD_THRESHOLD &&
+              !session.detailLoading &&
+              now - lastFold > OVERLAY_FOLD_MIN_INTERVAL_MS
+            ) {
+              overlayFoldRefetchAt.set(conversationId, now)
+              runtime.actions.refetchDetail(conversationId, {
+                preserveLive:
+                  storeRef.current.connections.get(contextKey)?.status ===
+                  "prompting",
+              })
+            }
+          }
+          if (e.settled && e.settled.length > 0) {
+            const connection = storeRef.current.connections.get(contextKey)
+            const agentLabel = connection
+              ? AGENT_LABELS[connection.agentType]
+              : "Agent"
+            const folderName = folderNameRef.current
+            const title = folderName ? `${folderName} - iyw-claw` : "iyw-claw"
+            for (const settled of e.settled) {
+              const body =
+                settled.summary ??
+                tChat("backgroundTasks.settledFallback", {
+                  status: settled.status,
+                })
+              sendSystemNotification(title, `${agentLabel}: ${body}`).catch(
+                () => {}
+              )
+            }
+            if (conversationId != null) {
+              const runtimeActions =
+                useConversationRuntimeStore.getState().actions
+              for (const settled of e.settled) {
+                if (!settled.tool_use_id) continue
+                runtimeActions.resolveBackgroundTask(conversationId, {
+                  toolUseId: settled.tool_use_id,
+                  taskId: settled.task_id,
+                  status: settled.status,
+                  summary: settled.summary ?? null,
+                  result: settled.result ?? null,
+                })
+              }
+            }
+          }
+          break
+        }
         case "permission_request":
           flushStreamingQueue()
           flushPendingToolCallUpdates()
@@ -2954,6 +3160,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 return t("backendErrors.turnFailedEmpty", {
                   agent: agentLabel,
                 })
+              case "grok_model_switch_incompatible_agent":
+                return t("backendErrors.grokModelSwitchIncompatibleAgent", {
+                  agent: agentLabel,
+                })
               default:
                 return e.message
             }
@@ -2977,8 +3187,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         }
         case "session_load_failed": {
           flushStreamingQueue()
-          // Localize via the stable `code` field (currently only
-          // "resource_not_found" — JSON-RPC -32002). Fall back to the raw
+          // Localize via the stable `code` field. Fall back to the raw
           // agent message so an unknown future code still surfaces something
           // intelligible rather than getting swallowed.
           const nc = storeRef.current.connections.get(contextKey)
@@ -2987,6 +3196,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             switch (e.code) {
               case "resource_not_found":
                 return t("backendErrors.sessionLoadResourceNotFound", {
+                  agent: agentLabel,
+                })
+              case "session_unavailable":
+                return t("backendErrors.sessionLoadUnavailable", {
                   agent: agentLabel,
                 })
               default:
@@ -3351,6 +3564,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         // would kill another client's agent. The viewer is torn down when its
         // tab unmounts (disconnect's isViewer branch detaches it).
         if (conn.isViewer) continue
+        if (conn.backgroundOutstanding > 0) continue
         const lastActive = lastActivityRef.current.get(contextKey) ?? 0
         if (now - lastActive > CONNECTION_IDLE_TIMEOUT_MS) {
           toDisconnect.push({

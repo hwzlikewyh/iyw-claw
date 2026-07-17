@@ -11,9 +11,13 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
-import { ChevronRightIcon, Loader2 } from "lucide-react"
+import { ChevronRightIcon, Clock3, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { AgentCapsule } from "./agent-capsule"
+import {
+  isAsyncLaunchAckText,
+  parseBackgroundTaskMarker,
+} from "@/lib/background-agent"
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
@@ -65,10 +69,23 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
 }) {
   const t = useTranslations("Folder.chat.contentParts")
   const tTool = useTranslations("Folder.chat.tool")
+  const tBg = useTranslations("Folder.chat.backgroundTasks")
 
   const isRunning =
     part.state === "input-available" || part.state === "input-streaming"
   const isError = part.state === "output-error"
+
+  const backgroundLifecycle = useMemo(
+    () => parseBackgroundTaskMarker(part.output),
+    [part.output]
+  )
+  const isLiveBackgroundLaunch =
+    backgroundLifecycle === null &&
+    part.state === "output-available" &&
+    isAsyncLaunchAckText(part.output)
+  const backgroundSettled = backgroundLifecycle?.status != null
+  const backgroundFailed =
+    backgroundSettled && backgroundLifecycle?.status !== "completed"
 
   const [promptOpen, setPromptOpen] = useState(false)
 
@@ -131,14 +148,23 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
     return description || t("agentFallbackTitle")
   }, [subagentType, description, t])
 
-  const statusLabel =
-    part.state === "input-available"
-      ? tTool("status.inputAvailable")
-      : part.state === "input-streaming"
-        ? tTool("status.inputStreaming")
-        : part.state === "output-available"
-          ? tTool("status.outputAvailable")
-          : tTool("status.outputError")
+  const statusLabel = backgroundLifecycle
+    ? backgroundFailed
+      ? tBg("cardFinishedWithStatus", {
+          status: backgroundLifecycle.status ?? "",
+        })
+      : backgroundSettled
+        ? tBg("cardCompleted")
+        : tBg("cardLaunchedPending")
+    : isLiveBackgroundLaunch
+      ? tBg("cardRunning")
+      : part.state === "input-available"
+        ? tTool("status.inputAvailable")
+        : part.state === "input-streaming"
+          ? tTool("status.inputStreaming")
+          : part.state === "output-available"
+            ? tTool("status.outputAvailable")
+            : tTool("status.outputError")
 
   const agentStats = part.agentStats ?? null
   const adaptedToolCalls = useMemo(
@@ -154,8 +180,8 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
   return (
     <AgentCapsule
       title={title}
-      isRunning={isRunning}
-      isError={isError}
+      isRunning={isRunning || isLiveBackgroundLaunch}
+      isError={isError || backgroundFailed}
       rightSuffix={durationSuffix}
       idBadge={agentId ? shortAgentId(agentId) : null}
       statusLabel={statusLabel}
@@ -204,11 +230,11 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
       )}
 
       {/* Running indicator */}
-      {isRunning && !part.output && (
+      {((isRunning && !part.output) || isLiveBackgroundLaunch) && (
         <div className="flex items-center gap-2">
           <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
           <Shimmer className="text-sm" duration={1} shineColor="var(--primary)">
-            {t("agentRunning")}
+            {isLiveBackgroundLaunch ? tBg("cardRunning") : t("agentRunning")}
           </Shimmer>
         </div>
       )}
@@ -222,12 +248,35 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
         </div>
       )}
 
-      {/* Final output */}
-      {part.output && !isError && (
-        <div className="text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
-          <MessageResponse>{part.output}</MessageResponse>
+      {backgroundLifecycle && !isError && (
+        <div className="space-y-2">
+          {backgroundLifecycle.summary && (
+            <div className="text-xs text-muted-foreground">
+              {backgroundLifecycle.summary}
+            </div>
+          )}
+          {backgroundLifecycle.result ? (
+            <div className="text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
+              <MessageResponse>{backgroundLifecycle.result}</MessageResponse>
+            </div>
+          ) : !backgroundSettled ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Clock3 className="size-3.5 shrink-0" />
+              {tBg("cardResultPending")}
+            </div>
+          ) : null}
         </div>
       )}
+
+      {/* Final output */}
+      {part.output &&
+        !isError &&
+        !backgroundLifecycle &&
+        !isLiveBackgroundLaunch && (
+          <div className="text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
+            <MessageResponse>{part.output}</MessageResponse>
+          </div>
+        )}
     </AgentCapsule>
   )
 })

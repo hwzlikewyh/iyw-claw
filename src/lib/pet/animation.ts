@@ -54,10 +54,48 @@ export const PET_FRAME_DURATIONS_MS: Record<PetState, number[]> = {
 // CSS background-position for a (row, col) cell. Uses the
 // "(n / (count-1)) * 100%" form because that's how `background-size: 800% 900%`
 // computes positioning — `0% .. 100%` traverses cells `0..(count-1)`.
-export function backgroundPositionFor(row: number, col: number): string {
+export function spriteRowsFromHeight(
+  naturalHeight: number | null | undefined
+): number {
+  if (
+    naturalHeight == null ||
+    !Number.isFinite(naturalHeight) ||
+    naturalHeight <= 0
+  ) {
+    return SPRITE_GRID_ROWS
+  }
+  return Math.max(
+    SPRITE_GRID_ROWS,
+    Math.round(naturalHeight / SPRITE_FRAME_HEIGHT)
+  )
+}
+
+export function spriteBackgroundSize(rows: number = SPRITE_GRID_ROWS): string {
+  const safeRows = Math.max(1, Math.floor(rows))
+  return `${SPRITE_GRID_COLS * 100}% ${safeRows * 100}%`
+}
+
+export function backgroundPositionFor(
+  row: number,
+  col: number,
+  rows: number = SPRITE_GRID_ROWS
+): string {
   const x = (col / (SPRITE_GRID_COLS - 1)) * 100
-  const y = (row / (SPRITE_GRID_ROWS - 1)) * 100
+  const y = (row / Math.max(1, rows - 1)) * 100
   return `${x}% ${y}%`
+}
+
+export function filmstripFrameCount(width: number, height: number): number {
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return 0
+  }
+  const frameWidth = height * (SPRITE_FRAME_WIDTH / SPRITE_FRAME_HEIGHT)
+  return frameWidth > 0 ? Math.round(width / frameWidth) : 0
 }
 
 export const SPRITE_BACKGROUND_SIZE = `${SPRITE_GRID_COLS * 100}% ${SPRITE_GRID_ROWS * 100}%`

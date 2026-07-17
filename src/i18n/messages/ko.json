@@ -55,7 +55,8 @@
       "quick_messages": "빠른 메시지",
       "logs": "실행 로그",
       "usage": "Usage",
-      "user_memory": "User Memory"
+      "user_memory": "User Memory",
+      "science": "과학 연구"
     }
   },
   "AppearanceSettings": {
@@ -2124,10 +2125,12 @@
           "spawnFailed": "{agent} 시작 실패: {message}",
           "downloadFailed": "{agent} 다운로드 실패: {message}",
           "sessionLoadResourceNotFound": "{agent} 세션 불러오기에 실패했습니다. 다시 불러와 재시도하거나 새 대화를 시작하세요.",
+          "sessionLoadUnavailable": "{agent}에서 이 세션을 복원할 수 없습니다. 세션이 종료되었거나 에이전트가 중지되었을 수 있습니다. 다시 불러와 재시도하거나 새 대화를 시작하세요.",
           "turnFailedRefusal": "{agent}이(가) 이번 턴을 계속하지 않았습니다. 백엔드나 게이트웨이 오류일 수 있습니다. 에이전트 로그를 확인하세요.",
           "turnFailedMaxTokens": "{agent}이(가) 이번 턴의 최대 토큰 한도에 도달했습니다.",
           "turnFailedMaxTurnRequests": "{agent}이(가) 이번 턴에서 허용된 최대 요청 수에 도달했습니다.",
           "turnFailedUnknown": "{agent}이(가) 알 수 없는 중지 사유로 턴을 종료했습니다.",
+          "grokModelSwitchIncompatibleAgent": "{agent}은(는) 기존 대화에서는 해당 모델로 전환할 수 없습니다. 새 세션을 시작하여 사용하세요.",
           "turnFailedEmpty": "{agent}이(가) 어떤 응답도 생성하지 않고 턴을 종료했습니다. 에이전트 구성을 확인하세요."
         },
         "unableReadAgentConfig": "에이전트 구성을 읽을 수 없습니다: {message}",
@@ -2363,7 +2366,9 @@
           },
           "tabs": {
             "office": "일상 업무",
-            "coding": "코드 개발"
+            "coding": "코드 개발",
+            "common": "자주 사용",
+            "research": "과학 연구"
           },
           "coding": {
             "brainstormingDesc": "구현 전 의도와 요구사항 탐색",
@@ -2485,7 +2490,7 @@
         "elapsedHours": "{value}시간",
         "elapsedMinutes": "{value}분",
         "elapsedSeconds": "{value}초",
-        "toolUseCount": "{count}개 도구 {count, plural, one {use} other {uses}}"
+        "toolUseCount": "도구 {count}회 사용"
       },
       "tool": {
         "parameters": "매개변수",
@@ -2770,6 +2775,16 @@
         "opWait": "서브 에이전트 결과 가져오는 중",
         "opClose": "서브 에이전트 종료 중",
         "opResume": "서브 에이전트 재개 중"
+      },
+      "backgroundTasks": {
+        "running": "백그라운드 작업 {count}개 실행 중",
+        "settling": "백그라운드 결과 동기화 중...",
+        "settledFallback": "백그라운드 작업이 종료되었습니다 ({status})",
+        "cardRunning": "백그라운드에서 실행 중",
+        "cardLaunchedPending": "백그라운드 작업 시작됨",
+        "cardCompleted": "백그라운드 작업 완료",
+        "cardFinishedWithStatus": "백그라운드 작업 종료 ({status})",
+        "cardResultPending": "결과가 아직 반환되지 않았습니다"
       }
     },
     "diffPreview": {
@@ -2868,6 +2883,11 @@
     "channelType": "채널 유형",
     "lark": "Lark (飛書)",
     "weixin": "WeChat",
+    "telegram": "Telegram",
+    "telegramBotToken": "봇 토큰",
+    "telegramChatId": "채팅 ID",
+    "telegramChatIdPlaceholder": "-100123456789 또는 @username",
+    "telegramTopicMode": "토픽 그룹 모드",
     "dailyReport": "일일 리포트",
     "dailyReportTime": "발송 시간",
     "nameRequired": "채널 이름을 입력하세요.",
@@ -3183,7 +3203,10 @@
     "skillsEmpty": "도구를 설치하고 스킬을 동기화하세요.",
     "searchSkills": "인터넷 스킬 검색",
     "installFirst": "먼저 스킬을 설치하고 동기화하세요.",
-    "categories": { "agentReach": "Agent Reach", "opencli": "OpenCLI" },
+    "categories": {
+      "agentReach": "Agent Reach",
+      "opencli": "OpenCLI"
+    },
     "configDialog": {
       "title": "Agent Reach 설정",
       "description": "자격 증명은 로컬에만 저장되며 다시 표시되지 않습니다.",
@@ -3350,7 +3373,7 @@
       "deleteConfirm": "펫 \"{name}\"을(를) 삭제할까요? 디스크에서도 함께 제거됩니다.",
       "summon": "펫 창 호출",
       "openCodexHelp": "Codex 펫은 ~/.codex/pets/ 아래에 설치되어야 합니다. 찾을 수 없습니다.",
-      "specRequirement": "스프라이트 시트는 1536x1872 PNG 또는 WebP(투명) 이어야 합니다.",
+      "specRequirement": "스프라이트 시트는 너비 1536px, 높이는 208px의 배수(예: 1872 또는 2288)인 투명 PNG 또는 WebP여야 합니다.",
       "form": {
         "id": "펫 ID",
         "idHelp": "소문자/숫자/'-'/'_' 만 가능. 최대 64자.",
@@ -3932,6 +3955,40 @@
         "description": "Higher-level values, taste, voice, and decision principles.",
         "placeholder": "Describe the user's values, taste, voice, motivation, boundaries, and deeper decision principles."
       }
+    }
+  },
+  "ScienceSettings": {
+    "title": "과학 연구 스킬",
+    "description": "AI 코딩 에이전트를 위한 엄선된 과학 연구 스킬(가설 생성, 실험 설계, 통계, 시각화, 비판적 평가, 문헌 검색)을 활성화합니다. iyw-claw가 중앙 복사본을 관리하고 선택한 에이전트에 각 스킬을 연결합니다.",
+    "loading": "과학 연구 스킬 불러오는 중…",
+    "emptySkills": "사용 가능한 과학 연구 스킬이 없습니다. 애플리케이션 로그를 확인하세요.",
+    "searchPlaceholder": "이름, ID 또는 설명으로 과학 연구 스킬 검색",
+    "categories": {
+      "ideation": "아이디어",
+      "design": "연구 설계",
+      "analysis": "분석",
+      "visualization": "시각화",
+      "evaluation": "평가",
+      "literature": "문헌"
+    },
+    "states": {
+      "not_linked": "활성화되지 않음",
+      "linked_to_codeg": "활성화됨",
+      "linked_elsewhere": "차단됨 — 다른 링크가 존재함",
+      "blocked_by_real_directory": "차단됨 — 사용자 정의 스킬이 이 이름을 점유 중",
+      "broken": "손상된 링크"
+    },
+    "badges": {
+      "userModified": "사용자가 수정함",
+      "needsKey": "API 키 필요",
+      "needsSetup": "설정 필요할 수 있음"
+    },
+    "actions": {
+      "openCentralDir": "중앙 폴더 열기",
+      "refresh": "새로고침"
+    },
+    "toasts": {
+      "openFolderFailed": "폴더를 열지 못했습니다"
     }
   }
 }

@@ -314,6 +314,7 @@ mod tests {
             AgentType::CodeBuddy,
             AgentType::KimiCode,
             AgentType::Pi,
+            AgentType::Grok,
         ] {
             assert_eq!(default_enabled(agent_type), agent_type == AgentType::Codex);
         }

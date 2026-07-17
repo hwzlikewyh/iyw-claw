@@ -394,6 +394,22 @@ async fn async_main() -> ExitCode {
                 report.pending_user_review.len()
             );
         }
+        let science_report =
+            iyw_claw_lib::commands::science::ensure_central_science_installed().await;
+        if !science_report.errors.is_empty() {
+            tracing::error!(
+                "[Science] install finished with {} error(s): {:?}",
+                science_report.errors.len(),
+                science_report.errors
+            );
+        } else {
+            tracing::info!(
+                "[Science] install ok: installed={} updated={} pending_review={}",
+                science_report.installed_count,
+                science_report.updated_count,
+                science_report.pending_user_review.len()
+            );
+        }
         if let Err(error) =
             iyw_claw_lib::commands::managed_skills::reconcile_all_core(&managed_distribution_db)
                 .await
@@ -430,6 +446,7 @@ async fn async_main() -> ExitCode {
             state.event_broadcaster.clone(),
             state.acp_event_bus.clone(),
             state.db.conn.clone(),
+            state.data_dir.clone(),
             state.connection_manager.clone_ref(),
             state.emitter.clone(),
         )
