@@ -396,9 +396,19 @@
       },
       "import": {
         "title": "Import Skill",
-        "description": "Paste existing Skill Markdown and save it to the current target Skills directory.",
+        "description": "Select a complete Skill folder or paste Skill Markdown, then save it to the current target.",
         "formTitle": "Import to current target",
-        "formDescription": "Supports full Skill text with YAML front matter.",
+        "formDescription": "Folder import preserves scripts, templates, images, and other files.",
+        "selectFolder": "Select Skill folder",
+        "selectedFolder": "{folder} · {count} files",
+        "clearFolder": "Remove folder files",
+        "folderErrors": {
+          "tooManyFiles": "The folder can contain at most 512 files.",
+          "invalidFolder": "Could not read a valid folder structure.",
+          "folderTooLarge": "The folder cannot exceed 25 MB.",
+          "missingSkillFile": "The folder root must contain SKILL.md.",
+          "readFailed": "Failed to read the selected folder."
+        },
         "idPlaceholder": "Skill ID, e.g. code-review",
         "normalizedId": "Will save as: {id}",
         "invalidId": "invalid ID",

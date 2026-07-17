@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::fs;
 use std::io;
@@ -20,8 +20,9 @@ use crate::acp::provider_overlay::{
 };
 use crate::acp::registry;
 use crate::acp::types::{
-    AcpAgentInfo, AgentSkillContent, AgentSkillItem, AgentSkillLayout, AgentSkillLocation,
-    AgentSkillScope, AgentSkillSyncMode, AgentSkillsListResult, ConfigStaleKind, ConnectionStatus,
+    AcpAgentInfo, AgentSkillContent, AgentSkillFile, AgentSkillItem, AgentSkillLayout,
+    AgentSkillLocation, AgentSkillScope, AgentSkillSyncMode, AgentSkillsListResult,
+    ConfigStaleKind, ConnectionStatus,
 };
 #[cfg(feature = "tauri-runtime")]
 use crate::acp::types::{ConnectionInfo, ForkResultInfo, PromptInputBlock};
@@ -4570,7 +4571,9 @@ fn shared_skill_path(skill_id: &str) -> PathBuf {
 }
 
 fn is_reserved_shared_skill_id(skill_id: &str) -> bool {
-    is_bundled_expert_id(skill_id) || crate::commands::office_tools::is_officecli_skill_id(skill_id)
+    is_bundled_expert_id(skill_id)
+        || crate::commands::office_tools::is_officecli_skill_id(skill_id)
+        || crate::commands::internet_tools::is_internet_tool_skill_id(skill_id)
 }
 
 fn ensure_shared_skill_writable(skill_id: &str) -> Result<(), AcpError> {
@@ -5007,6 +5010,160 @@ fn skill_content_path(layout: AgentSkillLayout, skill_path: &Path) -> PathBuf {
         AgentSkillLayout::SkillDirectory => skill_path.join("SKILL.md"),
         AgentSkillLayout::MarkdownFile => skill_path.to_path_buf(),
     }
+}
+
+const MAX_SKILL_IMPORT_FILES: usize = 512;
+const MAX_SKILL_IMPORT_BYTES: usize = 25 * 1024 * 1024;
+pub(crate) const MAX_SKILL_IMPORT_REQUEST_BYTES: usize = 36 * 1024 * 1024;
+
+struct ValidatedSkillDirectory {
+    files: Vec<(PathBuf, Vec<u8>)>,
+    skill_content: String,
+}
+
+fn validate_skill_directory(
+    files: Option<Vec<AgentSkillFile>>,
+) -> Result<Option<ValidatedSkillDirectory>, AcpError> {
+    let Some(files) = files else {
+        return Ok(None);
+    };
+    if files.is_empty() || files.len() > MAX_SKILL_IMPORT_FILES {
+        return Err(AcpError::protocol(format!(
+            "skill folder must contain 1 to {MAX_SKILL_IMPORT_FILES} files"
+        )));
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut total_bytes = 0usize;
+    let mut validated = Vec::with_capacity(files.len());
+    for file in files {
+        let (path, bytes) = decode_skill_file(file)?;
+        let key = path.to_string_lossy().replace('\\', "/");
+        let key = if cfg!(any(windows, target_os = "macos")) {
+            key.to_ascii_lowercase()
+        } else {
+            key
+        };
+        if !seen.insert(key) {
+            return Err(AcpError::protocol("skill folder contains duplicate paths"));
+        }
+        total_bytes = total_bytes.saturating_add(bytes.len());
+        if total_bytes > MAX_SKILL_IMPORT_BYTES {
+            return Err(AcpError::protocol("skill folder exceeds the 25 MB limit"));
+        }
+        validated.push((path, bytes));
+    }
+
+    let skill_content = validated
+        .iter()
+        .find(|(path, _)| path == Path::new("SKILL.md"))
+        .ok_or_else(|| AcpError::protocol("skill folder root must contain SKILL.md"))
+        .and_then(|(_, bytes)| {
+            String::from_utf8(bytes.clone())
+                .map_err(|_| AcpError::protocol("SKILL.md must be UTF-8 text"))
+        })?;
+    Ok(Some(ValidatedSkillDirectory {
+        files: validated,
+        skill_content,
+    }))
+}
+
+fn decode_skill_file(file: AgentSkillFile) -> Result<(PathBuf, Vec<u8>), AcpError> {
+    let path = validate_skill_file_path(&file.path)?;
+    let max_encoded_size = MAX_SKILL_IMPORT_BYTES.div_ceil(3) * 4 + 4;
+    if file.content_base64.len() > max_encoded_size {
+        return Err(AcpError::protocol("skill folder exceeds the 25 MB limit"));
+    }
+    let bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        file.content_base64,
+    )
+    .map_err(|_| AcpError::protocol("skill folder contains invalid file content"))?;
+    Ok((path, bytes))
+}
+
+fn validate_skill_file_path(raw: &str) -> Result<PathBuf, AcpError> {
+    if raw.is_empty()
+        || raw.contains('\0')
+        || raw.contains('\\')
+        || raw
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return Err(AcpError::protocol(
+            "skill file paths must be safe relative paths",
+        ));
+    }
+    let path = PathBuf::from(raw);
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(AcpError::protocol(
+            "skill file paths must be safe relative paths",
+        ));
+    }
+    Ok(path)
+}
+
+fn write_skill_directory(target: &Path, files: &[(PathBuf, Vec<u8>)]) -> Result<(), AcpError> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| AcpError::protocol("skill directory has no parent"))?;
+    fs::create_dir_all(parent)
+        .map_err(|e| AcpError::protocol(format!("failed to create skill parent: {e}")))?;
+    let suffix = uuid::Uuid::new_v4();
+    let staging = parent.join(format!(".iyw-claw-skill-import-{suffix}"));
+    let backup = parent.join(format!(".iyw-claw-skill-backup-{suffix}"));
+
+    if let Err(error) = write_skill_directory_files(&staging, files) {
+        let _ = remove_skill_entry(&staging);
+        return Err(error);
+    }
+    let had_target = path_entry_exists(target);
+    if had_target {
+        if let Err(error) = fs::rename(target, &backup) {
+            let _ = remove_skill_entry(&staging);
+            return Err(AcpError::protocol(format!(
+                "failed to replace skill folder: {error}"
+            )));
+        }
+    }
+    if let Err(error) = fs::rename(&staging, target) {
+        if had_target {
+            let _ = fs::rename(&backup, target);
+        }
+        let _ = remove_skill_entry(&staging);
+        return Err(AcpError::protocol(format!(
+            "failed to install skill folder: {error}"
+        )));
+    }
+    if had_target {
+        if let Err(error) = remove_skill_entry(&backup) {
+            tracing::warn!("failed to remove skill import backup: {error}");
+        }
+    }
+    Ok(())
+}
+
+fn write_skill_directory_files(
+    target: &Path,
+    files: &[(PathBuf, Vec<u8>)],
+) -> Result<(), AcpError> {
+    fs::create_dir_all(target)
+        .map_err(|e| AcpError::protocol(format!("failed to stage skill folder: {e}")))?;
+    for (relative, content) in files {
+        let path = target.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                AcpError::protocol(format!("failed to stage skill subdirectory: {e}"))
+            })?;
+        }
+        fs::write(path, content)
+            .map_err(|e| AcpError::protocol(format!("failed to stage skill file: {e}")))?;
+    }
+    Ok(())
 }
 
 /// Symlink-safe removal: if `path` is a symlink (to a file or directory),
@@ -8318,11 +8475,13 @@ pub async fn acp_take_over_agent_skill(
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[allow(clippy::too_many_arguments)]
 pub async fn acp_save_agent_skill(
     agent_type: AgentType,
     scope: AgentSkillScope,
     skill_id: String,
     content: String,
+    files: Option<Vec<AgentSkillFile>>,
     workspace_path: Option<String>,
     layout: Option<AgentSkillLayout>,
     sync_mode: Option<AgentSkillSyncMode>,
@@ -8333,6 +8492,16 @@ pub async fn acp_save_agent_skill(
         )));
     };
     let id = validate_skill_id(&skill_id)?;
+    let imported_directory = validate_skill_directory(files)?;
+    if imported_directory.is_some() && layout == Some(AgentSkillLayout::MarkdownFile) {
+        return Err(AcpError::protocol(
+            "skill folder imports require the skill_directory layout",
+        ));
+    }
+    let content = imported_directory
+        .as_ref()
+        .map(|directory| directory.skill_content.clone())
+        .unwrap_or(content);
 
     if scope == AgentSkillScope::Global {
         let _paths = require_private_agent_storage_for_write()?;
@@ -8345,11 +8514,15 @@ pub async fn acp_save_agent_skill(
             false
         };
 
-        fs::create_dir_all(&source)
-            .map_err(|e| AcpError::protocol(format!("failed to create shared skill: {e}")))?;
-        let content_path = source.join("SKILL.md");
-        fs::write(&content_path, content)
-            .map_err(|e| AcpError::protocol(format!("failed to write skill content: {e}")))?;
+        if let Some(directory) = imported_directory.as_ref() {
+            write_skill_directory(&source, &directory.files)?;
+        } else {
+            fs::create_dir_all(&source)
+                .map_err(|e| AcpError::protocol(format!("failed to create shared skill: {e}")))?;
+            let content_path = source.join("SKILL.md");
+            fs::write(&content_path, &content)
+                .map_err(|e| AcpError::protocol(format!("failed to write skill content: {e}")))?;
+        }
 
         let mode = sync_mode.unwrap_or(if was_copy_mode {
             AgentSkillSyncMode::Copy
@@ -8373,7 +8546,16 @@ pub async fn acp_save_agent_skill(
             )));
         }
     }
-    let mut skill = if let Some(item) = existing {
+    let existing_path = existing.as_ref().map(|item| PathBuf::from(&item.path));
+    let mut skill = if imported_directory.is_some() {
+        build_skill_item(
+            id.clone(),
+            scope,
+            AgentSkillLayout::SkillDirectory,
+            preferred_dir.join(&id),
+            true,
+        )
+    } else if let Some(item) = existing {
         item
     } else {
         let new_layout = match spec.kind {
@@ -8391,6 +8573,17 @@ pub async fn acp_save_agent_skill(
 
     let skill_path = PathBuf::from(&skill.path);
     let content_path = skill_content_path(skill.layout, &skill_path);
+
+    if let Some(directory) = imported_directory.as_ref() {
+        write_skill_directory(&skill_path, &directory.files)?;
+        if let Some(old_path) = existing_path.filter(|path| path != &skill_path) {
+            remove_skill_entry(&old_path).map_err(|e| {
+                AcpError::protocol(format!("failed to remove previous skill entry: {e}"))
+            })?;
+        }
+        skill.description = read_skill_description(&content_path);
+        return Ok(skill);
+    }
 
     if skill.layout == AgentSkillLayout::SkillDirectory {
         fs::create_dir_all(&skill_path).map_err(|e| {

@@ -96,6 +96,7 @@ import {
 } from "@/lib/api"
 import { onTransportReconnect, subscribe } from "@/lib/platform"
 import { cn } from "@/lib/utils"
+import { AGENT_LABELS } from "@/lib/types"
 import type { Automation, AutomationDraft, AutomationRun } from "@/lib/types"
 
 const AUTOMATION_CHANGED_EVENT = "automation://changed"
@@ -106,6 +107,16 @@ const STATUS_STYLES: Record<string, string> = {
   failed: "bg-destructive/10 text-destructive",
   cancelled: "bg-muted text-muted-foreground",
   skipped: "bg-muted text-muted-foreground",
+}
+
+function automationAgentLabel(
+  agentType: Automation["agent_type"],
+  storedLabel?: string
+): string {
+  const fallback = AGENT_LABELS[agentType] ?? agentType
+  if (!storedLabel?.trim()) return fallback
+  const compact = (value: string) => value.toLowerCase().replace(/[\s_-]+/g, "")
+  return compact(storedLabel) === compact(agentType) ? fallback : storedLabel
 }
 
 function StatusChip({ status }: { status: string | null }) {
@@ -934,7 +945,10 @@ function AutomationDetail({
               label={t("agent")}
             >
               <span className="block truncate">
-                {labels?.agent_label ?? automation.agent_type}
+                {automationAgentLabel(
+                  automation.agent_type,
+                  labels?.agent_label
+                )}
               </span>
             </StatCard>
             <StatCard icon={<Folder />} label={t("folder")}>

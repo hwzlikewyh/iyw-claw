@@ -21,6 +21,7 @@ import type {
   AgentSkillLayout,
   AgentSkillSyncMode,
   AgentSkillItem,
+  AgentSkillFile,
   AgentSkillsListResult,
   AgentSkillContent,
   ManagedSkillFamily,
@@ -316,6 +317,7 @@ export async function acpSaveAgentSkill(params: {
   scope: AgentSkillScope
   skillId: string
   content: string
+  files?: AgentSkillFile[] | null
   workspacePath?: string | null
   layout?: AgentSkillLayout | null
   syncMode?: AgentSkillSyncMode | null
@@ -325,6 +327,7 @@ export async function acpSaveAgentSkill(params: {
     scope: params.scope,
     skillId: params.skillId,
     content: params.content,
+    files: params.files ?? null,
     workspacePath: params.workspacePath ?? null,
     layout: params.layout ?? null,
     syncMode: params.syncMode ?? null,

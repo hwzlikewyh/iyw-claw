@@ -591,9 +591,16 @@ pub struct AgentSkillItem {
     /// link/junction. Updates to the central source require re-publishing.
     pub copy_mode: bool,
     /// True for skills bundled by the agent CLI itself (e.g. Codex's
-    /// `~/.codex/skills/.system/*`). Surfaced so the UI can show them but
-    /// refuse to edit or delete; the backend also refuses such writes.
+    /// `~/.codex/skills/.system/*`). Runtime consumers can still discover
+    /// them, while management UIs can hide them; writes are always refused.
     pub read_only: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSkillFile {
+    pub path: String,
+    pub content_base64: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

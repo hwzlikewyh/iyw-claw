@@ -1,8 +1,15 @@
 "use client"
 
-import { useMemo, useState, type ReactNode } from "react"
+import {
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from "react"
 import {
   Check,
+  FolderOpen,
   Info,
   Loader2,
   PackageCheck,
@@ -12,6 +19,7 @@ import {
   Tag,
   Upload,
   WandSparkles,
+  X,
   type LucideIcon,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
@@ -19,6 +27,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import type { AgentSkillFile } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 export type SkillMarketTab = "installed" | "official" | "import" | "generate"
@@ -31,6 +40,73 @@ type MarketTranslator = (
 export interface SkillContentRequest {
   id: string
   content: string
+  files?: AgentSkillFile[]
+}
+
+const MAX_SKILL_FOLDER_FILES = 512
+const MAX_SKILL_FOLDER_BYTES = 25 * 1024 * 1024
+
+interface SelectedSkillFolder {
+  name: string
+  content: string
+  files: AgentSkillFile[]
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+  return btoa(binary)
+}
+
+async function readSkillFolder(files: File[]): Promise<SelectedSkillFolder> {
+  if (files.length > MAX_SKILL_FOLDER_FILES) {
+    throw new Error("tooManyFiles")
+  }
+  const entries = files.map((file) => ({
+    file,
+    parts: file.webkitRelativePath.replace(/\\/g, "/").split("/"),
+  }))
+  const folderName = entries[0]?.parts[0] ?? ""
+  if (
+    !folderName ||
+    entries.some(({ parts }) => parts.length < 2 || parts[0] !== folderName)
+  ) {
+    throw new Error("invalidFolder")
+  }
+  const totalBytes = entries.reduce((sum, { file }) => sum + file.size, 0)
+  if (totalBytes > MAX_SKILL_FOLDER_BYTES) {
+    throw new Error("folderTooLarge")
+  }
+  const skillEntry = entries.find(
+    ({ parts }) => parts.slice(1).join("/") === "SKILL.md"
+  )
+  if (!skillEntry) {
+    throw new Error("missingSkillFile")
+  }
+  const payload = await Promise.all(
+    entries.map(async ({ file, parts }) => ({
+      path: parts.slice(1).join("/"),
+      contentBase64: bytesToBase64(new Uint8Array(await file.arrayBuffer())),
+    }))
+  )
+  return {
+    name: folderName,
+    content: await skillEntry.file.text(),
+    files: payload,
+  }
+}
+
+function replaceSkillContent(
+  files: AgentSkillFile[],
+  content: string
+): AgentSkillFile[] {
+  const contentBase64 = bytesToBase64(new TextEncoder().encode(content))
+  return files.map((file) =>
+    file.path === "SKILL.md" ? { ...file, contentBase64 } : file
+  )
 }
 
 interface OfficialSkillTemplate {
@@ -395,10 +471,43 @@ export function ImportSkillPanel({
   onImport: (request: SkillContentRequest) => void
 }) {
   const t = useMarketTranslations()
+  const folderInputRef = useRef<HTMLInputElement>(null)
   const [skillId, setSkillId] = useState("")
   const [content, setContent] = useState("")
+  const [folderFiles, setFolderFiles] = useState<AgentSkillFile[] | null>(null)
+  const [folderName, setFolderName] = useState("")
+  const [folderError, setFolderError] = useState("")
   const normalizedId = normalizeSkillId(skillId)
   const canImport = !disabled && normalizedId && content.trim() && !busy
+
+  const handleFolderSelection = async (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = Array.from(event.currentTarget.files ?? [])
+    event.currentTarget.value = ""
+    if (files.length === 0) return
+    setFolderError("")
+    try {
+      const folder = await readSkillFolder(files)
+      setFolderName(folder.name)
+      setFolderFiles(folder.files)
+      setSkillId(normalizeSkillId(folder.name))
+      setContent(folder.content)
+    } catch (error) {
+      const key = error instanceof Error ? error.message : "readFailed"
+      const knownKey = [
+        "tooManyFiles",
+        "invalidFolder",
+        "folderTooLarge",
+        "missingSkillFile",
+      ].includes(key)
+        ? key
+        : "readFailed"
+      setFolderError(t(`import.folderErrors.${knownKey}`))
+      setFolderFiles(null)
+      setFolderName("")
+    }
+  }
 
   return (
     <PanelShell
@@ -414,6 +523,57 @@ export function ImportSkillPanel({
             {t("import.formDescription")}
           </p>
           <div className="mt-4 space-y-3">
+            <input
+              {...({ webkitdirectory: "", directory: "" } as Record<
+                string,
+                string
+              >)}
+              ref={folderInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(event) => void handleFolderSelection(event)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={disabled || busy}
+              onClick={() => folderInputRef.current?.click()}
+            >
+              <FolderOpen className="size-3.5" />
+              {t("import.selectFolder")}
+            </Button>
+            {folderFiles ? (
+              <div className="flex min-w-0 items-center gap-2 rounded-md border bg-muted/10 px-2.5 py-2">
+                <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-xs">
+                  {t("import.selectedFolder", {
+                    folder: folderName,
+                    count: folderFiles.length,
+                  })}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0"
+                  title={t("import.clearFolder")}
+                  onClick={() => {
+                    setFolderFiles(null)
+                    setFolderName("")
+                    setFolderError("")
+                  }}
+                >
+                  <X className="size-3.5" />
+                </Button>
+              </div>
+            ) : null}
+            {folderError ? (
+              <p className="text-xs text-destructive" role="alert">
+                {folderError}
+              </p>
+            ) : null}
             <Input
               value={skillId}
               onChange={(event) => setSkillId(event.target.value)}
@@ -429,7 +589,15 @@ export function ImportSkillPanel({
             <Button
               className="w-full"
               disabled={!canImport}
-              onClick={() => onImport({ id: normalizedId, content })}
+              onClick={() =>
+                onImport({
+                  id: normalizedId,
+                  content,
+                  files: folderFiles
+                    ? replaceSkillContent(folderFiles, content)
+                    : undefined,
+                })
+              }
             >
               {busy ? (
                 <Loader2 className="size-3.5 animate-spin" />

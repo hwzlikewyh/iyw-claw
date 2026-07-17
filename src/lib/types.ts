@@ -1597,6 +1597,11 @@ export interface AgentSkillItem {
   read_only: boolean
 }
 
+export interface AgentSkillFile {
+  path: string
+  contentBase64: string
+}
+
 export interface AgentSkillsListResult {
   supported: boolean
   message: string | null

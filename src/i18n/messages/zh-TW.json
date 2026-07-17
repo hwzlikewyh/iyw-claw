@@ -396,9 +396,19 @@
       },
       "import": {
         "title": "导入技能",
-        "description": "粘贴已有 Skill Markdown，保存到当前目标的 Skills 目录。",
+        "description": "選擇完整 Skill 資料夾或貼上 Skill Markdown，儲存到目前目標。",
         "formTitle": "导入到当前目标",
-        "formDescription": "支持包含 YAML front matter 的完整 Skill 文本。",
+        "formDescription": "資料夾匯入會保留腳本、範本、圖片及其他檔案。",
+        "selectFolder": "選擇 Skill 資料夾",
+        "selectedFolder": "{folder} · {count} 個檔案",
+        "clearFolder": "移除資料夾檔案",
+        "folderErrors": {
+          "tooManyFiles": "資料夾最多包含 512 個檔案。",
+          "invalidFolder": "無法讀取有效的資料夾結構。",
+          "folderTooLarge": "資料夾不能超過 25 MB。",
+          "missingSkillFile": "資料夾根目錄必須包含 SKILL.md。",
+          "readFailed": "讀取所選資料夾失敗。"
+        },
         "idPlaceholder": "Skill ID，例如 code-review",
         "normalizedId": "将保存为：{id}",
         "invalidId": "无效 ID",

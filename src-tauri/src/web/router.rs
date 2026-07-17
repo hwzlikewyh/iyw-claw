@@ -738,7 +738,9 @@ pub fn build_router(
         )
         .route(
             "/acp_save_agent_skill",
-            post(handlers::acp::acp_save_agent_skill),
+            post(handlers::acp::acp_save_agent_skill).layer(DefaultBodyLimit::max(
+                crate::commands::acp::MAX_SKILL_IMPORT_REQUEST_BYTES,
+            )),
         )
         .route(
             "/acp_set_agent_skill_enabled",

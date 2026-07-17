@@ -29,6 +29,10 @@ fn bootstrap_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
+pub(crate) fn is_internet_tool_skill_id(id: &str) -> bool {
+    id == "agent-reach" || id.starts_with("opencli-")
+}
+
 fn agent_reach_package_spec() -> String {
     format!(
         "https://github.com/Panniantong/Agent-Reach/archive/refs/tags/v{AGENT_REACH_VERSION}.zip"

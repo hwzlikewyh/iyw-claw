@@ -396,9 +396,19 @@
       },
       "import": {
         "title": "导入技能",
-        "description": "粘贴已有 Skill Markdown，保存到当前目标的 Skills 目录。",
+        "description": "选择完整 Skill 文件夹或粘贴 Skill Markdown，保存到当前目标。",
         "formTitle": "导入到当前目标",
-        "formDescription": "支持包含 YAML front matter 的完整 Skill 文本。",
+        "formDescription": "文件夹导入会保留脚本、模板、图片及其他文件。",
+        "selectFolder": "选择 Skill 文件夹",
+        "selectedFolder": "{folder} · {count} 个文件",
+        "clearFolder": "移除文件夹文件",
+        "folderErrors": {
+          "tooManyFiles": "文件夹最多包含 512 个文件。",
+          "invalidFolder": "无法读取有效的文件夹结构。",
+          "folderTooLarge": "文件夹不能超过 25 MB。",
+          "missingSkillFile": "文件夹根目录必须包含 SKILL.md。",
+          "readFailed": "读取所选文件夹失败。"
+        },
         "idPlaceholder": "Skill ID，例如 code-review",
         "normalizedId": "将保存为：{id}",
         "invalidId": "无效 ID",

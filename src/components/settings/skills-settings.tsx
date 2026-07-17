@@ -337,7 +337,9 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
           ) ?? null
         )
         setSkillItems(
-          result.skills.filter((skill) => skill.scope === backendScope)
+          result.skills.filter(
+            (skill) => skill.scope === backendScope && !skill.read_only
+          )
         )
         return result
       } catch (err) {
@@ -567,6 +569,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         scope: backendScope,
         skillId: trimmedId,
         content: request.content,
+        files: request.files ?? null,
         workspacePath: workspacePathForRequest,
         layout: "skill_directory",
         syncMode: null,
@@ -671,7 +674,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         if (!deletingCurrent) return
 
         const nextSkill = latest?.skills.find(
-          (item) => item.scope === backendScope
+          (item) => item.scope === backendScope && !item.read_only
         )
         if (nextSkill) {
           await openSkill(selectedAgent.agent_type, nextSkill)
@@ -790,7 +793,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         if (cancelled || !result || !result.supported) return
 
         const firstSkill = result.skills.find(
-          (skill) => skill.scope === backendScope
+          (skill) => skill.scope === backendScope && !skill.read_only
         )
 
         if (!firstSkill) return

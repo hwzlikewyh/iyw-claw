@@ -8,8 +8,9 @@ use crate::acp::error::AcpError;
 use crate::acp::opencode_plugins::PluginCheckSummary;
 use crate::acp::preflight::PreflightResult;
 use crate::acp::types::{
-    AcpAgentInfo, AcpAgentStatus, AgentSkillContent, AgentSkillItem, AgentSkillLayout,
-    AgentSkillScope, AgentSkillSyncMode, AgentSkillsListResult, ConnectionInfo, ForkResultInfo,
+    AcpAgentInfo, AcpAgentStatus, AgentSkillContent, AgentSkillFile, AgentSkillItem,
+    AgentSkillLayout, AgentSkillScope, AgentSkillSyncMode, AgentSkillsListResult, ConnectionInfo,
+    ForkResultInfo,
 };
 use crate::app_error::{AppCommandError, AppErrorCode};
 use crate::app_state::AppState;
@@ -273,6 +274,7 @@ pub struct AcpSaveAgentSkillParams {
     pub scope: AgentSkillScope,
     pub skill_id: String,
     pub content: String,
+    pub files: Option<Vec<AgentSkillFile>>,
     pub workspace_path: Option<String>,
     pub layout: Option<AgentSkillLayout>,
     pub sync_mode: Option<AgentSkillSyncMode>,
@@ -286,6 +288,7 @@ pub async fn acp_save_agent_skill(
         params.scope,
         params.skill_id,
         params.content,
+        params.files,
         params.workspace_path,
         params.layout,
         params.sync_mode,
