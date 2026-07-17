@@ -42,7 +42,7 @@
       "appearance": "Apparence",
       "agents": "Agents IA",
       "mcp": "MCP",
-      "skills": "Skills",
+      "skills": "Packs de compétences",
       "shortcuts": "Raccourcis",
       "version_control": "Contrôle de version",
       "system": "Système",
@@ -56,6 +56,13 @@
       "logs": "Journaux d'exécution",
       "usage": "Usage",
       "user_memory": "User Memory"
+    }
+  },
+  "SkillPacksSettings": {
+    "tabs": {
+      "experts": "Compétences expertes",
+      "officeTools": "Outils bureautiques",
+      "internetTools": "Outils Internet"
     }
   },
   "AppearanceSettings": {

@@ -42,7 +42,7 @@
       "appearance": "外観",
       "agents": "エージェント",
       "mcp": "MCP",
-      "skills": "Skills",
+      "skills": "スキルパック",
       "shortcuts": "ショートカット",
       "version_control": "バージョン管理",
       "system": "システム",
@@ -56,6 +56,13 @@
       "logs": "実行ログ",
       "usage": "Usage",
       "user_memory": "User Memory"
+    }
+  },
+  "SkillPacksSettings": {
+    "tabs": {
+      "experts": "エキスパートスキル",
+      "officeTools": "Office ツール",
+      "internetTools": "インターネットツール"
     }
   },
   "AppearanceSettings": {

@@ -148,14 +148,14 @@ export function ExpertsSettings() {
 
   return (
     <div className="h-full flex flex-col p-3 md:p-4">
-      <div className="flex items-center justify-between gap-3 pb-4">
-        <div>
+      <div className="flex flex-col items-start justify-between gap-3 pb-4 sm:flex-row sm:items-center">
+        <div className="min-w-0">
           <h2 className="text-base font-semibold">{t("title")}</h2>
           <p className="text-xs text-muted-foreground mt-1">
             {t("description")}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="outline"
@@ -190,7 +190,7 @@ export function ExpertsSettings() {
       )}
 
       {experts.length === 0 ? (
-        <div className="h-full rounded-lg border bg-card flex items-center justify-center text-sm text-muted-foreground">
+        <div className="flex h-full items-center justify-center rounded-lg border bg-card px-4 text-center text-sm text-muted-foreground">
           {t("emptyExperts")}
         </div>
       ) : (

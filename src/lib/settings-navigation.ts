@@ -63,6 +63,18 @@ export function settingsSectionToPath(section?: string | null): string {
   return `/settings/${normalizeSettingsSection(section)}`
 }
 
+export function settingsSectionToNavPath(section?: string | null): string {
+  const normalized = normalizeSettingsSection(section)
+  switch (normalized) {
+    case "experts":
+    case "office-tools":
+    case "internet-tools":
+      return "/settings/skills"
+    default:
+      return settingsSectionToPath(normalized)
+  }
+}
+
 export function settingsPathToSection(path: string): SettingsSection {
   const pathname = path.split("?")[0]?.replace(/\/index\.html$/, "") ?? ""
   const match = pathname.match(/\/settings\/([^/]+)$/)

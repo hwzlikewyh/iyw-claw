@@ -42,7 +42,7 @@
       "appearance": "외관",
       "agents": "에이전트",
       "mcp": "MCP",
-      "skills": "Skills",
+      "skills": "스킬 팩",
       "shortcuts": "단축키",
       "version_control": "버전 관리",
       "system": "시스템",
@@ -56,6 +56,13 @@
       "logs": "실행 로그",
       "usage": "Usage",
       "user_memory": "User Memory"
+    }
+  },
+  "SkillPacksSettings": {
+    "tabs": {
+      "experts": "전문가 스킬",
+      "officeTools": "오피스 도구",
+      "internetTools": "인터넷 도구"
     }
   },
   "AppearanceSettings": {

@@ -12,18 +12,16 @@ import {
   BarChart3,
   Bot,
   Brain,
-  FileStack,
-  Globe2,
   GitBranch,
   Keyboard,
   Menu,
   MessageSquareText,
+  Package,
   SendHorizontal,
   Palette,
   PlugZap,
   Settings,
   SlidersHorizontal,
-  Sparkles,
   ScrollText,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
@@ -46,9 +44,7 @@ export interface SettingsNavItem {
     | "user_memory"
     | "agents"
     | "mcp"
-    | "experts"
-    | "office_tools"
-    | "internet_tools"
+    | "skills"
     | "quick_messages"
     | "shortcuts"
     | "version_control"
@@ -88,19 +84,9 @@ const SETTINGS_NAV_ITEMS_WITH_HIDDEN: SettingsNavItem[] = [
     icon: PlugZap,
   },
   {
-    href: "/settings/experts",
-    labelKey: "experts",
-    icon: Sparkles,
-  },
-  {
-    href: "/settings/office-tools",
-    labelKey: "office_tools",
-    icon: FileStack,
-  },
-  {
-    href: "/settings/internet-tools",
-    labelKey: "internet_tools",
-    icon: Globe2,
+    href: "/settings/skills",
+    labelKey: "skills",
+    icon: Package,
   },
   {
     href: "/settings/agents",
@@ -162,6 +148,18 @@ export function normalizeSettingsPath(path: string): string {
   return noTrailingSlash || "/"
 }
 
+export function normalizeSettingsNavPath(path: string): string {
+  const normalized = normalizeSettingsPath(path)
+  switch (normalized) {
+    case "/settings/experts":
+    case "/settings/office-tools":
+    case "/settings/internet-tools":
+      return "/settings/skills"
+    default:
+      return normalized
+  }
+}
+
 function isWindowsRuntime(): boolean {
   if (typeof navigator === "undefined") return false
   const platform = navigator.platform.toLowerCase()
@@ -182,7 +180,7 @@ export function SettingsShell({
   const t = useTranslations("SettingsShell")
   const pathname = usePathname()
   const router = useRouter()
-  const normalizedPathname = normalizeSettingsPath(activePath ?? pathname)
+  const normalizedPathname = normalizeSettingsNavPath(activePath ?? pathname)
   const isMobile = useIsMobile()
   const [navOpen, setNavOpen] = useState(false)
 

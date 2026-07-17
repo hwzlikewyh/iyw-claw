@@ -42,7 +42,7 @@
       "appearance": "Darstellung",
       "agents": "Agenten",
       "mcp": "MCP",
-      "skills": "Skills",
+      "skills": "Skillpakete",
       "shortcuts": "Kurzbefehle",
       "version_control": "Versionskontrolle",
       "system": "Systemeinstellungen",
@@ -56,6 +56,13 @@
       "logs": "Laufzeitprotokolle",
       "usage": "Usage",
       "user_memory": "User Memory"
+    }
+  },
+  "SkillPacksSettings": {
+    "tabs": {
+      "experts": "Experten-Skills",
+      "officeTools": "Office-Tools",
+      "internetTools": "Internet-Tools"
     }
   },
   "AppearanceSettings": {
