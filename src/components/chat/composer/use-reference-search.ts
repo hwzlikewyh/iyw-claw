@@ -1,9 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 
 import { useAcpAgents } from "@/hooks/use-acp-agents"
+import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 import { useFileTree, type FlatFileEntry } from "@/hooks/use-file-tree"
+import { presentAgentSdkAgents } from "@/lib/agent-sdk-presentation"
 import { gitLog, listAllConversations } from "@/lib/api"
 import type {
   AcpAgentInfo,
@@ -217,6 +219,14 @@ export function useReferenceSearch({
     enabled,
   })
   const { agents } = useAcpAgents()
+  const tAgentSdk = useAgentSdkTranslations()
+  const presentedAgents = useMemo(
+    () =>
+      presentAgentSdkAgents(agents, (name) =>
+        tAgentSdk("agentAliasDescription", { name })
+      ),
+    [agents, tAgentSdk]
+  )
 
   // Mirror every changing source into a ref so `search` can stay identity-stable
   // (see the doc comment). Initialized from the first render so the refs are
@@ -225,7 +235,7 @@ export function useReferenceSearch({
     root: null,
     files: [],
   })
-  const agentsRef = useRef(agents)
+  const agentsRef = useRef(presentedAgents)
   const pathRef = useRef(path)
   const enabledRef = useRef(enabled)
   const labelsRef = useRef(labels)
@@ -249,9 +259,9 @@ export function useReferenceSearch({
       loaded && path
         ? { root: path, files: allFiles }
         : { root: null, files: [] }
-    agentsRef.current = agents
+    agentsRef.current = presentedAgents
     labelsRef.current = labels
-  }, [allFiles, loaded, path, agents, labels])
+  }, [allFiles, loaded, path, presentedAgents, labels])
 
   // Lazily-fetched network sources, key-cached so repeat searches reuse the
   // in-flight/resolved promise while a folder switch refetches.
