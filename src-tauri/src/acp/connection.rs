@@ -3387,6 +3387,26 @@ fn stop_reason_to_str(reason: StopReason) -> &'static str {
     }
 }
 
+/// Recognize adapter diagnostics that were incorrectly emitted as agent text.
+/// Signatures stay narrow so model-authored warnings and error analysis remain visible.
+fn is_agent_runtime_diagnostic(agent_type: AgentType, text: &str) -> bool {
+    if agent_type != AgentType::Codex {
+        return false;
+    }
+    let text = text.trim();
+    let model_metadata_warning = text.starts_with("Warning: Model metadata for ")
+        && text.contains(" not found.")
+        && text.contains("Defaulting to fallback metadata;")
+        && text.contains("this can degrade performance and cause issues.");
+    let skill_budget_warning = text
+        .starts_with("Warning: Skill descriptions were shortened to fit the ")
+        && text.contains("% skills context budget.")
+        && text.contains("Codex can still see every skill, but some descriptions are shorter.")
+        && text.contains("Disable unused skills or plugins to leave more room for the rest.");
+
+    model_metadata_warning || skill_budget_warning
+}
+
 /// True when a `SessionUpdate` represents actual agent-produced output for
 /// the current turn. Used to detect "silent EndTurn" cases where an agent
 /// (notably OpenCode) reports the turn ended successfully but never emitted
@@ -3396,23 +3416,12 @@ fn stop_reason_to_str(reason: StopReason) -> &'static str {
 /// (`UserMessageChunk`, `Plan`, `*ModeUpdate`, `ConfigOptionUpdate`,
 /// `SessionInfoUpdate`, `AvailableCommandsUpdate`, `UsageUpdate`) do not
 /// count.
-fn should_suppress_agent_message(agent_type: AgentType, text: &str) -> bool {
-    if agent_type != AgentType::Codex {
-        return false;
-    }
-    let text = text.trim();
-    text.starts_with("Warning: Model metadata for ")
-        && text.contains(" not found.")
-        && text.contains("Defaulting to fallback metadata;")
-        && text.contains("this can degrade performance and cause issues.")
-}
-
 fn is_agent_output_update(agent_type: AgentType, update: &SessionUpdate) -> bool {
     match update {
         SessionUpdate::AgentMessageChunk(ContentChunk {
             content: ContentBlock::Text(text),
             ..
-        }) => !should_suppress_agent_message(agent_type, &text.text),
+        }) => !is_agent_runtime_diagnostic(agent_type, &text.text),
         SessionUpdate::AgentMessageChunk(_) => true,
         SessionUpdate::AgentThoughtChunk(_)
         | SessionUpdate::ToolCall(_)
@@ -4832,7 +4841,7 @@ async fn emit_conversation_update(
             // Drop a CodeBuddy sub-agent's interleaved message text — it belongs
             // to the Agent pill, not the main thread (see
             // `should_suppress_subagent_chunk`). No-op for every other agent.
-            if !should_suppress_agent_message(agent_type, &text.text)
+            if !is_agent_runtime_diagnostic(agent_type, &text.text)
                 && !should_suppress_subagent_chunk(
                     agent_type,
                     !cb_state.open_subagents.is_empty(),
@@ -5178,20 +5187,29 @@ mod tests {
     fn codex_model_metadata_fallback_warning_is_not_rendered() {
         let warning = "Warning: Model metadata for `gpt-5.6-sol` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.";
 
-        assert!(should_suppress_agent_message(AgentType::Codex, warning));
-        assert!(!should_suppress_agent_message(
-            AgentType::ClaudeCode,
-            warning
+        assert!(is_agent_runtime_diagnostic(AgentType::Codex, warning));
+        assert!(!is_agent_runtime_diagnostic(AgentType::ClaudeCode, warning));
+    }
+
+    #[test]
+    fn codex_skill_context_budget_warning_is_not_rendered() {
+        let warning = "Warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.";
+
+        assert!(is_agent_runtime_diagnostic(AgentType::Codex, warning));
+        assert!(!is_agent_runtime_diagnostic(
+            AgentType::Codex,
+            "The skills context budget is limited, so consider disabling unused plugins."
         ));
+        assert!(!is_agent_runtime_diagnostic(AgentType::ClaudeCode, warning));
     }
 
     #[test]
     fn codex_other_warnings_and_normal_messages_remain_visible() {
-        assert!(!should_suppress_agent_message(
+        assert!(!is_agent_runtime_diagnostic(
             AgentType::Codex,
             "Warning: authentication failed"
         ));
-        assert!(!should_suppress_agent_message(
+        assert!(!is_agent_runtime_diagnostic(
             AgentType::Codex,
             "I could not find model metadata in this source file."
         ));
