@@ -4935,7 +4935,11 @@ export function AcpAgentSettings({
     const resume =
       pending.actionKind === "download_binary"
         ? runBinaryAction(agent, "download")
-        : runNpxAction(agent, "install")
+        : agent.distribution_type === "uvx"
+          ? runUvInstall(agent, false).then(() =>
+              runNpxAction(agent, "install")
+            )
+          : runNpxAction(agent, "install")
     resume.catch((err) => {
       if (!isAgentStorageNotInitializedError(err)) {
         console.error("[Settings] resumed Agent install failed:", err)
@@ -4947,6 +4951,7 @@ export function AcpAgentSettings({
     loadingAgents,
     runBinaryAction,
     runNpxAction,
+    runUvInstall,
   ])
 
   const confirmUninstall = useCallback(() => {
@@ -5156,6 +5161,16 @@ export function AcpAgentSettings({
     if (!selectedAgent) return
     try {
       if (selectedNeedsRuntimePreparation && fix.kind === "install_npx") {
+        if (
+          !guardFixActionForAgentStorage(
+            fix.kind,
+            agentStorageInitialized,
+            () => {}
+          )
+        ) {
+          await initializeStorageFromFixAction(selectedAgent, fix)
+          return
+        }
         await runUvInstall(selectedAgent, false)
         await runNpxAction(selectedAgent, "install")
         return
