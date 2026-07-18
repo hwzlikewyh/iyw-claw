@@ -22,8 +22,7 @@ import type { AgentOptionsSnapshot, SessionConfigOptionInfo } from "@/lib/types"
 const DEFAULT_SENTINEL = "__iyw_claw_default__"
 
 interface AgentConfigSectionProps {
-  /** Probe result, owned by the parent (so a single probe also feeds the `/`
-   *  command menu). Null while loading / on error / before the first probe. */
+  /** Product-owned option catalog supplied by the parent. */
   snapshot: AgentOptionsSnapshot | null
   loading: boolean
   error: string | null
@@ -39,10 +38,9 @@ interface AgentConfigSectionProps {
 }
 
 /**
- * The composer's model / mode / permission config surface. The probe is owned
- * by the parent (`useAgentOptions`) and passed in, so the editor runs a single
- * transient session that feeds both these selectors and the `/` command menu.
- * The model is one of the config options (id/category "model"); no special-casing.
+ * The composer's model / mode / permission config surface. The fixed catalog is
+ * owned by the parent (`useAgentOptions`) and passed in without starting an
+ * Agent. The model is one of the config options (id/category "model").
  */
 export function AgentConfigSection({
   snapshot,
@@ -142,7 +140,7 @@ export function effectiveSelections(
   modeId: string | null,
   configValues: Record<string, string>
 ): { mode_id: string | null; config_values: Record<string, string> } {
-  // No probe landed → nothing concrete was ever shown; persist the raw overrides.
+  // No catalog is available: preserve the raw overrides defensively.
   if (!snapshot) return { mode_id: modeId, config_values: configValues }
 
   const config: Record<string, string> = {}
@@ -152,7 +150,7 @@ export function effectiveSelections(
     if (effective != null && effective !== "") config[option.id] = effective
   }
   // Defensive: never drop a user override for an option this snapshot doesn't
-  // advertise (e.g. a stale id from an earlier probe of another agent).
+  // advertise (e.g. a stale id saved for another Agent).
   for (const [id, value] of Object.entries(configValues)) {
     if (!(id in config)) config[id] = value
   }

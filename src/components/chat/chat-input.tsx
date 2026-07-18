@@ -32,7 +32,6 @@ interface ChatInputProps {
   configOptions?: SessionConfigOptionInfo[]
   modeLoading?: boolean
   configOptionsLoading?: boolean
-  selectorsLoading?: boolean
   selectedModeId?: string | null
   onModeChange?: (modeId: string) => void
   onConfigOptionChange?: (configId: string, valueId: string) => void
@@ -59,13 +58,7 @@ interface ChatInputProps {
   onForkSend?: (draft: PromptDraft, modeId?: string | null) => void
   onAddFeedback?: () => void
   feedbackAddDisabled?: boolean
-  /**
-   * Keep the composer usable even while disconnected. Set for a folderless chat
-   * draft: it has no working dir yet (so it never auto-connects), and the FIRST
-   * send is precisely what lazily creates its conversation + scratch dir and
-   * triggers the connection. Without this the composer would be permanently
-   * disabled and the chat could never be started.
-   */
+  /** Keep the composer usable while the selected Agent connects silently. */
   allowOfflineCompose?: boolean
   injectContent?: ComposerInjectContent | null
   onInjectConsumed?: () => void
@@ -90,7 +83,6 @@ export const ChatInput = memo(function ChatInput({
   configOptions,
   modeLoading = false,
   configOptionsLoading = false,
-  selectorsLoading = false,
   selectedModeId,
   onModeChange,
   onConfigOptionChange,
@@ -115,7 +107,7 @@ export const ChatInput = memo(function ChatInput({
   onForkSend,
   onAddFeedback,
   feedbackAddDisabled,
-  allowOfflineCompose = false,
+  allowOfflineCompose = true,
   injectContent,
   onInjectConsumed,
   flush = false,
@@ -149,11 +141,7 @@ export const ChatInput = memo(function ChatInput({
         promptCapabilities={promptCapabilities}
         onFocus={onFocus}
         defaultPath={defaultPath}
-        disabled={
-          allowOfflineCompose
-            ? false
-            : (!isConnected && !isPrompting) || selectorsLoading
-        }
+        disabled={allowOfflineCompose ? false : !isConnected && !isPrompting}
         isPrompting={isPrompting}
         onCancel={onCancel}
         modes={modes}

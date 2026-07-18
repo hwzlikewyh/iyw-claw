@@ -105,7 +105,7 @@ const PAYLOAD_EXAMPLES: Record<(typeof ALL_EVENT_TYPES)[number]["id"], string> =
   "event": "turn_complete",
   "level": "info",
   "title": "Turn Complete",
-  "body": "Claude Code finished its turn.",
+  "body": "远山已完成本轮任务。",
   "fields": [{ "label": "Stop Reason", "value": "End Turn" }],
   "connection_id": "conn-abc",
   "source": "iyw-claw"
@@ -114,7 +114,7 @@ const PAYLOAD_EXAMPLES: Record<(typeof ALL_EVENT_TYPES)[number]["id"], string> =
   "event": "error",
   "level": "error",
   "title": "Agent Error",
-  "body": "Claude Code encountered an error.",
+  "body": "远山遇到错误。",
   "fields": [{ "label": "Error", "value": "connection reset" }],
   "connection_id": "conn-abc",
   "source": "iyw-claw"

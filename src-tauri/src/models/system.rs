@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SystemProxySettings {
@@ -6,20 +6,26 @@ pub struct SystemProxySettings {
     pub proxy_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum AppLocale {
     #[default]
     En,
     ZhCn,
-    ZhTw,
-    Ja,
-    Ko,
-    Es,
-    De,
-    Fr,
-    Pt,
-    Ar,
+}
+
+impl<'de> Deserialize<'de> for AppLocale {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+        Ok(match normalized.as_str() {
+            "zh_cn" | "zh_tw" => Self::ZhCn,
+            _ => Self::En,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

@@ -31,6 +31,7 @@ import { useTaskContext } from "@/contexts/task-context"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import { useConnectionLifecycle } from "@/hooks/use-connection-lifecycle"
 import { useMessageQueue, type QueuedMessage } from "@/hooks/use-message-queue"
+import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
 import { MessageListView } from "@/components/message/message-list-view"
 import { ConversationShell } from "@/components/chat/conversation-shell"
 import { SessionConfigStaleBanner } from "@/components/chat/session-config-stale-banner"
@@ -56,6 +57,8 @@ import {
   flushRetryDelayMs,
   forkSendBlockedByQueue,
   isConnectionReady,
+  shouldBlockUnboundSend,
+  shouldQueueBeforeConnection,
   shouldQueueDirectSend,
   shouldRejectDuplicateCreate,
 } from "@/lib/queue-flush"
@@ -82,8 +85,12 @@ import {
   type UserMessageBlock,
 } from "@/lib/types"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
+import { getFixedAgentOptions } from "@/lib/fixed-agent-options"
+import type { SessionConfigTranslator } from "@/lib/session-config-localization"
 import {
   getSavedModeId,
+  getSavedPrefsForConnect,
+  saveConfigPreference,
   saveModePreference,
 } from "@/lib/selector-prefs-storage"
 import {
@@ -198,6 +205,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const t = useTranslations("Folder.conversation")
   const tWelcome = useTranslations("Folder.chat.welcomeInputPanel")
   const sharedT = useTranslations("Folder.chat.shared")
+  const tConfig = useTranslations("Folder.chat.messageInput")
   const refreshConversations = useAppWorkspaceStore(
     (s) => s.refreshConversations
   )
@@ -261,8 +269,15 @@ const ConversationTabView = memo(function ConversationTabView({
     number | null
   >(null)
   const dbConversationId = conversationId ?? createdConversationId
+  const { sortedTypes: usableAgentTypes, fresh: agentsLoaded } =
+    useSortedAvailableAgents()
   const [draftAgentType, setDraftAgentType] = useState<AgentType>(agentType)
-  const selectedAgent = conversationId != null ? agentType : draftAgentType
+  const selectedAgent =
+    conversationId != null
+      ? agentType
+      : agentsLoaded && !usableAgentTypes.includes(draftAgentType)
+        ? (usableAgentTypes[0] ?? draftAgentType)
+        : draftAgentType
   // Seed from localStorage so the React state reflects the user's saved
   // mode for this agent immediately on mount. Without this seed, a reuse-
   // path connect (idle window after a refresh, before the agent is GC'd)
@@ -276,9 +291,11 @@ const ConversationTabView = memo(function ConversationTabView({
   const [modeId, setModeId] = useState<string | null>(() =>
     getSavedModeId(agentType)
   )
+  const [draftConfigValues, setDraftConfigValues] = useState<
+    Record<string, string>
+  >(() => getSavedPrefsForConnect(agentType).configValues ?? {})
   const [sendSignal, setSendSignal] = useState(0)
-  const [agentsLoaded, setAgentsLoaded] = useState(false)
-  const [usableAgentCount, setUsableAgentCount] = useState(0)
+  const usableAgentCount = usableAgentTypes.length
   const [agentConnectError, setAgentConnectError] = useState<string | null>(
     null
   )
@@ -290,9 +307,9 @@ const ConversationTabView = memo(function ConversationTabView({
 
   // A folderless chat draft before its first send (chat tab, not yet persisted).
   // Used to trigger the eager scratch-dir prepare below, which gives the draft a
-  // real workingDir so the ACP connection can spawn BEFORE the first send — the
-  // composer is gated on `connected` like any normal conversation (no offline
-  // compose). Once bound it has a persisted row + workingDir and this is false.
+  // real workingDir so the ACP connection can start as early as possible. The
+  // composer remains usable meanwhile and queues submissions until ready. Once
+  // bound it has a persisted row + workingDir and this is false.
   const isChatDraft = useMemo(
     () => ownTab?.isChat === true && !hasPersistedConversation,
     [ownTab, hasPersistedConversation]
@@ -344,6 +361,22 @@ const ConversationTabView = memo(function ConversationTabView({
     selectedAgentRef.current = selectedAgent
   }, [selectedAgent])
 
+  useEffect(() => {
+    if (conversationId != null || selectedAgent === draftAgentType) return
+    setDraftAgentType(selectedAgent)
+    setModeId(getSavedModeId(selectedAgent))
+    setDraftConfigValues(
+      getSavedPrefsForConnect(selectedAgent).configValues ?? {}
+    )
+    setDraftAgentFromFallback(tabId, selectedAgent)
+  }, [
+    conversationId,
+    draftAgentType,
+    selectedAgent,
+    setDraftAgentFromFallback,
+    tabId,
+  ])
+
   // Eagerly create the chat-mode scratch dir the moment this becomes an unbound
   // chat draft, so the ACP connection can spawn at a real cwd BEFORE the first
   // send — picking "no-folder mode" no longer leaves the agent unconnected.
@@ -363,11 +396,9 @@ const ConversationTabView = memo(function ConversationTabView({
           setChatDraftWorkingDir(tabId, res.path)
         }
       } catch (e) {
-        // The composer is gated on a live connection (no offline compose), and
-        // the connection needs this scratch dir. If the mkdir fails the draft
-        // would otherwise sit with a permanently disabled composer and no
-        // explanation — surface it on the welcome screen's error banner so the
-        // user can re-enter chat mode to retry.
+        // The connection needs this scratch dir before queued messages can flush.
+        // Surface creation failures on the welcome screen so the user can retry
+        // by re-entering chat mode instead of leaving the queue stalled silently.
         console.error("[ConversationTabView] prepare chat dir:", e)
         if (mountedRef.current) {
           setAgentConnectError(tWelcome("prepareSessionFailed"))
@@ -397,6 +428,7 @@ const ConversationTabView = memo(function ConversationTabView({
     if (agentType === selectedAgentRef.current) return
     setDraftAgentType(agentType)
     setModeId(getSavedModeId(agentType))
+    setDraftConfigValues(getSavedPrefsForConnect(agentType).configValues ?? {})
     setAgentConnectError(null)
   }, [agentType, conversationId])
 
@@ -477,9 +509,6 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const {
     conn,
-    modeLoading,
-    configOptionsLoading,
-    selectorsLoading,
     autoConnectError,
     handleFocus,
     handleSend: lifecycleSend,
@@ -534,23 +563,45 @@ const ConversationTabView = memo(function ConversationTabView({
     conn.connectedWorkingDir,
     workingDirForConnection
   )
-  // Present "connecting" to the composer while connected-but-not-ready, so it
-  // disables its send affordance instead of inviting a submit handleSend rejects.
-  // Only ever differs from connStatus during that transient mismatch window.
+  // Present "connecting" to the composer while connected-but-not-ready. The
+  // composer still accepts submissions and the send handler queues them until
+  // this tab's working directory matches the live connection.
   const composerConnStatus =
     connStatus === "connected" && !connectionReady ? "connecting" : connStatus
+  const fixedOptions = useMemo(
+    () =>
+      getFixedAgentOptions(
+        selectedAgent,
+        draftConfigValues,
+        tConfig as unknown as SessionConfigTranslator
+      ),
+    [selectedAgent, draftConfigValues, tConfig]
+  )
   const connectionModes = useMemo(
-    () => conn.modes?.available_modes ?? [],
-    [conn.modes?.available_modes]
+    () => fixedOptions.modes?.available_modes ?? [],
+    [fixedOptions.modes]
   )
-  const connectionConfigOptions = useMemo(
-    () => conn.configOptions ?? [],
-    [conn.configOptions]
-  )
+  const connectionConfigOptions = fixedOptions.config_options
   const connectionCommands = useMemo(
     () => conn.availableCommands ?? [],
     [conn.availableCommands]
   )
+
+  useEffect(() => {
+    if (!connectionReady) return
+    for (const [configId, valueId] of Object.entries(draftConfigValues)) {
+      const live = conn.configOptions?.find((option) => option.id === configId)
+      if (live?.kind.type === "select" && live.kind.current_value === valueId) {
+        continue
+      }
+      handleSetConfigOption(configId, valueId)
+    }
+  }, [
+    conn.configOptions,
+    connectionReady,
+    draftConfigValues,
+    handleSetConfigOption,
+  ])
   const selectedModeId = useMemo(() => {
     if (connectionModes.length === 0) return null
     if (modeId && connectionModes.some((mode) => mode.id === modeId)) {
@@ -802,26 +853,28 @@ const ConversationTabView = memo(function ConversationTabView({
       // re-queues at the TAIL.
       opts?: { fromQueueFlush?: boolean }
     ) => {
-      // Capture the tab's chat-draft state + eager scratch dir synchronously,
-      // before any await. A folderless chat draft is NOT special-cased here:
-      // its first send takes the exact same gated, inline path as a normal new
-      // conversation (the new-tab branch below just creates the row via
-      // createChatConversation, reusing this eager dir). The composer is gated
-      // on `connected` for chat drafts too, so by the time we get here the agent
-      // is live and the prompt is delivered inline — never parked in the queue.
+      // Capture the tab's chat-draft state + eager scratch dir synchronously.
+      // The user may submit before the Agent connects; that branch queues below
+      // and the existing flush effect resumes this same handler once ready.
       const sendOwnTab = ownTab
 
-      if (!hasPersistedConversation && !canAutoConnect) {
+      if (
+        shouldBlockUnboundSend(
+          hasPersistedConversation,
+          agentsLoaded,
+          usableAgentCount
+        )
+      ) {
         setAgentConnectError(tWelcome("enableAgentFirstPlaceholder"))
         return
       }
-      // Connected AND the connection's cwd matches this tab's working dir. Bare
-      // `connStatus === "connected"` is not enough: a chat draft mid-reconnect can
-      // read a stale "connected" for the old cwd, and an inline send then would
-      // deliver to the wrong workspace. Same predicate the flush effect uses.
-      if (!connectionReady) return
-
       const fromQueueFlush = opts?.fromQueueFlush ?? false
+      if (shouldQueueBeforeConnection(connectionReady, fromQueueFlush)) {
+        mqEnqueue(draft, selectedModeIdArg ?? null)
+        setHasSentMessage(true)
+        return
+      }
+      if (!connectionReady) return
       // Preserve FIFO: a direct send issued while the queue is non-empty joins
       // the tail rather than racing ahead of the queued items. Read the
       // queue length synchronously (it reflects a same-tick bounce requeue).
@@ -1032,7 +1085,7 @@ const ConversationTabView = memo(function ConversationTabView({
       mqRequeueFront,
       mqGetQueueLength,
       bindConversationTab,
-      canAutoConnect,
+      agentsLoaded,
       connectionReady,
       effectiveConversationId,
       folderId,
@@ -1050,6 +1103,7 @@ const ConversationTabView = memo(function ConversationTabView({
       tWelcome,
       tabId,
       upsertFolder,
+      usableAgentCount,
     ]
   )
 
@@ -1157,6 +1211,9 @@ const ConversationTabView = memo(function ConversationTabView({
 
       setDraftAgentType(nextAgentType)
       setModeId(getSavedModeId(nextAgentType))
+      setDraftConfigValues(
+        getSavedPrefsForConnect(nextAgentType).configValues ?? {}
+      )
       setAgentConnectError(null)
       // Real user click — clear the provisional flag so TabProvider's
       // correction effect leaves this tab alone.
@@ -1178,6 +1235,9 @@ const ConversationTabView = memo(function ConversationTabView({
 
       setDraftAgentType(nextAgentType)
       setModeId(getSavedModeId(nextAgentType))
+      setDraftConfigValues(
+        getSavedPrefsForConnect(nextAgentType).configValues ?? {}
+      )
       setAgentConnectError(null)
       setDraftAgentFromFallback(tabId, nextAgentType)
     },
@@ -1196,6 +1256,17 @@ const ConversationTabView = memo(function ConversationTabView({
       }
     },
     [conn.modes, selectedAgent]
+  )
+
+  const handleConfigOptionChange = useCallback(
+    (configId: string, valueId: string) => {
+      setDraftConfigValues((current) => ({
+        ...current,
+        [configId]: valueId,
+      }))
+      saveConfigPreference(selectedAgent, configId, valueId)
+    },
+    [selectedAgent]
   )
 
   const handleAnswerQuestion = useCallback(
@@ -1398,12 +1469,9 @@ const ConversationTabView = memo(function ConversationTabView({
       onAnswerAskQuestion={handleAnswerAskQuestion}
       modes={connectionModes}
       configOptions={connectionConfigOptions}
-      modeLoading={modeLoading}
-      configOptionsLoading={configOptionsLoading}
-      selectorsLoading={selectorsLoading}
       selectedModeId={selectedModeId}
       onModeChange={handleModeChange}
-      onConfigOptionChange={handleSetConfigOption}
+      onConfigOptionChange={handleConfigOptionChange}
       agentType={selectedAgent}
       availableCommands={connectionCommands}
       attachmentTabId={tabId}
@@ -1450,13 +1518,6 @@ const ConversationTabView = memo(function ConversationTabView({
                 defaultAgentType={selectedAgent}
                 onSelect={handleAgentSelect}
                 onFallback={handleAgentFallback}
-                onAgentsLoaded={(agents) => {
-                  setAgentsLoaded(true)
-                  setUsableAgentCount(
-                    agents.filter((agent) => agent.enabled && agent.available)
-                      .length
-                  )
-                }}
                 onOpenAgentsSettings={handleOpenAgentsSettings}
                 disabled={isConnecting || dbConversationId != null}
               />
@@ -1477,8 +1538,8 @@ const ConversationTabView = memo(function ConversationTabView({
             ) : null}
             <ChatInput
               // composerConnStatus (not connStatus): a chat draft mid-reconnect
-              // reads "connecting" until the connection's cwd matches, so the
-              // send affordance stays disabled until handleSend would accept it.
+              // reads "connecting" until the connection's cwd matches, while
+              // submissions continue entering this tab's queue.
               status={composerConnStatus}
               promptCapabilities={conn.promptCapabilities}
               defaultPath={workingDirForConnection}
@@ -1488,12 +1549,9 @@ const ConversationTabView = memo(function ConversationTabView({
               onCancel={handleCancel}
               modes={connectionModes}
               configOptions={connectionConfigOptions}
-              modeLoading={modeLoading}
-              configOptionsLoading={configOptionsLoading}
-              selectorsLoading={selectorsLoading}
               selectedModeId={selectedModeId}
               onModeChange={handleModeChange}
-              onConfigOptionChange={handleSetConfigOption}
+              onConfigOptionChange={handleConfigOptionChange}
               agentType={selectedAgent}
               availableCommands={connectionCommands}
               attachmentTabId={tabId}
@@ -1501,6 +1559,17 @@ const ConversationTabView = memo(function ConversationTabView({
               draftStorageKey={draftStorageKey}
               isActive={isActive}
               showActiveFlow={showActiveFlow}
+              queue={msgQueue}
+              onEnqueue={mqEnqueue}
+              onQueueReorder={mqReorder}
+              onQueueEdit={handleQueueEdit}
+              onQueueDelete={mqRemove}
+              editingItemId={mqEditingItemId}
+              editingDraftText={editingQueueDraftText}
+              editingDraftBlocks={editingQueueDraftBlocks}
+              isEditingQueueItem={mqEditingItemId != null}
+              onSaveQueueEdit={handleSaveQueueEdit}
+              onCancelQueueEdit={handleQueueCancelEdit}
               onAddFeedback={
                 feedback.featureEnabled ? feedback.openDialog : undefined
               }
@@ -1520,13 +1589,6 @@ const ConversationTabView = memo(function ConversationTabView({
               defaultAgentType={selectedAgent}
               onSelect={handleAgentSelect}
               onFallback={handleAgentFallback}
-              onAgentsLoaded={(agents) => {
-                setAgentsLoaded(true)
-                setUsableAgentCount(
-                  agents.filter((agent) => agent.enabled && agent.available)
-                    .length
-                )
-              }}
               onOpenAgentsSettings={handleOpenAgentsSettings}
               disabled={isConnecting || dbConversationId != null}
               variant="settings"

@@ -49,7 +49,6 @@ interface ConversationShellProps {
   configOptions?: SessionConfigOptionInfo[]
   modeLoading?: boolean
   configOptionsLoading?: boolean
-  selectorsLoading?: boolean
   selectedModeId?: string | null
   onModeChange?: (modeId: string) => void
   onConfigOptionChange?: (configId: string, valueId: string) => void
@@ -111,7 +110,6 @@ export function ConversationShell({
   configOptions,
   modeLoading = false,
   configOptionsLoading = false,
-  selectorsLoading = false,
   selectedModeId,
   onModeChange,
   onConfigOptionChange,
@@ -240,7 +238,6 @@ export function ConversationShell({
               configOptions={configOptions}
               modeLoading={modeLoading}
               configOptionsLoading={configOptionsLoading}
-              selectorsLoading={selectorsLoading}
               selectedModeId={selectedModeId}
               onModeChange={onModeChange}
               onConfigOptionChange={onConfigOptionChange}
