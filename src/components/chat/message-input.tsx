@@ -133,6 +133,7 @@ import {
   localizeSessionConfigOption,
   type SessionConfigTranslator,
 } from "@/lib/session-config-localization"
+import { orderSessionSelectors } from "@/lib/session-selector-order"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { useAgentSkills } from "@/hooks/use-agent-skills"
 import { useBuiltInExperts } from "@/hooks/use-built-in-experts"
@@ -878,6 +879,17 @@ export function MessageInput({
   const showModeSelector = hasModes && Boolean(effectiveModeId)
   const showModeLoading = modeLoading && !showModeSelector
   const showConfigLoading = configOptionsLoading && !hasConfigOptions
+  const orderedSessionSelectors = useMemo(
+    () => orderSessionSelectors(showModeSelector, availableConfigOptions),
+    [showModeSelector, availableConfigOptions]
+  )
+  const orderedConfigOptions = useMemo(
+    () =>
+      orderedSessionSelectors.flatMap((selector) =>
+        selector.kind === "config" ? [selector.option] : []
+      ),
+    [orderedSessionSelectors]
+  )
   const hasAnySelector =
     showConfigLoading || hasConfigOptions || showModeLoading || showModeSelector
   const hasInlineSelectors = hasConfigOptions || showModeSelector
@@ -2391,8 +2403,16 @@ export function MessageInput({
 
   const inlineSelectorItems = (
     <>
+      {showModeSelector && (
+        <InlineModeSelector
+          modes={availableModes}
+          selectedModeId={effectiveModeId!}
+          onSelect={handleModeSelect}
+          label={t("modeLabel")}
+        />
+      )}
       {hasConfigOptions &&
-        availableConfigOptions.map((option) => {
+        orderedConfigOptions.map((option) => {
           // Long model lists get the searchable + virtualized popover (a Radix
           // menu of hundreds of items is the scroll jank); every other option —
           // and short model lists — keep the lightweight inline dropdown.
@@ -2420,23 +2440,38 @@ export function MessageInput({
             />
           )
         })}
-      {showModeSelector && (
-        <InlineModeSelector
-          modes={availableModes}
-          selectedModeId={effectiveModeId!}
-          onSelect={handleModeSelect}
-          label={t("modeLabel")}
-        />
-      )}
     </>
   )
 
   // Normalized settings for the collapsed (narrow) master–detail panel.
-  // Agent modes and model/config options can be shown together.
+  // Mode and config selectors share the same product-defined order.
   const collapsedSettings = useMemo<SessionSelectorSetting[]>(() => {
     const result: SessionSelectorSetting[] = []
+    if (showModeSelector) {
+      const selected = availableModes.find(
+        (mode) => mode.id === effectiveModeId
+      )
+      result.push({
+        key: "mode",
+        title: t("modeLabel"),
+        currentValue: effectiveModeId ?? "",
+        currentLabel: selected?.name ?? effectiveModeId ?? "",
+        groups: [
+          {
+            key: "__modes__",
+            name: null,
+            options: availableModes.map((mode) => ({
+              value: mode.id,
+              name: mode.name,
+              description: mode.description,
+            })),
+          },
+        ],
+        onSelect: (value) => handleModeSelect(value),
+      })
+    }
     if (hasConfigOptions) {
-      for (const option of availableConfigOptions) {
+      for (const option of orderedConfigOptions) {
         if (option.kind.type !== "select") continue
         const kind = option.kind
         // Model values that carry a `provider/` prefix group by provider; every
@@ -2502,33 +2537,10 @@ export function MessageInput({
         })
       }
     }
-    if (showModeSelector) {
-      const selected = availableModes.find(
-        (mode) => mode.id === effectiveModeId
-      )
-      result.push({
-        key: "mode",
-        title: t("modeLabel"),
-        currentValue: effectiveModeId ?? "",
-        currentLabel: selected?.name ?? effectiveModeId ?? "",
-        groups: [
-          {
-            key: "__modes__",
-            name: null,
-            options: availableModes.map((mode) => ({
-              value: mode.id,
-              name: mode.name,
-              description: mode.description,
-            })),
-          },
-        ],
-        onSelect: (value) => handleModeSelect(value),
-      })
-    }
     return result
   }, [
     hasConfigOptions,
-    availableConfigOptions,
+    orderedConfigOptions,
     showModeSelector,
     availableModes,
     effectiveModeId,

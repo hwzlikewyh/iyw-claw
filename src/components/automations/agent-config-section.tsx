@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { orderSessionSelectors } from "@/lib/session-selector-order"
 import { cn } from "@/lib/utils"
 import type { AgentOptionsSnapshot, SessionConfigOptionInfo } from "@/lib/types"
 
@@ -84,9 +85,7 @@ export function AgentConfigSection({
     if (inline) return null
     return <p className="text-xs text-muted-foreground">{t("configNone")}</p>
   }
-  // Mirror the composer: when an agent exposes both modes AND config options,
-  // hide the standalone mode row (some agents surface mode as a config option).
-  const showMode = hasModes && !hasOptions
+  const selectors = orderSessionSelectors(hasModes, snapshot.config_options)
 
   return (
     <div
@@ -96,32 +95,39 @@ export function AgentConfigSection({
           : "flex flex-col gap-2.5 rounded-lg border border-border bg-card/40 p-3"
       )}
     >
-      {showMode && snapshot.modes ? (
-        <FlatSelect
-          label={t("mode")}
-          value={modeId}
-          inheritLabel={t("inherit")}
-          inline={inline}
-          allowInherit={!inline}
-          currentValue={snapshot.modes.current_mode_id}
-          onChange={onModeChange}
-          items={snapshot.modes.available_modes.map((m) => ({
-            value: m.id,
-            name: m.name,
-          }))}
-        />
-      ) : null}
-      {snapshot.config_options.map((option) => (
-        <ConfigOptionRow
-          key={option.id}
-          option={option}
-          value={configValues[option.id] ?? null}
-          inheritLabel={t("inherit")}
-          inline={inline}
-          allowInherit={!inline}
-          onChange={(v) => onConfigChange(option.id, v)}
-        />
-      ))}
+      {selectors.map((selector) => {
+        if (selector.kind === "mode") {
+          if (!snapshot.modes) return null
+          return (
+            <FlatSelect
+              key="__mode__"
+              label={t("mode")}
+              value={modeId}
+              inheritLabel={t("inherit")}
+              inline={inline}
+              allowInherit={!inline}
+              currentValue={snapshot.modes.current_mode_id}
+              onChange={onModeChange}
+              items={snapshot.modes.available_modes.map((mode) => ({
+                value: mode.id,
+                name: mode.name,
+              }))}
+            />
+          )
+        }
+        const option = selector.option
+        return (
+          <ConfigOptionRow
+            key={`config:${option.id}`}
+            option={option}
+            value={configValues[option.id] ?? null}
+            inheritLabel={t("inherit")}
+            inline={inline}
+            allowInherit={!inline}
+            onChange={(value) => onConfigChange(option.id, value)}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -155,13 +161,8 @@ export function effectiveSelections(
     if (!(id in config)) config[id] = value
   }
 
-  // Mirror `showMode = hasModes && !hasOptions`: the standalone mode row is only
-  // shown — and thus only pinnable — when the agent has modes but no config
-  // options; otherwise leave the user's mode choice (incl. null) untouched.
   const hasModes = !!snapshot.modes && snapshot.modes.available_modes.length > 0
-  const hasOptions = snapshot.config_options.length > 0
-  const mode_id =
-    modeId ?? (hasModes && !hasOptions ? snapshot.modes!.current_mode_id : null)
+  const mode_id = modeId ?? (hasModes ? snapshot.modes!.current_mode_id : null)
 
   return { mode_id, config_values: config }
 }

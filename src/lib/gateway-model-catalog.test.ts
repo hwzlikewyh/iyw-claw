@@ -1,35 +1,54 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   buildAgentOptionsSnapshot,
-  getLocalAgentModelIds,
-  mergeAgentModels,
+  createGatewayModelCatalog,
   parseGatewayModels,
+  reconcileModelConfigValues,
+  type GatewayModelPayloadCache,
 } from "@/lib/gateway-model-catalog"
 
+function cacheWith(payload: unknown): GatewayModelPayloadCache {
+  return {
+    read: vi.fn(() => payload),
+    write: vi.fn(),
+  }
+}
+
 describe("gateway model catalog", () => {
-  it("parses model display metadata and reasoning defaults", () => {
+  it("parses every valid model returned by the online endpoint", () => {
     const models = parseGatewayModels({
       data: [
         {
-          id: "gpt-5.4",
-          display_name: "GPT-5.4",
-          description: "General reasoning",
+          id: "online-alpha",
+          display_name: "Online Alpha",
+          description: "Primary online model",
           reasoning: {
-            efforts: ["minimal", "high"],
+            efforts: ["low", "high"],
             default_effort: "high",
           },
+        },
+        {
+          id: "online-beta",
+          display_name: "Online Beta",
         },
       ],
     })
 
     expect(models).toEqual([
       {
-        id: "gpt-5.4",
-        name: "GPT-5.4",
-        description: "General reasoning",
-        efforts: ["minimal", "high"],
+        id: "online-alpha",
+        name: "Online Alpha",
+        description: "Primary online model",
+        efforts: ["low", "high"],
         defaultEffort: "high",
+      },
+      {
+        id: "online-beta",
+        name: "Online Beta",
+        description: null,
+        efforts: [],
+        defaultEffort: null,
       },
     ])
   })
@@ -40,54 +59,95 @@ describe("gateway model catalog", () => {
     expect(parseGatewayModels({ data: [] })).toEqual([])
   })
 
-  it("keeps local models when the gateway does not return them", () => {
-    const localIds = getLocalAgentModelIds("grok")
-    const models = mergeAgentModels("grok", [
-      {
-        id: localIds[0],
-        name: "Remote name",
-        description: "Remote description",
-        efforts: ["low", "high"],
-        defaultEffort: "high",
-      },
-    ])
-
-    expect(models.map((model) => model.id)).toEqual(localIds)
-    expect(models[0]).toMatchObject({
-      name: "Remote name",
-      efforts: ["low", "high"],
-      defaultEffort: "high",
+  it("uses a fresh online response without merging stale cached models", async () => {
+    const cache = cacheWith({
+      data: [{ id: "cached-only", display_name: "Cached Only" }],
     })
+    const onlinePayload = {
+      data: [
+        { id: "online-alpha", display_name: "Online Alpha" },
+        { id: "online-beta", display_name: "Online Beta" },
+      ],
+    }
+    const catalog = createGatewayModelCatalog({
+      fetchModels: vi.fn().mockResolvedValue(onlinePayload),
+      cache,
+    })
+
+    await expect(catalog.load()).resolves.toMatchObject([
+      { id: "online-alpha" },
+      { id: "online-beta" },
+    ])
+    expect(catalog.getCached().map((model) => model.id)).toEqual([
+      "online-alpha",
+      "online-beta",
+    ])
+    expect(cache.write).toHaveBeenCalledWith(onlinePayload)
   })
 
-  it("keeps mode and model catalogs specific to each agent", () => {
-    const codex = buildAgentOptionsSnapshot("codex")
-    const claude = buildAgentOptionsSnapshot("claude_code")
-    const codexModel = codex.config_options.find((item) => item.id === "model")
-    const claudeModel = claude.config_options.find(
-      (item) => item.id === "model"
+  it("falls back only to the last successful online payload", async () => {
+    const cache = cacheWith({
+      data: [{ id: "cached-online", display_name: "Cached Online" }],
+    })
+    const catalog = createGatewayModelCatalog({
+      fetchModels: vi.fn().mockRejectedValue(new Error("offline")),
+      cache,
+    })
+
+    await expect(catalog.load()).resolves.toMatchObject([
+      { id: "cached-online" },
+    ])
+  })
+
+  it("builds model choices exclusively from the online catalog", () => {
+    const models = parseGatewayModels({
+      data: [
+        {
+          id: "online-alpha",
+          display_name: "Online Alpha",
+          reasoning: {
+            efforts: ["low", "high"],
+            default_effort: "high",
+          },
+        },
+        { id: "online-beta", display_name: "Online Beta" },
+      ],
+    })
+
+    const snapshot = buildAgentOptionsSnapshot("codex", models, {
+      model: "online-beta",
+    })
+    const model = snapshot.config_options.find(
+      (option) => option.id === "model"
     )
 
-    expect(codex.modes?.available_modes.map((mode) => mode.id)).toEqual([
-      "read-only",
-      "plan",
-      "agent",
-      "agent-full-access",
+    expect(model?.kind.options.map((option) => option.value)).toEqual([
+      "online-alpha",
+      "online-beta",
     ])
-    expect(claude.modes?.available_modes.map((mode) => mode.id)).toEqual([
-      "default",
-      "acceptEdits",
-      "plan",
-      "bypassPermissions",
-    ])
-    expect(codexModel?.kind.options.map((item) => item.value)).toEqual([
-      "gpt-5.4",
-      "deepseek-v4-pro",
-      "deepseek-v4-flash",
-    ])
-    expect(claudeModel?.kind.options.map((item) => item.value)).toEqual([
-      "claude-opus-4-6",
-      "gpt-5.4",
-    ])
+    expect(model?.kind.current_value).toBe("online-beta")
+  })
+
+  it("drops stale reasoning settings when the online model changes", () => {
+    const models = parseGatewayModels({
+      data: [
+        {
+          id: "reasoning-model",
+          reasoning: { efforts: ["low", "high"], default_effort: "high" },
+        },
+        { id: "plain-model" },
+      ],
+    })
+    const snapshot = buildAgentOptionsSnapshot("codex", models, {
+      model: "plain-model",
+      reasoning_effort: "high",
+    })
+
+    expect(
+      reconcileModelConfigValues(snapshot, {
+        model: "plain-model",
+        reasoning_effort: "high",
+      })
+    ).toEqual({ model: "plain-model" })
   })
 })

@@ -40,6 +40,7 @@ import {
   localizeSessionConfigOption,
   type SessionConfigTranslator,
 } from "@/lib/session-config-localization"
+import { orderSessionSelectors } from "@/lib/session-selector-order"
 
 // Sentinel `value` slot used by the top "Default" Select item in mode +
 // config-option rows. Picking it clears the override (sets it back to
@@ -218,31 +219,34 @@ function SnapshotEditor({
     )
   }
 
-  // Match the chat input box's behavior (`src/components/chat/message-input.tsx`):
-  // when the agent advertises both modes AND config options, hide the standalone
-  // mode row — some agents (e.g. Codex) expose mode selection as one of the
-  // config options too, and showing both produces a duplicate "Mode" entry.
-  const showStandaloneMode = hasModes && !hasOptions
+  const selectors = orderSessionSelectors(hasModes, snapshot.config_options)
   return (
     <div className="space-y-4">
-      {showStandaloneMode && snapshot.modes && (
-        <ModeRow
-          modes={snapshot.modes.available_modes}
-          agentDefaultModeId={snapshot.modes.current_mode_id}
-          overrideModeId={overrideModeId}
-          onChange={onModeChange}
-          disabled={disabled}
-        />
-      )}
-      {snapshot.config_options.map((option) => (
-        <ConfigOptionRow
-          key={option.id}
-          option={option}
-          overrideValue={overrideConfigValues[option.id] ?? null}
-          onChange={(valueId) => onConfigChange(option.id, valueId)}
-          disabled={disabled}
-        />
-      ))}
+      {selectors.map((selector) => {
+        if (selector.kind === "mode") {
+          if (!snapshot.modes) return null
+          return (
+            <ModeRow
+              key="__mode__"
+              modes={snapshot.modes.available_modes}
+              agentDefaultModeId={snapshot.modes.current_mode_id}
+              overrideModeId={overrideModeId}
+              onChange={onModeChange}
+              disabled={disabled}
+            />
+          )
+        }
+        const option = selector.option
+        return (
+          <ConfigOptionRow
+            key={`config:${option.id}`}
+            option={option}
+            overrideValue={overrideConfigValues[option.id] ?? null}
+            onChange={(valueId) => onConfigChange(option.id, valueId)}
+            disabled={disabled}
+          />
+        )
+      })}
     </div>
   )
 }

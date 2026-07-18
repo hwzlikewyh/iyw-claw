@@ -6,7 +6,6 @@ use sacp::{Agent, ConnectionTo, UntypedMessage};
 use tokio::sync::RwLock;
 
 use super::{build_set_model_params, set_effort_selector_for_model, EffortSpecs};
-use crate::acp::provider_overlay::MANAGED_MODEL_IDS;
 use crate::acp::session_state::SessionState;
 use crate::acp::types::{AcpEvent, SessionConfigKindInfo, SessionConfigOptionInfo};
 use crate::models::agent::AgentType;
@@ -35,9 +34,9 @@ fn resolve_set_model_target(
     current_model: Option<&str>,
 ) -> Option<(String, Option<String>)> {
     match config_id {
-        "model" if MANAGED_MODEL_IDS.contains(&value_id) => Some((value_id.to_string(), None)),
+        "model" if !value_id.trim().is_empty() => Some((value_id.to_string(), None)),
         "reasoning_effort" => {
-            let model = current_model.filter(|model| MANAGED_MODEL_IDS.contains(model))?;
+            let model = current_model.filter(|model| !model.trim().is_empty())?;
             Some((model.to_string(), Some(value_id.to_string())))
         }
         _ => None,
@@ -222,15 +221,15 @@ mod tests {
     use crate::web::event_bridge::EventEmitter;
 
     #[test]
-    fn model_target_rejects_models_outside_the_managed_catalog() {
+    fn model_target_accepts_online_catalog_models() {
         assert_eq!(
-            resolve_set_model_target("model", "deepseek-v4-pro", None),
-            Some(("deepseek-v4-pro".to_string(), None))
+            resolve_set_model_target("model", "online-only", None),
+            Some(("online-only".to_string(), None))
         );
-        assert_eq!(resolve_set_model_target("model", "grok-4.5", None), None);
+        assert_eq!(resolve_set_model_target("model", "", None), None);
         assert_eq!(
-            resolve_set_model_target("reasoning_effort", "high", Some("deepseek-v4-pro"),),
-            Some(("deepseek-v4-pro".to_string(), Some("high".to_string())))
+            resolve_set_model_target("reasoning_effort", "high", Some("online-only"),),
+            Some(("online-only".to_string(), Some("high".to_string())))
         );
     }
 

@@ -90,6 +90,7 @@ import {
   getFixedAgentOptions,
   loadFixedAgentOptions,
 } from "@/lib/fixed-agent-options"
+import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
 import {
   getSavedModeId,
@@ -597,6 +598,11 @@ const ConversationTabView = memo(function ConversationTabView({
     [fixedOptions.modes]
   )
   const connectionConfigOptions = fixedOptions.config_options
+  useEffect(() => {
+    setDraftConfigValues((current) =>
+      reconcileModelConfigValues(fixedOptions, current)
+    )
+  }, [fixedOptions])
   const connectionCommands = useMemo(
     () => conn.availableCommands ?? [],
     [conn.availableCommands]
@@ -604,7 +610,22 @@ const ConversationTabView = memo(function ConversationTabView({
 
   useEffect(() => {
     if (!connectionReady) return
+    if (
+      reconcileModelConfigValues(fixedOptions, draftConfigValues) !==
+      draftConfigValues
+    ) {
+      return
+    }
     for (const [configId, valueId] of Object.entries(draftConfigValues)) {
+      const offered = connectionConfigOptions.find(
+        (option) => option.id === configId
+      )
+      if (
+        !offered ||
+        !offered.kind.options.some((option) => option.value === valueId)
+      ) {
+        continue
+      }
       const live = conn.configOptions?.find((option) => option.id === configId)
       if (live?.kind.type === "select" && live.kind.current_value === valueId) {
         continue
@@ -613,8 +634,10 @@ const ConversationTabView = memo(function ConversationTabView({
     }
   }, [
     conn.configOptions,
+    connectionConfigOptions,
     connectionReady,
     draftConfigValues,
+    fixedOptions,
     handleSetConfigOption,
   ])
   const selectedModeId = useMemo(() => {

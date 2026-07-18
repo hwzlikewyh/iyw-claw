@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use crate::acp::provider_overlay::{MANAGED_DEFAULT_MODEL, MANAGED_MODEL_IDS};
 use crate::acp::types::{
     SessionConfigKindInfo, SessionConfigOptionInfo, SessionConfigSelectInfo,
     SessionConfigSelectOptionInfo,
@@ -47,9 +46,6 @@ pub(crate) fn parse_effort_specs(models: Option<&serde_json::Value>) -> EffortSp
         let Some(model_id) = model.get("modelId").and_then(serde_json::Value::as_str) else {
             continue;
         };
-        if !MANAGED_MODEL_IDS.contains(&model_id) {
-            continue;
-        }
         let meta = model.get("_meta");
         let supports = meta
             .and_then(|value| value.get("supportsReasoningEffort"))
@@ -152,38 +148,46 @@ pub(crate) fn synthesize_options(
         .and_then(|meta| meta.get("x.ai/sessionConfig"))
         .and_then(|value| value.get("options"))
         .and_then(serde_json::Value::as_array);
-    let label_for = |model_id: &str| {
-        raw_options
-            .into_iter()
-            .flatten()
-            .find(|option| option.get("id").and_then(serde_json::Value::as_str) == Some(model_id))
-            .and_then(|option| option.get("label"))
+    let mut selected = None;
+    let mut model_options = Vec::new();
+    for option in raw_options.into_iter().flatten() {
+        let Some(id) = option
+            .get("id")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or(model_id)
-            .to_string()
-    };
-    let selected = raw_options
-        .into_iter()
-        .flatten()
-        .find(|option| {
-            option.get("selected").and_then(serde_json::Value::as_bool) == Some(true)
-                && option
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|id| MANAGED_MODEL_IDS.contains(&id))
-        })
-        .and_then(|option| option.get("id"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or(MANAGED_DEFAULT_MODEL)
-        .to_string();
-    let model_options = MANAGED_MODEL_IDS
-        .iter()
-        .map(|model_id| SessionConfigSelectOptionInfo {
-            value: (*model_id).to_string(),
-            name: label_for(model_id),
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        else {
+            continue;
+        };
+        if model_options
+            .iter()
+            .any(|existing: &SessionConfigSelectOptionInfo| existing.value == id)
+        {
+            continue;
+        }
+        if option.get("selected").and_then(serde_json::Value::as_bool) == Some(true) {
+            selected = Some(id.to_string());
+        }
+        let name = option
+            .get("label")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(id);
+        model_options.push(SessionConfigSelectOptionInfo {
+            value: id.to_string(),
+            name: name.to_string(),
             description: None,
-        })
-        .collect();
+        });
+    }
+    if model_options.is_empty() {
+        model_options.extend(specs.keys().map(|id| SessionConfigSelectOptionInfo {
+            value: id.clone(),
+            name: id.clone(),
+            description: None,
+        }));
+    }
+    let selected = selected
+        .filter(|id| model_options.iter().any(|option| option.value == *id))
+        .or_else(|| model_options.first().map(|option| option.value.clone()))?;
     let mut result = vec![select_option(
         "model",
         "Model",
@@ -218,4 +222,52 @@ pub(crate) fn build_set_model_params(
         params["_meta"] = serde_json::json!({"reasoningEffort": effort});
     }
     params
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn online_metadata_is_not_filtered_by_a_local_model_list() {
+        let payload = serde_json::json!({
+            "availableModels": [{
+                "modelId": "online-only",
+                "_meta": {
+                    "supportsReasoningEffort": true,
+                    "reasoningEffort": "high",
+                    "reasoningEfforts": [{"id": "low"}, {"id": "high"}]
+                }
+            }]
+        });
+
+        let specs = parse_effort_specs(Some(&payload));
+
+        assert!(specs.contains_key("online-only"));
+    }
+
+    #[test]
+    fn selector_uses_every_model_offered_by_the_online_session() {
+        let meta = serde_json::json!({
+            "x.ai/sessionConfig": {
+                "options": [
+                    {"id": "online-alpha", "label": "Online Alpha", "selected": true},
+                    {"id": "online-beta", "label": "Online Beta"}
+                ]
+            }
+        });
+        let options = synthesize_options(meta.as_object(), &EffortSpecs::new())
+            .expect("online models should create a selector");
+        let SessionConfigKindInfo::Select(model) = &options[0].kind;
+
+        assert_eq!(
+            model
+                .options
+                .iter()
+                .map(|option| option.value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["online-alpha", "online-beta"]
+        );
+        assert_eq!(model.current_value, "online-alpha");
+    }
 }

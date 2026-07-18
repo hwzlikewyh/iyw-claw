@@ -1,9 +1,5 @@
+import { getAgentModeState } from "@/lib/agent-modes"
 import { listGatewayModels } from "@/lib/api"
-import {
-  getAgentModeState,
-  getLocalAgentModelIds,
-  getLocalModels,
-} from "@/lib/agent-option-definitions"
 import type {
   AgentOptionsSnapshot,
   AgentType,
@@ -11,7 +7,7 @@ import type {
   SessionConfigSelectOptionInfo,
 } from "@/lib/types"
 
-export { getLocalAgentModelIds }
+const GATEWAY_MODEL_CACHE_KEY = "iyw-claw.gateway-model-catalog.v1"
 
 export interface GatewayModel {
   id: string
@@ -21,107 +17,152 @@ export interface GatewayModel {
   defaultEffort: string | null
 }
 
-export interface AgentModelDefinition extends GatewayModel {
-  source: "local" | "gateway"
+export interface GatewayModelPayloadCache {
+  read: () => unknown | null
+  write: (payload: unknown) => void
 }
 
-let cachedGatewayModels: GatewayModel[] | null = null
-let refreshPromise: Promise<GatewayModel[]> | null = null
+interface GatewayModelCatalogOptions {
+  fetchModels: () => Promise<unknown>
+  cache: GatewayModelPayloadCache
+}
+
+export interface GatewayModelCatalog {
+  getCached: () => GatewayModel[]
+  load: () => Promise<GatewayModel[]>
+  refresh: () => Promise<GatewayModel[]>
+}
+
+function uniqueStrings(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return Array.from(
+    new Set(
+      value.flatMap((item) => {
+        if (typeof item !== "string") return []
+        const trimmed = item.trim()
+        return trimmed ? [trimmed] : []
+      })
+    )
+  )
+}
+
+function parseGatewayModel(value: unknown): GatewayModel | null {
+  if (!value || typeof value !== "object") return null
+  const raw = value as Record<string, unknown>
+  const id = typeof raw.id === "string" ? raw.id.trim() : ""
+  if (!id) return null
+  const reasoning =
+    raw.reasoning && typeof raw.reasoning === "object"
+      ? (raw.reasoning as Record<string, unknown>)
+      : {}
+  const efforts = uniqueStrings(reasoning.efforts)
+  const defaultEffort =
+    typeof reasoning.default_effort === "string" &&
+    reasoning.default_effort.trim()
+      ? reasoning.default_effort.trim()
+      : null
+  return {
+    id,
+    name:
+      typeof raw.display_name === "string" && raw.display_name.trim()
+        ? raw.display_name.trim()
+        : id,
+    description:
+      typeof raw.description === "string" && raw.description.trim()
+        ? raw.description.trim()
+        : null,
+    efforts,
+    defaultEffort,
+  }
+}
 
 export function parseGatewayModels(payload: unknown): GatewayModel[] {
   if (!payload || typeof payload !== "object") return []
   const data = (payload as { data?: unknown }).data
   if (!Array.isArray(data)) return []
+  const seen = new Set<string>()
+  return data.flatMap((item) => {
+    const model = parseGatewayModel(item)
+    if (!model || seen.has(model.id)) return []
+    seen.add(model.id)
+    return [model]
+  })
+}
 
-  return data.flatMap((item): GatewayModel[] => {
-    if (!item || typeof item !== "object") return []
-    const raw = item as {
-      id?: unknown
-      display_name?: unknown
-      description?: unknown
-      reasoning?: { efforts?: unknown; default_effort?: unknown }
-    }
-    const id = typeof raw.id === "string" ? raw.id.trim() : ""
-    if (!id) return []
-    const efforts = Array.isArray(raw.reasoning?.efforts)
-      ? raw.reasoning.efforts.filter(
-          (effort): effort is string =>
-            typeof effort === "string" && effort.trim().length > 0
+function browserPayloadCache(): GatewayModelPayloadCache {
+  return {
+    read: () => {
+      try {
+        const raw = globalThis.localStorage?.getItem(GATEWAY_MODEL_CACHE_KEY)
+        return raw ? JSON.parse(raw) : null
+      } catch {
+        return null
+      }
+    },
+    write: (payload) => {
+      try {
+        globalThis.localStorage?.setItem(
+          GATEWAY_MODEL_CACHE_KEY,
+          JSON.stringify(payload)
         )
-      : []
-    return [
-      {
-        id,
-        name:
-          typeof raw.display_name === "string" && raw.display_name.trim()
-            ? raw.display_name
-            : id,
-        description:
-          typeof raw.description === "string" ? raw.description : null,
-        efforts,
-        defaultEffort:
-          typeof raw.reasoning?.default_effort === "string"
-            ? raw.reasoning.default_effort
-            : null,
-      },
-    ]
-  })
-}
-
-export function mergeAgentModels(
-  agentType: AgentType,
-  remoteModels: GatewayModel[]
-): AgentModelDefinition[] {
-  const remoteById = new Map(remoteModels.map((model) => [model.id, model]))
-  return getLocalModels(agentType).map((local) => {
-    const remote = remoteById.get(local.id)
-    const efforts = remote?.efforts.length ? remote.efforts : local.efforts
-    const remoteDefault = remote?.defaultEffort
-    return {
-      ...(remote ?? local),
-      source: remote ? "gateway" : "local",
-      efforts,
-      defaultEffort:
-        remoteDefault && efforts.includes(remoteDefault)
-          ? remoteDefault
-          : local.defaultEffort,
-    }
-  })
-}
-
-export async function getGatewayModels(): Promise<GatewayModel[]> {
-  if (cachedGatewayModels?.length) return cachedGatewayModels
-  if (!refreshPromise) {
-    refreshPromise = listGatewayModels()
-      .then(parseGatewayModels)
-      .catch(() => [])
-      .then((models) => {
-        cachedGatewayModels = models.length > 0 ? models : null
-        return models
-      })
-      .finally(() => {
-        refreshPromise = null
-      })
+      } catch {
+        // The in-memory online cache remains available for this app session.
+      }
+    },
   }
-  return refreshPromise
 }
 
-export function getCachedGatewayModels(): GatewayModel[] {
-  return cachedGatewayModels ?? []
+export function createGatewayModelCatalog({
+  fetchModels,
+  cache,
+}: GatewayModelCatalogOptions): GatewayModelCatalog {
+  let cached = parseGatewayModels(cache.read())
+  let loaded = false
+  let pending: Promise<GatewayModel[]> | null = null
+
+  const refresh = (): Promise<GatewayModel[]> => {
+    if (pending) return pending
+    pending = fetchModels()
+      .then((payload) => {
+        const online = parseGatewayModels(payload)
+        if (online.length > 0) {
+          cached = online
+          cache.write(payload)
+        }
+        return [...cached]
+      })
+      .catch(() => [...cached])
+      .finally(() => {
+        loaded = true
+        pending = null
+      })
+    return pending
+  }
+
+  return {
+    getCached: () => [...cached],
+    load: () => (loaded ? Promise.resolve([...cached]) : refresh()),
+    refresh,
+  }
 }
 
-export function refreshGatewayModels(): Promise<GatewayModel[]> {
-  cachedGatewayModels = null
-  return getGatewayModels()
+function selectOption(
+  value: string,
+  name: string,
+  description: string | null
+): SessionConfigSelectOptionInfo {
+  return { value, name, description }
 }
 
-function option(value: string, name: string, description: string | null) {
-  return { value, name, description } satisfies SessionConfigSelectOptionInfo
+function effortLabel(effort: string): string {
+  return effort === "xhigh"
+    ? "Max"
+    : effort.charAt(0).toUpperCase() + effort.slice(1)
 }
 
 function buildModelOption(
-  model: AgentModelDefinition,
-  models: AgentModelDefinition[]
+  selected: GatewayModel,
+  models: GatewayModel[]
 ): SessionConfigOptionInfo {
   return {
     id: "model",
@@ -130,55 +171,99 @@ function buildModelOption(
     category: "model",
     kind: {
       type: "select",
-      current_value: model.id,
-      options: models.map((item) =>
-        option(item.id, item.name, item.description)
+      current_value: selected.id,
+      options: models.map((model) =>
+        selectOption(model.id, model.name, model.description)
       ),
       groups: [],
     },
   }
 }
 
-function effortLabel(effort: string): string {
-  return effort === "xhigh" ? "Max" : effort[0].toUpperCase() + effort.slice(1)
+function buildEffortOption(
+  selected: GatewayModel,
+  configuredEffort: string | undefined
+): SessionConfigOptionInfo | null {
+  if (selected.efforts.length === 0) return null
+  const current = selected.efforts.includes(configuredEffort ?? "")
+    ? configuredEffort!
+    : selected.defaultEffort &&
+        selected.efforts.includes(selected.defaultEffort)
+      ? selected.defaultEffort
+      : selected.efforts[0]
+  return {
+    id: "reasoning_effort",
+    name: "Reasoning effort",
+    description: "Adjust how deeply the model reasons before responding.",
+    category: "thought_level",
+    kind: {
+      type: "select",
+      current_value: current,
+      options: selected.efforts.map((effort) =>
+        selectOption(effort, effortLabel(effort), null)
+      ),
+      groups: [],
+    },
+  }
 }
 
 export function buildAgentOptionsSnapshot(
   agentType: AgentType,
+  models: GatewayModel[],
   configValues: Record<string, string> = {}
 ): AgentOptionsSnapshot {
-  const models = mergeAgentModels(agentType, getCachedGatewayModels())
   const selected =
     models.find((model) => model.id === configValues.model) ?? models[0]
-  const configOptions: SessionConfigOptionInfo[] = selected
-    ? [buildModelOption(selected, models)]
-    : []
-  const effortOptions =
-    selected?.efforts.map((effort) =>
-      option(effort, effortLabel(effort), null)
-    ) ?? []
-  if (selected && effortOptions.length > 0) {
-    const selectedEffort = effortOptions.some(
-      (effort) => effort.value === configValues.reasoning_effort
-    )
-      ? configValues.reasoning_effort
-      : (selected.defaultEffort ?? effortOptions[0].value)
-    configOptions.push({
-      id: "reasoning_effort",
-      name: "Reasoning effort",
-      description: "Adjust how deeply the model reasons before responding.",
-      category: "thought_level",
-      kind: {
-        type: "select",
-        current_value: selectedEffort,
-        options: effortOptions,
-        groups: [],
-      },
-    })
+  const configOptions: SessionConfigOptionInfo[] = []
+  if (selected) {
+    configOptions.push(buildModelOption(selected, models))
+    const effort = buildEffortOption(selected, configValues.reasoning_effort)
+    if (effort) configOptions.push(effort)
   }
   return {
     modes: getAgentModeState(agentType),
     config_options: configOptions,
     available_commands: [],
   }
+}
+
+export function reconcileModelConfigValues(
+  snapshot: AgentOptionsSnapshot,
+  configValues: Record<string, string>
+): Record<string, string> {
+  const model = snapshot.config_options.find((option) => option.id === "model")
+  if (!model) return configValues
+  const next = { ...configValues }
+  for (const id of ["model", "reasoning_effort"]) {
+    const option = snapshot.config_options.find((item) => item.id === id)
+    if (!option) {
+      delete next[id]
+      continue
+    }
+    if (!option.kind.options.some((item) => item.value === next[id])) {
+      next[id] = option.kind.current_value
+    }
+  }
+  const keys = Object.keys(configValues)
+  const unchanged =
+    keys.length === Object.keys(next).length &&
+    keys.every((key) => configValues[key] === next[key])
+  return unchanged ? configValues : next
+}
+
+const gatewayModelCatalog = createGatewayModelCatalog({
+  fetchModels: listGatewayModels,
+  cache: browserPayloadCache(),
+})
+
+export function getCachedGatewayModels(): GatewayModel[] {
+  return gatewayModelCatalog.getCached()
+}
+
+export function getGatewayModels(): Promise<GatewayModel[]> {
+  return gatewayModelCatalog.load()
+}
+
+export function refreshGatewayModels(): Promise<GatewayModel[]> {
+  return gatewayModelCatalog.refresh()
 }

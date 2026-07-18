@@ -62,13 +62,7 @@ pub fn model_gateway_base_url_for(agent_type: AgentType) -> String {
 }
 
 pub fn model_gateway_models_url() -> String {
-    let base = model_gateway_base_url_for(AgentType::Codex);
-    let base = base.trim_end_matches('/');
-    if base.ends_with("/v1") {
-        format!("{base}/models")
-    } else {
-        format!("{base}/v1/models")
-    }
+    format!("{MODEL_GATEWAY_PRODUCTION_OPENAI_URL}/models")
 }
 
 pub fn apply_provider_runtime_env(
@@ -164,6 +158,14 @@ mod tests {
                 "unexpected managed Base URL for {agent_type}"
             );
         }
+    }
+
+    #[test]
+    fn model_list_url_always_uses_the_online_endpoint() {
+        let url = model_gateway_models_url();
+
+        assert_eq!(url, "https://gateway.iyw.cn/iyw-fusion-api/v1/models");
+        assert!(!url.contains("localhost") && !url.contains("127.0.0.1"));
     }
 
     #[test]
