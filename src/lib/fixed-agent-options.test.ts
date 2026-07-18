@@ -74,7 +74,7 @@ describe("fixed agent options", () => {
     const mode = snapshot.config_options.find((option) => option.id === "model")
 
     expect(mode?.name).toBe("模型")
-    if (mode.kind.type !== "select") return
+    if (!mode || mode.kind.type !== "select") return
     expect(mode.kind.options.map((option) => option.name)).toEqual([
       "GPT-5.4",
       "DeepSeek V4 Pro",
