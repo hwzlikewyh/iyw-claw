@@ -13,8 +13,9 @@
  *      `setDelegationSettings` save action only.
  */
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslations } from "next-intl"
+import { useIywAccount } from "@/contexts/iyw-account-context"
 import {
   Select,
   SelectContent,
@@ -31,7 +32,10 @@ import {
   type AgentType,
   type SessionConfigOptionInfo,
 } from "@/lib/types"
-import { getFixedAgentOptions } from "@/lib/fixed-agent-options"
+import {
+  getFixedAgentOptions,
+  loadFixedAgentOptions,
+} from "@/lib/fixed-agent-options"
 import {
   localizeSessionConfigOption,
   type SessionConfigTranslator,
@@ -70,9 +74,22 @@ export function DelegationAgentDefaultsPanel({
   disabled,
 }: DelegationAgentDefaultsPanelProps) {
   const t = useTranslations("AcpAgentSettings.multiAgent")
+  const { status: accountStatus } = useIywAccount()
   const tSessionConfig = useTranslations("Folder.chat.messageInput")
   const translator = tSessionConfig as unknown as SessionConfigTranslator
   const [selectedAgent, setSelectedAgent] = useState<AgentType>("claude_code")
+  const [catalogVersion, setCatalogVersion] = useState(0)
+  useEffect(() => {
+    if (accountStatus !== "authenticated") return
+    let active = true
+    void loadFixedAgentOptions().then(() => {
+      if (active) setCatalogVersion((version) => version + 1)
+    })
+    return () => {
+      active = false
+    }
+  }, [accountStatus])
+  void catalogVersion
   const fixedSnapshot = getFixedAgentOptions(selectedAgent)
   const snapshot = {
     ...fixedSnapshot,

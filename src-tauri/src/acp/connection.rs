@@ -1013,17 +1013,18 @@ fn map_session_config_options(
         .collect()
 }
 
-fn enforce_managed_model_options(options: &mut [SessionConfigOptionInfo]) {
+fn enforce_managed_model_options(agent_type: AgentType, options: &mut [SessionConfigOptionInfo]) {
+    let model_ids = crate::acp::provider_overlay::managed_model_ids_for(agent_type);
+    let default_model = crate::acp::provider_overlay::managed_default_model_for(agent_type);
     for option in options
         .iter_mut()
         .filter(|option| option.id == "model" || option.category.as_deref() == Some("model"))
     {
         let SessionConfigKindInfo::Select(select) = &mut option.kind;
-        if !crate::acp::provider_overlay::MANAGED_MODEL_IDS.contains(&select.current_value.as_str())
-        {
-            select.current_value = crate::acp::provider_overlay::MANAGED_DEFAULT_MODEL.to_string();
+        if !model_ids.contains(&select.current_value.as_str()) {
+            select.current_value = default_model.to_string();
         }
-        select.options = crate::acp::provider_overlay::MANAGED_MODEL_IDS
+        select.options = model_ids
             .iter()
             .map(|model| SessionConfigSelectOptionInfo {
                 value: (*model).to_string(),
@@ -1103,7 +1104,7 @@ async fn emit_session_config_options_values(
     config_options: Vec<SessionConfigOption>,
 ) {
     let mut mapped = map_session_config_options(&config_options);
-    enforce_managed_model_options(&mut mapped);
+    enforce_managed_model_options(agent_type, &mut mapped);
     if agent_type == AgentType::Codex {
         ensure_codex_mode_option(&mut mapped);
     }

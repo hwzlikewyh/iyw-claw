@@ -1,12 +1,30 @@
 use crate::models::agent::AgentType;
 
 pub const MANAGED_PROVIDER_ID: &str = "iyw-claw";
-pub const MANAGED_MODEL_IDS: [&str; 3] = [
+pub const MANAGED_MODEL_IDS: [&str; 7] = [
+    "gpt-5.4",
+    "claude-opus-4-6",
     "deepseek-v4-pro",
-    "doubao-seed-2-1-pro-260628",
     "deepseek-v4-flash",
+    "doubao-seed-2-1-pro-260628",
+    "gemini-3.1-pro-preview",
+    "qwen3.7-max",
 ];
 pub const MANAGED_DEFAULT_MODEL: &str = MANAGED_MODEL_IDS[0];
+
+pub fn managed_model_ids_for(agent: AgentType) -> &'static [&'static str] {
+    match agent {
+        AgentType::Codex => &["gpt-5.4", "deepseek-v4-pro", "deepseek-v4-flash"],
+        AgentType::ClaudeCode => &["claude-opus-4-6", "gpt-5.4"],
+        AgentType::Gemini => &["gemini-3.1-pro-preview", "gpt-5.4"],
+        AgentType::Grok => &MANAGED_MODEL_IDS,
+        _ => &["deepseek-v4-pro", "deepseek-v4-flash", "qwen3.7-max"],
+    }
+}
+
+pub fn managed_default_model_for(agent: AgentType) -> &'static str {
+    managed_model_ids_for(agent)[0]
+}
 
 pub(crate) const CODEBUDDY_CONFLICTING_ENV_KEYS: &[&str] = &[
     "ANTHROPIC_URL",
@@ -36,6 +54,8 @@ pub(crate) fn is_codebuddy_conflicting_env_key(key: &str) -> bool {
 }
 
 pub(crate) fn patch_codex_toml(raw: &str, base_url: &str) -> Result<String, String> {
+    let model_ids = managed_model_ids_for(AgentType::Codex);
+    let default_model = managed_default_model_for(AgentType::Codex);
     let mut value = parse_toml_root(raw)?;
     let root = value
         .as_table_mut()
@@ -47,8 +67,8 @@ pub(crate) fn patch_codex_toml(raw: &str, base_url: &str) -> Result<String, Stri
     let model = root
         .get("model")
         .and_then(toml::Value::as_str)
-        .filter(|model| MANAGED_MODEL_IDS.contains(model))
-        .unwrap_or(MANAGED_DEFAULT_MODEL)
+        .filter(|model| model_ids.contains(model))
+        .unwrap_or(default_model)
         .to_string();
     root.insert("model".into(), toml::Value::String(model));
 
@@ -66,13 +86,15 @@ pub(crate) fn patch_codex_toml(raw: &str, base_url: &str) -> Result<String, Stri
 }
 
 pub(crate) fn patch_kimi_toml(raw: &str, base_url: &str) -> Result<String, String> {
+    let model_ids = managed_model_ids_for(AgentType::KimiCode);
+    let default_model = managed_default_model_for(AgentType::KimiCode);
     let mut value = parse_toml_root(raw)?;
     let root = value
         .as_table_mut()
         .ok_or("kimi config root must be a TOML table")?;
     root.insert(
         "default_model".into(),
-        toml::Value::String(MANAGED_DEFAULT_MODEL.into()),
+        toml::Value::String(default_model.into()),
     );
     let providers = table_entry(root, "providers")?;
     providers.retain(|name, _| name == MANAGED_PROVIDER_ID);
@@ -84,19 +106,21 @@ pub(crate) fn patch_kimi_toml(raw: &str, base_url: &str) -> Result<String, Strin
     provider.insert("base_url".into(), toml::Value::String(base_url.into()));
     let models = table_entry(root, "models")?;
     models.clear();
-    for model_id in MANAGED_MODEL_IDS {
+    for model_id in model_ids {
         let model = table_entry(models, model_id)?;
         model.insert(
             "provider".into(),
             toml::Value::String(MANAGED_PROVIDER_ID.into()),
         );
-        model.insert("model".into(), toml::Value::String(model_id.into()));
+        model.insert("model".into(), toml::Value::String((*model_id).into()));
         model.insert("max_context_size".into(), toml::Value::Integer(1_000_000));
     }
     toml::to_string_pretty(&value).map_err(|error| error.to_string())
 }
 
 pub(crate) fn patch_grok_toml(raw: &str, base_url: &str) -> Result<String, String> {
+    let model_ids = managed_model_ids_for(AgentType::Grok);
+    let default_model = managed_default_model_for(AgentType::Grok);
     let mut value = parse_toml_root(raw)?;
     let root = value
         .as_table_mut()
@@ -106,15 +130,15 @@ pub(crate) fn patch_grok_toml(raw: &str, base_url: &str) -> Result<String, Strin
         .and_then(toml::Value::as_table)
         .and_then(|models| models.get("default"))
         .and_then(toml::Value::as_str)
-        .filter(|model| MANAGED_MODEL_IDS.contains(model))
-        .unwrap_or(MANAGED_DEFAULT_MODEL)
+        .filter(|model| model_ids.contains(model))
+        .unwrap_or(default_model)
         .to_string();
     table_entry(root, "models")?.insert("default".into(), toml::Value::String(selected_model));
     let models = table_entry(root, "model")?;
     models.clear();
-    for model_id in MANAGED_MODEL_IDS {
+    for model_id in model_ids {
         let model = table_entry(models, model_id)?;
-        model.insert("model".into(), toml::Value::String(model_id.into()));
+        model.insert("model".into(), toml::Value::String((*model_id).into()));
         model.insert("base_url".into(), toml::Value::String(base_url.into()));
         model.insert(
             "api_backend".into(),
@@ -136,27 +160,24 @@ pub(crate) fn patch_json_config(
     let root = value
         .as_object_mut()
         .ok_or("agent config root must be a JSON object")?;
+    let model_ids = managed_model_ids_for(agent);
+    let default_model = managed_default_model_for(agent);
     match agent {
         AgentType::ClaudeCode => {
             set_json(root, &["env"], "ANTHROPIC_BASE_URL", base_url);
-            set_json(root, &["env"], "ANTHROPIC_MODEL", MANAGED_DEFAULT_MODEL);
-            set_json(
-                root,
-                &["env"],
-                "ANTHROPIC_DEFAULT_OPUS_MODEL",
-                MANAGED_MODEL_IDS[0],
-            );
+            set_json(root, &["env"], "ANTHROPIC_MODEL", default_model);
+            set_json(root, &["env"], "ANTHROPIC_DEFAULT_OPUS_MODEL", model_ids[0]);
             set_json(
                 root,
                 &["env"],
                 "ANTHROPIC_DEFAULT_SONNET_MODEL",
-                MANAGED_MODEL_IDS[1],
+                model_ids.get(1).copied().unwrap_or(model_ids[0]),
             );
             set_json(
                 root,
                 &["env"],
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-                MANAGED_MODEL_IDS[2],
+                model_ids.get(1).copied().unwrap_or(model_ids[0]),
             );
         }
         AgentType::CodeBuddy => {
@@ -168,19 +189,19 @@ pub(crate) fn patch_json_config(
             );
             env.insert(
                 "CODEBUDDY_MODEL".into(),
-                serde_json::Value::String(MANAGED_MODEL_IDS[0].into()),
+                serde_json::Value::String(model_ids[0].into()),
             );
             env.insert(
                 "CODEBUDDY_BIG_SLOW_MODEL".into(),
-                serde_json::Value::String(MANAGED_MODEL_IDS[0].into()),
+                serde_json::Value::String(model_ids[0].into()),
             );
             env.insert(
                 "CODEBUDDY_SMALL_FAST_MODEL".into(),
-                serde_json::Value::String(MANAGED_MODEL_IDS[2].into()),
+                serde_json::Value::String(model_ids[1].into()),
             );
             env.insert(
                 "CODEBUDDY_CODE_SUBAGENT_MODEL".into(),
-                serde_json::Value::String(MANAGED_MODEL_IDS[2].into()),
+                serde_json::Value::String(model_ids[1].into()),
             );
         }
         AgentType::OpenCode => {
@@ -189,10 +210,10 @@ pub(crate) fn patch_json_config(
             let provider = ensure_json_object(providers, &[MANAGED_PROVIDER_ID]);
             let options = ensure_json_object(provider, &["options"]);
             options.insert("baseURL".into(), serde_json::Value::String(base_url.into()));
-            provider.insert("models".into(), managed_model_object());
+            provider.insert("models".into(), managed_model_object(model_ids));
             root.insert(
                 "model".into(),
-                serde_json::Value::String(format!("{MANAGED_PROVIDER_ID}/{MANAGED_DEFAULT_MODEL}")),
+                serde_json::Value::String(format!("{MANAGED_PROVIDER_ID}/{default_model}")),
             );
         }
         AgentType::OpenClaw => {
@@ -204,7 +225,7 @@ pub(crate) fn patch_json_config(
                 "api".into(),
                 serde_json::Value::String("openai-responses".into()),
             );
-            provider.insert("models".into(), managed_model_array());
+            provider.insert("models".into(), managed_model_array(model_ids));
         }
         AgentType::Cline => {
             root.insert(
@@ -221,7 +242,7 @@ pub(crate) fn patch_json_config(
             );
             root.insert(
                 "openAiModelId".into(),
-                serde_json::Value::String(MANAGED_DEFAULT_MODEL.into()),
+                serde_json::Value::String(default_model.into()),
             );
             root.insert("welcomeViewCompleted".into(), serde_json::Value::Bool(true));
         }
@@ -232,7 +253,7 @@ pub(crate) fn patch_json_config(
             );
             root.insert(
                 "defaultModel".into(),
-                serde_json::Value::String(MANAGED_DEFAULT_MODEL.into()),
+                serde_json::Value::String(default_model.into()),
             );
         }
         _ => return Err(format!("no JSON provider overlay for {agent:?}")),
@@ -256,7 +277,10 @@ pub(crate) fn patch_pi_models_json(
         "api".into(),
         serde_json::Value::String("openai-responses".into()),
     );
-    provider.insert("models".into(), managed_model_array());
+    provider.insert(
+        "models".into(),
+        managed_model_array(managed_model_ids_for(AgentType::Pi)),
+    );
     Ok(value)
 }
 
@@ -289,7 +313,7 @@ pub(crate) fn patch_hermes_yaml(raw: &str, base_url: &str) -> Result<String, Str
     );
     model.insert(
         Value::String("default".into()),
-        Value::String(MANAGED_DEFAULT_MODEL.into()),
+        Value::String(managed_default_model_for(AgentType::Hermes).into()),
     );
     serde_yaml::to_string(&root).map_err(|e| e.to_string())
 }
@@ -343,18 +367,18 @@ fn ensure_json_object<'a>(
     current
 }
 
-fn managed_model_object() -> serde_json::Value {
+fn managed_model_object(model_ids: &[&str]) -> serde_json::Value {
     serde_json::Value::Object(
-        MANAGED_MODEL_IDS
+        model_ids
             .iter()
             .map(|model| ((*model).to_string(), serde_json::json!({"name": model})))
             .collect(),
     )
 }
 
-fn managed_model_array() -> serde_json::Value {
+fn managed_model_array(model_ids: &[&str]) -> serde_json::Value {
     serde_json::Value::Array(
-        MANAGED_MODEL_IDS
+        model_ids
             .iter()
             .map(|model| serde_json::json!({"id": model, "name": model}))
             .collect(),
@@ -390,11 +414,9 @@ mod tests {
         let patched =
             patch_json_config(AgentType::ClaudeCode, serde_json::json!({}), base_url).unwrap();
         assert_eq!(patched["env"]["ANTHROPIC_BASE_URL"], base_url);
-        assert_eq!(patched["env"]["ANTHROPIC_MODEL"], MANAGED_DEFAULT_MODEL);
-        assert_eq!(
-            patched["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
-            MANAGED_MODEL_IDS[2]
-        );
+        let models = managed_model_ids_for(AgentType::ClaudeCode);
+        assert_eq!(patched["env"]["ANTHROPIC_MODEL"], models[0]);
+        assert_eq!(patched["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"], models[1]);
     }
 
     #[test]
@@ -414,27 +436,28 @@ mod tests {
         let base_url = "https://gateway.iyw.cn/iyw-fusion-api/v1";
         let patched = patch_json_config(AgentType::CodeBuddy, raw, base_url).unwrap();
         let env = patched["env"].as_object().expect("env object");
+        let models = managed_model_ids_for(AgentType::CodeBuddy);
         assert_eq!(
             env.get("CODEBUDDY_BASE_URL").and_then(|v| v.as_str()),
             Some(base_url)
         );
         assert_eq!(
             env.get("CODEBUDDY_MODEL").and_then(|v| v.as_str()),
-            Some(MANAGED_MODEL_IDS[0])
+            Some(models[0])
         );
         assert_eq!(
             env.get("CODEBUDDY_BIG_SLOW_MODEL").and_then(|v| v.as_str()),
-            Some(MANAGED_MODEL_IDS[0])
+            Some(models[0])
         );
         assert_eq!(
             env.get("CODEBUDDY_SMALL_FAST_MODEL")
                 .and_then(|v| v.as_str()),
-            Some(MANAGED_MODEL_IDS[2])
+            Some(models[1])
         );
         assert_eq!(
             env.get("CODEBUDDY_CODE_SUBAGENT_MODEL")
                 .and_then(|v| v.as_str()),
-            Some(MANAGED_MODEL_IDS[2])
+            Some(models[1])
         );
         assert_eq!(env.get("KEEP").and_then(|v| v.as_str()), Some("custom"));
         assert!(!env.keys().any(|key| key.starts_with("ANTHROPIC_")));

@@ -13,7 +13,8 @@ pub(crate) use super::provider_overlay_formats::{
     patch_json_config, patch_kimi_toml, patch_pi_models_json, CODEBUDDY_CONFLICTING_ENV_KEYS,
 };
 pub use super::provider_overlay_formats::{
-    MANAGED_DEFAULT_MODEL, MANAGED_MODEL_IDS, MANAGED_PROVIDER_ID,
+    managed_default_model_for, managed_model_ids_for, MANAGED_DEFAULT_MODEL, MANAGED_MODEL_IDS,
+    MANAGED_PROVIDER_ID,
 };
 
 pub const MODEL_GATEWAY_LOCAL_URL: &str = "http://127.0.0.1:6001";
@@ -60,6 +61,16 @@ pub fn model_gateway_base_url_for(agent_type: AgentType) -> String {
     MODEL_GATEWAY_BASE_URL.to_string()
 }
 
+pub fn model_gateway_models_url() -> String {
+    let base = model_gateway_base_url_for(AgentType::Codex);
+    let base = base.trim_end_matches('/');
+    if base.ends_with("/v1") {
+        format!("{base}/models")
+    } else {
+        format!("{base}/v1/models")
+    }
+}
+
 pub fn apply_provider_runtime_env(
     agent_type: AgentType,
     runtime_env: &mut BTreeMap<String, String>,
@@ -90,18 +101,19 @@ pub(crate) fn apply_provider_runtime_env_with_base(
         // CodeBuddy uses the OpenAI-compatible client for custom endpoints and
         // exposes separate model selectors for the main, reasoning, fast, and
         // sub-agent paths. Keep all selectors pinned to the managed catalog.
+        let models = managed_model_ids_for(agent_type);
         for (key, model) in [
-            ("CODEBUDDY_MODEL", MANAGED_MODEL_IDS[0]),
-            ("CODEBUDDY_BIG_SLOW_MODEL", MANAGED_MODEL_IDS[0]),
-            ("CODEBUDDY_SMALL_FAST_MODEL", MANAGED_MODEL_IDS[2]),
-            ("CODEBUDDY_CODE_SUBAGENT_MODEL", MANAGED_MODEL_IDS[2]),
+            ("CODEBUDDY_MODEL", models[0]),
+            ("CODEBUDDY_BIG_SLOW_MODEL", models[0]),
+            ("CODEBUDDY_SMALL_FAST_MODEL", models[1]),
+            ("CODEBUDDY_CODE_SUBAGENT_MODEL", models[1]),
         ] {
             runtime_env.insert(key.to_string(), model.to_string());
         }
     } else {
         runtime_env.insert(
             provider_model_env_key(agent_type).to_string(),
-            MANAGED_DEFAULT_MODEL.to_string(),
+            managed_default_model_for(agent_type).to_string(),
         );
     }
 }
@@ -221,25 +233,26 @@ mod tests {
         );
         assert_eq!(
             environment.get("CODEBUDDY_MODEL").map(String::as_str),
-            Some(MANAGED_DEFAULT_MODEL)
+            Some(managed_default_model_for(AgentType::CodeBuddy))
         );
+        let models = managed_model_ids_for(AgentType::CodeBuddy);
         assert_eq!(
             environment
                 .get("CODEBUDDY_BIG_SLOW_MODEL")
                 .map(String::as_str),
-            Some(MANAGED_MODEL_IDS[0])
+            Some(models[0])
         );
         assert_eq!(
             environment
                 .get("CODEBUDDY_SMALL_FAST_MODEL")
                 .map(String::as_str),
-            Some(MANAGED_MODEL_IDS[2])
+            Some(models[1])
         );
         assert_eq!(
             environment
                 .get("CODEBUDDY_CODE_SUBAGENT_MODEL")
                 .map(String::as_str),
-            Some(MANAGED_MODEL_IDS[2])
+            Some(models[1])
         );
         assert!(!environment.keys().any(|key| key.starts_with("ANTHROPIC_")));
         assert!(!environment.contains_key("CODEBUDDY_AUTH_TOKEN"));

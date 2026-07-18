@@ -6,10 +6,16 @@ use serde::Deserialize;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::iyw_account::{
-    iyw_account_get_profile_core, iyw_account_get_wechat_qrcode_core,
+    iyw_account_get_profile_core, iyw_account_get_wechat_qrcode_core, iyw_account_list_models_core,
     iyw_account_login_with_password_core, iyw_account_logout_core,
     iyw_account_poll_wechat_login_core, IywAccountProfile, IywWechatPollingResult, IywWechatQrcode,
 };
+
+pub async fn list_models(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, AppCommandError> {
+    Ok(Json(iyw_account_list_models_core(&state.db.conn).await?))
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

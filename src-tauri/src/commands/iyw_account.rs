@@ -244,6 +244,32 @@ pub(crate) async fn iyw_account_access_token_core(
     }))
 }
 
+pub async fn iyw_account_list_models_core(
+    conn: &DatabaseConnection,
+) -> Result<serde_json::Value, AppCommandError> {
+    let token = iyw_account_access_token_core(conn)
+        .await?
+        .ok_or_else(|| AppCommandError::authentication_failed("Sign in to iyw-claw first"))?;
+    let response = http_client()?
+        .get(crate::acp::provider_overlay::model_gateway_models_url())
+        .header("token", token.expose())
+        .header("Content-Type", "application/json")
+        .send()
+        .await
+        .map_err(|error| {
+            AppCommandError::network("Failed to fetch gateway models")
+                .with_detail(error.to_string())
+        })?;
+    if !response.status().is_success() {
+        return Err(AppCommandError::network("Gateway model request failed")
+            .with_detail(response.status().to_string()));
+    }
+    response.json::<serde_json::Value>().await.map_err(|error| {
+        AppCommandError::network("Gateway model response was invalid")
+            .with_detail(error.to_string())
+    })
+}
+
 async fn fetch_profile_with_token(token: &str) -> Result<IywAccountProfile, AppCommandError> {
     let client = http_client()?;
     let info_response = client
@@ -555,6 +581,14 @@ pub async fn iyw_account_get_profile(
     db: State<'_, AppDatabase>,
 ) -> Result<IywAccountProfile, AppCommandError> {
     iyw_account_get_profile_core(&db.conn).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn iyw_account_list_models(
+    db: State<'_, AppDatabase>,
+) -> Result<serde_json::Value, AppCommandError> {
+    iyw_account_list_models_core(&db.conn).await
 }
 
 #[cfg(feature = "tauri-runtime")]

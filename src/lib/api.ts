@@ -3090,6 +3090,10 @@ export async function iywAccountGetProfile(): Promise<IywAccountProfile> {
   return getTransport().call("iyw_account_get_profile")
 }
 
+export async function listGatewayModels(): Promise<unknown> {
+  return getTransport().call("iyw_account_list_models")
+}
+
 export async function iywAccountGetWechatQrcode(): Promise<IywWechatQrcode> {
   return getTransport().call("iyw_account_get_wechat_qrcode")
 }

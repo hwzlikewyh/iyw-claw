@@ -875,9 +875,8 @@ export function MessageInput({
     }
     return availableModes[0]?.id ?? null
   }, [hasModes, selectedModeId, availableModes])
-  const showModeSelector =
-    hasModes && Boolean(effectiveModeId) && !hasConfigOptions
-  const showModeLoading = modeLoading && !hasConfigOptions && !showModeSelector
+  const showModeSelector = hasModes && Boolean(effectiveModeId)
+  const showModeLoading = modeLoading && !showModeSelector
   const showConfigLoading = configOptionsLoading && !hasConfigOptions
   const hasAnySelector =
     showConfigLoading || hasConfigOptions || showModeLoading || showModeSelector
@@ -2432,9 +2431,8 @@ export function MessageInput({
     </>
   )
 
-  // Normalized settings for the collapsed (narrow) master–detail panel. Config
-  // options and the mode picker are mutually exclusive in this UI (see
-  // `showModeSelector`), but both are mapped so the panel stays agnostic.
+  // Normalized settings for the collapsed (narrow) master–detail panel.
+  // Agent modes and model/config options can be shown together.
   const collapsedSettings = useMemo<SessionSelectorSetting[]>(() => {
     const result: SessionSelectorSetting[] = []
     if (hasConfigOptions) {

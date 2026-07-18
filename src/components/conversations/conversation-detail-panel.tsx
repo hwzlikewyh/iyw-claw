@@ -28,6 +28,7 @@ import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabActions, useTabStore } from "@/contexts/tab-context"
 import { useSessionStats } from "@/contexts/session-stats-context"
 import { useTaskContext } from "@/contexts/task-context"
+import { useIywAccount } from "@/contexts/iyw-account-context"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import { useConnectionLifecycle } from "@/hooks/use-connection-lifecycle"
 import { useMessageQueue, type QueuedMessage } from "@/hooks/use-message-queue"
@@ -85,7 +86,10 @@ import {
   type UserMessageBlock,
 } from "@/lib/types"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
-import { getFixedAgentOptions } from "@/lib/fixed-agent-options"
+import {
+  getFixedAgentOptions,
+  loadFixedAgentOptions,
+} from "@/lib/fixed-agent-options"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
 import {
   getSavedModeId,
@@ -202,6 +206,18 @@ const ConversationTabView = memo(function ConversationTabView({
   showActiveFlow,
   reloadSignal,
 }: ConversationTabViewProps) {
+  const { status: accountStatus } = useIywAccount()
+  const [catalogVersion, setCatalogVersion] = useState(0)
+  useEffect(() => {
+    if (accountStatus !== "authenticated") return
+    let active = true
+    void loadFixedAgentOptions().then(() => {
+      if (active) setCatalogVersion((version) => version + 1)
+    })
+    return () => {
+      active = false
+    }
+  }, [accountStatus])
   const t = useTranslations("Folder.conversation")
   const tWelcome = useTranslations("Folder.chat.welcomeInputPanel")
   const sharedT = useTranslations("Folder.chat.shared")
@@ -568,15 +584,14 @@ const ConversationTabView = memo(function ConversationTabView({
   // this tab's working directory matches the live connection.
   const composerConnStatus =
     connStatus === "connected" && !connectionReady ? "connecting" : connStatus
-  const fixedOptions = useMemo(
-    () =>
-      getFixedAgentOptions(
-        selectedAgent,
-        draftConfigValues,
-        tConfig as unknown as SessionConfigTranslator
-      ),
-    [selectedAgent, draftConfigValues, tConfig]
-  )
+  const fixedOptions = useMemo(() => {
+    void catalogVersion
+    return getFixedAgentOptions(
+      selectedAgent,
+      draftConfigValues,
+      tConfig as unknown as SessionConfigTranslator
+    )
+  }, [selectedAgent, draftConfigValues, tConfig, catalogVersion])
   const connectionModes = useMemo(
     () => fixedOptions.modes?.available_modes ?? [],
     [fixedOptions.modes]
@@ -1248,14 +1263,15 @@ const ConversationTabView = memo(function ConversationTabView({
     (newModeId: string) => {
       setModeId(newModeId)
       // Persist mode selection to localStorage immediately
-      if (conn.modes) {
+      const modes = conn.modes ?? fixedOptions.modes
+      if (modes) {
         saveModePreference(selectedAgent, {
-          ...conn.modes,
+          ...modes,
           current_mode_id: newModeId,
         })
       }
     },
-    [conn.modes, selectedAgent]
+    [conn.modes, fixedOptions.modes, selectedAgent]
   )
 
   const handleConfigOptionChange = useCallback(

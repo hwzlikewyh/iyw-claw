@@ -50,6 +50,10 @@ pub fn build_router(
             "/iyw_account_get_profile",
             post(handlers::iyw_account::get_profile),
         )
+        .route(
+            "/iyw_account_list_models",
+            post(handlers::iyw_account::list_models),
+        )
         .route("/iyw_account_logout", post(handlers::iyw_account::logout))
         // Debug endpoint: operator-facing snapshot of `EventBusMetrics`
         // (emit volume, lag/eviction counts, attach decision counts).

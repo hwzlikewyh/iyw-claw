@@ -526,9 +526,13 @@ export const MODEL_PROVIDER_AGENT_TYPES: AgentType[] = [
 ]
 
 export const MANAGED_MODEL_OPTIONS = [
+  "gpt-5.4",
+  "claude-opus-4-6",
   "deepseek-v4-pro",
-  "doubao-seed-2-1-pro-260628",
   "deepseek-v4-flash",
+  "doubao-seed-2-1-pro-260628",
+  "gemini-3.1-pro-preview",
+  "qwen3.7-max",
 ] as const
 
 export const MANAGED_DEFAULT_MODEL = MANAGED_MODEL_OPTIONS[0]

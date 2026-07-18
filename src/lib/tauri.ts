@@ -466,6 +466,10 @@ export async function getAccountToken(
   return invoke("get_account_token", { accountId })
 }
 
+export async function listGatewayModels(): Promise<unknown> {
+  return invoke("iyw_account_list_models")
+}
+
 export async function deleteAccountToken(accountId: string): Promise<void> {
   return invoke("delete_account_token", { accountId })
 }

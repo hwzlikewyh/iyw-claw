@@ -105,12 +105,8 @@ import type {
   OpenCodeCatalogProvider,
   PreflightResult,
 } from "@/lib/types"
-import {
-  HERMES_PROVIDERS,
-  MANAGED_DEFAULT_MODEL,
-  MANAGED_MODEL_OPTIONS,
-  parseClaudeProviderModel,
-} from "@/lib/types"
+import { HERMES_PROVIDERS, parseClaudeProviderModel } from "@/lib/types"
+import { getLocalAgentModelIds } from "@/lib/agent-option-definitions"
 import {
   OpenCodeConnectDialog,
   OpenCodeCustomProviderDialog,
@@ -1505,14 +1501,13 @@ function normalizeCodexModels(
 ): string[] {
   void _modelIds
   void _defaultModel
-  return [...MANAGED_MODEL_OPTIONS]
+  return getLocalAgentModelIds("codex")
 }
 
 function normalizeManagedModel(model: string): string {
   const normalized = model.trim()
-  return MANAGED_MODEL_OPTIONS.some((option) => option === normalized)
-    ? normalized
-    : MANAGED_DEFAULT_MODEL
+  const models = getLocalAgentModelIds("codex")
+  return models.some((option) => option === normalized) ? normalized : models[0]
 }
 
 function normalizeCodexReasoningEffort(
@@ -4472,7 +4467,7 @@ export function AcpAgentSettings({
         normalizedConfig = JSON.stringify(
           {
             ...parsedConfig.config,
-            modelCatalog: [...MANAGED_MODEL_OPTIONS],
+            modelCatalog: getLocalAgentModelIds("codex"),
           },
           null,
           2

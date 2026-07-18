@@ -936,6 +936,7 @@ mod tauri_app {
                 iyw_account_commands::iyw_account_poll_wechat_login,
                 iyw_account_commands::iyw_account_login_with_password,
                 iyw_account_commands::iyw_account_get_profile,
+                iyw_account_commands::iyw_account_list_models,
                 iyw_account_commands::iyw_account_logout,
                 system_settings::get_system_proxy_settings,
                 system_settings::update_system_proxy_settings,
