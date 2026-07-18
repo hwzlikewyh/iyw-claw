@@ -27,7 +27,7 @@ import {
   readFilePreview,
   readWorkspaceFileBase64,
 } from "@/lib/api"
-import { isImageFile } from "@/lib/language-detect"
+import { isImageFile, isOfficePreviewable } from "@/lib/language-detect"
 import type { FileTreeNode } from "@/lib/types"
 
 function collectFilePaths(nodes: FileTreeNode[], paths = new Set<string>()) {
@@ -94,6 +94,10 @@ function useWorkspacePreview(rootPath: string, nodes: FileTreeNode[]) {
             path,
             content: toImageDataUrl(path, base64),
           })
+          return
+        }
+        if (isOfficePreviewable(path)) {
+          setPreview({ status: "office", path })
           return
         }
         const result = await readFilePreview(rootPath, path)
@@ -167,7 +171,13 @@ function WorkspaceTreePane(props: WorkspaceTreePaneProps) {
   )
 }
 
-function WorkspacePreviewPane({ preview }: { preview: PreviewState }) {
+function WorkspacePreviewPane({
+  preview,
+  rootPath,
+}: {
+  preview: PreviewState
+  rootPath: string
+}) {
   const t = useTranslations("Folder.chat.workspaceFiles")
   const path = preview.status === "idle" ? null : preview.path
   return (
@@ -184,7 +194,7 @@ function WorkspacePreviewPane({ preview }: { preview: PreviewState }) {
         </span>
       </div>
       <div className="min-h-0">
-        <WorkspaceFilePreview state={preview} />
+        <WorkspaceFilePreview state={preview} rootPath={rootPath} />
       </div>
     </section>
   )
@@ -219,7 +229,7 @@ function WorkspaceFilesDialogContent({ rootPath }: { rootPath: string }) {
           selectedPath={selectedPath}
           onSelect={(path) => void selectFile(path)}
         />
-        <WorkspacePreviewPane preview={preview} />
+        <WorkspacePreviewPane preview={preview} rootPath={rootPath} />
       </div>
     </DialogContent>
   )

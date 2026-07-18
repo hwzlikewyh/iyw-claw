@@ -3,11 +3,14 @@
 import { AlertCircle, FileCode2, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
+import { OfficePreview } from "@/components/files/office-preview"
+
 export type PreviewState =
   | { status: "idle" }
   | { status: "loading"; path: string }
   | { status: "text"; path: string; content: string }
   | { status: "image"; path: string; content: string }
+  | { status: "office"; path: string }
   | { status: "error"; path: string; message: string }
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
@@ -61,7 +64,13 @@ function PreviewStatus({ state }: { state: PreviewState }) {
   )
 }
 
-export function WorkspaceFilePreview({ state }: { state: PreviewState }) {
+export function WorkspaceFilePreview({
+  state,
+  rootPath,
+}: {
+  state: PreviewState
+  rootPath: string
+}) {
   if (
     state.status === "idle" ||
     state.status === "loading" ||
@@ -80,6 +89,9 @@ export function WorkspaceFilePreview({ state }: { state: PreviewState }) {
         />
       </div>
     )
+  }
+  if (state.status === "office") {
+    return <OfficePreview rootPath={rootPath} relPath={state.path} />
   }
   return (
     <pre className="h-full overflow-auto whitespace-pre p-4 font-mono text-xs leading-5 text-foreground">
