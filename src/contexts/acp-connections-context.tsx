@@ -63,6 +63,10 @@ import {
 } from "@/lib/constants"
 import { sendSystemNotification } from "@/lib/notification"
 import {
+  formatAgentRuntimeError,
+  type AgentRuntimeErrorMessages,
+} from "@/lib/agent-runtime-error"
+import {
   getSavedPrefsForConnect,
   saveModePreference,
   saveConfigPreference,
@@ -2319,6 +2323,21 @@ function isAlertedError(error: unknown): error is AlertedError {
 export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const t = useTranslations("Folder.chat.acpConnections")
   const tChat = useTranslations("Folder.chat")
+  const runtimeErrorMessages = useMemo<AgentRuntimeErrorMessages>(
+    () => ({
+      insufficientBalance: t("backendErrors.insufficientBalance"),
+      authenticationFailed: t("backendErrors.authenticationFailed"),
+      permissionDenied: t("backendErrors.permissionDenied"),
+      rateLimited: t("backendErrors.rateLimited"),
+      quotaExceeded: t("backendErrors.quotaExceeded"),
+      modelUnavailable: t("backendErrors.modelUnavailable"),
+      requestTimeout: t("backendErrors.requestTimeout"),
+      networkError: t("backendErrors.networkError"),
+      serviceUnavailable: t("backendErrors.serviceUnavailable"),
+      requestFailed: t("backendErrors.requestFailed"),
+    }),
+    [t]
+  )
   const { pushAlert } = useAlertContext()
   const { activeFolder: folder } = useActiveFolder()
   const folderNameRef = useRef(folder?.name)
@@ -3115,9 +3134,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             ? AGENT_LABELS[nc.agentType]
             : (e.agent_type as string)
 
-          // Localize backend errors via their stable `code` identifier.
-          // Unknown codes fall back to the raw English message so we
-          // never swallow a useful stack trace.
+          // Prefer stable backend codes, then classify common provider errors.
+          // Unknown protocol details stay hidden behind a generic prompt.
           const localizedMessage = (() => {
             switch (e.code) {
               case "initialize_timeout":
@@ -3133,12 +3151,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
               case "spawn_failed":
                 return t("backendErrors.spawnFailed", {
                   agent: agentLabel,
-                  message: e.message,
                 })
               case "download_failed":
                 return t("backendErrors.downloadFailed", {
                   agent: agentLabel,
-                  message: e.message,
                 })
               case "turn_failed_refusal":
                 return t("backendErrors.turnFailedRefusal", {
@@ -3165,7 +3181,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                   agent: agentLabel,
                 })
               default:
-                return e.message
+                return (
+                  formatAgentRuntimeError(e.message, runtimeErrorMessages) ??
+                  t("backendErrors.requestFailed")
+                )
             }
           })()
 
@@ -3187,9 +3206,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         }
         case "session_load_failed": {
           flushStreamingQueue()
-          // Localize via the stable `code` field. Fall back to the raw
-          // agent message so an unknown future code still surfaces something
-          // intelligible rather than getting swallowed.
+          // Prefer the stable code; otherwise classify common provider errors
+          // without exposing raw transport details.
           const nc = storeRef.current.connections.get(contextKey)
           const agentLabel = nc ? AGENT_LABELS[nc.agentType] : ""
           const localizedMessage = (() => {
@@ -3203,7 +3221,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                   agent: agentLabel,
                 })
               default:
-                return e.message
+                return (
+                  formatAgentRuntimeError(e.message, runtimeErrorMessages) ??
+                  t("backendErrors.sessionLoadUnavailable", {
+                    agent: agentLabel,
+                  })
+                )
             }
           })()
           dispatch({
@@ -3240,6 +3263,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       flushPendingToolCallUpdates,
       flushStreamingQueue,
       scheduleToolCallUpdateFlush,
+      runtimeErrorMessages,
       t,
       tChat,
     ]
@@ -3755,8 +3779,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         try {
           configuredAgent = await acpGetAgentStatus(agentType)
         } catch (error) {
+          const rawMessage = normalizeErrorMessage(error)
           const reason = t("unableReadAgentConfig", {
-            message: normalizeErrorMessage(error),
+            message:
+              formatAgentRuntimeError(rawMessage, runtimeErrorMessages) ??
+              rawMessage,
           })
           const failedTitle = t("connectFailedTitle", {
             agent: AGENT_LABELS[agentType],
@@ -4073,10 +4100,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
               [buildOpenAgentsSettingsAction(agentType)]
             )
           } else {
+            const displayMessage =
+              formatAgentRuntimeError(message, runtimeErrorMessages) ?? message
             pushAlertRef.current(
               "error",
               t("connectFailedTitle", { agent: agentLabel }),
-              message
+              displayMessage
             )
           }
         }
@@ -4113,6 +4142,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       dispatch,
       isConnectionOwnedLocally,
       resolveConnectBlockState,
+      runtimeErrorMessages,
       seedDelegationsFromSnapshot,
       setActiveKey,
       setupAttachSubscription,

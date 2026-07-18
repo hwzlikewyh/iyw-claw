@@ -545,6 +545,9 @@ export function MessageListView({
 }: MessageListViewProps) {
   const t = useTranslations("Folder.chat.messageList")
   const sharedT = useTranslations("Folder.chat.shared")
+  const backendErrorT = useTranslations(
+    "Folder.chat.acpConnections.backendErrors"
+  )
   // Subscribe to only this conversation's session + derived timeline. Another
   // conversation's streaming token no longer re-renders this view; the timeline
   // selector returns a reference-stable array (memoized per session object) so
@@ -575,8 +578,20 @@ export function MessageListView({
     () => ({
       attachedResources: sharedT("attachedResources"),
       toolCallFailed: sharedT("toolCallFailed"),
+      runtimeErrors: {
+        insufficientBalance: backendErrorT("insufficientBalance"),
+        authenticationFailed: backendErrorT("authenticationFailed"),
+        permissionDenied: backendErrorT("permissionDenied"),
+        rateLimited: backendErrorT("rateLimited"),
+        quotaExceeded: backendErrorT("quotaExceeded"),
+        modelUnavailable: backendErrorT("modelUnavailable"),
+        requestTimeout: backendErrorT("requestTimeout"),
+        networkError: backendErrorT("networkError"),
+        serviceUnavailable: backendErrorT("serviceUnavailable"),
+        requestFailed: backendErrorT("requestFailed"),
+      },
     }),
-    [sharedT]
+    [backendErrorT, sharedT]
   )
 
   const sessionSyncState = session?.syncState ?? "idle"

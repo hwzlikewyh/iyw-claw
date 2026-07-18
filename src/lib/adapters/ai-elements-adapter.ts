@@ -28,6 +28,10 @@ import {
   parseDisplayImageMetadata,
   type DisplayImageSourceKind,
 } from "@/lib/display-image-metadata"
+import {
+  formatAgentRuntimeError,
+  type AgentRuntimeErrorMessages,
+} from "@/lib/agent-runtime-error"
 
 /**
  * Adapted content part types for AI SDK Elements components
@@ -187,6 +191,7 @@ export interface AdaptedMessage {
 export interface AdapterMessageText {
   attachedResources: string
   toolCallFailed: string
+  runtimeErrors: AgentRuntimeErrorMessages
 }
 
 type InlineToolSegment =
@@ -1597,6 +1602,15 @@ export function adaptMessageTurn(
     const block = turn.blocks[index]
 
     if (turn.role === "assistant" && block.type === "text") {
+      const localizedError = formatAgentRuntimeError(
+        block.text,
+        text.runtimeErrors
+      )
+      if (localizedError) {
+        adaptedContent.push({ type: "text", text: localizedError })
+        continue
+      }
+
       const goalExpandedParts = expandGoalUpdateText(
         block.text,
         turn.id,
