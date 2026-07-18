@@ -68,7 +68,10 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { cn } from "@/lib/utils"
+import { scalePanelPixels, unscalePanelPixels } from "@/lib/panel-sizing"
+import { useZoomLevel } from "@/hooks/use-appearance"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { usePanelSlideOnToggle } from "@/hooks/use-panel-slide-on-toggle"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { IywAccountProvider } from "@/contexts/iyw-account-context"
 import { StartupLoginGate } from "@/components/account/startup-login-gate"
@@ -102,7 +105,14 @@ const COLLAPSED_SIDEBAR_WIDTH_PX = 52
 const MIN_CENTER_WIDTH_PX = 420
 const MIN_WORKSPACE_HEIGHT_PX = 220
 const LAYOUT_EPSILON = 0.25
-const PANEL_SLIDE_CLEANUP_MS = 300
+const PANEL_RESIZE_KEYS = new Set([
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "End",
+  "Home",
+])
 
 function TabKeysSync() {
   const tabs = useTabStore((s) => s.tabs)
@@ -154,31 +164,6 @@ function resolvePanelSizeRange(
   const minSize = clamp(toPercent(minPixels, safeTotal), 0, 100)
   const maxSize = clamp(toPercent(maxPixels, safeTotal), minSize, 100)
   return { minSize, maxSize }
-}
-
-/** Animate explicit open/close toggles, but not initial persisted-state restore. */
-function usePanelSlideOnToggle(open: boolean, ready: boolean): boolean {
-  const [animating, setAnimating] = useState(false)
-  const [slideSeq, setSlideSeq] = useState(0)
-  const [prevOpen, setPrevOpen] = useState<boolean | null>(null)
-
-  if (ready) {
-    if (prevOpen === null) {
-      setPrevOpen(open)
-    } else if (prevOpen !== open) {
-      setPrevOpen(open)
-      setAnimating(true)
-      setSlideSeq((sequence) => sequence + 1)
-    }
-  }
-
-  useEffect(() => {
-    if (slideSeq === 0) return
-    const timer = setTimeout(() => setAnimating(false), PANEL_SLIDE_CLEANUP_MS)
-    return () => clearTimeout(timer)
-  }, [slideSeq])
-
-  return animating
 }
 
 function WorkspaceContent({ children }: { children: React.ReactNode }) {
@@ -432,6 +417,7 @@ function MobileFolderWorkspaceShell({
 }
 
 function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
+  const { zoomLevel } = useZoomLevel()
   const {
     isOpen: sidebarOpen,
     restored: sidebarRestored,
@@ -456,18 +442,45 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
     setHeight: setTerminalHeight,
   } = useTerminalContext()
 
-  const sidebarAnimating = usePanelSlideOnToggle(sidebarOpen, sidebarRestored)
-  const auxAnimating = usePanelSlideOnToggle(auxOpen, auxRestored)
-  const terminalAnimating = usePanelSlideOnToggle(terminalOpen, true)
-  const shellSlideAnimating = sidebarAnimating || auxAnimating
+  usePanelSlideOnToggle(
+    FOLDER_SHELL_GROUP_ID,
+    `${sidebarOpen}:${auxOpen}`,
+    sidebarRestored && auxRestored
+  )
+  usePanelSlideOnToggle(FOLDER_MAIN_GROUP_ID, terminalOpen, true)
 
   const shellGroupRef = useRef<ImperativePanelGroupHandle | null>(null)
   const mainGroupRef = useRef<ImperativePanelGroupHandle | null>(null)
   const shellContainerRef = useRef<HTMLDivElement | null>(null)
   const mainContainerRef = useRef<HTMLDivElement | null>(null)
+  const sidebarResizeActiveRef = useRef(false)
 
   const [shellWidth, setShellWidth] = useState(0)
   const [mainHeight, setMainHeight] = useState(0)
+  const collapsedSidebarWidth = scalePanelPixels(
+    COLLAPSED_SIDEBAR_WIDTH_PX,
+    zoomLevel
+  )
+  const scaledSidebarWidth = scalePanelPixels(sidebarWidth, zoomLevel)
+  const scaledSidebarMinWidth = scalePanelPixels(sidebarMinWidth, zoomLevel)
+  const scaledSidebarMaxWidth = scalePanelPixels(sidebarMaxWidth, zoomLevel)
+
+  const handleSidebarDragging = useCallback((isDragging: boolean) => {
+    sidebarResizeActiveRef.current = isDragging
+  }, [])
+
+  const handleSidebarResizeKeyDownCapture = useCallback(
+    (event: React.KeyboardEvent<keyof HTMLElementTagNameMap>) => {
+      if (PANEL_RESIZE_KEYS.has(event.key)) {
+        sidebarResizeActiveRef.current = true
+      }
+    },
+    []
+  )
+
+  const handleSidebarResizeKeyDown = useCallback(() => {
+    sidebarResizeActiveRef.current = false
+  }, [])
 
   const shellDesiredLayoutRef = useRef<[number, number, number]>([0, 100, 0])
   const shellAppliedLayoutRef = useRef<[number, number, number] | null>(null)
@@ -514,8 +527,8 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
 
   const buildShellLayout = useCallback((): [number, number, number] => {
     const requestedLeft = sidebarOpen
-      ? clamp(sidebarWidth, sidebarMinWidth, sidebarMaxWidth)
-      : COLLAPSED_SIDEBAR_WIDTH_PX
+      ? clamp(scaledSidebarWidth, scaledSidebarMinWidth, scaledSidebarMaxWidth)
+      : collapsedSidebarWidth
     const requestedRight = auxOpen
       ? clamp(auxWidth, auxMinWidth, auxMaxWidth)
       : 0
@@ -543,11 +556,12 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
     auxMinWidth,
     auxOpen,
     auxWidth,
+    collapsedSidebarWidth,
+    scaledSidebarMaxWidth,
+    scaledSidebarMinWidth,
+    scaledSidebarWidth,
     shellWidth,
-    sidebarMaxWidth,
-    sidebarMinWidth,
     sidebarOpen,
-    sidebarWidth,
   ])
 
   const buildMainLayout = useCallback((): [number, number] => {
@@ -650,11 +664,15 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
 
       if (shellWidth <= 0) return
 
-      if (sidebarOpen) {
-        const nextSidebarWidth = (normalizedLayout[0] / 100) * shellWidth
+      if (sidebarOpen && sidebarResizeActiveRef.current) {
+        const nextScaledSidebarWidth = (normalizedLayout[0] / 100) * shellWidth
         const withinSidebarRange =
-          nextSidebarWidth >= sidebarMinWidth - 1 &&
-          nextSidebarWidth <= sidebarMaxWidth + 1
+          nextScaledSidebarWidth >= scaledSidebarMinWidth - 1 &&
+          nextScaledSidebarWidth <= scaledSidebarMaxWidth + 1
+        const nextSidebarWidth = unscalePanelPixels(
+          nextScaledSidebarWidth,
+          zoomLevel
+        )
         if (
           withinSidebarRange &&
           Math.abs(nextSidebarWidth - sidebarWidth) >= 1
@@ -681,10 +699,11 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
       setAuxWidth,
       setSidebarWidth,
       shellWidth,
-      sidebarMaxWidth,
-      sidebarMinWidth,
+      scaledSidebarMaxWidth,
+      scaledSidebarMinWidth,
       sidebarOpen,
       sidebarWidth,
+      zoomLevel,
     ]
   )
 
@@ -731,13 +750,13 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
 
   const safeShellWidth = shellWidth > 0 ? shellWidth : 1440
   const sidebarSizeRange = resolvePanelSizeRange(
-    sidebarMinWidth,
-    sidebarMaxWidth,
+    scaledSidebarMinWidth,
+    scaledSidebarMaxWidth,
     safeShellWidth
   )
   const collapsedSidebarSizeRange = resolvePanelSizeRange(
-    COLLAPSED_SIDEBAR_WIDTH_PX,
-    COLLAPSED_SIDEBAR_WIDTH_PX,
+    collapsedSidebarWidth,
+    collapsedSidebarWidth,
     safeShellWidth
   )
   const auxSizeRange = resolvePanelSizeRange(
@@ -778,7 +797,6 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
         ref={shellGroupRef}
         direction="horizontal"
         onLayout={handleShellLayout}
-        className={shellSlideAnimating ? "panel-slide-animating" : undefined}
       >
         <ResizablePanel
           id={FOLDER_SHELL_LEFT_PANEL_ID}
@@ -803,6 +821,9 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
         <ResizableHandle
           withHandle
           disabled={!sidebarOpen}
+          onDragging={handleSidebarDragging}
+          onKeyDownCapture={handleSidebarResizeKeyDownCapture}
+          onKeyDown={handleSidebarResizeKeyDown}
           className={
             sidebarOpen ? "" : "pointer-events-none w-0 opacity-0 after:w-0"
           }
@@ -823,9 +844,6 @@ function FolderWorkspaceShell({ children }: { children: React.ReactNode }) {
               ref={mainGroupRef}
               direction="vertical"
               onLayout={handleMainLayout}
-              className={
-                terminalAnimating ? "panel-slide-animating" : undefined
-              }
             >
               <ResizablePanel
                 id={FOLDER_MAIN_WORKSPACE_PANEL_ID}

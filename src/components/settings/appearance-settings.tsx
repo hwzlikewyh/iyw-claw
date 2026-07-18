@@ -1,7 +1,7 @@
 "use client"
 
 import type { ComponentType, ReactNode } from "react"
-import { Monitor, Moon, PanelLeft, Sun } from "lucide-react"
+import { Check, Monitor, Moon, PanelLeft, Sun } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useTheme } from "next-themes"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -104,9 +104,9 @@ function SegmentedControl<T extends string>({
             aria-pressed={active}
             className={cn(
               "inline-flex h-8 min-w-28 items-center justify-center gap-1.5 rounded-md px-3",
-              "text-xs font-medium transition-colors",
+              "text-xs font-medium transition-[background-color,color,box-shadow]",
               active
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -207,9 +207,11 @@ export function AppearanceSettings() {
                     onClick={() => setThemeColor(color as ThemeColor)}
                     aria-pressed={isActive}
                     className={cn(
-                      "flex items-center gap-2 rounded-md border px-3 py-2 text-xs transition-colors",
+                      "flex items-center gap-2 rounded-md border px-3 py-2 text-xs",
+                      "transition-[background-color,border-color,color,box-shadow]",
                       "hover:bg-accent hover:text-accent-foreground",
-                      isActive && "border-primary ring-2 ring-primary/30"
+                      isActive &&
+                        "border-primary bg-primary/[0.06] text-foreground shadow-sm ring-1 ring-primary/20"
                     )}
                   >
                     <span
@@ -220,6 +222,12 @@ export function AppearanceSettings() {
                     <span className="truncate">
                       {t(`themeColor.options.${color}`)}
                     </span>
+                    {isActive ? (
+                      <Check
+                        className="ml-auto size-3.5 shrink-0 text-primary"
+                        aria-hidden
+                      />
+                    ) : null}
                   </button>
                 )
               })}

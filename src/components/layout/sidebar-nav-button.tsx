@@ -1,7 +1,41 @@
-import type { ReactNode } from "react"
-import type { LucideIcon } from "lucide-react"
+import { forwardRef, type ReactNode } from "react"
+import { PanelLeft, PanelRight, type LucideIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+
+interface SidebarToggleButtonProps {
+  isOpen: boolean
+  label: string
+  onClick: () => void
+  className?: string
+}
+
+export const SidebarToggleButton = forwardRef<
+  HTMLButtonElement,
+  SidebarToggleButtonProps
+>(function SidebarToggleButton({ isOpen, label, onClick, className }, ref) {
+  const Icon = isOpen ? PanelLeft : PanelRight
+
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      aria-expanded={isOpen}
+      className={cn(
+        "flex h-7 w-7 items-center justify-center rounded-md outline-none",
+        "text-muted-foreground transition-[background-color,color] duration-150",
+        "hover:bg-sidebar-accent hover:text-sidebar-foreground",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+        className
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+    </button>
+  )
+})
 
 interface SidebarNavButtonProps {
   icon: LucideIcon
@@ -31,15 +65,16 @@ export function SidebarNavButton({
       title={label}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex w-full items-center gap-2.5 rounded-lg px-3",
-        "text-[0.875rem] outline-none transition-colors duration-150",
+        "group relative flex w-full items-center gap-2.5 rounded-md px-3",
+        "text-[0.8125rem] font-medium outline-none",
+        "transition-[background-color,color,box-shadow] duration-150",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         isPrimary
-          ? "h-10 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
-          : "h-9 text-sidebar-foreground/80 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
+          ? "h-10 bg-primary text-primary-foreground shadow-sm shadow-primary/15 hover:bg-primary/90"
+          : "h-9 text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
         active &&
           !isPrimary &&
-          "bg-sidebar-accent text-sidebar-foreground before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary",
+          "bg-primary/[0.08] text-sidebar-foreground before:absolute before:top-2 before:bottom-2 before:left-0 before:w-0.5 before:bg-primary",
         className
       )}
     >
@@ -83,13 +118,13 @@ export function SidebarRailButton({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex h-8 w-8 items-center justify-center rounded-lg outline-none",
-        "transition-colors duration-150",
+        "flex h-9 w-9 items-center justify-center rounded-md outline-none",
+        "transition-[background-color,color,box-shadow] duration-150",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         isPrimary
-          ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+          ? "bg-primary text-primary-foreground shadow-sm shadow-primary/15 hover:bg-primary/90"
           : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
-        active && !isPrimary && "bg-sidebar-accent text-primary"
+        active && !isPrimary && "bg-primary/10 text-primary"
       )}
     >
       <Icon className="h-3.5 w-3.5" aria-hidden="true" />

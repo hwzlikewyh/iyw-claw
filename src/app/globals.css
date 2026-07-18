@@ -1697,9 +1697,21 @@
   outline-offset: 1px;
 }
 
-/* Applied only for explicit sidebar, aux-panel, and terminal toggles. */
+/* Stabilize sidebar content width and animate explicit panel toggles only. */
+.sidebar-expanded-layer {
+  width: var(--sidebar-expanded-width);
+}
+
+.sidebar-expanded-layer[data-open="true"] {
+  width: 100%;
+}
+
+.panel-slide-animating .sidebar-expanded-layer {
+  width: var(--sidebar-expanded-width);
+}
+
 .panel-slide-animating > [data-panel] {
-  transition: flex-grow 240ms ease-out;
+  transition: flex-grow 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
