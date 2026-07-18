@@ -155,7 +155,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
         AgentType::ClaudeCode => AcpAgentMeta {
             agent_type,
             supports_mcp: true,
-            name: "Claude Code",
+            name: "远山",
             description: "ACP wrapper for Anthropic's Claude",
             distribution: AgentDistribution::Npx {
                 version: "0.55.0",
@@ -169,7 +169,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
         AgentType::Codex => AcpAgentMeta {
             agent_type,
             supports_mcp: true,
-            name: "Codex CLI",
+            name: "星河",
             description: "ACP adapter for OpenAI's coding assistant",
             // codex-acp moved from zed-industries (Rust binary) to the
             // agentclientprotocol org (TypeScript rewrite, npx-distributed).
@@ -192,7 +192,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
         AgentType::Gemini => AcpAgentMeta {
             agent_type,
             supports_mcp: true,
-            name: "Gemini CLI",
+            name: "流光",
             description: "Google's official CLI for Gemini",
             distribution: AgentDistribution::Npx {
                 version: "0.47.0",
@@ -208,7 +208,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             // OpenClaw 拒绝 `mcpServers` 中的任何服务器条目（会使 session/new 失败），
             // 故不向其转发任何 MCP 条目（含 iyw-claw-mcp 伴生进程）。详见 supports_mcp 字段注释。
             supports_mcp: false,
-            name: "OpenClaw",
+            name: "开放之爪",
             description: "OpenClaw is a personal AI assistant you run on your own devices.",
             distribution: AgentDistribution::Npx {
                 version: "2026.6.11",
@@ -222,7 +222,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
         AgentType::Cline => AcpAgentMeta {
             agent_type,
             supports_mcp: true,
-            name: "Cline",
+            name: "逐风",
             description: "Autonomous coding agent CLI",
             distribution: AgentDistribution::Npx {
                 version: "3.0.34",
@@ -236,7 +236,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
         AgentType::OpenCode => AcpAgentMeta {
             agent_type,
             supports_mcp: true,
-            name: "OpenCode",
+            name: "云舟",
             description: "The open source coding agent",
             distribution: AgentDistribution::Binary {
                 version: "1.17.13",
@@ -274,7 +274,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
         AgentType::Hermes => AcpAgentMeta {
             agent_type,
             supports_mcp: true,
-            name: "Hermes Agent",
+            name: "赫尔墨斯",
             description: "Nous Research's self-improving agent (ACP via uvx)",
             distribution: AgentDistribution::Uvx {
                 version: "0.18.0",
@@ -296,7 +296,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
         AgentType::CodeBuddy => AcpAgentMeta {
             agent_type,
             supports_mcp: true,
-            name: "CodeBuddy",
+            name: "青岚",
             description: "Tencent Cloud's official AI coding assistant (ACP)",
             distribution: AgentDistribution::Npx {
                 version: "2.117.0",
@@ -310,7 +310,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
         AgentType::KimiCode => AcpAgentMeta {
             agent_type,
             supports_mcp: true,
-            name: "Kimi Code",
+            name: "月白",
             description: "Moonshot AI's official CLI coding assistant (ACP)",
             distribution: AgentDistribution::Npx {
                 version: "0.22.3",
@@ -330,7 +330,7 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             // `connection.rs` (see the skip-list), so neither user servers nor
             // the iyw-claw-mcp companion are futilely forwarded.
             supports_mcp: true,
-            name: "Pi",
+            name: "墨川",
             description: "Self-extensible coding agent (ACP via pi-acp)",
             // pi-acp 0.0.31 spawns `pi --mode rpc` as a child. iyw-claw installs
             // both packages into one private prefix and injects the absolute
@@ -470,6 +470,27 @@ mod tests {
                 AgentType::Grok,
             ]
         );
+    }
+
+    #[test]
+    fn registry_uses_product_agent_display_names() {
+        let expected = [
+            (AgentType::ClaudeCode, "远山"),
+            (AgentType::Codex, "星河"),
+            (AgentType::OpenCode, "云舟"),
+            (AgentType::Gemini, "流光"),
+            (AgentType::OpenClaw, "开放之爪"),
+            (AgentType::Cline, "逐风"),
+            (AgentType::Hermes, "赫尔墨斯"),
+            (AgentType::CodeBuddy, "青岚"),
+            (AgentType::KimiCode, "月白"),
+            (AgentType::Pi, "墨川"),
+            (AgentType::Grok, "知微"),
+        ];
+
+        for (agent_type, name) in expected {
+            assert_eq!(get_agent_meta(agent_type).name, name);
+        }
     }
 
     #[test]

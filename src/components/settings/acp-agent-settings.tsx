@@ -13,10 +13,8 @@ import { Reorder, useDragControls } from "motion/react"
 import { useLocale } from "next-intl"
 import { useSearchParams } from "next/navigation"
 import {
-  AlertCircle,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   Copy,
   Download,
   Eye,
@@ -28,6 +26,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Sparkles,
   Trash2,
   Wrench,
 } from "lucide-react"
@@ -132,6 +131,12 @@ import {
   isAgentSdkConfigurationVisible,
   presentAgentSdkAgents,
 } from "@/lib/agent-sdk-presentation"
+import {
+  AGENT_PROFILE_MESSAGE_KEYS,
+  getAgentVersionState,
+  needsManagedRuntimePreparation,
+  type AgentVersionState,
+} from "@/lib/agent-sdk-overview"
 import { useAgentInstallStream } from "@/hooks/use-agent-install-stream"
 import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 import { relaunchApp } from "@/lib/updater"
@@ -345,19 +350,6 @@ function acpText(
 ): string {
   if (!acpTranslator) return fallback
   return acpTranslator(key, values)
-}
-
-function statusTone(status: CheckStatus): string {
-  if (status === "pass") return "text-green-500"
-  if (status === "warn") return "text-yellow-500"
-  return "text-red-500"
-}
-
-function summarizeChecks(checks: UiCheckItem[]): CheckStatus | "unchecked" {
-  if (checks.length === 0) return "unchecked"
-  if (checks.some((check) => check.status === "fail")) return "fail"
-  if (checks.some((check) => check.status === "warn")) return "warn"
-  return "pass"
 }
 
 function envMapToText(env: Record<string, string>): string {
@@ -4030,6 +4022,14 @@ interface AcpAgentSettingsProps {
 const SHOW_AGENT_ENVIRONMENT_SETTINGS = false
 const SHOW_AGENT_STORAGE_SETTINGS = false
 
+const VERSION_STATE_TONE: Record<AgentVersionState, string> = {
+  latest: "text-emerald-600 dark:text-emerald-400",
+  upgradeAvailable: "text-amber-600 dark:text-amber-400",
+  notInstalled: "text-muted-foreground",
+  unknown: "text-muted-foreground",
+  unsupported: "text-destructive",
+}
+
 function agentConfigurationClassName(agentType: AgentType): string {
   return cn(
     "space-y-3 rounded-md border bg-muted/10 p-3",
@@ -4042,6 +4042,13 @@ export function AcpAgentSettings({
 }: AcpAgentSettingsProps) {
   const locale = useLocale()
   const t = useAgentSdkTranslations()
+  const versionStateLabels: Record<AgentVersionState, string> = {
+    latest: t("overview.versionStates.latest"),
+    upgradeAvailable: t("overview.versionStates.upgradeAvailable"),
+    notInstalled: t("overview.versionStates.notInstalled"),
+    unknown: t("overview.versionStates.unknown"),
+    unsupported: t("overview.versionStates.unsupported"),
+  }
   const rawTranslator = t as unknown as AcpTranslator
   acpTranslator = (key, values) => rawTranslator(key, values)
   const searchParams = useSearchParams()
@@ -4064,9 +4071,6 @@ export function AcpAgentSettings({
   const [busyBinaryAction, setBusyBinaryAction] = useState<
     Partial<Record<AgentType, boolean>>
   >({})
-  const [runningActionKind, setRunningActionKind] = useState<
-    Partial<Record<AgentType, RunningActionKind>>
-  >({})
   const [savingEnv, setSavingEnv] = useState<
     Partial<Record<AgentType, boolean>>
   >({})
@@ -4079,9 +4083,6 @@ export function AcpAgentSettings({
   const [pluginModalOpen, setPluginModalOpen] = useState(false)
   const [pluginModalAgent, setPluginModalAgent] = useState<AgentType | null>(
     null
-  )
-  const [expandedChecks, setExpandedChecks] = useState<Record<string, boolean>>(
-    {}
   )
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType | null>(
     null
@@ -4135,7 +4136,6 @@ export function AcpAgentSettings({
   const agentListRef = useRef<HTMLDivElement | null>(null)
   const installStream = useAgentInstallStream()
   const [streamAgentType, setStreamAgentType] = useState<AgentType | null>(null)
-  const installLogEndRef = useRef<HTMLDivElement | null>(null)
   const [codexDeviceCode, setCodexDeviceCode] = useState<{
     userCode: string
     verificationUrl: string
@@ -4303,13 +4303,6 @@ export function AcpAgentSettings({
     return () => installStream.reset()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  useEffect(() => {
-    const container = installLogEndRef.current?.parentElement
-    if (container) {
-      container.scrollTop = container.scrollHeight
-    }
-  }, [installStream.logs])
 
   useEffect(() => {
     if (
@@ -4554,19 +4547,10 @@ export function AcpAgentSettings({
   )
 
   const runBinaryAction = useCallback(
-    async (
-      agent: AcpAgentInfo,
-      mode: "download" | "upgrade",
-      kind?: RunningActionKind
-    ) => {
+    async (agent: AcpAgentInfo, mode: "download" | "upgrade") => {
       if (busyActionRef.current.has(agent.agent_type)) return
       busyActionRef.current.add(agent.agent_type)
       setBusyBinaryAction((prev) => ({ ...prev, [agent.agent_type]: true }))
-      setRunningActionKind((prev) => ({
-        ...prev,
-        [agent.agent_type]:
-          kind ?? (mode === "download" ? "download_binary" : "upgrade_binary"),
-      }))
       const clearCache = mode === "upgrade"
       const actionLabel =
         mode === "upgrade" ? t("actions.upgrade") : t("actions.install")
@@ -4635,10 +4619,6 @@ export function AcpAgentSettings({
       } finally {
         busyActionRef.current.delete(agent.agent_type)
         setBusyBinaryAction((prev) => ({ ...prev, [agent.agent_type]: false }))
-        setRunningActionKind((prev) => ({
-          ...prev,
-          [agent.agent_type]: undefined,
-        }))
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4650,10 +4630,6 @@ export function AcpAgentSettings({
       if (busyActionRef.current.has(agent.agent_type)) return
       busyActionRef.current.add(agent.agent_type)
       setBusyBinaryAction((prev) => ({ ...prev, [agent.agent_type]: true }))
-      setRunningActionKind((prev) => ({
-        ...prev,
-        [agent.agent_type]: mode === "install" ? "install_npx" : "upgrade_npx",
-      }))
       const cleanFirst = mode === "upgrade"
       const actionLabel =
         mode === "upgrade" ? t("actions.upgrade") : t("actions.install")
@@ -4734,10 +4710,6 @@ export function AcpAgentSettings({
       } finally {
         busyActionRef.current.delete(agent.agent_type)
         setBusyBinaryAction((prev) => ({ ...prev, [agent.agent_type]: false }))
-        setRunningActionKind((prev) => ({
-          ...prev,
-          [agent.agent_type]: undefined,
-        }))
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4749,13 +4721,6 @@ export function AcpAgentSettings({
       if (busyActionRef.current.has(agent.agent_type)) return
       busyActionRef.current.add(agent.agent_type)
       setBusyBinaryAction((prev) => ({ ...prev, [agent.agent_type]: true }))
-      setRunningActionKind((prev) => ({
-        ...prev,
-        [agent.agent_type]:
-          agent.distribution_type === "binary"
-            ? "uninstall_binary"
-            : "uninstall_npx",
-      }))
       const taskId = randomUUID()
       setStreamAgentType(agent.agent_type)
       await installStream.start(taskId)
@@ -4782,10 +4747,6 @@ export function AcpAgentSettings({
       } finally {
         busyActionRef.current.delete(agent.agent_type)
         setBusyBinaryAction((prev) => ({ ...prev, [agent.agent_type]: false }))
-        setRunningActionKind((prev) => ({
-          ...prev,
-          [agent.agent_type]: undefined,
-        }))
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4797,14 +4758,10 @@ export function AcpAgentSettings({
   // `runPreflight` re-syncs the uv check + `available`, unblocking the agent's
   // version-status install action.
   const runUvInstall = useCallback(
-    async (agent: AcpAgentInfo) => {
+    async (agent: AcpAgentInfo, announce = true) => {
       if (busyActionRef.current.has(agent.agent_type)) return
       busyActionRef.current.add(agent.agent_type)
       setBusyBinaryAction((prev) => ({ ...prev, [agent.agent_type]: true }))
-      setRunningActionKind((prev) => ({
-        ...prev,
-        [agent.agent_type]: "install_uv",
-      }))
       const actionLabel = t("actions.install")
       const taskId = randomUUID()
       setStreamAgentType(agent.agent_type)
@@ -4812,23 +4769,26 @@ export function AcpAgentSettings({
       try {
         await acpInstallUvTool(taskId)
         await runPreflight(agent.agent_type)
-        toast.success(
-          t("toasts.agentActionCompleted", { name: "uv", action: actionLabel })
-        )
+        if (announce) {
+          toast.success(
+            t("toasts.agentActionCompleted", {
+              name: "uv",
+              action: actionLabel,
+            })
+          )
+        }
       } catch (err) {
         const message = toErrorMessage(err)
-        toast.error(
-          t("toasts.agentActionFailed", { name: "uv", action: actionLabel }),
-          { description: message }
-        )
+        if (announce) {
+          toast.error(
+            t("toasts.agentActionFailed", { name: "uv", action: actionLabel }),
+            { description: message }
+          )
+        }
         throw err
       } finally {
         busyActionRef.current.delete(agent.agent_type)
         setBusyBinaryAction((prev) => ({ ...prev, [agent.agent_type]: false }))
-        setRunningActionKind((prev) => ({
-          ...prev,
-          [agent.agent_type]: undefined,
-        }))
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4937,7 +4897,7 @@ export function AcpAgentSettings({
       return
     }
     if (action.kind === "redownload_binary") {
-      await runBinaryAction(agent, "upgrade", "redownload_binary")
+      await runBinaryAction(agent, "upgrade")
       return
     }
     if (action.kind === "install_opencode_plugins") {
@@ -5029,110 +4989,6 @@ export function AcpAgentSettings({
     setAgents(reordered)
     pendingOrderRef.current = reordered.map((agent) => agent.agent_type)
   }, [])
-
-  const renderCheck = (agent: AcpAgentInfo, check: UiCheckItem) => {
-    const checkKey = `${agent.agent_type}:${check.check_id}`
-    const expanded = expandedChecks[checkKey] ?? check.status !== "pass"
-
-    return (
-      <div
-        key={check.check_id}
-        className="rounded-md border bg-muted/20 px-3 py-2 space-y-2"
-      >
-        <button
-          type="button"
-          className="w-full flex items-center justify-between gap-2 text-left"
-          onClick={() => {
-            setExpandedChecks((prev) => ({
-              ...prev,
-              [checkKey]: !expanded,
-            }))
-          }}
-        >
-          <div className="min-w-0 flex items-center gap-1.5">
-            {expanded ? (
-              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            )}
-            <span className="text-xs font-medium truncate">{check.label}</span>
-          </div>
-          <span
-            className={`text-[11px] font-semibold shrink-0 ${statusTone(check.status)}`}
-          >
-            {check.status.toUpperCase()}
-          </span>
-        </button>
-
-        {expanded && (
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 text-[11px] text-muted-foreground break-words">
-              {check.message}
-            </div>
-            {check.fixes.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 justify-end max-w-[220px] shrink-0">
-                {check.fixes.map((fix, index) => (
-                  <Button
-                    key={`${fix.label}-${index}`}
-                    size="xs"
-                    variant="outline"
-                    className="h-6 bg-muted/30 hover:bg-muted/50 disabled:bg-muted/30 disabled:opacity-100"
-                    disabled={
-                      ("disabled" in fix && fix.disabled === true) ||
-                      (initializingAgentStorage &&
-                        fixActionNeedsAgentStorage(fix.kind)) ||
-                      (Boolean(busyBinaryAction[agent.agent_type]) &&
-                        [
-                          "download_binary",
-                          "upgrade_binary",
-                          "install_npx",
-                          "upgrade_npx",
-                          "uninstall_binary",
-                          "uninstall_npx",
-                          "redownload_binary",
-                          "install_opencode_plugins",
-                          "install_uv",
-                        ].includes(fix.kind))
-                    }
-                    onClick={() => {
-                      handleFixAction(agent, fix).catch((err) => {
-                        if (isAgentStorageNotInitializedError(err)) {
-                          setAgentStorageInitialized(false)
-                          return
-                        }
-                        console.error("[Settings] fix action failed:", err)
-                      })
-                    }}
-                  >
-                    {initializingAgentStorage &&
-                    fixActionNeedsAgentStorage(fix.kind) ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : runningActionKind[agent.agent_type] === fix.kind ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : fix.kind === "download_binary" ||
-                      fix.kind === "install_npx" ||
-                      fix.kind === "install_uv" ? (
-                      <Download className="h-3 w-3" />
-                    ) : fix.kind === "upgrade_binary" ||
-                      fix.kind === "upgrade_npx" ||
-                      fix.kind === "redownload_binary" ? (
-                      <Wrench className="h-3 w-3" />
-                    ) : fix.kind === "uninstall_binary" ||
-                      fix.kind === "uninstall_npx" ? (
-                      <Trash2 className="h-3 w-3" />
-                    ) : fix.kind === "install_opencode_plugins" ? (
-                      <Download className="h-3 w-3" />
-                    ) : null}
-                    {fix.label}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    )
-  }
 
   const selectedCurrent = selectedAgent
     ? checkState[selectedAgent.agent_type]
@@ -5283,20 +5139,45 @@ export function AcpAgentSettings({
     if (!selectedAgent || !locale) return []
     return getAgentChecks(selectedAgent, selectedCurrent)
   }, [locale, selectedAgent, selectedCurrent])
+  const selectedVersionCheck = selectedChecks.find(
+    (check) => check.check_id === "version_status"
+  )
+  const selectedVersionState = selectedAgent
+    ? getAgentVersionState(selectedAgent)
+    : null
+  const selectedProfile = selectedAgent
+    ? AGENT_PROFILE_MESSAGE_KEYS[selectedAgent.agent_type]
+    : null
+  const selectedNeedsRuntimePreparation = selectedAgent
+    ? needsManagedRuntimePreparation(selectedAgent, selectedChecks)
+    : false
 
-  useEffect(() => {
-    if (!selectedAgent || selectedChecks.length === 0) return
-    setExpandedChecks((prev) => {
-      let next = prev
-      for (const check of selectedChecks) {
-        const key = `${selectedAgent.agent_type}:${check.check_id}`
-        if (typeof next[key] !== "undefined") continue
-        if (next === prev) next = { ...prev }
-        next[key] = check.status !== "pass"
+  const handleVersionFix = async (fix: UiFixAction) => {
+    if (!selectedAgent) return
+    try {
+      if (selectedNeedsRuntimePreparation && fix.kind === "install_npx") {
+        await runUvInstall(selectedAgent, false)
+        await runNpxAction(selectedAgent, "install")
+        return
       }
-      return next
-    })
-  }, [selectedAgent, selectedChecks])
+      await handleFixAction(selectedAgent, fix)
+    } catch (err) {
+      if (isAgentStorageNotInitializedError(err)) {
+        setAgentStorageInitialized(false)
+        return
+      }
+      console.error("[Settings] version action failed:", err)
+      if (selectedNeedsRuntimePreparation && fix.kind === "install_npx") {
+        toast.error(
+          t("toasts.agentActionFailed", {
+            name: selectedAgent.name,
+            action: t("actions.install"),
+          }),
+          { description: toErrorMessage(err) }
+        )
+      }
+    }
+  }
 
   useEffect(() => {
     if (!selectedOpenCodeConfig) {
@@ -7195,9 +7076,9 @@ export function AcpAgentSettings({
   return (
     <div className="h-full flex flex-col p-3 md:p-4">
       <div className="flex items-center justify-between gap-3 pb-4">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-base font-semibold">{t("title")}</h2>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="mt-1 break-words text-xs text-muted-foreground">
             {t("description")}
           </p>
         </div>
@@ -7229,8 +7110,8 @@ export function AcpAgentSettings({
         />
       ) : null}
 
-      <div className="flex-1 min-h-0 grid gap-3 lg:grid-cols-[minmax(240px,320px)_1fr]">
-        <div className="min-h-0 min-w-0 rounded-lg border bg-card flex flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
+        <div className="flex h-72 min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-lg border bg-card lg:h-auto lg:w-80">
           <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
             {t("agentList")}
           </div>
@@ -7243,30 +7124,10 @@ export function AcpAgentSettings({
             className="flex-1 min-h-0 overflow-y-auto space-y-2 p-2"
           >
             {visibleAgents.map((agent) => {
-              const current = checkState[agent.agent_type]
               const isChecking = Boolean(checking[agent.agent_type])
               const draft = drafts[agent.agent_type] ?? buildAgentDraft(agent)
-              const allChecks = getAgentChecks(agent, current)
-              const summary = summarizeChecks(allChecks)
-              const displaySummary: CheckStatus | "unchecked" | "checking" =
-                isChecking ? "checking" : summary
-              const statusLabel =
-                displaySummary === "unchecked"
-                  ? t("status.unchecked")
-                  : displaySummary === "checking"
-                    ? "Checking"
-                    : displaySummary.toUpperCase()
-              const statusToneClass = !draft.enabled
-                ? "border-muted-foreground/30 bg-muted/30 text-muted-foreground"
-                : displaySummary === "pass"
-                  ? "border-green-500/40 bg-green-500/10 text-green-600 dark:text-green-400"
-                  : displaySummary === "fail"
-                    ? "border-red-500/40 bg-red-500/10 text-red-500"
-                    : displaySummary === "warn"
-                      ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
-                      : displaySummary === "checking"
-                        ? "border-blue-500/40 bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                        : "border-muted-foreground/30 bg-muted/30 text-muted-foreground"
+              const profile = AGENT_PROFILE_MESSAGE_KEYS[agent.agent_type]
+              const versionState = getAgentVersionState(agent)
 
               return (
                 <AgentReorderItem
@@ -7293,77 +7154,102 @@ export function AcpAgentSettings({
                   }}
                 >
                   {(startDrag) => (
-                    <div className="flex items-center justify-between gap-2 overflow-hidden">
-                      <div className="min-w-0 flex items-center gap-2">
-                        <button
-                          type="button"
-                          className="text-muted-foreground cursor-grab active:cursor-grabbing rounded p-0.5 hover:bg-muted"
-                          title={t("actions.dragSort")}
-                          aria-label={t("actions.dragSortAgent", {
-                            name: agent.name,
-                          })}
-                          onPointerDown={startDrag}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                          }}
-                          disabled={reordering || !canReorderAgents}
-                        >
-                          <GripVertical className="h-3.5 w-3.5" />
-                        </button>
-                        <AgentIcon
-                          agentType={agent.agent_type}
-                          className="h-4 w-4"
-                        />
-                        <span className="text-sm font-medium truncate">
-                          {agent.name}
-                        </span>
-                        {draft.enabled && (
-                          <span
-                            className="h-2 w-2 rounded-full bg-emerald-500 shrink-0"
-                            aria-label={t("status.agentEnabledAria", {
+                    <div className="min-w-0 space-y-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex items-center gap-2.5">
+                          <button
+                            type="button"
+                            className="text-muted-foreground cursor-grab active:cursor-grabbing rounded p-0.5 hover:bg-muted"
+                            title={t("actions.dragSort")}
+                            aria-label={t("actions.dragSortAgent", {
                               name: agent.name,
                             })}
-                            title={t("status.enabled")}
+                            onPointerDown={startDrag}
+                            onClick={(event) => event.stopPropagation()}
+                            disabled={reordering || !canReorderAgents}
+                          >
+                            <GripVertical className="h-3.5 w-3.5" />
+                          </button>
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background">
+                            <AgentIcon
+                              agentType={agent.agent_type}
+                              className="h-5 w-5"
+                            />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-medium">
+                                {agent.name}
+                              </span>
+                              <span
+                                className={cn(
+                                  "h-2 w-2 shrink-0 rounded-full",
+                                  draft.enabled
+                                    ? "bg-emerald-500"
+                                    : "bg-muted-foreground/35"
+                                )}
+                                aria-label={t(
+                                  draft.enabled
+                                    ? "status.agentEnabledAria"
+                                    : "status.agentDisabledAria",
+                                  { name: agent.name }
+                                )}
+                              />
+                            </div>
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                              {t(
+                                draft.enabled
+                                  ? "overview.enabled"
+                                  : "overview.disabled"
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="icon-xs"
+                          variant="ghost"
+                          className="shrink-0 text-muted-foreground"
+                          title={t("actions.refreshCheck")}
+                          aria-label={t("actions.refreshCheckAgent", {
+                            name: agent.name,
+                          })}
+                          disabled={isChecking}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            runPreflight(agent.agent_type, true).catch(
+                              (err) => {
+                                console.error(
+                                  "[Settings] single preflight failed:",
+                                  err
+                                )
+                              }
+                            )
+                          }}
+                        >
+                          <RefreshCw
+                            className={cn(
+                              "h-3.5 w-3.5",
+                              isChecking && "animate-spin"
+                            )}
                           />
-                        )}
+                        </Button>
                       </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Badge
-                          variant="outline"
+                      <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
+                        {t(profile.description)}
+                      </p>
+                      <div className="flex min-w-0 items-center justify-between gap-3 border-t pt-2 text-[11px]">
+                        <span className="min-w-0 truncate font-mono text-foreground/80">
+                          {agent.installed_version ?? t("overview.noVersion")}
+                        </span>
+                        <span
                           className={cn(
-                            "h-6 px-2 inline-flex items-center gap-1 text-xs leading-none",
-                            statusToneClass
+                            "shrink-0 font-medium",
+                            VERSION_STATE_TONE[versionState]
                           )}
                         >
-                          <span>{statusLabel}</span>
-                          {displaySummary === "checking" && (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
-                          )}
-                          {!isChecking && (
-                            <button
-                              type="button"
-                              className="inline-flex h-4 w-4 items-center justify-center rounded hover:bg-black/10 dark:hover:bg-white/10"
-                              title={t("actions.refreshCheck")}
-                              aria-label={t("actions.refreshCheckAgent", {
-                                name: agent.name,
-                              })}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                runPreflight(agent.agent_type, true).catch(
-                                  (err) => {
-                                    console.error(
-                                      "[Settings] single preflight failed:",
-                                      err
-                                    )
-                                  }
-                                )
-                              }}
-                            >
-                              <RefreshCw className="h-3 w-3 shrink-0" />
-                            </button>
-                          )}
-                        </Badge>
+                          {versionStateLabels[versionState]}
+                        </span>
                       </div>
                     </div>
                   )}
@@ -7373,24 +7259,35 @@ export function AcpAgentSettings({
           </Reorder.Group>
         </div>
 
-        <div className="min-h-0 min-w-0 rounded-lg border bg-card">
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-lg border bg-card">
           {selectedAgent && selectedDraft ? (
             <div className="h-full flex flex-col">
-              <div className="border-b px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 flex items-center gap-2">
-                    <AgentIcon
-                      agentType={selectedAgent.agent_type}
-                      className="h-5 w-5"
-                    />
-                    <h3 className="text-sm font-semibold truncate">
-                      {selectedAgent.name}
-                    </h3>
-                    <Badge variant="outline" className="shrink-0">
-                      {selectedAgent.distribution_type}
-                    </Badge>
+              <div className="border-b px-4 py-4 md:px-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex items-center gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border bg-muted/30">
+                      <AgentIcon
+                        agentType={selectedAgent.agent_type}
+                        className="h-7 w-7"
+                      />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="truncate text-base font-semibold">
+                        {selectedAgent.name}
+                      </h3>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {t("overview.managedBySdk")}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex items-center shrink-0">
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="hidden text-xs text-muted-foreground sm:inline">
+                      {t(
+                        selectedDraft.enabled
+                          ? "overview.enabled"
+                          : "overview.disabled"
+                      )}
+                    </span>
                     <button
                       type="button"
                       role="switch"
@@ -7453,50 +7350,152 @@ export function AcpAgentSettings({
                     </button>
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {selectedAgent.description}
-                </p>
+                {selectedProfile && (
+                  <>
+                    <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+                      {t(selectedProfile.description)}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {selectedProfile.strengths.map((key) => (
+                        <Badge
+                          key={key}
+                          variant="secondary"
+                          className="gap-1 px-2 py-0.5 text-[11px] font-normal"
+                        >
+                          <Sparkles className="h-3 w-3" />
+                          {t(key)}
+                        </Badge>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {selectedVersionState && (
+                  <div className="mt-4 grid items-end gap-3 border-t pt-3 sm:grid-cols-3 xl:grid-cols-[minmax(110px,1fr)_minmax(110px,1fr)_minmax(110px,1fr)_auto]">
+                    <div className="min-w-0">
+                      <p className="text-[11px] text-muted-foreground">
+                        {t("overview.currentVersion")}
+                      </p>
+                      <p className="mt-1 truncate font-mono text-sm font-medium">
+                        {selectedAgent.installed_version ??
+                          t("overview.noVersion")}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] text-muted-foreground">
+                        {t("overview.latestVersion")}
+                      </p>
+                      <p className="mt-1 truncate font-mono text-sm font-medium">
+                        {selectedAgent.registry_version ??
+                          t("overview.unavailableVersion")}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] text-muted-foreground">
+                        {t("overview.versionStatus")}
+                      </p>
+                      <p
+                        className={cn(
+                          "mt-1 truncate text-sm font-medium",
+                          VERSION_STATE_TONE[selectedVersionState]
+                        )}
+                      >
+                        {versionStateLabels[selectedVersionState]}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5 sm:col-span-3 xl:col-span-1 xl:justify-end">
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        title={t("actions.refreshCheck")}
+                        aria-label={t("actions.refreshCheckAgent", {
+                          name: selectedAgent.name,
+                        })}
+                        disabled={Boolean(checking[selectedAgent.agent_type])}
+                        onClick={() => {
+                          runPreflight(selectedAgent.agent_type, true).catch(
+                            (err) => {
+                              console.error(
+                                "[Settings] version refresh failed:",
+                                err
+                              )
+                            }
+                          )
+                        }}
+                      >
+                        <RefreshCw
+                          className={cn(
+                            "h-4 w-4",
+                            checking[selectedAgent.agent_type] && "animate-spin"
+                          )}
+                        />
+                      </Button>
+                      {selectedVersionCheck?.fixes.map((fix, index) => {
+                        const installsAgent =
+                          fix.kind === "download_binary" ||
+                          fix.kind === "install_npx"
+                        const upgradesAgent =
+                          fix.kind === "upgrade_binary" ||
+                          fix.kind === "upgrade_npx" ||
+                          fix.kind === "redownload_binary"
+                        const uninstallsAgent =
+                          fix.kind === "uninstall_binary" ||
+                          fix.kind === "uninstall_npx"
+                        const runtimeManaged =
+                          selectedNeedsRuntimePreparation &&
+                          fix.kind === "install_npx"
+                        const isBusy = Boolean(
+                          busyBinaryAction[selectedAgent.agent_type]
+                        )
+                        const isDisabled =
+                          ("disabled" in fix &&
+                            fix.disabled === true &&
+                            !runtimeManaged) ||
+                          (initializingAgentStorage &&
+                            fixActionNeedsAgentStorage(fix.kind)) ||
+                          isBusy
+
+                        return (
+                          <Button
+                            key={`${fix.kind}-${index}`}
+                            type="button"
+                            size="sm"
+                            variant={uninstallsAgent ? "ghost" : "outline"}
+                            className={cn(
+                              "gap-1.5",
+                              uninstallsAgent &&
+                                "text-muted-foreground hover:text-destructive"
+                            )}
+                            disabled={isDisabled}
+                            onClick={() => void handleVersionFix(fix)}
+                          >
+                            {isBusy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : installsAgent ? (
+                              <Download className="h-3.5 w-3.5" />
+                            ) : upgradesAgent ? (
+                              <Wrench className="h-3.5 w-3.5" />
+                            ) : uninstallsAgent ? (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            ) : null}
+                            {fix.label}
+                          </Button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                <div className="space-y-2">
-                  {selectedCurrent?.error && (
-                    <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400 flex items-start gap-2">
-                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                      <span className="break-all">{selectedCurrent.error}</span>
-                    </div>
-                  )}
-                  <div className="text-[11px] text-muted-foreground flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" />
-                    {t("preflight.count", { count: selectedChecks.length })}
-                  </div>
-                  {selectedChecks.length > 0 ? (
-                    selectedChecks.map((check) =>
-                      renderCheck(selectedAgent, check)
-                    )
-                  ) : (
-                    <div className="text-xs text-muted-foreground">
-                      {t("preflight.notRun")}
-                    </div>
-                  )}
-                  {installStream.status !== "idle" &&
-                    streamAgentType === selectedAgent.agent_type && (
-                      <div className="mt-2 rounded-md border bg-muted/50 text-muted-foreground p-3 max-h-[200px] overflow-y-auto font-mono text-[11px] leading-relaxed">
-                        {installStream.logs.map((line, i) => (
-                          <div
-                            key={i}
-                            className={
-                              line.startsWith("ERROR:")
-                                ? "text-destructive"
-                                : ""
-                            }
-                          >
-                            {line}
-                          </div>
-                        ))}
-                        <div ref={installLogEndRef} />
-                      </div>
-                    )}
+                <div className="border-b pb-3">
+                  <h4 className="text-sm font-medium">
+                    {t("overview.configuration")}
+                  </h4>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("overview.configurationDescription")}
+                  </p>
                 </div>
 
                 <div

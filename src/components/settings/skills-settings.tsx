@@ -63,6 +63,7 @@ import {
   acpSaveAgentSkill,
   acpSetAgentSkillEnabled,
 } from "@/lib/api"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { invalidateAgentSkillsCache } from "@/hooks/use-agent-skills"
 import { piUsesCustomAgentDir } from "@/lib/pi-config"
 import { Switch } from "@/components/ui/switch"
@@ -361,7 +362,10 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
     setLoadingError(null)
 
     try {
-      const next = await acpListAgents()
+      const next = (await acpListAgents()).map((agent) => ({
+        ...agent,
+        name: getAgentDisplayName(agent.agent_type),
+      }))
       const supportChecks = await Promise.allSettled(
         next.map(async (agent) => {
           const result = await acpListAgentSkills({

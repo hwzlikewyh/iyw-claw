@@ -138,12 +138,9 @@ export function AutomationEditor({
     [folders, folderId]
   )
 
-  // A folder is selected but its path hasn't resolved yet (folders list still
-  // hydrating, or the folder was removed): the agent-options probe would fall
-  // back to a global (workingDir = null) snapshot and pin the wrong folder's
-  // config. Block saving until the path is known. The run's working dir is
-  // resolved server-side from folderId regardless, so this only keeps the saved
-  // config snapshot scoped to the right folder.
+  // A folder is selected but its path has not resolved yet (the folder list is
+  // still hydrating, or the folder was removed). Keep saving disabled until the
+  // editor's folder-scoped references and skills point at a concrete path.
   const folderPathResolving = folderId != null && folderPath == null
 
   const referenceGroupLabels = useMemo<ReferenceGroupLabels>(
@@ -174,9 +171,8 @@ export function AutomationEditor({
     labels: referenceGroupLabels,
   })
 
-  // One transient probe feeds both the config selectors and the `/` command menu
-  // (the snapshot carries available_commands). `$` Codex skills load separately
-  // (filesystem scan) inside the invocations hook.
+  // The product-owned catalog feeds the config selectors and any fixed slash
+  // commands. `$` Codex skills load separately from the filesystem.
   const agentOptions = useAgentOptions(agentType, folderPath)
   const invocations = useComposerInvocations({
     editorRef,
@@ -233,9 +229,8 @@ export function AutomationEditor({
     if (!displayText) return setError(t("errorPrompt"))
     if (trigger === "schedule" && !cron.trim()) return setError(t("errorCron"))
     if (folderId == null) return setError(t("errorFolder"))
-    // Folder selected but its path is still resolving; the probe would be global.
-    // The Save button is disabled in this state, so this is a race-safety net —
-    // bail silently and let it re-enable once the path resolves.
+    // The Save button is disabled while the selected folder path resolves; this
+    // is a race-safety net for a submit triggered during that transition.
     if (folderPathResolving) return
 
     const blocks: PromptInputBlock[] = editor
@@ -244,11 +239,9 @@ export function AutomationEditor({
 
     setSaving(true)
     try {
-      // Resolve the probe (awaiting it if a fast save raced ahead, bounded so a
-      // wedged probe can't block saving) and pin exactly what the inline config
-      // bar shows: an untouched selector displays the agent's current value (no
-      // "inherit" here), so persist that, not an empty override that would
-      // inherit a future default.
+      // Resolve the local catalog and pin exactly what the inline config bar
+      // shows. An untouched selector displays the catalog's current value (no
+      // "inherit" here), so persist it instead of a future default.
       const snapshot = await agentOptions.ensure()
       const { mode_id, config_values } = effectiveSelections(
         snapshot,

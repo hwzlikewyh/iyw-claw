@@ -696,10 +696,10 @@
       "previousRoot": "Previous data remains at {path}; remove it manually after verification"
     },
     "title": "Agent SDK Management",
-    "description": "Manage Agent SDK connection, enabled state, environment variables, config management and version preflight info in one place.",
+    "description": "Choose an Agent by its strengths, then manage its availability, version, connection, and models in one place.",
     "agentAliasDescription": "Connect and manage {name} through the Agent SDK.",
     "loadingAgents": "Loading agent list...",
-    "agentList": "Agent List",
+    "agentList": "Choose an Agent",
     "emptyNoAgent": "No available agent.",
     "configManagement": "Config Management",
     "envVars": "Environment Variables",
@@ -707,6 +707,115 @@
     "modelHintDefault": "Leave empty to use system default model.",
     "generalConfigDescriptionClaude": "Supports quick configuration for API URL, API Key and Claude models, and syncs with native JSON config.",
     "generalConfigDescriptionDefault": "Supports important config input (API URL, API Key, Model) and native JSON config management.",
+    "overview": {
+      "managedBySdk": "Connected through Agent SDK",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "currentVersion": "Current version",
+      "latestVersion": "Latest version",
+      "versionStatus": "Version status",
+      "noVersion": "Not installed",
+      "unavailableVersion": "Unavailable",
+      "configuration": "Connection and configuration",
+      "configurationDescription": "Manage authentication, models, and advanced options for this Agent.",
+      "versionStates": {
+        "latest": "Up to date",
+        "upgradeAvailable": "Update available",
+        "notInstalled": "Not installed",
+        "unknown": "Status unknown",
+        "unsupported": "Unsupported on this platform"
+      }
+    },
+    "profiles": {
+      "claude_code": {
+        "description": "Builds a strong understanding of complex codebases, making it well suited to long implementations, cross-file refactors, and careful engineering work.",
+        "strengths": {
+          "primary": "Complex codebases",
+          "secondary": "Deep reasoning",
+          "tertiary": "Cross-file refactors"
+        }
+      },
+      "codex": {
+        "description": "Drives complete engineering tasks autonomously by combining code exploration, terminal work, tests, and iterative fixes.",
+        "strengths": {
+          "primary": "Autonomous execution",
+          "secondary": "Terminal tools",
+          "tertiary": "Engineering delivery"
+        }
+      },
+      "open_code": {
+        "description": "Open source and provider-neutral, with flexible ways to combine models, providers, and plugins for custom development workflows.",
+        "strengths": {
+          "primary": "Multi-model",
+          "secondary": "Open ecosystem",
+          "tertiary": "Flexible setup"
+        }
+      },
+      "gemini": {
+        "description": "Uses large-context and multimodal capabilities to analyze substantial projects, rich source material, and mixed-media tasks.",
+        "strengths": {
+          "primary": "Large context",
+          "secondary": "Multimodal",
+          "tertiary": "Project analysis"
+        }
+      },
+      "open_claw": {
+        "description": "A personal AI assistant that runs on your own devices and connects local environments, daily work, and automation.",
+        "strengths": {
+          "primary": "Local operation",
+          "secondary": "Personal assistant",
+          "tertiary": "Device automation"
+        }
+      },
+      "cline": {
+        "description": "Reads and edits code around a task goal while calling tools autonomously, making it effective for fast implementation and repair work.",
+        "strengths": {
+          "primary": "Autonomous coding",
+          "secondary": "Tool use",
+          "tertiary": "Fast implementation"
+        }
+      },
+      "hermes": {
+        "description": "Focuses on tool use, skill expansion, and evolving workflows for Agent capabilities that can be customized over time.",
+        "strengths": {
+          "primary": "Skill expansion",
+          "secondary": "Tool use",
+          "tertiary": "Workflow evolution"
+        }
+      },
+      "code_buddy": {
+        "description": "Designed for Tencent Cloud and enterprise development, with strong Chinese-language coding and team-environment integration.",
+        "strengths": {
+          "primary": "Tencent Cloud",
+          "secondary": "Chinese development",
+          "tertiary": "Enterprise integration"
+        }
+      },
+      "kimi_code": {
+        "description": "Emphasizes long-context code understanding and Chinese interaction for reading large repositories, sustained edits, and complex questions.",
+        "strengths": {
+          "primary": "Long context",
+          "secondary": "Chinese experience",
+          "tertiary": "Code understanding"
+        }
+      },
+      "pi": {
+        "description": "Lightweight and extensible, with flexible model, skill, and trust-policy combinations for personalized coding workflows.",
+        "strengths": {
+          "primary": "Lightweight",
+          "secondary": "Custom models",
+          "tertiary": "Skill composition"
+        }
+      },
+      "grok": {
+        "description": "Combines xAI models with code analysis and terminal tasks for direct, fast engineering exploration and implementation.",
+        "strengths": {
+          "primary": "Code analysis",
+          "secondary": "Terminal tasks",
+          "tertiary": "Fast exploration"
+        }
+      }
+    },
     "multiAgent": {
       "title": "Multi-Agent Collaboration",
       "description": "Allow active agents to delegate sub-tasks to other agents.",
@@ -774,6 +883,7 @@
       "disabled": "Disabled",
       "unchecked": "Unchecked",
       "agentEnabledAria": "{name} enabled",
+      "agentDisabledAria": "{name} disabled",
       "agentEnabledSwitch": "{name} enable switch"
     },
     "preflight": {

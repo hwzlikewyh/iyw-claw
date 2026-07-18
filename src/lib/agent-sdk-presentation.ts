@@ -1,18 +1,11 @@
-import { ALL_AGENT_TYPES, type AcpAgentInfo, type AgentType } from "@/lib/types"
+import {
+  AGENT_LABELS,
+  ALL_AGENT_TYPES,
+  type AcpAgentInfo,
+  type AgentType,
+} from "@/lib/types"
 
-export const AGENT_SDK_ALIASES: Record<AgentType, string> = {
-  codex: "星河",
-  hermes: "赫尔墨斯",
-  open_code: "云舟",
-  open_claw: "开放之爪",
-  code_buddy: "青岚",
-  claude_code: "远山",
-  gemini: "流光",
-  cline: "逐风",
-  kimi_code: "月白",
-  pi: "墨川",
-  grok: "知微",
-}
+export const AGENT_SDK_ALIASES = AGENT_LABELS
 
 export function getAgentDisplayName(agentType: AgentType): string {
   return AGENT_SDK_ALIASES[agentType]

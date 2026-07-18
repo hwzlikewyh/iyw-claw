@@ -695,11 +695,11 @@
       "migrationFailed": "无法迁移 Agent 存储",
       "previousRoot": "旧数据仍保留在 {path}，确认无误后请手动删除"
     },
-    "title": "Agent SDK管理",
-    "description": "统一管理 Agent 的连接SDK、启用状态、环境变量、配置管理与版本预检信息。",
+    "title": "Agent SDK 管理",
+    "description": "根据擅长领域选择 Agent，并在一处管理启用状态、版本、连接与模型配置。",
     "agentAliasDescription": "通过 Agent SDK 连接和管理{name}。",
     "loadingAgents": "加载 Agent 列表中...",
-    "agentList": "Agent 列表",
+    "agentList": "选择 Agent",
     "emptyNoAgent": "暂无可用 Agent。",
     "configManagement": "配置管理",
     "envVars": "环境变量",
@@ -707,6 +707,115 @@
     "modelHintDefault": "留空则使用系统默认模型。",
     "generalConfigDescriptionClaude": "支持 API URL、API Key 与 Claude 模型快捷配置，并与原生 JSON 配置联动。",
     "generalConfigDescriptionDefault": "支持重要配置输入（API URL、API Key、Model）和原生 JSON 配置管理。",
+    "overview": {
+      "managedBySdk": "由 Agent SDK 连接",
+      "enabled": "已启用",
+      "disabled": "已停用",
+      "currentVersion": "当前版本",
+      "latestVersion": "最新版本",
+      "versionStatus": "版本状态",
+      "noVersion": "未安装",
+      "unavailableVersion": "暂不可用",
+      "configuration": "连接与配置",
+      "configurationDescription": "管理认证、模型和该 Agent 的高级选项。",
+      "versionStates": {
+        "latest": "已是最新",
+        "upgradeAvailable": "可升级",
+        "notInstalled": "未安装",
+        "unknown": "状态未知",
+        "unsupported": "当前平台不支持"
+      }
+    },
+    "profiles": {
+      "claude_code": {
+        "description": "擅长在复杂代码库中建立整体理解，适合长链路实现、跨文件重构和需要谨慎推理的工程任务。",
+        "strengths": {
+          "primary": "复杂代码库",
+          "secondary": "深度推理",
+          "tertiary": "跨文件重构"
+        }
+      },
+      "codex": {
+        "description": "强调自主推进完整工程任务，能够结合代码阅读、终端操作、测试和迭代修复持续交付结果。",
+        "strengths": {
+          "primary": "自主执行",
+          "secondary": "终端工具",
+          "tertiary": "工程交付"
+        }
+      },
+      "open_code": {
+        "description": "开源且供应商中立，适合需要自由组合模型、Provider 与插件的开发工作流。",
+        "strengths": {
+          "primary": "多模型",
+          "secondary": "开放生态",
+          "tertiary": "灵活配置"
+        }
+      },
+      "gemini": {
+        "description": "依托大上下文与多模态能力，适合分析大型项目、理解丰富资料并处理跨模态任务。",
+        "strengths": {
+          "primary": "大上下文",
+          "secondary": "多模态",
+          "tertiary": "项目分析"
+        }
+      },
+      "open_claw": {
+        "description": "运行在自有设备上的个人 AI 助理，适合连接本地环境、处理日常事务与自动化工作。",
+        "strengths": {
+          "primary": "本地运行",
+          "secondary": "个人助理",
+          "tertiary": "设备自动化"
+        }
+      },
+      "cline": {
+        "description": "围绕任务目标自主读写代码并调用工具，适合快速实现、问题修复和连续编码任务。",
+        "strengths": {
+          "primary": "自主编码",
+          "secondary": "工具调用",
+          "tertiary": "快速实现"
+        }
+      },
+      "hermes": {
+        "description": "重视工具使用、技能扩展和工作流演进，适合构建可持续定制的智能体能力。",
+        "strengths": {
+          "primary": "技能扩展",
+          "secondary": "工具使用",
+          "tertiary": "工作流演进"
+        }
+      },
+      "code_buddy": {
+        "description": "面向腾讯云与企业开发场景，兼顾中文编码体验、团队环境接入和工程辅助。",
+        "strengths": {
+          "primary": "腾讯云生态",
+          "secondary": "中文开发",
+          "tertiary": "企业接入"
+        }
+      },
+      "kimi_code": {
+        "description": "突出长上下文代码理解与中文交互体验，适合阅读大型仓库、持续修改和复杂问答。",
+        "strengths": {
+          "primary": "长上下文",
+          "secondary": "中文体验",
+          "tertiary": "代码理解"
+        }
+      },
+      "pi": {
+        "description": "轻量且可扩展，适合按需组合模型、技能与信任策略，搭建个人化编码工作流。",
+        "strengths": {
+          "primary": "轻量运行",
+          "secondary": "自定义模型",
+          "tertiary": "技能组合"
+        }
+      },
+      "grok": {
+        "description": "结合 xAI 模型完成代码分析与终端任务，适合直接、快速的工程探索和实现。",
+        "strengths": {
+          "primary": "代码分析",
+          "secondary": "终端任务",
+          "tertiary": "快速探索"
+        }
+      }
+    },
     "multiAgent": {
       "title": "多智能体协同",
       "description": "允许活跃的智能体把子任务委托给其他智能体。",
@@ -774,6 +883,7 @@
       "disabled": "禁用",
       "unchecked": "未检测",
       "agentEnabledAria": "{name} 已启用",
+      "agentDisabledAria": "{name} 已停用",
       "agentEnabledSwitch": "{name} 启用"
     },
     "preflight": {

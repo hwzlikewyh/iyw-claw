@@ -28,7 +28,7 @@ interface UseComposerInvocationsArgs {
   agentType: AgentType
   /** Folder path for project-scoped Codex skills (global skills load regardless). */
   folderPath: string | null
-  /** Slash commands from the agent-options probe (empty if none / not yet ready). */
+  /** Slash commands from the local Agent option catalog. */
   availableCommands: AvailableCommandInfo[]
 }
 

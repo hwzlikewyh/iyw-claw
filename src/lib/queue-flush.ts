@@ -48,6 +48,23 @@ export function shouldQueueDirectSend(
   return !fromQueueFlush && queueLength > 0
 }
 
+/** Queue a user-originated submit while its Agent connection is still starting. */
+export function shouldQueueBeforeConnection(
+  connectionReady: boolean,
+  fromQueueFlush: boolean
+): boolean {
+  return !connectionReady && !fromQueueFlush
+}
+
+/** Block only when discovery has conclusively found no usable Agent. */
+export function shouldBlockUnboundSend(
+  hasPersistedConversation: boolean,
+  agentsLoaded: boolean,
+  usableAgentCount: number
+): boolean {
+  return !hasPersistedConversation && agentsLoaded && usableAgentCount === 0
+}
+
 /**
  * Whether a fork-and-send must be blocked because the message queue is
  * non-empty. Fork is an immediate session side effect (it re-points the live

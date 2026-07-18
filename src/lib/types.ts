@@ -805,16 +805,16 @@ export interface HermesLocalConfig {
 }
 
 export const AGENT_LABELS: Record<AgentType, string> = {
-  claude_code: "Claude Code",
-  codex: "Codex",
-  open_code: "OpenCode",
-  gemini: "Gemini CLI",
-  open_claw: "OpenClaw",
-  cline: "Cline",
-  hermes: "Hermes Agent",
-  code_buddy: "CodeBuddy",
-  kimi_code: "Kimi Code",
-  pi: "Pi",
+  claude_code: "远山",
+  codex: "星河",
+  open_code: "云舟",
+  gemini: "流光",
+  open_claw: "开放之爪",
+  cline: "逐风",
+  hermes: "赫尔墨斯",
+  code_buddy: "青岚",
+  kimi_code: "月白",
+  pi: "墨川",
   grok: "知微",
 }
 
@@ -1795,17 +1795,7 @@ export interface SystemProxySettings {
   proxy_url: string | null
 }
 
-export type AppLocale =
-  | "en"
-  | "zh_cn"
-  | "zh_tw"
-  | "ja"
-  | "ko"
-  | "es"
-  | "de"
-  | "fr"
-  | "pt"
-  | "ar"
+export type AppLocale = "en" | "zh_cn"
 export type LanguageMode = "system" | "manual"
 
 export interface SystemLanguageSettings {

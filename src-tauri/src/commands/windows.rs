@@ -397,54 +397,6 @@ fn window_titles_for(locale: crate::models::system::AppLocale) -> WindowTitles {
             stash: "储藏",
             push: "推送",
         },
-        AppLocale::ZhTw => WindowTitles {
-            commit: "提交程式碼",
-            merge: "解決衝突",
-            stash: "暫存",
-            push: "推送",
-        },
-        AppLocale::Ja => WindowTitles {
-            commit: "コミット",
-            merge: "コンフリクトの解決",
-            stash: "スタッシュ",
-            push: "プッシュ",
-        },
-        AppLocale::Ko => WindowTitles {
-            commit: "커밋",
-            merge: "충돌 해결",
-            stash: "스태시",
-            push: "푸시",
-        },
-        AppLocale::Es => WindowTitles {
-            commit: "Confirmar",
-            merge: "Resolver conflictos",
-            stash: "Reserva",
-            push: "Enviar",
-        },
-        AppLocale::De => WindowTitles {
-            commit: "Commit",
-            merge: "Konflikte lösen",
-            stash: "Stash",
-            push: "Push",
-        },
-        AppLocale::Fr => WindowTitles {
-            commit: "Valider",
-            merge: "Résoudre les conflits",
-            stash: "Réserve",
-            push: "Pousser",
-        },
-        AppLocale::Pt => WindowTitles {
-            commit: "Confirmar",
-            merge: "Resolver conflitos",
-            stash: "Stash",
-            push: "Enviar",
-        },
-        AppLocale::Ar => WindowTitles {
-            commit: "الالتزام",
-            merge: "حل التعارضات",
-            stash: "إخفاء",
-            push: "دفع",
-        },
         AppLocale::En => WindowTitles {
             commit: "Commit",
             merge: "Resolve Conflicts",
@@ -1685,38 +1637,6 @@ fn tray_labels_for(locale: crate::models::system::AppLocale) -> TrayLabels {
         AppLocale::ZhCn => TrayLabels {
             show_workspace: "显示工作台",
             quit: "退出 iyw-claw",
-        },
-        AppLocale::ZhTw => TrayLabels {
-            show_workspace: "顯示工作臺",
-            quit: "退出 iyw-claw",
-        },
-        AppLocale::Ja => TrayLabels {
-            show_workspace: "ワークスペースを表示",
-            quit: "iyw-claw を終了",
-        },
-        AppLocale::Ko => TrayLabels {
-            show_workspace: "워크스페이스 표시",
-            quit: "iyw-claw 종료",
-        },
-        AppLocale::Es => TrayLabels {
-            show_workspace: "Mostrar el área de trabajo",
-            quit: "Salir de iyw-claw",
-        },
-        AppLocale::De => TrayLabels {
-            show_workspace: "Arbeitsbereich anzeigen",
-            quit: "iyw-claw beenden",
-        },
-        AppLocale::Fr => TrayLabels {
-            show_workspace: "Afficher l'espace de travail",
-            quit: "Quitter iyw-claw",
-        },
-        AppLocale::Pt => TrayLabels {
-            show_workspace: "Mostrar área de trabalho",
-            quit: "Sair do iyw-claw",
-        },
-        AppLocale::Ar => TrayLabels {
-            show_workspace: "إظهار مساحة العمل",
-            quit: "إنهاء iyw-claw",
         },
         AppLocale::En => TrayLabels {
             show_workspace: "Show Workspace",

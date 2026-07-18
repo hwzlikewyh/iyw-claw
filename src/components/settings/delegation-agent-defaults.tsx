@@ -5,22 +5,16 @@
  * "Multi-Agent Collaboration" settings card under the "Agent defaults" tab.
  *
  * Isolation guarantees (critical — see the v2 plan):
- *   1. Options come from a LIVE probe (`describeAgentOptions`), not from the
- *      chat-side `selectorsCache`. What the user sees here is what iyw-claw-mcp
- *      will actually receive when it spawns a subagent.
+ *   1. Options come from the product-owned fixed catalog. Opening this panel
+ *      never launches an Agent process.
  *   2. Saving a value here does NOT call `acpSetConfigOption` or write to
  *      `selector-prefs-storage.ts` localStorage. The chat input's own
  *      selectors are untouched. Persistence happens through the parent's
  *      `setDelegationSettings` save action only.
- *   3. The 30s in-memory snapshot cache lives in module scope here; it does
- *      NOT bleed into the chat context.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useState } from "react"
 import { useTranslations } from "next-intl"
-import { Loader2 } from "lucide-react"
-
-import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -37,8 +31,11 @@ import {
   type AgentType,
   type SessionConfigOptionInfo,
 } from "@/lib/types"
-import { describeAgentOptions } from "@/lib/api"
-import { toErrorMessage } from "@/lib/app-error"
+import { getFixedAgentOptions } from "@/lib/fixed-agent-options"
+import {
+  localizeSessionConfigOption,
+  type SessionConfigTranslator,
+} from "@/lib/session-config-localization"
 
 // Sentinel `value` slot used by the top "Default" Select item in mode +
 // config-option rows. Picking it clears the override (sets it back to
@@ -46,13 +43,6 @@ import { toErrorMessage } from "@/lib/app-error"
 // collide with any real option id any agent could emit — the iyw-claw
 // prefix makes a collision implausible.
 const DEFAULT_SENTINEL = "__iyw_claw_default__"
-
-// Tab-switch debounce. Without this, rapid clicks across the agent
-// buttons would each kick off a real probe (which on the backend now
-// serializes per agent_type, but every queued probe still spawns the
-// CLI). 250ms is below the threshold of feeling laggy while comfortably
-// absorbing a mid-click reconsideration.
-const TAB_SWITCH_DEBOUNCE_MS = 250
 
 const AGENT_TYPES: AgentType[] = [
   "claude_code",
@@ -68,27 +58,6 @@ const AGENT_TYPES: AgentType[] = [
   "grok",
 ]
 
-interface CachedSnapshot {
-  snapshot: AgentOptionsSnapshot
-  ts: number
-}
-const SNAPSHOT_TTL_MS = 30_000
-const snapshotCache = new Map<AgentType, CachedSnapshot>()
-
-function readCache(agent: AgentType): AgentOptionsSnapshot | null {
-  const entry = snapshotCache.get(agent)
-  if (!entry) return null
-  if (Date.now() - entry.ts > SNAPSHOT_TTL_MS) {
-    snapshotCache.delete(agent)
-    return null
-  }
-  return entry.snapshot
-}
-
-function writeCache(agent: AgentType, snapshot: AgentOptionsSnapshot): void {
-  snapshotCache.set(agent, { snapshot, ts: Date.now() })
-}
-
 export interface DelegationAgentDefaultsPanelProps {
   value: Partial<Record<AgentType, AgentDelegationDefaults>>
   onChange: (next: Partial<Record<AgentType, AgentDelegationDefaults>>) => void
@@ -101,49 +70,16 @@ export function DelegationAgentDefaultsPanel({
   disabled,
 }: DelegationAgentDefaultsPanelProps) {
   const t = useTranslations("AcpAgentSettings.multiAgent")
+  const tSessionConfig = useTranslations("Folder.chat.messageInput")
+  const translator = tSessionConfig as unknown as SessionConfigTranslator
   const [selectedAgent, setSelectedAgent] = useState<AgentType>("claude_code")
-  const [snapshot, setSnapshot] = useState<AgentOptionsSnapshot | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const reqIdRef = useRef(0)
-
-  const loadSnapshot = useCallback(async (agent: AgentType, force: boolean) => {
-    if (!force) {
-      const cached = readCache(agent)
-      if (cached) {
-        setSnapshot(cached)
-        setError(null)
-        setLoading(false)
-        return
-      }
-    }
-    const reqId = ++reqIdRef.current
-    setLoading(true)
-    setError(null)
-    setSnapshot(null)
-    try {
-      const fresh = await describeAgentOptions(agent)
-      if (reqIdRef.current !== reqId) return
-      writeCache(agent, fresh)
-      setSnapshot(fresh)
-    } catch (err: unknown) {
-      if (reqIdRef.current !== reqId) return
-      setError(toErrorMessage(err))
-    } finally {
-      if (reqIdRef.current === reqId) setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    // Debounce so rapid tab clicks (which would each fire a real probe
-    // — even with backend serialization, each one still spawns the CLI)
-    // collapse into a single load. Cancelling on cleanup means the
-    // *last* tab the user lands on wins, not the first.
-    const handle = window.setTimeout(() => {
-      void loadSnapshot(selectedAgent, false)
-    }, TAB_SWITCH_DEBOUNCE_MS)
-    return () => window.clearTimeout(handle)
-  }, [selectedAgent, loadSnapshot])
+  const fixedSnapshot = getFixedAgentOptions(selectedAgent)
+  const snapshot = {
+    ...fixedSnapshot,
+    config_options: fixedSnapshot.config_options.map((option) =>
+      localizeSessionConfigOption(option, translator)
+    ),
+  }
 
   const updateAgentDefaults = useCallback(
     (agent: AgentType, next: AgentDelegationDefaults | null) => {
@@ -222,40 +158,14 @@ export function DelegationAgentDefaultsPanel({
       </div>
 
       <div className="min-h-[120px] rounded-lg border bg-card/50 p-3">
-        {loading && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" aria-hidden />
-            {t("probing")}
-          </div>
-        )}
-
-        {error && !loading && (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs text-destructive">
-              {t("probeFailed", { detail: error })}
-            </p>
-            <div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void loadSnapshot(selectedAgent, true)}
-              >
-                {t("retry")}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {!loading && !error && snapshot && (
-          <SnapshotEditor
-            snapshot={snapshot}
-            overrideModeId={currentModeId}
-            overrideConfigValues={currentConfigValues}
-            onModeChange={setMode}
-            onConfigChange={setConfigValue}
-            disabled={disabled}
-          />
-        )}
+        <SnapshotEditor
+          snapshot={snapshot}
+          overrideModeId={currentModeId}
+          overrideConfigValues={currentConfigValues}
+          onModeChange={setMode}
+          onConfigChange={setConfigValue}
+          disabled={disabled}
+        />
       </div>
     </div>
   )

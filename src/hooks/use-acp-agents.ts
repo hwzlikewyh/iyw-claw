@@ -6,6 +6,7 @@ import { acpListAgents } from "@/lib/api"
 import { onTransportReconnect, subscribe } from "@/lib/platform"
 import type { UnsubscribeFn } from "@/lib/transport/types"
 import type { AcpAgentInfo } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 
 const ACP_AGENTS_UPDATED_EVENT = "app://acp-agents-updated"
 
@@ -55,9 +56,14 @@ const useAcpAgentsStore = create<AcpAgentsStore>((set) => ({
       // failed.
       if (requestId <= latestSuccessId) return
       latestSuccessId = requestId
-      const sorted = [...list].sort(
-        (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)
-      )
+      const sorted = list
+        .map((agent) => ({
+          ...agent,
+          name: getAgentDisplayName(agent.agent_type),
+        }))
+        .sort(
+          (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)
+        )
       set({ agents: sorted, fresh: true })
     } catch {
       // Keep the previous list — clearing on transient failure would silently
