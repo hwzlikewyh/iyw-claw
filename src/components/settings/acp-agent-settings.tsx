@@ -7110,7 +7110,7 @@ export function AcpAgentSettings({
         />
       ) : null}
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(240px,320px)_1fr]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(240px,320px)_1fr]">
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
           <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
             {t("agentList")}
