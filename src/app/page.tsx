@@ -3,12 +3,15 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { isDesktop } from "@/lib/platform"
+import { consumeRestoredRoute } from "@/lib/update-restore"
 
 export default function Page() {
   const router = useRouter()
   useEffect(() => {
     if (isDesktop()) {
-      router.replace("/workspace")
+      // After a self-relaunch (update install, storage migration) drop the
+      // user back on the screen they had open instead of the default.
+      router.replace(consumeRestoredRoute() ?? "/workspace")
       return
     }
     // Web mode: validate token before entering app

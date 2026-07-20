@@ -1,5 +1,6 @@
 import { toErrorMessage } from "./app-error"
 import { getTransport, isDesktop, isRemoteDesktopMode } from "./transport"
+import { saveRouteForRestore } from "./update-restore"
 
 // Drive the LOCAL Tauri app updater only for a genuine local desktop window.
 // A remote-desktop window IS a Tauri app (`isDesktop()` is true) but its
@@ -113,6 +114,10 @@ export function startAppUpdate(): Promise<AppUpdateState> {
  * server triggers the supervised/re-exec restart (the caller then drives the
  * countdown + health poll using the `ReadyToRestart` snapshot's metadata). */
 export function restartApp(): Promise<void> {
+  // A desktop relaunch tears down this window; remember where the user was so
+  // the new process reopens on the same screen. Server restarts keep the page
+  // alive, so there is nothing to restore.
+  if (usesTauriUpdater()) saveRouteForRestore()
   return getTransport().call("restart_app")
 }
 
@@ -189,6 +194,7 @@ export async function getServerUpdateStatus(): Promise<ServerUpdateStatus | null
 }
 
 export async function relaunchApp(): Promise<void> {
+  saveRouteForRestore()
   const { relaunch } = await import("@tauri-apps/plugin-process")
   await relaunch()
 }
