@@ -6927,12 +6927,9 @@ mod tests {
 
     #[test]
     fn companion_capabilities_require_matching_version_and_show_image() {
-        let compatible = serde_json::json!({
-            "name": "iyw-claw-mcp",
-            "version": env!("CARGO_PKG_VERSION"),
-            "protocol_version": 1,
-            "tools": ["show_image"],
-        });
+        // Derive the compatible manifest from the binary's own capability
+        // list so adding a companion tool doesn't silently break this test.
+        let compatible = crate::acp::delegation::companion::binary_capabilities();
         assert!(validate_companion_capabilities(&compatible.to_string()).is_ok());
 
         let old_version = serde_json::json!({
