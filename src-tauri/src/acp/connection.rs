@@ -35,6 +35,7 @@ use crate::acp::error::AcpError;
 use crate::acp::file_system_runtime::{FileSystemRuntime, FileSystemRuntimeError};
 use crate::acp::npm_runtime;
 use crate::acp::registry::{self, AgentDistribution};
+use crate::acp::session_config_compat::resolve_preferred_session_config;
 use crate::acp::session_state::SessionState;
 use crate::acp::terminal_runtime::{TerminalRuntime, TerminalRuntimeError};
 use crate::acp::types::{
@@ -2728,30 +2729,49 @@ async fn apply_preferred_session_options(
 
     let session_id = session.session_id().clone();
     let mut options = initial_config_options;
-    for (config_id, value_id) in preferred_config_values {
-        // Skip the round-trip when the agent's current value already matches.
-        // Note: codex-acp 1.0.0 advertises "mode" as a config option (so the
-        // match check below normally fires), but we still do NOT skip when a
-        // requested config_id is absent from the advertised options — older or
-        // edge-case builds accept `set_config_option` for an unadvertised "mode"
-        // (see `ensure_codex_mode_option`), so let the agent decide.
+    let preferences = preferred_config_values
+        .get_key_value("model")
+        .into_iter()
+        .chain(
+            preferred_config_values
+                .iter()
+                .filter(|(config_id, _)| config_id.as_str() != "model"),
+        );
+    for (config_id, value_id) in preferences {
+        let Some((resolved_config_id, resolved_value_id)) =
+            resolve_preferred_session_config(&options, config_id, value_id)
+        else {
+            tracing::debug!(
+                "[ACP] skipping unsupported preferred config '{config_id}'='{value_id}'"
+            );
+            continue;
+        };
+        // Skip the round-trip when the resolved live value already matches.
+        // Standard options must be advertised and validated by the resolver;
+        // only the legacy Codex "mode" fallback may remain unadvertised.
         let already_matches = options.iter().any(|o| {
-            o.id.to_string() == *config_id
+            o.id.to_string() == resolved_config_id
                 && matches!(
                     &o.kind,
-                    SessionConfigKind::Select(s) if s.current_value.to_string() == *value_id
+                    SessionConfigKind::Select(s)
+                        if s.current_value.to_string() == resolved_value_id
                 )
         });
         if already_matches {
             continue;
         }
-        match set_session_config_option_inner(cx, &session_id, config_id.clone(), value_id.clone())
-            .await
+        match set_session_config_option_inner(
+            cx,
+            &session_id,
+            resolved_config_id.clone(),
+            resolved_value_id.clone(),
+        )
+        .await
         {
             Ok(updated) => options = updated,
             Err(e) => tracing::error!(
-                "[ACP] failed to apply preferred config '{config_id}'='{value_id}' \
-                 on connect: {e}"
+                "[ACP] failed to apply preferred config '{config_id}'='{value_id}' as \
+                 '{resolved_config_id}'='{resolved_value_id}' on connect: {e}"
             ),
         }
     }
