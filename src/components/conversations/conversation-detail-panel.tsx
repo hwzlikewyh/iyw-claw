@@ -91,6 +91,7 @@ import {
   loadFixedAgentOptions,
 } from "@/lib/fixed-agent-options"
 import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
+import { planSessionConfigSync } from "@/lib/session-config-compat"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
 import {
   getSavedModeId,
@@ -616,20 +617,12 @@ const ConversationTabView = memo(function ConversationTabView({
     ) {
       return
     }
-    for (const [configId, valueId] of Object.entries(draftConfigValues)) {
-      const offered = connectionConfigOptions.find(
-        (option) => option.id === configId
-      )
-      if (
-        !offered ||
-        !offered.kind.options.some((option) => option.value === valueId)
-      ) {
-        continue
-      }
-      const live = conn.configOptions?.find((option) => option.id === configId)
-      if (live?.kind.type === "select" && live.kind.current_value === valueId) {
-        continue
-      }
+    const commands = planSessionConfigSync(
+      connectionConfigOptions,
+      conn.configOptions ?? [],
+      draftConfigValues
+    )
+    for (const { configId, valueId } of commands) {
       handleSetConfigOption(configId, valueId)
     }
   }, [

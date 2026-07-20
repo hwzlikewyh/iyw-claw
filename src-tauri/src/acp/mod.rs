@@ -32,6 +32,7 @@ mod provider_overlay_files;
 mod provider_overlay_formats;
 pub mod question;
 pub mod registry;
+mod session_config_compat;
 pub mod session_info;
 pub mod session_state;
 pub mod terminal_runtime;
