@@ -21,9 +21,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { WecomAuthPanel } from "@/components/settings/wecom-auth-panel"
+import { useAcpAgents } from "@/hooks/use-acp-agents"
 import { createChatChannel, saveChatChannelToken } from "@/lib/api"
 import { buildChatChannelConfig } from "@/lib/chat-channel-config"
-import type { ChannelType } from "@/lib/types"
+import type { AgentType, ChannelType } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
 
 interface AddChatChannelDialogProps {
@@ -32,33 +34,41 @@ interface AddChatChannelDialogProps {
   onChannelAdded: () => void
 }
 
+const NO_AGENT = "__none__"
+
 export function AddChatChannelDialog({
   open,
   onOpenChange,
   onChannelAdded,
 }: AddChatChannelDialogProps) {
   const t = useTranslations("ChatChannelSettings")
+  const { agents } = useAcpAgents()
+  const installedAgents = agents.filter(
+    (agent) => agent.enabled && agent.installed_version
+  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [name, setName] = useState("")
-  const [channelType, setChannelType] = useState<ChannelType>("lark")
+  const [channelType, setChannelType] = useState<ChannelType>("wecom")
   const [token, setToken] = useState("")
   const [chatId, setChatId] = useState("")
   const [appId, setAppId] = useState("")
-  const [topicMode, setTopicMode] = useState(false)
   const [baseUrl, setBaseUrl] = useState("https://ilinkai.weixin.qq.com")
+  const [defaultAgentType, setDefaultAgentType] = useState<AgentType | null>(
+    null
+  )
   const [dailyReportEnabled, setDailyReportEnabled] = useState(false)
   const [dailyReportTime, setDailyReportTime] = useState("18:00")
 
   const resetForm = useCallback(() => {
     setName("")
-    setChannelType("lark")
+    setChannelType("wecom")
     setToken("")
     setChatId("")
     setAppId("")
-    setTopicMode(false)
     setBaseUrl("https://ilinkai.weixin.qq.com")
+    setDefaultAgentType(null)
     setDailyReportEnabled(false)
     setDailyReportTime("18:00")
     setError(null)
@@ -77,11 +87,11 @@ export function AddChatChannelDialog({
       setError(t("nameRequired"))
       return
     }
-    if (channelType !== "weixin" && !token.trim()) {
+    if (channelType === "lark" && !token.trim()) {
       setError(t("tokenRequired"))
       return
     }
-    if (channelType !== "weixin" && !chatId.trim()) {
+    if (channelType === "lark" && !chatId.trim()) {
       setError(t("chatIdRequired"))
       return
     }
@@ -93,7 +103,7 @@ export function AddChatChannelDialog({
         appId,
         baseUrl,
         chatId,
-        topicMode,
+        defaultAgentType,
       })
 
       const channel = await createChatChannel({
@@ -105,7 +115,7 @@ export function AddChatChannelDialog({
         dailyReportTime: dailyReportEnabled ? dailyReportTime : null,
       })
 
-      if (channelType !== "weixin" && token.trim()) {
+      if (channelType === "lark" && token.trim()) {
         await saveChatChannelToken(channel.id, token.trim())
       }
 
@@ -123,8 +133,8 @@ export function AddChatChannelDialog({
     chatId,
     channelType,
     appId,
-    topicMode,
     baseUrl,
+    defaultAgentType,
     dailyReportEnabled,
     dailyReportTime,
     handleOpenChange,
@@ -159,12 +169,14 @@ export function AddChatChannelDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="wecom">{t("wecom")}</SelectItem>
                 <SelectItem value="lark">{t("lark")}</SelectItem>
-                <SelectItem value="telegram">{t("telegram")}</SelectItem>
                 <SelectItem value="weixin">{t("weixin")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
+
+          {channelType === "wecom" && <WecomAuthPanel />}
 
           {channelType === "lark" && (
             <div className="space-y-1.5">
@@ -177,13 +189,9 @@ export function AddChatChannelDialog({
             </div>
           )}
 
-          {channelType !== "weixin" && (
+          {channelType === "lark" && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">
-                {channelType === "telegram"
-                  ? t("telegramBotToken")
-                  : "App Secret"}
-              </label>
+              <label className="text-xs font-medium">App Secret</label>
               <Input
                 type="password"
                 value={token}
@@ -193,29 +201,14 @@ export function AddChatChannelDialog({
             </div>
           )}
 
-          {channelType !== "weixin" && (
+          {channelType === "lark" && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">
-                {channelType === "telegram" ? t("telegramChatId") : "Chat ID"}
-              </label>
+              <label className="text-xs font-medium">Chat ID</label>
               <Input
                 value={chatId}
                 onChange={(e) => setChatId(e.target.value)}
-                placeholder={
-                  channelType === "telegram"
-                    ? t("telegramChatIdPlaceholder")
-                    : "oc_xxxxx"
-                }
+                placeholder="oc_xxxxx"
               />
-            </div>
-          )}
-
-          {channelType === "telegram" && (
-            <div className="flex items-center justify-between gap-4">
-              <label className="text-xs font-medium">
-                {t("telegramTopicMode")}
-              </label>
-              <Switch checked={topicMode} onCheckedChange={setTopicMode} />
             </div>
           )}
 
@@ -224,6 +217,33 @@ export function AddChatChannelDialog({
               {t("weixinScanDescription")}
             </p>
           )}
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">{t("defaultAgent")}</label>
+            <Select
+              value={defaultAgentType ?? NO_AGENT}
+              onValueChange={(v) =>
+                setDefaultAgentType(v === NO_AGENT ? null : (v as AgentType))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_AGENT}>
+                  {t("defaultAgentNone")}
+                </SelectItem>
+                {installedAgents.map((agent) => (
+                  <SelectItem key={agent.agent_type} value={agent.agent_type}>
+                    {agent.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t("defaultAgentHint")}
+            </p>
+          </div>
 
           <div className="flex items-center justify-between">
             <label className="text-xs font-medium">{t("dailyReport")}</label>

@@ -4,17 +4,31 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ChannelType {
     Lark,
-    Telegram,
+    Wecom,
     Weixin,
 }
 
 // ── Per-channel strong typed configs ──
 
+/// WeCom (企业微信) rides on the `wecom-cli` companion (`@wecom/cli`), which
+/// owns credentials (QR-scan auth) and message transport. The channel config
+/// only carries iyw-claw-side behavior.
 #[derive(Debug, Clone, Deserialize)]
-pub struct TelegramConfig {
-    pub chat_id: String,
+pub struct WecomConfig {
+    /// Chat to deliver app-initiated notifications (daily report, events) to.
+    /// Incoming chats always reply to their own chat via the message target.
     #[serde(default)]
-    pub topic_mode: bool,
+    pub default_chatid: String,
+    /// 1 = direct chat, 2 = group chat (matches wecom-cli `chat_type`).
+    #[serde(default = "default_wecom_chat_type")]
+    pub default_chat_type: u8,
+    /// Message poll cadence. wecom-cli only supports polling, no push.
+    #[serde(default)]
+    pub poll_interval_secs: Option<u64>,
+}
+
+fn default_wecom_chat_type() -> u8 {
+    1
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -32,7 +46,7 @@ impl std::fmt::Display for ChannelType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChannelType::Lark => write!(f, "lark"),
-            ChannelType::Telegram => write!(f, "telegram"),
+            ChannelType::Wecom => write!(f, "wecom"),
             ChannelType::Weixin => write!(f, "weixin"),
         }
     }

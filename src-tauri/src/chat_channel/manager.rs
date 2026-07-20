@@ -291,8 +291,41 @@ impl ChatChannelManager {
         let manager_for_scheduler = self.clone_ref();
         super::scheduler::spawn_daily_report_scheduler(manager_for_scheduler, db_conn.clone());
 
-        // Auto-connect enabled channels
+        // Ship the WeCom channel out of the box, then auto-connect.
+        Self::seed_default_wecom_channel(&db_conn2).await;
         self.auto_connect_channels(&db_conn2).await;
+    }
+
+    /// Ensure a WeCom (企业微信) channel exists so users find it preconfigured
+    /// in settings instead of having to add it. Created disabled: connecting
+    /// requires a one-time wecom-cli QR authorization the user must perform.
+    async fn seed_default_wecom_channel(db_conn: &DatabaseConnection) {
+        use crate::db::service::chat_channel_service;
+        let has_wecom = match chat_channel_service::list_all(db_conn).await {
+            Ok(channels) => channels
+                .iter()
+                .any(|channel| channel.channel_type == "wecom"),
+            Err(error) => {
+                tracing::warn!("[ChatChannel] failed to list channels for WeCom seed: {error}");
+                return;
+            }
+        };
+        if has_wecom {
+            return;
+        }
+        if let Err(error) = chat_channel_service::create(
+            db_conn,
+            "企业微信".to_string(),
+            "wecom".to_string(),
+            "{}".to_string(),
+            false,
+            false,
+            None,
+        )
+        .await
+        {
+            tracing::warn!("[ChatChannel] failed to seed default WeCom channel: {error}");
+        }
     }
 
     async fn auto_connect_channels(&self, db_conn: &DatabaseConnection) {

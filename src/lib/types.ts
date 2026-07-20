@@ -2412,7 +2412,18 @@ export interface RuntimeBootstrapReport {
 
 // ─── Chat Channels ───
 
-export type ChannelType = "lark" | "telegram" | "weixin"
+export type ChannelType = "lark" | "wecom" | "weixin"
+
+// ── WeCom (企业微信) auth via wecom-cli ───
+
+export interface WecomAuthStatus {
+  cli_installed: boolean
+  authorized: boolean
+}
+
+export interface WecomAuthStart {
+  auth_url: string
+}
 
 /** One configured event-notification webhook sink. */
 export interface WebhookConfig {

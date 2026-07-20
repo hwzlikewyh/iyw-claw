@@ -3214,7 +3214,15 @@ export async function deleteChatChannelToken(channelId: number): Promise<void> {
 }
 
 export async function connectChatChannel(id: number): Promise<void> {
-  return getTransport().call("connect_chat_channel", { id })
+  // WeCom's first connect may install @wecom/cli via npm before the backend
+  // can start polling — leave room well beyond the default 60s.
+  return getTransport().call(
+    "connect_chat_channel",
+    { id },
+    {
+      timeoutMs: 420_000,
+    }
+  )
 }
 
 export async function disconnectChatChannel(id: number): Promise<void> {
@@ -3304,6 +3312,20 @@ export async function weixinGetQrcode(): Promise<{
   qrcode_img_content: string
 }> {
   return getTransport().call("weixin_get_qrcode")
+}
+
+export async function wecomGetAuthStatus(): Promise<
+  import("./types").WecomAuthStatus
+> {
+  return getTransport().call("wecom_get_auth_status")
+}
+
+export async function wecomStartAuth(): Promise<
+  import("./types").WecomAuthStart
+> {
+  // May install @wecom/cli via npm on first use before launching the QR
+  // authorization — allow well beyond the default call timeout.
+  return getTransport().call("wecom_start_auth", {}, { timeoutMs: 420_000 })
 }
 
 export async function weixinCheckQrcode(

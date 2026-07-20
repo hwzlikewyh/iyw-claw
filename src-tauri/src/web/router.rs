@@ -1077,6 +1077,14 @@ pub fn build_router(
             post(handlers::chat_channel::weixin_get_qrcode),
         )
         .route(
+            "/wecom_get_auth_status",
+            post(handlers::chat_channel::wecom_get_auth_status),
+        )
+        .route(
+            "/wecom_start_auth",
+            post(handlers::chat_channel::wecom_start_auth),
+        )
+        .route(
             "/weixin_check_qrcode",
             post(handlers::chat_channel::weixin_check_qrcode),
         )

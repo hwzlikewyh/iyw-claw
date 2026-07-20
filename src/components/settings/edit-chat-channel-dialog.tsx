@@ -14,13 +14,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { WecomAuthPanel } from "@/components/settings/wecom-auth-panel"
+import { useAcpAgents } from "@/hooks/use-acp-agents"
 import {
   updateChatChannel,
   saveChatChannelToken,
   getChatChannelHasToken,
 } from "@/lib/api"
-import type { ChatChannelInfo } from "@/lib/types"
+import type { AgentType, ChatChannelInfo } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
 import { buildChatChannelConfig } from "@/lib/chat-channel-config"
 
@@ -31,6 +40,8 @@ interface EditChatChannelDialogProps {
   onChannelUpdated: () => void
 }
 
+const NO_AGENT = "__none__"
+
 export function EditChatChannelDialog({
   open,
   channel,
@@ -38,16 +49,24 @@ export function EditChatChannelDialog({
   onChannelUpdated,
 }: EditChatChannelDialogProps) {
   const t = useTranslations("ChatChannelSettings")
+  const { agents } = useAcpAgents()
+  const installedAgents = agents.filter(
+    (agent) => agent.enabled && agent.installed_version
+  )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const config = JSON.parse(channel.config_json || "{}")
   const [name, setName] = useState(channel.name)
   const [token, setToken] = useState("")
-  const [chatId, setChatId] = useState(config.chat_id ?? "")
+  const [chatId, setChatId] = useState(
+    config.chat_id ?? config.default_chatid ?? ""
+  )
   const [appId, setAppId] = useState(config.app_id ?? "")
-  const [topicMode, setTopicMode] = useState(config.topic_mode ?? false)
   const [baseUrl] = useState(config.base_url ?? "")
+  const [defaultAgentType, setDefaultAgentType] = useState<AgentType | null>(
+    config.default_agent_type ?? null
+  )
   const [dailyReportEnabled, setDailyReportEnabled] = useState(
     channel.daily_report_enabled
   )
@@ -57,19 +76,19 @@ export function EditChatChannelDialog({
   const [hasToken, setHasToken] = useState(false)
 
   useEffect(() => {
-    if (open) {
+    if (open && channel.channel_type === "lark") {
       getChatChannelHasToken(channel.id)
         .then(setHasToken)
         .catch(() => {})
     }
-  }, [open, channel.id])
+  }, [open, channel.id, channel.channel_type])
 
   const handleSubmit = useCallback(async () => {
     if (!name.trim()) {
       setError(t("nameRequired"))
       return
     }
-    if (channel.channel_type !== "weixin" && !chatId.trim()) {
+    if (channel.channel_type === "lark" && !chatId.trim()) {
       setError(t("chatIdRequired"))
       return
     }
@@ -81,7 +100,7 @@ export function EditChatChannelDialog({
         appId,
         baseUrl,
         chatId,
-        topicMode,
+        defaultAgentType,
       })
 
       await updateChatChannel({
@@ -111,8 +130,8 @@ export function EditChatChannelDialog({
     chatId,
     channel,
     appId,
-    topicMode,
     baseUrl,
+    defaultAgentType,
     dailyReportEnabled,
     dailyReportTime,
     onOpenChange,
@@ -137,6 +156,8 @@ export function EditChatChannelDialog({
             />
           </div>
 
+          {channel.channel_type === "wecom" && <WecomAuthPanel />}
+
           {channel.channel_type === "lark" && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium">App ID</label>
@@ -148,13 +169,9 @@ export function EditChatChannelDialog({
             </div>
           )}
 
-          {channel.channel_type !== "weixin" && (
+          {channel.channel_type === "lark" && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">
-                {channel.channel_type === "telegram"
-                  ? t("telegramBotToken")
-                  : "App Secret"}
-              </label>
+              <label className="text-xs font-medium">App Secret</label>
               <Input
                 type="password"
                 value={token}
@@ -166,31 +183,14 @@ export function EditChatChannelDialog({
             </div>
           )}
 
-          {channel.channel_type !== "weixin" && (
+          {channel.channel_type === "lark" && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">
-                {channel.channel_type === "telegram"
-                  ? t("telegramChatId")
-                  : "Chat ID"}
-              </label>
+              <label className="text-xs font-medium">Chat ID</label>
               <Input
                 value={chatId}
                 onChange={(e) => setChatId(e.target.value)}
-                placeholder={
-                  channel.channel_type === "telegram"
-                    ? t("telegramChatIdPlaceholder")
-                    : "oc_xxxxx"
-                }
+                placeholder="oc_xxxxx"
               />
-            </div>
-          )}
-
-          {channel.channel_type === "telegram" && (
-            <div className="flex items-center justify-between gap-4">
-              <label className="text-xs font-medium">
-                {t("telegramTopicMode")}
-              </label>
-              <Switch checked={topicMode} onCheckedChange={setTopicMode} />
             </div>
           )}
 
@@ -200,6 +200,33 @@ export function EditChatChannelDialog({
               <Input value={baseUrl} disabled />
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">{t("defaultAgent")}</label>
+            <Select
+              value={defaultAgentType ?? NO_AGENT}
+              onValueChange={(v) =>
+                setDefaultAgentType(v === NO_AGENT ? null : (v as AgentType))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_AGENT}>
+                  {t("defaultAgentNone")}
+                </SelectItem>
+                {installedAgents.map((agent) => (
+                  <SelectItem key={agent.agent_type} value={agent.agent_type}>
+                    {agent.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t("defaultAgentHint")}
+            </p>
+          </div>
 
           <div className="flex items-center justify-between">
             <label className="text-xs font-medium">{t("dailyReport")}</label>

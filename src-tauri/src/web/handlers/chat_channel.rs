@@ -321,6 +321,19 @@ pub async fn weixin_get_qrcode() -> Result<Json<WeixinQrcodeInfo>, AppCommandErr
     Ok(Json(result))
 }
 
+// ---------------------------------------------------------------------------
+// WeCom (企业微信 / wecom-cli) auth
+// ---------------------------------------------------------------------------
+
+pub async fn wecom_get_auth_status(
+) -> Result<Json<cc_commands::WecomAuthStatus>, AppCommandError> {
+    Ok(Json(cc_commands::wecom_get_auth_status_core().await?))
+}
+
+pub async fn wecom_start_auth() -> Result<Json<cc_commands::WecomAuthStart>, AppCommandError> {
+    Ok(Json(cc_commands::wecom_start_auth_core().await?))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WeixinCheckQrcodeParams {

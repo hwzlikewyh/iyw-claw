@@ -1152,6 +1152,8 @@ mod tauri_app {
                 chat_channel_commands::delete_chat_natural_router_api_key,
                 chat_channel_commands::weixin_get_qrcode,
                 chat_channel_commands::weixin_check_qrcode,
+                chat_channel_commands::wecom_get_auth_status,
+                chat_channel_commands::wecom_start_auth,
                 model_provider_commands::list_model_providers,
                 model_provider_commands::create_model_provider,
                 model_provider_commands::update_model_provider,

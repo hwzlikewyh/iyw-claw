@@ -722,6 +722,56 @@ pub async fn weixin_get_qrcode() -> Result<WeixinQrcodeInfo, AppCommandError> {
     weixin_get_qrcode_core().await
 }
 
+// ── WeCom (企业微信 / wecom-cli) auth ──
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WecomAuthStatus {
+    pub cli_installed: bool,
+    pub authorized: bool,
+}
+
+pub async fn wecom_get_auth_status_core() -> Result<WecomAuthStatus, AppCommandError> {
+    let cli_installed = crate::chat_channel::backends::wecom::cli_installed();
+    let authorized = if cli_installed {
+        crate::chat_channel::backends::wecom::auth_status()
+            .await
+            .unwrap_or(false)
+    } else {
+        false
+    };
+    Ok(WecomAuthStatus {
+        cli_installed,
+        authorized,
+    })
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WecomAuthStart {
+    pub auth_url: String,
+}
+
+/// Install wecom-cli when missing, then launch the QR authorization and hand
+/// the link back for the UI to render. Completion is observed by polling
+/// `wecom_get_auth_status`.
+pub async fn wecom_start_auth_core() -> Result<WecomAuthStart, AppCommandError> {
+    let auth_url = crate::chat_channel::backends::wecom::start_auth()
+        .await
+        .map_err(AppCommandError::from)?;
+    Ok(WecomAuthStart { auth_url })
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn wecom_get_auth_status() -> Result<WecomAuthStatus, AppCommandError> {
+    wecom_get_auth_status_core().await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn wecom_start_auth() -> Result<WecomAuthStart, AppCommandError> {
+    wecom_start_auth_core().await
+}
+
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn weixin_check_qrcode(

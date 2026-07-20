@@ -1,5 +1,5 @@
 pub mod lark;
-pub mod telegram;
+pub mod wecom;
 pub mod weixin;
 
 use super::error::ChatChannelError;
@@ -15,21 +15,14 @@ pub fn create_backend(
     token: String,
 ) -> Result<Box<dyn ChatChannelBackend>, ChatChannelError> {
     match channel_type {
-        ChannelType::Telegram => {
-            let cfg: TelegramConfig = serde_json::from_value(config.clone()).map_err(|e| {
-                ChatChannelError::ConfigurationInvalid(format!("Invalid Telegram config: {e}"))
+        ChannelType::Wecom => {
+            let cfg: WecomConfig = serde_json::from_value(config.clone()).map_err(|e| {
+                ChatChannelError::ConfigurationInvalid(format!("Invalid WeCom config: {e}"))
             })?;
-            if cfg.chat_id.trim().is_empty() || token.trim().is_empty() {
-                return Err(ChatChannelError::ConfigurationInvalid(
-                    "chat_id and bot token are required".into(),
-                ));
-            }
-            Ok(Box::new(telegram::TelegramBackend::new(
-                channel_id,
-                token,
-                cfg.chat_id,
-                cfg.topic_mode,
-            )))
+            // Credentials live in wecom-cli's own store (QR-scan auth), so no
+            // token is required here.
+            let _ = token;
+            Ok(Box::new(wecom::WecomBackend::new(channel_id, cfg)))
         }
         ChannelType::Weixin => {
             let cfg: WeixinConfig = serde_json::from_value(config.clone()).map_err(|e| {
