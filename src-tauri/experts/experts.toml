@@ -192,37 +192,6 @@ ar = "ينشئ مساحات عمل git معزولة للعمل على الميز
 
 
 [[expert]]
-id = "test-driven-development"
-category = "quality"
-icon = "FlaskConical"
-sort_order = 70
-
-[expert.display_name]
-en = "Test-Driven Development"
-"zh-CN" = "测试驱动开发"
-"zh-TW" = "測試驅動開發"
-ja = "テスト駆動開発"
-ko = "테스트 주도 개발"
-es = "Desarrollo guiado por pruebas"
-de = "Testgetriebene Entwicklung"
-fr = "Développement piloté par les tests"
-pt = "Desenvolvimento guiado por testes"
-ar = "التطوير الموجه بالاختبارات"
-
-[expert.description]
-en = "RED-GREEN-REFACTOR cycle: write failing test first, then minimal code to pass."
-"zh-CN" = "红-绿-重构循环：先写失败用例，再用最少代码让其通过。"
-"zh-TW" = "紅-綠-重構循環：先寫失敗案例，再用最少程式碼讓其通過。"
-ja = "RED-GREEN-REFACTOR サイクル：まず失敗するテストを書き、それを通す最小限のコードを書きます。"
-ko = "RED-GREEN-REFACTOR 주기: 먼저 실패하는 테스트를 작성하고, 이를 통과시키는 최소한의 코드를 작성합니다."
-es = "Ciclo RED-GREEN-REFACTOR: escribe primero una prueba que falle, luego el código mínimo para pasarla."
-de = "RED-GREEN-REFACTOR-Zyklus: zuerst einen fehlschlagenden Test schreiben, dann den minimalen Code dafür."
-fr = "Cycle RED-GREEN-REFACTOR : écrire d'abord un test qui échoue, puis le code minimal pour le faire passer."
-pt = "Ciclo RED-GREEN-REFACTOR: escreva primeiro um teste que falha, depois o código mínimo para passar."
-ar = "دورة أحمر-أخضر-إعادة هيكلة: اكتب اختبارًا فاشلًا أولًا، ثم الحد الأدنى من الكود لاجتيازه."
-
-
-[[expert]]
 id = "verification-before-completion"
 category = "quality"
 icon = "CheckCheck"
@@ -282,68 +251,6 @@ de = "Untersucht die Ursache in einem vierstufigen Prozess, bevor Fixes vorgesch
 fr = "Enquête sur la cause racine via un processus en quatre phases avant de proposer des correctifs."
 pt = "Investiga a causa raiz com um processo de quatro fases antes de propor correções."
 ar = "يحقق في السبب الجذري عبر عملية من أربع مراحل قبل اقتراح الإصلاحات."
-
-
-[[expert]]
-id = "requesting-code-review"
-category = "review"
-icon = "MessageSquareQuote"
-sort_order = 100
-
-[expert.display_name]
-en = "Requesting Code Review"
-"zh-CN" = "请求代码评审"
-"zh-TW" = "請求程式碼審查"
-ja = "コードレビューの依頼"
-ko = "코드 리뷰 요청"
-es = "Solicitud de revisión de código"
-de = "Code-Review anfordern"
-fr = "Demande de revue de code"
-pt = "Solicitação de revisão de código"
-ar = "طلب مراجعة الكود"
-
-[expert.description]
-en = "Dispatch a code reviewer subagent after completing tasks or major features."
-"zh-CN" = "在任务或重大功能完成后，派发代码评审子代理进行检查。"
-"zh-TW" = "在任務或重大功能完成後，派發程式碼審查子代理進行檢查。"
-ja = "タスクや主要機能の完了後に、コードレビュー用のサブエージェントを派遣します。"
-ko = "작업이나 주요 기능 완료 후 코드 리뷰 서브에이전트를 배정합니다."
-es = "Despacha un subagente revisor tras completar tareas o funciones importantes."
-de = "Weist nach Abschluss von Aufgaben oder Hauptfunktionen einen Code-Review-Subagenten zu."
-fr = "Distribue un sous-agent de revue de code après l'achèvement des tâches ou des fonctionnalités majeures."
-pt = "Despacha um subagente revisor após concluir tarefas ou funcionalidades principais."
-ar = "يرسل عميلًا فرعيًا لمراجعة الكود بعد إكمال المهام أو الميزات الرئيسية."
-
-
-[[expert]]
-id = "receiving-code-review"
-category = "review"
-icon = "MessageSquareReply"
-sort_order = 110
-
-[expert.display_name]
-en = "Receiving Code Review"
-"zh-CN" = "处理代码评审反馈"
-"zh-TW" = "處理程式碼審查回饋"
-ja = "コードレビューへの応対"
-ko = "코드 리뷰 피드백 처리"
-es = "Recepción de revisión de código"
-de = "Code-Review entgegennehmen"
-fr = "Réception de revue de code"
-pt = "Receber revisão de código"
-ar = "تلقي مراجعة الكود"
-
-[expert.description]
-en = "Respond to review feedback with technical rigor instead of performative agreement."
-"zh-CN" = "以严谨的技术态度处理评审反馈，而不是表演式地全盘接受。"
-"zh-TW" = "以嚴謹的技術態度處理審查回饋，而不是表演式地全盤接受。"
-ja = "レビュー指摘には、見せかけの同意ではなく技術的厳密さで対応します。"
-ko = "리뷰 피드백에 표면적인 동의가 아닌 기술적 엄밀함으로 응답합니다."
-es = "Responde al feedback de la revisión con rigor técnico, no con acuerdo performativo."
-de = "Beantwortet Review-Feedback mit technischer Strenge statt mit performativer Zustimmung."
-fr = "Répond aux retours de revue avec rigueur technique plutôt qu'avec un accord de façade."
-pt = "Responde ao feedback de revisão com rigor técnico, não com concordância superficial."
-ar = "يستجيب لملاحظات المراجعة بصرامة تقنية بدلاً من الموافقة الشكلية."
 
 
 [[expert]]
