@@ -877,6 +877,10 @@ pub fn build_router(
             post(handlers::office_tools::officecli_bootstrap),
         )
         .route(
+            "/runtime_bootstrap",
+            post(handlers::runtime_bootstrap::runtime_bootstrap),
+        )
+        .route(
             "/officecli_install",
             post(handlers::office_tools::officecli_install),
         )

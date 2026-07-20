@@ -144,6 +144,7 @@ import type {
   OfficecliInfo,
   OfficecliSkill,
   SkillSyncReport,
+  RuntimeBootstrapReport,
 } from "./types"
 
 export async function listConversations(params?: {
@@ -1034,6 +1035,20 @@ export async function officecliBootstrap(
     { taskId },
     // Includes the installer's 600s backend deadline plus the full skill sync.
     { timeoutMs: 900_000 }
+  )
+}
+
+// ─── Managed runtime bootstrap ───
+
+export async function runtimeBootstrap(
+  taskId: string
+): Promise<RuntimeBootstrapReport> {
+  // Two archives at up to 600s of download budget each, plus extraction;
+  // progress streams separately via `app://runtime-bootstrap` events.
+  return getTransport().call(
+    "runtime_bootstrap",
+    { taskId },
+    { timeoutMs: 1_500_000 }
   )
 }
 

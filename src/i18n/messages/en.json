@@ -3970,6 +3970,8 @@
   "StartupCodex": {
     "checkingTitle": "Preparing the core",
     "checkingDescription": "The runtime is being prepared for first launch. Please wait.",
+    "runtimeTitle": "Preparing the base environment",
+    "runtimeDescription": "Downloading the Node.js and Git runtimes from an accelerated mirror. This only happens on first launch.",
     "installingTitle": "Preparing the core",
     "installingDescription": "The runtime is being prepared for first launch. Please wait.",
     "errorTitle": "Core preparation failed",

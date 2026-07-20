@@ -37,7 +37,8 @@ pub(super) fn managed_node_bin_dir_from_data_root(data_root: &Path) -> Option<Pa
 fn managed_node_bin_dir_from_node_root(node_root: &Path) -> Option<PathBuf> {
     let raw = std::fs::read_to_string(node_root.join("current.json")).ok()?;
     let state: ManagedNodeState = serde_json::from_str(&raw).ok()?;
-    if !valid_version(&state.version) || !matches!(state.platform.as_str(), "win-x64" | "win-arm64")
+    if !valid_version(&state.version)
+        || !matches!(state.platform.as_str(), "win-x64" | "win-arm64" | "win-x86")
     {
         return None;
     }

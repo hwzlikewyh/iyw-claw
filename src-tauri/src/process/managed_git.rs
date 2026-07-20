@@ -13,7 +13,8 @@ pub(super) fn managed_git_bin_dir(data_root: &Path) -> Option<PathBuf> {
     let git_root = data_root.join("runtime").join("git");
     let raw = std::fs::read_to_string(git_root.join("current.json")).ok()?;
     let state: ManagedGitState = serde_json::from_str(&raw).ok()?;
-    if !valid_version(&state.version) || !matches!(state.platform.as_str(), "win-x64" | "win-arm64")
+    if !valid_version(&state.version)
+        || !matches!(state.platform.as_str(), "win-x64" | "win-arm64" | "win-x86")
     {
         return None;
     }

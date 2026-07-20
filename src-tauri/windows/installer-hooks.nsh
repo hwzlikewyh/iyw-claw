@@ -1,11 +1,4 @@
 ; Capture source paths while NSIS includes this file.
-!define IYW_CLAW_INSTALL_MANAGED_NODE_SCRIPT "${__FILEDIR__}\..\..\install-managed-node.ps1"
-!define IYW_CLAW_PREPARE_MANAGED_NODE_SCRIPT "${__FILEDIR__}\..\..\prepare-managed-node.ps1"
-!define IYW_CLAW_INSTALL_MANAGED_GIT_SCRIPT "${__FILEDIR__}\..\..\install-managed-git.ps1"
-!define IYW_CLAW_PREPARE_MANAGED_GIT_SCRIPT "${__FILEDIR__}\..\..\prepare-managed-git.ps1"
-!define IYW_CLAW_MANAGED_NODE_CACHE_DIR "${__FILEDIR__}\..\target\managed-node"
-!define IYW_CLAW_MANAGED_GIT_CACHE_DIR "${__FILEDIR__}\..\target\managed-git"
-
 !define IYW_CLAW_INSTALL_REGISTRY_KEY "Software\iywclaw\iyw-claw"
 !define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
 
@@ -112,61 +105,12 @@ FunctionEnd
 
   ${If} $UpdateMode = 1
     DetailPrint "已保留现有运行环境、配置、数据和日志。"
-    Goto iyw_postinstall_done
+  ${Else}
+    ; Node.js/npm 与 Git 运行环境不再由安装器打包安装：应用首次启动时会在
+    ; 初始化界面通过国内加速镜像自动下载（见 commands/runtime_bootstrap.rs），
+    ; 已存在的环境则直接复用，安装器只负责准备好 runtime 目录结构。
+    DetailPrint "基础运行环境将在应用首次启动时自动准备。"
   ${EndIf}
-
-  ; ARCH is defined by Tauri's generated installer.nsi after this hook is
-  ; included, so resolve architecture-specific assets when this macro expands.
-  !if "${ARCH}" == "x64"
-    !define IYW_CLAW_MANAGED_NODE_VERSION "24.0.0"
-    !define IYW_CLAW_MANAGED_NODE_ASSET "node-v24.0.0-win-x64.zip"
-    !define IYW_CLAW_MANAGED_GIT_ASSET "MinGit-2.55.0.2-64-bit.zip"
-  !else if "${ARCH}" == "arm64"
-    !define IYW_CLAW_MANAGED_NODE_VERSION "24.0.0"
-    !define IYW_CLAW_MANAGED_NODE_ASSET "node-v24.0.0-win-arm64.zip"
-    !define IYW_CLAW_MANAGED_GIT_ASSET "MinGit-2.55.0.2-arm64.zip"
-  !else if "${ARCH}" == "x86"
-    !define IYW_CLAW_MANAGED_NODE_VERSION "22.23.1"
-    !define IYW_CLAW_MANAGED_NODE_ASSET "node-v22.23.1-win-x86.zip"
-    !define IYW_CLAW_MANAGED_GIT_ASSET "MinGit-2.55.0.2-32-bit.zip"
-  !else
-    !error "Unsupported Windows installer architecture: ${ARCH}"
-  !endif
-
-  DetailPrint "正在准备内置 Node.js/npm 运行环境..."
-  !system 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${IYW_CLAW_PREPARE_MANAGED_NODE_SCRIPT}" -Architecture "${ARCH}" -Version "${IYW_CLAW_MANAGED_NODE_VERSION}" -OutputDirectory "${IYW_CLAW_MANAGED_NODE_CACHE_DIR}"' = 0
-  File /oname=$PLUGINSDIR\managed-node.zip "${IYW_CLAW_MANAGED_NODE_CACHE_DIR}\${IYW_CLAW_MANAGED_NODE_ASSET}"
-  File /oname=$PLUGINSDIR\node-shasums.txt "${IYW_CLAW_MANAGED_NODE_CACHE_DIR}\SHASUMS256.txt"
-  File /oname=$PLUGINSDIR\install-managed-node.ps1 "${IYW_CLAW_INSTALL_MANAGED_NODE_SCRIPT}"
-
-  iyw_install_node:
-    nsExec::ExecToLog 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-managed-node.ps1" -Architecture "${ARCH}" -Version "${IYW_CLAW_MANAGED_NODE_VERSION}" -RuntimeRoot "$IywClawRoot\runtime" -ArchivePath "$PLUGINSDIR\managed-node.zip" -ChecksumPath "$PLUGINSDIR\node-shasums.txt" -LogPath "$IywClawRoot\logs\installer.log"'
-    Pop $0
-    StrCmp $0 0 iyw_node_done 0
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
-      "Node.js/npm 运行环境安装失败，错误码：$0。$\r$\n$\r$\n请选择重试或取消安装。" \
-      IDRETRY iyw_install_node
-    Abort
-
-  iyw_node_done:
-    DetailPrint "正在准备内置 Git 运行环境..."
-    !system 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${IYW_CLAW_PREPARE_MANAGED_GIT_SCRIPT}" -Architecture "${ARCH}" -OutputDirectory "${IYW_CLAW_MANAGED_GIT_CACHE_DIR}"' = 0
-    File /oname=$PLUGINSDIR\managed-git.zip "${IYW_CLAW_MANAGED_GIT_CACHE_DIR}\${IYW_CLAW_MANAGED_GIT_ASSET}"
-    File /oname=$PLUGINSDIR\install-managed-git.ps1 "${IYW_CLAW_INSTALL_MANAGED_GIT_SCRIPT}"
-
-  iyw_install_git:
-    nsExec::ExecToLog 'powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\install-managed-git.ps1" -Architecture "${ARCH}" -RuntimeRoot "$IywClawRoot\runtime" -ArchivePath "$PLUGINSDIR\managed-git.zip" -LogPath "$IywClawRoot\logs\installer.log"'
-    Pop $0
-    StrCmp $0 0 iyw_git_done 0
-    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
-      "Git 运行环境安装失败，错误码：$0。$\r$\n$\r$\n请选择重试或取消安装。" \
-      IDRETRY iyw_install_git
-    Abort
-
-  iyw_git_done:
-    DetailPrint "内核运行环境准备完成。"
-
-  iyw_postinstall_done:
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL

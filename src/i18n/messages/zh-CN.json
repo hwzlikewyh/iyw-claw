@@ -3970,6 +3970,8 @@
   "StartupCodex": {
     "checkingTitle": "正在准备内核中",
     "checkingDescription": "首次启动需要准备运行环境，请稍候。",
+    "runtimeTitle": "正在准备基础运行环境",
+    "runtimeDescription": "正在通过国内加速镜像下载 Node.js 与 Git 运行环境，仅首次启动需要。",
     "installingTitle": "正在准备内核中",
     "installingDescription": "首次启动需要准备运行环境，请稍候。",
     "errorTitle": "内核准备失败",

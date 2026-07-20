@@ -695,7 +695,44 @@ pub(crate) fn find_binary_recursive(dir: &PathBuf, name: &str) -> Option<PathBuf
     None
 }
 
+/// Optional accelerator for GitHub release downloads (uv, OpenCode), which
+/// have no first-party mainland-China mirror. When set to a proxy base URL
+/// (e.g. a self-hosted gh-proxy), `<mirror>/<original-url>` is tried before
+/// GitHub itself. Off by default: these archives carry no checksums, so no
+/// third-party proxy is trusted implicitly.
+const GITHUB_MIRROR_ENV: &str = "IYW_CLAW_GITHUB_MIRROR";
+
+fn download_candidates(url: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    if url.starts_with("https://github.com/") {
+        if let Ok(prefix) = std::env::var(GITHUB_MIRROR_ENV) {
+            let prefix = prefix.trim().trim_end_matches('/');
+            if prefix.starts_with("https://") || prefix.starts_with("http://") {
+                candidates.push(format!("{prefix}/{url}"));
+            }
+        }
+    }
+    candidates.push(url.to_string());
+    candidates
+}
+
 async fn download_file_with_progress(
+    url: &str,
+    dest: &PathBuf,
+    on_progress: &impl Fn(&str),
+) -> Result<(), AcpError> {
+    let candidates = download_candidates(url);
+    let (fallbacks, last) = candidates.split_at(candidates.len() - 1);
+    for candidate in fallbacks {
+        match download_file_once(candidate, dest, on_progress).await {
+            Ok(()) => return Ok(()),
+            Err(error) => on_progress(&format!("Mirror download failed, falling back: {error}")),
+        }
+    }
+    download_file_once(&last[0], dest, on_progress).await
+}
+
+async fn download_file_once(
     url: &str,
     dest: &PathBuf,
     on_progress: &impl Fn(&str),

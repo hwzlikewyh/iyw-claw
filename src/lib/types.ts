@@ -2375,6 +2375,41 @@ export interface OfficecliInstallEvent {
   payload: string
 }
 
+// ─── Managed runtime bootstrap (Node.js / Git) ───
+
+export type RuntimeBootstrapEventKind =
+  | "started"
+  | "log"
+  | "progress"
+  | "completed"
+  | "failed"
+
+export type RuntimeBootstrapComponent = "node" | "git"
+
+export interface RuntimeBootstrapEvent {
+  task_id: string
+  kind: RuntimeBootstrapEventKind
+  component: RuntimeBootstrapComponent | null
+  percent: number | null
+  payload: string
+}
+
+export type RuntimeComponentStatus =
+  | "ready"
+  | "installed"
+  | "skipped"
+  | "failed"
+
+export interface RuntimeComponentReport {
+  status: RuntimeComponentStatus
+  detail: string | null
+}
+
+export interface RuntimeBootstrapReport {
+  node: RuntimeComponentReport
+  git: RuntimeComponentReport
+}
+
 // ─── Chat Channels ───
 
 export type ChannelType = "lark" | "telegram" | "weixin"
