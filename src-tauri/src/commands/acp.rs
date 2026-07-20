@@ -1069,6 +1069,8 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
         "web_search_tool_type": "text",
         "truncation_policy": { "mode": "tokens", "limit": 10000 },
         "supports_parallel_tool_calls": true,
+        // Enables Codex ACP transport; the online model catalog still gates UI exposure.
+        "additional_speed_tiers": ["fast"],
         "context_window": CODEX_MODEL_CONTEXT_WINDOW,
         "effective_context_window_percent": 95,
         "experimental_supported_tools": []
@@ -9000,6 +9002,15 @@ pub(crate) async fn codex_poll_device_code_core(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_model_catalog_enables_fast_response_tier() {
+        let entry = codex_model_catalog_entry("gpt-5.4", 0);
+        assert_eq!(
+            entry.get("additional_speed_tiers"),
+            Some(&serde_json::json!(["fast"]))
+        );
+    }
 
     #[test]
     fn grok_agent_settings_use_native_environment_keys() {

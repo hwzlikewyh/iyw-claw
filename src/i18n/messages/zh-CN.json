@@ -2362,6 +2362,10 @@
               "name": "推理强度",
               "description": "调整模型在回复前的思考深度。"
             },
+            "responseMode": {
+              "name": "响应模式",
+              "description": "选择模型的响应速度。"
+            },
             "webSearch": {
               "name": "联网搜索",
               "description": "允许智能体在需要时使用网络搜索。"
@@ -2406,6 +2410,16 @@
               "xhigh": {
                 "name": "极高",
                 "description": "使用最高推理深度。"
+              }
+            },
+            "responseMode": {
+              "standard": {
+                "name": "标准",
+                "description": "模型标准响应速度"
+              },
+              "fast": {
+                "name": "Fast",
+                "description": "模型快速响应模式（会产生额外消耗）"
               }
             },
             "switch": {

@@ -15,6 +15,8 @@ export interface GatewayModel {
   description: string | null
   efforts: string[]
   defaultEffort: string | null
+  fastModeSupported: boolean
+  fastModeDefaultEnabled: boolean
 }
 
 export interface GatewayModelPayloadCache {
@@ -61,6 +63,10 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
     reasoning.default_effort.trim()
       ? reasoning.default_effort.trim()
       : null
+  const fastMode =
+    raw.fast_mode && typeof raw.fast_mode === "object"
+      ? (raw.fast_mode as Record<string, unknown>)
+      : {}
   return {
     id,
     name:
@@ -73,6 +79,8 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
         : null,
     efforts,
     defaultEffort,
+    fastModeSupported: fastMode.supported === true,
+    fastModeDefaultEnabled: fastMode.default_enabled === true,
   }
 }
 
@@ -207,6 +215,42 @@ function buildEffortOption(
   }
 }
 
+const FAST_MODE_CONFIG_IDS: Partial<Record<AgentType, string>> = {
+  codex: "fast-mode",
+  claude_code: "fast",
+}
+
+function buildFastModeOption(
+  selected: GatewayModel,
+  agentType: AgentType,
+  configuredValue: string | undefined
+): SessionConfigOptionInfo | null {
+  if (!selected.fastModeSupported) return null
+  const id = FAST_MODE_CONFIG_IDS[agentType]
+  if (!id) return null
+  const current =
+    configuredValue === "on" || configuredValue === "off"
+      ? configuredValue
+      : selected.fastModeDefaultEnabled
+        ? "on"
+        : "off"
+  return {
+    id,
+    name: "Fast mode",
+    description: "Choose the response speed for this session.",
+    category: "model_config",
+    kind: {
+      type: "select",
+      current_value: current,
+      options: [
+        selectOption("off", "Off", "Standard response speed"),
+        selectOption("on", "Fast", "Faster responses with additional usage"),
+      ],
+      groups: [],
+    },
+  }
+}
+
 export function buildAgentOptionsSnapshot(
   agentType: AgentType,
   models: GatewayModel[],
@@ -219,6 +263,12 @@ export function buildAgentOptionsSnapshot(
     configOptions.push(buildModelOption(selected, models))
     const effort = buildEffortOption(selected, configValues.reasoning_effort)
     if (effort) configOptions.push(effort)
+    const fastMode = buildFastModeOption(
+      selected,
+      agentType,
+      configValues[FAST_MODE_CONFIG_IDS[agentType] ?? ""]
+    )
+    if (fastMode) configOptions.push(fastMode)
   }
   return {
     modes: getAgentModeState(agentType),
@@ -234,7 +284,13 @@ export function reconcileModelConfigValues(
   const model = snapshot.config_options.find((option) => option.id === "model")
   if (!model) return configValues
   const next = { ...configValues }
-  for (const id of ["model", "reasoning_effort"]) {
+  for (const id of [
+    "model",
+    "reasoning_effort",
+    "fast-mode",
+    "fast",
+    "fast_mode",
+  ]) {
     const option = snapshot.config_options.find((item) => item.id === id)
     if (!option) {
       delete next[id]

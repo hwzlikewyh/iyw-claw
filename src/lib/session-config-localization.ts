@@ -6,7 +6,13 @@ import { isModelConfigOption } from "@/lib/model-config-groups"
 
 export type SessionConfigTranslator = (key: string) => string
 
-type ConfigDomain = "mode" | "model" | "reasoning" | "webSearch" | "switch"
+type ConfigDomain =
+  | "mode"
+  | "model"
+  | "reasoning"
+  | "responseMode"
+  | "webSearch"
+  | "switch"
 
 interface LocalizedValue {
   name: string
@@ -45,6 +51,14 @@ const SWITCH_VALUE_KEYS: Record<string, string> = {
   disabled: "off",
 }
 
+const RESPONSE_MODE_VALUE_KEYS: Record<string, string> = {
+  off: "standard",
+  default: "standard",
+  standard: "standard",
+  on: "fast",
+  fast: "fast",
+}
+
 function translateOrFallback(
   t: SessionConfigTranslator,
   key: string,
@@ -72,6 +86,14 @@ function optionDomain(option: SessionConfigOptionInfo): ConfigDomain | null {
 
   if (id === "mode" || category === "mode" || lookup.includes("approval")) {
     return "mode"
+  }
+  if (
+    id === "fast-mode" ||
+    id === "fast" ||
+    id === "fast_mode" ||
+    lookup.includes("fast mode")
+  ) {
+    return "responseMode"
   }
   if (
     category === "thought_level" ||
@@ -133,6 +155,14 @@ function switchValueKey(option: SessionConfigSelectOptionInfo): string | null {
   return SWITCH_VALUE_KEYS[normalized(option.name)] ?? null
 }
 
+function responseModeValueKey(
+  option: SessionConfigSelectOptionInfo
+): string | null {
+  const byValue = RESPONSE_MODE_VALUE_KEYS[normalized(option.value)]
+  if (byValue) return byValue
+  return RESPONSE_MODE_VALUE_KEYS[normalized(option.name)] ?? null
+}
+
 function localizeValue(
   option: SessionConfigSelectOptionInfo,
   domain: ConfigDomain | null,
@@ -171,6 +201,26 @@ function localizeValue(
           ? translateOrFallback(
               t,
               `sessionConfig.values.reasoning.${key}.description`,
+              option.description
+            )
+          : option.description,
+      }
+    }
+  }
+
+  if (domain === "responseMode") {
+    const key = responseModeValueKey(option)
+    if (key) {
+      return {
+        name: translateOrFallback(
+          t,
+          `sessionConfig.values.responseMode.${key}.name`,
+          option.name
+        ),
+        description: option.description
+          ? translateOrFallback(
+              t,
+              `sessionConfig.values.responseMode.${key}.description`,
               option.description
             )
           : option.description,

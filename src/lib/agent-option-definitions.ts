@@ -36,6 +36,8 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     description: "通用对话、复杂推理、代码生成和工具调用",
     efforts: ["minimal", "low", "medium", "high", "xhigh"],
     defaultEffort: "high",
+    fastModeSupported: false,
+    fastModeDefaultEnabled: false,
   },
   {
     id: "claude-opus-4-6",
@@ -43,6 +45,8 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     description: "复杂推理、长上下文分析和高质量代码生成",
     efforts: ["low", "medium", "high"],
     defaultEffort: "high",
+    fastModeSupported: false,
+    fastModeDefaultEnabled: false,
   },
   {
     id: "deepseek-v4-pro",
@@ -50,6 +54,8 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     description: "深度推理、代码生成和多步骤工具调用",
     efforts: ["low", "medium", "high", "xhigh"],
     defaultEffort: "high",
+    fastModeSupported: false,
+    fastModeDefaultEnabled: false,
   },
   {
     id: "deepseek-v4-flash",
@@ -57,6 +63,8 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     description: "低延迟对话、快速推理和常规代码任务",
     efforts: ["low", "medium", "high"],
     defaultEffort: "medium",
+    fastModeSupported: false,
+    fastModeDefaultEnabled: false,
   },
   {
     id: "doubao-seed-2-1-pro-260628",
@@ -64,6 +72,8 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     description: "通用对话、内容生成和工具调用",
     efforts: ["minimal", "low", "medium", "high"],
     defaultEffort: "medium",
+    fastModeSupported: false,
+    fastModeDefaultEnabled: false,
   },
   {
     id: "gemini-3.1-pro-preview",
@@ -71,6 +81,8 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     description: "长文本理解、复杂分析和多模态扩展",
     efforts: ["low", "medium", "high"],
     defaultEffort: "high",
+    fastModeSupported: false,
+    fastModeDefaultEnabled: false,
   },
   {
     id: "qwen3.7-max",
@@ -78,6 +90,8 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     description: "中文对话、知识问答、推理和代码生成",
     efforts: ["low", "medium", "high"],
     defaultEffort: "high",
+    fastModeSupported: false,
+    fastModeDefaultEnabled: false,
   },
 ]
 

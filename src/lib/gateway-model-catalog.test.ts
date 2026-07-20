@@ -27,6 +27,10 @@ describe("gateway model catalog", () => {
             efforts: ["low", "high"],
             default_effort: "high",
           },
+          fast_mode: {
+            supported: true,
+            default_enabled: true,
+          },
         },
         {
           id: "online-beta",
@@ -42,6 +46,8 @@ describe("gateway model catalog", () => {
         description: "Primary online model",
         efforts: ["low", "high"],
         defaultEffort: "high",
+        fastModeSupported: true,
+        fastModeDefaultEnabled: true,
       },
       {
         id: "online-beta",
@@ -49,6 +55,8 @@ describe("gateway model catalog", () => {
         description: null,
         efforts: [],
         defaultEffort: null,
+        fastModeSupported: false,
+        fastModeDefaultEnabled: false,
       },
     ])
   })
@@ -128,6 +136,51 @@ describe("gateway model catalog", () => {
     expect(model?.kind.current_value).toBe("online-beta")
   })
 
+  it("builds agent-specific Fast mode only when the online model supports it", () => {
+    const models = parseGatewayModels({
+      data: [
+        {
+          id: "fast-model",
+          fast_mode: { supported: true, default_enabled: true },
+        },
+        {
+          id: "standard-model",
+          fast_mode: { supported: false, default_enabled: false },
+        },
+      ],
+    })
+
+    const codex = buildAgentOptionsSnapshot("codex", models, {
+      model: "fast-model",
+    })
+    const claude = buildAgentOptionsSnapshot("claude_code", models, {
+      model: "fast-model",
+      fast: "off",
+    })
+    const unsupported = buildAgentOptionsSnapshot("codex", models, {
+      model: "standard-model",
+      "fast-mode": "on",
+    })
+    const unsupportedAgent = buildAgentOptionsSnapshot("open_claw", models, {
+      model: "fast-model",
+    })
+
+    expect(
+      codex.config_options.find((option) => option.id === "fast-mode")?.kind
+    ).toMatchObject({ current_value: "on" })
+    expect(
+      claude.config_options.find((option) => option.id === "fast")?.kind
+    ).toMatchObject({ current_value: "off" })
+    expect(
+      unsupported.config_options.some((option) => option.id === "fast-mode")
+    ).toBe(false)
+    expect(
+      unsupportedAgent.config_options.some((option) =>
+        ["fast-mode", "fast", "fast_mode"].includes(option.id)
+      )
+    ).toBe(false)
+  })
+
   it("drops stale reasoning settings when the online model changes", () => {
     const models = parseGatewayModels({
       data: [
@@ -149,5 +202,27 @@ describe("gateway model catalog", () => {
         reasoning_effort: "high",
       })
     ).toEqual({ model: "plain-model" })
+  })
+
+  it("drops a stale Fast mode setting when the selected model disables it", () => {
+    const models = parseGatewayModels({
+      data: [
+        {
+          id: "standard-model",
+          fast_mode: { supported: false, default_enabled: false },
+        },
+      ],
+    })
+    const snapshot = buildAgentOptionsSnapshot("codex", models, {
+      model: "standard-model",
+      "fast-mode": "on",
+    })
+
+    expect(
+      reconcileModelConfigValues(snapshot, {
+        model: "standard-model",
+        "fast-mode": "on",
+      })
+    ).toEqual({ model: "standard-model" })
   })
 })

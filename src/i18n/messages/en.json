@@ -2362,6 +2362,10 @@
               "name": "Reasoning effort",
               "description": "Adjust how deeply the model reasons before responding."
             },
+            "responseMode": {
+              "name": "Response mode",
+              "description": "Choose how quickly the model responds."
+            },
             "webSearch": {
               "name": "Web search",
               "description": "Allow the agent to use web search when needed."
@@ -2406,6 +2410,16 @@
               "xhigh": {
                 "name": "Extra high",
                 "description": "Use maximum reasoning depth."
+              }
+            },
+            "responseMode": {
+              "standard": {
+                "name": "Standard",
+                "description": "Standard model response speed"
+              },
+              "fast": {
+                "name": "Fast",
+                "description": "Faster model responses with additional usage"
               }
             },
             "switch": {

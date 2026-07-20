@@ -5,6 +5,10 @@ import { Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { ModelOptionList } from "@/components/chat/model-option-list"
+import {
+  hasSessionConfigValueIcon,
+  SessionConfigValueIcon,
+} from "@/components/chat/session-config-value-icon"
 
 // One selectable value within a setting (e.g. a single model or mode).
 export interface SessionSelectorOption {
@@ -160,6 +164,7 @@ export function SessionSelectorsPanel({
               ) : null}
               {group.options.map((opt) => {
                 const selected = opt.value === active.currentValue
+                const showValueIcon = hasSessionConfigValueIcon(active.key)
                 return (
                   <button
                     key={`${group.key}-${opt.value}`}
@@ -177,12 +182,22 @@ export function SessionSelectorsPanel({
                     )}
                   >
                     <span className="flex size-4 shrink-0 items-center justify-center pt-0.5">
-                      {selected ? <Check className="size-4" /> : null}
+                      {showValueIcon ? (
+                        <SessionConfigValueIcon
+                          configId={active.key}
+                          value={opt.value}
+                        />
+                      ) : selected ? (
+                        <Check className="size-4" />
+                      ) : null}
                     </span>
                     <DropdownRadioItemContent
                       label={opt.name}
                       description={opt.description}
                     />
+                    {showValueIcon && selected ? (
+                      <Check className="mt-0.5 size-4 shrink-0" />
+                    ) : null}
                   </button>
                 )
               })}

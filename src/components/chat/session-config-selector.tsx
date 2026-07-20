@@ -13,6 +13,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
+import {
+  hasSessionConfigValueIcon,
+  SessionConfigValueIcon,
+} from "@/components/chat/session-config-value-icon"
 import type { ModelOptionGroup } from "@/lib/model-config-groups"
 import type { SessionConfigOptionInfo } from "@/lib/types"
 
@@ -103,6 +107,14 @@ export function InlineSessionConfigSelector({
                       value={item.value}
                       title={item.name}
                     >
+                      {hasSessionConfigValueIcon(option.id) ? (
+                        <span className="flex size-4 shrink-0 items-center justify-center">
+                          <SessionConfigValueIcon
+                            configId={option.id}
+                            value={item.value}
+                          />
+                        </span>
+                      ) : null}
                       <DropdownRadioItemContent
                         label={item.name}
                         description={item.description}
@@ -117,6 +129,14 @@ export function InlineSessionConfigSelector({
                   value={item.value}
                   title={item.name}
                 >
+                  {hasSessionConfigValueIcon(option.id) ? (
+                    <span className="flex size-4 shrink-0 items-center justify-center">
+                      <SessionConfigValueIcon
+                        configId={option.id}
+                        value={item.value}
+                      />
+                    </span>
+                  ) : null}
                   <DropdownRadioItemContent
                     label={item.name}
                     description={item.description}
