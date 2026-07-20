@@ -1460,11 +1460,18 @@ fn validate_companion_capabilities(raw: &str) -> Result<(), String> {
     if manifest["protocol_version"] != 1 {
         return Err("unsupported companion protocol version".into());
     }
-    let has_show_image = manifest["tools"]
+    let tools = manifest["tools"]
         .as_array()
-        .is_some_and(|tools| tools.iter().any(|tool| tool == "show_image"));
-    if !has_show_image {
-        return Err("show_image capability is missing".into());
+        .ok_or_else(|| "companion tools manifest is missing".to_string())?;
+    let expected = crate::acp::delegation::companion::binary_capabilities();
+    let expected_tools = expected["tools"]
+        .as_array()
+        .ok_or_else(|| "built-in companion tools manifest is invalid".to_string())?;
+    for required in expected_tools {
+        if !tools.contains(required) {
+            let name = required.as_str().unwrap_or("unknown");
+            return Err(format!("{name} capability is missing"));
+        }
     }
     Ok(())
 }
@@ -1560,7 +1567,8 @@ async fn inject_iyw_claw_mcp(
         tracing::warn!(
             "[delegation][WARN] iyw-claw-mcp companion binary not found (checked IYW_CLAW_MCP_BIN, \
              exe sibling, and PATH); skipping delegate_to_agent / check_user_feedback / \
-             ask_user_question / get_session_info / show_image tool injection for connection \
+             ask_user_question / get_session_info / show_image / append_user_memory tool \
+             injection for connection \
              {parent_connection_id}. Reinstall iyw-claw or set IYW_CLAW_MCP_BIN to fix."
         );
         return None;

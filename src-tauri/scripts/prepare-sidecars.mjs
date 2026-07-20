@@ -84,12 +84,21 @@ function resolveHostTriple() {
   }
 }
 
-export function resolveBundleCompatPaths(srcTauri, target, ext) {
+export function resolveBundleCompatPaths(
+  srcTauri,
+  target,
+  ext,
+  hostTarget
+) {
   const fileName = `${CARGO_BIN_NAME}${ext}`
-  return [
+  const paths = [
     join(srcTauri, "target", "release", fileName),
     join(srcTauri, "target", target, "release", fileName),
   ]
+  if (target === hostTarget) {
+    paths.unshift(join(srcTauri, "target", "debug", `${BIN_NAME}${ext}`))
+  }
+  return paths
 }
 
 export function resolveBuildInvocation(srcTauri, target, ext) {
@@ -258,17 +267,20 @@ async function main() {
   }
 
   const { target: cliTarget, uvOnly } = parseArgs(process.argv.slice(2))
-  const target =
-    cliTarget || process.env.TAURI_TARGET_TRIPLE || resolveHostTriple()
+  const configuredTarget = cliTarget || process.env.TAURI_TARGET_TRIPLE
+  if (uvOnly) {
+    const target = configuredTarget || resolveHostTriple()
+    log(`target triple: ${target}`)
+    await stageUvSidecars(target, target.includes("windows"))
+    return
+  }
+
+  const hostTarget = resolveHostTriple()
+  const target = configuredTarget || hostTarget
   const isWindows = target.includes("windows")
   const ext = isWindows ? ".exe" : ""
 
   log(`target triple: ${target}`)
-  if (uvOnly) {
-    await stageUvSidecars(target, isWindows)
-    return
-  }
-
   log(
     `building ${BIN_NAME} (--release --no-default-features --features mcp-runtime)`
   )
@@ -297,7 +309,12 @@ async function main() {
   // Tauri CLI 2.10 resolves Cargo target names with underscores while
   // tauri-build preserves the externalBin filename with hyphens. Stage both
   // possible Cargo output layouts so the bundler can inspect the sidecar.
-  for (const compatPath of resolveBundleCompatPaths(SRC_TAURI, target, ext)) {
+  for (const compatPath of resolveBundleCompatPaths(
+    SRC_TAURI,
+    target,
+    ext,
+    hostTarget
+  )) {
     const aliasChanged = copyFileIfChanged(built, compatPath)
     if (!isWindows) {
       chmodSync(compatPath, 0o755)
