@@ -84,6 +84,32 @@ pub async fn route_natural_message(
         return NaturalRouteDecision::SearchHistory { keyword };
     }
 
+    // Agent-judged routing: for a fresh message with no session context, let
+    // the managed LLM router pick the folder and agent from the message
+    // itself (zero user commands). Runs whenever the app is signed in (the
+    // router rides the built-in model gateway); any error or low-confidence
+    // verdict falls through to the deterministic heuristics below.
+    let channel_agent = channel_default_agent(db, channel_id).await;
+    match super::natural_router_config::get_runtime_config(db).await {
+        Ok(Some(config)) => {
+            match super::llm_router::route_with_llm(db, &config, trimmed, lang, channel_agent)
+                .await
+            {
+                Ok(Some(decision)) => return decision,
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        "[ChatChannel] llm router unavailable, using heuristics: {error}"
+                    );
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!("[ChatChannel] llm router config load failed: {error}");
+        }
+    }
+
     if let Some(decision) =
         start_task_from_available_context(db, channel_id, sender_id, trimmed, &normalized).await
     {
@@ -100,6 +126,23 @@ pub fn agent_type_to_wire(agent_type: AgentType) -> String {
         .ok()
         .and_then(|v| v.as_str().map(String::from))
         .unwrap_or_else(|| "codex".to_string())
+}
+
+/// The agent configured on the channel itself (settings → 消息渠道 → 默认
+/// Agent, stored as `default_agent_type` inside the channel's config JSON).
+/// Sits between the sender's explicit `/agent` choice and the folder default
+/// in the resolution chain.
+pub async fn channel_default_agent(
+    db: &DatabaseConnection,
+    channel_id: i32,
+) -> Option<AgentType> {
+    let channel = crate::db::service::chat_channel_service::get_by_id(db, channel_id)
+        .await
+        .ok()
+        .flatten()?;
+    let config: serde_json::Value = serde_json::from_str(&channel.config_json).ok()?;
+    let value = config.get("default_agent_type")?.as_str()?;
+    parse_agent_type(value)
 }
 
 async fn has_active_session(
@@ -222,7 +265,12 @@ async fn start_task_from_available_context(
             .await
             .ok();
         ctx.and_then(|ctx| ctx.current_folder_id)
-            .or_else(|| (folders.len() == 1).then_some(folders[0].id))?
+            // Zero-friction IM chat: when nothing resolves explicitly, fall
+            // back to the most recently opened workspace instead of asking
+            // the user to run /folder first (`available_folders` is ordered
+            // most-recent-first). The task reply names the folder, so a wrong
+            // guess is visible and correctable via /folder.
+            .or_else(|| folders.first().map(|folder| folder.id))?
     };
 
     let folder = folder_service::get_folder_by_id(db, folder_id)
@@ -233,8 +281,10 @@ async fn start_task_from_available_context(
         .await
         .ok()
         .and_then(|ctx| ctx.current_agent_type);
+    let channel_agent = channel_default_agent(db, channel_id).await;
     let agent_type = infer_agent_type(task)
         .or_else(|| sender_agent.as_deref().and_then(parse_agent_type))
+        .or(channel_agent)
         .or(folder.default_agent_type)
         .unwrap_or(AgentType::Codex);
 
@@ -482,7 +532,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn asks_for_new_command_when_multiple_workspaces_exist() {
+    async fn starts_task_in_most_recent_workspace_when_multiple_exist() {
         let db = fresh_in_memory_db().await;
         crate::db::test_helpers::seed_folder(&db, "D:/projects/alpha").await;
         crate::db::test_helpers::seed_folder(&db, "D:/projects/beta").await;
@@ -491,10 +541,11 @@ mod tests {
         let decision =
             route_natural_message(&db.conn, &bridge, 1, "user-a", "帮我修一下", Lang::ZhCn).await;
 
+        // Command-free chat: plain text must start a task (in the most
+        // recently opened workspace) rather than ask the user to run /new.
         assert!(matches!(
             decision,
-            NaturalRouteDecision::AskClarification { ref message }
-                if message.contains("/new")
+            NaturalRouteDecision::StartTask { .. }
         ));
     }
 

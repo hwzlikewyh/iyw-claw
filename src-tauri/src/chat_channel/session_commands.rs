@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 use super::i18n::{self, Lang};
 use super::manager::ChatChannelManager;
+use super::natural_router;
 use super::session_bridge::{ActiveSession, SessionBridge};
 pub use super::session_dispatch::{
     handle_post_action, CommandMessageResult, CommandPostAction, SessionCommandMessage,
@@ -305,8 +306,14 @@ pub async fn handle_task(
         }
     };
 
-    // 3. Resolve agent type
-    let agent_type = match resolve_agent_type(&ctx.current_agent_type, &folder.default_agent_type) {
+    // 3. Resolve agent type: sender's explicit /agent choice → channel's
+    // configured default agent → folder default.
+    let channel_agent = natural_router::channel_default_agent(db, channel_id).await;
+    let agent_type = match resolve_agent_type(
+        &ctx.current_agent_type,
+        channel_agent,
+        &folder.default_agent_type,
+    ) {
         Some(at) => at,
         None => {
             return CommandMessageResult::current(
@@ -1323,6 +1330,7 @@ fn parse_agent_type(name: &str) -> Option<AgentType> {
 
 fn resolve_agent_type(
     sender_agent: &Option<String>,
+    channel_default: Option<AgentType>,
     folder_default: &Option<AgentType>,
 ) -> Option<AgentType> {
     if let Some(ref at_str) = sender_agent {
@@ -1330,7 +1338,7 @@ fn resolve_agent_type(
             return Some(at);
         }
     }
-    folder_default.as_ref().copied()
+    channel_default.or_else(|| folder_default.as_ref().copied())
 }
 
 fn truncate_title(s: &str) -> String {
@@ -1355,6 +1363,24 @@ mod tests {
     use std::sync::Arc;
     use std::time::Instant;
     use tokio::sync::Mutex;
+
+    #[test]
+    fn resolve_agent_type_prefers_sender_then_channel_then_folder() {
+        let sender = Some("gemini".to_string());
+        assert_eq!(
+            resolve_agent_type(&sender, Some(AgentType::Codex), &Some(AgentType::ClaudeCode)),
+            Some(AgentType::Gemini)
+        );
+        assert_eq!(
+            resolve_agent_type(&None, Some(AgentType::Codex), &Some(AgentType::ClaudeCode)),
+            Some(AgentType::Codex)
+        );
+        assert_eq!(
+            resolve_agent_type(&None, None, &Some(AgentType::ClaudeCode)),
+            Some(AgentType::ClaudeCode)
+        );
+        assert_eq!(resolve_agent_type(&None, None, &None), None);
+    }
 
     #[tokio::test]
     async fn approving_permission_responds_to_agent_without_channel_reply() {

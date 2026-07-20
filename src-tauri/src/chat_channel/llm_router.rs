@@ -58,6 +58,7 @@ pub async fn route_with_llm(
     config: &ChatNaturalRouterRuntimeConfig,
     text: &str,
     lang: Lang,
+    channel_default_agent: Option<AgentType>,
 ) -> Result<Option<NaturalRouteDecision>, AppCommandError> {
     let context = build_router_context(db, text, lang).await?;
     if context.folders.is_empty() {
@@ -67,7 +68,13 @@ pub async fn route_with_llm(
     }
 
     let output = call_chat_completions(config, &context).await?;
-    let decision = validate_llm_output(&output, &context, config.min_confidence, lang);
+    let decision = validate_llm_output(
+        &output,
+        &context,
+        config.min_confidence,
+        lang,
+        channel_default_agent,
+    );
 
     tracing::info!(
         "[ChatChannel] llm natural route action={:?} confidence={} reason={:?} accepted={}",
@@ -294,6 +301,7 @@ pub fn validate_llm_output(
     context: &RouterContext,
     min_confidence: f32,
     lang: Lang,
+    channel_default_agent: Option<AgentType>,
 ) -> Option<NaturalRouteDecision> {
     if !output.confidence.is_finite() || output.confidence < min_confidence {
         return None;
@@ -304,8 +312,11 @@ pub fn validate_llm_output(
             let task = non_empty(output.task.as_deref())?;
             let folder_id = output.folder_id?;
             let folder = context.folders.iter().find(|f| f.id == folder_id)?;
+            // LLM's explicit pick → channel default → folder default → Codex,
+            // mirroring the deterministic router's chain.
             let agent_type = output
                 .agent_type
+                .or(channel_default_agent)
                 .or(folder.default_agent_type)
                 .unwrap_or(AgentType::Codex);
             Some(NaturalRouteDecision::StartTask {
@@ -430,11 +441,22 @@ mod tests {
         };
 
         assert_eq!(
-            validate_llm_output(&output, &context(), 0.72, Lang::ZhCn),
+            validate_llm_output(&output, &context(), 0.72, Lang::ZhCn, None),
             Some(NaturalRouteDecision::StartTask {
                 task: "帮我修测试".to_string(),
                 folder_id: 7,
                 agent_type: AgentType::ClaudeCode,
+            })
+        );
+
+        // The channel-level default agent outranks the folder default when
+        // the LLM leaves the agent unspecified.
+        assert_eq!(
+            validate_llm_output(&output, &context(), 0.72, Lang::ZhCn, Some(AgentType::Gemini)),
+            Some(NaturalRouteDecision::StartTask {
+                task: "帮我修测试".to_string(),
+                folder_id: 7,
+                agent_type: AgentType::Gemini,
             })
         );
     }
@@ -451,11 +473,11 @@ mod tests {
             message: None,
             reason: None,
         };
-        assert!(validate_llm_output(&output, &context(), 0.72, Lang::ZhCn).is_none());
+        assert!(validate_llm_output(&output, &context(), 0.72, Lang::ZhCn, None).is_none());
 
         output.confidence = 0.9;
         output.folder_id = Some(99);
-        assert!(validate_llm_output(&output, &context(), 0.72, Lang::ZhCn).is_none());
+        assert!(validate_llm_output(&output, &context(), 0.72, Lang::ZhCn, None).is_none());
     }
 
     #[test]
