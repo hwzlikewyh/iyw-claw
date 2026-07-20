@@ -54,6 +54,9 @@ pub struct AppState {
     /// the session-info settings command on save. Populated at startup by
     /// `apply_persisted_session_info_config`.
     pub session_info_config: crate::acp::session_info::SessionInfoRuntimeConfig,
+    /// Canonical backend-owned user memory/profile/soul store. The settings
+    /// API, launch-context snapshots, and Agent append tool all share it.
+    pub user_memory: Arc<crate::user_memory::UserMemoryService>,
     /// Serializes mutually-exclusive system operations — in-place
     /// self-update, restart, rollback — so a second click can't race a
     /// download/swap already in flight. Handlers `try_lock` and reject when
@@ -188,6 +191,11 @@ impl AppState {
         let emitter = EventEmitter::web_only(broadcaster.clone(), acp_event_bus.clone());
 
         let connection_manager = default_connection_manager();
+        let user_memory = Arc::new(crate::user_memory::UserMemoryService::new(
+            db.conn.clone(),
+            data_dir.clone(),
+        ));
+        connection_manager.install_user_memory(user_memory.clone());
         let (
             delegation_broker,
             delegation_tokens,
@@ -218,6 +226,7 @@ impl AppState {
             feedback_config,
             question_config,
             session_info_config,
+            user_memory,
             system_op_lock: default_system_op_lock(),
             update_state: default_update_state(),
         }

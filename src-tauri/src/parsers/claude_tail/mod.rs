@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 
-use crate::models::{ContentBlock, MessageRole, MessageTurn, UnifiedMessage};
+use crate::models::{ContentBlock, MessageRole, MessageTurn, TurnRole, UnifiedMessage};
 use crate::parsers::claude::{
     is_meta_message, is_slash_command_expansion, slash_command_value_display,
 };
@@ -95,6 +95,7 @@ impl ClaudeTailAccumulator {
         crate::parsers::relocate_orphaned_tool_results(&mut turns);
         crate::parsers::structurize_read_tool_output(&mut turns);
         crate::parsers::resolve_patch_line_numbers(&mut turns, cwd);
+        strip_private_user_context_from_turns(&mut turns);
         turns
     }
 
@@ -136,7 +137,8 @@ impl ClaudeTailAccumulator {
     fn observe_metadata(&mut self, value: &serde_json::Value, record_type: &str) {
         if record_type == "ai-title" {
             if let Some(title) = value.get("aiTitle").and_then(|title| title.as_str()) {
-                let title = title.trim();
+                let visible = crate::user_memory::strip_user_context(title);
+                let title = visible.trim();
                 if !title.is_empty() {
                     self.ai_title = Some(crate::parsers::truncate_str(title, 100));
                 }
@@ -162,4 +164,23 @@ impl ClaudeTailAccumulator {
         }
         self.metadata.last_timestamp = Some(timestamp);
     }
+}
+
+pub(super) fn strip_private_user_context_from_content(content: &mut Vec<ContentBlock>) {
+    content.retain_mut(|block| match block {
+        ContentBlock::Text { text } => {
+            *text = crate::user_memory::strip_user_context(text);
+            !text.trim().is_empty()
+        }
+        _ => true,
+    });
+}
+
+fn strip_private_user_context_from_turns(turns: &mut Vec<MessageTurn>) {
+    for turn in turns.iter_mut() {
+        if matches!(turn.role, TurnRole::User) {
+            strip_private_user_context_from_content(&mut turn.blocks);
+        }
+    }
+    turns.retain(|turn| !matches!(turn.role, TurnRole::User) || !turn.blocks.is_empty());
 }

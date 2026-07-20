@@ -824,6 +824,10 @@ pub(crate) async fn do_start_web_server_tauri(
             .state::<crate::acp::session_info::SessionInfoRuntimeConfig>()
             .inner()
             .clone(),
+        user_memory: app
+            .state::<Arc<crate::user_memory::UserMemoryService>>()
+            .inner()
+            .clone(),
         system_op_lock: crate::app_state::default_system_op_lock(),
         // Reuse the same handle the desktop `app_update` commands write to so
         // HTTP and webview readers see the identical update snapshot.

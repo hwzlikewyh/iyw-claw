@@ -183,6 +183,15 @@ pub struct BrokerSessionRequest {
     pub max_messages: Option<u32>,
 }
 
+/// Append one Agent-proposed entry to the user's append-only memory document.
+/// The listener derives the Agent type and write authorization from `token`; the
+/// companion cannot choose a document, path, or identity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrokerMemoryAppendRequest {
+    pub token: String,
+    pub content: String,
+}
+
 /// Tagged top-level message dispatched by the listener. Adding new variants
 /// is the wire-stable way to grow the broker protocol without touching the
 /// frame layer.
@@ -197,6 +206,7 @@ pub enum BrokerMessage {
     CommitFeedback(BrokerCommitFeedbackRequest),
     Ask(BrokerAskRequest),
     SessionInfo(BrokerSessionRequest),
+    MemoryAppend(BrokerMemoryAppendRequest),
 }
 
 /// The wrapped outcome the main process returns over the same socket.
@@ -346,6 +356,16 @@ pub async fn client_session_round_trip(
     message_round_trip(socket_path, &BrokerMessage::SessionInfo(req.clone())).await
 }
 
+/// Append one durable user-memory entry through the authenticated main-process
+/// service. The response is a serialized `UserMemoryAppendResult`, or an
+/// `{ "error": ... }` envelope when the token is invalid or write-disabled.
+pub async fn client_memory_append_round_trip(
+    socket_path: &str,
+    req: &BrokerMemoryAppendRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::MemoryAppend(req.clone())).await
+}
+
 /// Total budget for `open()` retries on Windows named pipes. Has to be
 /// short enough that it nests comfortably inside the companion's
 /// `BROKER_CANCEL_BUDGET` (500 ms) — leaving ≥ 300 ms for the actual
@@ -468,6 +488,18 @@ mod tests {
             }
             other => panic!("expected SessionInfo variant, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn memory_append_message_tag_round_trips() {
+        let wire = json!({
+            "kind": "memory_append",
+            "token": "tok",
+            "content": "User prefers concise answers"
+        });
+        let message: BrokerMessage =
+            serde_json::from_value(wire.clone()).expect("memory_append should decode");
+        assert_eq!(serde_json::to_value(message).unwrap(), wire);
     }
 
     #[tokio::test]

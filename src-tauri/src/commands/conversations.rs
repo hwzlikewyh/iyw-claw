@@ -499,7 +499,7 @@ pub async fn get_folder_conversation_core(
         .await
         .map_err(AppCommandError::from)?;
 
-    let (mut turns, session_stats, resolved_ext_id, parsed_title, transcript_watermark) =
+    let (mut turns, session_stats, resolved_ext_id, mut parsed_title, transcript_watermark) =
         if let Some(ref ext_id) = summary.external_id {
             let at = summary.agent_type;
             let eid = ext_id.clone();
@@ -593,6 +593,15 @@ pub async fn get_folder_conversation_core(
             (vec![], None, None, None, None)
         };
 
+    strip_private_user_context(&mut turns);
+    parsed_title = parsed_title.map(|title| crate::user_memory::strip_user_context(&title));
+    if parsed_title
+        .as_deref()
+        .is_none_or(|title| title.trim().is_empty())
+    {
+        parsed_title = first_visible_user_title(&turns);
+    }
+
     // If we resolved a different external_id (e.g. ACP UUID → parser branch ID),
     // update the database so future lookups are direct.
     if let Some(new_ext_id) = resolved_ext_id {
@@ -623,6 +632,35 @@ pub async fn get_folder_conversation_core(
         },
         parsed_title,
     ))
+}
+
+fn strip_private_user_context(turns: &mut Vec<MessageTurn>) {
+    for turn in turns.iter_mut() {
+        if !matches!(turn.role, TurnRole::User) {
+            continue;
+        }
+        turn.blocks.retain_mut(|block| match block {
+            ContentBlock::Text { text } => {
+                *text = crate::user_memory::strip_user_context(text);
+                !text.is_empty()
+            }
+            _ => true,
+        });
+    }
+    turns.retain(|turn| !matches!(turn.role, TurnRole::User) || !turn.blocks.is_empty());
+}
+
+fn first_visible_user_title(turns: &[MessageTurn]) -> Option<String> {
+    turns
+        .iter()
+        .filter(|turn| matches!(turn.role, TurnRole::User))
+        .flat_map(|turn| turn.blocks.iter())
+        .find_map(|block| match block {
+            ContentBlock::Text { text } if !text.trim().is_empty() => {
+                Some(crate::parsers::title_from_user_text(text.trim()))
+            }
+            _ => None,
+        })
 }
 
 /// A normalized, comparable view of a user turn's renderable content. Used to

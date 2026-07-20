@@ -164,9 +164,9 @@ pub(crate) async fn stage_restore_core(
     // `uploads/` is an always-managed section: ensure the staged dir exists
     // even when the backup carried zero upload files, so the swap REPLACES live
     // uploads wholesale (a backup with empty uploads must not leave stale live
-    // files behind). The DB is always present; tokens/preferences are
-    // replaced only when the backup actually carried them (machine-bound
-    // secrets are deliberately not wiped by a backup that never had them).
+    // files behind). The DB is always present; tokens/preferences/user-memory
+    // documents are replaced only when the backup actually carried them. This
+    // keeps older backups from wiping user memory they could not have contained.
     tokio::fs::create_dir_all(staging_root.join("uploads"))
         .await
         .map_err(AppCommandError::io)?;
@@ -220,15 +220,21 @@ pub fn cleanup_transient_dirs(data_dir: &Path) {
 /// Apply a staged restore if a pending marker exists. MUST run before the DB
 /// connection is opened. Pure filesystem; crash-safe and idempotent.
 ///
-/// Resolves the live uploads root + preferences path via the env-aware
-/// `paths::*` resolvers (production), then delegates to
+/// Resolves the live uploads root, preferences path, and runtime-specific
+/// canonical user-memory root via `paths::*`, then delegates to
 /// [`apply_pending_restore_with_paths`]. Tests call the inner fn with temp
 /// paths so they never touch the real `~/.iyw-claw`.
 pub fn apply_pending_restore_on_startup(data_dir: &Path) -> Result<RestoreApplied, std::io::Error> {
+    #[cfg(feature = "tauri-runtime")]
+    let user_memory_root = crate::paths::desktop_user_memory_root();
+    #[cfg(not(feature = "tauri-runtime"))]
+    let user_memory_root = crate::paths::server_user_memory_root(data_dir);
+
     apply_pending_restore_with_paths(
         data_dir,
         &crate::paths::iyw_claw_uploads_root(),
         &crate::paths::iyw_claw_home_dir().join("preferences.json"),
+        &user_memory_root,
     )
 }
 
@@ -236,6 +242,7 @@ pub(crate) fn apply_pending_restore_with_paths(
     data_dir: &Path,
     uploads_root: &Path,
     preferences_path: &Path,
+    user_memory_root: &Path,
 ) -> Result<RestoreApplied, std::io::Error> {
     let marker = data_dir.join(PENDING_MARKER);
     if !marker.is_file() {
@@ -304,6 +311,20 @@ pub(crate) fn apply_pending_restore_with_paths(
             preferences_path,
             &backup_dir.join("preferences.json"),
         )?;
+    }
+
+    let staged_user_memory = staging.join(super::USER_MEMORY_ARCHIVE_DIR);
+    for file_name in super::USER_MEMORY_FILES {
+        let staged_document = staged_user_memory.join(file_name);
+        if staged_document.is_file() {
+            swap_in(
+                &staged_document,
+                &user_memory_root.join(file_name),
+                &backup_dir
+                    .join(super::USER_MEMORY_ARCHIVE_DIR)
+                    .join(file_name),
+            )?;
+        }
     }
 
     // Commit only after a fully successful swap. On a mid-swap crash we return
@@ -587,5 +608,82 @@ mod tests {
             apply_pending_restore_on_startup(data_dir).unwrap(),
             RestoreApplied::None
         ));
+    }
+
+    #[test]
+    fn apply_swaps_user_memory_and_snapshots_previous_documents() {
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = dir.path();
+        let db_name = crate::db::database_file_name();
+        std::fs::write(data_dir.join(db_name), b"OLD-DB").unwrap();
+
+        let staging = data_dir.join(STAGING_DIR).join("memory-op");
+        std::fs::create_dir_all(staging.join("db")).unwrap();
+        std::fs::create_dir_all(staging.join("user-memory")).unwrap();
+        std::fs::write(staging.join("db/iyw-claw.db"), b"NEW-DB").unwrap();
+        for (name, content) in [
+            ("user-memory.md", "new memory"),
+            ("user-profile.md", "new profile"),
+            ("user-soul.md", "new soul"),
+        ] {
+            std::fs::write(staging.join("user-memory").join(name), content).unwrap();
+        }
+
+        let live_memory = dir.path().join("canonical-user-memory");
+        std::fs::create_dir_all(&live_memory).unwrap();
+        std::fs::write(live_memory.join("user-memory.md"), b"old memory").unwrap();
+        std::fs::write(live_memory.join("user-profile.md"), b"old profile").unwrap();
+        std::fs::write(live_memory.join("user-soul.md"), b"old soul").unwrap();
+
+        let marker = PendingRestore {
+            staging_dir: staging.to_string_lossy().into_owned(),
+            created_at: "2026-06-06T00:00:00Z".to_string(),
+            app_version: "0.15.0".to_string(),
+            latest_migration: "m20260522_000001_delegation_columns".to_string(),
+        };
+        std::fs::write(
+            data_dir.join(PENDING_MARKER),
+            serde_json::to_vec(&marker).unwrap(),
+        )
+        .unwrap();
+
+        let applied = apply_pending_restore_with_paths(
+            data_dir,
+            &dir.path().join("uploads"),
+            &dir.path().join("preferences.json"),
+            &live_memory,
+        )
+        .unwrap();
+        let RestoreApplied::Applied {
+            safety_snapshot: Some(snapshot),
+        } = applied
+        else {
+            panic!("expected restore with safety snapshot");
+        };
+
+        assert_eq!(
+            std::fs::read_to_string(live_memory.join("user-memory.md")).unwrap(),
+            "new memory"
+        );
+        assert_eq!(
+            std::fs::read_to_string(live_memory.join("user-profile.md")).unwrap(),
+            "new profile"
+        );
+        assert_eq!(
+            std::fs::read_to_string(live_memory.join("user-soul.md")).unwrap(),
+            "new soul"
+        );
+        assert_eq!(
+            std::fs::read_to_string(snapshot.join("user-memory/user-memory.md")).unwrap(),
+            "old memory"
+        );
+        assert_eq!(
+            std::fs::read_to_string(snapshot.join("user-memory/user-profile.md")).unwrap(),
+            "old profile"
+        );
+        assert_eq!(
+            std::fs::read_to_string(snapshot.join("user-memory/user-soul.md")).unwrap(),
+            "old soul"
+        );
     }
 }

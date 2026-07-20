@@ -11,7 +11,7 @@
 //! `ask_user_question` (block on a multiple-choice card), and `get_session_info`
 //! (resolve a referenced session by id), and `show_image` — whose schemas are embedded at compile
 //! time from [`TOOL_SCHEMA_JSON`] and gated by the `--features` groups (delegation
-//! / feedback / ask / sessions / images). Only `delegate_to_agent` registers a broker-side
+//! / feedback / ask / sessions / images / memory). Only `delegate_to_agent` registers a broker-side
 //! cancel handle; canceling a status / cancel / feedback / session round-trip
 //! merely suppresses its response — and for `check_user_feedback` also skips the
 //! delivery commit, so a cancelled note stays pending.
@@ -44,10 +44,11 @@ use tokio::sync::{oneshot, Mutex};
 
 use crate::acp::delegation::transport::{
     client_ask_round_trip, client_cancel, client_cancel_task_round_trip, client_commit_feedback,
-    client_feedback_round_trip, client_round_trip, client_session_round_trip,
-    client_status_round_trip, BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
-    BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerRequest, BrokerResponse,
-    BrokerSessionRequest, BrokerStatusRequest,
+    client_feedback_round_trip, client_memory_append_round_trip, client_round_trip,
+    client_session_round_trip, client_status_round_trip, BrokerAskRequest, BrokerCancelRequest,
+    BrokerCancelTaskRequest, BrokerCommitFeedbackRequest, BrokerFeedbackRequest,
+    BrokerMemoryAppendRequest, BrokerRequest, BrokerResponse, BrokerSessionRequest,
+    BrokerStatusRequest,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -158,11 +159,12 @@ pub struct CompanionFeatures {
     pub ask: bool,
     pub sessions: bool,
     pub images: bool,
+    pub memory: bool,
 }
 
 impl CompanionFeatures {
     /// Parse the comma-joined `--features` value (e.g.
-    /// `delegation,feedback,ask,sessions`). Unknown tokens are ignored. An absent
+    /// `delegation,feedback,ask,sessions,memory`). Unknown tokens are ignored. An absent
     /// value (`None`) defaults to delegation-only — backward compatible with a
     /// parent that predates feature gating (companion + listener ship together, so
     /// post-upgrade the parent always passes an explicit `--features`).
@@ -174,6 +176,7 @@ impl CompanionFeatures {
                 ask: false,
                 sessions: false,
                 images: false,
+                memory: false,
             };
         };
         let mut f = Self {
@@ -182,6 +185,7 @@ impl CompanionFeatures {
             ask: false,
             sessions: false,
             images: false,
+            memory: false,
         };
         for tok in s.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             match tok {
@@ -190,6 +194,7 @@ impl CompanionFeatures {
                 "ask" => f.ask = true,
                 "sessions" => f.sessions = true,
                 "images" => f.images = true,
+                "memory" => f.memory = true,
                 _ => {}
             }
         }
@@ -203,6 +208,7 @@ impl CompanionFeatures {
             "ask_user_question" => self.ask,
             "get_session_info" => self.sessions,
             "show_image" => self.images,
+            "append_user_memory" => self.memory,
             "delegate_to_agent" | "get_delegation_status" | "cancel_delegation" => self.delegation,
             _ => false,
         }
@@ -421,6 +427,35 @@ async fn build_tools_call_spawn(
     }
     match name.as_str() {
         "show_image" => register_and_spawn_local(inflight, id, arguments, ctx.working_dir).await,
+        "append_user_memory" => {
+            let content = match arguments.get("content").and_then(Value::as_str) {
+                Some(content) if !content.trim().is_empty() => content.to_string(),
+                _ => {
+                    return LineAction::Respond(err(
+                        id,
+                        -32602,
+                        "append_user_memory requires non-empty string `content`",
+                    ));
+                }
+            };
+            if content.chars().count() > crate::user_memory::USER_MEMORY_MAX_APPEND_CHARS {
+                return LineAction::Respond(err(
+                    id,
+                    -32602,
+                    format!(
+                        "append_user_memory content exceeds {} characters",
+                        crate::user_memory::USER_MEMORY_MAX_APPEND_CHARS
+                    ),
+                ));
+            }
+            let req = BrokerMemoryAppendRequest {
+                token: ctx.token.clone(),
+                content,
+            };
+            let round_trip =
+                Box::pin(async move { client_memory_append_round_trip(&socket, &req).await });
+            register_and_spawn(inflight, id, None, round_trip, render_memory_append_result).await
+        }
         "delegate_to_agent" => {
             // MCP clients (Codex / Claude Code) generally do NOT populate
             // `_meta.tool_use_id` when calling an MCP server. We still surface it
@@ -1228,6 +1263,33 @@ pub fn render_task_report(report: &Value) -> Value {
     })
 }
 
+/// Render the main process's append result into an MCP `CallToolResult`.
+/// Authorization and persistence errors are regular tool errors so the Agent
+/// can continue the turn without treating the MCP transport itself as broken.
+pub fn render_memory_append_result(outcome: &Value) -> Value {
+    if let Some(message) = outcome.get("error").and_then(Value::as_str) {
+        return json!({
+            "content": [{ "type": "text", "text": message }],
+            "isError": true,
+            "structuredContent": outcome.clone(),
+        });
+    }
+    let appended = outcome
+        .get("appended")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let text = if appended {
+        "User memory updated."
+    } else {
+        "This user memory was already recorded."
+    };
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": false,
+        "structuredContent": outcome.clone(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -1379,6 +1441,7 @@ mod tests {
             ask: false,
             sessions: false,
             images: false,
+            memory: false,
         })
     }
 
@@ -1852,6 +1915,7 @@ mod tests {
         ask: false,
         sessions: false,
         images: false,
+        memory: false,
     };
     const BOTH: CompanionFeatures = CompanionFeatures {
         delegation: true,
@@ -1859,6 +1923,7 @@ mod tests {
         ask: false,
         sessions: false,
         images: false,
+        memory: false,
     };
     const ASK_ONLY: CompanionFeatures = CompanionFeatures {
         delegation: false,
@@ -1866,6 +1931,7 @@ mod tests {
         ask: true,
         sessions: false,
         images: false,
+        memory: false,
     };
     const SESSIONS_ONLY: CompanionFeatures = CompanionFeatures {
         delegation: false,
@@ -1873,6 +1939,7 @@ mod tests {
         ask: false,
         sessions: true,
         images: false,
+        memory: false,
     };
 
     fn list_tool_names(action: LineAction) -> Vec<String> {
@@ -1904,6 +1971,21 @@ mod tests {
         // Empty string → nothing enabled.
         let none = CompanionFeatures::parse(Some(""));
         assert!(!none.delegation && !none.feedback && !none.ask && !none.sessions);
+    }
+
+    #[tokio::test]
+    async fn memory_feature_exposes_only_append_user_memory() {
+        let features = CompanionFeatures::parse(Some("memory"));
+        assert!(features.allows_tool("append_user_memory"));
+
+        let names = list_tool_names(
+            dispatch_with_features(
+                features,
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+            )
+            .await,
+        );
+        assert_eq!(names, vec!["append_user_memory".to_string()]);
     }
 
     #[tokio::test]

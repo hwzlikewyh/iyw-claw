@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 
+import enMessages from "@/i18n/messages/en.json"
+import zhCnMessages from "@/i18n/messages/zh-CN.json"
 import {
   APP_LOCALES,
   mapLocaleTagToAppLocale,
@@ -34,5 +36,18 @@ describe("two-language i18n", () => {
         language: "fr" as never,
       })
     ).toEqual({ mode: "manual", language: "en" })
+  })
+
+  it("requires a new conversation for user-memory policy changes", () => {
+    const english = enMessages.UserMemorySettings.status.newConversationRequired
+    const simplifiedChinese =
+      zhCnMessages.UserMemorySettings.status.newConversationRequired
+
+    expect(english.toLowerCase()).not.toContain("reconnect")
+    expect(english).toContain("launch memory")
+    expect(english).toContain("new conversation")
+    expect(simplifiedChinese).not.toContain("重连")
+    expect(simplifiedChinese).toContain("启动时记忆")
+    expect(simplifiedChinese).toContain("新建会话")
   })
 })

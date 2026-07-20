@@ -4,7 +4,7 @@
 //! steering notes), `ask_user_question` (block on a multiple-choice card), and
 //! `get_session_info` (resolve a referenced session by id), gated by the
 //! `--features` groups (`delegation` / `feedback` / `ask` / `sessions` /
-//! `images`).
+//! `images` / `memory`).
 //!
 //! The agent's MCP config (injected by iyw-claw via `load_mcp_servers_for_agent`)
 //! spawns this binary with three required flags:
@@ -51,7 +51,7 @@ struct Args {
     /// from. Omitted by older parents — backward compatible.
     parent_pid: Option<u32>,
     /// Comma-joined tool groups to expose (e.g.
-    /// `delegation,feedback,ask,sessions`). Omitted by parents that predate
+    /// `delegation,feedback,ask,sessions,memory`). Omitted by parents that predate
     /// feature gating; see `CompanionFeatures::parse` (defaults to
     /// delegation-only).
     features: Option<String>,
@@ -111,7 +111,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images] [--working-dir <path>]"
+                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images,memory] [--working-dir <path>]"
                 );
                 std::process::exit(0);
             }
@@ -282,4 +282,93 @@ async fn main() -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iyw_claw_lib::acp::delegation::companion::render_memory_append_result;
+    use iyw_claw_lib::acp::delegation::transport::BrokerMessage;
+    use serde_json::json;
+
+    #[test]
+    fn memory_feature_and_capability_expose_append_tool() {
+        let features = CompanionFeatures::parse(Some("memory"));
+        assert!(features.allows_tool("append_user_memory"));
+
+        let capabilities = binary_capabilities();
+        let tools = capabilities["tools"]
+            .as_array()
+            .expect("capabilities should contain a tools array");
+        assert!(tools.iter().any(|tool| tool == "append_user_memory"));
+    }
+
+    fn memory_context() -> CompanionContext {
+        CompanionContext {
+            parent_connection_id: "parent".into(),
+            socket_path: "missing-memory-test-socket".into(),
+            token: "token".into(),
+            working_dir: PathBuf::from("."),
+            features: CompanionFeatures::parse(Some("memory")),
+        }
+    }
+
+    #[tokio::test]
+    async fn append_user_memory_validates_content_before_round_trip() {
+        let inflight = Arc::new(InflightCalls::new());
+        let empty = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": "append_user_memory", "arguments": { "content": "  " } }
+        })
+        .to_string();
+        match dispatch_line(&memory_context(), inflight.clone(), &empty).await {
+            LineAction::Respond(response) => {
+                let error = response.error.expect("empty content should be rejected");
+                assert_eq!(error.code, -32602);
+                assert!(error.message.contains("non-empty"));
+            }
+            _ => panic!("empty content should respond synchronously"),
+        }
+
+        let valid = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "append_user_memory",
+                "arguments": { "content": "User prefers concise status updates" }
+            }
+        })
+        .to_string();
+        assert!(matches!(
+            dispatch_line(&memory_context(), inflight, &valid).await,
+            LineAction::Spawn(_)
+        ));
+    }
+
+    #[test]
+    fn memory_append_wire_and_tool_results_are_structured() {
+        let wire = json!({
+            "kind": "memory_append",
+            "token": "tok",
+            "content": "User prefers concise answers"
+        });
+        let message: BrokerMessage = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(message).unwrap(), wire);
+
+        let appended = render_memory_append_result(&json!({
+            "appended": true,
+            "entryId": "entry-1",
+            "createdAt": "2026-07-20T00:00:00Z",
+            "revision": "rev-1"
+        }));
+        assert_eq!(appended["isError"], false);
+        assert_eq!(appended["structuredContent"]["entryId"], "entry-1");
+
+        let denied = render_memory_append_result(&json!({ "error": "unavailable" }));
+        assert_eq!(denied["isError"], true);
+        assert_eq!(denied["content"][0]["text"], "unavailable");
+    }
 }

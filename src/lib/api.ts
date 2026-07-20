@@ -24,6 +24,11 @@ import {
 import type { FolderThemeColor } from "./theme-presets"
 import type { UsageDashboardStats } from "./usage-stats"
 import type {
+  UserMemorySettingsSnapshot,
+  UserMemoryUpdateRequest,
+  UserMemoryUpdateResult,
+} from "./user-memory-documents"
+import type {
   AgentType,
   AgentStorageStatus,
   AgentStorageRootValidation,
@@ -2200,6 +2205,16 @@ export async function automationCancelRun(runId: number): Promise<void> {
 
 export async function getHomeDirectory(): Promise<string> {
   return getTransport().call("get_home_directory")
+}
+
+export async function getUserMemorySettings(): Promise<UserMemorySettingsSnapshot> {
+  return getTransport().call("get_user_memory_settings")
+}
+
+export async function updateUserMemorySettings(
+  request: UserMemoryUpdateRequest
+): Promise<UserMemoryUpdateResult> {
+  return getTransport().call("update_user_memory_settings", { request })
 }
 
 export async function listDirectoryEntries(

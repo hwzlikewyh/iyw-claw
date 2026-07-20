@@ -178,5 +178,22 @@
         }
       }
     }
+  },
+  {
+    "name": "append_user_memory",
+    "description": "Append one durable, cross-task fact or preference that the user clearly stated to iyw-claw's user memory. Use this only when the information will remain useful in future conversations. Never store secrets, credentials, inferred sensitive traits, repository facts, temporary progress, or one-off task details. This tool is append-only: it cannot overwrite user memory and cannot modify the user's profile or soul documents.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["content"],
+      "properties": {
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "A concise, standalone fact or preference explicitly provided by the user. Do not include Markdown structure, secrets, temporary task state, or speculation."
+        }
+      },
+      "additionalProperties": false
+    }
   }
 ]

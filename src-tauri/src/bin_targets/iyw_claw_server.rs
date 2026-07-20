@@ -270,6 +270,11 @@ async fn async_main() -> ExitCode {
 
     // Build AppState
     let connection_manager = iyw_claw_lib::app_state::default_connection_manager();
+    let user_memory = Arc::new(iyw_claw_lib::user_memory::UserMemoryService::new(
+        db.conn.clone(),
+        iyw_claw_lib::paths::server_user_memory_root(&data_dir),
+    ));
+    connection_manager.install_user_memory(user_memory.clone());
     let (
         delegation_broker,
         delegation_tokens,
@@ -301,6 +306,7 @@ async fn async_main() -> ExitCode {
         feedback_config: feedback_config.clone(),
         question_config: question_config.clone(),
         session_info_config: session_info_config.clone(),
+        user_memory,
         system_op_lock: iyw_claw_lib::app_state::default_system_op_lock(),
         update_state: iyw_claw_lib::app_state::default_update_state(),
     });
@@ -365,6 +371,7 @@ async fn async_main() -> ExitCode {
                     },
                 )),
             ),
+            state.user_memory.clone(),
         );
         let socket = delegation_socket_path.clone();
         tokio::spawn(async move {

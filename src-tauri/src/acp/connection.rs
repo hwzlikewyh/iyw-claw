@@ -164,6 +164,10 @@ fn prepend_internet_tools_path(env: &mut BTreeMap<String, String>) {
 pub enum ConnectionCommand {
     Prompt {
         blocks: Vec<PromptInputBlock>,
+        /// Private launch context sent only on the ACP wire. Kept separate from
+        /// `blocks` so user events, prompt ledgers, previews, and titles retain
+        /// the exact original input.
+        user_context: Option<Arc<str>>,
         /// Pre-projected cross-client user-message broadcast (`message_id` +
         /// user blocks), computed by the manager under the prompt lock. The
         /// loop emits it as `AcpEvent::UserMessage` right before issuing the
@@ -700,6 +704,7 @@ pub async fn spawn_agent_connection(
     connections: Arc<tokio::sync::Mutex<HashMap<String, AgentConnection>>>,
     preferred_mode_id: Option<String>,
     preferred_config_values: BTreeMap<String, String>,
+    user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
     delegation_injection: Option<DelegationInjection>,
 ) -> Result<tokio::sync::oneshot::Receiver<()>, AcpError> {
     crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type).map_err(|error| {
@@ -718,6 +723,14 @@ pub async fn spawn_agent_connection(
         owner_window_label.clone(),
         None, // folder_id 由后续 prompt handler 在首次 send 时绑定 (Phase 2)
     );
+    initial_state.user_memory_context = user_memory_context;
+    if session_id.is_some() {
+        // The external session already retains the private launch envelope in
+        // its own history. Re-injecting here would mix policy generations and
+        // cannot revoke context the Agent has already seen. Memory setting
+        // changes therefore take full effect only in a fresh conversation.
+        initial_state.mark_user_context_already_present();
+    }
 
     // Install the SessionStarted dedup signal BEFORE wrapping into Arc so the
     // first event (StatusChanged{Connecting} below) doesn't race with the
@@ -1493,6 +1506,7 @@ fn companion_features_arg(
     feedback_enabled: bool,
     ask_enabled: bool,
     sessions_enabled: bool,
+    memory_enabled: bool,
 ) -> String {
     let mut features: Vec<&str> = vec!["images"];
     if delegation_enabled {
@@ -1506,6 +1520,9 @@ fn companion_features_arg(
     }
     if sessions_enabled {
         features.push("sessions");
+    }
+    if memory_enabled {
+        features.push("memory");
     }
     features.join(",")
 }
@@ -1523,6 +1540,8 @@ async fn inject_iyw_claw_mcp(
     injection: &DelegationInjection,
     parent_connection_id: &str,
     working_dir: &Path,
+    agent_type: AgentType,
+    memory_write_enabled: bool,
 ) -> Option<CompanionInjection> {
     // `images` keeps the companion enabled for every MCP-capable session. The
     // remaining feature groups stay independently gated by their settings.
@@ -1535,6 +1554,7 @@ async fn inject_iyw_claw_mcp(
         feedback_enabled,
         ask_enabled,
         sessions_enabled,
+        memory_write_enabled,
     );
     let Some(binary_path) = locate_iyw_claw_mcp_binary() else {
         tracing::warn!(
@@ -1553,6 +1573,8 @@ async fn inject_iyw_claw_mcp(
             crate::acp::delegation::listener::TokenEntry {
                 parent_connection_id: parent_connection_id.to_string(),
                 working_dir: working_dir.to_path_buf(),
+                agent_type,
+                memory_write_enabled,
             },
         )
         .await;
@@ -1984,7 +2006,20 @@ async fn run_connection(
             // for agents that don't accept MCP over the wire (above).
             let delegate_injection = if agent_supports_mcp && agent_delivers_wire_mcp(agent_type) {
                 if let Some(inj) = delegation_injection.as_ref() {
-                    inject_iyw_claw_mcp(&mut mcp_servers, inj, &conn_id, &cwd).await
+                    let memory_write_enabled = state
+                        .read()
+                        .await
+                        .user_memory_context
+                        .memory_write_enabled;
+                    inject_iyw_claw_mcp(
+                        &mut mcp_servers,
+                        inj,
+                        &conn_id,
+                        &cwd,
+                        agent_type,
+                        memory_write_enabled,
+                    )
+                    .await
                 } else {
                     None
                 }
@@ -3656,10 +3691,11 @@ async fn run_conversation_loop<'a>(
         match cmd {
             Some(ConnectionCommand::Prompt {
                 blocks,
+                user_context,
                 user_message,
             }) => {
                 prompt_ledger.record_prompt_blocks(&blocks);
-                let prompt_blocks = map_prompt_blocks(blocks);
+                let mut prompt_blocks = map_prompt_blocks(blocks);
                 if prompt_blocks.is_empty() {
                     // Defensive: the manager rejects empty prompts before the
                     // concurrency gate is set / the command is enqueued (see
@@ -3681,6 +3717,10 @@ async fn run_conversation_loop<'a>(
                     )
                     .await;
                     continue;
+                }
+                if let Some(context) = user_context {
+                    prompt_blocks
+                        .insert(0, ContentBlock::Text(TextContent::new(context.to_string())));
                 }
 
                 emit_with_state(
@@ -6820,32 +6860,40 @@ mod tests {
     #[test]
     fn companion_features_arg_inject_skip_decision() {
         // Image display is always present, even when every optional group is off.
-        assert_eq!(companion_features_arg(false, false, false, false), "images");
+        assert_eq!(
+            companion_features_arg(false, false, false, false, false),
+            "images"
+        );
         // Delegation only.
         assert_eq!(
-            companion_features_arg(true, false, false, false),
+            companion_features_arg(true, false, false, false, false),
             "images,delegation"
         );
         // Feedback only — the decoupling: companion injected for feedback even
         // when delegation is off.
         assert_eq!(
-            companion_features_arg(false, true, false, false),
+            companion_features_arg(false, true, false, false, false),
             "images,feedback"
         );
         // Ask only — likewise injects the companion on its own.
         assert_eq!(
-            companion_features_arg(false, false, true, false),
+            companion_features_arg(false, false, true, false, false),
             "images,ask"
         );
         // Sessions only — likewise injects the companion on its own.
         assert_eq!(
-            companion_features_arg(false, false, false, true),
+            companion_features_arg(false, false, false, true, false),
             "images,sessions"
         );
         // All on → comma-joined, in declaration order.
         assert_eq!(
-            companion_features_arg(true, true, true, true),
-            "images,delegation,feedback,ask,sessions"
+            companion_features_arg(false, false, false, false, true),
+            "images,memory"
+        );
+        // All optional groups preserve declaration order.
+        assert_eq!(
+            companion_features_arg(true, true, true, true, true),
+            "images,delegation,feedback,ask,sessions,memory"
         );
     }
 

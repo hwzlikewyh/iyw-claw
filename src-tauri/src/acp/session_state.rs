@@ -319,6 +319,14 @@ pub struct SessionState {
     /// keep round-tripping after the parent session ends.
     pub delegation_token: Option<String>,
 
+    /// Launch-time user-memory snapshot. It is never serialized into the live
+    /// session snapshot; only the connection loop can place its rendered
+    /// envelope on the first accepted wire prompt.
+    pub user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
+    /// Set atomically with the first accepted prompt enqueue. A live connection
+    /// keeps its launch snapshot and never reinjects it on later turns.
+    pub user_context_injected: bool,
+
     /// Whether the `check_user_feedback` MCP tool was exposed to THIS agent at
     /// launch (the `feedback` feature was on when its companion was injected).
     /// Fixed for the connection's lifetime — tool exposure can't change after
@@ -379,6 +387,10 @@ pub struct SessionState {
 }
 
 impl SessionState {
+    pub(crate) fn mark_user_context_already_present(&mut self) {
+        self.user_context_injected = true;
+    }
+
     pub fn new(
         connection_id: String,
         agent_type: AgentType,
@@ -420,6 +432,10 @@ impl SessionState {
             event_stream: Arc::new(ConnectionEventStream::new()),
             recent_events: RecentEventsBuffer::new(),
             delegation_token: None,
+            user_memory_context: crate::user_memory::UserMemoryContextSnapshot::disabled(
+                crate::user_memory::UserMemoryOrigin::Root,
+            ),
+            user_context_injected: false,
             feedback_tool_available: false,
             last_assistant_text: None,
             pending_user_message: None,

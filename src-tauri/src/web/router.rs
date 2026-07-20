@@ -99,6 +99,15 @@ pub fn build_router(
             "/set_feedback_settings",
             post(handlers::feedback::set_feedback_settings),
         )
+        // ─── User memory ───
+        .route(
+            "/get_user_memory_settings",
+            post(handlers::user_memory::get_user_memory_settings),
+        )
+        .route(
+            "/update_user_memory_settings",
+            post(handlers::user_memory::update_user_memory_settings),
+        )
         .route(
             "/submit_session_feedback",
             post(handlers::feedback::submit_session_feedback),

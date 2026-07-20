@@ -11,6 +11,7 @@ fn status_for_app_error_code(code: AppErrorCode) -> StatusCode {
         AppErrorCode::InvalidInput => StatusCode::BAD_REQUEST,
         AppErrorCode::NotFound => StatusCode::NOT_FOUND,
         AppErrorCode::AlreadyExists
+        | AppErrorCode::Conflict
         | AppErrorCode::TurnInProgress
         | AppErrorCode::AgentStorageRestartRequired => StatusCode::CONFLICT,
         AppErrorCode::PermissionDenied => StatusCode::FORBIDDEN,

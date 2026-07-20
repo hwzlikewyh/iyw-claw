@@ -383,7 +383,8 @@ pub fn fold_reference_links(text: &str) -> String {
 /// `[name](file://<long path>)` mention becomes `name` instead of a raw — and,
 /// once truncated, unterminable — Markdown link.
 pub fn title_from_user_text(text: &str) -> String {
-    truncate_str(&fold_reference_links(text), 100)
+    let visible = crate::user_memory::strip_user_context(text);
+    truncate_str(&fold_reference_links(&visible), 100)
 }
 
 /// Aggregate turn-level usage and duration into a single `SessionStats`.

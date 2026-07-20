@@ -90,6 +90,9 @@ pub enum AppErrorCode {
     /// connection (a second, concurrent send). Maps to HTTP 409 — an expected,
     /// recoverable condition in multi-client co-control, not a server fault.
     TurnInProgress,
+    /// Optimistic concurrency guard failed because the underlying resource was
+    /// changed after the caller loaded it.
+    Conflict,
     AgentStorageNotInitialized,
     AgentStorageInvalid,
     AgentStorageRestartRequired,

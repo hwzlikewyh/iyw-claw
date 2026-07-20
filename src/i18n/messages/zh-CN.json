@@ -4061,17 +4061,37 @@
   "UserMemorySettings": {
     "loading": "正在加载用户记忆...",
     "title": "用户记忆",
-    "description": "编辑持久化记忆文件，用于保存长期偏好、约定和备注。",
+    "description": "管理提供给已启用智能体的持久化上下文。",
     "reload": "重新加载",
     "save": "保存",
     "saving": "保存中...",
     "saved": "用户记忆已保存",
     "saveFailed": "用户记忆保存失败",
+    "saveConflict": "用户记忆已在其他位置更新，请重新加载后再保存。",
     "dirty": "有未保存修改",
     "readonly": "只读",
     "stats": "{lines} 行 / {chars} 字符",
     "placeholder": "在这里记录长期偏好、工作方式、项目约定或提醒。",
-    "discardChangesConfirm": "当前文档有未保存修改，确定切换并丢弃这些修改吗？",
+    "discardChangesConfirm": "确定丢弃全部未保存的用户记忆修改并重新加载吗？",
+    "status": {
+      "active": "新会话已生效",
+      "disabled": "未启用",
+      "newConversationRequired": "{count} 个运行中的会话保留启动时记忆；请新建会话以应用变更"
+    },
+    "policy": {
+      "title": "应用范围",
+      "description": "选择哪些文档和智能体使用这些上下文。",
+      "enabled": "启用用户记忆",
+      "enabledDescription": "新建智能体会话时加载已启用的文档。",
+      "agentWriteEnabled": "允许智能体追加记忆",
+      "agentWriteDescription": "受支持的智能体只能向用户记忆追加有长期价值的事实。",
+      "inheritToSubagents": "委派智能体继承",
+      "inheritDescription": "将相同的已启用上下文传递给委派产生的智能体会话。",
+      "documentsTitle": "文档",
+      "agentsTitle": "智能体",
+      "documentToggle": "启用{document}",
+      "agentToggle": "为{agent}启用用户记忆"
+    },
     "documents": {
       "memory": {
         "label": "用户记忆",

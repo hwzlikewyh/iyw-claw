@@ -18,14 +18,15 @@ use tokio::sync::RwLock;
 use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::transport::{
     read_frame, write_frame, BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
-    BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerMessage, BrokerRequest,
-    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
+    BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerMemoryAppendRequest, BrokerMessage,
+    BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
 use crate::acp::question::{QuestionOutcome, SessionQuestionAccess};
 use crate::acp::session_info::{SessionInfo, SessionInfoAccess};
 use crate::models::AgentType;
+use crate::user_memory::{AgentMemoryAppend, UserMemoryAppendResult, UserMemoryService};
 use serde_json::Value;
 
 /// Hard ceiling on a *positive* `get_delegation_status` long-poll, so a single
@@ -51,6 +52,12 @@ pub trait ParentSessionLookup: Send + Sync {
 pub struct TokenEntry {
     pub parent_connection_id: String,
     pub working_dir: PathBuf,
+    /// Agent identity captured when the companion token was minted. Memory
+    /// append requests never accept an Agent type from the LLM.
+    pub agent_type: AgentType,
+    /// Launch-snapshot authorization. Existing sessions retain this value until
+    /// reconnect even if the user changes the policy in Settings.
+    pub memory_write_enabled: bool,
 }
 
 #[derive(Default)]
@@ -94,6 +101,8 @@ pub struct DelegationListener {
     /// other arms this is NOT parent-scoped — it looks any non-deleted session up
     /// by its iyw-claw conversation id (still token-gated against an invalid caller).
     pub session_info: Arc<dyn SessionInfoAccess>,
+    /// Backend-owned memory store shared with Settings and prompt snapshots.
+    pub user_memory: Arc<UserMemoryService>,
 }
 
 impl DelegationListener {
@@ -105,6 +114,7 @@ impl DelegationListener {
         feedback: Arc<dyn SessionFeedbackAccess>,
         questions: Arc<dyn SessionQuestionAccess>,
         session_info: Arc<dyn SessionInfoAccess>,
+        user_memory: Arc<UserMemoryService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             broker,
@@ -113,6 +123,7 @@ impl DelegationListener {
             feedback,
             questions,
             session_info,
+            user_memory,
         })
     }
 
@@ -307,6 +318,9 @@ impl DelegationListener {
                 // and there is nothing to tear down on cancel.
                 session_response(self.process_session_info(req).await)?
             }
+            BrokerMessage::MemoryAppend(req) => {
+                memory_append_response(self.process_memory_append(req).await)?
+            }
             BrokerMessage::Cancel(cancel) => {
                 self.process_cancel(cancel).await;
                 // Empty ack — the companion only uses this to detect the
@@ -440,6 +454,27 @@ impl DelegationListener {
             .await
     }
 
+    /// Authenticate the launch token and enforce the connection's captured
+    /// memory-write permission before calling the append-only backend service.
+    async fn process_memory_append(
+        &self,
+        req: BrokerMemoryAppendRequest,
+    ) -> Result<UserMemoryAppendResult, String> {
+        let Some(entry) = self.tokens.lookup(&req.token).await else {
+            return Err("User memory update is unavailable for this session.".into());
+        };
+        if !entry.memory_write_enabled {
+            return Err("User memory update is unavailable for this session.".into());
+        }
+        self.user_memory
+            .append_agent_memory_authorized(AgentMemoryAppend {
+                content: req.content,
+                agent_type: entry.agent_type,
+            })
+            .await
+            .map_err(|error| error.message)
+    }
+
     async fn process(&self, req: BrokerRequest) -> DelegationTaskReport {
         // 1. Token + parent_connection_id consistency check. Treat both as
         //    "canceled" since the LLM can't usefully react to either —
@@ -568,6 +603,18 @@ fn session_response(info: SessionInfo) -> std::io::Result<BrokerResponse> {
             std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {e}"))
         })?,
     })
+}
+
+fn memory_append_response(
+    result: Result<UserMemoryAppendResult, String>,
+) -> std::io::Result<BrokerResponse> {
+    let outcome = match result {
+        Ok(result) => serde_json::to_value(result).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {e}"))
+        })?,
+        Err(message) => serde_json::json!({ "error": message }),
+    };
+    Ok(BrokerResponse { outcome })
 }
 
 /// The `declined` outcome — used when the token is invalid, the connection is
@@ -784,6 +831,22 @@ mod tests {
         }
     }
 
+    fn stub_user_memory() -> Arc<UserMemoryService> {
+        Arc::new(UserMemoryService::new(
+            sea_orm::DatabaseConnection::Disconnected,
+            PathBuf::new(),
+        ))
+    }
+
+    fn test_token_entry(parent_connection_id: &str) -> TokenEntry {
+        TokenEntry {
+            parent_connection_id: parent_connection_id.to_string(),
+            working_dir: PathBuf::from("/tmp"),
+            agent_type: AgentType::Codex,
+            memory_write_enabled: false,
+        }
+    }
+
     use tokio::sync::oneshot;
 
     async fn make_broker(mock: Arc<MockSpawner>) -> Arc<DelegationBroker> {
@@ -816,6 +879,7 @@ mod tests {
             Arc::new(StubFeedback::default()),
             Arc::new(StubQuestion::default()),
             Arc::new(StubSessionInfo::default()),
+            stub_user_memory(),
         )
     }
 
@@ -836,6 +900,7 @@ mod tests {
             feedback,
             Arc::new(StubQuestion::default()),
             Arc::new(StubSessionInfo::default()),
+            stub_user_memory(),
         )
     }
 
@@ -857,6 +922,7 @@ mod tests {
             Arc::new(StubFeedback::default()),
             questions,
             Arc::new(StubSessionInfo::default()),
+            stub_user_memory(),
         )
     }
 
@@ -877,6 +943,7 @@ mod tests {
             Arc::new(StubFeedback::default()),
             Arc::new(StubQuestion::default()),
             session_info,
+            stub_user_memory(),
         )
     }
 
@@ -888,6 +955,87 @@ mod tests {
             external_handle: None,
             input,
         }
+    }
+
+    async fn make_memory_listener(
+        memory_write_enabled: bool,
+    ) -> (
+        tempfile::TempDir,
+        Arc<DelegationListener>,
+        Arc<UserMemoryService>,
+    ) {
+        let temp = tempfile::tempdir().unwrap();
+        let db = crate::db::init_database(temp.path().join("db"), "test")
+            .await
+            .unwrap();
+        let user_memory = Arc::new(UserMemoryService::new(db.conn, temp.path().join("memory")));
+        let tokens = Arc::new(TokenRegistry::default());
+        tokens
+            .register(
+                "memory-token".into(),
+                TokenEntry {
+                    parent_connection_id: "parent-conn".into(),
+                    working_dir: PathBuf::from("/tmp"),
+                    agent_type: AgentType::Gemini,
+                    memory_write_enabled,
+                },
+            )
+            .await;
+        let broker = Arc::new(DelegationBroker::new(
+            Arc::new(MockSpawner::new()) as Arc<dyn ConnectionSpawner>,
+            Arc::new(AlwaysRootLookup) as Arc<dyn ConversationDepthLookup>,
+        ));
+        let listener = DelegationListener::new(
+            broker,
+            tokens,
+            Arc::new(StaticParentLookup(Some(1))),
+            Arc::new(StubFeedback::default()),
+            Arc::new(StubQuestion::default()),
+            Arc::new(StubSessionInfo::default()),
+            user_memory.clone(),
+        );
+        (temp, listener, user_memory)
+    }
+
+    #[tokio::test]
+    async fn memory_append_uses_authenticated_token_agent_and_persists() {
+        let (_temp, listener, user_memory) = make_memory_listener(true).await;
+
+        let result = listener
+            .process_memory_append(BrokerMemoryAppendRequest {
+                token: "memory-token".into(),
+                content: "User prefers compact status updates".into(),
+            })
+            .await
+            .unwrap();
+        let snapshot = user_memory.snapshot().await.unwrap();
+        let content =
+            &snapshot.documents[&crate::user_memory::UserMemoryDocumentId::Memory].content;
+
+        assert!(result.appended);
+        assert!(content.contains("[Gemini] User prefers compact status updates"));
+    }
+
+    #[tokio::test]
+    async fn memory_append_rejects_invalid_or_write_disabled_token() {
+        let (_temp, listener, user_memory) = make_memory_listener(false).await;
+
+        for token in ["memory-token", "invalid-token"] {
+            let error = listener
+                .process_memory_append(BrokerMemoryAppendRequest {
+                    token: token.into(),
+                    content: "must not persist".into(),
+                })
+                .await
+                .unwrap_err();
+            assert_eq!(error, "User memory update is unavailable for this session.");
+        }
+        let snapshot = user_memory.snapshot().await.unwrap();
+        assert!(
+            snapshot.documents[&crate::user_memory::UserMemoryDocumentId::Memory]
+                .content
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -909,13 +1057,7 @@ mod tests {
     async fn token_parent_mismatch_rejected() {
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "other-parent".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("other-parent"))
             .await;
         let listener = make_listener(
             make_broker(Arc::new(MockSpawner::new())).await,
@@ -933,13 +1075,7 @@ mod tests {
     async fn missing_parent_conversation_rejected() {
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         // parent_conversation = None: parent has no live conversation.
         let listener = make_listener(
@@ -958,13 +1094,7 @@ mod tests {
     async fn invalid_agent_type_rejected() {
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let listener = make_listener(
             make_broker(Arc::new(MockSpawner::new())).await,
@@ -989,13 +1119,7 @@ mod tests {
         let broker = make_broker(mock.clone()).await;
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
 
         // 1. delegate_to_agent → Running ack carrying the child conversation id.
@@ -1063,13 +1187,7 @@ mod tests {
         let broker = make_broker(mock).await;
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let ack = broker
             .start_delegation(DelegationRequest {
@@ -1213,13 +1331,7 @@ mod tests {
         let broker = make_broker(mock.clone()).await;
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let start = |tool_use: &'static str| {
             let broker = broker.clone();
@@ -1317,13 +1429,7 @@ mod tests {
         let broker = make_broker(mock.clone()).await;
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         // Start a task directly so we hold its id.
         let ack = broker
@@ -1364,13 +1470,7 @@ mod tests {
         let broker = make_broker(mock.clone()).await;
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let listener = make_listener(broker.clone(), tokens, Some(1));
 
@@ -1422,33 +1522,9 @@ mod tests {
     #[tokio::test]
     async fn token_registry_revoke_and_revoke_by_parent() {
         let registry = TokenRegistry::default();
-        registry
-            .register(
-                "t1".into(),
-                TokenEntry {
-                    parent_connection_id: "p1".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
-            .await;
-        registry
-            .register(
-                "t2".into(),
-                TokenEntry {
-                    parent_connection_id: "p1".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
-            .await;
-        registry
-            .register(
-                "t3".into(),
-                TokenEntry {
-                    parent_connection_id: "p2".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
-            .await;
+        registry.register("t1".into(), test_token_entry("p1")).await;
+        registry.register("t2".into(), test_token_entry("p1")).await;
+        registry.register("t3".into(), test_token_entry("p2")).await;
 
         registry.revoke("t1").await;
         assert!(registry.lookup("t1").await.is_none());
@@ -1479,13 +1555,7 @@ mod tests {
             .await;
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let listener = make_listener(broker, tokens, Some(1));
 
@@ -1556,13 +1626,7 @@ mod tests {
         ];
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let listener = make_feedback_listener(tokens, feedback.clone());
 
@@ -1607,13 +1671,7 @@ mod tests {
         });
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let listener = make_session_listener(tokens, session_info.clone());
 
@@ -1648,13 +1706,7 @@ mod tests {
         });
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let listener = make_session_listener(tokens, session_info.clone());
 
@@ -1715,13 +1767,7 @@ mod tests {
         let feedback = Arc::new(StubFeedback::default());
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let listener = make_feedback_listener(tokens, feedback.clone());
 
@@ -1827,13 +1873,7 @@ mod tests {
         let questions = Arc::new(StubQuestion::default());
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let listener = make_question_listener(tokens, questions.clone());
 
@@ -1884,13 +1924,7 @@ mod tests {
         let questions = Arc::new(StubQuestion::default());
         let tokens = Arc::new(TokenRegistry::default());
         tokens
-            .register(
-                "tok".into(),
-                TokenEntry {
-                    parent_connection_id: "parent-conn".into(),
-                    working_dir: PathBuf::from("/tmp"),
-                },
-            )
+            .register("tok".into(), test_token_entry("parent-conn"))
             .await;
         let listener = make_question_listener(tokens, questions.clone());
 

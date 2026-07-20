@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::acp::types::{AcpEvent, BackgroundSettledInfo};
-use crate::models::message::MessageTurn;
+use crate::models::message::{ContentBlock, MessageTurn, TurnRole};
 use crate::parsers::claude_tail::ClaudeTailAccumulator;
 
 use super::accounting::TaskAccounting;
@@ -152,9 +152,10 @@ impl WatchState {
 
     fn build_event(
         &mut self,
-        turns: Vec<MessageTurn>,
+        mut turns: Vec<MessageTurn>,
         settled: Vec<BackgroundSettledInfo>,
     ) -> Option<AcpEvent> {
+        strip_private_user_context_from_turns(&mut turns);
         let outstanding = self.accounting.outstanding();
         let accounting_changed = outstanding != self.last_emitted_outstanding;
         if turns.is_empty() && settled.is_empty() && !accounting_changed {
@@ -169,4 +170,20 @@ impl WatchState {
             watermark: self.tail.committed(),
         })
     }
+}
+
+fn strip_private_user_context_from_turns(turns: &mut Vec<MessageTurn>) {
+    for turn in turns.iter_mut() {
+        if !matches!(turn.role, TurnRole::User) {
+            continue;
+        }
+        turn.blocks.retain_mut(|block| match block {
+            ContentBlock::Text { text } => {
+                *text = crate::user_memory::strip_user_context(text);
+                !text.trim().is_empty()
+            }
+            _ => true,
+        });
+    }
+    turns.retain(|turn| !matches!(turn.role, TurnRole::User) || !turn.blocks.is_empty());
 }

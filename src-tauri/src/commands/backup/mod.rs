@@ -12,6 +12,11 @@ pub mod crypto;
 pub mod external;
 pub mod manifest;
 pub mod restore;
+mod user_memory;
+
+pub(crate) const USER_MEMORY_ARCHIVE_DIR: &str = "user-memory";
+pub(crate) const USER_MEMORY_FILES: [&str; 3] =
+    ["user-memory.md", "user-profile.md", "user-soul.md"];
 
 use std::collections::BTreeMap;
 
@@ -120,6 +125,7 @@ mod tauri_commands {
         options: BackupOptionsDto,
         dest_path: String,
         db: State<'_, AppDatabase>,
+        user_memory: State<'_, Arc<crate::user_memory::UserMemoryService>>,
         transfer: State<'_, Arc<WorkspaceTransferManager>>,
         app: AppHandle,
     ) -> Result<BackupManifest, AppCommandError> {
@@ -130,6 +136,7 @@ mod tauri_commands {
             conn: &db.conn,
             data_dir: &data_dir,
             uploads_root: crate::paths::iyw_claw_uploads_root(),
+            user_memory_root: user_memory.root().to_path_buf(),
             app_version: APP_VERSION,
             runtime_label: "desktop",
         };

@@ -65,6 +65,7 @@ pub async fn backup_create_ticket(
         conn: &state.db.conn,
         data_dir: &state.data_dir,
         uploads_root: crate::paths::iyw_claw_uploads_root(),
+        user_memory_root: state.user_memory.root().to_path_buf(),
         app_version: APP_VERSION,
         runtime_label: "server",
     };

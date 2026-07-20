@@ -3,12 +3,13 @@ use chrono::Utc;
 use crate::models::{ContentBlock, MessageRole, UnifiedMessage};
 use crate::parsers::{claude, is_safe_subagent_id};
 
-use super::ClaudeTailAccumulator;
+use super::{strip_private_user_context_from_content, ClaudeTailAccumulator};
 
 impl ClaudeTailAccumulator {
     pub(super) fn feed_user(&mut self, value: &serde_json::Value) {
         self.lifecycle.observe_notification(value);
         let mut content = claude::extract_user_content(value);
+        strip_private_user_context_from_content(&mut content);
         if content.is_empty() {
             return;
         }
@@ -24,12 +25,13 @@ impl ClaudeTailAccumulator {
             MessageRole::User
         };
         if matches!(role, MessageRole::User) && self.metadata.title.is_none() {
-            if let Some(text) = content.iter().find_map(|block| match block {
-                ContentBlock::Text { text } => Some(text.as_str()),
+            self.metadata.title = content.iter().find_map(|block| match block {
+                ContentBlock::Text { text } => {
+                    let title = crate::parsers::title_from_user_text(text);
+                    (!title.trim().is_empty()).then_some(title)
+                }
                 _ => None,
-            }) {
-                self.metadata.title = Some(crate::parsers::title_from_user_text(text));
-            }
+            });
         }
         self.messages.push(UnifiedMessage {
             id: record_id(value),

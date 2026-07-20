@@ -42,6 +42,7 @@ pub struct BackupInputs<'a> {
     pub conn: &'a DatabaseConnection,
     pub data_dir: &'a Path,
     pub uploads_root: PathBuf,
+    pub user_memory_root: PathBuf,
     pub app_version: &'a str,
     pub runtime_label: &'static str,
 }
@@ -66,7 +67,24 @@ pub(crate) async fn create_backup_core(
     if cancel.is_cancelled() {
         return Err(cancelled_error());
     }
+    let user_memory_root = inputs.user_memory_root.clone();
+    let user_memory_service =
+        crate::user_memory::UserMemoryService::new(inputs.conn.clone(), user_memory_root.clone());
+    let user_memory_lock = user_memory_service.lock_for_backup_snapshot().await?;
     snapshot_db_to(inputs.conn, &db_snapshot).await?;
+    let user_memory_snapshot_root = work.path().join("user-memory-snapshot");
+    let memory_documents = tokio::task::spawn_blocking(move || {
+        super::user_memory::snapshot_for_backup(
+            &user_memory_root,
+            &user_memory_snapshot_root,
+            user_memory_lock.file(),
+        )
+    })
+    .await
+    .map_err(|error| {
+        AppCommandError::task_execution_failed("User memory snapshot task failed")
+            .with_detail(error.to_string())
+    })??;
 
     // ── Phase 2: build the ZIP payload (blocking) ────────────────────────
     let manifest_template = BackupManifest {
@@ -119,6 +137,10 @@ pub(crate) async fn create_backup_core(
             }
             if prefs_json.is_file() {
                 builder.add_file("preferences.json", &prefs_json, &cancel_c, &mut prog)?;
+            }
+            for (file_name, source) in memory_documents {
+                let archive_path = format!("{}/{file_name}", super::USER_MEMORY_ARCHIVE_DIR);
+                builder.add_file(&archive_path, &source, &cancel_c, &mut prog)?;
             }
             let mut manifest = manifest_template;
             let packed_external = if include_external {
@@ -378,6 +400,7 @@ mod tests {
             conn,
             data_dir,
             uploads_root: uploads,
+            user_memory_root: data_dir.join("user-memory-source"),
             app_version: "0.15.0",
             runtime_label: "server",
         }
@@ -430,6 +453,43 @@ mod tests {
         )
         .unwrap();
         assert_eq!(count_folders(&out.join("db/iyw-claw.db")).await, 1);
+    }
+
+    #[tokio::test]
+    async fn backup_archives_only_fixed_user_memory_documents() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = fresh_disk_db(dir.path()).await;
+        let uploads = dir.path().join("uploads");
+        std::fs::create_dir_all(&uploads).unwrap();
+        let memory_root = dir.path().join("user-memory-source");
+        std::fs::create_dir_all(&memory_root).unwrap();
+        std::fs::write(memory_root.join("user-memory.md"), b"memory").unwrap();
+        std::fs::write(memory_root.join("user-profile.md"), b"profile").unwrap();
+        std::fs::write(memory_root.join("user-soul.md"), b"soul").unwrap();
+        std::fs::write(memory_root.join("unrelated.txt"), b"private").unwrap();
+        let dest = dir.path().join("backup.iyw-claw.zip");
+        let cancel = CancellationToken::new();
+
+        let manifest = create_backup_core(
+            inputs(&db.conn, dir.path(), uploads),
+            BackupOptions::default(),
+            &dest,
+            &EventEmitter::Noop,
+            "memory-documents",
+            &cancel,
+        )
+        .await
+        .unwrap();
+
+        let paths = manifest
+            .entries
+            .iter()
+            .map(|entry| entry.path.as_str())
+            .collect::<Vec<_>>();
+        assert!(paths.contains(&"user-memory/user-memory.md"));
+        assert!(paths.contains(&"user-memory/user-profile.md"));
+        assert!(paths.contains(&"user-memory/user-soul.md"));
+        assert!(!paths.iter().any(|path| path.contains("unrelated.txt")));
     }
 
     #[tokio::test]
@@ -520,12 +580,18 @@ mod tests {
         assert!(restore_dir.path().join(PENDING_MARKER).is_file());
 
         // Apply on "startup" → live DB carries the two seeded folders. Inject
-        // temp uploads/preferences paths so the test never touches ~/.iyw-claw.
+        // temp uploads/preferences/user-memory paths so the test never touches
+        // ~/.iyw-claw.
         let live_uploads = restore_dir.path().join("live-uploads");
         let live_prefs = restore_dir.path().join("live-prefs.json");
-        let applied =
-            apply_pending_restore_with_paths(restore_dir.path(), &live_uploads, &live_prefs)
-                .unwrap();
+        let live_user_memory = restore_dir.path().join("live-user-memory");
+        let applied = apply_pending_restore_with_paths(
+            restore_dir.path(),
+            &live_uploads,
+            &live_prefs,
+            &live_user_memory,
+        )
+        .unwrap();
         assert!(matches!(applied, RestoreApplied::Applied { .. }));
         let db_name = crate::db::database_file_name();
         assert_eq!(count_folders(&restore_dir.path().join(db_name)).await, 2);
@@ -579,6 +645,7 @@ mod tests {
             restore_dir.path(),
             &live_uploads,
             &restore_dir.path().join("live-prefs.json"),
+            &restore_dir.path().join("live-user-memory"),
         )
         .unwrap();
 

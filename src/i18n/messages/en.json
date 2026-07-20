@@ -4061,17 +4061,37 @@
   "UserMemorySettings": {
     "loading": "Loading user memory...",
     "title": "User Memory",
-    "description": "Edit the persistent memory file used to store long-lived preferences and notes.",
+    "description": "Manage persistent context shared with enabled Agents.",
     "reload": "Reload",
     "save": "Save",
     "saving": "Saving...",
     "saved": "User memory saved",
     "saveFailed": "Failed to save user memory",
+    "saveConflict": "User memory changed elsewhere. Reload before saving again.",
     "dirty": "Unsaved changes",
     "readonly": "Read-only",
     "stats": "{lines} lines / {chars} chars",
     "placeholder": "Write durable preferences, working style notes, project conventions, or reminders here.",
-    "discardChangesConfirm": "This document has unsaved changes. Switch and discard them?",
+    "discardChangesConfirm": "Discard all unsaved user memory changes and reload?",
+    "status": {
+      "active": "Active for new sessions",
+      "disabled": "Disabled",
+      "newConversationRequired": "{count, plural, one {# running session retains its launch memory; start a new conversation to apply changes} other {# running sessions retain their launch memory; start new conversations to apply changes}}"
+    },
+    "policy": {
+      "title": "Application",
+      "description": "Choose which documents and Agents receive this context.",
+      "enabled": "Use user memory",
+      "enabledDescription": "Apply enabled documents when a new Agent session starts.",
+      "agentWriteEnabled": "Allow Agents to append memory",
+      "agentWriteDescription": "Supported Agents may append durable facts to User Memory only.",
+      "inheritToSubagents": "Inherit in delegated Agents",
+      "inheritDescription": "Pass the same enabled context to delegated Agent sessions.",
+      "documentsTitle": "Documents",
+      "agentsTitle": "Agents",
+      "documentToggle": "Use {document}",
+      "agentToggle": "Use memory with {agent}"
+    },
     "documents": {
       "memory": {
         "label": "User Memory",

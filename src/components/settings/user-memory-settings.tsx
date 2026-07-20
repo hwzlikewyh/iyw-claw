@@ -6,68 +6,32 @@ import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  createFileTreeEntry,
-  getHomeDirectory,
-  readFileForEdit,
-  saveFileContent,
-} from "@/lib/api"
+import { UserMemoryPolicyPanel } from "./user-memory-policy-panel"
+import { getUserMemorySettings, updateUserMemorySettings } from "@/lib/api"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
-import type { FileEditContent } from "@/lib/types"
 import {
-  displayUserMemoryPath,
+  buildUserMemoryUpdateRequest,
+  createUserMemoryDraft,
   getUserMemoryDocument,
   userMemoryLineCount,
-  userMemoryRelativePath,
-  USER_MEMORY_DIR,
   USER_MEMORY_DOCUMENTS,
-  type UserMemoryDocument,
   type UserMemoryDocumentId,
+  type UserMemoryDraft,
+  type UserMemorySettingsSnapshot,
 } from "@/lib/user-memory-documents"
-
-function isErrorCode(error: unknown, code: string): boolean {
-  return extractAppCommandError(error)?.code === code
-}
-
-async function ignoreAlreadyExists(action: () => Promise<unknown>) {
-  try {
-    await action()
-  } catch (err) {
-    if (!isErrorCode(err, "already_exists")) throw err
-  }
-}
-
-async function ensureMemoryFile(
-  homePath: string,
-  document: UserMemoryDocument
-): Promise<FileEditContent> {
-  const relativePath = userMemoryRelativePath(document)
-  try {
-    return await readFileForEdit(homePath, relativePath)
-  } catch (err) {
-    if (!isErrorCode(err, "not_found")) throw err
-  }
-
-  await ignoreAlreadyExists(() =>
-    createFileTreeEntry(homePath, "", USER_MEMORY_DIR, "dir")
-  )
-  await ignoreAlreadyExists(() =>
-    createFileTreeEntry(homePath, USER_MEMORY_DIR, document.fileName, "file")
-  )
-  return readFileForEdit(homePath, relativePath)
-}
 
 export function UserMemorySettings() {
   const t = useTranslations("UserMemorySettings")
   const [activeDocumentId, setActiveDocumentId] =
     useState<UserMemoryDocumentId>("memory")
-  const [homePath, setHomePath] = useState<string | null>(null)
-  const [content, setContent] = useState("")
-  const [savedContent, setSavedContent] = useState("")
-  const [etag, setEtag] = useState<string | null>(null)
-  const [readonly, setReadonly] = useState(false)
+  const [settings, setSettings] = useState<UserMemorySettingsSnapshot | null>(
+    null
+  )
+  const [draft, setDraft] = useState<UserMemoryDraft | null>(null)
+  const [staleRunningSessions, setStaleRunningSessions] = useState(0)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -76,9 +40,14 @@ export function UserMemorySettings() {
     () => getUserMemoryDocument(activeDocumentId),
     [activeDocumentId]
   )
-  const relativePath = userMemoryRelativePath(activeDocument)
-  const fullPath = displayUserMemoryPath(homePath, relativePath)
-  const dirty = content !== savedContent
+  const activeSnapshot = settings?.documents[activeDocumentId] ?? null
+  const content = draft?.documents[activeDocumentId].content ?? ""
+  const updateRequest = useMemo(
+    () =>
+      settings && draft ? buildUserMemoryUpdateRequest(settings, draft) : null,
+    [draft, settings]
+  )
+  const dirty = updateRequest !== null
   const stats = useMemo(
     () => ({
       chars: content.length,
@@ -87,23 +56,23 @@ export function UserMemorySettings() {
     [content]
   )
 
+  const applySettings = useCallback((next: UserMemorySettingsSnapshot) => {
+    setSettings(next)
+    setDraft(createUserMemoryDraft(next))
+    setStaleRunningSessions(next.staleRunningSessions)
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const home = await getHomeDirectory()
-      setHomePath(home)
-      const file = await ensureMemoryFile(home, activeDocument)
-      setContent(file.content)
-      setSavedContent(file.content)
-      setEtag(file.etag)
-      setReadonly(file.readonly)
+      applySettings(await getUserMemorySettings())
     } catch (err) {
       setError(toErrorMessage(err))
     } finally {
       setLoading(false)
     }
-  }, [activeDocument])
+  }, [applySettings])
 
   useEffect(() => {
     load().catch((err) => {
@@ -111,66 +80,113 @@ export function UserMemorySettings() {
     })
   }, [load])
 
+  const reload = useCallback(() => {
+    if (dirty && !window.confirm(t("discardChangesConfirm"))) return
+    void load()
+  }, [dirty, load, t])
+
   const save = useCallback(async () => {
-    if (!homePath || etag === null || readonly) return
+    if (!updateRequest) return
     setSaving(true)
     setError(null)
     try {
-      const result = await saveFileContent(
-        homePath,
-        relativePath,
-        content,
-        etag
-      )
-      setSavedContent(content)
-      setEtag(result.etag)
-      setReadonly(result.readonly)
+      const result = await updateUserMemorySettings(updateRequest)
+      applySettings(result.settings)
+      setStaleRunningSessions(result.affectedRunningSessions)
       toast.success(t("saved"))
     } catch (err) {
-      const message = toErrorMessage(err)
+      const conflict = extractAppCommandError(err)?.code === "conflict"
+      const message = conflict ? t("saveConflict") : toErrorMessage(err)
       setError(message)
-      toast.error(t("saveFailed"), { description: message })
+      toast.error(conflict ? t("saveConflict") : t("saveFailed"), {
+        description: conflict ? toErrorMessage(err) : message,
+      })
     } finally {
       setSaving(false)
     }
-  }, [content, etag, homePath, readonly, relativePath, t])
+  }, [applySettings, t, updateRequest])
 
-  const switchDocument = useCallback(
-    (nextId: UserMemoryDocumentId) => {
-      if (nextId === activeDocumentId) return
-      if (dirty && !window.confirm(t("discardChangesConfirm"))) return
-      setActiveDocumentId(nextId)
-    },
-    [activeDocumentId, dirty, t]
-  )
+  const switchDocument = useCallback((nextId: UserMemoryDocumentId) => {
+    setActiveDocumentId(nextId)
+  }, [])
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+      <div
+        aria-busy="true"
+        className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"
+      >
         <Loader2 className="h-4 w-4 animate-spin" />
         {t("loading")}
       </div>
     )
   }
 
+  if (!settings || !draft) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-sm">
+        {error && (
+          <div
+            role="alert"
+            className="max-w-lg rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-center text-xs text-red-400"
+          >
+            {error}
+          </div>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void load()}
+          disabled={loading}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          {t("reload")}
+        </Button>
+      </div>
+    )
+  }
+
+  const readonly = activeSnapshot?.readonly ?? false
+  const fullPath = activeSnapshot?.path ?? activeDocument.fileName
+
   return (
     <ScrollArea className="h-full">
       <div className="flex min-h-full flex-col gap-4 p-3 md:p-4">
         <section className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
-            <h1 className="text-sm font-semibold">{t("title")}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-sm font-semibold">{t("title")}</h1>
+              <span
+                aria-live="polite"
+                className="flex flex-wrap items-center gap-2"
+              >
+                {!settings.enabled && (
+                  <Badge variant="outline" className="text-[11px]">
+                    {t("status.disabled")}
+                  </Badge>
+                )}
+                {staleRunningSessions > 0 ? (
+                  <Badge variant="destructive" className="text-[11px]">
+                    {t("status.newConversationRequired", {
+                      count: staleRunningSessions,
+                    })}
+                  </Badge>
+                ) : (
+                  settings.enabled && (
+                    <Badge variant="outline" className="text-[11px]">
+                      {t("status.active")}
+                    </Badge>
+                  )
+                )}
+              </span>
+            </div>
             <p className="text-xs text-muted-foreground">{t("description")}</p>
           </div>
           <div className="flex items-center gap-2">
             <Button
               size="sm"
               variant="outline"
-              onClick={() => {
-                setLoading(true)
-                load().catch((err) => {
-                  console.error("[UserMemorySettings] reload failed:", err)
-                })
-              }}
+              onClick={reload}
               disabled={saving}
             >
               <RefreshCw className="h-3.5 w-3.5" />
@@ -178,12 +194,8 @@ export function UserMemorySettings() {
             </Button>
             <Button
               size="sm"
-              onClick={() => {
-                save().catch((err) => {
-                  console.error("[UserMemorySettings] save failed:", err)
-                })
-              }}
-              disabled={!dirty || saving || readonly}
+              onClick={() => void save()}
+              disabled={!dirty || saving}
             >
               {saving ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -194,6 +206,14 @@ export function UserMemorySettings() {
             </Button>
           </div>
         </section>
+
+        {draft && (
+          <UserMemoryPolicyPanel
+            draft={draft}
+            disabled={saving}
+            onChange={setDraft}
+          />
+        )}
 
         <section className="grid gap-2 sm:grid-cols-3">
           {USER_MEMORY_DOCUMENTS.map((document) => {
@@ -222,7 +242,10 @@ export function UserMemorySettings() {
         </section>
 
         {error && (
-          <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+          <div
+            role="alert"
+            className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400"
+          >
             {error}
           </div>
         )}
@@ -246,7 +269,23 @@ export function UserMemorySettings() {
 
           <Textarea
             value={content}
-            onChange={(event) => setContent(event.target.value)}
+            onChange={(event) => {
+              const nextContent = event.target.value
+              setDraft((current) =>
+                current
+                  ? {
+                      ...current,
+                      documents: {
+                        ...current.documents,
+                        [activeDocumentId]: {
+                          ...current.documents[activeDocumentId],
+                          content: nextContent,
+                        },
+                      },
+                    }
+                  : current
+              )
+            }}
             placeholder={t(activeDocument.placeholderKey)}
             disabled={readonly || saving}
             className="min-h-[420px] flex-1 resize-none font-mono text-sm leading-6"

@@ -195,6 +195,10 @@ pub struct ConnectionManager {
     /// init. `Arc<OnceLock>` so the inner `Self` cloned from `clone_ref` sees
     /// the install too — the lock is set once at startup and never mutated.
     delegation_injection: Arc<std::sync::OnceLock<crate::acp::connection::DelegationInjection>>,
+    /// Canonical user-memory service installed once during bootstrap. Shared by
+    /// every shallow manager clone so all session entry points capture context
+    /// from the same backend-owned store.
+    user_memory_service: Arc<std::sync::OnceLock<Arc<crate::user_memory::UserMemoryService>>>,
     /// Per-agent-type serialization for `probe_agent_options`. Without
     /// this, rapid agent-tab clicks in the settings UI would fan out one
     /// real CLI process per click — each one running up to 60s. The
@@ -234,6 +238,7 @@ impl ConnectionManager {
             spawn_locks: Arc::new(Mutex::new(HashMap::new())),
             spawn_handshake_timeout: spawn_handshake_timeout_from_env(),
             delegation_injection: Arc::new(std::sync::OnceLock::new()),
+            user_memory_service: Arc::new(std::sync::OnceLock::new()),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -246,6 +251,7 @@ impl ConnectionManager {
             spawn_locks: self.spawn_locks.clone(),
             spawn_handshake_timeout: self.spawn_handshake_timeout,
             delegation_injection: self.delegation_injection.clone(),
+            user_memory_service: self.user_memory_service.clone(),
             probe_locks: self.probe_locks.clone(),
             pending_questions: self.pending_questions.clone(),
         }
@@ -256,6 +262,27 @@ impl ConnectionManager {
     /// the unlikely event a second `build_delegation_stack` runs.
     pub fn install_delegation(&self, injection: crate::acp::connection::DelegationInjection) {
         let _ = self.delegation_injection.set(injection);
+    }
+
+    pub fn install_user_memory(&self, service: Arc<crate::user_memory::UserMemoryService>) {
+        let _ = self.user_memory_service.set(service);
+    }
+
+    async fn user_memory_context_for(
+        &self,
+        agent_type: AgentType,
+        origin: crate::user_memory::UserMemoryOrigin,
+    ) -> crate::user_memory::UserMemoryContextSnapshot {
+        let Some(service) = self.user_memory_service.get() else {
+            return crate::user_memory::UserMemoryContextSnapshot::disabled(origin);
+        };
+        match service.context_for(agent_type, origin).await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::warn!("[user-memory] failed to build launch context: {error}");
+                crate::user_memory::UserMemoryContextSnapshot::disabled(origin)
+            }
+        }
     }
 
     fn delegation_snapshot(&self) -> Option<crate::acp::connection::DelegationInjection> {
@@ -271,6 +298,7 @@ impl ConnectionManager {
             spawn_locks: Arc::new(Mutex::new(HashMap::new())),
             spawn_handshake_timeout: timeout,
             delegation_injection: Arc::new(std::sync::OnceLock::new()),
+            user_memory_service: Arc::new(std::sync::OnceLock::new()),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -303,6 +331,9 @@ impl ConnectionManager {
             "test-window".to_string(),
             None,
         );
+        state.user_memory_context = self
+            .user_memory_context_for(agent_type, crate::user_memory::UserMemoryOrigin::Root)
+            .await;
         state.status = ConnectionStatus::Connected;
         let conn = AgentConnection {
             id: id.to_string(),
@@ -345,6 +376,9 @@ impl ConnectionManager {
             "test-window".to_string(),
             None,
         );
+        state.user_memory_context = self
+            .user_memory_context_for(agent_type, crate::user_memory::UserMemoryOrigin::Root)
+            .await;
         state.status = ConnectionStatus::Connected;
         let conn = AgentConnection {
             id: id.to_string(),
@@ -362,6 +396,29 @@ impl ConnectionManager {
         rx
     }
 
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn insert_test_resumed_connection_live(
+        &self,
+        id: &str,
+        agent_type: AgentType,
+        working_dir: Option<PathBuf>,
+        emitter: EventEmitter,
+    ) -> tokio::sync::mpsc::Receiver<crate::acp::connection::ConnectionCommand> {
+        let receiver = self
+            .insert_test_connection_live(id, agent_type, working_dir, emitter)
+            .await;
+        self.connections
+            .lock()
+            .await
+            .get(id)
+            .expect("test connection must exist")
+            .state
+            .write()
+            .await
+            .mark_user_context_already_present();
+        receiver
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn spawn_agent(
         &self,
@@ -373,6 +430,33 @@ impl ConnectionManager {
         emitter: EventEmitter,
         preferred_mode_id: Option<String>,
         preferred_config_values: BTreeMap<String, String>,
+    ) -> Result<String, AcpError> {
+        self.spawn_agent_with_origin(
+            agent_type,
+            working_dir,
+            session_id,
+            runtime_env,
+            owner_window_label,
+            emitter,
+            preferred_mode_id,
+            preferred_config_values,
+            crate::user_memory::UserMemoryOrigin::Root,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn spawn_agent_with_origin(
+        &self,
+        agent_type: AgentType,
+        working_dir: Option<String>,
+        session_id: Option<String>,
+        runtime_env: BTreeMap<String, String>,
+        owner_window_label: String,
+        emitter: EventEmitter,
+        preferred_mode_id: Option<String>,
+        preferred_config_values: BTreeMap<String, String>,
+        user_memory_origin: crate::user_memory::UserMemoryOrigin,
     ) -> Result<String, AcpError> {
         // Connection dedup: when resuming an agent session (session_id is
         // Some), look for a live AgentConnection that already represents
@@ -422,6 +506,10 @@ impl ConnectionManager {
             return Ok(existing);
         }
 
+        let user_memory_context = self
+            .user_memory_context_for(agent_type, user_memory_origin)
+            .await;
+
         let connection_id = uuid::Uuid::new_v4().to_string();
         tracing::info!(
             "[ACP] spawning connection id={} owner_window={} agent={:?}",
@@ -445,6 +533,7 @@ impl ConnectionManager {
             self.connections.clone(),
             preferred_mode_id,
             preferred_config_values,
+            user_memory_context,
             self.delegation_snapshot(),
         )
         .await?;
@@ -698,15 +787,22 @@ impl ConnectionManager {
             .reserve()
             .await
             .map_err(|_| AcpError::ProcessExited)?;
-        {
+        let user_context = {
             let mut s = state_arc.write().await;
             if s.turn_in_flight {
                 return Err(AcpError::TurnInProgress);
             }
             s.turn_in_flight = true;
-        }
+            if s.user_context_injected {
+                None
+            } else {
+                s.user_context_injected = true;
+                s.user_memory_context.rendered.clone()
+            }
+        };
         permit.send(ConnectionCommand::Prompt {
             blocks,
+            user_context,
             user_message,
         });
         Ok(())
@@ -1577,7 +1673,7 @@ impl ConnectionManager {
         };
         let _probe_guard = per_agent_lock.lock_owned().await;
         let conn_id = self
-            .spawn_agent(
+            .spawn_agent_with_origin(
                 agent_type,
                 working_dir,
                 None, // brand-new session — no resume
@@ -1586,6 +1682,7 @@ impl ConnectionManager {
                 EventEmitter::Noop,
                 None,
                 BTreeMap::new(),
+                crate::user_memory::UserMemoryOrigin::Probe,
             )
             .await?;
 
@@ -1747,6 +1844,39 @@ impl ConnectionManager {
     pub async fn list_connections(&self) -> Vec<ConnectionInfo> {
         let connections = self.connections.lock().await;
         connections.values().map(|c| c.info()).collect()
+    }
+
+    /// Count live connections whose launch-time effective user context differs
+    /// from current settings/files. Existing sessions deliberately keep their
+    /// snapshot; the settings UI uses this count to request a new conversation.
+    pub async fn count_stale_user_memory(
+        &self,
+        service: &crate::user_memory::UserMemoryService,
+    ) -> usize {
+        let states = {
+            let connections = self.connections.lock().await;
+            connections
+                .values()
+                .map(|connection| connection.state.clone())
+                .collect::<Vec<_>>()
+        };
+        let mut stale = 0;
+        for state in states {
+            let (agent_type, origin, launch_fingerprint) = {
+                let snapshot = state.read().await;
+                (
+                    snapshot.agent_type,
+                    snapshot.user_memory_context.origin,
+                    snapshot.user_memory_context.effective_fingerprint.clone(),
+                )
+            };
+            if let Ok(current) = service.context_for(agent_type, origin).await {
+                if current.effective_fingerprint != launch_fingerprint {
+                    stale += 1;
+                }
+            }
+        }
+        stale
     }
 
     /// Raw per-connection rows for the pet panel's active-session list.
@@ -2329,7 +2459,7 @@ impl crate::acp::delegation::spawner::ConnectionSpawner for ConnectionManagerSpa
             .map_err(|e| SpawnerError::Spawn(e.to_string()))?;
 
         self.manager
-            .spawn_agent(
+            .spawn_agent_with_origin(
                 agent_type,
                 effective_working_dir,
                 None,
@@ -2338,6 +2468,7 @@ impl crate::acp::delegation::spawner::ConnectionSpawner for ConnectionManagerSpa
                 emitter,
                 preferred_mode_id,
                 preferred_config_values,
+                crate::user_memory::UserMemoryOrigin::Delegation,
             )
             .await
             .map_err(|e| SpawnerError::Spawn(e.to_string()))
@@ -3144,6 +3275,7 @@ mod tests {
                 blocks: vec![PromptInputBlock::Text {
                     text: "filler".into(),
                 }],
+                user_context: None,
                 user_message: None,
             })
             .await

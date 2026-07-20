@@ -26,6 +26,23 @@ pub fn iyw_claw_home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(APP_DIR_NAME))
 }
 
+/// Canonical user-memory root for the desktop runtime. This deliberately keeps
+/// compatibility with the existing `~/.iyw-claw/user-*.md` files instead of
+/// moving them into Tauri's identifier-derived data directory.
+pub fn desktop_user_memory_root() -> PathBuf {
+    crate::git_credential::absolutize(&iyw_claw_home_dir())
+}
+
+/// Canonical user-memory root for server/Docker mode. An explicit
+/// `IYW_CLAW_HOME` wins; otherwise the server's effective persistent data root
+/// is authoritative (normally `/data` in Docker).
+pub fn server_user_memory_root(data_dir: &Path) -> PathBuf {
+    if let Some(custom) = std::env::var_os("IYW_CLAW_HOME").filter(|value| !value.is_empty()) {
+        return crate::git_credential::absolutize(Path::new(&custom));
+    }
+    crate::git_credential::absolutize(data_dir)
+}
+
 /// Root directory for desktop-pet assets.
 ///
 /// Resolution order:

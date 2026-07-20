@@ -28,6 +28,7 @@ pub mod process;
 pub mod supervise;
 mod terminal;
 pub mod update;
+pub mod user_memory;
 pub mod web;
 pub mod workspace_state;
 pub mod workspace_transfer;
@@ -61,8 +62,9 @@ mod tauri_app {
         office_tools as office_tools_commands, question as question_commands,
         quick_messages as quick_messages_commands, remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands, session_info as session_info_commands,
-        system_settings, terminal as terminal_commands, usage as usage_commands, version_control,
-        windows, workspace_state as workspace_state_commands,
+        system_settings, terminal as terminal_commands, usage as usage_commands,
+        user_memory as user_memory_commands, version_control, windows,
+        workspace_state as workspace_state_commands,
     };
     use crate::terminal::manager::TerminalManager;
     use crate::{db, git_credential, network, paths, process, web};
@@ -352,6 +354,15 @@ mod tauri_app {
                     }
                 }
                 app.manage(database);
+                let user_memory = std::sync::Arc::new(
+                    crate::user_memory::UserMemoryService::new(
+                        app.state::<db::AppDatabase>().conn.clone(),
+                        paths::desktop_user_memory_root(),
+                    ),
+                );
+                app.state::<ConnectionManager>()
+                    .install_user_memory(user_memory.clone());
+                app.manage(user_memory);
 
                 // Restore and apply saved system proxy settings before any network operation.
                 let db = app.state::<db::AppDatabase>();
@@ -506,6 +517,10 @@ mod tauri_app {
                 let broker_for_lifecycle = {
                     let cm_state = app.state::<ConnectionManager>();
                     let db_conn = app.state::<db::AppDatabase>().conn.clone();
+                    let user_memory = app
+                        .state::<std::sync::Arc<crate::user_memory::UserMemoryService>>()
+                        .inner()
+                        .clone();
                     let (
                         broker,
                         tokens,
@@ -583,6 +598,7 @@ mod tauri_app {
                                 }),
                             ),
                         ),
+                        user_memory,
                     );
                     tauri::async_runtime::spawn(async move {
                         if let Err(e) = listener.run(socket_path).await {
@@ -963,6 +979,8 @@ mod tauri_app {
                 question_commands::set_question_settings,
                 session_info_commands::get_session_info_settings,
                 session_info_commands::set_session_info_settings,
+                user_memory_commands::get_user_memory_settings,
+                user_memory_commands::update_user_memory_settings,
                 version_control::detect_git,
                 version_control::test_git_path,
                 version_control::get_git_settings,
