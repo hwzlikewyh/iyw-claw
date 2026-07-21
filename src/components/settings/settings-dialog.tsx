@@ -48,6 +48,8 @@ function SettingsDialogBody({ section, agentType }: SettingsDialogState) {
       return <SkillPacksSettings initialCategory="office-tools" />
     case "internet-tools":
       return <SkillPacksSettings initialCategory="internet-tools" />
+    case "codex-native":
+      return <SkillPacksSettings initialCategory="codex-native" />
     case "skills":
       return <SkillPacksSettings />
     case "quick-messages":

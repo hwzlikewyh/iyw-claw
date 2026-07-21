@@ -971,9 +971,21 @@ fn supported_agents() -> Vec<AgentType> {
     crate::commands::managed_skills::supported_skill_agent_types()
 }
 
+/// Bundled experts split into two managed families by `experts.toml`
+/// category: everything except `codex_native` belongs to the Experts family;
+/// `codex_native` entries are iyw-claw's replacements for the skills Codex
+/// CLI ships under `~/.codex/skills/.system/` and are published to Codex
+/// only. Storage (bundle → central store → links) is shared.
+pub(crate) const CODEX_NATIVE_CATEGORY: &str = "codex_native";
+
+fn is_codex_native(metadata: &ExpertMetadata) -> bool {
+    metadata.category == CODEX_NATIVE_CATEGORY
+}
+
 pub(crate) fn managed_expert_ids() -> Vec<String> {
     bundled_metadata()
         .iter()
+        .filter(|metadata| !is_codex_native(metadata))
         .map(|metadata| metadata.id.clone())
         .collect()
 }
@@ -981,6 +993,24 @@ pub(crate) fn managed_expert_ids() -> Vec<String> {
 pub(crate) fn managed_ready_expert_ids() -> Vec<String> {
     bundled_metadata()
         .iter()
+        .filter(|metadata| !is_codex_native(metadata))
+        .filter(|metadata| expert_central_path(&metadata.id).exists())
+        .map(|metadata| metadata.id.clone())
+        .collect()
+}
+
+pub(crate) fn managed_codex_native_ids() -> Vec<String> {
+    bundled_metadata()
+        .iter()
+        .filter(|metadata| is_codex_native(metadata))
+        .map(|metadata| metadata.id.clone())
+        .collect()
+}
+
+pub(crate) fn managed_ready_codex_native_ids() -> Vec<String> {
+    bundled_metadata()
+        .iter()
+        .filter(|metadata| is_codex_native(metadata))
         .filter(|metadata| expert_central_path(&metadata.id).exists())
         .map(|metadata| metadata.id.clone())
         .collect()
@@ -1413,13 +1443,17 @@ mod tests {
 
     #[test]
     fn managed_ready_expert_ids_match_installed_central_entries() {
-        let expected = bundled_metadata()
-            .iter()
-            .filter(|metadata| expert_central_path(&metadata.id).exists())
-            .map(|metadata| metadata.id.clone())
-            .collect::<Vec<_>>();
+        let ready = |codex_native: bool| {
+            bundled_metadata()
+                .iter()
+                .filter(|metadata| is_codex_native(metadata) == codex_native)
+                .filter(|metadata| expert_central_path(&metadata.id).exists())
+                .map(|metadata| metadata.id.clone())
+                .collect::<Vec<_>>()
+        };
 
-        assert_eq!(managed_ready_expert_ids(), expected);
+        assert_eq!(managed_ready_expert_ids(), ready(false));
+        assert_eq!(managed_ready_codex_native_ids(), ready(true));
     }
 
     #[test]

@@ -12,6 +12,7 @@ export type SettingsSection =
   | "experts"
   | "office-tools"
   | "internet-tools"
+  | "codex-native"
   | "quick-messages"
   | "shortcuts"
   | "version-control"
@@ -45,6 +46,7 @@ export function normalizeSettingsSection(
     case "experts":
     case "office-tools":
     case "internet-tools":
+    case "codex-native":
     case "quick-messages":
     case "shortcuts":
     case "version-control":
@@ -69,6 +71,7 @@ export function settingsSectionToNavPath(section?: string | null): string {
     case "experts":
     case "office-tools":
     case "internet-tools":
+    case "codex-native":
       return "/settings/skills"
     default:
       return settingsSectionToPath(normalized)

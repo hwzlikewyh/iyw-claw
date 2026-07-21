@@ -653,7 +653,7 @@ fn with_user_shared_agent_skills(mut directories: Vec<PathBuf>) -> Vec<PathBuf> 
     directories
 }
 
-fn codex_home_dir() -> PathBuf {
+pub(crate) fn codex_home_dir() -> PathBuf {
     let configured = std::env::var("CODEX_HOME").ok().and_then(|raw| {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -4556,6 +4556,7 @@ fn build_skill_item(
         enabled,
         copy_mode: false,
         read_only: false,
+        official: false,
     }
 }
 
@@ -4563,6 +4564,12 @@ const DISABLED_SKILLS_DIR: &str = ".iyw-claw-disabled";
 const CONFLICTED_SKILLS_DIR: &str = ".iyw-claw-conflicts";
 const SHARED_SKILL_COPY_MARKER: &str = ".iyw-claw-managed-copy.json";
 const SHARED_MARKET_RECONCILE_MARKER: &str = ".central-skill-reconcile.v1";
+/// Written into a shared skill's source directory when the skill is installed
+/// from the official market. Marks the content as market-managed so later
+/// saves through the generic skill API are refused, while enable/disable and
+/// uninstall keep working. Deleting the skill removes the whole source
+/// directory, so the marker needs no separate cleanup.
+const OFFICIAL_SKILL_MARKER: &str = ".iyw-claw-official-skill.json";
 
 fn disabled_skills_dir(dir: &Path) -> PathBuf {
     dir.join(DISABLED_SKILLS_DIR)
@@ -4589,6 +4596,43 @@ fn ensure_shared_skill_writable(skill_id: &str) -> Result<(), AcpError> {
         )));
     }
     Ok(())
+}
+
+fn is_official_skill_source(source: &Path) -> bool {
+    source.join(OFFICIAL_SKILL_MARKER).is_file()
+}
+
+fn is_official_shared_skill(skill_id: &str) -> bool {
+    is_official_skill_source(&shared_skill_path(skill_id))
+}
+
+/// Refuse content writes to market-managed skills. The official channel
+/// itself passes `official: true` so it can (re)install over its own marker.
+/// Enable/disable and delete deliberately bypass this guard.
+fn ensure_shared_skill_not_official(skill_id: &str) -> Result<(), AcpError> {
+    if is_official_shared_skill(skill_id) {
+        return Err(AcpError::protocol(format!(
+            "skill '{skill_id}' was installed from the official market and cannot be modified"
+        )));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OfficialSkillMarker {
+    skill_id: String,
+    source: String,
+}
+
+fn write_official_skill_marker(source: &Path, skill_id: &str) -> Result<(), AcpError> {
+    let marker = OfficialSkillMarker {
+        skill_id: skill_id.to_string(),
+        source: "official_market".to_string(),
+    };
+    let serialized = serde_json::to_string_pretty(&marker)
+        .map_err(|e| AcpError::protocol(format!("failed to serialize official marker: {e}")))?;
+    fs::write(source.join(OFFICIAL_SKILL_MARKER), serialized)
+        .map_err(|e| AcpError::protocol(format!("failed to write official marker: {e}")))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4687,6 +4731,7 @@ fn build_shared_skill_item_for_agent(
     skill.enabled = enabled;
     skill.copy_mode = copy_mode;
     skill.read_only = is_reserved_shared_skill_id(&skill_id);
+    skill.official = is_official_shared_skill(&skill_id);
     Ok(skill)
 }
 
@@ -4714,6 +4759,7 @@ fn list_market_skills_from_dir(
         let (enabled, copy_mode) = shared_skill_publish_status(agent_type, &source, &skill.id)?;
         skill.enabled = enabled;
         skill.copy_mode = copy_mode;
+        skill.official = is_official_skill_source(&source);
     }
     if !include_unpublished {
         skills.retain(|skill| skill.enabled);
@@ -8482,6 +8528,10 @@ pub async fn acp_take_over_agent_skill(
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 #[allow(clippy::too_many_arguments)]
+/// `official: Some(true)` marks the save as an official-market (re)install:
+/// the shared source is stamped with the official marker, and the save may
+/// overwrite an already-marked skill. Any other save to a marked skill is
+/// refused so market-managed content stays immutable for users.
 pub async fn acp_save_agent_skill(
     agent_type: AgentType,
     scope: AgentSkillScope,
@@ -8491,6 +8541,7 @@ pub async fn acp_save_agent_skill(
     workspace_path: Option<String>,
     layout: Option<AgentSkillLayout>,
     sync_mode: Option<AgentSkillSyncMode>,
+    official: Option<bool>,
 ) -> Result<AgentSkillItem, AcpError> {
     let Some(spec) = skill_storage_spec(agent_type) else {
         return Err(AcpError::protocol(format!(
@@ -8512,6 +8563,10 @@ pub async fn acp_save_agent_skill(
     if scope == AgentSkillScope::Global {
         let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
+        let official_install = official.unwrap_or(false);
+        if !official_install {
+            ensure_shared_skill_not_official(&id)?;
+        }
         let source = shared_skill_path(&id);
         let existed = source.join("SKILL.md").is_file();
         let was_copy_mode = if existed {
@@ -8528,6 +8583,9 @@ pub async fn acp_save_agent_skill(
             let content_path = source.join("SKILL.md");
             fs::write(&content_path, &content)
                 .map_err(|e| AcpError::protocol(format!("failed to write skill content: {e}")))?;
+        }
+        if official_install {
+            write_official_skill_marker(&source, &id)?;
         }
 
         let mode = sync_mode.unwrap_or(if was_copy_mode {
@@ -9229,6 +9287,49 @@ mod tests {
             &tmp.path().join("shared").join("other-skill"),
             "my-skill"
         ));
+    }
+
+    #[test]
+    fn official_marker_round_trips_through_skill_source() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let source = tmp.path().join("official-skill");
+        fs::create_dir_all(&source).unwrap();
+
+        assert!(!is_official_skill_source(&source));
+        write_official_skill_marker(&source, "official-skill").unwrap();
+        assert!(is_official_skill_source(&source));
+
+        let raw = fs::read_to_string(source.join(OFFICIAL_SKILL_MARKER)).unwrap();
+        let marker: OfficialSkillMarker = serde_json::from_str(&raw).unwrap();
+        assert_eq!(marker.skill_id, "official-skill");
+        assert_eq!(marker.source, "official_market");
+    }
+
+    #[test]
+    fn market_list_marks_official_skills_from_marker() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let central = temp.path().join("central");
+        for id in ["official-skill", "user-skill"] {
+            fs::create_dir_all(central.join(id)).expect("create skill");
+            fs::write(central.join(id).join("SKILL.md"), format!("# {id}"))
+                .expect("write skill");
+        }
+        write_official_skill_marker(&central.join("official-skill"), "official-skill").unwrap();
+
+        let skills = list_market_skills_from_dir(AgentType::Codex, &central, true)
+            .expect("list market skills");
+
+        let official = skills
+            .iter()
+            .find(|skill| skill.id == "official-skill")
+            .unwrap();
+        let user = skills
+            .iter()
+            .find(|skill| skill.id == "user-skill")
+            .unwrap();
+        assert!(official.official);
+        assert!(!official.read_only);
+        assert!(!user.official);
     }
 
     #[test]

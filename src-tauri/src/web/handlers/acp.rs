@@ -278,6 +278,7 @@ pub struct AcpSaveAgentSkillParams {
     pub workspace_path: Option<String>,
     pub layout: Option<AgentSkillLayout>,
     pub sync_mode: Option<AgentSkillSyncMode>,
+    pub official: Option<bool>,
 }
 
 pub async fn acp_save_agent_skill(
@@ -292,6 +293,7 @@ pub async fn acp_save_agent_skill(
         params.workspace_path,
         params.layout,
         params.sync_mode,
+        params.official,
     )
     .await
     .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;

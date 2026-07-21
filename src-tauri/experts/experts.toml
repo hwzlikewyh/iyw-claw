@@ -344,3 +344,131 @@ de = "Skill-Dokumente vor dem Deployment mittels TDD erstellen, bearbeiten und v
 fr = "Créer, éditer et vérifier les documents de compétences via TDD avant le déploiement."
 pt = "Cria, edita e verifica documentos de habilidades via TDD antes do deploy."
 ar = "إنشاء وتحرير والتحقق من مستندات المهارات عبر التطوير الموجه بالاختبارات قبل النشر."
+
+
+# ─── Codex native skills ─────────────────────────────────────────────────
+# Bundled replacements for the skills Codex CLI ships under
+# `~/.codex/skills/.system/` (Apache-2.0, LICENSE.txt kept per skill).
+# They belong to the `codex_native` managed family: published to Codex
+# only, while the family reconcile keeps `.system` cleared so the model
+# never sees duplicate entries. openai-docs is intentionally not bundled.
+
+[[expert]]
+id = "imagegen"
+category = "codex_native"
+icon = "Image"
+sort_order = 300
+
+[expert.display_name]
+en = "Image Generation"
+"zh-CN" = "图像生成"
+"zh-TW" = "圖像生成"
+ja = "画像生成"
+ko = "이미지 생성"
+es = "Generación de imágenes"
+de = "Bilderzeugung"
+fr = "Génération d'images"
+pt = "Geração de imagens"
+ar = "توليد الصور"
+
+[expert.description]
+en = "Generate or edit raster images — photos, illustrations, textures, sprites, and mockups."
+"zh-CN" = "生成或编辑位图图像——照片、插画、纹理、精灵图和产品示意图。"
+"zh-TW" = "生成或編輯點陣圖像——照片、插畫、紋理、精靈圖和產品示意圖。"
+ja = "写真・イラスト・テクスチャ・スプライト・モックアップなどのラスター画像を生成・編集します。"
+ko = "사진, 일러스트, 텍스처, 스프라이트, 목업 등 래스터 이미지를 생성하거나 편집합니다."
+es = "Genera o edita imágenes rasterizadas: fotos, ilustraciones, texturas, sprites y maquetas."
+de = "Rasterbilder erzeugen oder bearbeiten — Fotos, Illustrationen, Texturen, Sprites und Mockups."
+fr = "Générer ou modifier des images matricielles — photos, illustrations, textures, sprites et maquettes."
+pt = "Gera ou edita imagens raster — fotos, ilustrações, texturas, sprites e mockups."
+ar = "توليد أو تحرير الصور النقطية — الصور والرسوم التوضيحية والأنسجة والعناصر والنماذج."
+
+[[expert]]
+id = "plugin-creator"
+category = "codex_native"
+icon = "Puzzle"
+sort_order = 310
+
+[expert.display_name]
+en = "Plugin Creator"
+"zh-CN" = "插件创建"
+"zh-TW" = "外掛建立"
+ja = "プラグイン作成"
+ko = "플러그인 생성"
+es = "Creador de plugins"
+de = "Plugin-Ersteller"
+fr = "Créateur de plugins"
+pt = "Criador de plugins"
+ar = "منشئ الإضافات"
+
+[expert.description]
+en = "Scaffold Codex plugin directories with valid manifests and marketplace entries."
+"zh-CN" = "为 Codex 搭建插件目录骨架，生成合法的清单与个人市场条目。"
+"zh-TW" = "為 Codex 搭建外掛目錄骨架，生成合法的清單與個人市場條目。"
+ja = "有効なマニフェストとマーケットプレイスエントリを備えた Codex プラグインの雛形を作成します。"
+ko = "유효한 매니페스트와 마켓플레이스 항목을 갖춘 Codex 플러그인 디렉터리를 스캐폴딩합니다."
+es = "Estructura directorios de plugins de Codex con manifiestos válidos y entradas de marketplace."
+de = "Codex-Plugin-Verzeichnisse mit gültigen Manifesten und Marketplace-Einträgen anlegen."
+fr = "Génère la structure de plugins Codex avec manifestes valides et entrées de marketplace."
+pt = "Estrutura diretórios de plugins do Codex com manifestos válidos e entradas de marketplace."
+ar = "إنشاء هيكل أدلة إضافات Codex مع ملفات تعريف صالحة وإدخالات سوق شخصية."
+
+[[expert]]
+id = "skill-creator"
+category = "codex_native"
+icon = "Hammer"
+sort_order = 320
+
+[expert.display_name]
+en = "Skill Creator"
+"zh-CN" = "技能创建"
+"zh-TW" = "技能建立"
+ja = "スキル作成"
+ko = "스킬 생성"
+es = "Creador de habilidades"
+de = "Skill-Ersteller"
+fr = "Créateur de compétences"
+pt = "Criador de habilidades"
+ar = "منشئ المهارات"
+
+[expert.description]
+en = "Guide for creating or updating skills that extend the agent's capabilities."
+"zh-CN" = "创建或更新技能的指南，用专业知识和工作流扩展智能体能力。"
+"zh-TW" = "建立或更新技能的指南，用專業知識和工作流擴展智能體能力。"
+ja = "専門知識やワークフローでエージェントの能力を拡張するスキルを作成・更新するガイドです。"
+ko = "전문 지식과 워크플로로 에이전트 능력을 확장하는 스킬을 만들거나 업데이트하는 가이드입니다."
+es = "Guía para crear o actualizar habilidades que amplían las capacidades del agente."
+de = "Anleitung zum Erstellen oder Aktualisieren von Skills, die die Fähigkeiten des Agents erweitern."
+fr = "Guide pour créer ou mettre à jour des compétences étendant les capacités de l'agent."
+pt = "Guia para criar ou atualizar habilidades que ampliam as capacidades do agente."
+ar = "دليل لإنشاء أو تحديث المهارات التي توسع قدرات الوكيل."
+
+[[expert]]
+id = "skill-installer"
+category = "codex_native"
+icon = "Download"
+sort_order = 330
+
+[expert.display_name]
+en = "Skill Installer"
+"zh-CN" = "技能安装"
+"zh-TW" = "技能安裝"
+ja = "スキルインストーラー"
+ko = "스킬 설치"
+es = "Instalador de habilidades"
+de = "Skill-Installer"
+fr = "Installateur de compétences"
+pt = "Instalador de habilidades"
+ar = "مثبت المهارات"
+
+[expert.description]
+en = "Install skills from a curated list or GitHub repos into the Codex skills directory."
+"zh-CN" = "从精选列表或 GitHub 仓库安装技能到 Codex 技能目录。"
+"zh-TW" = "從精選列表或 GitHub 儲存庫安裝技能到 Codex 技能目錄。"
+ja = "厳選リストや GitHub リポジトリから Codex のスキルディレクトリへスキルをインストールします。"
+ko = "선별된 목록이나 GitHub 저장소에서 Codex 스킬 디렉터리로 스킬을 설치합니다."
+es = "Instala habilidades desde una lista curada o repositorios de GitHub en el directorio de Codex."
+de = "Skills aus einer kuratierten Liste oder GitHub-Repos in das Codex-Skill-Verzeichnis installieren."
+fr = "Installe des compétences depuis une liste organisée ou des dépôts GitHub dans le répertoire Codex."
+pt = "Instala habilidades de uma lista curada ou repositórios GitHub no diretório de skills do Codex."
+ar = "تثبيت المهارات من قائمة مختارة أو مستودعات GitHub في دليل مهارات Codex."

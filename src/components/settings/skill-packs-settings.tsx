@@ -1,15 +1,20 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { FileStack, Globe2, Sparkles } from "lucide-react"
+import { FileStack, Globe2, Sparkles, TerminalSquare } from "lucide-react"
 import { useTranslations } from "next-intl"
 
+import { CodexNativeSettings } from "@/components/settings/codex-native-settings"
 import { ExpertsSettings } from "@/components/settings/experts-settings"
 import { InternetToolsSettings } from "@/components/settings/internet-tools-settings"
 import { OfficeToolsSettings } from "@/components/settings/office-tools-settings"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-export type SkillPackCategory = "experts" | "office-tools" | "internet-tools"
+export type SkillPackCategory =
+  | "experts"
+  | "office-tools"
+  | "internet-tools"
+  | "codex-native"
 
 interface SkillPacksSettingsProps {
   initialCategory?: SkillPackCategory
@@ -46,6 +51,10 @@ export function SkillPacksSettings({
             <Globe2 aria-hidden="true" />
             {t("tabs.internetTools")}
           </TabsTrigger>
+          <TabsTrigger value="codex-native" className="flex-none">
+            <TerminalSquare aria-hidden="true" />
+            {t("tabs.codexNative")}
+          </TabsTrigger>
         </TabsList>
       </div>
 
@@ -53,6 +62,7 @@ export function SkillPacksSettings({
         {activeCategory === "experts" && <ExpertsSettings />}
         {activeCategory === "office-tools" && <OfficeToolsSettings />}
         {activeCategory === "internet-tools" && <InternetToolsSettings />}
+        {activeCategory === "codex-native" && <CodexNativeSettings />}
       </div>
     </Tabs>
   )
