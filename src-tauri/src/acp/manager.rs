@@ -638,6 +638,144 @@ impl ConnectionManager {
         disconnected
     }
 
+    /// Cap the number of idle resident agent processes. Finished
+    /// conversations keep their ACP process alive (frontend keepalives stop
+    /// the time-based idle sweep from ever firing while any surface is
+    /// attached), so memory grows with every conversation ever opened.
+    /// Keep only the `max_keep` most recently active idle connections and
+    /// disconnect the rest — re-entering such a conversation reconnects via
+    /// the fast `session/load` path.
+    ///
+    /// Eligibility mirrors `sweep_idle` (Connected, no pending
+    /// permission/question, no live background work) with a 90-second grace
+    /// on `last_agent_event_at` so a turn that JUST finished — or is being
+    /// read right now — is never yanked out from under the user mid-glance.
+    /// Prompting connections are never candidates ("对话中的不算").
+    pub async fn sweep_excess_idle(&self, max_keep: usize) -> usize {
+        const JUST_FINISHED_GRACE_SECS: i64 = 90;
+        let now = chrono::Utc::now();
+        let to_disconnect: Vec<String> = {
+            let connections = self.connections.lock().await;
+            let mut idle: Vec<(String, chrono::DateTime<chrono::Utc>)> = Vec::new();
+            for (id, conn) in connections.iter() {
+                let Ok(state) = conn.state.try_read() else {
+                    continue;
+                };
+                if state.status != ConnectionStatus::Connected {
+                    continue;
+                }
+                if state.pending_permission.is_some() || state.pending_question.is_some() {
+                    continue;
+                }
+                if state.has_active_background_work(now) {
+                    continue;
+                }
+                if now.signed_duration_since(state.last_agent_event_at)
+                    < chrono::Duration::seconds(JUST_FINISHED_GRACE_SECS)
+                {
+                    continue;
+                }
+                idle.push((id.clone(), state.last_agent_event_at));
+            }
+            if idle.len() <= max_keep {
+                return 0;
+            }
+            // Most recently finished first; disconnect everything past the cap.
+            idle.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
+            idle.split_off(max_keep)
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect()
+        };
+
+        let mut disconnected = 0;
+        for id in to_disconnect {
+            tracing::info!("[ACP] idle-capacity sweep disconnecting connection={id}");
+            if self.disconnect(&id).await.is_ok() {
+                disconnected += 1;
+            }
+        }
+        disconnected
+    }
+
+    /// Cancel prompting connections whose agent has gone silent. A hung
+    /// upstream stream (gateway outage, dead network) otherwise leaves the
+    /// conversation spinning "generating" forever: the idle sweep skips
+    /// `Prompting` connections, and frontend keepalives refresh
+    /// `last_activity_at` while the tab is open. Detection therefore keys on
+    /// `last_agent_event_at`, which only events bump. Connections parked on a
+    /// user gate (permission / question) or with live background work are
+    /// deliberately waiting and never qualify.
+    pub async fn sweep_stalled_prompts(
+        &self,
+        db: &DatabaseConnection,
+        stall_timeout: Duration,
+    ) -> usize {
+        let now = chrono::Utc::now();
+        let timeout = match chrono::Duration::from_std(stall_timeout) {
+            Ok(d) => d,
+            Err(_) => return 0,
+        };
+        let victims = {
+            let connections = self.connections.lock().await;
+            let mut victims = Vec::new();
+            for (id, conn) in connections.iter() {
+                let Ok(state) = conn.state.try_read() else {
+                    continue;
+                };
+                if state.status != ConnectionStatus::Prompting {
+                    continue;
+                }
+                if state.pending_permission.is_some() || state.pending_question.is_some() {
+                    continue;
+                }
+                if state.has_active_background_work(now) {
+                    continue;
+                }
+                if now.signed_duration_since(state.last_agent_event_at) < timeout {
+                    continue;
+                }
+                victims.push((
+                    id.clone(),
+                    state.agent_type.to_string(),
+                    conn.state.clone(),
+                    conn.emitter.clone(),
+                ));
+            }
+            victims
+        };
+
+        let mut cancelled = 0;
+        for (id, agent_type, state_arc, emitter) in victims {
+            tracing::warn!(
+                "[ACP] prompt stalled (no agent events for {}s), cancelling connection={}",
+                stall_timeout.as_secs(),
+                id
+            );
+            // Surface a classifiable error first ("timed out" maps to the
+            // localized request-timeout copy), then cancel — which flips the
+            // conversation row off "in progress" so the spinner stops.
+            emit_with_state(
+                &state_arc,
+                &emitter,
+                AcpEvent::Error {
+                    message: format!(
+                        "generation timed out: no response from the agent for {}s",
+                        stall_timeout.as_secs()
+                    ),
+                    agent_type,
+                    code: Some("prompt_stall_timeout".to_string()),
+                    terminal: false,
+                },
+            )
+            .await;
+            if self.cancel(db, &id).await.is_ok() {
+                cancelled += 1;
+            }
+        }
+        cancelled
+    }
+
     /// Compare each running connection's spawn-time config fingerprint against a
     /// freshly recomputed one (keyed by agent type in `fresh`) and notify those
     /// that drifted. Drives the conversation-side "restart to apply" banner after
@@ -4305,6 +4443,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn excess_idle_sweep_keeps_newest_three_and_skips_prompting() {
+        let mgr = ConnectionManager::new();
+        // Five finished conversations, oldest first, plus one mid-prompt.
+        for (index, id) in ["a", "b", "c", "d", "e", "prompting"].iter().enumerate() {
+            insert_fake_connection(&mgr, id, AgentType::ClaudeCode, None, EventEmitter::Noop)
+                .await;
+            let state = mgr.get_state(id).await.unwrap();
+            let mut s = state.write().await;
+            if *id == "prompting" {
+                s.status = ConnectionStatus::Prompting;
+                s.last_agent_event_at = chrono::Utc::now() - chrono::Duration::seconds(3600);
+            } else {
+                // a is the oldest, e the most recently finished.
+                s.last_agent_event_at =
+                    chrono::Utc::now() - chrono::Duration::seconds(3600 - index as i64 * 60);
+            }
+        }
+
+        let n = mgr.sweep_excess_idle(3).await;
+        assert_eq!(n, 2, "five idle minus cap of three");
+
+        let connections = mgr.connections.lock().await;
+        assert!(connections.get("a").is_none(), "oldest is reaped");
+        assert!(connections.get("b").is_none(), "second oldest is reaped");
+        for id in ["c", "d", "e", "prompting"] {
+            assert!(connections.contains_key(id), "{id} must survive the cap");
+        }
+    }
+
+    #[tokio::test]
+    async fn excess_idle_sweep_spares_just_finished_connections() {
+        let mgr = ConnectionManager::new();
+        for id in ["fresh-1", "fresh-2", "fresh-3", "fresh-4"] {
+            insert_fake_connection(&mgr, id, AgentType::ClaudeCode, None, EventEmitter::Noop)
+                .await;
+            // last_agent_event_at defaults to "now" — inside the grace window.
+        }
+        assert_eq!(
+            mgr.sweep_excess_idle(3).await,
+            0,
+            "connections inside the just-finished grace must not be capped"
+        );
+    }
+
+    #[tokio::test]
     async fn sweep_idle_disconnects_idle_connected_connections() {
         let mgr = ConnectionManager::new();
         insert_fake_connection(
@@ -4394,6 +4577,62 @@ mod tests {
             "Connection with pending permission must not be swept (user is mid-decision)"
         );
         assert!(mgr.connections.lock().await.contains_key("permission"));
+    }
+
+    #[tokio::test]
+    async fn stall_sweep_cancels_silent_prompting_and_skips_user_gates() {
+        use crate::acp::session_state::PendingPermissionState;
+        let db = crate::db::test_helpers::fresh_in_memory_db().await;
+        let mgr = ConnectionManager::new();
+        for id in ["stalled", "gated", "fresh"] {
+            insert_fake_connection(&mgr, id, AgentType::ClaudeCode, None, EventEmitter::Noop)
+                .await;
+            let state = mgr.get_state(id).await.unwrap();
+            let mut s = state.write().await;
+            s.status = ConnectionStatus::Prompting;
+            if id != "fresh" {
+                s.last_agent_event_at = chrono::Utc::now() - chrono::Duration::seconds(1200);
+            }
+            if id == "gated" {
+                s.pending_permission = Some(PendingPermissionState {
+                    request_id: "req-1".into(),
+                    tool_call_id: "tc-1".into(),
+                    tool_call: serde_json::json!({ "toolCallId": "tc-1", "title": "test" }),
+                    options: vec![],
+                    created_at: chrono::Utc::now(),
+                });
+            }
+        }
+
+        mgr.sweep_stalled_prompts(&db.conn, Duration::from_secs(600))
+            .await;
+
+        let stalled_error = mgr
+            .get_state("stalled")
+            .await
+            .unwrap()
+            .read()
+            .await
+            .last_error
+            .clone();
+        assert!(
+            stalled_error
+                .map(|e| e.message.contains("timed out"))
+                .unwrap_or(false),
+            "silent prompting connection must surface a timeout error"
+        );
+        for id in ["gated", "fresh"] {
+            assert!(
+                mgr.get_state(id)
+                    .await
+                    .unwrap()
+                    .read()
+                    .await
+                    .last_error
+                    .is_none(),
+                "{id} must not be flagged by the stall sweep"
+            );
+        }
     }
 
     #[tokio::test]

@@ -454,14 +454,21 @@ async fn async_main() -> ExitCode {
         Some(state.delegation_broker.clone()),
     ));
 
-    // Spawn the idle sweep so connections abandoned without an explicit
-    // disconnect (e.g. browser tab closed, panic survivors) are reaped.
-    // Override the 60-second default via `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`
-    // (set to `0` to disable).
-    if let Some(idle_timeout) = iyw_claw_lib::idle_timeout_from_env() {
+    // Spawn the idle/stall/capacity sweep: abandoned connections are reaped,
+    // silent prompting sessions are cancelled, idle resident agent processes
+    // are capped. Overrides: `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`,
+    // `IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS`,
+    // `IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS` (`0` disables each).
+    let idle_timeout = iyw_claw_lib::idle_timeout_from_env();
+    let stall_timeout = iyw_claw_lib::prompt_stall_timeout_from_env();
+    let max_idle = iyw_claw_lib::max_idle_connections_from_env();
+    if idle_timeout.is_some() || stall_timeout.is_some() || max_idle.is_some() {
         tokio::spawn(iyw_claw_lib::idle_sweep_task(
             state.connection_manager.clone_ref(),
+            state.db.conn.clone(),
             idle_timeout,
+            stall_timeout,
+            max_idle,
             std::time::Duration::from_secs(iyw_claw_lib::SWEEP_INTERVAL_SECS),
         ));
     }
