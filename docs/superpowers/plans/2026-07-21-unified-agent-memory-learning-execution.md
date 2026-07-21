@@ -57,8 +57,10 @@ HTTP, backup/restore, and the settings UI consume the same service contracts.
   lock, and journal. A Phase 1 archive restores empty candidate state.
 - No heartbeat, output-marker parsing, transcript mining, direct Agent file
   editing, time-based demotion/deletion, or automatic Profile/Soul update.
-- Permanent regression tests remain. Ad-hoc smoke files and generated test
-  scaffolding are removed before delivery.
+- Tests created or changed for this implementation are temporary verification
+  artifacts. Delete new test files and restore changed existing tests after
+  capturing GREEN evidence; do not include them in commits unless the user
+  separately authorizes a permanent regression test.
 - All new behavior follows RED/GREEN/REFACTOR. A RED command must fail for the
   expected missing behavior before implementation begins.
 - Keep new functions <= 50 lines, new files <= 300 lines, nesting <= 3,
@@ -156,7 +158,7 @@ cargo test --features test-utils --test user_memory --test backup_user_memory
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src-tauri/src/paths.rs src-tauri/src/desktop_bootstrap.rs src-tauri/src/user_memory src-tauri/src/lib.rs src-tauri/src/bin_targets/iyw_claw_server.rs src-tauri/src/db/mod.rs src-tauri/src/commands/backup/restore.rs src-tauri/tests/user_memory_paths.rs
+git add src-tauri/src/paths.rs src-tauri/src/desktop_bootstrap.rs src-tauri/src/user_memory src-tauri/src/lib.rs src-tauri/src/bin_targets/iyw_claw_server.rs src-tauri/src/db/mod.rs src-tauri/src/commands/backup/restore.rs
 git commit -m "fix(memory): 固定用户记忆存储根目录"
 ```
 
@@ -216,7 +218,7 @@ cargo test --features test-utils --test user_memory
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src-tauri/src/user_memory src-tauri/src/lib.rs src-tauri/tests/user_memory_migration.rs
+git add src-tauri/src/user_memory src-tauri/src/lib.rs
 git commit -m "feat(memory): 迁移旧版用户记忆文档"
 ```
 
@@ -305,7 +307,7 @@ cargo test --features test-utils --test user_memory
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src-tauri/src/user_memory src-tauri/tests/user_memory_candidates.rs
+git add src-tauri/src/user_memory
 git commit -m "feat(memory): 新增保守记忆候选生命周期"
 ```
 
@@ -386,7 +388,7 @@ cargo test --features test-utils --test user_memory
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src-tauri/src/user_memory src-tauri/tests/user_memory_transactions.rs
+git add src-tauri/src/user_memory
 git commit -m "refactor(memory): 强化跨资源事务恢复"
 ```
 
@@ -454,7 +456,7 @@ cargo check --no-default-features --features server-runtime --bin iyw-claw-serve
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src-tauri/src/user_memory src-tauri/src/commands/user_memory.rs src-tauri/src/web src-tauri/src/lib.rs src-tauri/src/commands/backup src-tauri/tests/user_memory_api.rs src-tauri/tests/backup_user_memory.rs
+git add src-tauri/src/user_memory src-tauri/src/commands/user_memory.rs src-tauri/src/web src-tauri/src/lib.rs src-tauri/src/commands/backup
 git commit -m "feat(memory): 提供候选管理与备份接口"
 ```
 
@@ -526,7 +528,7 @@ cargo test --no-default-features --features mcp-runtime --bin iyw-claw-mcp
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src-tauri/src/acp src-tauri/src/bin_targets/iyw_claw_mcp.rs src-tauri/tests/user_memory_mcp.rs
+git add src-tauri/src/acp src-tauri/src/bin_targets/iyw_claw_mcp.rs
 git commit -m "feat(memory): 接入候选记忆提议工具"
 ```
 
@@ -615,7 +617,7 @@ cargo test --features test-utils acp::session_state::
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src-tauri/src/user_memory src-tauri/src/acp src-tauri/tests/user_memory_capabilities.rs src/lib/types.ts
+git add src-tauri/src/user_memory src-tauri/src/acp src/lib/types.ts
 git commit -m "feat(memory): 暴露会话记忆能力与伴生健康"
 ```
 
@@ -674,7 +676,7 @@ reports runtime validation.
 - [ ] **Step 5: Commit**
 
 ```powershell
-git add src-tauri/src/acp/delegation/companion.rs src-tauri/src/bin_targets/iyw_claw_mcp.rs src-tauri/scripts/prepare-sidecars.mjs src-tauri/scripts/prepare-sidecars.test.mjs .github/workflows/release-tauri.yml
+git add src-tauri/src/acp/delegation/companion.rs src-tauri/src/bin_targets/iyw_claw_mcp.rs src-tauri/scripts/prepare-sidecars.mjs .github/workflows/release-tauri.yml
 git commit -m "fix(memory): 校验完整伴生工具清单"
 ```
 
@@ -754,7 +756,8 @@ git commit -m "feat(memory): 增加候选记忆管理界面"
 - Modify only files needed to correct failures found by the commands below
 - Delete ad-hoc smoke files, scratch binaries/fixtures, generated review
   packages, and temporary test scaffolding outside permanent harnesses
-- Keep every permanent regression test from Tasks 1-9
+- Delete every new test file from Tasks 1-9 and restore any existing test file
+  changed only for verification before staging production changes
 
 **Interfaces:**
 
