@@ -15,8 +15,12 @@ pub mod restore;
 mod user_memory;
 
 pub(crate) const USER_MEMORY_ARCHIVE_DIR: &str = "user-memory";
-pub(crate) const USER_MEMORY_FILES: [&str; 3] =
-    ["user-memory.md", "user-profile.md", "user-soul.md"];
+pub(crate) const USER_MEMORY_BACKUP_FILES: [&str; 4] = [
+    "user-memory.md",
+    "user-profile.md",
+    "user-soul.md",
+    crate::user_memory::USER_MEMORY_CANDIDATE_FILE,
+];
 
 use std::collections::BTreeMap;
 
@@ -91,7 +95,9 @@ mod tauri_commands {
     };
     use super::external::ExternalConflict;
     use super::manifest::{BackupManifest, BackupPreview};
-    use super::restore::{stage_restore_core, ExternalRestoreMode, StagedRestore};
+    use super::restore::{
+        stage_restore_core, ExternalRestoreMode, StageRestoreContext, StagedRestore,
+    };
 
     const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -175,6 +181,7 @@ mod tauri_commands {
         passphrase: Option<String>,
         external_mode: Option<ExternalRestoreMode>,
         db: State<'_, AppDatabase>,
+        user_memory: State<'_, Arc<crate::user_memory::UserMemoryService>>,
         transfer: State<'_, Arc<WorkspaceTransferManager>>,
         app: AppHandle,
     ) -> Result<StagedRestore, AppCommandError> {
@@ -186,12 +193,15 @@ mod tauri_commands {
         let emitter = EventEmitter::Tauri(app.clone());
         let result = stage_restore_core(
             Path::new(&src_path),
-            &data_dir,
             passphrase.as_deref(),
-            external_mode.unwrap_or_default(),
-            &emitter,
-            &op_id,
-            &cancel,
+            StageRestoreContext {
+                data_dir: &data_dir,
+                user_memory: Some(user_memory.inner().as_ref()),
+                external_mode: external_mode.unwrap_or_default(),
+                emitter: &emitter,
+                op_id: &op_id,
+                cancel: &cancel,
+            },
         )
         .await;
         transfer.finish_transfer(&op_id).await;

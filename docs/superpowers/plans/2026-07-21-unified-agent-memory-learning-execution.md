@@ -423,14 +423,14 @@ git commit -m "refactor(memory): 强化跨资源事务恢复"
 - Restore validates candidate state before the pending marker. An older archive
   stages a valid empty schema-v1 state, clearing old live candidates.
 
-- [ ] **Step 1: Write API and archive contract tests**
+- [x] **Step 1: Write API and archive contract tests**
 
 Cover pagination/filtering, every resolution, stale revision, forged fields,
 terminal deletion, core/HTTP parity, candidate backup inclusion, internal-file
 exclusion, Phase 1 restore to empty state, invalid archive rejection, and
 canonical-root-only restore.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```powershell
 cargo test --features test-utils --test user_memory_api --test backup_user_memory
@@ -439,13 +439,13 @@ cargo test --features test-utils --test user_memory_api --test backup_user_memor
 Expected: compilation or assertions fail because API operations and candidate
 archive handling are absent.
 
-- [ ] **Step 3: Implement additive APIs and archive handling**
+- [x] **Step 3: Implement additive APIs and archive handling**
 
 All handlers delegate to core functions. Hold the memory lock while taking a
 backup generation and while staging validated restore state. Use additive serde
 fields/defaults where backward-compatible request decoding requires them.
 
-- [ ] **Step 4: Run GREEN and runtime compile checks**
+- [x] **Step 4: Run GREEN and runtime compile checks**
 
 ```powershell
 cargo test --features test-utils --test user_memory_api --test backup_user_memory
@@ -453,7 +453,7 @@ cargo check
 cargo check --no-default-features --features server-runtime --bin iyw-claw-server
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src-tauri/src/user_memory src-tauri/src/commands/user_memory.rs src-tauri/src/web src-tauri/src/lib.rs src-tauri/src/commands/backup

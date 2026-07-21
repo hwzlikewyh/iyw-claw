@@ -5,6 +5,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::models::agent::AgentType;
+use crate::paths::UserMemoryRootSource;
+
+use super::UserMemoryCandidateStatus;
 
 pub const USER_MEMORY_MAX_DOCUMENT_CHARS: usize = 65_536;
 pub const USER_MEMORY_MAX_APPEND_CHARS: usize = 1_000;
@@ -85,6 +88,35 @@ pub struct UserMemoryDocumentSnapshot {
     pub readonly: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserMemoryAvailabilityReason {
+    RootUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserMemoryAvailabilityDiagnostic {
+    pub available: bool,
+    pub reason: Option<UserMemoryAvailabilityReason>,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserMemoryCandidateDiagnosticReason {
+    RootUnavailable,
+    InvalidState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserMemoryCandidateDiagnostic {
+    pub available: bool,
+    pub reason: Option<UserMemoryCandidateDiagnosticReason>,
+    pub detail: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserMemorySettingsSnapshot {
@@ -95,6 +127,12 @@ pub struct UserMemorySettingsSnapshot {
     pub documents: BTreeMap<UserMemoryDocumentId, UserMemoryDocumentSnapshot>,
     pub revision: String,
     pub stale_running_sessions: usize,
+    pub resolved_root: Option<PathBuf>,
+    pub root_source: Option<UserMemoryRootSource>,
+    pub availability: UserMemoryAvailabilityDiagnostic,
+    pub migration_report: Option<UserMemoryMigrationReport>,
+    pub candidate_diagnostic: UserMemoryCandidateDiagnostic,
+    pub candidate_counts: BTreeMap<UserMemoryCandidateStatus, u32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

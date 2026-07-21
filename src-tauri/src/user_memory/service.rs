@@ -17,7 +17,8 @@ use super::helpers::{
 use super::transaction::document_resource;
 use super::{
     context::render_user_context, UserMemoryContextSnapshot, UserMemoryDocumentId,
-    UserMemoryGeneration, UserMemoryOrigin, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
+    UserMemoryGeneration, UserMemoryMigrationReport, UserMemoryOrigin, UserMemorySettingsSnapshot,
+    UserMemoryUpdateRequest,
 };
 
 pub(super) const POLICY_KEY: &str = "user_memory.settings";
@@ -28,6 +29,7 @@ pub struct UserMemoryService {
     pub(super) root: Result<ResolvedUserMemoryRoot, UserMemoryPathError>,
     pub(super) io_lock: Arc<tokio::sync::Mutex<()>>,
     pub(super) migration_blocked_documents: Arc<RwLock<BTreeSet<UserMemoryDocumentId>>>,
+    pub(super) migration_report: Arc<RwLock<Option<UserMemoryMigrationReport>>>,
 }
 
 pub(crate) struct UserMemoryBackupGuard {
@@ -61,6 +63,7 @@ impl UserMemoryService {
             root,
             io_lock: Arc::new(tokio::sync::Mutex::new(())),
             migration_blocked_documents: Arc::new(RwLock::new(BTreeSet::new())),
+            migration_report: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -100,6 +103,21 @@ impl UserMemoryService {
             .contains(&id)
     }
 
+    pub(super) fn set_migration_report(&self, report: Option<UserMemoryMigrationReport>) {
+        let mut current = self
+            .migration_report
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *current = report;
+    }
+
+    pub(super) fn migration_report(&self) -> Option<UserMemoryMigrationReport> {
+        self.migration_report
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
     pub(crate) async fn lock_for_backup_snapshot(
         &self,
     ) -> Result<UserMemoryBackupGuard, AppCommandError> {
@@ -112,10 +130,31 @@ impl UserMemoryService {
         })
     }
 
+    pub(crate) async fn lock_for_restore_staging(
+        &self,
+    ) -> Result<UserMemoryBackupGuard, AppCommandError> {
+        let (io_guard, file_guard) = self.acquire_locks().await?;
+        self.recover_pending_transaction().await?;
+        Ok(UserMemoryBackupGuard {
+            _io_guard: io_guard,
+            file_guard,
+        })
+    }
+
     pub async fn snapshot(&self) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
         let (_guard, _file_guard) = self.acquire_locks().await?;
         let policy = self.load_policy().await?;
         self.snapshot_locked(&policy)
+    }
+
+    pub async fn settings_snapshot(&self) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
+        match self.root.as_ref() {
+            Ok(_) => self.snapshot().await,
+            Err(error) => {
+                let policy = self.load_policy_unrecovered().await?;
+                self.unavailable_settings_snapshot(&policy, error)
+            }
+        }
     }
 
     pub async fn update(

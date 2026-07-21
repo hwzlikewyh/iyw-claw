@@ -22,8 +22,8 @@ use crate::app_state::AppState;
 use crate::commands::backup::core::{self, BackupInputs, BackupOptions};
 use crate::commands::backup::manifest::BackupPreview;
 use crate::commands::backup::restore::{
-    self, ExternalRestoreMode, StagedRestore, EXPORT_TMP_DIR as BACKUP_TMP_DIR,
-    UPLOAD_TMP_DIR as RESTORE_UPLOAD_DIR,
+    self, ExternalRestoreMode, StageRestoreContext, StagedRestore,
+    EXPORT_TMP_DIR as BACKUP_TMP_DIR, UPLOAD_TMP_DIR as RESTORE_UPLOAD_DIR,
 };
 use crate::workspace_transfer::{DownloadKind, DownloadTicketIssued, DownloadTicketSpec};
 
@@ -272,12 +272,15 @@ pub async fn backup_restore_stage(
     let (op_id, cancel) = state.workspace_transfer.register_transfer().await;
     let staged = restore::stage_restore_core(
         &src,
-        &state.data_dir,
         params.passphrase.as_deref(),
-        params.external_mode.unwrap_or_default(),
-        &state.emitter,
-        &op_id,
-        &cancel,
+        StageRestoreContext {
+            data_dir: &state.data_dir,
+            user_memory: Some(&state.user_memory),
+            external_mode: params.external_mode.unwrap_or_default(),
+            emitter: &state.emitter,
+            op_id: &op_id,
+            cancel: &cancel,
+        },
     )
     .await;
     state.workspace_transfer.finish_transfer(&op_id).await;

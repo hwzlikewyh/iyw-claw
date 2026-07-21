@@ -10,7 +10,7 @@ pub(super) fn snapshot_for_backup(
 ) -> Result<Vec<(String, PathBuf)>, AppCommandError> {
     std::fs::create_dir_all(snapshot_root).map_err(AppCommandError::io)?;
     let mut documents = Vec::new();
-    for file_name in super::USER_MEMORY_FILES {
+    for file_name in super::USER_MEMORY_BACKUP_FILES {
         let source = root.join(file_name);
         let snapshot = snapshot_root.join(file_name);
         if copy_regular_file_no_follow(&source, &snapshot)? {

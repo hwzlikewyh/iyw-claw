@@ -109,6 +109,18 @@ pub fn build_router(
             post(handlers::user_memory::update_user_memory_settings),
         )
         .route(
+            "/list_user_memory_candidates",
+            post(handlers::user_memory::list_user_memory_candidates),
+        )
+        .route(
+            "/resolve_user_memory_candidate",
+            post(handlers::user_memory::resolve_user_memory_candidate),
+        )
+        .route(
+            "/delete_user_memory_candidate",
+            post(handlers::user_memory::delete_user_memory_candidate),
+        )
+        .route(
             "/submit_session_feedback",
             post(handlers::feedback::submit_session_feedback),
         )

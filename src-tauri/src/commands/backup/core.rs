@@ -534,7 +534,7 @@ mod tests {
     async fn backup_then_stage_then_apply_roundtrip() {
         use super::super::restore::{
             apply_pending_restore_with_paths, stage_restore_core, ExternalRestoreMode,
-            RestoreApplied, PENDING_MARKER,
+            RestoreApplied, StageRestoreContext, PENDING_MARKER,
         };
 
         let src_dir = tempfile::tempdir().unwrap();
@@ -563,14 +563,21 @@ mod tests {
 
         // Stage into a fresh, separate data dir.
         let restore_dir = tempfile::tempdir().unwrap();
+        let restore_memory = crate::user_memory::UserMemoryService::new(
+            db.conn.clone(),
+            restore_dir.path().join("stage-user-memory"),
+        );
         let staged = stage_restore_core(
             &dest,
-            restore_dir.path(),
             None,
-            ExternalRestoreMode::Skip,
-            &EventEmitter::Noop,
-            "r1",
-            &cancel,
+            StageRestoreContext {
+                data_dir: restore_dir.path(),
+                user_memory: Some(&restore_memory),
+                external_mode: ExternalRestoreMode::Skip,
+                emitter: &EventEmitter::Noop,
+                op_id: "r1",
+                cancel: &cancel,
+            },
         )
         .await
         .unwrap();
@@ -605,6 +612,7 @@ mod tests {
         // snapshot.
         use super::super::restore::{
             apply_pending_restore_with_paths, stage_restore_core, ExternalRestoreMode,
+            StageRestoreContext,
         };
         let src_dir = tempfile::tempdir().unwrap();
         let db = fresh_disk_db(src_dir.path()).await;
@@ -624,14 +632,21 @@ mod tests {
         .unwrap();
 
         let restore_dir = tempfile::tempdir().unwrap();
+        let restore_memory = crate::user_memory::UserMemoryService::new(
+            db.conn.clone(),
+            restore_dir.path().join("stage-user-memory"),
+        );
         stage_restore_core(
             &dest,
-            restore_dir.path(),
             None,
-            ExternalRestoreMode::Skip,
-            &EventEmitter::Noop,
-            "e2",
-            &cancel,
+            StageRestoreContext {
+                data_dir: restore_dir.path(),
+                user_memory: Some(&restore_memory),
+                external_mode: ExternalRestoreMode::Skip,
+                emitter: &EventEmitter::Noop,
+                op_id: "e2",
+                cancel: &cancel,
+            },
         )
         .await
         .unwrap();

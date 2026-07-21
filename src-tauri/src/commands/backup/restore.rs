@@ -95,17 +95,30 @@ struct PendingRestore {
     latest_migration: String,
 }
 
+pub(crate) struct StageRestoreContext<'a> {
+    pub data_dir: &'a Path,
+    pub user_memory: Option<&'a crate::user_memory::UserMemoryService>,
+    pub external_mode: ExternalRestoreMode,
+    pub emitter: &'a EventEmitter,
+    pub op_id: &'a str,
+    pub cancel: &'a CancellationToken,
+}
+
 /// Decrypt + extract + verify a backup into a staging dir and write the pending
 /// marker. Does NOT touch live data — the swap happens at next startup.
 pub(crate) async fn stage_restore_core(
     src: &Path,
-    data_dir: &Path,
     passphrase: Option<&str>,
-    external_mode: ExternalRestoreMode,
-    emitter: &EventEmitter,
-    op_id: &str,
-    cancel: &CancellationToken,
+    context: StageRestoreContext<'_>,
 ) -> Result<StagedRestore, AppCommandError> {
+    let StageRestoreContext {
+        data_dir,
+        user_memory,
+        external_mode,
+        emitter,
+        op_id,
+        cancel,
+    } = context;
     // 0. Only one restore may be staged at a time. Fail fast if one is already
     //    pending (the real guard is the atomic no-clobber marker write in step
     //    4; this just avoids wasting extraction work in the common case).
@@ -133,6 +146,7 @@ pub(crate) async fn stage_restore_core(
     // Reject crafted manifests (traversal/dup paths, missing DB) before we
     // trust the manifest to bound extraction.
     archive::validate_manifest(&manifest)?;
+    let stages_user_memory = validate_user_memory_entries(&manifest)?;
 
     // 3. Extract into a fresh staging dir + verify every checksum. Extraction
     //    is manifest-bounded, so the staged set equals the checksum-covered set.
@@ -171,9 +185,29 @@ pub(crate) async fn stage_restore_core(
         .await
         .map_err(AppCommandError::io)?;
 
-    // 4. Commit core restore by writing the pending marker FIRST. The marker is
-    //    the point of no return for the DB/uploads swap (applied next startup).
-    write_pending_marker(data_dir, &staging_root, &manifest)?;
+    // Validate/synthesize candidate state while holding the canonical memory
+    // lock. A Phase 1 archive gets an explicit empty schema-v1 candidate state
+    // so applying it clears candidates created after that backup.
+    {
+        let _memory_guard = if stages_user_memory {
+            let service = user_memory.ok_or_else(|| {
+                AppCommandError::configuration_missing(
+                    "User memory service is required to stage this restore",
+                )
+            })?;
+            Some(service.lock_for_restore_staging().await?)
+        } else {
+            None
+        };
+        if stages_user_memory {
+            crate::user_memory::prepare_candidate_state_for_restore(
+                &staging_root.join(super::USER_MEMORY_ARCHIVE_DIR),
+            )?;
+        }
+
+        // Commit core restore only after all user-memory validation succeeds.
+        write_pending_marker(data_dir, &staging_root, &manifest)?;
+    }
 
     // 5. External transcripts run AFTER the commit and are TRULY non-fatal: the
     //    core restore is already committed, so an external (best-effort,
@@ -299,6 +333,21 @@ fn apply_pending_restore_with_optional_paths(
         return Ok(RestoreApplied::None);
     }
 
+    let _memory_guard = if staged_user_memory_exists(&staging) {
+        let root = user_memory_root.expect("user memory root checked above");
+        match crate::user_memory::lock_for_restore_apply(root).map_err(app_error_to_io)? {
+            Some(guard) => Some(guard),
+            None => {
+                tracing::warn!(
+                    "[RESTORE] user memory transaction pending; preserving restore for retry"
+                );
+                return Ok(RestoreApplied::None);
+            }
+        }
+    } else {
+        None
+    };
+
     tracing::info!(
         "[RESTORE] applying staged restore (backup app_version={}, migration={})",
         pending.app_version,
@@ -349,7 +398,7 @@ fn apply_pending_restore_with_optional_paths(
 
     if let Some(user_memory_root) = user_memory_root {
         let staged_user_memory = staging.join(super::USER_MEMORY_ARCHIVE_DIR);
-        for file_name in super::USER_MEMORY_FILES {
+        for file_name in super::USER_MEMORY_BACKUP_FILES {
             let staged_document = staged_user_memory.join(file_name);
             if staged_document.is_file() {
                 swap_in(
@@ -379,9 +428,34 @@ fn apply_pending_restore_with_optional_paths(
 
 fn staged_user_memory_exists(staging: &Path) -> bool {
     let root = staging.join(super::USER_MEMORY_ARCHIVE_DIR);
-    super::USER_MEMORY_FILES
+    super::USER_MEMORY_BACKUP_FILES
         .iter()
         .any(|file_name| root.join(file_name).is_file())
+}
+
+fn validate_user_memory_entries(manifest: &BackupManifest) -> Result<bool, AppCommandError> {
+    let archive_root = Path::new(super::USER_MEMORY_ARCHIVE_DIR);
+    let allowed = super::USER_MEMORY_BACKUP_FILES
+        .iter()
+        .map(|file_name| archive_root.join(file_name))
+        .collect::<Vec<_>>();
+    let mut present = false;
+    for entry in &manifest.entries {
+        let path = Path::new(&entry.path);
+        if !path.starts_with(archive_root) {
+            continue;
+        }
+        present = true;
+        if !allowed.iter().any(|allowed| allowed == path) {
+            return Err(super::unknown_format_error());
+        }
+    }
+    Ok(present)
+}
+
+fn app_error_to_io(error: AppCommandError) -> std::io::Error {
+    let detail = error.detail.unwrap_or(error.message);
+    std::io::Error::other(detail)
 }
 
 /// Move `live` → `backup` (if present), then `staged` → `live`. Idempotent: if

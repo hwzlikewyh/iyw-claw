@@ -205,7 +205,12 @@ pub struct UserMemoryProposalResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum UserMemoryCandidateResolution {
     Confirm { edited_content: Option<String> },
     Reject,

@@ -37,6 +37,7 @@ impl UserMemoryService {
             Err(_) => UserMemoryDocumentId::ALL.into_iter().collect(),
         };
         self.set_migration_blocked_documents(blocked);
+        self.set_migration_report(outcome.as_ref().ok().cloned());
         outcome
     }
 

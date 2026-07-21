@@ -2,13 +2,16 @@ use std::collections::BTreeMap;
 
 use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
+use crate::paths::UserMemoryPathError;
 
-use super::fs;
 use super::helpers::{conflict, hash_parts, settings_revision, validate_document_update_content};
 use super::service::POLICY_KEY;
+use super::{candidate_store, fs};
 use super::{
-    UserMemoryDocumentId, UserMemoryDocumentSnapshot, UserMemoryPolicy, UserMemoryService,
-    UserMemorySettingsSnapshot, UserMemoryUpdateRequest, USER_MEMORY_AGENT_TYPES,
+    UserMemoryAvailabilityDiagnostic, UserMemoryAvailabilityReason, UserMemoryCandidateDiagnostic,
+    UserMemoryCandidateDiagnosticReason, UserMemoryCandidateStatus, UserMemoryDocumentId,
+    UserMemoryDocumentSnapshot, UserMemoryPolicy, UserMemoryService, UserMemorySettingsSnapshot,
+    UserMemoryUpdateRequest, USER_MEMORY_AGENT_TYPES,
 };
 
 impl UserMemoryService {
@@ -54,7 +57,8 @@ impl UserMemoryService {
         &self,
         policy: &UserMemoryPolicy,
     ) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
-        let root = self.resolved_root()?;
+        let resolution = self.root_resolution()?;
+        let root = resolution.path.as_path();
         let mut documents = BTreeMap::new();
         for id in UserMemoryDocumentId::ALL {
             let content = self.read_document(id)?;
@@ -72,6 +76,7 @@ impl UserMemoryService {
             );
         }
         let revision = settings_revision(policy, &documents)?;
+        let (candidate_diagnostic, candidate_counts) = candidate_settings(root);
         Ok(UserMemorySettingsSnapshot {
             enabled: policy.enabled,
             agent_write_enabled: policy.agent_write_enabled,
@@ -80,6 +85,44 @@ impl UserMemoryService {
             documents,
             revision,
             stale_running_sessions: 0,
+            resolved_root: Some(root.to_path_buf()),
+            root_source: Some(resolution.source),
+            availability: available_diagnostic(),
+            migration_report: self.migration_report(),
+            candidate_diagnostic,
+            candidate_counts,
+        })
+    }
+
+    pub(super) fn unavailable_settings_snapshot(
+        &self,
+        policy: &UserMemoryPolicy,
+        error: &UserMemoryPathError,
+    ) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
+        let documents = BTreeMap::new();
+        let revision = unavailable_settings_revision(policy)?;
+        Ok(UserMemorySettingsSnapshot {
+            enabled: policy.enabled,
+            agent_write_enabled: policy.agent_write_enabled,
+            inherit_to_subagents: policy.inherit_to_subagents,
+            per_agent: policy.per_agent.clone(),
+            documents,
+            revision,
+            stale_running_sessions: 0,
+            resolved_root: None,
+            root_source: None,
+            availability: UserMemoryAvailabilityDiagnostic {
+                available: false,
+                reason: Some(UserMemoryAvailabilityReason::RootUnavailable),
+                detail: Some(error.to_string()),
+            },
+            migration_report: self.migration_report(),
+            candidate_diagnostic: UserMemoryCandidateDiagnostic {
+                available: false,
+                reason: Some(UserMemoryCandidateDiagnosticReason::RootUnavailable),
+                detail: Some(error.to_string()),
+            },
+            candidate_counts: empty_candidate_counts(),
         })
     }
 
@@ -139,4 +182,64 @@ impl UserMemoryService {
         }
         Ok(())
     }
+}
+
+fn available_diagnostic() -> UserMemoryAvailabilityDiagnostic {
+    UserMemoryAvailabilityDiagnostic {
+        available: true,
+        reason: None,
+        detail: None,
+    }
+}
+
+fn candidate_settings(
+    root: &std::path::Path,
+) -> (
+    UserMemoryCandidateDiagnostic,
+    BTreeMap<UserMemoryCandidateStatus, u32>,
+) {
+    let mut counts = empty_candidate_counts();
+    match candidate_store::read_state(root) {
+        Ok(state) => {
+            for candidate in state.candidates {
+                *counts.entry(candidate.status).or_insert(0) += 1;
+            }
+            (
+                UserMemoryCandidateDiagnostic {
+                    available: true,
+                    reason: None,
+                    detail: None,
+                },
+                counts,
+            )
+        }
+        Err(error) => (
+            UserMemoryCandidateDiagnostic {
+                available: false,
+                reason: Some(UserMemoryCandidateDiagnosticReason::InvalidState),
+                detail: Some(error.detail.unwrap_or(error.message)),
+            },
+            counts,
+        ),
+    }
+}
+
+fn empty_candidate_counts() -> BTreeMap<UserMemoryCandidateStatus, u32> {
+    [
+        UserMemoryCandidateStatus::Tentative,
+        UserMemoryCandidateStatus::Emerging,
+        UserMemoryCandidateStatus::PendingConfirmation,
+        UserMemoryCandidateStatus::Confirmed,
+        UserMemoryCandidateStatus::Rejected,
+        UserMemoryCandidateStatus::Superseded,
+    ]
+    .into_iter()
+    .map(|status| (status, 0))
+    .collect()
+}
+
+fn unavailable_settings_revision(policy: &UserMemoryPolicy) -> Result<String, AppCommandError> {
+    let policy = serde_json::to_vec(policy)
+        .map_err(|error| AppCommandError::configuration_invalid(error.to_string()))?;
+    Ok(hash_parts(&[&policy]))
 }
