@@ -372,6 +372,11 @@ async fn async_main() -> ExitCode {
                 )),
             ),
             state.user_memory.clone(),
+            Arc::new(iyw_claw_lib::acp::platform_mcp::PlatformMcpService::new(
+                Arc::new(iyw_claw_lib::acp::platform_mcp::DbAccessTokenProvider {
+                    conn: state.db.conn.clone(),
+                }),
+            )),
         );
         let socket = delegation_socket_path.clone();
         tokio::spawn(async move {

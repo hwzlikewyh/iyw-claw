@@ -22,6 +22,7 @@ pub mod model_catalog;
 pub mod npm_runtime;
 pub mod opencode_catalog;
 pub mod opencode_plugins;
+pub mod platform_mcp;
 pub mod preflight;
 pub mod profile_import;
 mod profile_import_activation;

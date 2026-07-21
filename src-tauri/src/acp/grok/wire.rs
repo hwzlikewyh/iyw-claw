@@ -242,7 +242,18 @@ mod tests {
             "main".to_string(),
             None,
         );
-        session.config_options = synthesize_options(None, &EffortSpecs::new());
+        // Options come from agent metadata since the online-catalog cutover
+        // (no local fallback list), so seed the synthesizer with one model.
+        let meta = serde_json::json!({
+            "x.ai/sessionConfig": {
+                "options": [{ "id": "grok-4", "label": "Grok 4", "selected": true }]
+            }
+        });
+        session.config_options = synthesize_options(meta.as_object(), &EffortSpecs::new());
+        assert!(
+            session.config_options.is_some(),
+            "seed metadata must synthesize a non-empty option list"
+        );
         let state = Arc::new(RwLock::new(session));
         let emitter = EventEmitter::Noop;
 
