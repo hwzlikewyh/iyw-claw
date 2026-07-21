@@ -63,8 +63,13 @@ pub(super) fn settings_revision(
 }
 
 pub(super) fn normalize_append(input: &str) -> Result<String, AppCommandError> {
-    if input.contains('\0') {
-        return Err(AppCommandError::invalid_input("Memory contains NUL"));
+    if input
+        .chars()
+        .any(|character| character.is_control() && !character.is_whitespace())
+    {
+        return Err(AppCommandError::invalid_input(
+            "Memory contains control characters",
+        ));
     }
     let content = input.split_whitespace().collect::<Vec<_>>().join(" ");
     if content.is_empty() {
@@ -84,6 +89,16 @@ pub(super) fn normalize_append(input: &str) -> Result<String, AppCommandError> {
         ));
     }
     Ok(content)
+}
+
+pub(super) fn normalize_candidate(input: &str) -> Result<String, AppCommandError> {
+    normalize_append(input)
+}
+
+pub(super) fn memory_entry_id(content: &str) -> String {
+    let identity = content.to_lowercase();
+    let digest = hash_parts(&[identity.as_bytes()]);
+    format!("iyw-memory-{}", &digest[..20])
 }
 
 fn contains_potential_secret(content: &str) -> bool {

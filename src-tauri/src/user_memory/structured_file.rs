@@ -86,6 +86,29 @@ pub(super) fn write_json_atomic<T: Serialize>(
     result
 }
 
+pub(super) fn ensure_writable_optional(
+    root: &Path,
+    file_name: &str,
+) -> Result<(), AppCommandError> {
+    let path = safe_child(root, file_name)?;
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(AppCommandError::io(error)),
+    };
+    if !metadata.is_file() {
+        return Err(AppCommandError::configuration_invalid(
+            "User memory structured state is not a regular file",
+        ));
+    }
+    if metadata.permissions().readonly() {
+        return Err(AppCommandError::permission_denied(
+            "User memory structured state is read-only",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn install_new_private(
     root: &Path,
     file_name: &str,

@@ -242,6 +242,10 @@ fn is_user_memory_temporary_file(name: &str) -> bool {
     if let Some(suffix) = name.strip_prefix(&migration_prefix) {
         return is_process_uuid_suffix(suffix);
     }
+    let candidate_prefix = format!("{}.", super::USER_MEMORY_CANDIDATE_FILE);
+    if let Some(suffix) = name.strip_prefix(&candidate_prefix) {
+        return is_process_uuid_suffix(suffix);
+    }
     UserMemoryDocumentId::ALL.iter().any(|id| {
         ["next", "previous"].iter().any(|label| {
             let prefix = format!(".{}.iyw-claw-{label}-", id.file_name());

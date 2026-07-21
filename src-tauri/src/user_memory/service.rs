@@ -12,7 +12,7 @@ use crate::paths::{ResolvedUserMemoryRoot, UserMemoryPathError, UserMemoryRootSo
 use super::fs;
 use super::helpers::{
     apply_policy_patch, conflict, disabled_with_fingerprint, ensure_agent_write_allowed,
-    hash_parts, normalize_append, policy_from_snapshot, supports_memory_tool,
+    hash_parts, memory_entry_id, normalize_append, policy_from_snapshot, supports_memory_tool,
     validate_document_content,
 };
 use super::journal::{self, PendingUpdate};
@@ -249,9 +249,7 @@ impl UserMemoryService {
             ensure_agent_write_allowed(&policy, input.agent_type)?;
         }
         let mut current = self.read_document(UserMemoryDocumentId::Memory)?;
-        let identity = content.to_lowercase();
-        let digest = hash_parts(&[identity.as_bytes()]);
-        let entry_id = format!("iyw-memory-{}", &digest[..20]);
+        let entry_id = memory_entry_id(&content);
         let now = chrono::Utc::now().to_rfc3339();
         if current.contains(&entry_id) {
             let revision = self.snapshot_locked(&policy)?.revision;

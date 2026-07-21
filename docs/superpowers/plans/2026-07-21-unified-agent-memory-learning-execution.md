@@ -275,7 +275,7 @@ pub enum UserMemoryCandidateResolution {
 - Only terminal records can be deleted. A superseded record requires exactly
   one candidate or memory-entry target.
 
-- [ ] **Step 1: Write candidate store and lifecycle tests**
+- [x] **Step 1: Write candidate store and lifecycle tests**
 
 Cover normalization, control/secret rejection, same-turn idempotency,
 distinct-turn counts, the 10-detail cap, 500-record cap, every transition,
@@ -283,7 +283,7 @@ terminal duplicates, no automatic confirmation, stale revision, supersede
 validation, terminal-only deletion, symlink rejection, and invalid JSON
 preservation.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```powershell
 cargo test --features test-utils --test user_memory_candidates
@@ -291,20 +291,20 @@ cargo test --features test-utils --test user_memory_candidates
 
 Expected: compilation fails because candidate types and methods are missing.
 
-- [ ] **Step 3: Implement the bounded store and explicit state machine**
+- [x] **Step 3: Implement the bounded store and explicit state machine**
 
 Use `structured_file`. A missing file is a valid empty state. Invalid JSON
 returns repairable reason `user_memory_candidate_invalid` without rewriting
 the file. One proposal writes only the candidate file atomically.
 
-- [ ] **Step 4: Run GREEN and secret-filter regressions**
+- [x] **Step 4: Run GREEN and secret-filter regressions**
 
 ```powershell
 cargo test --features test-utils --test user_memory_candidates
 cargo test --features test-utils --test user_memory
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src-tauri/src/user_memory
