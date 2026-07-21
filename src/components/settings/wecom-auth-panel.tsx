@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Copy, Loader2, QrCode } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { QRCodeSVG } from "qrcode.react"
 
 import { Button } from "@/components/ui/button"
 import { wecomGetAuthStatus, wecomStartAuth } from "@/lib/api"
@@ -124,6 +125,11 @@ export function WecomAuthPanel() {
           <p className="text-xs text-muted-foreground">
             {t("wecomAuthLinkHint")}
           </p>
+          <div className="flex justify-center py-2">
+            <div className="rounded-md bg-white p-2">
+              <QRCodeSVG value={authUrl} size={168} marginSize={0} />
+            </div>
+          </div>
           <div className="flex items-center gap-1.5">
             <a
               href={authUrl}
