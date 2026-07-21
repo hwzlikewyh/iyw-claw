@@ -9,12 +9,14 @@ const APP_DIR_NAME: &str = "app";
 const DATA_DIR_ENV: &str = "IYW_CLAW_DATA_DIR";
 const HOME_DIR_ENV: &str = "IYW_CLAW_HOME";
 const LOG_DIR_ENV: &str = "IYW_CLAW_LOG_DIR";
+const USER_MEMORY_APP_DIR_NAME: &str = ".iyw-claw";
 pub const INSTALL_ROOT_ENV: &str = "IYW_CLAW_INSTALL_ROOT";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopBootstrap {
     selected_root: Option<PathBuf>,
     legacy_home: Option<PathBuf>,
+    default_user_memory_root: Option<PathBuf>,
     user_memory_root:
         Result<crate::paths::ResolvedUserMemoryRoot, crate::paths::UserMemoryPathError>,
 }
@@ -32,6 +34,42 @@ impl DesktopBootstrap {
         &self,
     ) -> &Result<crate::paths::ResolvedUserMemoryRoot, crate::paths::UserMemoryPathError> {
         &self.user_memory_root
+    }
+
+    pub fn user_memory_migration_sources(
+        &self,
+        effective_data_dir: &Path,
+    ) -> Vec<crate::user_memory::UserMemoryMigrationSource> {
+        use crate::user_memory::UserMemoryLegacySourceKind as Kind;
+
+        let mut sources = Vec::new();
+        push_migration_source(&mut sources, Kind::ConfiguredHome, self.legacy_home.clone());
+        push_migration_source(
+            &mut sources,
+            Kind::DefaultHome,
+            self.default_user_memory_root.clone(),
+        );
+        push_migration_source(
+            &mut sources,
+            Kind::InstallData,
+            self.selected_root.as_ref().map(|root| root.join("data")),
+        );
+        push_migration_source(
+            &mut sources,
+            Kind::AppData,
+            Some(effective_data_dir.to_path_buf()),
+        );
+        sources
+    }
+}
+
+fn push_migration_source(
+    sources: &mut Vec<crate::user_memory::UserMemoryMigrationSource>,
+    kind: crate::user_memory::UserMemoryLegacySourceKind,
+    path: Option<PathBuf>,
+) {
+    if let Some(path) = path {
+        sources.push(crate::user_memory::UserMemoryMigrationSource { kind, path });
     }
 }
 
@@ -66,6 +104,9 @@ pub fn apply_pre_runtime_environment() -> DesktopBootstrap {
         .map(PathBuf::from)
         .map(absolutize);
     let user_memory_root = crate::paths::desktop_user_memory_root();
+    let default_user_memory_root = dirs::home_dir()
+        .map(|home| home.join(USER_MEMORY_APP_DIR_NAME))
+        .map(absolutize);
     let install_root = std::env::current_exe()
         .ok()
         .and_then(|executable| resolve_install_root(&executable));
@@ -86,6 +127,7 @@ pub fn apply_pre_runtime_environment() -> DesktopBootstrap {
     DesktopBootstrap {
         selected_root: install_root,
         legacy_home,
+        default_user_memory_root,
         user_memory_root,
     }
 }

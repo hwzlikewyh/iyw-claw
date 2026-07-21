@@ -122,7 +122,16 @@ impl UserMemoryService {
         &self,
         id: UserMemoryDocumentId,
     ) -> Result<String, AppCommandError> {
-        fs::read_document(self.resolved_root()?, id)
+        let root = self.resolved_root()?;
+        if self.migration_blocks_document(id)
+            && std::fs::symlink_metadata(root.join(id.file_name()))
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        {
+            return Err(AppCommandError::configuration_invalid(
+                "User memory document is waiting for legacy migration retry",
+            ));
+        }
+        fs::read_document(root, id)
     }
 
     pub(super) fn write_document(

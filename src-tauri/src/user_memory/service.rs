@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use sea_orm::DatabaseConnection;
 
@@ -29,6 +29,7 @@ pub struct UserMemoryService {
     pub(super) db: DatabaseConnection,
     pub(super) root: Result<ResolvedUserMemoryRoot, UserMemoryPathError>,
     pub(super) io_lock: Arc<tokio::sync::Mutex<()>>,
+    pub(super) migration_blocked_documents: Arc<RwLock<BTreeSet<UserMemoryDocumentId>>>,
 }
 
 pub(crate) struct UserMemoryBackupGuard {
@@ -61,6 +62,7 @@ impl UserMemoryService {
             db,
             root,
             io_lock: Arc::new(tokio::sync::Mutex::new(())),
+            migration_blocked_documents: Arc::new(RwLock::new(BTreeSet::new())),
         }
     }
 
@@ -80,6 +82,24 @@ impl UserMemoryService {
 
     pub fn root_resolution(&self) -> Result<&ResolvedUserMemoryRoot, AppCommandError> {
         self.root.as_ref().map_err(user_memory_root_unavailable)
+    }
+
+    pub(super) fn set_migration_blocked_documents(
+        &self,
+        documents: BTreeSet<UserMemoryDocumentId>,
+    ) {
+        let mut blocked = self
+            .migration_blocked_documents
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *blocked = documents;
+    }
+
+    pub(super) fn migration_blocks_document(&self, id: UserMemoryDocumentId) -> bool {
+        self.migration_blocked_documents
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains(&id)
     }
 
     pub(crate) async fn lock_for_backup_snapshot(
@@ -262,7 +282,7 @@ impl UserMemoryService {
         })
     }
 
-    async fn acquire_locks(
+    pub(super) async fn acquire_locks(
         &self,
     ) -> Result<(tokio::sync::OwnedMutexGuard<()>, File), AppCommandError> {
         let io_guard = self.io_lock.clone().lock_owned().await;

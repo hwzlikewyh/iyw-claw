@@ -78,7 +78,7 @@ pub(super) fn write_documents_atomically(
     result
 }
 
-fn ensure_safe_root(root: &Path) -> Result<(), AppCommandError> {
+pub(super) fn ensure_safe_root(root: &Path) -> Result<(), AppCommandError> {
     reject_symlink(root)?;
     std::fs::create_dir_all(root).map_err(AppCommandError::io)?;
     reject_symlink(root)?;
@@ -236,6 +236,10 @@ fn cleanup_stale_temporary_files(root: &Path) -> Result<(), AppCommandError> {
 fn is_user_memory_temporary_file(name: &str) -> bool {
     let journal_prefix = format!("{}.", super::journal::PENDING_UPDATE_FILE);
     if let Some(suffix) = name.strip_prefix(&journal_prefix) {
+        return is_process_uuid_suffix(suffix);
+    }
+    let migration_prefix = format!("{}.", super::USER_MEMORY_MIGRATION_RECEIPT_FILE);
+    if let Some(suffix) = name.strip_prefix(&migration_prefix) {
         return is_process_uuid_suffix(suffix);
     }
     UserMemoryDocumentId::ALL.iter().any(|id| {

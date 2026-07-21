@@ -363,12 +363,26 @@ mod tauri_app {
                     }
                 }
                 app.manage(database);
+                let migration_sources =
+                    desktop_bootstrap.user_memory_migration_sources(&effective_data_dir);
                 let user_memory = std::sync::Arc::new(
                     crate::user_memory::UserMemoryService::from_resolution(
                         app.state::<db::AppDatabase>().conn.clone(),
                         user_memory_resolution,
                     ),
                 );
+                match tauri::async_runtime::block_on(
+                    user_memory.migrate_legacy_documents(migration_sources),
+                ) {
+                    Ok(report) => {
+                        for warning in report.warnings {
+                            tracing::warn!("[user-memory][migration] {warning}");
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!("[user-memory] legacy migration unavailable: {error}")
+                    }
+                }
                 app.state::<ConnectionManager>()
                     .install_user_memory(user_memory.clone());
                 app.manage(user_memory);

@@ -9,6 +9,7 @@ use crate::models::agent::AgentType;
 pub const USER_MEMORY_MAX_DOCUMENT_CHARS: usize = 65_536;
 pub const USER_MEMORY_MAX_APPEND_CHARS: usize = 1_000;
 pub const USER_MEMORY_MAX_CONTEXT_CHARS: usize = 24_576;
+pub const USER_MEMORY_MIGRATION_RECEIPT_FILE: &str = ".user-memory-migration.json";
 
 pub const USER_MEMORY_AGENT_TYPES: [AgentType; 11] = [
     AgentType::ClaudeCode,
@@ -165,4 +166,66 @@ pub struct UserMemoryAppendResult {
     pub entry_id: String,
     pub created_at: String,
     pub revision: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserMemoryLegacySourceKind {
+    ConfiguredHome,
+    DefaultHome,
+    InstallData,
+    AppData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserMemoryMigrationSource {
+    pub kind: UserMemoryLegacySourceKind,
+    pub path: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserMemoryMigrationStatus {
+    Copied,
+    SkippedExisting,
+    InvalidSource,
+    SourceMissing,
+    SourceIoFailed,
+    DestinationIoFailed,
+}
+
+impl UserMemoryMigrationStatus {
+    pub(crate) fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Copied | Self::SkippedExisting | Self::InvalidSource | Self::SourceMissing
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserMemoryMigrationFileResult {
+    pub status: UserMemoryMigrationStatus,
+    pub source: Option<PathBuf>,
+    #[serde(default)]
+    pub conflicting_sources: Vec<PathBuf>,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserMemoryMigrationReceipt {
+    pub schema_version: u32,
+    pub considered_sources: Vec<UserMemoryMigrationSource>,
+    pub files: BTreeMap<UserMemoryDocumentId, UserMemoryMigrationFileResult>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserMemoryMigrationReport {
+    pub receipt: UserMemoryMigrationReceipt,
+    pub warnings: Vec<String>,
 }

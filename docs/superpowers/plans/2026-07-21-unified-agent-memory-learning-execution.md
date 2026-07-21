@@ -186,7 +186,7 @@ git commit -m "fix(memory): 固定用户记忆存储根目录"
   reads, user-only creation where supported, atomic replace, file fsync, and
   directory fsync. Candidate and journal tasks reuse these primitives.
 
-- [ ] **Step 1: Write migration tests**
+- [x] **Step 1: Write migration tests**
 
 Use temp roots to cover first-valid precedence, missing-only copies, canonical
 no-overwrite, duplicate-root skipping, conflict warnings, symlink/non-regular/
@@ -194,7 +194,7 @@ over-64-KiB/invalid-UTF-8 rejection, per-file partial failure, terminal receipt
 outcomes, retryable I/O outcomes, deletion without resurrection, and no
 candidate-state synthesis.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```powershell
 cargo test --features test-utils --test user_memory_migration
@@ -202,20 +202,20 @@ cargo test --features test-utils --test user_memory_migration
 
 Expected: compilation fails because migration types and methods are absent.
 
-- [ ] **Step 3: Implement structured files and migration**
+- [x] **Step 3: Implement structured files and migration**
 
 Keep file decisions independent; preserve all sources. Write the receipt after
 each pass even when some outcomes remain retryable. Expose report data for
 settings diagnostics.
 
-- [ ] **Step 4: Run GREEN and storage regressions**
+- [x] **Step 4: Run GREEN and storage regressions**
 
 ```powershell
 cargo test --features test-utils --test user_memory_migration
 cargo test --features test-utils --test user_memory
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src-tauri/src/user_memory src-tauri/src/lib.rs
