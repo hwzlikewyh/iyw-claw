@@ -16,7 +16,7 @@ use crate::acp::npm_runtime;
 use crate::acp::opencode_plugins::{self, PluginCheckSummary};
 use crate::acp::preflight::{self, PreflightResult};
 use crate::acp::provider_overlay::{
-    model_gateway_base_url_for, patch_codex_toml, MANAGED_DEFAULT_MODEL, MANAGED_MODEL_IDS,
+    model_gateway_base_url_for, patch_codex_toml, MANAGED_DEFAULT_MODEL,
 };
 use crate::acp::registry;
 use crate::acp::types::{
@@ -1035,7 +1035,7 @@ fn persist_cline_local_config(config_patch_json: Option<&str>) -> Result<(), Acp
 }
 
 fn managed_codex_model_ids() -> Vec<String> {
-    MANAGED_MODEL_IDS
+    crate::acp::model_catalog::model_ids_for(AgentType::Codex)
         .iter()
         .map(|model| (*model).to_string())
         .collect()
@@ -1524,7 +1524,11 @@ fn prepare_codex_config_files(
         .get("model")
         .and_then(toml::Value::as_str)
         .map(str::trim)
-        .filter(|model| MANAGED_MODEL_IDS.contains(model))
+        .filter(|model| {
+            crate::acp::model_catalog::all_model_ids()
+                .iter()
+                .any(|id| id == model)
+        })
         .unwrap_or(MANAGED_DEFAULT_MODEL)
         .to_string();
     toml_text = patch_toml_root_string(&toml_text, "model", &selected_model);

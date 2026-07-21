@@ -3,6 +3,7 @@ import {
   getCachedGatewayModels,
   refreshGatewayModels,
 } from "@/lib/gateway-model-catalog"
+import { deriveAgentModels } from "@/lib/agent-option-definitions"
 import {
   localizeSessionConfigOption,
   type SessionConfigTranslator,
@@ -14,9 +15,12 @@ export function getFixedAgentOptions(
   configValues: Record<string, string> = {},
   translator?: SessionConfigTranslator
 ): AgentOptionsSnapshot {
+  // Scope the shared catalog to what THIS agent can actually run — the raw
+  // list would offer models the agent silently ignores (e.g. DeepSeek on a
+  // Claude Code session, which then falls back to its own default).
   const snapshot = buildAgentOptionsSnapshot(
     agentType,
-    getCachedGatewayModels(),
+    deriveAgentModels(agentType, getCachedGatewayModels()),
     configValues
   )
   return translator

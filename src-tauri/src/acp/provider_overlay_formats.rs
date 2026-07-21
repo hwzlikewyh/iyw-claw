@@ -1,6 +1,9 @@
 use crate::models::agent::AgentType;
 
 pub const MANAGED_PROVIDER_ID: &str = "iyw-claw";
+/// Seed catalog: the compiled-in fallback used until the first successful
+/// online `/v1/models` fetch (see `acp::model_catalog`). Order matters — it
+/// is the catalog order, and each agent's default model derives from it.
 pub const MANAGED_MODEL_IDS: [&str; 7] = [
     "gpt-5.4",
     "claude-opus-4-6",
@@ -12,18 +15,12 @@ pub const MANAGED_MODEL_IDS: [&str; 7] = [
 ];
 pub const MANAGED_DEFAULT_MODEL: &str = MANAGED_MODEL_IDS[0];
 
-pub fn managed_model_ids_for(agent: AgentType) -> &'static [&'static str] {
-    match agent {
-        AgentType::Codex => &["gpt-5.4", "deepseek-v4-pro", "deepseek-v4-flash"],
-        AgentType::ClaudeCode => &["claude-opus-4-6", "gpt-5.4"],
-        AgentType::Gemini => &["gemini-3.1-pro-preview", "gpt-5.4"],
-        AgentType::Grok => &MANAGED_MODEL_IDS,
-        _ => &["deepseek-v4-pro", "deepseek-v4-flash", "qwen3.7-max"],
-    }
+pub fn managed_model_ids_for(agent: AgentType) -> Vec<&'static str> {
+    crate::acp::model_catalog::model_ids_for(agent)
 }
 
 pub fn managed_default_model_for(agent: AgentType) -> &'static str {
-    managed_model_ids_for(agent)[0]
+    crate::acp::model_catalog::default_model_for(agent)
 }
 
 pub(crate) const CODEBUDDY_CONFLICTING_ENV_KEYS: &[&str] = &[
@@ -210,7 +207,7 @@ pub(crate) fn patch_json_config(
             let provider = ensure_json_object(providers, &[MANAGED_PROVIDER_ID]);
             let options = ensure_json_object(provider, &["options"]);
             options.insert("baseURL".into(), serde_json::Value::String(base_url.into()));
-            provider.insert("models".into(), managed_model_object(model_ids));
+            provider.insert("models".into(), managed_model_object(&model_ids));
             root.insert(
                 "model".into(),
                 serde_json::Value::String(format!("{MANAGED_PROVIDER_ID}/{default_model}")),
@@ -225,7 +222,7 @@ pub(crate) fn patch_json_config(
                 "api".into(),
                 serde_json::Value::String("openai-responses".into()),
             );
-            provider.insert("models".into(), managed_model_array(model_ids));
+            provider.insert("models".into(), managed_model_array(&model_ids));
         }
         AgentType::Cline => {
             root.insert(
@@ -279,7 +276,7 @@ pub(crate) fn patch_pi_models_json(
     );
     provider.insert(
         "models".into(),
-        managed_model_array(managed_model_ids_for(AgentType::Pi)),
+        managed_model_array(&managed_model_ids_for(AgentType::Pi)),
     );
     Ok(value)
 }

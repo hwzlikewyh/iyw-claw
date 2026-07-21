@@ -264,10 +264,18 @@ pub async fn iyw_account_list_models_core(
         return Err(AppCommandError::network("Gateway model request failed")
             .with_detail(response.status().to_string()));
     }
-    response.json::<serde_json::Value>().await.map_err(|error| {
-        AppCommandError::network("Gateway model response was invalid")
-            .with_detail(error.to_string())
-    })
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|error| {
+            AppCommandError::network("Gateway model response was invalid")
+                .with_detail(error.to_string())
+        })?;
+    // Every successful fetch (login, the UI's periodic refresh) also updates
+    // the Rust-side catalog that drives agent spawn env and native config
+    // rewrites — the hardcoded list is only a seed (see acp::model_catalog).
+    crate::acp::model_catalog::update_from_payload(&payload);
+    Ok(payload)
 }
 
 async fn fetch_profile_with_token(token: &str) -> Result<IywAccountProfile, AppCommandError> {
