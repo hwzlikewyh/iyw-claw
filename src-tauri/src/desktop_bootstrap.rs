@@ -11,14 +11,27 @@ const HOME_DIR_ENV: &str = "IYW_CLAW_HOME";
 const LOG_DIR_ENV: &str = "IYW_CLAW_LOG_DIR";
 pub const INSTALL_ROOT_ENV: &str = "IYW_CLAW_INSTALL_ROOT";
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopBootstrap {
     selected_root: Option<PathBuf>,
+    legacy_home: Option<PathBuf>,
+    user_memory_root:
+        Result<crate::paths::ResolvedUserMemoryRoot, crate::paths::UserMemoryPathError>,
 }
 
 impl DesktopBootstrap {
     pub fn selected_root(&self) -> Option<&Path> {
         self.selected_root.as_deref()
+    }
+
+    pub fn legacy_home(&self) -> Option<&Path> {
+        self.legacy_home.as_deref()
+    }
+
+    pub fn user_memory_root(
+        &self,
+    ) -> &Result<crate::paths::ResolvedUserMemoryRoot, crate::paths::UserMemoryPathError> {
+        &self.user_memory_root
     }
 }
 
@@ -48,6 +61,11 @@ pub fn resolve_data_root(
 }
 
 pub fn apply_pre_runtime_environment() -> DesktopBootstrap {
+    let legacy_home = std::env::var_os(HOME_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .map(absolutize);
+    let user_memory_root = crate::paths::desktop_user_memory_root();
     let install_root = std::env::current_exe()
         .ok()
         .and_then(|executable| resolve_install_root(&executable));
@@ -67,6 +85,8 @@ pub fn apply_pre_runtime_environment() -> DesktopBootstrap {
 
     DesktopBootstrap {
         selected_root: install_root,
+        legacy_home,
+        user_memory_root,
     }
 }
 

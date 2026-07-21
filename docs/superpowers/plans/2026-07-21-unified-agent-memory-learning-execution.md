@@ -121,7 +121,7 @@ pub fn resolve_server_user_memory_root(
   only as migration inputs, never as the new desktop root.
 - Restore receives the startup-resolved root and never re-reads path env vars.
 
-- [ ] **Step 1: Write resolver and unavailable-service tests**
+- [x] **Step 1: Write resolver and unavailable-service tests**
 
 Add table-driven tests named
 `desktop_override_wins_and_is_absolutized`,
@@ -132,7 +132,7 @@ Add table-driven tests named
 `restore_uses_startup_resolved_root`. Pure resolver tests pass values directly
 and do not mutate process-global environment variables.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```powershell
 cargo test --features test-utils --test user_memory_paths
@@ -141,21 +141,21 @@ cargo test --features test-utils --test user_memory_paths
 Expected: compilation fails because typed resolvers and unavailable service
 interfaces do not exist.
 
-- [ ] **Step 3: Implement the minimal typed resolution**
+- [x] **Step 3: Implement the minimal typed resolution**
 
 Apply the exact priority rules, ignore empty overrides, absolutize once, store
 source metadata, and map missing desktop home to stable reason
 `user_memory_root_unavailable`. Route desktop/server construction, settings,
 backup, and restore through the stored result.
 
-- [ ] **Step 4: Run GREEN and regressions**
+- [x] **Step 4: Run GREEN and regressions**
 
 ```powershell
 cargo test --features test-utils --test user_memory_paths
 cargo test --features test-utils --test user_memory --test backup_user_memory
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src-tauri/src/paths.rs src-tauri/src/desktop_bootstrap.rs src-tauri/src/user_memory src-tauri/src/lib.rs src-tauri/src/bin_targets/iyw_claw_server.rs src-tauri/src/db/mod.rs src-tauri/src/commands/backup/restore.rs

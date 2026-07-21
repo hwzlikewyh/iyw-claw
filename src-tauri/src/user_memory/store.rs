@@ -39,12 +39,13 @@ impl UserMemoryService {
     }
 
     async fn recover_pending_update(&self) -> Result<(), AppCommandError> {
-        let Some(pending) = journal::read(&self.root)? else {
+        let root = self.resolved_root()?;
+        let Some(pending) = journal::read(root)? else {
             return Ok(());
         };
         let current = self.load_policy_unrecovered().await?;
         if current == pending.next_policy && self.documents_match(&pending.next_documents)? {
-            journal::remove(&self.root)?;
+            journal::remove(root)?;
             return Ok(());
         }
         if current != pending.previous_policy {
@@ -58,7 +59,7 @@ impl UserMemoryService {
             .map(|(id, content)| (*id, content.as_str()))
             .collect::<Vec<_>>();
         self.write_documents_atomically(&documents)?;
-        journal::remove(&self.root)
+        journal::remove(root)
     }
 
     fn documents_match(
@@ -88,6 +89,7 @@ impl UserMemoryService {
         &self,
         policy: &UserMemoryPolicy,
     ) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
+        let root = self.resolved_root()?;
         let mut documents = BTreeMap::new();
         for id in UserMemoryDocumentId::ALL {
             let content = self.read_document(id)?;
@@ -96,11 +98,11 @@ impl UserMemoryService {
                 UserMemoryDocumentSnapshot {
                     id,
                     file_name: id.file_name().to_string(),
-                    path: self.root.join(id.file_name()),
+                    path: root.join(id.file_name()),
                     etag: hash_parts(&[content.as_bytes()]),
                     content,
                     enabled: policy.documents.get(&id).copied().unwrap_or(true),
-                    readonly: fs::is_document_readonly(&self.root, id),
+                    readonly: fs::is_document_readonly(root, id),
                 },
             );
         }
@@ -120,7 +122,7 @@ impl UserMemoryService {
         &self,
         id: UserMemoryDocumentId,
     ) -> Result<String, AppCommandError> {
-        fs::read_document(&self.root, id)
+        fs::read_document(self.resolved_root()?, id)
     }
 
     pub(super) fn write_document(
@@ -135,7 +137,7 @@ impl UserMemoryService {
         &self,
         documents: &[(UserMemoryDocumentId, &str)],
     ) -> Result<(), AppCommandError> {
-        fs::write_documents_atomically(&self.root, documents)
+        fs::write_documents_atomically(self.resolved_root()?, documents)
     }
 
     pub(super) fn validate_patches(

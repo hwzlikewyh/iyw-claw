@@ -299,10 +299,18 @@ mod tauri_app {
                 }
 
                 let app_version = env!("CARGO_PKG_VERSION");
-                let database = tauri::async_runtime::block_on(db::init_database(
-                    &effective_data_dir,
-                    app_version,
-                ))
+                let user_memory_resolution = desktop_bootstrap.user_memory_root().clone();
+                let user_memory_restore_root = user_memory_resolution
+                    .as_ref()
+                    .ok()
+                    .map(|resolved| resolved.path.as_path());
+                let database = tauri::async_runtime::block_on(
+                    db::init_database_with_user_memory_root(
+                        &effective_data_dir,
+                        app_version,
+                        user_memory_restore_root,
+                    ),
+                )
                 .map_err(|e| e.to_string())?;
 
                 let initial_agent_root =
@@ -356,9 +364,9 @@ mod tauri_app {
                 }
                 app.manage(database);
                 let user_memory = std::sync::Arc::new(
-                    crate::user_memory::UserMemoryService::new(
+                    crate::user_memory::UserMemoryService::from_resolution(
                         app.state::<db::AppDatabase>().conn.clone(),
-                        paths::desktop_user_memory_root(),
+                        user_memory_resolution,
                     ),
                 );
                 app.state::<ConnectionManager>()

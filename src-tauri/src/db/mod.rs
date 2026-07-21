@@ -33,6 +33,32 @@ pub async fn init_database(
     app_data_dir: impl AsRef<Path>,
     app_version: &str,
 ) -> Result<AppDatabase, DbError> {
+    init_database_inner(app_data_dir, app_version, UserMemoryRestoreRoot::Legacy).await
+}
+
+pub async fn init_database_with_user_memory_root(
+    app_data_dir: impl AsRef<Path>,
+    app_version: &str,
+    user_memory_root: Option<&Path>,
+) -> Result<AppDatabase, DbError> {
+    init_database_inner(
+        app_data_dir,
+        app_version,
+        UserMemoryRestoreRoot::Resolved(user_memory_root),
+    )
+    .await
+}
+
+enum UserMemoryRestoreRoot<'a> {
+    Legacy,
+    Resolved(Option<&'a Path>),
+}
+
+async fn init_database_inner(
+    app_data_dir: impl AsRef<Path>,
+    app_version: &str,
+    user_memory_root: UserMemoryRestoreRoot<'_>,
+) -> Result<AppDatabase, DbError> {
     let app_data_dir = app_data_dir.as_ref();
     std::fs::create_dir_all(app_data_dir)?;
 
@@ -40,7 +66,18 @@ pub async fn init_database(
     // `iyw-claw.db` under a live SQLite handle would corrupt it. A failure here
     // aborts startup loudly (leaving the safety snapshot intact) rather than
     // booting a half-restored data dir.
-    match crate::commands::backup::restore::apply_pending_restore_on_startup(app_data_dir) {
+    let restore = match user_memory_root {
+        UserMemoryRestoreRoot::Legacy => {
+            crate::commands::backup::restore::apply_pending_restore_on_startup(app_data_dir)
+        }
+        UserMemoryRestoreRoot::Resolved(root) => {
+            crate::commands::backup::restore::apply_pending_restore_on_startup_with_root(
+                app_data_dir,
+                root,
+            )
+        }
+    };
+    match restore {
         Ok(crate::commands::backup::restore::RestoreApplied::Applied { .. }) => {}
         Ok(crate::commands::backup::restore::RestoreApplied::None) => {}
         Err(e) => return Err(DbError::Io(e)),

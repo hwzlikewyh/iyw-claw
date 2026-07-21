@@ -204,10 +204,20 @@ async fn async_main() -> ExitCode {
     tracing::info!("[SERVER] Data directory: {}", data_dir.display());
     tracing::info!("[SERVER] Static directory: {}", static_dir.display());
 
-    // Initialize database
-    let db = iyw_claw_lib::db::init_database(&data_dir, app_version)
-        .await
-        .expect("Failed to initialize database");
+    // Resolve user memory once so restore, settings, context, and tools share
+    // one canonical destination for the lifetime of this process.
+    let user_memory_resolution = iyw_claw_lib::paths::server_user_memory_root(&data_dir);
+    let user_memory_restore_root = user_memory_resolution
+        .as_ref()
+        .ok()
+        .map(|resolved| resolved.path.as_path());
+    let db = iyw_claw_lib::db::init_database_with_user_memory_root(
+        &data_dir,
+        app_version,
+        user_memory_restore_root,
+    )
+    .await
+    .expect("Failed to initialize database");
 
     // Logging phase 2: override the default level from the persisted
     // `logging.level` now that the DB is open. Phase 3 (wiring the emitter)
@@ -270,10 +280,12 @@ async fn async_main() -> ExitCode {
 
     // Build AppState
     let connection_manager = iyw_claw_lib::app_state::default_connection_manager();
-    let user_memory = Arc::new(iyw_claw_lib::user_memory::UserMemoryService::new(
-        db.conn.clone(),
-        iyw_claw_lib::paths::server_user_memory_root(&data_dir),
-    ));
+    let user_memory = Arc::new(
+        iyw_claw_lib::user_memory::UserMemoryService::from_resolution(
+            db.conn.clone(),
+            user_memory_resolution,
+        ),
+    );
     connection_manager.install_user_memory(user_memory.clone());
     let (
         delegation_broker,

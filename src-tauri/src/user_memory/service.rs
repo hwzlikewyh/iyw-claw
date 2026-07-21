@@ -7,6 +7,7 @@ use sea_orm::DatabaseConnection;
 
 use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
+use crate::paths::{ResolvedUserMemoryRoot, UserMemoryPathError, UserMemoryRootSource};
 
 use super::fs;
 use super::helpers::{
@@ -26,7 +27,7 @@ pub(super) const POLICY_KEY: &str = "user_memory.settings";
 #[derive(Clone)]
 pub struct UserMemoryService {
     pub(super) db: DatabaseConnection,
-    pub(super) root: PathBuf,
+    pub(super) root: Result<ResolvedUserMemoryRoot, UserMemoryPathError>,
     pub(super) io_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
@@ -43,6 +44,19 @@ impl UserMemoryBackupGuard {
 
 impl UserMemoryService {
     pub fn new(db: DatabaseConnection, root: PathBuf) -> Self {
+        Self::from_resolution(
+            db,
+            Ok(ResolvedUserMemoryRoot {
+                path: root,
+                source: UserMemoryRootSource::Override,
+            }),
+        )
+    }
+
+    pub fn from_resolution(
+        db: DatabaseConnection,
+        root: Result<ResolvedUserMemoryRoot, UserMemoryPathError>,
+    ) -> Self {
         Self {
             db,
             root,
@@ -50,8 +64,22 @@ impl UserMemoryService {
         }
     }
 
+    /// Compatibility accessor for callers that construct an available service.
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn root(&self) -> &Path {
-        &self.root
+        self.resolved_root()
+            .expect("UserMemoryService::root requires an available root")
+    }
+
+    pub fn resolved_root(&self) -> Result<&Path, AppCommandError> {
+        self.root
+            .as_ref()
+            .map(|root| root.path.as_path())
+            .map_err(user_memory_root_unavailable)
+    }
+
+    pub fn root_resolution(&self) -> Result<&ResolvedUserMemoryRoot, AppCommandError> {
+        self.root.as_ref().map_err(user_memory_root_unavailable)
     }
 
     pub(crate) async fn lock_for_backup_snapshot(
@@ -105,7 +133,7 @@ impl UserMemoryService {
                 .collect(),
         });
         if let Some(pending) = pending.as_ref() {
-            journal::write(&self.root, pending)?;
+            journal::write(self.resolved_root()?, pending)?;
         }
         self.write_documents_atomically(&writes)?;
         if let Err(error) = self.save_policy(&policy).await {
@@ -122,7 +150,7 @@ impl UserMemoryService {
             return Err(error);
         }
         if pending.is_some() {
-            if let Err(error) = journal::remove(&self.root) {
+            if let Err(error) = journal::remove(self.resolved_root()?) {
                 tracing::warn!("[user-memory] deferred transaction journal cleanup: {error}");
             }
         }
@@ -238,7 +266,7 @@ impl UserMemoryService {
         &self,
     ) -> Result<(tokio::sync::OwnedMutexGuard<()>, File), AppCommandError> {
         let io_guard = self.io_lock.clone().lock_owned().await;
-        let root = self.root.clone();
+        let root = self.resolved_root()?.to_path_buf();
         let file_guard = tokio::task::spawn_blocking(move || fs::acquire_file_lock(&root))
             .await
             .map_err(|error| {
@@ -247,4 +275,9 @@ impl UserMemoryService {
             })??;
         Ok((io_guard, file_guard))
     }
+}
+
+fn user_memory_root_unavailable(error: &UserMemoryPathError) -> AppCommandError {
+    AppCommandError::configuration_missing("user memory root is unavailable")
+        .with_detail(error.to_string())
 }

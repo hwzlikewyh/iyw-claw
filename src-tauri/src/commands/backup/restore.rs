@@ -226,9 +226,11 @@ pub fn cleanup_transient_dirs(data_dir: &Path) {
 /// paths so they never touch the real `~/.iyw-claw`.
 pub fn apply_pending_restore_on_startup(data_dir: &Path) -> Result<RestoreApplied, std::io::Error> {
     #[cfg(feature = "tauri-runtime")]
-    let user_memory_root = crate::paths::desktop_user_memory_root();
+    let user_memory_root = crate::git_credential::absolutize(&crate::paths::iyw_claw_home_dir());
     #[cfg(not(feature = "tauri-runtime"))]
-    let user_memory_root = crate::paths::server_user_memory_root(data_dir);
+    let user_memory_root = crate::paths::server_user_memory_root(data_dir)
+        .map(|resolved| resolved.path)
+        .unwrap_or_else(|_| crate::git_credential::absolutize(data_dir));
 
     apply_pending_restore_with_paths(
         data_dir,
@@ -238,11 +240,37 @@ pub fn apply_pending_restore_on_startup(data_dir: &Path) -> Result<RestoreApplie
     )
 }
 
+pub fn apply_pending_restore_on_startup_with_root(
+    data_dir: &Path,
+    user_memory_root: Option<&Path>,
+) -> Result<RestoreApplied, std::io::Error> {
+    apply_pending_restore_with_optional_paths(
+        data_dir,
+        &crate::paths::iyw_claw_uploads_root(),
+        &crate::paths::iyw_claw_home_dir().join("preferences.json"),
+        user_memory_root,
+    )
+}
+
 pub(crate) fn apply_pending_restore_with_paths(
     data_dir: &Path,
     uploads_root: &Path,
     preferences_path: &Path,
     user_memory_root: &Path,
+) -> Result<RestoreApplied, std::io::Error> {
+    apply_pending_restore_with_optional_paths(
+        data_dir,
+        uploads_root,
+        preferences_path,
+        Some(user_memory_root),
+    )
+}
+
+fn apply_pending_restore_with_optional_paths(
+    data_dir: &Path,
+    uploads_root: &Path,
+    preferences_path: &Path,
+    user_memory_root: Option<&Path>,
 ) -> Result<RestoreApplied, std::io::Error> {
     let marker = data_dir.join(PENDING_MARKER);
     if !marker.is_file() {
@@ -262,6 +290,12 @@ pub(crate) fn apply_pending_restore_with_paths(
     if !staging.is_dir() {
         tracing::info!("[RESTORE] staging dir missing, discarding marker");
         let _ = std::fs::remove_file(&marker);
+        return Ok(RestoreApplied::None);
+    }
+    if user_memory_root.is_none() && staged_user_memory_exists(&staging) {
+        tracing::warn!(
+            "[RESTORE] user memory root unavailable; preserving the pending restore for retry"
+        );
         return Ok(RestoreApplied::None);
     }
 
@@ -313,17 +347,19 @@ pub(crate) fn apply_pending_restore_with_paths(
         )?;
     }
 
-    let staged_user_memory = staging.join(super::USER_MEMORY_ARCHIVE_DIR);
-    for file_name in super::USER_MEMORY_FILES {
-        let staged_document = staged_user_memory.join(file_name);
-        if staged_document.is_file() {
-            swap_in(
-                &staged_document,
-                &user_memory_root.join(file_name),
-                &backup_dir
-                    .join(super::USER_MEMORY_ARCHIVE_DIR)
-                    .join(file_name),
-            )?;
+    if let Some(user_memory_root) = user_memory_root {
+        let staged_user_memory = staging.join(super::USER_MEMORY_ARCHIVE_DIR);
+        for file_name in super::USER_MEMORY_FILES {
+            let staged_document = staged_user_memory.join(file_name);
+            if staged_document.is_file() {
+                swap_in(
+                    &staged_document,
+                    &user_memory_root.join(file_name),
+                    &backup_dir
+                        .join(super::USER_MEMORY_ARCHIVE_DIR)
+                        .join(file_name),
+                )?;
+            }
         }
     }
 
@@ -339,6 +375,13 @@ pub(crate) fn apply_pending_restore_with_paths(
     Ok(RestoreApplied::Applied {
         safety_snapshot: Some(backup_dir),
     })
+}
+
+fn staged_user_memory_exists(staging: &Path) -> bool {
+    let root = staging.join(super::USER_MEMORY_ARCHIVE_DIR);
+    super::USER_MEMORY_FILES
+        .iter()
+        .any(|file_name| root.join(file_name).is_file())
 }
 
 /// Move `live` → `backup` (if present), then `staged` → `live`. Idempotent: if

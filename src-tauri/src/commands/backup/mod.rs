@@ -136,7 +136,7 @@ mod tauri_commands {
             conn: &db.conn,
             data_dir: &data_dir,
             uploads_root: crate::paths::iyw_claw_uploads_root(),
-            user_memory_root: user_memory.root().to_path_buf(),
+            user_memory_root: user_memory.resolved_root()?.to_path_buf(),
             app_version: APP_VERSION,
             runtime_label: "desktop",
         };

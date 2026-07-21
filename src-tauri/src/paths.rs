@@ -5,13 +5,41 @@
 //! user-scoped persistent directory should call into this module instead of
 //! re-deriving `dirs::home_dir().join(".iyw-claw")` themselves.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 const APP_DIR_NAME: &str = ".iyw-claw";
 const PETS_DIR_NAME: &str = "pets";
 const UPLOADS_DIR_NAME: &str = "uploads";
 const LOGS_DIR_NAME: &str = "logs";
 const LOG_DIR_ENV: &str = "IYW_CLAW_LOG_DIR";
+pub const USER_MEMORY_DIR_ENV: &str = "IYW_CLAW_USER_MEMORY_DIR";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserMemoryRootSource {
+    Override,
+    DesktopHome,
+    ServerHome,
+    ServerData,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedUserMemoryRoot {
+    pub path: PathBuf,
+    pub source: UserMemoryRootSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum UserMemoryPathError {
+    #[error("operating-system user home is unavailable")]
+    HomeUnavailable,
+    #[error("user memory path could not be resolved to an absolute path")]
+    PathNotAbsolute,
+}
 
 /// `$IYW_CLAW_HOME` if set (and non-empty), else `~/.iyw-claw/`.
 ///
@@ -26,21 +54,63 @@ pub fn iyw_claw_home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(APP_DIR_NAME))
 }
 
-/// Canonical user-memory root for the desktop runtime. This deliberately keeps
-/// compatibility with the existing `~/.iyw-claw/user-*.md` files instead of
-/// moving them into Tauri's identifier-derived data directory.
-pub fn desktop_user_memory_root() -> PathBuf {
-    crate::git_credential::absolutize(&iyw_claw_home_dir())
+pub fn resolve_desktop_user_memory_root(
+    explicit: Option<&OsStr>,
+    user_home: Option<&Path>,
+) -> Result<ResolvedUserMemoryRoot, UserMemoryPathError> {
+    if let Some(path) = non_empty_path(explicit) {
+        return resolved_user_memory_root(path, UserMemoryRootSource::Override);
+    }
+    let home = user_home.ok_or(UserMemoryPathError::HomeUnavailable)?;
+    resolved_user_memory_root(&home.join(APP_DIR_NAME), UserMemoryRootSource::DesktopHome)
 }
 
-/// Canonical user-memory root for server/Docker mode. An explicit
-/// `IYW_CLAW_HOME` wins; otherwise the server's effective persistent data root
-/// is authoritative (normally `/data` in Docker).
-pub fn server_user_memory_root(data_dir: &Path) -> PathBuf {
-    if let Some(custom) = std::env::var_os("IYW_CLAW_HOME").filter(|value| !value.is_empty()) {
-        return crate::git_credential::absolutize(Path::new(&custom));
+pub fn resolve_server_user_memory_root(
+    explicit: Option<&OsStr>,
+    legacy_home: Option<&OsStr>,
+    data_root: &Path,
+) -> Result<ResolvedUserMemoryRoot, UserMemoryPathError> {
+    if let Some(path) = non_empty_path(explicit) {
+        return resolved_user_memory_root(path, UserMemoryRootSource::Override);
     }
-    crate::git_credential::absolutize(data_dir)
+    if let Some(path) = non_empty_path(legacy_home) {
+        return resolved_user_memory_root(path, UserMemoryRootSource::ServerHome);
+    }
+    resolved_user_memory_root(data_root, UserMemoryRootSource::ServerData)
+}
+
+/// Resolve desktop memory independently from portable application data.
+pub fn desktop_user_memory_root() -> Result<ResolvedUserMemoryRoot, UserMemoryPathError> {
+    resolve_desktop_user_memory_root(
+        std::env::var_os(USER_MEMORY_DIR_ENV).as_deref(),
+        dirs::home_dir().as_deref(),
+    )
+}
+
+/// Resolve server memory with backwards-compatible `IYW_CLAW_HOME` support.
+pub fn server_user_memory_root(
+    data_root: &Path,
+) -> Result<ResolvedUserMemoryRoot, UserMemoryPathError> {
+    resolve_server_user_memory_root(
+        std::env::var_os(USER_MEMORY_DIR_ENV).as_deref(),
+        std::env::var_os("IYW_CLAW_HOME").as_deref(),
+        data_root,
+    )
+}
+
+fn non_empty_path(value: Option<&OsStr>) -> Option<&Path> {
+    value.filter(|value| !value.is_empty()).map(Path::new)
+}
+
+fn resolved_user_memory_root(
+    path: &Path,
+    source: UserMemoryRootSource,
+) -> Result<ResolvedUserMemoryRoot, UserMemoryPathError> {
+    let path = crate::git_credential::absolutize(path);
+    if !path.is_absolute() {
+        return Err(UserMemoryPathError::PathNotAbsolute);
+    }
+    Ok(ResolvedUserMemoryRoot { path, source })
 }
 
 /// Root directory for desktop-pet assets.
