@@ -491,7 +491,7 @@ git commit -m "feat(memory): 提供候选管理与备份接口"
 - Proposal outside an active accepted turn is rejected. Completion,
   cancellation, disconnect, and terminal error clear active state.
 
-- [ ] **Step 1: Write tracker, wire, companion, and listener tests**
+- [x] **Step 1: Write tracker, wire, companion, and listener tests**
 
 Prove an accepted prompt increments before forwarding; rejected empty prompts
 do not begin a turn; every terminal path clears state; repeated same-turn
@@ -499,7 +499,7 @@ proposal is idempotent; later turns count; forged identity/status/path/nonce
 cannot cross the schema; invalid/write-disabled/inactive tokens reject; each
 memory feature exposes exactly one tool; Pi/OpenClaw never gain proposal access.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```powershell
 cargo test --features test-utils --test user_memory_mcp
@@ -509,7 +509,7 @@ cargo test --features test-utils acp::delegation::
 Expected: compilation fails because proposal wire types, feature, and tracker
 are absent.
 
-- [ ] **Step 3: Implement the authenticated proposal flow**
+- [x] **Step 3: Implement the authenticated proposal flow**
 
 Derive the opaque source id from a domain-separated SHA-256 hash of launch token
 and connection id. Validate tracker state in the host listener. Forward only
@@ -517,7 +517,7 @@ the two Agent-visible fields from the companion. The result reports new versus
 duplicate, current status/count, and whether confirmation is recommended; it
 never claims the candidate is confirmed.
 
-- [ ] **Step 4: Run GREEN and append regressions**
+- [x] **Step 4: Run GREEN and append regressions**
 
 ```powershell
 cargo test --features test-utils --test user_memory_mcp
@@ -525,7 +525,7 @@ cargo test --features test-utils acp::delegation::
 cargo test --no-default-features --features mcp-runtime --bin iyw-claw-mcp
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src-tauri/src/acp src-tauri/src/bin_targets/iyw_claw_mcp.rs

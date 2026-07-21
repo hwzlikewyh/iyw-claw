@@ -192,6 +192,27 @@ pub struct BrokerMemoryAppendRequest {
     pub content: String,
 }
 
+/// Submit one conservative memory candidate observation. The listener owns
+/// Agent identity, opaque source, turn nonce, lifecycle state, and destination.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerMemoryProposalRequest {
+    pub token: String,
+    pub content: String,
+    pub signal: crate::user_memory::UserMemoryCandidateSignal,
+}
+
+/// Bounded Agent-facing report; internal candidate identifiers, provenance,
+/// revision, timestamps, and paths stay host-only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrokerMemoryProposalResult {
+    pub observation_added: bool,
+    pub status: crate::user_memory::UserMemoryCandidateStatus,
+    pub observation_count: u32,
+    pub confirmation_recommended: bool,
+}
+
 /// Tagged top-level message dispatched by the listener. Adding new variants
 /// is the wire-stable way to grow the broker protocol without touching the
 /// frame layer.
@@ -207,6 +228,7 @@ pub enum BrokerMessage {
     Ask(BrokerAskRequest),
     SessionInfo(BrokerSessionRequest),
     MemoryAppend(BrokerMemoryAppendRequest),
+    MemoryProposal(BrokerMemoryProposalRequest),
 }
 
 /// The wrapped outcome the main process returns over the same socket.
@@ -364,6 +386,16 @@ pub async fn client_memory_append_round_trip(
     req: &BrokerMemoryAppendRequest,
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::MemoryAppend(req.clone())).await
+}
+
+/// Submit one candidate observation through the authenticated main-process
+/// service. The response is a bounded [`BrokerMemoryProposalResult`] or an
+/// `{ "error": ... }` envelope.
+pub async fn client_memory_proposal_round_trip(
+    socket_path: &str,
+    req: &BrokerMemoryProposalRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::MemoryProposal(req.clone())).await
 }
 
 /// Total budget for `open()` retries on Windows named pipes. Has to be

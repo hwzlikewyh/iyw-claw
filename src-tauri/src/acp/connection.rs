@@ -1,8 +1,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
+use std::future::Future;
+use std::panic::{resume_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures::FutureExt;
 use sacp::schema::{
     BlobResourceContents, CancelNotification, ClientCapabilities, ContentBlock, ContentChunk,
     CreateTerminalRequest, CreateTerminalResponse, EmbeddedResource, EmbeddedResourceResource,
@@ -230,6 +233,35 @@ impl Drop for ConnectionCleanupGuard {
             connections.lock().await.remove(&connection_id);
         });
     }
+}
+
+async fn run_with_async_cleanup<T>(
+    run: impl Future<Output = T>,
+    cleanup: impl Future<Output = ()>,
+) -> T {
+    let outcome = AssertUnwindSafe(run).catch_unwind().await;
+    cleanup.await;
+    match outcome {
+        Ok(output) => output,
+        Err(payload) => resume_unwind(payload),
+    }
+}
+
+/// Revoke every per-launch authority owned by the connection before it leaves,
+/// including panic paths where `run_connection` never returns normally.
+async fn cleanup_delegation_resources(
+    injection: Option<&DelegationInjection>,
+    connection_id: &str,
+) {
+    let Some(injection) = injection else {
+        return;
+    };
+    injection.tokens.revoke_by_parent(connection_id).await;
+    injection.broker.cancel_by_parent(connection_id).await;
+    injection
+        .questions
+        .cancel_questions_by_parent(connection_id)
+        .await;
 }
 
 /// Represents a single active ACP agent connection.
@@ -823,41 +855,25 @@ pub async fn spawn_agent_connection(
             connection_id: cleanup_connection_id,
         };
 
-        let delegation_for_cleanup = delegation_injection.clone();
-        let result = run_connection(
-            agent,
-            conn_id.clone(),
-            agent_type,
-            working_dir,
-            session_id,
-            cmd_rx,
-            emitter_clone.clone(),
-            Arc::clone(&state_clone),
-            terminal_base_env,
-            preferred_mode_id,
-            preferred_config_values,
-            delegation_injection,
+        let cleanup_injection = delegation_injection.clone();
+        let result = run_with_async_cleanup(
+            run_connection(
+                agent,
+                conn_id.clone(),
+                agent_type,
+                working_dir,
+                session_id,
+                cmd_rx,
+                emitter_clone.clone(),
+                Arc::clone(&state_clone),
+                terminal_base_env,
+                preferred_mode_id,
+                preferred_config_values,
+                delegation_injection,
+            ),
+            cleanup_delegation_resources(cleanup_injection.as_ref(), &conn_id),
         )
         .await;
-
-        // Revoke the per-launch token + cascade cancel any still-pending
-        // delegations AND questions owned by this parent connection. All are
-        // best-effort: a missing token entry is a no-op, and both
-        // `cancel_by_parent` calls are safe on an empty pending map.
-        if let Some(inj) = delegation_for_cleanup {
-            let token = {
-                let snap = state_clone.read().await;
-                snap.delegation_token.clone()
-            };
-            if let Some(tok) = token {
-                inj.tokens.revoke(&tok).await;
-            }
-            inj.broker.cancel_by_parent(&conn_id).await;
-            // Reclaim a parked `ask_user_question` instead of waiting for the
-            // companion's ask socket to close (which a reparented/hard-killed
-            // agent may never do); the dropped sender declines the tool cleanly.
-            inj.questions.cancel_questions_by_parent(&conn_id).await;
-        }
 
         if let Err(e) = result {
             let code = e.code().map(String::from);
@@ -1288,6 +1304,10 @@ fn agent_delivers_wire_mcp(agent_type: AgentType) -> bool {
     !matches!(agent_type, AgentType::Pi)
 }
 
+fn agent_supports_iyw_claw_mcp(agent_type: AgentType) -> bool {
+    registry::get_agent_meta(agent_type).supports_mcp && agent_delivers_wire_mcp(agent_type)
+}
+
 fn agent_reads_native_mcp_config(agent_type: AgentType) -> bool {
     matches!(
         agent_type,
@@ -1543,13 +1563,19 @@ struct CompanionInjection {
     feedback_available: bool,
 }
 
+struct MemoryLaunchAccess {
+    confirmed_append: bool,
+    candidate_proposal: bool,
+    turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
+}
+
 async fn inject_iyw_claw_mcp(
     servers: &mut Vec<McpServer>,
     injection: &DelegationInjection,
     parent_connection_id: &str,
     working_dir: &Path,
     agent_type: AgentType,
-    memory_write_enabled: bool,
+    memory_access: MemoryLaunchAccess,
 ) -> Option<CompanionInjection> {
     // `images` keeps the companion enabled for every MCP-capable session. The
     // remaining feature groups stay independently gated by their settings.
@@ -1557,24 +1583,30 @@ async fn inject_iyw_claw_mcp(
     let feedback_enabled = injection.feedback.is_enabled().await;
     let ask_enabled = injection.ask.is_enabled().await;
     let sessions_enabled = injection.sessions.is_enabled().await;
-    let features_arg = companion_features_arg(
+    let mut features_arg = companion_features_arg(
         delegation_enabled,
         feedback_enabled,
         ask_enabled,
         sessions_enabled,
-        memory_write_enabled,
+        memory_access.confirmed_append,
     );
+    if memory_access.candidate_proposal {
+        features_arg.push_str(",memory-proposal");
+    }
     let Some(binary_path) = locate_iyw_claw_mcp_binary() else {
         tracing::warn!(
             "[delegation][WARN] iyw-claw-mcp companion binary not found (checked IYW_CLAW_MCP_BIN, \
              exe sibling, and PATH); skipping delegate_to_agent / check_user_feedback / \
-             ask_user_question / get_session_info / show_image / append_user_memory tool \
+             ask_user_question / get_session_info / show_image / append_user_memory / \
+             propose_user_memory tool \
              injection for connection \
              {parent_connection_id}. Reinstall iyw-claw or set IYW_CLAW_MCP_BIN to fix."
         );
         return None;
     };
     let token = uuid::Uuid::new_v4().to_string();
+    let opaque_source_id =
+        crate::acp::memory_turn::derive_opaque_source_id(&token, parent_connection_id);
     injection
         .tokens
         .register(
@@ -1583,7 +1615,10 @@ async fn inject_iyw_claw_mcp(
                 parent_connection_id: parent_connection_id.to_string(),
                 working_dir: working_dir.to_path_buf(),
                 agent_type,
-                memory_write_enabled,
+                memory_write_enabled: memory_access.confirmed_append,
+                memory_proposal_enabled: memory_access.candidate_proposal,
+                opaque_source_id,
+                memory_turn_tracker: memory_access.turn_tracker,
             },
         )
         .await;
@@ -2010,23 +2045,27 @@ async fn run_connection(
 
             // Inject the built-in `iyw-claw-mcp` MCP server. Stdio is
             // unconditionally supported by the ACP wire — no `mcp_caps`
-            // filter needed. The returned token is stashed on the session
-            // state so connection teardown can revoke it. Skipped entirely
-            // for agents that don't accept MCP over the wire (above).
-            let delegate_injection = if agent_supports_mcp && agent_delivers_wire_mcp(agent_type) {
+            // filter needed. Teardown revokes every registered token by parent
+            // connection id, including a token registered immediately before a
+            // panic. Skipped for agents that don't accept MCP over the wire.
+            let delegate_injection = if agent_supports_iyw_claw_mcp(agent_type) {
                 if let Some(inj) = delegation_injection.as_ref() {
-                    let memory_write_enabled = state
-                        .read()
-                        .await
-                        .user_memory_context
-                        .memory_write_enabled;
+                    let memory_access = {
+                        let state = state.read().await;
+                        let enabled = state.user_memory_context.memory_write_enabled;
+                        MemoryLaunchAccess {
+                            confirmed_append: enabled,
+                            candidate_proposal: enabled,
+                            turn_tracker: state.memory_turn_tracker.clone(),
+                        }
+                    };
                     inject_iyw_claw_mcp(
                         &mut mcp_servers,
                         inj,
                         &conn_id,
                         &cwd,
                         agent_type,
-                        memory_write_enabled,
+                        memory_access,
                     )
                     .await
                 } else {

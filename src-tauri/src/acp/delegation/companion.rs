@@ -5,13 +5,14 @@
 //! The companion speaks newline-delimited JSON-RPC 2.0 on stdio:
 //! one request → one response per line, with concurrent dispatch so
 //! `notifications/cancelled` can race an in-flight `tools/call`. It exposes up
-//! to seven tools — `delegate_to_agent` (async; returns a `task_id` ack),
+//! to nine tools — `delegate_to_agent` (async; returns a `task_id` ack),
 //! `get_delegation_status` (poll/long-poll for the result), `cancel_delegation`,
 //! `check_user_feedback` (pull the user's mid-turn steering notes),
 //! `ask_user_question` (block on a multiple-choice card), and `get_session_info`
-//! (resolve a referenced session by id), and `show_image` — whose schemas are embedded at compile
+//! (resolve a referenced session by id), `show_image`, `append_user_memory`, and
+//! `propose_user_memory` — whose schemas are embedded at compile
 //! time from [`TOOL_SCHEMA_JSON`] and gated by the `--features` groups (delegation
-//! / feedback / ask / sessions / images / memory). Only `delegate_to_agent` registers a broker-side
+//! / feedback / ask / sessions / images / memory / memory-proposal). Only `delegate_to_agent` registers a broker-side
 //! cancel handle; canceling a status / cancel / feedback / session round-trip
 //! merely suppresses its response — and for `check_user_feedback` also skips the
 //! delivery commit, so a cancelled note stays pending.
@@ -44,11 +45,11 @@ use tokio::sync::{oneshot, Mutex};
 
 use crate::acp::delegation::transport::{
     client_ask_round_trip, client_cancel, client_cancel_task_round_trip, client_commit_feedback,
-    client_feedback_round_trip, client_memory_append_round_trip, client_round_trip,
-    client_session_round_trip, client_status_round_trip, BrokerAskRequest, BrokerCancelRequest,
-    BrokerCancelTaskRequest, BrokerCommitFeedbackRequest, BrokerFeedbackRequest,
-    BrokerMemoryAppendRequest, BrokerRequest, BrokerResponse, BrokerSessionRequest,
-    BrokerStatusRequest,
+    client_feedback_round_trip, client_memory_append_round_trip, client_memory_proposal_round_trip,
+    client_round_trip, client_session_round_trip, client_status_round_trip, BrokerAskRequest,
+    BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
+    BrokerFeedbackRequest, BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerRequest,
+    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -160,11 +161,12 @@ pub struct CompanionFeatures {
     pub sessions: bool,
     pub images: bool,
     pub memory: bool,
+    pub memory_proposal: bool,
 }
 
 impl CompanionFeatures {
     /// Parse the comma-joined `--features` value (e.g.
-    /// `delegation,feedback,ask,sessions,memory`). Unknown tokens are ignored. An absent
+    /// `delegation,feedback,ask,sessions,memory,memory-proposal`). Unknown tokens are ignored. An absent
     /// value (`None`) defaults to delegation-only — backward compatible with a
     /// parent that predates feature gating (companion + listener ship together, so
     /// post-upgrade the parent always passes an explicit `--features`).
@@ -177,6 +179,7 @@ impl CompanionFeatures {
                 sessions: false,
                 images: false,
                 memory: false,
+                memory_proposal: false,
             };
         };
         let mut f = Self {
@@ -186,6 +189,7 @@ impl CompanionFeatures {
             sessions: false,
             images: false,
             memory: false,
+            memory_proposal: false,
         };
         for tok in s.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             match tok {
@@ -195,6 +199,7 @@ impl CompanionFeatures {
                 "sessions" => f.sessions = true,
                 "images" => f.images = true,
                 "memory" => f.memory = true,
+                "memory-proposal" => f.memory_proposal = true,
                 _ => {}
             }
         }
@@ -209,6 +214,7 @@ impl CompanionFeatures {
             "get_session_info" => self.sessions,
             "show_image" => self.images,
             "append_user_memory" => self.memory,
+            "propose_user_memory" => self.memory_proposal,
             "delegate_to_agent" | "get_delegation_status" | "cancel_delegation" => self.delegation,
             _ => false,
         }
@@ -455,6 +461,47 @@ async fn build_tools_call_spawn(
             let round_trip =
                 Box::pin(async move { client_memory_append_round_trip(&socket, &req).await });
             register_and_spawn(inflight, id, None, round_trip, render_memory_append_result).await
+        }
+        "propose_user_memory" => {
+            let proposal = match serde_json::from_value::<crate::user_memory::AgentMemoryProposal>(
+                arguments,
+            ) {
+                Ok(proposal) if !proposal.content.trim().is_empty() => proposal,
+                _ => {
+                    return LineAction::Respond(err(
+                        id,
+                        -32602,
+                        "propose_user_memory requires `content` and a valid `signal`",
+                    ));
+                }
+            };
+            if proposal.content.chars().count()
+                > crate::user_memory::USER_MEMORY_MAX_CANDIDATE_CHARS
+            {
+                return LineAction::Respond(err(
+                    id,
+                    -32602,
+                    format!(
+                        "propose_user_memory content exceeds {} characters",
+                        crate::user_memory::USER_MEMORY_MAX_CANDIDATE_CHARS
+                    ),
+                ));
+            }
+            let req = BrokerMemoryProposalRequest {
+                token: ctx.token.clone(),
+                content: proposal.content,
+                signal: proposal.signal,
+            };
+            let round_trip =
+                Box::pin(async move { client_memory_proposal_round_trip(&socket, &req).await });
+            register_and_spawn(
+                inflight,
+                id,
+                None,
+                round_trip,
+                render_memory_proposal_result,
+            )
+            .await
         }
         "delegate_to_agent" => {
             // MCP clients (Codex / Claude Code) generally do NOT populate
@@ -1290,6 +1337,36 @@ pub fn render_memory_append_result(outcome: &Value) -> Value {
     })
 }
 
+/// Render a bounded candidate-observation report without implying that the
+/// candidate is already durable confirmed memory.
+pub fn render_memory_proposal_result(outcome: &Value) -> Value {
+    if let Some(message) = outcome.get("error").and_then(Value::as_str) {
+        return json!({
+            "content": [{ "type": "text", "text": message }],
+            "isError": true,
+            "structuredContent": outcome.clone(),
+        });
+    }
+    let added = outcome
+        .get("observationAdded")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let recommended = outcome
+        .get("confirmationRecommended")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let text = match (added, recommended) {
+        (true, true) => "Memory candidate observation recorded; user confirmation is recommended.",
+        (true, false) => "Memory candidate observation recorded.",
+        (false, _) => "No new memory candidate observation was recorded.",
+    };
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": false,
+        "structuredContent": outcome.clone(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -1442,6 +1519,7 @@ mod tests {
             sessions: false,
             images: false,
             memory: false,
+            memory_proposal: false,
         })
     }
 
@@ -1916,6 +1994,7 @@ mod tests {
         sessions: false,
         images: false,
         memory: false,
+        memory_proposal: false,
     };
     const BOTH: CompanionFeatures = CompanionFeatures {
         delegation: true,
@@ -1924,6 +2003,7 @@ mod tests {
         sessions: false,
         images: false,
         memory: false,
+        memory_proposal: false,
     };
     const ASK_ONLY: CompanionFeatures = CompanionFeatures {
         delegation: false,
@@ -1932,6 +2012,7 @@ mod tests {
         sessions: false,
         images: false,
         memory: false,
+        memory_proposal: false,
     };
     const SESSIONS_ONLY: CompanionFeatures = CompanionFeatures {
         delegation: false,
@@ -1940,6 +2021,7 @@ mod tests {
         sessions: true,
         images: false,
         memory: false,
+        memory_proposal: false,
     };
 
     fn list_tool_names(action: LineAction) -> Vec<String> {

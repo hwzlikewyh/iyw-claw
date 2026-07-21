@@ -195,5 +195,27 @@
       },
       "additionalProperties": false
     }
+  },
+  {
+    "name": "propose_user_memory",
+    "description": "Submit one conservative candidate when the user explicitly gives a reusable correction, preference, or fact but has not clearly asked for permanent storage. This records an observation for later confirmation; it does not update active memory. Never submit secrets, inferred sensitive traits, repository facts, temporary progress, one-off task details, or agent reflections, and never claim that a proposal is already remembered.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["content", "signal"],
+      "properties": {
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "A concise, standalone reusable statement explicitly grounded in the user's current message."
+        },
+        "signal": {
+          "type": "string",
+          "enum": ["correction", "preference", "fact"],
+          "description": "The explicit user signal that motivated this candidate."
+        }
+      },
+      "additionalProperties": false
+    }
   }
 ]

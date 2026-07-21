@@ -25,13 +25,40 @@ impl UserMemoryService {
         proposal: AgentMemoryProposal,
         source: CandidateObservationSource,
     ) -> Result<UserMemoryProposalResult, AppCommandError> {
+        self.propose_agent_memory_authorized_with_lease(proposal, source, || Some(()))
+            .await
+    }
+
+    pub(crate) async fn propose_agent_memory_authorized_with_lease<F, L>(
+        &self,
+        proposal: AgentMemoryProposal,
+        source: CandidateObservationSource,
+        acquire_lease: F,
+    ) -> Result<UserMemoryProposalResult, AppCommandError>
+    where
+        F: FnOnce() -> Option<L> + Send,
+    {
         let content = normalize_candidate(&proposal.content)?;
         source.validate()?;
         let (_guard, _file_guard) = self.acquire_locks().await?;
         self.recover_pending_transaction().await?;
+        let _authorization_lease = acquire_lease().ok_or_else(|| {
+            AppCommandError::permission_denied(
+                "User memory proposal is unavailable for this session.",
+            )
+        })?;
+        self.propose_agent_memory_locked(content, proposal.signal, source)
+    }
+
+    fn propose_agent_memory_locked(
+        &self,
+        content: String,
+        signal: super::UserMemoryCandidateSignal,
+        source: CandidateObservationSource,
+    ) -> Result<UserMemoryProposalResult, AppCommandError> {
         let root = self.resolved_root()?;
         let mut state = candidate_store::read_state(root)?;
-        let outcome = observe_candidate(&mut state, content, proposal.signal, source)?;
+        let outcome = observe_candidate(&mut state, content, signal, source)?;
         if outcome.observation_added {
             candidate_store::write_state(root, &state)?;
         }

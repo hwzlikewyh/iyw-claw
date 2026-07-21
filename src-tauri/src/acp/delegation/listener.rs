@@ -18,15 +18,19 @@ use tokio::sync::RwLock;
 use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::transport::{
     read_frame, write_frame, BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
-    BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerMemoryAppendRequest, BrokerMessage,
-    BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
+    BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerMemoryAppendRequest,
+    BrokerMemoryProposalRequest, BrokerMemoryProposalResult, BrokerMessage, BrokerRequest,
+    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
 use crate::acp::question::{QuestionOutcome, SessionQuestionAccess};
 use crate::acp::session_info::{SessionInfo, SessionInfoAccess};
 use crate::models::AgentType;
-use crate::user_memory::{AgentMemoryAppend, UserMemoryAppendResult, UserMemoryService};
+use crate::user_memory::{
+    AgentMemoryAppend, AgentMemoryProposal, CandidateObservationSource, UserMemoryAppendResult,
+    UserMemoryService,
+};
 use serde_json::Value;
 
 /// Hard ceiling on a *positive* `get_delegation_status` long-poll, so a single
@@ -58,6 +62,12 @@ pub struct TokenEntry {
     /// Launch-snapshot authorization. Existing sessions retain this value until
     /// reconnect even if the user changes the policy in Settings.
     pub memory_write_enabled: bool,
+    /// Independent launch-snapshot authorization for conservative proposals.
+    pub memory_proposal_enabled: bool,
+    /// Stable hash-derived provenance id; raw launch tokens are never persisted.
+    pub opaque_source_id: String,
+    /// Read-only authority for the current accepted turn nonce.
+    pub memory_turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
 }
 
 #[derive(Default)]
@@ -71,7 +81,9 @@ impl TokenRegistry {
     }
 
     pub async fn revoke(&self, token: &str) {
-        self.inner.write().await.remove(token);
+        if let Some(entry) = self.inner.write().await.remove(token) {
+            entry.memory_turn_tracker.complete_turn();
+        }
     }
 
     pub async fn lookup(&self, token: &str) -> Option<TokenEntry> {
@@ -82,7 +94,14 @@ impl TokenRegistry {
     /// connection teardown so a leaked token can't be reused.
     pub async fn revoke_by_parent(&self, parent_connection_id: &str) {
         let mut map = self.inner.write().await;
-        map.retain(|_, entry| entry.parent_connection_id != parent_connection_id);
+        map.retain(|_, entry| {
+            if entry.parent_connection_id == parent_connection_id {
+                entry.memory_turn_tracker.complete_turn();
+                false
+            } else {
+                true
+            }
+        });
     }
 }
 
@@ -321,6 +340,9 @@ impl DelegationListener {
             BrokerMessage::MemoryAppend(req) => {
                 memory_append_response(self.process_memory_append(req).await)?
             }
+            BrokerMessage::MemoryProposal(req) => {
+                memory_proposal_response(self.process_memory_proposal(req).await)?
+            }
             BrokerMessage::Cancel(cancel) => {
                 self.process_cancel(cancel).await;
                 // Empty ack — the companion only uses this to detect the
@@ -475,6 +497,50 @@ impl DelegationListener {
             .map_err(|error| error.message)
     }
 
+    /// Authenticate proposal capability and derive all provenance from the
+    /// launch token entry. The companion supplies only content and signal.
+    async fn process_memory_proposal(
+        &self,
+        req: BrokerMemoryProposalRequest,
+    ) -> Result<BrokerMemoryProposalResult, String> {
+        let unavailable = || "User memory proposal is unavailable for this session.".to_string();
+        let entry = self
+            .tokens
+            .lookup(&req.token)
+            .await
+            .ok_or_else(unavailable)?;
+        if !entry.memory_proposal_enabled {
+            return Err(unavailable());
+        }
+        let turn_nonce = entry
+            .memory_turn_tracker
+            .active_nonce()
+            .ok_or_else(unavailable)?;
+        let turn_tracker = entry.memory_turn_tracker.clone();
+        let result = self
+            .user_memory
+            .propose_agent_memory_authorized_with_lease(
+                AgentMemoryProposal {
+                    content: req.content,
+                    signal: req.signal,
+                },
+                CandidateObservationSource {
+                    agent_type: entry.agent_type,
+                    opaque_source_id: entry.opaque_source_id,
+                    turn_nonce,
+                },
+                move || turn_tracker.acquire_commit_lease(turn_nonce),
+            )
+            .await
+            .map_err(|error| error.message)?;
+        Ok(BrokerMemoryProposalResult {
+            observation_added: result.observation_added,
+            status: result.candidate.status,
+            observation_count: result.candidate.observation_count,
+            confirmation_recommended: result.confirmation_recommended,
+        })
+    }
+
     async fn process(&self, req: BrokerRequest) -> DelegationTaskReport {
         // 1. Token + parent_connection_id consistency check. Treat both as
         //    "canceled" since the LLM can't usefully react to either —
@@ -611,6 +677,18 @@ fn memory_append_response(
     let outcome = match result {
         Ok(result) => serde_json::to_value(result).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {e}"))
+        })?,
+        Err(message) => serde_json::json!({ "error": message }),
+    };
+    Ok(BrokerResponse { outcome })
+}
+
+fn memory_proposal_response(
+    result: Result<BrokerMemoryProposalResult, String>,
+) -> std::io::Result<BrokerResponse> {
+    let outcome = match result {
+        Ok(result) => serde_json::to_value(result).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {error}"))
         })?,
         Err(message) => serde_json::json!({ "error": message }),
     };
@@ -839,11 +917,18 @@ mod tests {
     }
 
     fn test_token_entry(parent_connection_id: &str) -> TokenEntry {
+        let memory_turn_tracker = Arc::new(crate::acp::memory_turn::MemoryTurnTracker::default());
         TokenEntry {
             parent_connection_id: parent_connection_id.to_string(),
             working_dir: PathBuf::from("/tmp"),
             agent_type: AgentType::Codex,
             memory_write_enabled: false,
+            memory_proposal_enabled: false,
+            opaque_source_id: crate::acp::memory_turn::derive_opaque_source_id(
+                "test-token",
+                parent_connection_id,
+            ),
+            memory_turn_tracker,
         }
     }
 
@@ -970,6 +1055,7 @@ mod tests {
             .unwrap();
         let user_memory = Arc::new(UserMemoryService::new(db.conn, temp.path().join("memory")));
         let tokens = Arc::new(TokenRegistry::default());
+        let memory_turn_tracker = Arc::new(crate::acp::memory_turn::MemoryTurnTracker::default());
         tokens
             .register(
                 "memory-token".into(),
@@ -978,6 +1064,12 @@ mod tests {
                     working_dir: PathBuf::from("/tmp"),
                     agent_type: AgentType::Gemini,
                     memory_write_enabled,
+                    memory_proposal_enabled: false,
+                    opaque_source_id: crate::acp::memory_turn::derive_opaque_source_id(
+                        "memory-token",
+                        "parent-conn",
+                    ),
+                    memory_turn_tracker: memory_turn_tracker.clone(),
                 },
             )
             .await;

@@ -793,6 +793,7 @@ impl ConnectionManager {
                 return Err(AcpError::TurnInProgress);
             }
             s.turn_in_flight = true;
+            s.memory_turn_tracker.begin_accepted_turn();
             if s.user_context_injected {
                 None
             } else {

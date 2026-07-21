@@ -4,7 +4,7 @@
 //! steering notes), `ask_user_question` (block on a multiple-choice card), and
 //! `get_session_info` (resolve a referenced session by id), gated by the
 //! `--features` groups (`delegation` / `feedback` / `ask` / `sessions` /
-//! `images` / `memory`).
+//! `images` / `memory` / `memory-proposal`).
 //!
 //! The agent's MCP config (injected by iyw-claw via `load_mcp_servers_for_agent`)
 //! spawns this binary with three required flags:
@@ -51,7 +51,7 @@ struct Args {
     /// from. Omitted by older parents — backward compatible.
     parent_pid: Option<u32>,
     /// Comma-joined tool groups to expose (e.g.
-    /// `delegation,feedback,ask,sessions,memory`). Omitted by parents that predate
+    /// `delegation,feedback,ask,sessions,memory,memory-proposal`). Omitted by parents that predate
     /// feature gating; see `CompanionFeatures::parse` (defaults to
     /// delegation-only).
     features: Option<String>,
@@ -111,7 +111,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images,memory] [--working-dir <path>]"
+                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images,memory,memory-proposal] [--working-dir <path>]"
                 );
                 std::process::exit(0);
             }

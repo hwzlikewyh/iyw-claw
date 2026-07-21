@@ -319,6 +319,10 @@ pub struct SessionState {
     /// keep round-tripping after the parent session ends.
     pub delegation_token: Option<String>,
 
+    /// Shared with the launch token entry so candidate proposals can only use
+    /// host-owned provenance from the currently accepted turn.
+    pub memory_turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
+
     /// Launch-time user-memory snapshot. It is never serialized into the live
     /// session snapshot; only the connection loop can place its rendered
     /// envelope on the first accepted wire prompt.
@@ -432,6 +436,7 @@ impl SessionState {
             event_stream: Arc::new(ConnectionEventStream::new()),
             recent_events: RecentEventsBuffer::new(),
             delegation_token: None,
+            memory_turn_tracker: Arc::new(crate::acp::memory_turn::MemoryTurnTracker::default()),
             user_memory_context: crate::user_memory::UserMemoryContextSnapshot::disabled(
                 crate::user_memory::UserMemoryOrigin::Root,
             ),
@@ -508,6 +513,12 @@ impl SessionState {
             AcpEvent::StatusChanged { status } => {
                 if matches!(status, ConnectionStatus::Prompting) {
                     self.last_error = None;
+                }
+                if matches!(
+                    status,
+                    ConnectionStatus::Disconnected | ConnectionStatus::Error
+                ) {
+                    self.memory_turn_tracker.complete_turn();
                 }
                 self.status = status.clone();
             }
@@ -669,6 +680,7 @@ impl SessionState {
                 }
             }
             AcpEvent::TurnComplete { stop_reason, .. } => {
+                self.memory_turn_tracker.complete_turn();
                 self.last_turn_ended_abnormally = stop_reason != "end_turn";
                 // Snapshot the just-finished turn's FINAL assistant text — what
                 // `get_delegation_status` returns as the child result. We take
@@ -785,7 +797,15 @@ impl SessionState {
                 // already done — the event fires only once per connection.
                 self.selectors_ready = true;
             }
-            AcpEvent::Error { message, code, .. } => {
+            AcpEvent::Error {
+                message,
+                code,
+                terminal,
+                ..
+            } => {
+                if *terminal {
+                    self.memory_turn_tracker.complete_turn();
+                }
                 // Capture so post-mortem readers (probe path, debug
                 // snapshots) can surface the agent's own error message
                 // after the connection task has cleaned up its map
