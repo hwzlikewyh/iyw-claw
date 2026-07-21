@@ -77,13 +77,30 @@ pub(super) fn write_json_atomic<T: Serialize>(
         AppCommandError::configuration_invalid("Serialize user memory structured state")
             .with_detail(error.to_string())
     })?;
+    write_bytes_atomic(root, file_name, &bytes)
+}
+
+pub(super) fn write_bytes_atomic(
+    root: &Path,
+    file_name: &str,
+    bytes: &[u8],
+) -> Result<(), AppCommandError> {
     let target = safe_child(root, file_name)?;
-    let temp = write_private_temp(&target, &bytes)?;
+    let temp = write_private_temp(&target, bytes)?;
     let result = replace_file(&temp, &target).and_then(|_| sync_directory(root));
     if result.is_err() {
         let _ = std::fs::remove_file(&temp);
     }
     result
+}
+
+pub(super) fn remove_optional(root: &Path, file_name: &str) -> Result<(), AppCommandError> {
+    let path = safe_child(root, file_name)?;
+    match std::fs::remove_file(path) {
+        Ok(()) => sync_directory(root),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(AppCommandError::io(error)),
+    }
 }
 
 pub(super) fn ensure_writable_optional(

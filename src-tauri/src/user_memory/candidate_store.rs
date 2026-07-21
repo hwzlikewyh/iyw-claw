@@ -17,14 +17,21 @@ use super::{
 const USER_MEMORY_MAX_CANDIDATE_STATE_CHARS: usize = 16_777_216;
 
 pub(super) fn read_state(root: &Path) -> Result<UserMemoryLearningState, AppCommandError> {
+    Ok(read_optional(root)?.unwrap_or_default())
+}
+
+pub(super) fn read_optional(
+    root: &Path,
+) -> Result<Option<UserMemoryLearningState>, AppCommandError> {
     let state = structured_file::read_json_optional(
         root,
         USER_MEMORY_CANDIDATE_FILE,
         USER_MEMORY_MAX_CANDIDATE_STATE_CHARS,
     )
-    .map_err(wrap_read_error)?
-    .unwrap_or_default();
-    validate_state(&state)?;
+    .map_err(wrap_read_error)?;
+    if let Some(state) = state.as_ref() {
+        validate_state(state)?;
+    }
     Ok(state)
 }
 
@@ -66,7 +73,7 @@ pub(super) fn observation_key(candidate_digest: &str, source_id: &str, turn_nonc
     hash_parts(&[candidate_digest.as_bytes(), source_id.as_bytes(), &nonce])
 }
 
-fn validate_state(state: &UserMemoryLearningState) -> Result<(), AppCommandError> {
+pub(super) fn validate_state(state: &UserMemoryLearningState) -> Result<(), AppCommandError> {
     if state.schema_version != USER_MEMORY_CANDIDATE_SCHEMA_VERSION {
         return Err(invalid_state("unsupported schema version"));
     }

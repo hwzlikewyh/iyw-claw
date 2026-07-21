@@ -356,14 +356,14 @@ pub struct UserMemoryTransactionJournal {
 - Settings confirmation calls the same append primitive and persists Markdown
   plus candidate status atomically.
 
-- [ ] **Step 1: Write crash-point and reconciliation tests**
+- [x] **Step 1: Write crash-point and reconciliation tests**
 
 Construct journals directly and cover absent, prepared, committed, malformed,
 previous/next mismatch, absent candidate generation, repeated recovery, failure
 after each resource write, confirmation rollback, direct reconciliation,
 duplicate reconciliation, and invalid candidate JSON plus successful Markdown.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```powershell
 cargo test --features test-utils --test user_memory_transactions
@@ -371,21 +371,21 @@ cargo test --features test-utils --test user_memory_transactions
 
 Expected: compilation fails because phase-aware transaction types are absent.
 
-- [ ] **Step 3: Implement explicit phase recovery and lock-aware append**
+- [x] **Step 3: Implement explicit phase recovery and lock-aware append**
 
 Write/fsync prepared; atomically replace next resources; persist policy; replace
 and fsync committed; remove journal; sync root. Prepared recovery restores every
 previous generation. Committed recovery reapplies every next generation.
 Unexpected content fails closed and preserves the journal.
 
-- [ ] **Step 4: Run GREEN and concurrency regressions**
+- [x] **Step 4: Run GREEN and concurrency regressions**
 
 ```powershell
 cargo test --features test-utils --test user_memory_transactions
 cargo test --features test-utils --test user_memory
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src-tauri/src/user_memory

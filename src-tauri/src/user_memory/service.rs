@@ -11,15 +11,13 @@ use crate::paths::{ResolvedUserMemoryRoot, UserMemoryPathError, UserMemoryRootSo
 
 use super::fs;
 use super::helpers::{
-    apply_policy_patch, conflict, disabled_with_fingerprint, ensure_agent_write_allowed,
-    hash_parts, memory_entry_id, normalize_append, policy_from_snapshot, supports_memory_tool,
-    validate_document_content,
+    apply_policy_patch, conflict, disabled_with_fingerprint, hash_parts, policy_from_snapshot,
+    supports_memory_tool,
 };
-use super::journal::{self, PendingUpdate};
+use super::transaction::document_resource;
 use super::{
-    context::render_user_context, AgentMemoryAppend, UserMemoryAppendResult,
-    UserMemoryContextSnapshot, UserMemoryDocumentId, UserMemoryOrigin, UserMemorySettingsSnapshot,
-    UserMemoryUpdateRequest,
+    context::render_user_context, UserMemoryContextSnapshot, UserMemoryDocumentId,
+    UserMemoryGeneration, UserMemoryOrigin, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
 };
 
 pub(super) const POLICY_KEY: &str = "user_memory.settings";
@@ -138,42 +136,34 @@ impl UserMemoryService {
         let writes = request
             .documents
             .iter()
-            .filter_map(|(id, patch)| patch.content.as_deref().map(|content| (*id, content)))
-            .collect::<Vec<_>>();
-        let pending = (!writes.is_empty()).then(|| PendingUpdate {
-            previous_policy: previous_policy.clone(),
-            next_policy: policy.clone(),
-            previous_documents: writes
-                .iter()
-                .map(|(id, _)| (*id, current.documents[id].content.clone()))
-                .collect(),
-            next_documents: writes
-                .iter()
-                .map(|(id, content)| (*id, (*content).to_string()))
-                .collect(),
-        });
-        if let Some(pending) = pending.as_ref() {
-            journal::write(self.resolved_root()?, pending)?;
-        }
-        self.write_documents_atomically(&writes)?;
-        if let Err(error) = self.save_policy(&policy).await {
-            let rollback = writes
-                .iter()
-                .map(|(id, _)| (*id, current.documents[id].content.as_str()))
-                .collect::<Vec<_>>();
-            if let Err(rollback_error) = self.write_documents_atomically(&rollback) {
-                tracing::error!("[user-memory] document rollback failed: {rollback_error}");
-            }
-            if let Err(rollback_error) = self.save_policy(&previous_policy).await {
-                tracing::error!("[user-memory] policy rollback failed: {rollback_error}");
-            }
-            return Err(error);
-        }
-        if pending.is_some() {
-            if let Err(error) = journal::remove(self.resolved_root()?) {
-                tracing::warn!("[user-memory] deferred transaction journal cleanup: {error}");
-            }
-        }
+            .filter_map(|(id, patch)| patch.content.clone().map(|content| (*id, content)))
+            .collect::<BTreeMap<_, _>>();
+        let previous_documents = writes
+            .keys()
+            .map(|id| {
+                (
+                    *id,
+                    document_resource(current.documents[id].content.clone()),
+                )
+            })
+            .collect();
+        let next_documents = writes
+            .into_iter()
+            .map(|(id, content)| (id, document_resource(content)))
+            .collect();
+        self.execute_transaction(
+            UserMemoryGeneration {
+                policy: Some(previous_policy),
+                documents: previous_documents,
+                candidate_state: None,
+            },
+            UserMemoryGeneration {
+                policy: Some(policy.clone()),
+                documents: next_documents,
+                candidate_state: None,
+            },
+        )
+        .await?;
         self.snapshot_locked(&policy)
     }
 
@@ -216,67 +206,6 @@ impl UserMemoryService {
             rendered,
             memory_write_enabled: write_enabled,
             origin,
-        })
-    }
-
-    pub async fn append_agent_memory(
-        &self,
-        input: AgentMemoryAppend,
-    ) -> Result<UserMemoryAppendResult, AppCommandError> {
-        self.append_agent_memory_inner(input, true).await
-    }
-
-    /// Append for an authenticated connection whose launch token already
-    /// captured write permission. Content and filesystem validation still run;
-    /// only the current policy re-check is skipped so live sessions retain their
-    /// documented launch snapshot until reconnect.
-    pub async fn append_agent_memory_authorized(
-        &self,
-        input: AgentMemoryAppend,
-    ) -> Result<UserMemoryAppendResult, AppCommandError> {
-        self.append_agent_memory_inner(input, false).await
-    }
-
-    async fn append_agent_memory_inner(
-        &self,
-        input: AgentMemoryAppend,
-        enforce_current_policy: bool,
-    ) -> Result<UserMemoryAppendResult, AppCommandError> {
-        let content = normalize_append(&input.content)?;
-        let (_guard, _file_guard) = self.acquire_locks().await?;
-        let policy = self.load_policy().await?;
-        if enforce_current_policy {
-            ensure_agent_write_allowed(&policy, input.agent_type)?;
-        }
-        let mut current = self.read_document(UserMemoryDocumentId::Memory)?;
-        let entry_id = memory_entry_id(&content);
-        let now = chrono::Utc::now().to_rfc3339();
-        if current.contains(&entry_id) {
-            let revision = self.snapshot_locked(&policy)?.revision;
-            return Ok(UserMemoryAppendResult {
-                appended: false,
-                entry_id,
-                created_at: now,
-                revision,
-            });
-        }
-        let entry = format!(
-            "- [{}] [{}] {} <!-- {} -->",
-            now, input.agent_type, content, entry_id
-        );
-        if !current.is_empty() && !current.ends_with('\n') {
-            current.push('\n');
-        }
-        current.push_str(&entry);
-        current.push('\n');
-        validate_document_content(&current)?;
-        self.write_document(UserMemoryDocumentId::Memory, &current)?;
-        let revision = self.snapshot_locked(&policy)?.revision;
-        Ok(UserMemoryAppendResult {
-            appended: true,
-            entry_id,
-            created_at: now,
-            revision,
         })
     }
 

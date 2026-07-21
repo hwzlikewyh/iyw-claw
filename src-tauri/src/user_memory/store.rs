@@ -5,7 +5,6 @@ use crate::db::service::app_metadata_service;
 
 use super::fs;
 use super::helpers::{conflict, hash_parts, settings_revision, validate_document_update_content};
-use super::journal;
 use super::service::POLICY_KEY;
 use super::{
     UserMemoryDocumentId, UserMemoryDocumentSnapshot, UserMemoryPolicy, UserMemoryService,
@@ -14,11 +13,13 @@ use super::{
 
 impl UserMemoryService {
     pub(super) async fn load_policy(&self) -> Result<UserMemoryPolicy, AppCommandError> {
-        self.recover_pending_update().await?;
+        self.recover_pending_transaction().await?;
         self.load_policy_unrecovered().await
     }
 
-    async fn load_policy_unrecovered(&self) -> Result<UserMemoryPolicy, AppCommandError> {
+    pub(super) async fn load_policy_unrecovered(
+        &self,
+    ) -> Result<UserMemoryPolicy, AppCommandError> {
         let raw = app_metadata_service::get_value(&self.db, POLICY_KEY)
             .await
             .map_err(AppCommandError::from)?;
@@ -36,42 +37,6 @@ impl UserMemoryService {
             policy.documents.entry(document).or_insert(true);
         }
         Ok(policy)
-    }
-
-    async fn recover_pending_update(&self) -> Result<(), AppCommandError> {
-        let root = self.resolved_root()?;
-        let Some(pending) = journal::read(root)? else {
-            return Ok(());
-        };
-        let current = self.load_policy_unrecovered().await?;
-        if current == pending.next_policy && self.documents_match(&pending.next_documents)? {
-            journal::remove(root)?;
-            return Ok(());
-        }
-        if current != pending.previous_policy {
-            return Err(AppCommandError::configuration_invalid(
-                "User memory transaction journal does not match stored policy",
-            ));
-        }
-        let documents = pending
-            .previous_documents
-            .iter()
-            .map(|(id, content)| (*id, content.as_str()))
-            .collect::<Vec<_>>();
-        self.write_documents_atomically(&documents)?;
-        journal::remove(root)
-    }
-
-    fn documents_match(
-        &self,
-        expected: &BTreeMap<UserMemoryDocumentId, String>,
-    ) -> Result<bool, AppCommandError> {
-        for (id, content) in expected {
-            if self.read_document(*id)? != *content {
-                return Ok(false);
-            }
-        }
-        Ok(true)
     }
 
     pub(super) async fn save_policy(
@@ -122,6 +87,26 @@ impl UserMemoryService {
         &self,
         id: UserMemoryDocumentId,
     ) -> Result<String, AppCommandError> {
+        if let Some(content) = self.read_document_optional(id)? {
+            return Ok(content);
+        }
+        fs::read_document(self.resolved_root()?, id)
+    }
+
+    pub(super) fn read_document_resource(
+        &self,
+        id: UserMemoryDocumentId,
+    ) -> Result<super::ResourceGeneration<String>, AppCommandError> {
+        Ok(match self.read_document_optional(id)? {
+            Some(content) => super::transaction::document_resource(content),
+            None => super::ResourceGeneration::Absent,
+        })
+    }
+
+    fn read_document_optional(
+        &self,
+        id: UserMemoryDocumentId,
+    ) -> Result<Option<String>, AppCommandError> {
         let root = self.resolved_root()?;
         if self.migration_blocks_document(id)
             && std::fs::symlink_metadata(root.join(id.file_name()))
@@ -131,22 +116,7 @@ impl UserMemoryService {
                 "User memory document is waiting for legacy migration retry",
             ));
         }
-        fs::read_document(root, id)
-    }
-
-    pub(super) fn write_document(
-        &self,
-        id: UserMemoryDocumentId,
-        content: &str,
-    ) -> Result<(), AppCommandError> {
-        self.write_documents_atomically(&[(id, content)])
-    }
-
-    pub(super) fn write_documents_atomically(
-        &self,
-        documents: &[(UserMemoryDocumentId, &str)],
-    ) -> Result<(), AppCommandError> {
-        fs::write_documents_atomically(self.resolved_root()?, documents)
+        fs::read_document_optional(root, id)
     }
 
     pub(super) fn validate_patches(

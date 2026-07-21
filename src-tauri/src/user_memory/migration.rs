@@ -45,6 +45,7 @@ impl UserMemoryService {
         sources: Vec<UserMemoryMigrationSource>,
     ) -> Result<UserMemoryMigrationReport, AppCommandError> {
         let (_io_guard, _file_guard) = self.acquire_locks().await?;
+        self.recover_pending_transaction().await?;
         let root = self.resolved_root()?.to_path_buf();
         let sources = deduplicate_sources(&root, sources);
         let mut receipt = load_receipt(&root, sources.clone())?;
