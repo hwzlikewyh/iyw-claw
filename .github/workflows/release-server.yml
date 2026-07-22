@@ -105,10 +105,14 @@ jobs:
         run: |
           set -euo pipefail
           package="dist/${{ matrix.artifact }}"
+          version="$(node -p "require('./package.json').version")"
           mkdir -p "$package"
           cp "src-tauri/target/${{ matrix.target }}/release/iyw-claw-server" "$package/"
           cp "src-tauri/target/${{ matrix.target }}/release/iyw-claw-mcp" "$package/"
-          chmod +x "$package/iyw-claw-server" "$package/iyw-claw-mcp"
+          cp "src-tauri/target/${{ matrix.target }}/release/iyw-claw-mcp" \
+            "$package/iyw-claw-mcp-${version}"
+          chmod +x "$package/iyw-claw-server" "$package/iyw-claw-mcp" \
+            "$package/iyw-claw-mcp-${version}"
           cp -r out "$package/web"
           tar -C dist -czf "dist/${{ matrix.artifact }}.tar.gz" "${{ matrix.artifact }}"
 
@@ -117,9 +121,11 @@ jobs:
         shell: pwsh
         run: |
           $package = "dist/${{ matrix.artifact }}"
+          $version = (Get-Content package.json | ConvertFrom-Json).version
           New-Item -ItemType Directory -Force -Path $package
           Copy-Item "src-tauri/target/${{ matrix.target }}/release/iyw-claw-server.exe" "$package/"
           Copy-Item "src-tauri/target/${{ matrix.target }}/release/iyw-claw-mcp.exe" "$package/"
+          Copy-Item "src-tauri/target/${{ matrix.target }}/release/iyw-claw-mcp.exe" "$package/iyw-claw-mcp-$version.exe"
           Copy-Item -Recurse out "$package/web"
           Compress-Archive -Path $package -DestinationPath "$package.zip"
 
@@ -127,17 +133,28 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
           $server = "dist/${{ matrix.artifact }}/iyw-claw-server.exe"
           $companion = "dist/${{ matrix.artifact }}/iyw-claw-mcp.exe"
+          $versionedCompanion = "dist/${{ matrix.artifact }}/iyw-claw-mcp-$version.exe"
           if (-not (Test-Path $server)) {
             throw "iyw-claw-server.exe missing from packaged artifact"
           }
           if (-not (Test-Path $companion)) {
             throw "iyw-claw-mcp.exe missing from packaged artifact"
           }
+          if (-not (Test-Path $versionedCompanion)) {
+            throw "iyw-claw-mcp-$version.exe missing from packaged artifact"
+          }
           $help = (& $companion --help 2>&1 | Out-String)
           if ($LASTEXITCODE -ne 0 -or $help -notlike "*iyw-claw-mcp --parent-connection-id*") {
             throw "iyw-claw-mcp --help output unexpected: $help"
+          }
+          foreach ($path in @($companion, $versionedCompanion)) {
+            $actual = (& $path --version 2>&1 | Out-String).Trim()
+            if ($LASTEXITCODE -ne 0 -or $actual -ne $version) {
+              throw "$path version mismatch: expected $version, got $actual"
+            }
           }
 
       - name: Smoke test Unix package
@@ -145,13 +162,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
           server="dist/${{ matrix.artifact }}/iyw-claw-server"
           companion="dist/${{ matrix.artifact }}/iyw-claw-mcp"
+          versioned_companion="dist/${{ matrix.artifact }}/iyw-claw-mcp-${version}"
           test -x "$server"
           test -x "$companion"
+          test -x "$versioned_companion"
 
           if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
             "$companion" --help | grep -F 'iyw-claw-mcp --parent-connection-id'
+            test "$("$companion" --version)" = "$version"
+            test "$("$versioned_companion" --version)" = "$version"
           else
             echo "Skipping executable smoke test for cross target ${{ matrix.target }}"
           fi

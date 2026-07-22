@@ -144,7 +144,9 @@ if ($VersionCheckBin) {
 # itself has it AND no other PATH entries shadow it.
 if ($CurrentVersion -and ($CurrentVersion -eq $TargetVer) `
         -and ($PathConflicts.Count -eq 0) `
-        -and (Test-Path -LiteralPath $DestBin)) {
+        -and (Test-Path -LiteralPath $DestBin) `
+        -and (Test-Path -LiteralPath (Join-Path $InstallDir "iyw-claw-mcp-$TargetVer.exe")) `
+        -and (Test-Path -LiteralPath (Join-Path $InstallDir "iyw-claw-mcp.exe"))) {
     Write-Host "iyw-claw-server is already at version $TargetVer, nothing to do."
     exit 0
 }
@@ -199,12 +201,16 @@ if ($ServerProcesses) {
     Write-Host "iyw-claw-server stopped."
 }
 
-$McpProcesses = Get-Process -Name "iyw-claw-mcp" -ErrorAction SilentlyContinue
+$McpProcesses = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.ProcessName -eq "iyw-claw-mcp" -or $_.ProcessName -like "iyw-claw-mcp-*"
+}
 if ($McpProcesses) {
     Write-Host "Stopping running iyw-claw-mcp companion process(es)..."
     $McpProcesses | Stop-Process -Force
     Start-Sleep -Seconds 1
-    $StillRunning = Get-Process -Name "iyw-claw-mcp" -ErrorAction SilentlyContinue
+    $StillRunning = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProcessName -eq "iyw-claw-mcp" -or $_.ProcessName -like "iyw-claw-mcp-*"
+    }
     if ($StillRunning) {
         $StillRunning | Stop-Process -Force
         Start-Sleep -Seconds 1
@@ -244,10 +250,26 @@ foreach ($name in $ManagedBins) {
         exit 1
     }
 }
-foreach ($name in $ManagedBins) {
-    $src = Join-Path $TmpDir $Artifact "$name.exe"
-    $dst = Join-Path $InstallDir "$name.exe"
-    Copy-Item $src -Destination $dst -Force
+$VersionedMcpName = "iyw-claw-mcp-$TargetVer.exe"
+$VersionedMcpSrc = Join-Path $TmpDir $Artifact $VersionedMcpName
+if (-not (Test-Path -LiteralPath $VersionedMcpSrc)) {
+    Write-Error "$VersionedMcpName not found in archive $Artifact.zip — release is incomplete, please report."
+    exit 1
+}
+
+Copy-Item (Join-Path $TmpDir $Artifact "iyw-claw-server.exe") -Destination $DestBin -Force
+$VersionedMcpPath = Join-Path $InstallDir $VersionedMcpName
+Copy-Item $VersionedMcpSrc -Destination $VersionedMcpPath -Force
+$McpPath = Join-Path $InstallDir "iyw-claw-mcp.exe"
+if (Test-Path -LiteralPath $McpPath) {
+    Remove-Item -LiteralPath $McpPath -Force
+}
+try {
+    New-Item -ItemType HardLink -Path $McpPath -Target $VersionedMcpPath -ErrorAction Stop | Out-Null
+} catch {
+    # Hard links require both paths on the same volume. A normal copy keeps the
+    # compatibility entry functional on unusual filesystems.
+    Copy-Item $VersionedMcpPath -Destination $McpPath -Force
 }
 
 # Re-canonicalize destination now that the file exists. Pre-install canon may
@@ -320,19 +342,27 @@ if (-not $InstalledVer) { $InstalledVer = $TargetVer }
 
 Write-Host ""
 Write-Host "iyw-claw-server installed to $InstallDir\iyw-claw-server.exe"
-Write-Host "iyw-claw-mcp    installed to $InstallDir\iyw-claw-mcp.exe"
+Write-Host "iyw-claw-mcp    installed to $VersionedMcpPath"
+Write-Host "compatibility   $McpPath -> $VersionedMcpName"
 Write-Host "Version: $InstalledVer"
 
 # Final smoke: iyw-claw-mcp.exe must exist next to iyw-claw-server.exe so the
 # runtime's `locate_iyw_claw_mcp_binary()` exe-sibling lookup hits. A failure
 # here means the zip was malformed or a previous Copy-Item was silently
 # blocked — surface it loudly rather than ship a half-broken install.
-$McpPath = Join-Path $InstallDir "iyw-claw-mcp.exe"
-if (-not (Test-Path -LiteralPath $McpPath)) {
+if (-not (Test-Path -LiteralPath $McpPath) -or -not (Test-Path -LiteralPath $VersionedMcpPath)) {
     Write-Host ""
     Write-Host "Error: $McpPath missing after install."
     Write-Host "       Delegation (sub-agent tooling) will not work. Re-run the installer."
     $ExitStatus = 1
+} else {
+    $VersionedMcpVer = (& $VersionedMcpPath --version 2>$null | Out-String).Trim()
+    $AliasMcpVer = (& $McpPath --version 2>$null | Out-String).Trim()
+    if ($VersionedMcpVer -ne $TargetVer -or $AliasMcpVer -ne $TargetVer) {
+        Write-Host ""
+        Write-Host "Error: iyw-claw-mcp version check failed (expected $TargetVer, versioned=$VersionedMcpVer, alias=$AliasMcpVer)."
+        $ExitStatus = 1
+    }
 }
 
 # Verify the user's `iyw-claw-server` command actually resolves to the new binary.

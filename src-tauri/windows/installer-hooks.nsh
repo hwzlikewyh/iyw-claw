@@ -84,7 +84,7 @@ FunctionEnd
   DetailPrint "正在停止运行中的 iyw-claw 后台进程..."
   nsExec::Exec 'taskkill /F /T /IM iyw-claw.exe'
   Pop $0
-  nsExec::Exec 'taskkill /F /T /IM iyw-claw-mcp.exe'
+  nsExec::Exec 'taskkill /F /T /IM "iyw-claw-mcp*.exe" /FI "STATUS eq RUNNING"'
   Pop $0
   Sleep 500
 
@@ -115,7 +115,7 @@ FunctionEnd
 
 !macro NSIS_HOOK_PREUNINSTALL
   DetailPrint "正在停止运行中的 iyw-claw 后台进程..."
-  nsExec::Exec 'taskkill /F /T /IM iyw-claw-mcp.exe'
+  nsExec::Exec 'taskkill /F /T /IM "iyw-claw-mcp*.exe" /FI "STATUS eq RUNNING"'
   Pop $0
   Sleep 500
 

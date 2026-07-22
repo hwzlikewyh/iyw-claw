@@ -3,7 +3,8 @@
 //! Desktop (Tauri) builds never drive this — they update through
 //! `tauri-plugin-updater`. Here the running worker downloads the signed
 //! release bundle for its platform, verifies it, swaps `iyw-claw-server` +
-//! `iyw-claw-mcp` + `web/` on disk (keeping `.bak`), and then restarts:
+//! versioned/unversioned `iyw-claw-mcp` + `web/` on disk (keeping `.bak`),
+//! and then restarts:
 //!
 //! - **Supervised** (our `--supervise` parent, PID 1 in Docker): the worker
 //!   exits with [`runtime::EXIT_RESTART`] and the supervisor relaunches it

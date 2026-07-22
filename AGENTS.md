@@ -16,45 +16,13 @@ iyw-claw（Code Generation）是一个多智能体编码工作台，它将多个
 - **数据库**: SeaORM + SQLite
 - **包管理器**: pnpm
 
-## 代码检查与测试（任务完成后进行必要的检查）
+## 代码交付约定
 
-### 临时测试代码清理
-
-- 为当前任务临时新增的测试代码、测试文件、测试脚手架、fixture、临时测试二进制和 ad-hoc smoke 入口，只用于本地验证；验证完成后必须删除或恢复，不得提交到仓库。
-- 仓库已有的正式测试可以继续运行；若为验证当前改动而临时修改已有测试，验证完成后必须恢复该测试文件。
-- 确需新增并长期保留回归测试时，必须先获得用户明确同意。
-
-### 前端
-
-```bash
-pnpm eslint .                  # lint
-pnpm test                      # vitest 全跑（CI 用同一条命令）
-pnpm test:watch                # 开发时增量重跑
-pnpm test:coverage             # 覆盖率报告（输出到 coverage/index.html）
-pnpm build                     # 静态导出构建
-```
-
-### 后端 Rust（在 `src-tauri/` 目录下执行）
-
-```bash
-# 桌面模式（默认 feature）
-cargo check
-cargo test --features test-utils
-cargo clippy --all-targets --features test-utils -- -D warnings
-
-# 服务器模式
-cargo check --no-default-features --features server-runtime --bin iyw-claw-server
-cargo test --no-default-features --features server-runtime --bin iyw-claw-server --lib
-cargo clippy --no-default-features --features server-runtime --bin iyw-claw-server --lib -- -D warnings
-
-# iyw-claw-mcp 协作伴生进程（多智能体委托）
-cargo check --no-default-features --features mcp-runtime --bin iyw-claw-mcp
-cargo clippy --no-default-features --features mcp-runtime --bin iyw-claw-mcp -- -D warnings
-
-# 解析器快照评审（输出变化时）
-cargo insta review
-INSTA_UPDATE=auto cargo test --features test-utils     # 自动写新 .snap
-```
+- 完成代码后默认不运行单元测试、集成测试、端到端测试、快照测试等测试命令；除非用户在当前任务中明确要求，否则也不新增、修改或生成测试文件、测试夹具及快照文件。
+- 交付前由代理进行静态逻辑审查，沿调用链检查输入、输出、状态变化、关键分支、边界条件、错误路径、资源释放和并发影响，确认逻辑闭环并主动排查明显缺陷。
+- 未执行测试时必须如实说明验证方式，不得声称测试已通过；无法仅靠静态审查排除的风险应在交付说明中明确列出。
+- 新增或修改业务流程时，日志应尽量详细，至少覆盖必要的请求上下文、关键状态变化、分支决策、外部调用结果及完整错误原因，确保问题可定位、流程可追踪。
+- 日志级别应与事件严重程度匹配，优先使用结构化字段；不得记录密码、令牌、密钥、完整个人信息等敏感数据，必要时先脱敏。
 
 ## 架构
 

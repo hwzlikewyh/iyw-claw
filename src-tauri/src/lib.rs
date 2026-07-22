@@ -623,11 +623,6 @@ mod tauri_app {
                             ),
                         ),
                         user_memory,
-                        std::sync::Arc::new(crate::acp::platform_mcp::PlatformMcpService::new(
-                            std::sync::Arc::new(crate::acp::platform_mcp::DbAccessTokenProvider {
-                                conn: db_conn.clone(),
-                            }),
-                        )),
                     );
                     tauri::async_runtime::spawn(async move {
                         if let Err(e) = listener.run(socket_path).await {

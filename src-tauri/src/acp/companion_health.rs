@@ -33,8 +33,23 @@ pub async fn locate_healthy_companion() -> CompanionHealthSnapshot {
     for candidate in candidates {
         let health = probe_companion_path(candidate, DEFAULT_PROBE_TIMEOUT).await;
         if health.status == CompanionHealthStatus::Ready {
+            tracing::info!(
+                path = ?health.selected_path,
+                detected_version = ?health.detected_version,
+                advertised_tools = ?health.advertised_tools,
+                "[ACP] selected compatible iyw-claw-mcp companion"
+            );
             return health;
         }
+        tracing::warn!(
+            path = ?health.selected_path,
+            expected_version = env!("CARGO_PKG_VERSION"),
+            detected_version = ?health.detected_version,
+            status = ?health.status,
+            reason = ?health.reason,
+            detail = ?health.detail,
+            "[ACP] rejected iyw-claw-mcp companion candidate"
+        );
         if should_replace_failure(&failure, &health) {
             failure = health;
         }
@@ -79,11 +94,8 @@ pub async fn probe_companion_path(path: PathBuf, timeout: Duration) -> Companion
 }
 
 fn discover_candidates() -> Vec<PathBuf> {
-    let filename = if cfg!(windows) {
-        "iyw-claw-mcp.exe"
-    } else {
-        "iyw-claw-mcp"
-    };
+    let versioned_filename = companion_filename(Some(env!("CARGO_PKG_VERSION")));
+    let compatibility_filename = companion_filename(None);
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("IYW_CLAW_MCP_BIN").filter(|value| !value.is_empty()) {
         candidates.push(absolute_candidate(PathBuf::from(path)));
@@ -92,12 +104,21 @@ fn discover_candidates() -> Vec<PathBuf> {
         .ok()
         .and_then(|path| path.parent().map(Path::to_path_buf))
     {
-        candidates.push(parent.join(filename));
+        candidates.push(parent.join(&versioned_filename));
+        candidates.push(parent.join(&compatibility_filename));
     }
-    if let Ok(path) = which::which(filename) {
-        candidates.push(absolute_candidate(path));
+    for filename in [&versioned_filename, &compatibility_filename] {
+        if let Ok(path) = which::which(filename) {
+            candidates.push(absolute_candidate(path));
+        }
     }
     deduplicate(candidates)
+}
+
+fn companion_filename(version: Option<&str>) -> String {
+    let suffix = version.map(|value| format!("-{value}")).unwrap_or_default();
+    let extension = if cfg!(windows) { ".exe" } else { "" };
+    format!("iyw-claw-mcp{suffix}{extension}")
 }
 
 async fn inspect_candidate(path: PathBuf) -> Result<(), CompanionHealthSnapshot> {

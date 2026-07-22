@@ -92,8 +92,7 @@ pub async fn route_natural_message(
     let channel_agent = channel_default_agent(db, channel_id).await;
     match super::natural_router_config::get_runtime_config(db).await {
         Ok(Some(config)) => {
-            match super::llm_router::route_with_llm(db, &config, trimmed, lang, channel_agent)
-                .await
+            match super::llm_router::route_with_llm(db, &config, trimmed, lang, channel_agent).await
             {
                 Ok(Some(decision)) => return decision,
                 Ok(None) => {}
@@ -132,10 +131,7 @@ pub fn agent_type_to_wire(agent_type: AgentType) -> String {
 /// Agent, stored as `default_agent_type` inside the channel's config JSON).
 /// Sits between the sender's explicit `/agent` choice and the folder default
 /// in the resolution chain.
-pub async fn channel_default_agent(
-    db: &DatabaseConnection,
-    channel_id: i32,
-) -> Option<AgentType> {
+pub async fn channel_default_agent(db: &DatabaseConnection, channel_id: i32) -> Option<AgentType> {
     let channel = crate::db::service::chat_channel_service::get_by_id(db, channel_id)
         .await
         .ok()
@@ -543,10 +539,7 @@ mod tests {
 
         // Command-free chat: plain text must start a task (in the most
         // recently opened workspace) rather than ask the user to run /new.
-        assert!(matches!(
-            decision,
-            NaturalRouteDecision::StartTask { .. }
-        ));
+        assert!(matches!(decision, NaturalRouteDecision::StartTask { .. }));
     }
 
     #[tokio::test]

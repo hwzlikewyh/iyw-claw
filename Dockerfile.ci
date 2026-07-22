@@ -26,7 +26,7 @@ COPY dist/${TARGETARCH}/iyw-claw-server /usr/local/bin/iyw-claw-server
 # iyw-claw-mcp is the stdio MCP companion the runtime injects per session
 # (see acp/delegation/companion.rs). It must ship next to iyw-claw-server so
 # `locate_iyw_claw_mcp_binary()` finds it via the exe-sibling lookup.
-COPY dist/${TARGETARCH}/iyw-claw-mcp /usr/local/bin/iyw-claw-mcp
+COPY dist/${TARGETARCH}/iyw-claw-mcp* /usr/local/bin/
 COPY dist/web /app/web
 
 ENV IYW_CLAW_STATIC_DIR=/app/web

@@ -4579,8 +4579,7 @@ mod tests {
         let mgr = ConnectionManager::new();
         // Five finished conversations, oldest first, plus one mid-prompt.
         for (index, id) in ["a", "b", "c", "d", "e", "prompting"].iter().enumerate() {
-            insert_fake_connection(&mgr, id, AgentType::ClaudeCode, None, EventEmitter::Noop)
-                .await;
+            insert_fake_connection(&mgr, id, AgentType::ClaudeCode, None, EventEmitter::Noop).await;
             let state = mgr.get_state(id).await.unwrap();
             let mut s = state.write().await;
             if *id == "prompting" {
@@ -4608,8 +4607,7 @@ mod tests {
     async fn excess_idle_sweep_spares_just_finished_connections() {
         let mgr = ConnectionManager::new();
         for id in ["fresh-1", "fresh-2", "fresh-3", "fresh-4"] {
-            insert_fake_connection(&mgr, id, AgentType::ClaudeCode, None, EventEmitter::Noop)
-                .await;
+            insert_fake_connection(&mgr, id, AgentType::ClaudeCode, None, EventEmitter::Noop).await;
             // last_agent_event_at defaults to "now" — inside the grace window.
         }
         assert_eq!(
@@ -4717,8 +4715,7 @@ mod tests {
         let db = crate::db::test_helpers::fresh_in_memory_db().await;
         let mgr = ConnectionManager::new();
         for id in ["stalled", "gated", "fresh"] {
-            insert_fake_connection(&mgr, id, AgentType::ClaudeCode, None, EventEmitter::Noop)
-                .await;
+            insert_fake_connection(&mgr, id, AgentType::ClaudeCode, None, EventEmitter::Noop).await;
             let state = mgr.get_state(id).await.unwrap();
             let mut s = state.write().await;
             s.status = ConnectionStatus::Prompting;

@@ -9311,8 +9311,7 @@ mod tests {
         let central = temp.path().join("central");
         for id in ["official-skill", "user-skill"] {
             fs::create_dir_all(central.join(id)).expect("create skill");
-            fs::write(central.join(id).join("SKILL.md"), format!("# {id}"))
-                .expect("write skill");
+            fs::write(central.join(id).join("SKILL.md"), format!("# {id}")).expect("write skill");
         }
         write_official_skill_marker(&central.join("official-skill"), "official-skill").unwrap();
 

@@ -64,9 +64,7 @@ fn duration_from_env(key: &str, default_secs: u64) -> Option<Duration> {
 /// `0` disables capping, unparseable values fall back to the default.
 pub fn max_idle_connections_from_env() -> Option<usize> {
     let count = match std::env::var("IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS") {
-        Ok(raw) => raw
-            .parse::<usize>()
-            .unwrap_or(DEFAULT_MAX_IDLE_CONNECTIONS),
+        Ok(raw) => raw.parse::<usize>().unwrap_or(DEFAULT_MAX_IDLE_CONNECTIONS),
         Err(_) => DEFAULT_MAX_IDLE_CONNECTIONS,
     };
     (count > 0).then_some(count)

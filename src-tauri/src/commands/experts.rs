@@ -1366,6 +1366,13 @@ mod tests {
         );
     }
 
+    #[test]
+    fn managed_expert_ids_exclude_internal_workflow_skills() {
+        let ids = managed_expert_ids();
+        assert!(!ids.contains(&"systematic-debugging".to_string()));
+        assert!(!ids.contains(&"finishing-a-development-branch".to_string()));
+    }
+
     // These tests deliberately use ids that are well-formed but absent from the
     // bundle and unlikely to exist as real links, so they never touch or mutate
     // the developer's real skill directories: a disable of an absent id only

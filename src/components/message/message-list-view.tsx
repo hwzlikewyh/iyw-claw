@@ -23,6 +23,7 @@ import { LiveTurnStats } from "./live-turn-stats"
 import { ReplyArtifacts } from "./reply-artifacts"
 import { UserResourceLinks } from "./user-resource-links"
 import { UserImageAttachments } from "./user-image-attachments"
+import { MessageTimestamp } from "./message-timestamp"
 import { useSessionStats } from "@/contexts/session-stats-context"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
 import { isDelegateToAgentToolName } from "@/lib/delegation-card"
@@ -98,6 +99,7 @@ interface MessageListViewProps {
 interface ResolvedMessageGroup {
   id: string
   role: "user" | "assistant" | "system"
+  timestamp: string
   parts: AdaptedContentPart[]
   resources: UserResourceDisplay[]
   images: UserImageDisplay[]
@@ -222,6 +224,10 @@ const CollapsibleSystemMessage = memo(function CollapsibleSystemMessage({
         <span className="font-medium text-yellow-700 dark:text-yellow-400">
           {t("systemMessage")}
         </span>
+        <MessageTimestamp
+          timestamp={group.timestamp}
+          className="ms-auto self-center"
+        />
       </button>
       {expanded && (
         <div className="px-3 pb-3 border-t border-yellow-500/20">
@@ -467,6 +473,10 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
         {group.role === "user" && group.resources.length > 0 ? (
           <UserResourceLinks resources={group.resources} className="self-end" />
         ) : null}
+        <MessageTimestamp
+          timestamp={group.timestamp}
+          align={group.role === "user" ? "end" : "start"}
+        />
       </Message>
       {showStats && group.role === "assistant" && sourceTurns && (
         <ReplyArtifacts
@@ -640,6 +650,7 @@ export function MessageListView({
         group = {
           id: msg.id,
           role,
+          timestamp: msg.timestamp,
           parts: msg.content,
           resources: msg.userResources ?? [],
           images: msg.userImages ?? [],

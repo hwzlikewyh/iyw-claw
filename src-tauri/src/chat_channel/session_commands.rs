@@ -1368,7 +1368,11 @@ mod tests {
     fn resolve_agent_type_prefers_sender_then_channel_then_folder() {
         let sender = Some("gemini".to_string());
         assert_eq!(
-            resolve_agent_type(&sender, Some(AgentType::Codex), &Some(AgentType::ClaudeCode)),
+            resolve_agent_type(
+                &sender,
+                Some(AgentType::Codex),
+                &Some(AgentType::ClaudeCode)
+            ),
             Some(AgentType::Gemini)
         );
         assert_eq!(

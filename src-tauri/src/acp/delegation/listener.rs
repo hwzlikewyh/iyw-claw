@@ -20,13 +20,11 @@ use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::transport::{
     read_frame, write_frame, BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
     BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerMemoryAppendRequest,
-    BrokerMemoryProposalRequest, BrokerMemoryProposalResult, BrokerMessage,
-    BrokerPlatformToolsCallRequest, BrokerPlatformToolsListRequest, BrokerRequest, BrokerResponse,
-    BrokerSessionRequest, BrokerStatusRequest,
+    BrokerMemoryProposalRequest, BrokerMemoryProposalResult, BrokerMessage, BrokerRequest,
+    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
-use crate::acp::platform_mcp::PlatformMcpAccess;
 use crate::acp::question::{QuestionOutcome, SessionQuestionAccess};
 use crate::acp::session_info::{SessionInfo, SessionInfoAccess};
 use crate::models::AgentType;
@@ -65,9 +63,6 @@ pub struct TokenEntry {
     /// Launch-snapshot authorization. Existing sessions retain this value until
     /// reconnect even if the user changes the policy in Settings.
     pub memory_write_enabled: bool,
-    /// Only the dedicated `iyw-platform` forwarder token may relay upstream
-    /// platform tools. Built-in companion tokens keep this disabled.
-    pub platform_tools_enabled: bool,
     /// Independent launch-snapshot authorization for conservative proposals.
     pub memory_proposal_enabled: bool,
     /// Stable hash-derived provenance id; raw launch tokens are never persisted.
@@ -150,11 +145,6 @@ pub struct DelegationListener {
     pub session_info: Arc<dyn SessionInfoAccess>,
     /// Backend-owned memory store shared with Settings and prompt snapshots.
     pub user_memory: Arc<UserMemoryService>,
-    /// Forwarder to the upstream iyw platform MCP service, backing the
-    /// `iyw-platform` companion instance. Token-gated like every other arm;
-    /// the platform account credential is attached inside the service and
-    /// never crosses this wire.
-    pub platform: Arc<dyn PlatformMcpAccess>,
 }
 
 impl DelegationListener {
@@ -167,7 +157,6 @@ impl DelegationListener {
         questions: Arc<dyn SessionQuestionAccess>,
         session_info: Arc<dyn SessionInfoAccess>,
         user_memory: Arc<UserMemoryService>,
-        platform: Arc<dyn PlatformMcpAccess>,
     ) -> Arc<Self> {
         Arc::new(Self {
             broker,
@@ -177,7 +166,6 @@ impl DelegationListener {
             questions,
             session_info,
             user_memory,
-            platform,
         })
     }
 
@@ -380,29 +368,6 @@ impl DelegationListener {
             BrokerMessage::MemoryProposal(req) => {
                 memory_proposal_response(self.process_memory_proposal(req).await)?
             }
-            BrokerMessage::PlatformToolsList(req) => BrokerResponse {
-                outcome: platform_list_outcome(self.process_platform_tools_list(req).await),
-            },
-            BrokerMessage::PlatformToolsCall(req) => {
-                // An upstream business tool can run long (it may call an LLM
-                // internally). Race the relay against peer-close on this
-                // one-shot connection: a canceled MCP tools/call drops the
-                // companion's round-trip future, closing the socket; observing
-                // that here drops the in-flight reqwest future, which aborts
-                // the upstream HTTP request. Nothing to tear down beyond that
-                // — the upstream tools are stateless.
-                let call_fut = self.process_platform_tools_call(req);
-                tokio::pin!(call_fut);
-                let mut probe = [0u8; 1];
-                let outcome = tokio::select! {
-                    biased;
-                    outcome = &mut call_fut => outcome,
-                    _ = conn.read(&mut probe) => return Ok(()),
-                };
-                BrokerResponse {
-                    outcome: platform_call_outcome(outcome),
-                }
-            }
             BrokerMessage::Cancel(cancel) => {
                 self.process_cancel(cancel).await;
                 // Empty ack — the companion only uses this to detect the
@@ -600,42 +565,6 @@ impl DelegationListener {
             confirmation_recommended: result.confirmation_recommended,
         })
     }
-
-    /// Validate the token and fetch the upstream platform tool catalog. An
-    /// invalid token yields the same generic unavailable error as any other
-    /// platform failure — no leak of login state or token validity.
-    async fn process_platform_tools_list(
-        &self,
-        req: BrokerPlatformToolsListRequest,
-    ) -> Result<Value, String> {
-        if !self
-            .tokens
-            .lookup(&req.token)
-            .await
-            .is_some_and(|entry| entry.platform_tools_enabled)
-        {
-            return Err(PLATFORM_TOOLS_UNAVAILABLE.to_string());
-        }
-        self.platform.list_tools().await
-    }
-
-    /// Validate the token and forward one `tools/call` to the upstream
-    /// platform MCP service, passing name/arguments through verbatim.
-    async fn process_platform_tools_call(
-        &self,
-        req: BrokerPlatformToolsCallRequest,
-    ) -> Result<Value, String> {
-        if !self
-            .tokens
-            .lookup(&req.token)
-            .await
-            .is_some_and(|entry| entry.platform_tools_enabled)
-        {
-            return Err(PLATFORM_TOOLS_UNAVAILABLE.to_string());
-        }
-        self.platform.call_tool(&req.name, req.arguments).await
-    }
-
     async fn process(&self, req: BrokerRequest) -> DelegationTaskReport {
         // 1. Token + parent_connection_id consistency check. Treat both as
         //    "canceled" since the LLM can't usefully react to either —
@@ -789,29 +718,6 @@ fn memory_proposal_response(
     };
     Ok(BrokerResponse { outcome })
 }
-
-/// Agent-facing error for a platform arm whose token failed validation.
-const PLATFORM_TOOLS_UNAVAILABLE: &str = "iyw platform tools are unavailable for this session.";
-
-/// Envelope for the `PlatformToolsList` arm: `{ "tools": [..] }` on success,
-/// `{ "error": .. }` otherwise (the companion degrades that to an empty list).
-fn platform_list_outcome(result: Result<Value, String>) -> Value {
-    match result {
-        Ok(tools) => serde_json::json!({ "tools": tools }),
-        Err(error) => serde_json::json!({ "error": error }),
-    }
-}
-
-/// Envelope for the `PlatformToolsCall` arm: the upstream MCP result object
-/// verbatim on success, `{ "error": .. }` otherwise (the companion renders
-/// that as an `isError` tool result).
-fn platform_call_outcome(result: Result<Value, String>) -> Value {
-    match result {
-        Ok(result) => result,
-        Err(error) => serde_json::json!({ "error": error }),
-    }
-}
-
 /// The `declined` outcome — used when the token is invalid, the connection is
 /// gone, or the answer one-shot was dropped without a response. The LLM reads it
 /// as "the user didn't answer; proceed with your own judgment".
@@ -1033,38 +939,6 @@ mod tests {
         ))
     }
 
-    /// In-memory platform-forwarder stub. Records every `tools/call` it
-    /// relays; `list_tools` / `call_tool` return the seeded results. Default
-    /// behaves like an unreachable upstream (both err).
-    struct StubPlatform {
-        list_result: Result<Value, String>,
-        call_result: Result<Value, String>,
-        calls: tokio::sync::Mutex<Vec<(String, Value)>>,
-    }
-    impl Default for StubPlatform {
-        fn default() -> Self {
-            Self {
-                list_result: Err("platform upstream unreachable".into()),
-                call_result: Err("platform upstream unreachable".into()),
-                calls: tokio::sync::Mutex::new(Vec::new()),
-            }
-        }
-    }
-    #[async_trait]
-    impl crate::acp::platform_mcp::PlatformMcpAccess for StubPlatform {
-        async fn list_tools(&self) -> Result<Value, String> {
-            self.list_result.clone()
-        }
-        async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value, String> {
-            self.calls.lock().await.push((name.to_string(), arguments));
-            self.call_result.clone()
-        }
-    }
-
-    fn stub_platform() -> Arc<StubPlatform> {
-        Arc::new(StubPlatform::default())
-    }
-
     fn test_token_entry(parent_connection_id: &str) -> TokenEntry {
         let memory_turn_tracker = Arc::new(crate::acp::memory_turn::MemoryTurnTracker::default());
         TokenEntry {
@@ -1072,7 +946,6 @@ mod tests {
             working_dir: PathBuf::from("/tmp"),
             agent_type: AgentType::Codex,
             memory_write_enabled: false,
-            platform_tools_enabled: true,
             memory_proposal_enabled: false,
             opaque_source_id: crate::acp::memory_turn::derive_opaque_source_id(
                 "test-token",
@@ -1115,7 +988,6 @@ mod tests {
             Arc::new(StubQuestion::default()),
             Arc::new(StubSessionInfo::default()),
             stub_user_memory(),
-            stub_platform(),
         )
     }
 
@@ -1137,7 +1009,6 @@ mod tests {
             Arc::new(StubQuestion::default()),
             Arc::new(StubSessionInfo::default()),
             stub_user_memory(),
-            stub_platform(),
         )
     }
 
@@ -1160,7 +1031,6 @@ mod tests {
             questions,
             Arc::new(StubSessionInfo::default()),
             stub_user_memory(),
-            stub_platform(),
         )
     }
 
@@ -1182,7 +1052,6 @@ mod tests {
             Arc::new(StubQuestion::default()),
             session_info,
             stub_user_memory(),
-            stub_platform(),
         )
     }
 
@@ -1218,7 +1087,6 @@ mod tests {
                     working_dir: PathBuf::from("/tmp"),
                     agent_type: AgentType::Gemini,
                     memory_write_enabled,
-                    platform_tools_enabled: false,
                     memory_proposal_enabled: false,
                     opaque_source_id: crate::acp::memory_turn::derive_opaque_source_id(
                         "memory-token",
@@ -1240,7 +1108,6 @@ mod tests {
             Arc::new(StubQuestion::default()),
             Arc::new(StubSessionInfo::default()),
             user_memory.clone(),
-            stub_platform(),
         );
         (temp, listener, user_memory)
     }
@@ -1299,112 +1166,6 @@ mod tests {
         assert_eq!(report.status, TaskStatus::Canceled);
         assert_eq!(report.error_code.as_deref(), Some("canceled"));
         assert!(report.message.unwrap().contains("invalid token"));
-    }
-
-    /// Build a listener whose platform access is the given stub, with a
-    /// pre-registered `platform-token`. Delegation pieces are minimal.
-    async fn make_platform_listener(platform: Arc<StubPlatform>) -> Arc<DelegationListener> {
-        let tokens = Arc::new(TokenRegistry::default());
-        tokens
-            .register("platform-token".into(), test_token_entry("parent-conn"))
-            .await;
-        let broker = Arc::new(DelegationBroker::new(
-            Arc::new(MockSpawner::new()) as Arc<dyn ConnectionSpawner>,
-            Arc::new(AlwaysRootLookup) as Arc<dyn ConversationDepthLookup>,
-        ));
-        DelegationListener::new(
-            broker,
-            tokens,
-            Arc::new(StaticParentLookup(Some(1))),
-            Arc::new(StubFeedback::default()),
-            Arc::new(StubQuestion::default()),
-            Arc::new(StubSessionInfo::default()),
-            stub_user_memory(),
-            platform,
-        )
-    }
-
-    #[tokio::test]
-    async fn platform_tools_list_round_trips_over_serve_one() {
-        let platform = Arc::new(StubPlatform {
-            list_result: Ok(json!([{ "name": "echo" }])),
-            ..StubPlatform::default()
-        });
-        let listener = make_platform_listener(platform).await;
-
-        let (mut client, mut server) = duplex(64 * 1024);
-        let task = tokio::spawn(async move { listener.serve_one(&mut server).await });
-        let msg = BrokerMessage::PlatformToolsList(BrokerPlatformToolsListRequest {
-            token: "platform-token".into(),
-        });
-        write_frame(&mut client, &msg).await.unwrap();
-        let resp: BrokerResponse = read_frame(&mut client).await.unwrap();
-        task.await.unwrap().unwrap();
-
-        assert_eq!(resp.outcome["tools"][0]["name"], "echo");
-    }
-
-    #[tokio::test]
-    async fn platform_tools_list_invalid_token_yields_unavailable_error() {
-        let platform = Arc::new(StubPlatform {
-            list_result: Ok(json!([{ "name": "echo" }])),
-            ..StubPlatform::default()
-        });
-        let listener = make_platform_listener(platform).await;
-
-        let outcome = listener
-            .process_platform_tools_list(BrokerPlatformToolsListRequest {
-                token: "wrong-token".into(),
-            })
-            .await;
-        assert_eq!(outcome.unwrap_err(), PLATFORM_TOOLS_UNAVAILABLE);
-    }
-
-    #[tokio::test]
-    async fn platform_tools_call_forwards_verbatim_and_returns_result() {
-        let platform = Arc::new(StubPlatform {
-            call_result: Ok(json!({
-                "content": [{ "type": "text", "text": "ok" }],
-                "isError": false
-            })),
-            ..StubPlatform::default()
-        });
-        let listener = make_platform_listener(platform.clone()).await;
-
-        let (mut client, mut server) = duplex(64 * 1024);
-        let task = tokio::spawn(async move { listener.serve_one(&mut server).await });
-        let msg = BrokerMessage::PlatformToolsCall(BrokerPlatformToolsCallRequest {
-            token: "platform-token".into(),
-            name: "query_orders".into(),
-            arguments: json!({ "order_id": "o-1" }),
-        });
-        write_frame(&mut client, &msg).await.unwrap();
-        let resp: BrokerResponse = read_frame(&mut client).await.unwrap();
-        task.await.unwrap().unwrap();
-
-        assert_eq!(resp.outcome["content"][0]["text"], "ok");
-        let calls = platform.calls.lock().await;
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "query_orders");
-        assert_eq!(calls[0].1["order_id"], "o-1");
-    }
-
-    #[tokio::test]
-    async fn platform_tools_call_upstream_error_becomes_error_envelope() {
-        let listener = make_platform_listener(stub_platform()).await;
-
-        let (mut client, mut server) = duplex(64 * 1024);
-        let task = tokio::spawn(async move { listener.serve_one(&mut server).await });
-        let msg = BrokerMessage::PlatformToolsCall(BrokerPlatformToolsCallRequest {
-            token: "platform-token".into(),
-            name: "echo".into(),
-            arguments: json!({}),
-        });
-        write_frame(&mut client, &msg).await.unwrap();
-        let resp: BrokerResponse = read_frame(&mut client).await.unwrap();
-        task.await.unwrap().unwrap();
-
-        assert_eq!(resp.outcome["error"], "platform upstream unreachable");
     }
 
     #[tokio::test]
