@@ -1,9 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Check, Copy, Loader2, QrCode } from "lucide-react"
+import { Check, Copy, ExternalLink, Loader2, QrCode } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { QRCodeSVG } from "qrcode.react"
 
 import { Button } from "@/components/ui/button"
 import { wecomGetAuthStatus, wecomStartAuth } from "@/lib/api"
@@ -125,19 +124,15 @@ export function WecomAuthPanel() {
           <p className="text-xs text-muted-foreground">
             {t("wecomAuthLinkHint")}
           </p>
-          <div className="flex justify-center py-2">
-            <div className="rounded-md bg-white p-2">
-              <QRCodeSVG value={authUrl} size={168} marginSize={0} />
-            </div>
-          </div>
           <div className="flex items-center gap-1.5">
             <a
               href={authUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex-1 truncate rounded border bg-muted/40 px-2 py-1 font-mono text-xs text-primary underline-offset-2 hover:underline"
+              className="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-md border bg-muted/40 px-2 text-xs font-medium text-primary underline-offset-2 hover:bg-muted/60 hover:underline"
             >
-              {authUrl}
+              <ExternalLink className="h-3.5 w-3.5" />
+              {t("wecomOpenAuthPage")}
             </a>
             <Button
               size="icon"

@@ -31,6 +31,19 @@ function jsonWithVersion(path, version) {
   return source.replace(/^  "version": "[^"]+"/m, `  "version": "${version}"`)
 }
 
+function tauriConfigWithVersion(path, version) {
+  const source = jsonWithVersion(path, version)
+  const pattern =
+    /"binaries\/iyw-claw-mcp-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)"/g
+  const matches = [...source.matchAll(pattern)]
+  if (matches.length !== 1) {
+    throw new Error(
+      `${path} expected one versioned iyw-claw-mcp externalBin, found ${matches.length}`
+    )
+  }
+  return source.replace(pattern, `"binaries/iyw-claw-mcp-${version}"`)
+}
+
 function replaceVersionLine(block, path, version) {
   const matches = block.match(/^version = "[^"]+"\r?$/gm) ?? []
   if (matches.length !== 1) {
@@ -86,7 +99,7 @@ const updates = [
   ["package.json", jsonWithVersion("package.json", version)],
   [
     "src-tauri/tauri.conf.json",
-    jsonWithVersion("src-tauri/tauri.conf.json", version),
+    tauriConfigWithVersion("src-tauri/tauri.conf.json", version),
   ],
   [
     "src-tauri/Cargo.toml",

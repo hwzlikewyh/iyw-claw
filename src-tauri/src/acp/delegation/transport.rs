@@ -192,26 +192,6 @@ pub struct BrokerMemoryAppendRequest {
     pub content: String,
 }
 
-/// List the tools of the upstream iyw platform MCP service (`ai-application`
-/// behind the gateway). Sent by an `iyw-platform` companion instance
-/// (`--features platform`) on MCP `tools/list`. The listener attaches the
-/// logged-in platform account's access token upstream — the companion never
-/// sees it and cannot choose a URL or identity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BrokerPlatformToolsListRequest {
-    pub token: String,
-}
-
-/// Forward one MCP `tools/call` to the upstream iyw platform MCP service.
-/// `name` / `arguments` pass through verbatim; the listener neither knows nor
-/// validates the upstream tool schema (the upstream server does).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BrokerPlatformToolsCallRequest {
-    pub token: String,
-    pub name: String,
-    pub arguments: Value,
-}
-
 /// Tagged top-level message dispatched by the listener. Adding new variants
 /// is the wire-stable way to grow the broker protocol without touching the
 /// frame layer.
@@ -227,8 +207,6 @@ pub enum BrokerMessage {
     Ask(BrokerAskRequest),
     SessionInfo(BrokerSessionRequest),
     MemoryAppend(BrokerMemoryAppendRequest),
-    PlatformToolsList(BrokerPlatformToolsListRequest),
-    PlatformToolsCall(BrokerPlatformToolsCallRequest),
 }
 
 /// The wrapped outcome the main process returns over the same socket.
@@ -388,29 +366,6 @@ pub async fn client_memory_append_round_trip(
     message_round_trip(socket_path, &BrokerMessage::MemoryAppend(req.clone())).await
 }
 
-/// Dispatch a platform `tools/list` and read back a `{ "tools": [..] }`
-/// envelope, or `{ "error": ... }` when the upstream is unreachable / the
-/// platform account is not logged in.
-pub async fn client_platform_tools_list_round_trip(
-    socket_path: &str,
-    req: &BrokerPlatformToolsListRequest,
-) -> io::Result<BrokerResponse> {
-    message_round_trip(socket_path, &BrokerMessage::PlatformToolsList(req.clone())).await
-}
-
-/// Dispatch a platform `tools/call` and read back the upstream MCP result
-/// object verbatim (already `content` / `structuredContent` / `isError`
-/// shaped), or `{ "error": ... }` on transport / auth failure. The listener
-/// holds this connection open for the whole upstream call; dropping the future
-/// closes the socket, which the listener observes to abandon the upstream
-/// request.
-pub async fn client_platform_tools_call_round_trip(
-    socket_path: &str,
-    req: &BrokerPlatformToolsCallRequest,
-) -> io::Result<BrokerResponse> {
-    message_round_trip(socket_path, &BrokerMessage::PlatformToolsCall(req.clone())).await
-}
-
 /// Total budget for `open()` retries on Windows named pipes. Has to be
 /// short enough that it nests comfortably inside the companion's
 /// `BROKER_CANCEL_BUDGET` (500 ms) — leaving ≥ 300 ms for the actual
@@ -545,34 +500,6 @@ mod tests {
         let message: BrokerMessage =
             serde_json::from_value(wire.clone()).expect("memory_append should decode");
         assert_eq!(serde_json::to_value(message).unwrap(), wire);
-    }
-
-    #[test]
-    fn platform_message_tags_round_trip() {
-        let list_wire = json!({
-            "kind": "platform_tools_list",
-            "token": "tok"
-        });
-        let list: BrokerMessage =
-            serde_json::from_value(list_wire.clone()).expect("platform_tools_list should decode");
-        assert_eq!(serde_json::to_value(list).unwrap(), list_wire);
-
-        let call_wire = json!({
-            "kind": "platform_tools_call",
-            "token": "tok",
-            "name": "query_orders",
-            "arguments": { "order_id": "o-1" }
-        });
-        let call: BrokerMessage =
-            serde_json::from_value(call_wire.clone()).expect("platform_tools_call should decode");
-        match &call {
-            BrokerMessage::PlatformToolsCall(req) => {
-                assert_eq!(req.name, "query_orders");
-                assert_eq!(req.arguments["order_id"], "o-1");
-            }
-            other => panic!("expected PlatformToolsCall variant, got {other:?}"),
-        }
-        assert_eq!(serde_json::to_value(call).unwrap(), call_wire);
     }
 
     #[tokio::test]

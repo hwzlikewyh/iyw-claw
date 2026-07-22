@@ -52,7 +52,8 @@ fn ensure_sidecar_placeholders() {
         ""
     };
     let dir = PathBuf::from("binaries");
-    for name in ["iyw-claw-mcp", "uv", "uvx"] {
+    let versioned_mcp = format!("iyw-claw-mcp-{}", env!("CARGO_PKG_VERSION"));
+    for name in ["iyw-claw-mcp", versioned_mcp.as_str(), "uv", "uvx"] {
         ensure_sidecar_placeholder(&dir, name, &triple, ext);
     }
 }

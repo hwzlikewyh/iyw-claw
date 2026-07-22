@@ -4,10 +4,7 @@
 //! steering notes), `ask_user_question` (block on a multiple-choice card), and
 //! `get_session_info` (resolve a referenced session by id), gated by the
 //! `--features` groups (`delegation` / `feedback` / `ask` / `sessions` /
-//! `images` / `memory`). A separate `--features platform` launch turns the
-//! binary into a pure forwarder for the upstream iyw platform MCP service
-//! (the `iyw-platform` server entry): `tools/list` / `tools/call` relay
-//! through the main process, which attaches the platform login token.
+//! `images` / `memory`).
 //!
 //! The agent's MCP config (injected by iyw-claw via `load_mcp_servers_for_agent`)
 //! spawns this binary with three required flags:
@@ -114,12 +111,16 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images,memory,platform] [--working-dir <path>]"
+                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images,memory] [--working-dir <path>]"
                 );
                 std::process::exit(0);
             }
             "--capabilities" => {
                 println!("{}", binary_capabilities());
+                std::process::exit(0);
+            }
+            "--version" | "-V" => {
+                println!("{}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             other => return Err(format!("unknown arg: {other}")),

@@ -168,13 +168,6 @@ pub fn build_delegation_stack(
         questions: Arc::new(crate::acp::manager::ConnectionManagerQuestionLookup {
             manager: Arc::new(connection_manager.clone_ref()),
         }) as Arc<dyn crate::acp::question::SessionQuestionAccess>,
-        // Platform-tools forwarder gate: default-enabled toggle + a DB-backed
-        // login probe. The listener-side `PlatformMcpService` (constructed at
-        // the listener spawn sites) holds the actual token usage.
-        platform: crate::acp::platform_mcp::PlatformToolsRuntimeConfig::new(),
-        platform_login: Arc::new(crate::acp::platform_mcp::DbAccessTokenProvider {
-            conn: db_conn.clone(),
-        }),
     });
 
     (broker, tokens, socket_path, feedback, ask, sessions)

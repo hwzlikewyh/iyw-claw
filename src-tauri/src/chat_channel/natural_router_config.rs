@@ -4,9 +4,7 @@ use reqwest::Url;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
-use crate::acp::provider_overlay::{
-    model_gateway_base_url_for, MANAGED_DEFAULT_MODEL,
-};
+use crate::acp::provider_overlay::{model_gateway_base_url_for, MANAGED_DEFAULT_MODEL};
 use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
 use crate::models::agent::AgentType;

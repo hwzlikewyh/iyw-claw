@@ -284,8 +284,7 @@ async fn process_envelope(
     // user never wired up for notifications. Webhooks are their own explicit
     // opt-in, so they keep the historical default set (everything except the
     // prompt-text-exporting DEFAULT_OFF_EVENTS) when no filter was saved.
-    let im_allowed =
-        matches!(&config.global_filter, Some(filter) if filter.contains(&event_type));
+    let im_allowed = matches!(&config.global_filter, Some(filter) if filter.contains(&event_type));
     let webhook_allowed = !config.webhooks.is_empty()
         && match &config.global_filter {
             Some(filter) => filter.contains(&event_type),

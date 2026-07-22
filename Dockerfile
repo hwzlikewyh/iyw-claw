@@ -18,7 +18,12 @@ COPY src-tauri/ ./
 # (see acp/delegation/companion.rs). It must ship next to iyw-claw-server so
 # `locate_iyw_claw_mcp_binary()` finds it via the exe-sibling lookup.
 RUN cargo build --release --bins --no-default-features \
-    --features server-runtime,mcp-runtime
+    --features server-runtime,mcp-runtime && \
+    version="$(awk '/^\[package\]$/{package=1; next} package && /^version = /{gsub(/\"/, "", $3); print $3; exit}' Cargo.toml)" && \
+    test -n "$version" && \
+    mkdir -p /app/mcp && \
+    cp target/release/iyw-claw-mcp /app/mcp/iyw-claw-mcp && \
+    cp target/release/iyw-claw-mcp "/app/mcp/iyw-claw-mcp-${version}"
 
 # Stage 3: Runtime
 FROM node:24-bookworm-slim
@@ -41,7 +46,7 @@ RUN apt-get update && apt-get install -y \
 # if the base image moves to a newer Debian release (e.g. trixie ships libicu76).
 
 COPY --from=backend /app/src-tauri/target/release/iyw-claw-server /usr/local/bin/iyw-claw-server
-COPY --from=backend /app/src-tauri/target/release/iyw-claw-mcp /usr/local/bin/iyw-claw-mcp
+COPY --from=backend /app/mcp/ /usr/local/bin/
 COPY --from=frontend /app/out /app/web
 
 ENV IYW_CLAW_STATIC_DIR=/app/web

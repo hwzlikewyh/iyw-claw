@@ -46,6 +46,9 @@ const SRC_TAURI = resolve(SCRIPT_DIR, "..")
 const BINARIES_DIR = join(SRC_TAURI, "binaries")
 const BIN_NAME = "iyw-claw-mcp"
 const CARGO_BIN_NAME = BIN_NAME.replaceAll("-", "_")
+const APP_VERSION = JSON.parse(
+  readFileSync(resolve(SRC_TAURI, "..", "package.json"), "utf8")
+).version
 const UV_VERSION = "0.8.10"
 const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000
 
@@ -84,12 +87,7 @@ function resolveHostTriple() {
   }
 }
 
-export function resolveBundleCompatPaths(
-  srcTauri,
-  target,
-  ext,
-  hostTarget
-) {
+export function resolveBundleCompatPaths(srcTauri, target, ext, hostTarget) {
   const fileName = `${CARGO_BIN_NAME}${ext}`
   const paths = [
     join(srcTauri, "target", "release", fileName),
@@ -170,9 +168,7 @@ export function resolveExtractor(
   windowsRoot = process.env.SystemRoot || "C:\\Windows"
 ) {
   return {
-    command: isWindows
-      ? win32.join(windowsRoot, "System32", "tar.exe")
-      : "tar",
+    command: isWindows ? win32.join(windowsRoot, "System32", "tar.exe") : "tar",
     args: ["-xf", archive, "-C", destination],
   }
 }
@@ -231,7 +227,8 @@ async function stageUvSidecars(target, isWindows) {
     )
     const expected = parseSha256(await checksumResponse.text())
     const actual = createHash("sha256").update(bytes).digest("hex")
-    if (actual !== expected) die(`uv checksum mismatch: expected ${expected}, got ${actual}`)
+    if (actual !== expected)
+      die(`uv checksum mismatch: expected ${expected}, got ${actual}`)
     writeFileSync(archive, bytes)
     const extractor = resolveExtractor(archive, extracted, isWindows)
     execFileSync(extractor.command, extractor.args, {
@@ -297,14 +294,16 @@ async function main() {
     die(`expected ${built} after cargo build, but it does not exist`)
   }
 
-  const dest = join(BINARIES_DIR, `${BIN_NAME}-${target}${ext}`)
-  const sidecarChanged = copyFileIfChanged(built, dest)
-  if (!isWindows) {
-    // copyFileSync preserves modes on POSIX, but be explicit for tarball
-    // sources that may strip the +x bit.
-    chmodSync(dest, 0o755)
+  for (const bundleName of [BIN_NAME, `${BIN_NAME}-${APP_VERSION}`]) {
+    const dest = join(BINARIES_DIR, `${bundleName}-${target}${ext}`)
+    const sidecarChanged = copyFileIfChanged(built, dest)
+    if (!isWindows) {
+      // copyFileSync preserves modes on POSIX, but be explicit for tarball
+      // sources that may strip the +x bit.
+      chmodSync(dest, 0o755)
+    }
+    log(`sidecar ${sidecarChanged ? "staged" : "unchanged"} at ${dest}`)
   }
-  log(`sidecar ${sidecarChanged ? "staged" : "unchanged"} at ${dest}`)
 
   // Tauri CLI 2.10 resolves Cargo target names with underscores while
   // tauri-build preserves the externalBin filename with hyphens. Stage both
@@ -327,6 +326,9 @@ async function main() {
   await stageUvSidecars(target, isWindows)
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   await main()
 }

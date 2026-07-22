@@ -81,6 +81,14 @@ fn mcp_bin_filename() -> &'static str {
     }
 }
 
+fn versioned_mcp_bin_filename(version: &str) -> String {
+    if cfg!(windows) {
+        format!("iyw-claw-mcp-{version}.exe")
+    } else {
+        format!("iyw-claw-mcp-{version}")
+    }
+}
+
 struct Targets {
     server_bin: PathBuf,
     mcp_bin: PathBuf,
@@ -313,31 +321,53 @@ pub async fn perform_update(
     let bundle_root = find_bundle_root(&staging, asset)?;
     let new_server = bundle_root.join(server_bin_filename());
     let new_mcp = bundle_root.join(mcp_bin_filename());
+    let versioned_mcp_filename = versioned_mcp_bin_filename(&new_version);
+    let new_versioned_mcp = bundle_root.join(&versioned_mcp_filename);
+    let target_versioned_mcp = targets
+        .mcp_bin
+        .parent()
+        .ok_or_else(|| AppCommandError::io_error("Cannot resolve MCP binary directory"))?
+        .join(&versioned_mcp_filename);
     let new_web = bundle_root.join("web");
     // Require the full bundle before touching any live file. A signed but
     // mis-packaged release that dropped, say, `web/` must not be allowed to
     // install a half-new mixture (new server, stale frontend).
-    if !new_server.is_file() || !new_mcp.is_file() || !new_web.is_dir() {
+    if !new_server.is_file()
+        || !new_mcp.is_file()
+        || !new_versioned_mcp.is_file()
+        || !new_web.is_dir()
+    {
         return Err(AppCommandError::new(
             crate::app_error::AppErrorCode::TaskExecutionFailed,
-            "Downloaded update is incomplete (expected iyw-claw-server, iyw-claw-mcp and a web/ directory)",
+            format!(
+                "Downloaded update is incomplete (expected iyw-claw-server, iyw-claw-mcp, \
+                 {versioned_mcp_filename} and a web/ directory)"
+            ),
         ));
     }
 
-    // 4. Swap, web → mcp → server (server last: it is the one the restart
-    //    relaunches). Roll back already-swapped artifacts on any failure.
+    // 4. Swap, web → versioned mcp → compatibility mcp → server (server last:
+    //    it is the one the restart relaunches). Roll back already-swapped
+    //    artifacts on any failure.
     on_progress(UpdatePhase::Swapping, 0, None);
     if new_web.is_dir() {
         replace_dir(&targets.web_dir, &new_web)?;
     }
+    let versioned_mcp_existed = target_versioned_mcp.exists();
+    if let Err(e) = replace_file(&target_versioned_mcp, &new_versioned_mcp) {
+        let _ = restore_dir_from_bak(&targets.web_dir);
+        return Err(e);
+    }
     if new_mcp.exists() {
         if let Err(e) = replace_file(&targets.mcp_bin, &new_mcp) {
+            undo_replaced_file(&target_versioned_mcp, versioned_mcp_existed);
             let _ = restore_dir_from_bak(&targets.web_dir);
             return Err(e);
         }
     }
     if let Err(e) = replace_file(&targets.server_bin, &new_server) {
         let _ = restore_from_bak(&targets.mcp_bin);
+        undo_replaced_file(&target_versioned_mcp, versioned_mcp_existed);
         let _ = restore_dir_from_bak(&targets.web_dir);
         return Err(e);
     }
@@ -354,6 +384,7 @@ pub async fn perform_update(
         let _ = take_upgrade_staged();
         let _ = restore_from_bak(&targets.server_bin);
         let _ = restore_from_bak(&targets.mcp_bin);
+        undo_replaced_file(&target_versioned_mcp, versioned_mcp_existed);
         let _ = restore_dir_from_bak(&targets.web_dir);
         return Err(e);
     }
@@ -730,6 +761,14 @@ fn replace_file(target: &Path, new_src: &Path) -> Result<(), AppCommandError> {
         }
     }
     Ok(())
+}
+
+fn undo_replaced_file(target: &Path, existed_before: bool) {
+    if existed_before {
+        let _ = restore_from_bak(target);
+    } else {
+        let _ = std::fs::remove_file(target);
+    }
 }
 
 fn replace_dir(target: &Path, new_src: &Path) -> Result<(), AppCommandError> {

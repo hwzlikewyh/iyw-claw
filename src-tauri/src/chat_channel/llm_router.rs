@@ -452,7 +452,13 @@ mod tests {
         // The channel-level default agent outranks the folder default when
         // the LLM leaves the agent unspecified.
         assert_eq!(
-            validate_llm_output(&output, &context(), 0.72, Lang::ZhCn, Some(AgentType::Gemini)),
+            validate_llm_output(
+                &output,
+                &context(),
+                0.72,
+                Lang::ZhCn,
+                Some(AgentType::Gemini)
+            ),
             Some(NaturalRouteDecision::StartTask {
                 task: "帮我修测试".to_string(),
                 folder_id: 7,

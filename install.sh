@@ -256,6 +256,8 @@ TARGET_VER="${VERSION#v}"
 if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" = "$TARGET_VER" ] \
    && [ "${#PATH_CONFLICTS[@]}" -eq 0 ] \
    && [ -x "$DEST_BIN" ] \
+   && [ -x "${INSTALL_DIR}/iyw-claw-mcp-${TARGET_VER}" ] \
+   && [ -x "${INSTALL_DIR}/iyw-claw-mcp" ] \
    && [ -f "${WEB_DIR}/index.html" ]; then
   echo "iyw-claw-server is already at version ${TARGET_VER} with web assets in place, nothing to do."
   exit 0
@@ -321,21 +323,22 @@ if pgrep -x iyw-claw-server >/dev/null 2>&1; then
   echo "iyw-claw-server stopped."
 fi
 
-if pgrep -x iyw-claw-mcp >/dev/null 2>&1; then
+MCP_PATTERN='(^|/)iyw-claw-mcp(-[^ /]+)?( |$)'
+if pgrep -f "$MCP_PATTERN" >/dev/null 2>&1; then
   echo "Stopping running iyw-claw-mcp companion process(es)..."
-  MCP_PIDS=$(pgrep -x iyw-claw-mcp || true)
+  MCP_PIDS=$(pgrep -f "$MCP_PATTERN" || true)
   if [ -n "$MCP_PIDS" ]; then
     kill $MCP_PIDS 2>/dev/null || true
     # Companions are short-lived; give them a brief moment to exit on
     # SIGTERM before we escalate.
     for i in $(seq 1 3); do
-      if ! pgrep -x iyw-claw-mcp >/dev/null 2>&1; then
+      if ! pgrep -f "$MCP_PATTERN" >/dev/null 2>&1; then
         break
       fi
       sleep 1
     done
-    if pgrep -x iyw-claw-mcp >/dev/null 2>&1; then
-      kill -9 $(pgrep -x iyw-claw-mcp) 2>/dev/null || true
+    if pgrep -f "$MCP_PATTERN" >/dev/null 2>&1; then
+      kill -9 $(pgrep -f "$MCP_PATTERN") 2>/dev/null || true
     fi
   fi
 fi
@@ -368,6 +371,12 @@ for _name in "${MANAGED_BINS[@]}"; do
     exit 1
   fi
 done
+VERSIONED_MCP="iyw-claw-mcp-${TARGET_VER}"
+if [ ! -f "${TMP_DIR}/${ARTIFACT}/${VERSIONED_MCP}" ]; then
+  echo "Error: ${VERSIONED_MCP} not found in archive ${ARTIFACT}.tar.gz"
+  echo "       This release tarball is incomplete; please report it."
+  exit 1
+fi
 
 # Resolve how to write into INSTALL_DIR, then create it and drop the binaries.
 # Root writes directly; a non-root user uses sudo only when the prefix isn't
@@ -391,9 +400,11 @@ _install_one() {
   priv_run cp "$src" "$dst"
   priv_run chmod +x "$dst"
 }
-for _name in "${MANAGED_BINS[@]}"; do
-  _install_one "$_name"
-done
+_install_one "iyw-claw-server"
+_install_one "$VERSIONED_MCP"
+# The unversioned command is a stable compatibility entry. Keep the link
+# relative so installs remain movable as one directory.
+priv_run ln -sfn "$VERSIONED_MCP" "${INSTALL_DIR}/iyw-claw-mcp"
 
 # Re-canonicalize destination now that the file exists. Pre-install canon may
 # leave the final non-existent component unresolved (notably macOS readlink -f),
@@ -452,7 +463,8 @@ fi
 
 echo ""
 echo "iyw-claw-server installed to ${INSTALL_DIR}/iyw-claw-server"
-echo "iyw-claw-mcp    installed to ${INSTALL_DIR}/iyw-claw-mcp"
+echo "iyw-claw-mcp    installed to ${INSTALL_DIR}/${VERSIONED_MCP}"
+echo "compatibility   ${INSTALL_DIR}/iyw-claw-mcp -> ${VERSIONED_MCP}"
 INSTALLED_VER=$("${INSTALL_DIR}/iyw-claw-server" --version 2>/dev/null || echo "${TARGET_VER}")
 echo "Version: ${INSTALLED_VER}"
 
@@ -460,11 +472,19 @@ echo "Version: ${INSTALLED_VER}"
 # `locate_iyw_claw_mcp_binary()` exe-sibling lookup hits. A failure here means
 # the tarball was malformed or a previous `_install_one` was silently
 # blocked — surface it loudly rather than ship a half-broken install.
-if [ ! -x "${INSTALL_DIR}/iyw-claw-mcp" ]; then
+if [ ! -x "${INSTALL_DIR}/${VERSIONED_MCP}" ] || [ ! -x "${INSTALL_DIR}/iyw-claw-mcp" ]; then
   echo ""
   echo "Error: ${INSTALL_DIR}/iyw-claw-mcp missing or not executable after install."
   echo "       Delegation (sub-agent tooling) will not work. Re-run the installer."
   EXIT_STATUS=1
+else
+  MCP_VERSIONED_VER=$("${INSTALL_DIR}/${VERSIONED_MCP}" --version 2>/dev/null || true)
+  MCP_ALIAS_VER=$("${INSTALL_DIR}/iyw-claw-mcp" --version 2>/dev/null || true)
+  if [ "$MCP_VERSIONED_VER" != "$TARGET_VER" ] || [ "$MCP_ALIAS_VER" != "$TARGET_VER" ]; then
+    echo ""
+    echo "Error: iyw-claw-mcp version check failed (expected ${TARGET_VER}, versioned=${MCP_VERSIONED_VER:-missing}, alias=${MCP_ALIAS_VER:-missing})."
+    EXIT_STATUS=1
+  fi
 fi
 
 # Verify the user's `iyw-claw-server` command actually resolves to the new binary.

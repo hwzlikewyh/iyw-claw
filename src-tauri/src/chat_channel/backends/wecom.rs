@@ -41,6 +41,7 @@ const POLL_OVERLAP_SECS: i64 = 120;
 const SENT_ECHO_TTL: Duration = Duration::from_secs(300);
 const MAX_SEEN_KEYS: usize = 4096;
 const WECOM_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+const WECOM_INIT_ARGS: &[&str] = &["init", "--noninteractive", "--no-open"];
 
 pub struct WecomBackend {
     channel_id: i32,
@@ -304,8 +305,7 @@ async fn poll_once(
         if let Some(cursor) = cursor.as_deref() {
             payload["cursor"] = serde_json::Value::String(cursor.to_string());
         }
-        let response =
-            run_cli_json(&["msg", "get_msg_chat_list", &payload.to_string()]).await?;
+        let response = run_cli_json(&["msg", "get_msg_chat_list", &payload.to_string()]).await?;
         if let Some(list) = response.get("chats").and_then(|value| value.as_array()) {
             for chat in list {
                 if let Some(chat_id) = chat.get("chat_id").and_then(|value| value.as_str()) {
@@ -335,13 +335,7 @@ async fn poll_once(
 
     for (chat_id, chat_name) in chats {
         if let Err(error) = poll_chat(
-            channel_id,
-            state,
-            command_tx,
-            &chat_id,
-            &chat_name,
-            &begin_str,
-            &end_str,
+            channel_id, state, command_tx, &chat_id, &chat_name, &begin_str, &end_str,
         )
         .await
         {
@@ -559,13 +553,10 @@ async fn run_cli_raw(args: &[&str]) -> Result<String, ChatChannelError> {
 async fn run_cli_json(args: &[&str]) -> Result<serde_json::Value, ChatChannelError> {
     let stdout = run_cli_raw(args).await?;
     let json_start = stdout.find('{').ok_or_else(|| {
-        ChatChannelError::ConnectionFailed(format!(
-            "wecom-cli returned no JSON: {}",
-            stdout.trim()
-        ))
+        ChatChannelError::ConnectionFailed(format!("wecom-cli returned no JSON: {}", stdout.trim()))
     })?;
-    let value: serde_json::Value = serde_json::from_str(stdout[json_start..].trim())
-        .map_err(|error| {
+    let value: serde_json::Value =
+        serde_json::from_str(stdout[json_start..].trim()).map_err(|error| {
             ChatChannelError::ConnectionFailed(format!("wecom-cli JSON parse failed: {error}"))
         })?;
     let errcode = value.get("errcode").and_then(|value| value.as_i64());
@@ -601,7 +592,11 @@ pub async fn install_cli() -> Result<(), ChatChannelError> {
             Ok(Ok(output)) => {
                 tracing::warn!(
                     "[WeCom] npm install via {} failed: {}",
-                    if registry.is_empty() { "default registry" } else { registry },
+                    if registry.is_empty() {
+                        "default registry"
+                    } else {
+                        registry
+                    },
                     String::from_utf8_lossy(&output.stderr).trim()
                 );
             }
@@ -661,7 +656,7 @@ pub async fn start_auth() -> Result<String, ChatChannelError> {
     }
 
     let mut command = crate::process::tokio_command("wecom-cli");
-    command.args(["init", "--noninteractive"]);
+    command.args(wecom_init_args());
     command.stdin(std::process::Stdio::null());
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
@@ -751,4 +746,13 @@ mod tests {
         );
         assert_eq!(extract_https_link("no link here"), None);
     }
+
+    #[test]
+    fn init_args_leave_qr_page_under_app_control() {
+        assert!(wecom_init_args().contains(&"--no-open"));
+    }
+}
+
+fn wecom_init_args() -> &'static [&'static str] {
+    WECOM_INIT_ARGS
 }

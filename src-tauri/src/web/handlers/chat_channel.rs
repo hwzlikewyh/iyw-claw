@@ -325,8 +325,8 @@ pub async fn weixin_get_qrcode() -> Result<Json<WeixinQrcodeInfo>, AppCommandErr
 // WeCom (企业微信 / wecom-cli) auth
 // ---------------------------------------------------------------------------
 
-pub async fn wecom_get_auth_status(
-) -> Result<Json<cc_commands::WecomAuthStatus>, AppCommandError> {
+pub async fn wecom_get_auth_status() -> Result<Json<cc_commands::WecomAuthStatus>, AppCommandError>
+{
     Ok(Json(cc_commands::wecom_get_auth_status_core().await?))
 }
 
