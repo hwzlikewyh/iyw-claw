@@ -14,15 +14,15 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::RwLock;
+use tokio::sync::{watch, RwLock};
 
 use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::transport::{
     read_frame, write_frame, BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
-    BrokerCommitFeedbackRequest, BrokerFeedbackRequest, BrokerMemoryAppendRequest,
-    BrokerMemoryProposalRequest, BrokerMemoryProposalResult, BrokerMessage,
-    BrokerPlatformToolsCallRequest, BrokerPlatformToolsListRequest, BrokerRequest, BrokerResponse,
-    BrokerSessionRequest, BrokerStatusRequest,
+    BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest, BrokerFeedbackRequest,
+    BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerMemoryProposalResult,
+    BrokerMessage, BrokerPlatformToolsCallRequest, BrokerPlatformToolsListRequest, BrokerRequest,
+    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
@@ -32,7 +32,7 @@ use crate::acp::session_info::{SessionInfo, SessionInfoAccess};
 use crate::models::AgentType;
 use crate::user_memory::{
     AgentMemoryAppend, AgentMemoryProposal, CandidateObservationSource, UserMemoryAppendResult,
-    UserMemoryService,
+    UserMemoryService, APPEND_USER_MEMORY_TOOL, PROPOSE_USER_MEMORY_TOOL,
 };
 use serde_json::Value;
 
@@ -76,34 +76,76 @@ pub struct TokenEntry {
     pub memory_turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompanionReadyReport {
+    pub version: String,
+    pub tools: Vec<String>,
+}
+
+struct RegisteredToken {
+    entry: TokenEntry,
+    ready: watch::Sender<CompanionReadyState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CompanionReadyState {
+    NotRequired,
+    Pending,
+    Ready(CompanionReadyReport),
+    Disabled,
+}
+
 #[derive(Default)]
 pub struct TokenRegistry {
-    inner: RwLock<HashMap<String, TokenEntry>>,
+    inner: RwLock<HashMap<String, RegisteredToken>>,
     listener_ready: AtomicBool,
 }
 
 impl TokenRegistry {
     pub async fn register(&self, token: String, entry: TokenEntry) {
-        self.inner.write().await.insert(token, entry);
+        self.register_with_state(token, entry, CompanionReadyState::NotRequired)
+            .await;
+    }
+
+    pub async fn register_companion(&self, token: String, entry: TokenEntry) {
+        self.register_with_state(token, entry, CompanionReadyState::Pending)
+            .await;
+    }
+
+    async fn register_with_state(
+        &self,
+        token: String,
+        entry: TokenEntry,
+        state: CompanionReadyState,
+    ) {
+        let (ready, _) = watch::channel(state);
+        self.inner
+            .write()
+            .await
+            .insert(token, RegisteredToken { entry, ready });
     }
 
     pub async fn revoke(&self, token: &str) {
-        if let Some(entry) = self.inner.write().await.remove(token) {
-            entry.memory_turn_tracker.complete_turn();
+        if let Some(registered) = self.inner.write().await.remove(token) {
+            registered.entry.memory_turn_tracker.complete_turn();
         }
     }
 
     pub async fn lookup(&self, token: &str) -> Option<TokenEntry> {
-        self.inner.read().await.get(token).cloned()
+        self.inner
+            .read()
+            .await
+            .get(token)
+            .map(effective_token_entry)
     }
 
     /// Drop every token whose `parent_connection_id` matches. Used on parent
     /// connection teardown so a leaked token can't be reused.
     pub async fn revoke_by_parent(&self, parent_connection_id: &str) {
         let mut map = self.inner.write().await;
-        map.retain(|_, entry| {
-            if entry.parent_connection_id == parent_connection_id {
-                entry.memory_turn_tracker.complete_turn();
+        map.retain(|_, registered| {
+            if registered.entry.parent_connection_id == parent_connection_id {
+                registered.entry.memory_turn_tracker.complete_turn();
                 false
             } else {
                 true
@@ -111,8 +153,121 @@ impl TokenRegistry {
         });
     }
 
+    pub async fn record_companion_ready(&self, request: BrokerCompanionReadyRequest) -> bool {
+        let ready = self
+            .inner
+            .read()
+            .await
+            .get(&request.token)
+            .map(|registered| registered.ready.clone());
+        let Some(ready) = ready else {
+            return false;
+        };
+        if request.version != env!("CARGO_PKG_VERSION") {
+            ready.send_if_modified(|current| {
+                if !matches!(current, CompanionReadyState::Pending) {
+                    return false;
+                }
+                *current = CompanionReadyState::Disabled;
+                true
+            });
+            return false;
+        }
+        let report = CompanionReadyReport {
+            version: request.version,
+            tools: request.tools,
+        };
+        ready.send_if_modified(|current| {
+            if !matches!(current, CompanionReadyState::Pending) {
+                return false;
+            }
+            *current = CompanionReadyState::Ready(report);
+            true
+        })
+    }
+
+    pub async fn wait_for_companion_ready(
+        &self,
+        token: &str,
+        timeout: std::time::Duration,
+    ) -> Option<CompanionReadyReport> {
+        let mut receiver = self
+            .inner
+            .read()
+            .await
+            .get(token)
+            .map(|registered| registered.ready.subscribe())?;
+        if let Some(outcome) = companion_ready_outcome(&receiver.borrow()) {
+            return outcome;
+        }
+        let waited = tokio::time::timeout(timeout, async move {
+            loop {
+                receiver.changed().await.ok()?;
+                if let Some(outcome) = companion_ready_outcome(&receiver.borrow_and_update()) {
+                    return outcome;
+                }
+            }
+        })
+        .await;
+        match waited {
+            Ok(outcome) => outcome,
+            Err(_) => self.disable_pending_companion(token).await,
+        }
+    }
+
+    async fn disable_pending_companion(&self, token: &str) -> Option<CompanionReadyReport> {
+        let ready = self
+            .inner
+            .read()
+            .await
+            .get(token)
+            .map(|registered| registered.ready.clone())?;
+        ready.send_if_modified(|current| {
+            if !matches!(current, CompanionReadyState::Pending) {
+                return false;
+            }
+            *current = CompanionReadyState::Disabled;
+            true
+        });
+        let outcome = match &*ready.borrow() {
+            CompanionReadyState::Ready(report) => Some(report.clone()),
+            _ => None,
+        };
+        outcome
+    }
+
     pub fn listener_ready(&self) -> bool {
         self.listener_ready.load(Ordering::Acquire)
+    }
+}
+
+fn effective_token_entry(registered: &RegisteredToken) -> TokenEntry {
+    let mut entry = registered.entry.clone();
+    match &*registered.ready.borrow() {
+        CompanionReadyState::NotRequired => {}
+        CompanionReadyState::Ready(report) => {
+            entry.memory_write_enabled &= report
+                .tools
+                .iter()
+                .any(|tool| tool == APPEND_USER_MEMORY_TOOL);
+            entry.memory_proposal_enabled &= report
+                .tools
+                .iter()
+                .any(|tool| tool == PROPOSE_USER_MEMORY_TOOL);
+        }
+        CompanionReadyState::Pending | CompanionReadyState::Disabled => {
+            entry.memory_write_enabled = false;
+            entry.memory_proposal_enabled = false;
+        }
+    }
+    entry
+}
+
+fn companion_ready_outcome(state: &CompanionReadyState) -> Option<Option<CompanionReadyReport>> {
+    match state {
+        CompanionReadyState::Pending => None,
+        CompanionReadyState::Ready(report) => Some(Some(report.clone())),
+        CompanionReadyState::NotRequired | CompanionReadyState::Disabled => Some(None),
     }
 }
 
@@ -379,6 +534,12 @@ impl DelegationListener {
             }
             BrokerMessage::MemoryProposal(req) => {
                 memory_proposal_response(self.process_memory_proposal(req).await)?
+            }
+            BrokerMessage::CompanionReady(req) => {
+                self.tokens.record_companion_ready(req).await;
+                BrokerResponse {
+                    outcome: Value::Null,
+                }
             }
             BrokerMessage::PlatformToolsList(req) => BrokerResponse {
                 outcome: platform_list_outcome(self.process_platform_tools_list(req).await),

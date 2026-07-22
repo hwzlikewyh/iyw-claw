@@ -40,6 +40,19 @@ import { tmpdir } from "node:os"
 import { createHash } from "node:crypto"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
+import {
+  loadExpectedCompanionManifest,
+  probeNativeCompanion,
+  validateCompanionManifest,
+  validateCrossTargetCompanion,
+} from "./sidecar-manifest.mjs"
+
+export {
+  loadExpectedCompanionManifest,
+  probeNativeCompanion,
+  validateCompanionManifest,
+  validateCrossTargetCompanion,
+}
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SRC_TAURI = resolve(SCRIPT_DIR, "..")
@@ -84,12 +97,7 @@ function resolveHostTriple() {
   }
 }
 
-export function resolveBundleCompatPaths(
-  srcTauri,
-  target,
-  ext,
-  hostTarget
-) {
+export function resolveBundleCompatPaths(srcTauri, target, ext, hostTarget) {
   const fileName = `${CARGO_BIN_NAME}${ext}`
   const paths = [
     join(srcTauri, "target", "release", fileName),
@@ -170,9 +178,7 @@ export function resolveExtractor(
   windowsRoot = process.env.SystemRoot || "C:\\Windows"
 ) {
   return {
-    command: isWindows
-      ? win32.join(windowsRoot, "System32", "tar.exe")
-      : "tar",
+    command: isWindows ? win32.join(windowsRoot, "System32", "tar.exe") : "tar",
     args: ["-xf", archive, "-C", destination],
   }
 }
@@ -231,7 +237,8 @@ async function stageUvSidecars(target, isWindows) {
     )
     const expected = parseSha256(await checksumResponse.text())
     const actual = createHash("sha256").update(bytes).digest("hex")
-    if (actual !== expected) die(`uv checksum mismatch: expected ${expected}, got ${actual}`)
+    if (actual !== expected)
+      die(`uv checksum mismatch: expected ${expected}, got ${actual}`)
     writeFileSync(archive, bytes)
     const extractor = resolveExtractor(archive, extracted, isWindows)
     execFileSync(extractor.command, extractor.args, {
@@ -306,6 +313,19 @@ async function main() {
   }
   log(`sidecar ${sidecarChanged ? "staged" : "unchanged"} at ${dest}`)
 
+  const expectedManifest = loadExpectedCompanionManifest(SRC_TAURI)
+  if (target === hostTarget) {
+    probeNativeCompanion(dest, expectedManifest)
+    log(
+      `runtime manifest validation succeeded for ${expectedManifest.version} (${expectedManifest.tools.length} tools)`
+    )
+  } else {
+    validateCrossTargetCompanion(dest, target, expectedManifest)
+    log(
+      `non-runtime cross-target manifest validation succeeded for ${target}; executable not probed`
+    )
+  }
+
   // Tauri CLI 2.10 resolves Cargo target names with underscores while
   // tauri-build preserves the externalBin filename with hyphens. Stage both
   // possible Cargo output layouts so the bundler can inspect the sidecar.
@@ -327,6 +347,9 @@ async function main() {
   await stageUvSidecars(target, isWindows)
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   await main()
 }
