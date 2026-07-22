@@ -48,7 +48,7 @@ export function shouldQueueDirectSend(
   return !fromQueueFlush && queueLength > 0
 }
 
-/** Queue a user-originated submit while its Agent connection is still starting. */
+/** Queue a user-originated submit until a matching Agent connection can buffer it. */
 export function shouldQueueBeforeConnection(
   connectionReady: boolean,
   fromQueueFlush: boolean
@@ -77,8 +77,11 @@ export function forkSendBlockedByQueue(queueLength: number): boolean {
 }
 
 /**
- * Whether the live connection is ready to accept a send for THIS tab: connected
- * AND its established cwd matches the tab's intended working dir.
+ * Whether the live connection can accept a send for THIS tab. The backend
+ * command channel exists as soon as `acp_connect` returns, so a matching
+ * `connecting` connection can buffer the prompt while Initialize/session setup
+ * finishes. This removes the cold-start wait without pretending an old Agent or
+ * workspace connection belongs to the newly selected draft.
  *
  * Bare `connStatus === "connected"` is insufficient. A chat draft that just
  * retargeted into folderless mode (or any tab mid-reconnect) can read a stale
@@ -88,14 +91,19 @@ export function forkSendBlockedByQueue(queueLength: number): boolean {
  * gate on this. Nullish cwds are normalized so `null`/`undefined` compare equal
  * (both mean "no cwd yet").
  */
-export function isConnectionReady(
-  connStatus: string | null | undefined,
-  connectedWorkingDir: string | null | undefined,
+export function canConnectionAcceptPrompt(input: {
+  connectionId: string | null | undefined
+  status: string | null | undefined
+  connectedAgentType: string | null | undefined
+  intendedAgentType: string
+  connectedWorkingDir: string | null | undefined
   intendedWorkingDir: string | null | undefined
-): boolean {
+}): boolean {
   return (
-    connStatus === "connected" &&
-    (connectedWorkingDir ?? null) === (intendedWorkingDir ?? null)
+    input.connectionId != null &&
+    (input.status === "connecting" || input.status === "connected") &&
+    input.connectedAgentType === input.intendedAgentType &&
+    (input.connectedWorkingDir ?? null) === (input.intendedWorkingDir ?? null)
   )
 }
 

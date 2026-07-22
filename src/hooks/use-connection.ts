@@ -32,6 +32,9 @@ const DEFAULT_PROMPT_CAPABILITIES: PromptCapabilitiesInfo = {
 
 export interface UseConnectionReturn {
   connectionId: string | null
+  /** Agent actually owned by the current connection. During an Agent switch,
+   *  this can briefly differ from the draft's newly selected Agent. */
+  agentType: AgentType | null
   /**
    * True when this context attached to a connection another client owns
    * (cross-client viewing). Viewers detach but never `acpDisconnect`, so the
@@ -179,6 +182,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   const connection = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 
   const connectionId = connection?.connectionId ?? null
+  const agentType = connection?.agentType ?? null
   const isViewer = connection?.isViewer ?? false
   const status = connection?.status ?? null
   const promptCapabilities =
@@ -285,6 +289,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   return useMemo(
     () => ({
       connectionId,
+      agentType,
       isViewer,
       status,
       promptCapabilities,
@@ -322,6 +327,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
     }),
     [
       connectionId,
+      agentType,
       isViewer,
       status,
       promptCapabilities,

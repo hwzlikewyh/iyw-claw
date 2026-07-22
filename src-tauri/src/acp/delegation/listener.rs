@@ -106,6 +106,29 @@ pub struct DelegationListener {
 }
 
 impl DelegationListener {
+    fn log_connection_failure(error: &std::io::Error) {
+        let peer_closed = matches!(
+            error.kind(),
+            std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::UnexpectedEof
+        ) || (cfg!(windows) && error.raw_os_error() == Some(232));
+        if peer_closed {
+            tracing::debug!(
+                error = %error,
+                kind = ?error.kind(),
+                "[delegation] peer closed connection"
+            );
+        } else {
+            tracing::error!(
+                error = %error,
+                kind = ?error.kind(),
+                "[delegation] connection failed"
+            );
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         broker: Arc<DelegationBroker>,
@@ -144,7 +167,7 @@ impl DelegationListener {
                     let me = Arc::clone(&self);
                     tokio::spawn(async move {
                         if let Err(e) = me.serve_one(&mut conn).await {
-                            tracing::error!("[delegation] connection failed: {e}");
+                            Self::log_connection_failure(&e);
                         }
                     });
                 }
@@ -186,7 +209,7 @@ impl DelegationListener {
             tokio::spawn(async move {
                 let mut conn = connected;
                 if let Err(e) = me.serve_one(&mut conn).await {
-                    tracing::error!("[delegation] connection failed: {e}");
+                    Self::log_connection_failure(&e);
                 }
             });
         }

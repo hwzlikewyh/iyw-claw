@@ -57,7 +57,7 @@ import {
 import {
   flushRetryDelayMs,
   forkSendBlockedByQueue,
-  isConnectionReady,
+  canConnectionAcceptPrompt,
   shouldBlockUnboundSend,
   shouldQueueBeforeConnection,
   shouldQueueDirectSend,
@@ -569,18 +569,22 @@ const ConversationTabView = memo(function ConversationTabView({
   useEffect(() => {
     isViewerRef.current = conn.isViewer
   }, [conn.isViewer])
-  const isConnecting = connStatus === "connecting"
-  // The live connection is ready for THIS tab only when it's connected AND its
-  // cwd matches the tab's intended working dir. A just-retargeted chat draft (or
-  // any mid-reconnect) can briefly read a stale "connected" for the PREVIOUS cwd;
-  // sending then would deliver the prompt to the wrong agent/workspace. Every
-  // direct send gates on this (handleSend), mirroring the flush effect's guard.
-  // No-op for normal conversations, whose connected cwd always equals intended.
-  const connectionReady = isConnectionReady(
-    connStatus,
-    conn.connectedWorkingDir,
-    workingDirForConnection
-  )
+  // The backend command channel buffers prompts while Initialize/session setup
+  // is still running. Accept that fast path only for the connection created for
+  // this exact Agent + cwd; during a switch the old connection can remain visible
+  // for a render and must never receive the new draft's prompt.
+  const connectionReady = canConnectionAcceptPrompt({
+    connectionId: conn.connectionId,
+    status: connStatus,
+    connectedAgentType: conn.agentType,
+    intendedAgentType: selectedAgent,
+    connectedWorkingDir: conn.connectedWorkingDir,
+    intendedWorkingDir: workingDirForConnection,
+  })
+  const connectionReadyRef = useRef(connectionReady)
+  useEffect(() => {
+    connectionReadyRef.current = connectionReady
+  }, [connectionReady])
   // Present "connecting" to the composer while connected-but-not-ready. The
   // composer still accepts submissions and the send handler queues them until
   // this tab's working directory matches the live connection.
@@ -721,26 +725,14 @@ const ConversationTabView = memo(function ConversationTabView({
   // bounces and rolls back to idle to retry the next item). A bounce backoff
   // rate-limits retries against a still-busy backend.
   useEffect(() => {
-    if (connStatus !== "connected") return
-    // Don't flush onto a connection whose cwd doesn't match the tab's intended
-    // working dir. This matters for a just-bound chat conversation: bind switches
-    // the tab's workingDir from the draft's previous folder to the scratch dir,
-    // and for one render `connStatus` can still read the stale "connected" of the
-    // old-folder session before the reconnect lands. Flushing then would deliver
-    // the queued prompt to the wrong folder's agent. (No-op for normal
-    // conversations, whose connection cwd always equals the intended one.)
-    if (
-      (conn.connectedWorkingDir ?? null) !== (workingDirForConnection ?? null)
-    ) {
-      return
-    }
+    if (!connectionReady) return
     if (runtimeSyncState === "awaiting_persist") return
     if (msgQueue.length === 0) return
     // setTimeout (not microtask) so a COMPLETE_TURN commit settles first AND so
     // a just-bounced retry waits out the backoff window before re-sending.
     const wait = flushRetryDelayMs(Date.now(), lastFlushBounceAtRef.current)
     const timer = setTimeout(() => {
-      if (connStatusRef.current !== "connected") return
+      if (!connectionReadyRef.current) return
       const next = autoSendQueueRef.current()
       if (next) {
         // Mark this as the queue auto-flush: it sends the dequeued head now and,
@@ -749,13 +741,7 @@ const ConversationTabView = memo(function ConversationTabView({
       }
     }, wait)
     return () => clearTimeout(timer)
-  }, [
-    connStatus,
-    runtimeSyncState,
-    msgQueue.length,
-    conn.connectedWorkingDir,
-    workingDirForConnection,
-  ])
+  }, [connectionReady, runtimeSyncState, msgQueue.length])
 
   // Mirror the connection's liveMessage into the runtime session OUTSIDE React.
   // The connection dispatch invokes this sink synchronously whenever liveMessage
@@ -1551,7 +1537,7 @@ const ConversationTabView = memo(function ConversationTabView({
                 onSelect={handleAgentSelect}
                 onFallback={handleAgentFallback}
                 onOpenAgentsSettings={handleOpenAgentsSettings}
-                disabled={isConnecting || dbConversationId != null}
+                disabled={hasSentMessage || dbConversationId != null}
               />
             </div>
             {autoConnectError || agentConnectError ? (
@@ -1622,7 +1608,7 @@ const ConversationTabView = memo(function ConversationTabView({
               onSelect={handleAgentSelect}
               onFallback={handleAgentFallback}
               onOpenAgentsSettings={handleOpenAgentsSettings}
-              disabled={isConnecting || dbConversationId != null}
+              disabled={hasSentMessage || dbConversationId != null}
               variant="settings"
             />
             {autoConnectError || agentConnectError ? (

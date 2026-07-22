@@ -431,6 +431,13 @@ mod tauri_app {
                             report.pending_user_review.len()
                         );
                     }
+                    if let Err(error) =
+                        crate::commands::acp::reconcile_shared_market_skills()
+                    {
+                        tracing::warn!(
+                            "[skills] startup central skill reconcile failed: {error}"
+                        );
+                    }
                     if let Err(error) = crate::commands::managed_skills::reconcile_all_core(
                         &managed_distribution_db,
                     )

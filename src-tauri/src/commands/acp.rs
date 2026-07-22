@@ -4563,7 +4563,7 @@ fn build_skill_item(
 const DISABLED_SKILLS_DIR: &str = ".iyw-claw-disabled";
 const CONFLICTED_SKILLS_DIR: &str = ".iyw-claw-conflicts";
 const SHARED_SKILL_COPY_MARKER: &str = ".iyw-claw-managed-copy.json";
-const SHARED_MARKET_RECONCILE_MARKER: &str = ".central-skill-reconcile.v1";
+const SHARED_SKILL_PUBLISH_STATE_MARKER: &str = ".iyw-claw-publish-state.json";
 /// Written into a shared skill's source directory when the skill is installed
 /// from the official market. Marks the content as market-managed so later
 /// saves through the generic skill API are refused, while enable/disable and
@@ -4624,6 +4624,12 @@ struct OfficialSkillMarker {
     source: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SharedSkillPublishStateMarker {
+    skill_id: String,
+    enabled: bool,
+}
+
 fn write_official_skill_marker(source: &Path, skill_id: &str) -> Result<(), AcpError> {
     let marker = OfficialSkillMarker {
         skill_id: skill_id.to_string(),
@@ -4633,6 +4639,63 @@ fn write_official_skill_marker(source: &Path, skill_id: &str) -> Result<(), AcpE
         .map_err(|e| AcpError::protocol(format!("failed to serialize official marker: {e}")))?;
     fs::write(source.join(OFFICIAL_SKILL_MARKER), serialized)
         .map_err(|e| AcpError::protocol(format!("failed to write official marker: {e}")))
+}
+
+fn shared_skill_publish_state_path(source: &Path) -> PathBuf {
+    source.join(SHARED_SKILL_PUBLISH_STATE_MARKER)
+}
+
+fn shared_skill_mutation_guard() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn shared_skill_publish_enabled(source: &Path, skill_id: &str) -> Result<bool, AcpError> {
+    // Missing state means enabled so manually added and pre-v1 central skills
+    // are repaired automatically. Disable/delete paths persist `false` first.
+    let path = shared_skill_publish_state_path(source);
+    let raw = match fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(true),
+        Err(error) => {
+            return Err(AcpError::protocol(format!(
+                "failed to read publish state for skill '{skill_id}': {error}"
+            )))
+        }
+    };
+    let marker: SharedSkillPublishStateMarker = serde_json::from_str(&raw).map_err(|error| {
+        AcpError::protocol(format!(
+            "invalid publish state for skill '{skill_id}': {error}"
+        ))
+    })?;
+    if marker.skill_id != skill_id {
+        return Err(AcpError::protocol(format!(
+            "publish state belongs to '{}' instead of '{skill_id}'",
+            marker.skill_id
+        )));
+    }
+    Ok(marker.enabled)
+}
+
+fn write_shared_skill_publish_state(
+    source: &Path,
+    skill_id: &str,
+    enabled: bool,
+) -> Result<(), AcpError> {
+    let marker = SharedSkillPublishStateMarker {
+        skill_id: skill_id.to_string(),
+        enabled,
+    };
+    let raw = serde_json::to_string_pretty(&marker).map_err(|error| {
+        AcpError::protocol(format!("failed to serialize publish state: {error}"))
+    })?;
+    fs::write(shared_skill_publish_state_path(source), raw).map_err(|error| {
+        AcpError::protocol(format!(
+            "failed to persist publish state for skill '{skill_id}': {error}"
+        ))
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4830,19 +4893,8 @@ fn import_native_skill_to_shared_source(
     Ok(())
 }
 
-fn skill_capable_agent_types() -> [AgentType; 10] {
-    [
-        AgentType::ClaudeCode,
-        AgentType::Codex,
-        AgentType::OpenCode,
-        AgentType::Gemini,
-        AgentType::OpenClaw,
-        AgentType::Cline,
-        AgentType::Hermes,
-        AgentType::CodeBuddy,
-        AgentType::KimiCode,
-        AgentType::Pi,
-    ]
+fn skill_capable_agent_types() -> Vec<AgentType> {
+    crate::commands::managed_skills::supported_skill_agent_types()
 }
 
 fn take_over_read_only_global_native_skill(
@@ -4861,6 +4913,7 @@ fn take_over_read_only_global_native_skill(
         import_native_skill_to_shared_source(&native, skill_id)?;
     }
 
+    write_shared_skill_publish_state(&source, skill_id, true)?;
     publish_shared_skill_to_all_agents(agent_type, skill_id, sync_mode)
 }
 
@@ -4964,83 +5017,149 @@ fn publish_shared_skill_to_all_agents(
     skill_id: &str,
     sync_mode: AgentSkillSyncMode,
 ) -> Result<AgentSkillItem, AcpError> {
-    let mut primary = None;
-    for agent_type in skill_capable_agent_types() {
-        let published = publish_shared_skill_to_agent(agent_type, skill_id, sync_mode)?;
-        if agent_type == primary_agent_type {
-            primary = Some(published);
+    let _guard = shared_skill_mutation_guard();
+    let primary = publish_shared_skill_to_agent(primary_agent_type, skill_id, sync_mode)?;
+    for agent_type in skill_capable_agent_types()
+        .into_iter()
+        .filter(|agent_type| *agent_type != primary_agent_type)
+    {
+        if let Err(error) = publish_shared_skill_to_agent(agent_type, skill_id, sync_mode) {
+            tracing::warn!(
+                primary_agent_type = %primary_agent_type,
+                agent_type = %agent_type,
+                skill_id,
+                error = %error,
+                "[skills] secondary Agent publication failed"
+            );
         }
     }
-    primary.ok_or_else(|| {
-        AcpError::protocol(format!(
-            "{primary_agent_type} skills are not supported in Settings yet"
-        ))
-    })
+    Ok(primary)
 }
 
-pub(crate) fn reconcile_shared_market_skills() -> Result<(), AcpError> {
-    let Some(paths) = AgentStoragePaths::active() else {
+pub fn reconcile_shared_market_skills() -> Result<(), AcpError> {
+    if AgentStoragePaths::active().is_none() {
         return Ok(());
-    };
+    }
     require_private_agent_storage_for_write()?;
-    let marker = paths.root().join(SHARED_MARKET_RECONCILE_MARKER);
-    let initial_reconcile = !marker.is_file();
+    let _guard = shared_skill_mutation_guard();
+    let mut errors = Vec::new();
+    for agent_type in skill_capable_agent_types() {
+        if let Err(error) = reconcile_shared_market_skills_for_agent_locked(agent_type) {
+            errors.push(format!("{agent_type}: {error}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(AcpError::protocol(format!(
+            "shared skill reconcile failed for {} agent(s): {}",
+            errors.len(),
+            errors.join("; ")
+        )))
+    }
+}
+
+pub(crate) fn reconcile_shared_market_skills_for_agent(
+    agent_type: AgentType,
+) -> Result<(), AcpError> {
+    require_private_agent_storage_for_write()?;
+    let _guard = shared_skill_mutation_guard();
+    reconcile_shared_market_skills_for_agent_locked(agent_type)
+}
+
+fn reconcile_shared_market_skills_for_agent_locked(agent_type: AgentType) -> Result<(), AcpError> {
+    if skill_storage_spec(agent_type).is_none() {
+        return Ok(());
+    }
     let skills = list_skills_from_dir(
         AgentSkillScope::Global,
         &shared_skills_dir(),
         SkillStorageKind::SkillDirectoryOnly,
         false,
     )?;
+    let mut errors = Vec::new();
     for skill in skills {
         if is_reserved_shared_skill_id(&skill.id) {
             continue;
         }
-        let published = skill_capable_agent_types().into_iter().any(|agent| {
-            shared_skill_publish_status(agent, Path::new(&skill.path), &skill.id)
-                .map(|status| status.0)
-                .unwrap_or(false)
-        });
-        if !initial_reconcile && !published {
-            continue;
+        if let Err(error) = reconcile_shared_market_skill_for_agent(agent_type, &skill) {
+            tracing::warn!(
+                agent_type = %agent_type,
+                skill_id = %skill.id,
+                error = %error,
+                "[skills] failed to reconcile central skill publication"
+            );
+            errors.push(format!("{}: {error}", skill.id));
         }
-        publish_shared_skill_to_all_agents(
-            AgentType::Codex,
-            &skill.id,
-            AgentSkillSyncMode::default(),
-        )?;
     }
-    if initial_reconcile {
-        fs::create_dir_all(paths.root()).map_err(|error| {
-            AcpError::protocol(format!("failed to create Agent storage root: {error}"))
-        })?;
-        fs::write(marker, b"").map_err(|error| {
-            AcpError::protocol(format!(
-                "failed to record central skill reconciliation: {error}"
-            ))
-        })?;
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(AcpError::protocol(format!(
+            "failed to reconcile {} central skill(s) for {agent_type}: {}",
+            errors.len(),
+            errors.join("; ")
+        )))
     }
+}
+
+fn reconcile_shared_market_skill_for_agent(
+    agent_type: AgentType,
+    skill: &AgentSkillItem,
+) -> Result<(), AcpError> {
+    let source = Path::new(&skill.path);
+    if !shared_skill_publish_enabled(source, &skill.id)? {
+        if remove_shared_skill_publication_from_agent(agent_type, &skill.id)? {
+            tracing::info!(
+                agent_type = %agent_type,
+                skill_id = %skill.id,
+                "[skills] removed explicitly disabled central skill publication"
+            );
+        }
+        return Ok(());
+    }
+    let (published, copy_mode) = shared_skill_publish_status(agent_type, source, &skill.id)?;
+    if published && !copy_mode {
+        return Ok(());
+    }
+    let result =
+        publish_shared_skill_to_agent(agent_type, &skill.id, AgentSkillSyncMode::default())?;
+    tracing::info!(
+        agent_type = %agent_type,
+        skill_id = %skill.id,
+        copy_mode = result.copy_mode,
+        "[skills] published central skill to agent profile"
+    );
     Ok(())
 }
 
-fn remove_shared_skill_publications(skill_id: &str) -> Result<(), AcpError> {
+fn remove_shared_skill_publication_from_agent(
+    agent_type: AgentType,
+    skill_id: &str,
+) -> Result<bool, AcpError> {
     let source = shared_skill_path(skill_id);
-    for agent in skill_capable_agent_types() {
-        let Ok(dirs) = shared_skill_publish_dirs(agent) else {
+    let mut removed = false;
+    for dir in shared_skill_publish_dirs(agent_type)? {
+        let candidate = dir.join(skill_id);
+        if !path_entry_exists(&candidate) {
             continue;
-        };
-        for dir in dirs {
-            let candidate = dir.join(skill_id);
-            if !path_entry_exists(&candidate) {
-                continue;
-            }
-            let linked = classify_link(&candidate, &source) == ExpertLinkState::LinkedToIywClaw;
-            let copied = shared_copy_marker_matches(&candidate, &source, skill_id);
-            if linked || copied {
-                remove_skill_entry(&candidate).map_err(|e| {
-                    AcpError::protocol(format!("failed to remove published skill: {e}"))
-                })?;
-            }
         }
+        let linked = classify_link(&candidate, &source) == ExpertLinkState::LinkedToIywClaw;
+        let copied = shared_copy_marker_matches(&candidate, &source, skill_id);
+        if linked || copied {
+            remove_skill_entry(&candidate).map_err(|error| {
+                AcpError::protocol(format!("failed to remove published skill: {error}"))
+            })?;
+            removed = true;
+        }
+    }
+    Ok(removed)
+}
+
+fn remove_shared_skill_publications(skill_id: &str) -> Result<(), AcpError> {
+    let _guard = shared_skill_mutation_guard();
+    for agent_type in skill_capable_agent_types() {
+        remove_shared_skill_publication_from_agent(agent_type, skill_id)?;
     }
     Ok(())
 }
@@ -6005,6 +6124,33 @@ pub async fn acp_preflight(
     Ok(preflight::run_preflight(agent_type).await)
 }
 
+async fn reconcile_agent_skills_before_launch(db: &AppDatabase, agent_type: AgentType) {
+    let install_report = crate::commands::experts::ensure_central_experts_installed().await;
+    if !install_report.errors.is_empty() {
+        tracing::warn!(
+            agent_type = %agent_type,
+            errors = ?install_report.errors,
+            "[skills] central skill installation before Agent launch was incomplete"
+        );
+    }
+    if let Err(error) =
+        crate::commands::managed_skills::reconcile_agent_core(&db.conn, agent_type, true).await
+    {
+        tracing::warn!(
+            agent_type = %agent_type,
+            error = %error,
+            "[skills] managed skill reconcile before Agent launch failed"
+        );
+    }
+    if let Err(error) = reconcile_shared_market_skills_for_agent(agent_type) {
+        tracing::warn!(
+            agent_type = %agent_type,
+            error = %error,
+            "[skills] central skill reconcile before Agent launch failed"
+        );
+    }
+}
+
 /// Resolve the full runtime env every ACP spawn should receive — settings
 /// override, model provider credentials, git credential helper, OpenClaw
 /// reset flag. Returns `AcpError::protocol("...disabled in settings")` when
@@ -6065,6 +6211,8 @@ pub(crate) async fn build_session_runtime_env(
             "{agent_type} is disabled in settings"
         )));
     }
+
+    reconcile_agent_skills_before_launch(db, agent_type).await;
 
     crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
         .map_err(AcpError::protocol)?;
@@ -8587,6 +8735,7 @@ pub async fn acp_save_agent_skill(
         if official_install {
             write_official_skill_marker(&source, &id)?;
         }
+        write_shared_skill_publish_state(&source, &id, true)?;
 
         let mode = sync_mode.unwrap_or(if was_copy_mode {
             AgentSkillSyncMode::Copy
@@ -8689,13 +8838,16 @@ pub async fn acp_set_agent_skill_enabled(
     if scope == AgentSkillScope::Global {
         let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
+        let source = shared_skill_path(&id);
         if enabled {
+            write_shared_skill_publish_state(&source, &id, true)?;
             return publish_shared_skill_to_all_agents(
                 agent_type,
                 &id,
                 sync_mode.unwrap_or_default(),
             );
         }
+        write_shared_skill_publish_state(&source, &id, false)?;
         remove_shared_skill_publications(&id)?;
         return build_shared_skill_item_for_agent(agent_type, id);
     }
@@ -8757,6 +8909,7 @@ pub async fn acp_delete_agent_skill(
         if !skill_path.join("SKILL.md").is_file() {
             return Err(AcpError::protocol(format!("skill not found: {id}")));
         }
+        write_shared_skill_publish_state(&skill_path, &id, false)?;
         remove_shared_skill_publications(&id)?;
         remove_skill_entry(&skill_path)
             .map_err(|e| AcpError::protocol(format!("failed to delete skill entry: {e}")))?;
