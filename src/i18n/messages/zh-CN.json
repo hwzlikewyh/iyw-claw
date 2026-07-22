@@ -2845,8 +2845,12 @@
         "previewLabel": "文件预览",
         "loadingTree": "正在加载文件...",
         "loadingPreview": "正在加载预览...",
-        "empty": "当前工作区为空",
+        "empty": "当前工作区没有文件",
+        "emptyHint": "文件创建后会显示在这里",
+        "emptyFolder": "空文件夹",
+        "folderLoadError": "加载失败，收起后可重试",
         "selectFile": "选择文件以预览",
+        "previewTruncated": "文件较大，仅显示前 2 MB",
         "treeError": "无法加载工作区文件",
         "previewError": "无法预览此文件"
       },

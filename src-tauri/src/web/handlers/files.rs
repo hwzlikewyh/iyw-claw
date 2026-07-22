@@ -27,6 +27,7 @@ const UPLOAD_UUID_FALLBACK_ATTEMPTS: usize = 16;
 pub struct ReadFilePreviewParams {
     pub root_path: String,
     pub path: String,
+    pub max_bytes: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -99,7 +100,8 @@ pub struct CreateFileTreeEntryParams {
 pub async fn read_file_preview(
     Json(params): Json<ReadFilePreviewParams>,
 ) -> Result<Json<folder_commands::FilePreviewContent>, AppCommandError> {
-    let result = folder_commands::read_file_preview(params.root_path, params.path).await?;
+    let result =
+        folder_commands::read_file_preview(params.root_path, params.path, params.max_bytes).await?;
     Ok(Json(result))
 }
 

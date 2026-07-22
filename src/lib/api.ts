@@ -2918,9 +2918,14 @@ export async function readWorkspaceFileBase64(
 
 export async function readFilePreview(
   rootPath: string,
-  path: string
+  path: string,
+  maxBytes?: number
 ): Promise<FilePreviewContent> {
-  return getTransport().call("read_file_preview", { rootPath, path })
+  return getTransport().call("read_file_preview", {
+    rootPath,
+    path,
+    maxBytes: maxBytes ?? null,
+  })
 }
 
 export async function readFileForEdit(

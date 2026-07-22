@@ -2216,6 +2216,7 @@ export interface UploadAttachmentResult {
 export interface FilePreviewContent {
   path: string
   content: string
+  truncated: boolean
 }
 
 export interface FileEditContent {

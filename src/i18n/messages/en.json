@@ -2845,8 +2845,12 @@
         "previewLabel": "File preview",
         "loadingTree": "Loading files...",
         "loadingPreview": "Loading preview...",
-        "empty": "This workspace is empty",
+        "empty": "No files in this workspace",
+        "emptyHint": "Files will appear here after they are created",
+        "emptyFolder": "Empty folder",
+        "folderLoadError": "Couldn't load; collapse to retry",
         "selectFile": "Select a file to preview",
+        "previewTruncated": "Large file; showing the first 2 MB",
         "treeError": "Unable to load workspace files",
         "previewError": "Unable to preview this file"
       },

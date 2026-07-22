@@ -8,7 +8,7 @@ import { OfficePreview } from "@/components/files/office-preview"
 export type PreviewState =
   | { status: "idle" }
   | { status: "loading"; path: string }
-  | { status: "text"; path: string; content: string }
+  | { status: "text"; path: string; content: string; truncated: boolean }
   | { status: "image"; path: string; content: string }
   | { status: "office"; path: string }
   | { status: "error"; path: string; message: string }
@@ -93,9 +93,25 @@ export function WorkspaceFilePreview({
   if (state.status === "office") {
     return <OfficePreview rootPath={rootPath} relPath={state.path} />
   }
+  return <TextPreview state={state} />
+}
+
+function TextPreview({
+  state,
+}: {
+  state: Extract<PreviewState, { status: "text" }>
+}) {
+  const t = useTranslations("Folder.chat.workspaceFiles")
   return (
-    <pre className="h-full overflow-auto whitespace-pre p-4 font-mono text-xs leading-5 text-foreground">
-      {state.content}
-    </pre>
+    <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto]">
+      <pre className="overflow-auto whitespace-pre p-4 font-mono text-xs leading-5 text-foreground">
+        {state.content}
+      </pre>
+      {state.truncated && (
+        <div className="border-t bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
+          {t("previewTruncated")}
+        </div>
+      )}
+    </div>
   )
 }

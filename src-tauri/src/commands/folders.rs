@@ -1,7 +1,7 @@
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::hash::{Hash, Hasher};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::sync::LazyLock;
@@ -230,6 +230,7 @@ pub enum FileTreeNode {
 pub struct FilePreviewContent {
     pub path: String,
     pub content: String,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -2617,6 +2618,8 @@ const FILE_TREE_IGNORED_DIRS: &[&str] = &[".git", "__pycache__"];
 
 /// Hard limit: refuse to open files larger than 50 MB in the text editor.
 const FILE_OPEN_HARD_LIMIT: usize = 50_000_000;
+const FILE_PREVIEW_MIN_BYTES: usize = 4_096;
+const FILE_BINARY_SNIFF_BYTES: usize = 2_048;
 /// Save limit: refuse to save content larger than 50 MB.
 const FILE_SAVE_HARD_LIMIT: usize = 50_000_000;
 const FILE_BASE64_DEFAULT_MAX_BYTES: usize = 20_000_000;
@@ -2752,13 +2755,51 @@ fn read_text_full(target: &Path, hard_limit: usize) -> Result<String, AppCommand
 
     let bytes = std::fs::read(target).map_err(AppCommandError::io)?;
 
-    if bytes.iter().take(2_048).any(|b| *b == 0) {
+    if bytes.iter().take(FILE_BINARY_SNIFF_BYTES).any(|b| *b == 0) {
         return Err(AppCommandError::invalid_input(
             "Binary files are not supported in preview",
         ));
     }
 
     Ok(String::from_utf8_lossy(&bytes).to_string())
+}
+
+fn read_text_preview(
+    target: &Path,
+    hard_limit: usize,
+    max_bytes: Option<usize>,
+) -> Result<(String, bool), AppCommandError> {
+    if max_bytes.is_none() {
+        return read_text_full(target, hard_limit).map(|content| (content, false));
+    }
+
+    let metadata = std::fs::metadata(target).map_err(AppCommandError::io)?;
+    let limit = max_bytes
+        .unwrap_or(hard_limit)
+        .clamp(FILE_PREVIEW_MIN_BYTES, hard_limit);
+    let mut file = open_no_follow(target).map_err(AppCommandError::io)?;
+    let file_size = usize::try_from(metadata.len()).unwrap_or(limit);
+    let mut bytes = Vec::with_capacity(limit.min(file_size).saturating_add(1));
+    Read::take(&mut file, limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(AppCommandError::io)?;
+
+    if bytes.iter().take(FILE_BINARY_SNIFF_BYTES).any(|b| *b == 0) {
+        return Err(AppCommandError::invalid_input(
+            "Binary files are not supported in preview",
+        ));
+    }
+
+    let truncated = bytes.len() > limit || metadata.len() > limit as u64;
+    bytes.truncate(limit);
+    if truncated {
+        tracing::debug!(
+            file_size_bytes = metadata.len(),
+            preview_bytes = bytes.len(),
+            "file preview truncated"
+        );
+    }
+    Ok((String::from_utf8_lossy(&bytes).to_string(), truncated))
 }
 
 fn atomic_write_text(path: &Path, bytes: &[u8]) -> Result<(), AppCommandError> {
@@ -3330,6 +3371,7 @@ pub async fn read_workspace_file_base64(
 pub async fn read_file_preview(
     root_path: String,
     path: String,
+    max_bytes: Option<usize>,
 ) -> Result<FilePreviewContent, AppCommandError> {
     let root = PathBuf::from(&root_path);
     if !root.exists() || !root.is_dir() {
@@ -3347,10 +3389,11 @@ pub async fn read_file_preview(
 
     run_file_io(move || {
         ensure_path_in_workspace(&root, &target)?;
-        let content = read_text_full(&target, FILE_OPEN_HARD_LIMIT)?;
+        let (content, truncated) = read_text_preview(&target, FILE_OPEN_HARD_LIMIT, max_bytes)?;
         Ok(FilePreviewContent {
             path: path_for_response,
             content,
+            truncated,
         })
     })
     .await
