@@ -110,9 +110,18 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Stage iyw-claw-mcp sidecar
+      - name: Stage and validate iyw-claw-mcp sidecar
         shell: bash
-        run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
+        run: |
+          set -o pipefail
+          output_file="$RUNNER_TEMP/prepare-sidecars.log"
+          pnpm tauri:prepare-sidecars --target ${{ matrix.target }} 2>&1 | tee "$output_file"
+          host_target="$(rustc -vV | sed -n 's/^host: //p')"
+          if [[ "$host_target" == "${{ matrix.target }}" ]]; then
+            grep -F "runtime manifest validation succeeded" "$output_file"
+          else
+            grep -F "non-runtime cross-target manifest validation succeeded" "$output_file"
+          fi
 
       - name: Verify bundled sidecars
         shell: bash
