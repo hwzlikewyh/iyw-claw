@@ -37,7 +37,8 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use iyw_claw_lib::acp::delegation::companion::{
-    binary_capabilities, dispatch_line, drain_and_cancel_all, CompanionContext, CompanionFeatures,
+    binary_capabilities, companion_ready_report_after_tools_list, dispatch_line,
+    drain_and_cancel_all, send_companion_ready_report, CompanionContext, CompanionFeatures,
     InflightCalls, JsonRpcResponse, LineAction, SpawnResult,
 };
 use iyw_claw_lib::acp::delegation::parent_watcher::{wait_for_parent_exit, DEFAULT_POLL_INTERVAL};
@@ -245,6 +246,14 @@ async fn main() -> ExitCode {
                         if let Err(e) = write_response(&stdout, &resp).await {
                             let _ = writeln!(std::io::stderr(), "iyw-claw-mcp: write stdout: {e}");
                             return ExitCode::from(1);
+                        }
+                        if let Some(report) =
+                            companion_ready_report_after_tools_list(&ctx, &line, &resp)
+                        {
+                            tokio::spawn(send_companion_ready_report(
+                                ctx.socket_path.clone(),
+                                report,
+                            ));
                         }
                     }
                     LineAction::Spawn(spawned) => {

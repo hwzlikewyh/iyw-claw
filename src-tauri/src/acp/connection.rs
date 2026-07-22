@@ -1462,6 +1462,7 @@ fn companion_features_arg(
 struct CompanionInjection {
     token: String,
     feedback_available: bool,
+    memory_tools_expected: bool,
 }
 
 struct MemoryLaunchAccess {
@@ -1470,15 +1471,66 @@ struct MemoryLaunchAccess {
     turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
 }
 
+const COMPANION_READY_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+async fn user_memory_runtime_after_companion_ready(
+    injection: Option<&DelegationInjection>,
+    companion: Option<&CompanionInjection>,
+    health: &crate::user_memory::CompanionHealthSnapshot,
+) -> crate::user_memory::UserMemoryRuntimeEnvironment {
+    let unavailable = || crate::user_memory::UserMemoryRuntimeEnvironment {
+        companion_health: health.clone(),
+        host_bridge_available: false,
+    };
+    let (Some(injection), Some(companion)) = (injection, companion) else {
+        return unavailable();
+    };
+    if !companion.memory_tools_expected {
+        return crate::user_memory::UserMemoryRuntimeEnvironment {
+            companion_health: health.clone(),
+            host_bridge_available: true,
+        };
+    }
+    let Some(report) = injection
+        .tokens
+        .wait_for_companion_ready(&companion.token, COMPANION_READY_WAIT_TIMEOUT)
+        .await
+    else {
+        tracing::warn!(
+            "[ACP] iyw-claw-mcp tools/list readiness timed out; disabling memory write tools"
+        );
+        return unavailable();
+    };
+    let mut verified_health = health.clone();
+    verified_health.detected_version = Some(report.version);
+    verified_health.advertised_tools = report.tools;
+    crate::user_memory::UserMemoryRuntimeEnvironment {
+        companion_health: verified_health,
+        host_bridge_available: true,
+    }
+}
+
+struct UserMemoryLaunchFinalization<'a> {
+    injection: Option<&'a DelegationInjection>,
+    companion: Option<&'a CompanionInjection>,
+    health: &'a crate::user_memory::CompanionHealthSnapshot,
+    resumed: bool,
+}
+
 async fn finalize_user_memory_launch(
     state: &Arc<RwLock<SessionState>>,
     emitter: &EventEmitter,
-    runtime: &crate::user_memory::UserMemoryRuntimeEnvironment,
-    resumed: bool,
+    launch: UserMemoryLaunchFinalization<'_>,
 ) {
+    let runtime = user_memory_runtime_after_companion_ready(
+        launch.injection,
+        launch.companion,
+        launch.health,
+    )
+    .await;
     {
         let mut session = state.write().await;
-        if resumed {
+        if launch.resumed {
             session
                 .user_memory_context
                 .finalize_resumed_runtime(runtime.clone());
@@ -1546,7 +1598,7 @@ async fn inject_iyw_claw_mcp(
         crate::acp::memory_turn::derive_opaque_source_id(&token, parent_connection_id);
     injection
         .tokens
-        .register(
+        .register_companion(
             token.clone(),
             crate::acp::delegation::listener::TokenEntry {
                 parent_connection_id: parent_connection_id.to_string(),
@@ -1584,6 +1636,7 @@ async fn inject_iyw_claw_mcp(
     Some(CompanionInjection {
         token,
         feedback_available: feedback_enabled,
+        memory_tools_expected: memory_access.confirmed_append || memory_access.candidate_proposal,
     })
 }
 
@@ -2136,11 +2189,6 @@ async fn run_connection(
                     .await;
                 }
             }
-            let user_memory_runtime = crate::user_memory::UserMemoryRuntimeEnvironment {
-                companion_health,
-                host_bridge_available: delegate_injection.is_some(),
-            };
-
             // Emit fork support capability
             emit_with_state(
                 &state,
@@ -2182,8 +2230,12 @@ async fn run_connection(
                             finalize_user_memory_launch(
                                 &state,
                                 &emitter_clone,
-                                &user_memory_runtime,
-                                true,
+                                UserMemoryLaunchFinalization {
+                                    injection: delegation_injection.as_ref(),
+                                    companion: delegate_injection.as_ref(),
+                                    health: &companion_health,
+                                    resumed: true,
+                                },
                             )
                             .await;
 
@@ -2298,8 +2350,12 @@ async fn run_connection(
                         finalize_user_memory_launch(
                             &state,
                             &emitter_clone,
-                            &user_memory_runtime,
-                            true,
+                            UserMemoryLaunchFinalization {
+                                injection: delegation_injection.as_ref(),
+                                companion: delegate_injection.as_ref(),
+                                health: &companion_health,
+                                resumed: true,
+                            },
                         )
                         .await;
 
@@ -2487,8 +2543,12 @@ async fn run_connection(
                         finalize_user_memory_launch(
                             &state,
                             &emitter_clone,
-                            &user_memory_runtime,
-                            false,
+                            UserMemoryLaunchFinalization {
+                                injection: delegation_injection.as_ref(),
+                                companion: delegate_injection.as_ref(),
+                                health: &companion_health,
+                                resumed: false,
+                            },
                         )
                         .await;
                         emit_with_state(
@@ -2570,8 +2630,12 @@ async fn run_connection(
                 finalize_user_memory_launch(
                     &state,
                     &emitter_clone,
-                    &user_memory_runtime,
-                    false,
+                    UserMemoryLaunchFinalization {
+                        injection: delegation_injection.as_ref(),
+                        companion: delegate_injection.as_ref(),
+                        health: &companion_health,
+                        resumed: false,
+                    },
                 )
                 .await;
                 emit_with_state(

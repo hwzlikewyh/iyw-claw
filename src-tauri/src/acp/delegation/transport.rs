@@ -213,6 +213,17 @@ pub struct BrokerMemoryProposalResult {
     pub confirmation_recommended: bool,
 }
 
+/// Confirm that this companion launch has successfully returned its actual
+/// `tools/list` catalog to the parent Agent. The per-launch token authenticates
+/// the report; the listener also rejects version-skewed companions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerCompanionReadyRequest {
+    pub token: String,
+    pub version: String,
+    pub tools: Vec<String>,
+}
+
 /// List the tools of the upstream iyw platform MCP service (`ai-application`
 /// behind the gateway). Sent by an `iyw-platform` companion instance
 /// (`--features platform`) on MCP `tools/list`. The listener attaches the
@@ -249,6 +260,7 @@ pub enum BrokerMessage {
     SessionInfo(BrokerSessionRequest),
     MemoryAppend(BrokerMemoryAppendRequest),
     MemoryProposal(BrokerMemoryProposalRequest),
+    CompanionReady(BrokerCompanionReadyRequest),
     PlatformToolsList(BrokerPlatformToolsListRequest),
     PlatformToolsCall(BrokerPlatformToolsCallRequest),
 }
@@ -418,6 +430,15 @@ pub async fn client_memory_proposal_round_trip(
     req: &BrokerMemoryProposalRequest,
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::MemoryProposal(req.clone())).await
+}
+
+/// Report that the authenticated companion has successfully written its
+/// `tools/list` response to the Agent-facing stdio channel.
+pub async fn client_companion_ready_round_trip(
+    socket_path: &str,
+    req: &BrokerCompanionReadyRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::CompanionReady(req.clone())).await
 }
 
 /// Dispatch a platform `tools/list` and read back a `{ "tools": [..] }`
