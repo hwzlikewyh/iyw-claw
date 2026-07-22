@@ -223,68 +223,6 @@ ar = "يشغّل أوامر التحقق ويؤكد الإخراج قبل الإ
 
 
 [[expert]]
-id = "systematic-debugging"
-category = "debugging"
-icon = "Bug"
-sort_order = 90
-
-[expert.display_name]
-en = "Systematic Debugging"
-"zh-CN" = "系统化调试"
-"zh-TW" = "系統化除錯"
-ja = "体系的なデバッグ"
-ko = "체계적인 디버깅"
-es = "Depuración sistemática"
-de = "Systematisches Debugging"
-fr = "Débogage systématique"
-pt = "Depuração sistemática"
-ar = "تصحيح الأخطاء المنهجي"
-
-[expert.description]
-en = "Root cause investigation with a four-phase process before proposing fixes."
-"zh-CN" = "提出修复方案前，用四阶段流程系统化地定位根本原因。"
-"zh-TW" = "提出修復方案前，用四階段流程系統化地定位根本原因。"
-ja = "修正案を提示する前に、4段階のプロセスで根本原因を調査します。"
-ko = "수정안을 제안하기 전에 4단계 프로세스로 근본 원인을 조사합니다."
-es = "Investiga la causa raíz con un proceso de cuatro fases antes de proponer soluciones."
-de = "Untersucht die Ursache in einem vierstufigen Prozess, bevor Fixes vorgeschlagen werden."
-fr = "Enquête sur la cause racine via un processus en quatre phases avant de proposer des correctifs."
-pt = "Investiga a causa raiz com um processo de quatro fases antes de propor correções."
-ar = "يحقق في السبب الجذري عبر عملية من أربع مراحل قبل اقتراح الإصلاحات."
-
-
-[[expert]]
-id = "finishing-a-development-branch"
-category = "review"
-icon = "GitMerge"
-sort_order = 120
-
-[expert.display_name]
-en = "Finishing a Development Branch"
-"zh-CN" = "收尾开发分支"
-"zh-TW" = "收尾開發分支"
-ja = "開発ブランチの仕上げ"
-ko = "개발 브랜치 마무리"
-es = "Finalización de rama de desarrollo"
-de = "Entwicklungs-Branch abschließen"
-fr = "Finalisation d'une branche de développement"
-pt = "Finalização de branch de desenvolvimento"
-ar = "إنهاء فرع التطوير"
-
-[expert.description]
-en = "Verify tests and present structured options for merge, PR, keep, or discard."
-"zh-CN" = "核验测试后，为合并、提交 PR、保留或丢弃提供结构化选项。"
-"zh-TW" = "核驗測試後，為合併、提交 PR、保留或丟棄提供結構化選項。"
-ja = "テストを検証し、マージ・PR・保留・破棄の構造化された選択肢を提示します。"
-ko = "테스트를 검증한 뒤 병합, PR, 유지, 폐기에 대한 구조화된 옵션을 제시합니다."
-es = "Verifica las pruebas y presenta opciones estructuradas para merge, PR, conservar o descartar."
-de = "Verifiziert Tests und präsentiert strukturierte Optionen für Merge, PR, Behalten oder Verwerfen."
-fr = "Vérifie les tests et propose des options structurées pour merger, créer une PR, conserver ou jeter."
-pt = "Verifica os testes e apresenta opções estruturadas para merge, PR, manter ou descartar."
-ar = "يتحقق من الاختبارات ويقدم خيارات منظمة للدمج أو طلب السحب أو الحفظ أو الإلغاء."
-
-
-[[expert]]
 id = "using-superpowers"
 category = "meta"
 icon = "Sparkles"

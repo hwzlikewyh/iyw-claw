@@ -3332,7 +3332,7 @@
     }
   },
   "CodexNativeSettings": {
-    "title": "Codex Built-in Skills",
+    "title": "Codex Built-ins",
     "description": "iyw-claw ships its own copies of the skills bundled with Codex CLI and publishes them to Codex's regular skills directory. While enabled, the CLI's .system copies are kept cleared so sessions never see duplicates.",
     "loading": "Loading Codex built-in skills…",
     "empty": "No Codex built-in skills bundled. Check the application logs.",

@@ -1610,6 +1610,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn schema_tools_are_recognized_by_dispatcher_when_enabled() {
+        let features = CompanionFeatures {
+            delegation: true,
+            feedback: true,
+            ask: true,
+            sessions: true,
+            images: true,
+            memory: true,
+            platform: false,
+        };
+        let tools: Value = serde_json::from_str(TOOL_SCHEMA_JSON).expect("schema should parse");
+        let names = tools
+            .as_array()
+            .expect("schema should be a tool array")
+            .iter()
+            .map(|tool| {
+                tool.get("name")
+                    .and_then(Value::as_str)
+                    .expect("tool should have a name")
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+
+        for (idx, name) in names.iter().enumerate() {
+            let line = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": idx + 1,
+                "method": "tools/call",
+                "params": {
+                    "name": name,
+                    "arguments": {}
+                }
+            })
+            .to_string();
+            if let LineAction::Respond(resp) = dispatch_with_features(features, &line).await {
+                if let Some(error) = resp.error {
+                    assert!(
+                        !error.message.contains("unknown tool"),
+                        "schema tool {name} was not recognized by the dispatcher"
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn initialize_returns_protocol_version() {
         let line = r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#;
         let resp = unwrap_respond(dispatch_for_test(line).await);
