@@ -20,10 +20,13 @@ pub const EXPERTS_POLICY_KEY: &str = "managed_skills.experts.enabled.v1";
 pub const OFFICE_TOOLS_POLICY_KEY: &str = "managed_skills.office_tools.enabled.v1";
 pub const INTERNET_TOOLS_POLICY_KEY: &str = "managed_skills.internet_tools.enabled.v1";
 pub const CODEX_NATIVE_POLICY_KEY: &str = "managed_skills.codex_native.enabled.v1";
+pub const COMPUTER_USE_POLICY_KEY: &str = "managed_skills.computer_use.enabled.v1";
 pub const EXPERTS_OVERRIDES_KEY: &str = "managed_skills.experts.overrides.v1";
 pub const OFFICE_TOOLS_OVERRIDES_KEY: &str = "managed_skills.office_tools.overrides.v1";
 pub const INTERNET_TOOLS_OVERRIDES_KEY: &str = "managed_skills.internet_tools.overrides.v1";
 pub const CODEX_NATIVE_OVERRIDES_KEY: &str = "managed_skills.codex_native.overrides.v1";
+pub const COMPUTER_USE_OVERRIDES_KEY: &str = "managed_skills.computer_use.overrides.v1";
+const DEFAULT_ENABLED_MIGRATION_KEY: &str = "managed_skills.default_enabled.v2";
 
 fn policy_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -44,13 +47,15 @@ pub enum ManagedSkillFamily {
     OfficeTools,
     InternetTools,
     CodexNative,
+    ComputerUse,
 }
 
-const MANAGED_SKILL_FAMILIES: [ManagedSkillFamily; 4] = [
+const MANAGED_SKILL_FAMILIES: [ManagedSkillFamily; 5] = [
     ManagedSkillFamily::Experts,
     ManagedSkillFamily::OfficeTools,
     ManagedSkillFamily::InternetTools,
     ManagedSkillFamily::CodexNative,
+    ManagedSkillFamily::ComputerUse,
 ];
 
 impl ManagedSkillFamily {
@@ -60,6 +65,7 @@ impl ManagedSkillFamily {
             Self::OfficeTools => OFFICE_TOOLS_POLICY_KEY,
             Self::InternetTools => INTERNET_TOOLS_POLICY_KEY,
             Self::CodexNative => CODEX_NATIVE_POLICY_KEY,
+            Self::ComputerUse => COMPUTER_USE_POLICY_KEY,
         }
     }
 
@@ -69,26 +75,26 @@ impl ManagedSkillFamily {
             Self::OfficeTools => OFFICE_TOOLS_OVERRIDES_KEY,
             Self::InternetTools => INTERNET_TOOLS_OVERRIDES_KEY,
             Self::CodexNative => CODEX_NATIVE_OVERRIDES_KEY,
+            Self::ComputerUse => COMPUTER_USE_OVERRIDES_KEY,
         }
     }
 }
 
-/// CodexNative replaces the skills Codex CLI bundles in
-/// `~/.codex/skills/.system/`, so it defaults to enabled: out of the box the
-/// replacements are published and the `.system` copies cleared. Other
-/// families stay opt-in.
 fn family_default_enabled(family: ManagedSkillFamily) -> bool {
-    matches!(family, ManagedSkillFamily::CodexNative)
+    !matches!(family, ManagedSkillFamily::ComputerUse)
 }
 
-/// CodexNative skills are Codex-specific replacements and are never
-/// published to other agents; every other family targets all skill-capable
-/// agents.
-fn family_allows_agent(family: ManagedSkillFamily, agent_type: AgentType) -> bool {
-    match family {
-        ManagedSkillFamily::CodexNative => agent_type == AgentType::Codex,
-        _ => true,
-    }
+fn family_is_user_configurable(family: ManagedSkillFamily) -> bool {
+    matches!(
+        family,
+        ManagedSkillFamily::OfficeTools
+            | ManagedSkillFamily::InternetTools
+            | ManagedSkillFamily::ComputerUse
+    )
+}
+
+fn family_allows_agent(_family: ManagedSkillFamily, _agent_type: AgentType) -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,6 +142,7 @@ fn family_skill_ids(family: ManagedSkillFamily) -> Vec<String> {
         ManagedSkillFamily::OfficeTools => office_tools::managed_office_skill_ids(),
         ManagedSkillFamily::InternetTools => internet_tools::managed_internet_skill_ids(),
         ManagedSkillFamily::CodexNative => experts::managed_codex_native_ids(),
+        ManagedSkillFamily::ComputerUse => experts::managed_computer_use_ids(),
     }
 }
 
@@ -145,6 +152,7 @@ fn family_ready_skill_ids(family: ManagedSkillFamily) -> Vec<String> {
         ManagedSkillFamily::OfficeTools => office_tools::managed_ready_office_skill_ids(),
         ManagedSkillFamily::InternetTools => internet_tools::managed_ready_internet_skill_ids(),
         ManagedSkillFamily::CodexNative => experts::managed_ready_codex_native_ids(),
+        ManagedSkillFamily::ComputerUse => experts::managed_ready_computer_use_ids(),
     }
 }
 
@@ -294,18 +302,14 @@ async fn load_global_state(
     conn: &DatabaseConnection,
 ) -> Result<ManagedSkillGlobalState, AppCommandError> {
     Ok(ManagedSkillGlobalState {
-        experts_enabled: load_policy(conn, EXPERTS_POLICY_KEY)
-            .await?
-            .unwrap_or(family_default_enabled(ManagedSkillFamily::Experts)),
+        experts_enabled: true,
         office_tools_enabled: load_policy(conn, OFFICE_TOOLS_POLICY_KEY)
             .await?
             .unwrap_or(family_default_enabled(ManagedSkillFamily::OfficeTools)),
         internet_tools_enabled: load_policy(conn, INTERNET_TOOLS_POLICY_KEY)
             .await?
             .unwrap_or(family_default_enabled(ManagedSkillFamily::InternetTools)),
-        codex_native_enabled: load_policy(conn, CODEX_NATIVE_POLICY_KEY)
-            .await?
-            .unwrap_or(family_default_enabled(ManagedSkillFamily::CodexNative)),
+        codex_native_enabled: true,
     })
 }
 
@@ -313,6 +317,9 @@ async fn load_family_policy(
     conn: &DatabaseConnection,
     family: ManagedSkillFamily,
 ) -> Result<(bool, BTreeMap<String, bool>), AppCommandError> {
+    if !family_is_user_configurable(family) {
+        return Ok((true, BTreeMap::new()));
+    }
     let default_enabled = load_policy(conn, family.policy_key())
         .await?
         .unwrap_or(family_default_enabled(family));
@@ -403,6 +410,58 @@ where
         .map_err(|error| AppCommandError::database_error(error.to_string()))
 }
 
+async fn migrate_default_enabled_v2(conn: &DatabaseConnection) -> Result<(), AppCommandError> {
+    if app_metadata_service::get_value(conn, DEFAULT_ENABLED_MIGRATION_KEY)
+        .await
+        .map_err(AppCommandError::from)?
+        .as_deref()
+        == Some("true")
+    {
+        return Ok(());
+    }
+
+    let families = [
+        ManagedSkillFamily::Experts,
+        ManagedSkillFamily::OfficeTools,
+        ManagedSkillFamily::InternetTools,
+        ManagedSkillFamily::CodexNative,
+    ];
+    let mut migrated = Vec::with_capacity(families.len());
+    for family in families {
+        let mut overrides = load_overrides(conn, family).await?;
+        if family_is_user_configurable(family) {
+            overrides.retain(|_, enabled| !*enabled);
+        } else {
+            overrides.clear();
+        }
+        migrated.push((
+            family,
+            serde_json::to_string(&overrides)
+                .map_err(|error| AppCommandError::configuration_invalid(error.to_string()))?,
+        ));
+    }
+
+    let transaction = conn
+        .begin()
+        .await
+        .map_err(|error| AppCommandError::database_error(error.to_string()))?;
+    for (family, overrides) in migrated {
+        app_metadata_service::upsert_value(&transaction, family.policy_key(), "true")
+            .await
+            .map_err(AppCommandError::from)?;
+        app_metadata_service::upsert_value(&transaction, family.overrides_key(), &overrides)
+            .await
+            .map_err(AppCommandError::from)?;
+    }
+    app_metadata_service::upsert_value(&transaction, DEFAULT_ENABLED_MIGRATION_KEY, "true")
+        .await
+        .map_err(AppCommandError::from)?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| AppCommandError::database_error(error.to_string()))
+}
+
 async fn ensure_policies_migrated_locked(conn: &DatabaseConnection) -> Result<(), AppCommandError> {
     ensure_agent_settings(conn).await?;
     let agents = migration_agent_types();
@@ -422,6 +481,11 @@ async fn ensure_policies_migrated_locked(conn: &DatabaseConnection) -> Result<()
         experts::managed_expert_has_owned_link(skill_id, &agents)
     })
     .await?;
+    migrate_family_policy_with(conn, ManagedSkillFamily::ComputerUse, |skill_id| {
+        experts::managed_expert_has_owned_link(skill_id, &agents)
+    })
+    .await?;
+    migrate_default_enabled_v2(conn).await?;
     Ok(())
 }
 
@@ -525,6 +589,7 @@ async fn reconcile_targets(
             }
             results
         }
+        ManagedSkillFamily::ComputerUse => experts::reconcile_managed_experts(targets).await,
     };
     let touched_agents = touched_agents(&results);
     ManagedSkillSyncReport {
@@ -578,6 +643,11 @@ pub async fn reconcile_family_core(
     family: ManagedSkillFamily,
     enabled: bool,
 ) -> Result<ManagedSkillSyncReport, AppCommandError> {
+    let enabled = if family_is_user_configurable(family) {
+        enabled
+    } else {
+        true
+    };
     let agents = agent_eligibility(conn).await?;
     let skills = family_skill_ids(family)
         .into_iter()
@@ -604,6 +674,11 @@ pub async fn set_global_enabled_core(
     family: ManagedSkillFamily,
     enabled: bool,
 ) -> Result<ManagedSkillSyncReport, AppCommandError> {
+    if !family_is_user_configurable(family) {
+        return Err(AppCommandError::invalid_input(format!(
+            "The {family:?} skill family is managed by iyw-claw and cannot be disabled"
+        )));
+    }
     let _guard = policy_lock().lock().await;
     ensure_policies_migrated_locked(conn).await?;
     persist_family_default(conn, family, enabled).await?;
@@ -622,6 +697,11 @@ pub async fn set_skill_enabled_core(
     skill_id: String,
     enabled: bool,
 ) -> Result<ManagedSkillSyncReport, AppCommandError> {
+    if !family_is_user_configurable(family) {
+        return Err(AppCommandError::invalid_input(format!(
+            "Skills in the {family:?} family are managed by iyw-claw"
+        )));
+    }
     if !family_knows_skill(family, &skill_id) {
         return Err(AppCommandError::invalid_input(format!(
             "Unknown managed skill '{skill_id}' for {family:?}"

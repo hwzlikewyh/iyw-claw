@@ -1,33 +1,26 @@
-# Codex network approvals / sandbox notes
+# IYW Fusion Network Access
 
-This file is for the fallback CLI mode only. Read it when the user explicitly asks to use `scripts/image_gen.py` / CLI / API / model controls, or after the user explicitly confirms that a transparent-output request should use the `gpt-image-1.5` true-transparency fallback path.
+The bundled image CLI calls the IYW Fusion API over HTTPS. A sandboxed Agent may
+need network permission before the command can connect.
 
-This guidance is intentionally isolated from `SKILL.md` because it can vary by environment and may become stale. Prefer the defaults in your environment when in doubt.
+## Required Destination
 
-## Why am I asked to approve image generation calls?
-The fallback CLI uses the OpenAI Image API, so it needs outbound network access. In many Codex setups, network access is disabled by default and/or the approval policy requires confirmation before networked commands run.
-
-## Important note about approvals vs network
-- `--ask-for-approval never` suppresses approval prompts.
-- It does **not** by itself enable network access.
-- In `workspace-write`, network access still depends on your Codex configuration (for example `[sandbox_workspace_write] network_access = true`).
-
-## How do I reduce repeated approval prompts?
-If you trust the repo and want fewer prompts, use a configuration or profile that both:
-- enables network for the sandbox mode you plan to use
-- sets an approval policy that matches your risk tolerance
-
-Example `~/.codex/config.toml` pattern:
-
-```toml
-approval_policy = "on-request"
-sandbox_mode = "workspace-write"
-
-[sandbox_workspace_write]
-network_access = true
+```text
+https://gateway.iyw.cn/iyw-fusion-api/v1
 ```
 
-If you want quieter automation after network is enabled, you can choose a stricter approval policy, but do that intentionally and with care.
+Do not switch hosts to work around a denial. Do not reveal the token or request
+headers while diagnosing connectivity.
 
-## Safety note
-Enabling network and reducing approvals lowers friction, but increases risk if you run untrusted code or work in an untrusted repository.
+## Diagnosis
+
+1. Confirm the user is signed in to iyw-claw without printing account data.
+2. Confirm the runtime permits outbound HTTPS to `gateway.iyw.cn`.
+3. Run the image command once. Preserve the non-secret status and error body.
+4. If the environment requires approval, request access for that exact command
+   and destination.
+5. Do not automatically retry a request whose charge/completion state is
+   uncertain.
+
+`--dry-run` validates parameters without reading credentials or using the
+network. It cannot prove that a live request will authenticate successfully.

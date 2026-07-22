@@ -1,0 +1,9 @@
+[project]
+name = "iyw-image-workflows"
+version = "0.0.1"
+description = "Direct IYW commerce image workflow CLI"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.uv]
+package = false

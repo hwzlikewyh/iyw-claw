@@ -1,10 +1,9 @@
 # Prompting best practices
 
-These prompting principles are shared by both top-level modes of the skill:
-- built-in `image_gen` tool (default)
-- explicit `scripts/image_gen.py` CLI fallback
-
-This file is about prompt structure, specificity, and iteration. Fallback-only execution controls such as `quality`, `input_fidelity`, masks, output format, and output paths live in the fallback docs.
+These prompting principles apply to `scripts/image_gen.py`, the normal image
+generation and editing path through the IYW Fusion API. Execution controls such
+as `quality`, `input_fidelity`, masks, output format, and output paths live in
+the CLI reference.
 
 ## Contents
 - [Structure](#structure)
@@ -16,7 +15,7 @@ This file is about prompt structure, specificity, and iteration. Fallback-only e
 - [Input images and references](#input-images-and-references)
 - [Iterate deliberately](#iterate-deliberately)
 - [Transparent images](#transparent-images)
-- [Fallback-only execution controls](#fallback-only-execution-controls)
+- [Execution controls](#execution-controls)
 - [Use-case tips](#use-case-tips)
 - [Where to find copy/paste recipes](#where-to-find-copypaste-recipes)
 
@@ -58,7 +57,7 @@ Do not add:
 - Put literal text in quotes or ALL CAPS and specify typography (font style, size, color, placement).
 - Spell uncommon words letter-by-letter if accuracy matters.
 - For in-image copy, require verbatim rendering and no extra characters.
-- In CLI fallback mode, use `medium` or `high` quality for small text, dense infographics, data-heavy slides, multi-font layouts, legends, axes, and footnotes.
+- Use `medium` or `high` quality for small text, dense infographics, data-heavy slides, multi-font layouts, legends, axes, and footnotes.
 
 ## Input images and references
 - Do not assume that every provided image is an edit target.
@@ -73,21 +72,20 @@ Do not add:
 - Prefer one targeted follow-up at a time over rewriting the whole prompt.
 
 ## Transparent images
-- Use built-in `image_gen` first for transparent-image requests. If the subject is clearly too complex for chroma-key removal, explain the fallback and ask before switching to CLI.
+- Use a flat chroma-key background first for simple opaque subjects.
 - Prompt for a perfectly flat solid chroma-key background, usually `#00ff00`; use `#ff00ff` when the subject is green, and avoid key colors that appear in the subject.
 - Explicitly prohibit shadows, gradients, floor planes, reflections, texture, and lighting variation in the background.
 - Ask for crisp edges, generous padding, and no use of the key color inside the subject.
-- After generation, remove the background locally with `python "${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/scripts/remove_chroma_key.py" --input <source> --out <final.png> --auto-key border --soft-matte --transparent-threshold 12 --opaque-threshold 220 --despill` and validate the alpha result before shipping it.
+- After generation, remove the background locally with `python scripts/remove_chroma_key.py --input <source> --out <final.png> --auto-key border --soft-matte --transparent-threshold 12 --opaque-threshold 220 --despill` and validate the alpha result before shipping it.
 - Use soft matte and despill for antialiased edges; hard tolerance-only removal is mainly for flat pixel-art or exact-color fixtures.
-- Use CLI `gpt-image-1.5 --background transparent --output-format png` only after the user explicitly confirms the fallback, or when the user already explicitly requested `gpt-image-1.5`, `scripts/image_gen.py`, or CLI fallback. Ask first for true/native transparency requests, failed chroma-key validation, or complex transparent subjects such as hair, fur, glass, smoke, liquids, translucent materials, reflective objects, or soft shadows.
+- Use `gpt-image-1.5 --background transparent --output-format png` for true/native transparency, failed chroma-key validation, or complex transparent subjects such as hair, fur, glass, smoke, liquids, translucent materials, reflective objects, or soft shadows.
 
-## Fallback-only execution controls
-- `quality`, `input_fidelity`, explicit masks, output format, and output paths are fallback-only execution controls.
-- Do not assume they are built-in `image_gen` tool arguments.
-- If the user explicitly chooses CLI fallback, see `references/cli.md` and `references/image-api.md` for those controls.
-- In CLI fallback mode, `gpt-image-2` is the default. It supports `quality=low|medium|high|auto`; use `low` for fast drafts and thumbnails, and move to `medium`, `high`, or `auto` for final assets.
+## Execution controls
+- `quality`, `input_fidelity`, explicit masks, output format, and output paths are CLI controls.
+- See `references/cli.md` and `references/image-api.md` for those controls.
+- `gpt-image-2` is the default. It supports `quality=low|medium|high|auto`; use `low` for fast drafts and thumbnails, and move to `medium`, `high`, or `auto` for final assets.
 - `gpt-image-2` always uses high fidelity for image inputs, so do not set `input_fidelity` with that model.
-- If a transparent request needs true CLI transparency, ask before using `gpt-image-1.5` unless the user already explicitly chose it. Explain that built-in chroma-key removal is the default path, but `gpt-image-2` does not support `background=transparent`.
+- If a transparent request needs native transparency, use `gpt-image-1.5`; `gpt-image-2` does not support `background=transparent`.
 - If the user asks for 4K-style output with `gpt-image-2`, use `3840x2160` for landscape or `2160x3840` for portrait.
 
 ## Use-case tips

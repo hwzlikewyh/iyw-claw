@@ -488,6 +488,16 @@ async fn async_main() -> ExitCode {
         ));
     }
 
+    // Keep installed Agent SDKs aligned with the registry while every live
+    // Agent is idle. Manual and automatic storage mutations share one lock.
+    tokio::spawn(iyw_claw_lib::agent_auto_update_task(
+        state.connection_manager.clone_ref(),
+        iyw_claw_lib::db::AppDatabase {
+            conn: state.db.conn.clone(),
+        },
+        state.emitter.clone(),
+    ));
+
     // Office watch preview servers: reap dead children + ref0 stragglers.
     if let Some(idle_timeout) = iyw_claw_lib::office_watch::idle_timeout_from_env() {
         tokio::spawn(iyw_claw_lib::office_watch::office_watch_idle_sweep_task(

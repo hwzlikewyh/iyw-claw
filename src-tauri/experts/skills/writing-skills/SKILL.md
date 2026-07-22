@@ -7,15 +7,16 @@ description: Use when creating new skills, editing existing skills, or verifying
 
 ## Overview
 
-**Writing skills IS Test-Driven Development applied to process documentation.**
+Writing skills uses scenario-driven validation for process documentation.
 
 **Personal skills live in your runtime's skills directory** 
 
-You write test cases (pressure scenarios with subagents), watch them fail (baseline behavior), write the skill (documentation), watch tests pass (agents comply), and refactor (close loopholes).
+Define realistic scenarios, capture baseline behavior when practical, write the
+smallest useful instructions, and validate that an Agent can follow them.
 
-**Core principle:** If you didn't watch an agent fail without the skill, you don't know if the skill teaches the right thing.
-
-**REQUIRED BACKGROUND:** You MUST understand superpowers:test-driven-development before using this skill. That skill defines the fundamental RED-GREEN-REFACTOR cycle. This skill adapts TDD to documentation.
+**Core principle:** Validation effort should match the skill's risk. Static
+checks are sufficient for narrow reference updates; behavior-changing workflow
+skills need realistic scenarios.
 
 **Official guidance:** For Anthropic's official skill authoring best practices, see anthropic-best-practices.md. This document provides additional patterns and guidelines that complement the TDD-focused approach in this skill.
 
@@ -280,10 +281,10 @@ wc -w skills/path/SKILL.md
 **When writing documentation that references other skills:**
 
 Use skill name only, with explicit requirement markers:
-- ✅ Good: `**REQUIRED SUB-SKILL:** Use superpowers:test-driven-development`
-- ✅ Good: `**REQUIRED BACKGROUND:** You MUST understand superpowers:systematic-debugging`
-- ❌ Bad: `See skills/testing/test-driven-development` (unclear if required)
-- ❌ Bad: `@skills/testing/test-driven-development/SKILL.md` (force-loads, burns context)
+- Good: `**REQUIRED SUB-SKILL:** Use iyw-image-workflows`
+- Good: `**REQUIRED BACKGROUND:** Read the active repository instructions`
+- Bad: `See another skill somewhere` (unclear and not verifiable)
+- Bad: force-loading unrelated skill files (wastes context)
 
 **Why no @ links:** `@` syntax force-loads files immediately, consuming 200k+ context before you need them.
 
@@ -371,26 +372,16 @@ pptx/
 ```
 When: Reference material too large for inline
 
-## The Iron Law (Same as TDD)
+## Validation Law
 
 ```
-NO SKILL WITHOUT A FAILING TEST FIRST
+NO BEHAVIOR-CHANGING SKILL WITHOUT PROPORTIONAL VALIDATION
 ```
 
-This applies to NEW skills AND EDITS to existing skills.
-
-Write skill before testing? Delete it. Start over.
-Edit skill without testing? Same violation.
-
-**No exceptions:**
-- Not for "simple additions"
-- Not for "just adding a section"
-- Not for "documentation updates"
-- Don't keep untested changes as "reference"
-- Don't "adapt" while running tests
-- Delete means delete
-
-**REQUIRED BACKGROUND:** The superpowers:test-driven-development skill explains why this matters. Same principles apply to documentation.
+For a new workflow or a high-risk rule, validate realistic success, failure,
+and pressure scenarios. For a narrow wording, path, or API-reference update,
+perform frontmatter, link, command, and consistency checks without inventing a
+heavy test campaign.
 
 ## Testing All Skill Types
 
@@ -398,7 +389,7 @@ Different skill types need different test approaches:
 
 ### Discipline-Enforcing Skills (rules/requirements)
 
-**Examples:** TDD, verification-before-completion, designing-before-coding
+**Examples:** release gates, destructive-action rules, credential handling
 
 **Test with:**
 - Academic questions: Do they understand the rules?

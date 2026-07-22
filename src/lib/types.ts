@@ -1729,6 +1729,7 @@ export type ManagedSkillFamily =
   | "office_tools"
   | "internet_tools"
   | "codex_native"
+  | "computer_use"
 
 export interface ManagedSkillGlobalState {
   expertsEnabled: boolean

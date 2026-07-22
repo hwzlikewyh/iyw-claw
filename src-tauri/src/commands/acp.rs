@@ -1061,7 +1061,7 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
         "visibility": "list",
         "supported_in_api": true,
         "priority": priority,
-        "base_instructions": "You are Codex, a coding agent. You and the user share one workspace. Collaborate until the user's goal is handled.",
+        "base_instructions": "你是爱原物原助理。你和用户共享一个工作区，请持续协作，直到用户的目标真正完成。",
         "include_skills_usage_instructions": true,
         "supports_reasoning_summaries": true,
         "support_verbosity": false,
@@ -6231,6 +6231,7 @@ pub(crate) async fn build_session_runtime_env(
         &mut runtime_env,
     )
     .await?;
+    crate::acp::runtime_context::prepend_tool_dirs(Some(&paths), &mut runtime_env);
     runtime_env.remove(MANAGED_AGENT_VERSION_ENV);
     if let Some(version) = setting
         .as_ref()

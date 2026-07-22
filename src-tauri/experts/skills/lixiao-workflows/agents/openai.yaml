@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lixiao Workflows"
+  short_description: "Log in and query Lixiao enterprise data safely"
+  default_prompt: "Use $lixiao-workflows to log in and query Lixiao enterprise data safely."

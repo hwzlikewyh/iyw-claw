@@ -31,7 +31,31 @@ use crate::models::agent::AgentType;
 
 // ─── Embedded bundle ────────────────────────────────────────────────────
 
-static EXPERTS_BUNDLE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/experts");
+static WRITING_PLANS_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/writing-plans");
+static EXECUTING_PLANS_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/executing-plans");
+static USING_SUPERPOWERS_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/using-superpowers");
+static WRITING_SKILLS_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/writing-skills");
+static IMAGEGEN_BUNDLE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/experts/skills/imagegen");
+static PLUGIN_CREATOR_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/plugin-creator");
+static SKILL_CREATOR_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/skill-creator");
+static SKILL_INSTALLER_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/skill-installer");
+static IYW_IMAGE_WORKFLOWS_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-image-workflows");
+static LIXIAO_WORKFLOWS_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/lixiao-workflows");
+static SELF_IMPROVING_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/self-improving");
+static OPEN_COMPUTER_USE_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/open-computer-use");
+static EXPERTS_TOML_CONTENT: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/experts/experts.toml"));
 
 const CENTRAL_DIR_NAME: &str = ".iyw-claw";
 const CENTRAL_SKILLS_SUBDIR: &str = "skills";
@@ -252,13 +276,7 @@ fn bundled_metadata() -> &'static [ExpertMetadata] {
 }
 
 fn load_bundled_metadata_inner() -> Result<Vec<ExpertMetadata>, ExpertsError> {
-    let toml_file = EXPERTS_BUNDLE
-        .get_file(EXPERTS_TOML)
-        .ok_or_else(|| ExpertsError::Metadata(format!("{EXPERTS_TOML} missing from bundle")))?;
-    let toml_str = toml_file
-        .contents_utf8()
-        .ok_or_else(|| ExpertsError::Metadata(format!("{EXPERTS_TOML} is not valid UTF-8")))?;
-    let root: ExpertsTomlRoot = toml::from_str(toml_str)
+    let root: ExpertsTomlRoot = toml::from_str(EXPERTS_TOML_CONTENT)
         .map_err(|e| ExpertsError::Metadata(format!("failed to parse {EXPERTS_TOML}: {e}")))?;
 
     let mut out = Vec::with_capacity(root.expert.len());
@@ -304,21 +322,37 @@ pub(crate) fn is_bundled_expert_id(expert_id: &str) -> bool {
 // ─── Hashing ────────────────────────────────────────────────────────────
 
 fn hash_bundled_expert(expert_id: &str) -> Result<String, ExpertsError> {
-    let skill_dir = format!("skills/{expert_id}");
-    let dir = EXPERTS_BUNDLE
-        .get_dir(&skill_dir)
+    let dir = bundled_skill_dir(expert_id)
         .ok_or_else(|| ExpertsError::NotFound(expert_id.to_string()))?;
     let mut files: Vec<(&str, &[u8])> = Vec::new();
     collect_bundle_files(dir, &mut files);
     files.sort_by_key(|(path, _)| *path);
     let mut hasher = Sha256::new();
     for (path, contents) in files {
-        hasher.update(path.as_bytes());
+        hasher.update(format!("skills/{expert_id}/{path}").as_bytes());
         hasher.update(b"\0");
         hasher.update(contents);
         hasher.update(b"\0");
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn bundled_skill_dir(expert_id: &str) -> Option<&'static Dir<'static>> {
+    match expert_id {
+        "writing-plans" => Some(&WRITING_PLANS_BUNDLE),
+        "executing-plans" => Some(&EXECUTING_PLANS_BUNDLE),
+        "using-superpowers" => Some(&USING_SUPERPOWERS_BUNDLE),
+        "writing-skills" => Some(&WRITING_SKILLS_BUNDLE),
+        "imagegen" => Some(&IMAGEGEN_BUNDLE),
+        "plugin-creator" => Some(&PLUGIN_CREATOR_BUNDLE),
+        "skill-creator" => Some(&SKILL_CREATOR_BUNDLE),
+        "skill-installer" => Some(&SKILL_INSTALLER_BUNDLE),
+        "iyw-image-workflows" => Some(&IYW_IMAGE_WORKFLOWS_BUNDLE),
+        "lixiao-workflows" => Some(&LIXIAO_WORKFLOWS_BUNDLE),
+        "self-improving" => Some(&SELF_IMPROVING_BUNDLE),
+        "open-computer-use" => Some(&OPEN_COMPUTER_USE_BUNDLE),
+        _ => None,
+    }
 }
 
 fn collect_bundle_files<'a>(dir: &'a Dir<'a>, out: &mut Vec<(&'a str, &'a [u8])>) {
@@ -858,12 +892,9 @@ fn install_or_refresh_expert(
 }
 
 fn extract_expert_to_disk(meta: &ExpertMetadata, target: &Path) -> Result<(), ExpertsError> {
-    let skill_rel = format!("skills/{}", meta.id);
-    let dir = EXPERTS_BUNDLE
-        .get_dir(&skill_rel)
-        .ok_or_else(|| ExpertsError::NotFound(meta.id.clone()))?;
+    let dir = bundled_skill_dir(&meta.id).ok_or_else(|| ExpertsError::NotFound(meta.id.clone()))?;
     fs::create_dir_all(target)?;
-    extract_bundle_dir(dir, &skill_rel, target)?;
+    extract_bundle_dir(dir, "", target)?;
     Ok(())
 }
 
@@ -888,11 +919,8 @@ fn extract_bundle_dir(
                     fs::create_dir_all(parent)?;
                 }
                 fs::write(&out_path, f.contents())?;
-                // `include_dir!` does not carry Unix permission bits, so bundled
-                // scripts (e.g. subagent-driven-development/scripts/* and the
-                // brainstorming companion's *.sh) would extract as non-executable
-                // and fail when a skill invokes them by path. Restore the execute
-                // bit for any file that declares a shebang.
+                // `include_dir!` does not carry Unix permission bits. Restore
+                // the execute bit for bundled scripts that declare a shebang.
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -971,21 +999,24 @@ fn supported_agents() -> Vec<AgentType> {
     crate::commands::managed_skills::supported_skill_agent_types()
 }
 
-/// Bundled experts split into two managed families by `experts.toml`
-/// category: everything except `codex_native` belongs to the Experts family;
-/// `codex_native` entries are iyw-claw's replacements for the skills Codex
-/// CLI ships under `~/.codex/skills/.system/` and are published to Codex
-/// only. Storage (bundle → central store → links) is shared.
+/// Bundled skills are split into managed families by `experts.toml` category.
+/// Internal skills are hidden and always published, while `computer_use` is
+/// the one bundled family users can opt into. Storage is shared by all groups.
 pub(crate) const CODEX_NATIVE_CATEGORY: &str = "codex_native";
+pub(crate) const COMPUTER_USE_CATEGORY: &str = "computer_use";
 
 fn is_codex_native(metadata: &ExpertMetadata) -> bool {
     metadata.category == CODEX_NATIVE_CATEGORY
 }
 
+fn is_computer_use(metadata: &ExpertMetadata) -> bool {
+    metadata.category == COMPUTER_USE_CATEGORY
+}
+
 pub(crate) fn managed_expert_ids() -> Vec<String> {
     bundled_metadata()
         .iter()
-        .filter(|metadata| !is_codex_native(metadata))
+        .filter(|metadata| !is_codex_native(metadata) && !is_computer_use(metadata))
         .map(|metadata| metadata.id.clone())
         .collect()
 }
@@ -993,7 +1024,7 @@ pub(crate) fn managed_expert_ids() -> Vec<String> {
 pub(crate) fn managed_ready_expert_ids() -> Vec<String> {
     bundled_metadata()
         .iter()
-        .filter(|metadata| !is_codex_native(metadata))
+        .filter(|metadata| !is_codex_native(metadata) && !is_computer_use(metadata))
         .filter(|metadata| expert_central_path(&metadata.id).exists())
         .map(|metadata| metadata.id.clone())
         .collect()
@@ -1011,6 +1042,23 @@ pub(crate) fn managed_ready_codex_native_ids() -> Vec<String> {
     bundled_metadata()
         .iter()
         .filter(|metadata| is_codex_native(metadata))
+        .filter(|metadata| expert_central_path(&metadata.id).exists())
+        .map(|metadata| metadata.id.clone())
+        .collect()
+}
+
+pub(crate) fn managed_computer_use_ids() -> Vec<String> {
+    bundled_metadata()
+        .iter()
+        .filter(|metadata| is_computer_use(metadata))
+        .map(|metadata| metadata.id.clone())
+        .collect()
+}
+
+pub(crate) fn managed_ready_computer_use_ids() -> Vec<String> {
+    bundled_metadata()
+        .iter()
+        .filter(|metadata| is_computer_use(metadata))
         .filter(|metadata| expert_central_path(&metadata.id).exists())
         .map(|metadata| metadata.id.clone())
         .collect()
@@ -1317,8 +1365,7 @@ pub async fn experts_read_content(expert_id: String) -> Result<String, ExpertsEr
     let path = expert_central_path(&expert_id).join("SKILL.md");
     if !path.exists() {
         // Fall back to bundled copy when central store isn't populated.
-        let bundled_rel = format!("skills/{expert_id}/SKILL.md");
-        if let Some(f) = EXPERTS_BUNDLE.get_file(&bundled_rel) {
+        if let Some(f) = bundled_skill_dir(&expert_id).and_then(|dir| dir.get_file("SKILL.md")) {
             if let Some(text) = f.contents_utf8() {
                 return Ok(text.to_string());
             }

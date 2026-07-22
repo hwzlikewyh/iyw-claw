@@ -1,0 +1,7 @@
+interface:
+  display_name: "IYW 图片工作流"
+  short_description: "分身生图、上传检测及已确认的 IYW 电商图片操作"
+  default_prompt: "使用 $iyw-image-workflows 执行分身生图、上传检测或已确认的 IYW commerce 操作，并直接展示生成的远程图片。"
+
+policy:
+  allow_implicit_invocation: true

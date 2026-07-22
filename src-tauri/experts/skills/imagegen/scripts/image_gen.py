@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Fallback CLI for explicit image generation or editing with GPT Image models.
-
-Used only when the user explicitly opts into CLI fallback mode, or when explicit
-transparent output requires the `gpt-image-1.5` fallback path.
-
-Defaults to gpt-image-2 and a structured prompt augmentation workflow.
-"""
+"""Generate or edit images through the IYW Fusion API."""
 
 from __future__ import annotations
 
@@ -29,6 +23,8 @@ DEFAULT_OUTPUT_FORMAT = "png"
 DEFAULT_CONCURRENCY = 5
 DEFAULT_DOWNSCALE_SUFFIX = "-web"
 DEFAULT_OUTPUT_PATH = "output/imagegen/output.png"
+DEFAULT_API_BASE_URL = "https://gateway.iyw.cn/iyw-fusion-api/v1"
+ACCOUNT_TOKEN_FILENAME = "iyw-account-token.json"
 GPT_IMAGE_MODEL_PREFIX = "gpt-image-"
 
 ALLOWED_LEGACY_SIZES = {"1024x1024", "1536x1024", "1024x1536", "auto"}
@@ -66,14 +62,45 @@ def _dependency_hint(package: str, *, upgrade: bool = False) -> str:
     )
 
 
-def _ensure_api_key(dry_run: bool) -> None:
-    if os.getenv("OPENAI_API_KEY"):
-        print("OPENAI_API_KEY is set.", file=sys.stderr)
+def _load_account_access_token() -> str:
+    token_path = Path.home() / ".iyw-claw" / ACCOUNT_TOKEN_FILENAME
+    if not token_path.is_file():
+        return ""
+    try:
+        data = json.loads(token_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _die(f"Cannot read IYW account token file: {token_path}: {exc}")
+    if not isinstance(data, dict):
+        _die(f"IYW account token file must contain a JSON object: {token_path}")
+    token = data.get("access_token")
+    return token.strip() if isinstance(token, str) else ""
+
+
+def _resolve_token() -> str:
+    return os.getenv("IYW_TOKEN", "").strip() or _load_account_access_token()
+
+
+def _ensure_token(dry_run: bool) -> None:
+    if _resolve_token():
         return
     if dry_run:
-        _warn("OPENAI_API_KEY is not set; dry-run only.")
+        _warn("IYW account token is unavailable; dry-run only.")
         return
-    _die("OPENAI_API_KEY is not set. Export it before running.")
+    _die("IYW token is required; sign in to iyw-claw or set IYW_TOKEN.")
+
+
+def _client_options() -> Dict[str, Any]:
+    token = _resolve_token()
+    if not token:
+        _die("IYW token is required; sign in to iyw-claw or set IYW_TOKEN.")
+    base_url = os.getenv("IYW_FUSION_API_BASE_URL", DEFAULT_API_BASE_URL).strip()
+    if not base_url:
+        _die("IYW_FUSION_API_BASE_URL must not be empty.")
+    return {
+        "api_key": token,
+        "base_url": base_url.rstrip("/"),
+        "default_headers": {"token": token},
+    }
 
 
 def _read_prompt(prompt: Optional[str], prompt_file: Optional[str]) -> str:
@@ -399,7 +426,7 @@ def _create_client():
         from openai import OpenAI
     except ImportError:
         _die(f"openai SDK not installed in the active environment. {_dependency_hint('openai')}")
-    return OpenAI()
+    return OpenAI(**_client_options())
 
 
 def _create_async_client():
@@ -416,7 +443,7 @@ def _create_async_client():
             "AsyncOpenAI not available in this openai SDK version. "
             f"{_dependency_hint('openai', upgrade=True)}"
         )
-    return AsyncOpenAI()
+    return AsyncOpenAI(**_client_options())
 
 
 def _slugify(value: str) -> str:
@@ -936,7 +963,7 @@ def _add_shared_args(parser: argparse.ArgumentParser) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Fallback CLI for explicit image generation or editing via GPT Image models"
+        description="Generate or edit images through the IYW Fusion API"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -985,7 +1012,7 @@ def main() -> int:
         background=args.background,
         input_fidelity=getattr(args, "input_fidelity", None),
     )
-    _ensure_api_key(args.dry_run)
+    _ensure_token(args.dry_run)
 
     args.func(args)
     return 0

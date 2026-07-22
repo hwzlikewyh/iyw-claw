@@ -3,6 +3,7 @@ mod account_credentials_formats;
 pub mod agent_profile;
 pub mod agent_storage;
 pub mod agent_storage_work;
+pub mod auto_update;
 pub(crate) mod background_watch;
 pub mod binary_cache;
 pub mod codex_goal;
@@ -36,12 +37,14 @@ mod provider_overlay_files;
 mod provider_overlay_formats;
 pub mod question;
 pub mod registry;
+pub mod runtime_context;
 mod session_config_compat;
 pub mod session_info;
 pub mod session_state;
 pub mod terminal_runtime;
 pub mod types;
 
+pub use auto_update::agent_auto_update_task;
 pub use idle_sweep::{
     idle_sweep_task, idle_timeout_from_env, max_idle_connections_from_env,
     prompt_stall_timeout_from_env, SWEEP_INTERVAL_SECS,

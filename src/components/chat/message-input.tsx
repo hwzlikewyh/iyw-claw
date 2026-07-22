@@ -56,6 +56,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
+import type { EditorImageResult } from "@/components/image-editor/image-editor-model"
 import { cn, copyTextFromMenu } from "@/lib/utils"
 import {
   buildFileUri,
@@ -2139,6 +2140,26 @@ export function MessageInput({
     setAttachments((prev) => prev.filter((item) => item.id !== id))
   }, [])
 
+  const applyAttachmentEdit = useCallback(
+    (result: EditorImageResult) => {
+      if (!previewAttachmentId) return
+      setAttachments((current) =>
+        current.map((attachment) =>
+          attachment.id === previewAttachmentId && attachment.type === "image"
+            ? {
+                ...attachment,
+                data: result.data,
+                mimeType: result.mime_type,
+                name: result.name,
+                uri: null,
+              }
+            : attachment
+        )
+      )
+    },
+    [previewAttachmentId]
+  )
+
   const buildDraft = useCallback((): PromptDraft | null => {
     const editor = editorRef.current?.getEditor()
     // The send boundary is authoritative in case the agent changed before the
@@ -3291,6 +3312,7 @@ export function MessageInput({
         onOpenChange={(open) => {
           if (!open) setPreviewAttachmentId(null)
         }}
+        onApply={previewAttachment ? applyAttachmentEdit : undefined}
       />
       {!showNativePaperclip && (
         <ServerFileBrowserDialog

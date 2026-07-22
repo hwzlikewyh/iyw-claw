@@ -1,6 +1,6 @@
 pub mod acp;
 pub use acp::{
-    idle_sweep_task, idle_timeout_from_env, lifecycle_subscriber_task,
+    agent_auto_update_task, idle_sweep_task, idle_timeout_from_env, lifecycle_subscriber_task,
     max_idle_connections_from_env, prompt_stall_timeout_from_env, SWEEP_INTERVAL_SECS,
 };
 pub use network::proxy::init_proxy_from_db;
@@ -703,6 +703,17 @@ mod tauri_app {
                         std::time::Duration::from_secs(crate::acp::SWEEP_INTERVAL_SECS),
                     ));
                 }
+
+                // Keep installed Agent SDKs aligned with the registry while
+                // every live Agent is idle. The shared storage lock serializes
+                // this task with manual install, uninstall, and migration.
+                tauri::async_runtime::spawn(crate::acp::agent_auto_update_task(
+                    app.state::<ConnectionManager>().clone_ref(),
+                    crate::db::AppDatabase {
+                        conn: app.state::<crate::db::AppDatabase>().conn.clone(),
+                    },
+                    crate::web::event_bridge::EventEmitter::Tauri(app.handle().clone()),
+                ));
 
                 // Office watch preview servers: reap dead children + ref0
                 // stragglers (live previews are never swept). Override via

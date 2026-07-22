@@ -1,5 +1,5 @@
 import { SkillPacksSettings } from "@/components/settings/skill-packs-settings"
 
 export default function CodexNativeSettingsPage() {
-  return <SkillPacksSettings initialCategory="codex-native" />
+  return <SkillPacksSettings />
 }

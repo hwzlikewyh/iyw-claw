@@ -757,6 +757,9 @@ pub async fn spawn_agent_connection(
         None, // folder_id 由后续 prompt handler 在首次 send 时绑定 (Phase 2)
     );
     initial_state.user_memory_context = user_memory_context;
+    initial_state.agent_runtime_context = crate::acp::runtime_context::render_agent_context(
+        crate::acp::agent_storage::AgentStoragePaths::active().as_ref(),
+    );
     if session_id.is_some() {
         // The external session already retains the private launch envelope in
         // its own history. Re-injecting here would mix policy generations and
@@ -814,6 +817,10 @@ pub async fn spawn_agent_connection(
     // them right after install (before install.ps1's User-PATH change lands).
     prepend_officecli_path(&mut terminal_base_env);
     prepend_internet_tools_path(&mut terminal_base_env);
+    crate::acp::runtime_context::prepend_tool_dirs(
+        crate::acp::agent_storage::AgentStoragePaths::active().as_ref(),
+        &mut terminal_base_env,
+    );
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<ConnectionCommand>(32);
     let conn_id = connection_id.clone();

@@ -7,7 +7,9 @@ Add to your Codex config (`~/.codex/config.toml`):
 multi_agent = true
 ```
 
-This enables `spawn_agent`, `wait_agent`, and `close_agent` for skills like `dispatching-parallel-agents` and `subagent-driven-development`. When using subagent-driven-development, you should always close implementer and reviewer subagents when they have finished all their work.
+When the host exposes `spawn_agent`, `wait_agent`, and related tools, use them
+only when the user or active project instructions authorize delegation. Finish
+or close delegated work before completing the parent task.
 
 ## Environment Detection
 
@@ -23,7 +25,7 @@ BRANCH=$(git branch --show-current)
 - `GIT_DIR != GIT_COMMON` → already in a linked worktree (skip creation)
 - `BRANCH` empty → detached HEAD (cannot branch/push/PR from sandbox)
 
-See `using-git-worktrees` Step 0 and `finishing-a-development-branch`
+Follow the active repository instructions for branch isolation and delivery.
 Step 1 for how each skill uses these signals.
 
 ## Codex App Finishing

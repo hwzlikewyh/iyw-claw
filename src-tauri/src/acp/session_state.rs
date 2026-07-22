@@ -333,6 +333,9 @@ pub struct SessionState {
     /// session snapshot; only the connection loop can place its rendered
     /// envelope on the first accepted wire prompt.
     pub user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
+    /// Private per-launch identity and resolved command paths. Combined with
+    /// user memory for the first accepted prompt and stripped from transcripts.
+    pub agent_runtime_context: Arc<str>,
     /// Immutable launch-time capability vector exposed through live snapshots.
     /// It remains `not_evaluated` until the companion probe and injection
     /// decision have completed.
@@ -460,6 +463,7 @@ impl SessionState {
             user_memory_context: crate::user_memory::UserMemoryContextSnapshot::pending(
                 crate::user_memory::UserMemoryOrigin::Root,
             ),
+            agent_runtime_context: Arc::from(""),
             user_memory_capabilities: Default::default(),
             launch_finalized: false,
             launch_ready: Arc::new(tokio::sync::Notify::new()),

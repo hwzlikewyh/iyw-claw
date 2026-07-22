@@ -92,10 +92,7 @@ export function UserImageAttachments({
         onOpenChange={(open) => {
           if (!open) setPreviewIndex(null)
         }}
-        onDownload={
-          previewImage ? () => void handleDownload(previewImage) : undefined
-        }
-        downloadLabel={t("downloadImage")}
+        onExport={previewImage ? (result) => handleDownload(result) : undefined}
       />
     </div>
   )

@@ -43,13 +43,13 @@ function SettingsDialogBody({ section, agentType }: SettingsDialogState) {
     case "mcp":
       return <McpSettings />
     case "experts":
-      return <SkillPacksSettings initialCategory="experts" />
+      return <SkillPacksSettings />
     case "office-tools":
       return <SkillPacksSettings initialCategory="office-tools" />
     case "internet-tools":
       return <SkillPacksSettings initialCategory="internet-tools" />
     case "codex-native":
-      return <SkillPacksSettings initialCategory="codex-native" />
+      return <SkillPacksSettings />
     case "skills":
       return <SkillPacksSettings />
     case "quick-messages":

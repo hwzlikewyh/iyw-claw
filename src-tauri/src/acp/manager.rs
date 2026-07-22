@@ -685,6 +685,37 @@ impl ConnectionManager {
         true
     }
 
+    /// Returns true when every live Agent connection has been quiet for at
+    /// least `min_idle`. Frontend keepalives do not affect this decision.
+    pub async fn is_globally_idle(&self, min_idle: Duration) -> bool {
+        let Ok(min_idle) = chrono::Duration::from_std(min_idle) else {
+            return false;
+        };
+        let now = chrono::Utc::now();
+        let connections = self.connections.lock().await;
+        for connection in connections.values() {
+            let Ok(state) = connection.state.try_read() else {
+                return false;
+            };
+            if matches!(
+                state.status,
+                ConnectionStatus::Disconnected | ConnectionStatus::Error
+            ) {
+                continue;
+            }
+            if state.status != ConnectionStatus::Connected
+                || state.turn_in_flight
+                || state.pending_permission.is_some()
+                || state.pending_question.is_some()
+                || state.has_active_background_work(now)
+                || now.signed_duration_since(state.last_agent_event_at) < min_idle
+            {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Disconnect connections that have been idle longer than `idle_timeout`.
     /// "Idle" means: status is `Connected`, no `pending_permission`, no
     /// activity (no events, no commands) for at least `idle_timeout`.
@@ -1024,7 +1055,10 @@ impl ConnectionManager {
                 None
             } else {
                 s.user_context_injected = true;
-                s.user_memory_context.rendered.clone()
+                crate::acp::runtime_context::combine_contexts(
+                    s.agent_runtime_context.clone(),
+                    s.user_memory_context.rendered.clone(),
+                )
             }
         };
         permit.send(ConnectionCommand::Prompt {
