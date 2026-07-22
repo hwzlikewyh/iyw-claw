@@ -464,7 +464,7 @@ async fn build_agent(
                 .map(|a| {
                     a.with_debug(move |line, dir| {
                         if dir == sacp_tokio::LineDirection::Stderr {
-                            tracing::debug!("[ACP][{agent_name}][stderr] {line}");
+                            tracing::info!("[ACP][{agent_name}][stderr] {line}");
                         }
                     })
                 })
@@ -659,7 +659,7 @@ async fn build_agent(
                 .map(|a| {
                     a.with_debug(move |line, dir| {
                         if dir == sacp_tokio::LineDirection::Stderr {
-                            tracing::debug!("[ACP][{agent_name}][stderr] {line}");
+                            tracing::info!("[ACP][{agent_name}][stderr] {line}");
                         }
                     })
                 })
@@ -852,6 +852,10 @@ pub async fn spawn_agent_connection(
             if let Some(tok) = token {
                 inj.tokens.revoke(&tok).await;
             }
+            // Sweep every remaining token minted for this parent — today that
+            // is the `iyw-platform` forwarder token, and it keeps any future
+            // per-connection companion token from leaking past teardown.
+            inj.tokens.revoke_by_parent(&conn_id).await;
             inj.broker.cancel_by_parent(&conn_id).await;
             // Reclaim a parked `ask_user_question` instead of waiting for the
             // companion's ask socket to close (which a reparented/hard-killed
@@ -1366,6 +1370,14 @@ pub struct DelegationInjection {
     /// the delegation `broker.cancel_by_parent` cleanup. Shares the same backing
     /// `ConnectionManager` as the listener's question lookup.
     pub questions: Arc<dyn crate::acp::question::SessionQuestionAccess>,
+    /// Hot-swappable "are platform tools enabled?" flag, read at injection
+    /// time. The `iyw-platform` forwarder entry is injected only when this is
+    /// on AND `platform_login` reports a live platform account session.
+    pub platform: crate::acp::platform_mcp::PlatformToolsRuntimeConfig,
+    /// Login probe for the injection gate. Only token PRESENCE is read here —
+    /// the token value itself stays inside the listener-side
+    /// `PlatformMcpService` and never reaches the companion or the agent.
+    pub platform_login: Arc<dyn crate::acp::platform_mcp::AccessTokenProvider>,
 }
 
 /// Locate the `iyw-claw-mcp` companion binary across the supported deployment
@@ -1612,6 +1624,72 @@ async fn inject_iyw_claw_mcp(
         token,
         feedback_available: feedback_enabled,
     })
+}
+
+/// Inject the `iyw-platform` MCP entry — the same `iyw-claw-mcp` binary in pure
+/// forwarder mode (`--features platform`), relaying the upstream iyw platform
+/// MCP service through the main process. Injected as a SECOND server entry
+/// (separate from the built-in companion) so a slow or unreachable gateway
+/// can only ever degrade platform tools, never the built-in tool groups, and
+/// upstream tool names stay collision-free.
+///
+/// Gates: the hot-swappable platform toggle AND a live platform login. A
+/// logged-out session gets no entry at all — an MCP server whose every tool
+/// errors would only confuse the LLM; sessions started after login pick the
+/// entry up naturally. Returns the minted token (revoked with the rest of the
+/// parent's tokens by the teardown `revoke_by_parent` sweep).
+async fn inject_iyw_platform_mcp(
+    servers: &mut Vec<McpServer>,
+    injection: &DelegationInjection,
+    parent_connection_id: &str,
+    working_dir: &Path,
+    agent_type: AgentType,
+) -> Option<String> {
+    if !injection.platform.is_enabled().await {
+        return None;
+    }
+    if injection.platform_login.access_token().await.is_none() {
+        tracing::info!(
+            "[platform-mcp] no platform login; skipping iyw-platform tool injection for \
+             connection {parent_connection_id}"
+        );
+        return None;
+    }
+    // Same binary as the companion — a missing binary was already warned
+    // about by `inject_iyw_claw_mcp`, so stay quiet here.
+    let binary_path = locate_iyw_claw_mcp_binary()?;
+    let token = uuid::Uuid::new_v4().to_string();
+    injection
+        .tokens
+        .register(
+            token.clone(),
+            crate::acp::delegation::listener::TokenEntry {
+                parent_connection_id: parent_connection_id.to_string(),
+                working_dir: working_dir.to_path_buf(),
+                agent_type,
+                // The forwarder instance carries no built-in tools; keep the
+                // memory-write capability off its token entirely.
+                memory_write_enabled: false,
+            },
+        )
+        .await;
+    let mut server = McpServerStdio::new("iyw-platform", binary_path);
+    server = server.args(vec![
+        "--parent-connection-id".to_string(),
+        parent_connection_id.to_string(),
+        "--socket-path".to_string(),
+        injection.socket_path.to_string_lossy().to_string(),
+        "--token".to_string(),
+        token.clone(),
+        "--parent-pid".to_string(),
+        std::process::id().to_string(),
+        "--features".to_string(),
+        "platform".to_string(),
+        "--working-dir".to_string(),
+        working_dir.to_string_lossy().to_string(),
+    ]);
+    servers.push(McpServer::Stdio(server));
+    Some(token)
 }
 
 /// Resolve an MCP server `command` to an absolute path.
@@ -2041,6 +2119,17 @@ async fn run_connection(
                 // The agent's actual feedback capability for this session — the
                 // authoritative gate for submit + UI, fixed at launch.
                 s.feedback_tool_available = injected.feedback_available;
+            }
+
+            // Inject the `iyw-platform` forwarder entry (upstream platform MCP
+            // relay) behind the same wire-MCP gates as the companion. Its token
+            // needs no per-session stash: teardown revokes every token of this
+            // parent via `revoke_by_parent`.
+            if agent_supports_mcp && agent_delivers_wire_mcp(agent_type) {
+                if let Some(inj) = delegation_injection.as_ref() {
+                    inject_iyw_platform_mcp(&mut mcp_servers, inj, &conn_id, &cwd, agent_type)
+                        .await;
+                }
             }
 
             // Emit fork support capability

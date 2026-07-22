@@ -1,6 +1,7 @@
 pub mod acp;
 pub use acp::{
-    idle_sweep_task, idle_timeout_from_env, lifecycle_subscriber_task, SWEEP_INTERVAL_SECS,
+    idle_sweep_task, idle_timeout_from_env, lifecycle_subscriber_task,
+    max_idle_connections_from_env, prompt_stall_timeout_from_env, SWEEP_INTERVAL_SECS,
 };
 pub use network::proxy::init_proxy_from_db;
 mod app_error;
@@ -600,6 +601,11 @@ mod tauri_app {
                             ),
                         ),
                         user_memory,
+                        std::sync::Arc::new(crate::acp::platform_mcp::PlatformMcpService::new(
+                            std::sync::Arc::new(crate::acp::platform_mcp::DbAccessTokenProvider {
+                                conn: db_conn.clone(),
+                            }),
+                        )),
                     );
                     tauri::async_runtime::spawn(async move {
                         if let Err(e) = listener.run(socket_path).await {
@@ -651,16 +657,25 @@ mod tauri_app {
                     Err(err) => tracing::error!("[WEB] failed to load auto-start config: {err}"),
                 }
 
-                // Spawn the idle sweep so connections abandoned without an
-                // explicit disconnect (e.g. window/tab closed without
-                // teardown, panic survivors) are reaped. Override the
-                // 60-second default via `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`
-                // (set to `0` to disable).
-                if let Some(idle_timeout) = crate::acp::idle_timeout_from_env() {
+                // Spawn the idle/stall/capacity sweep: connections abandoned
+                // without an explicit disconnect are reaped, prompting sessions
+                // whose agent went silent are cancelled, and idle resident
+                // agent processes are capped (finished conversations reconnect
+                // on re-entry). Overrides: `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`,
+                // `IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS`,
+                // `IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS` (`0` disables each).
+                let idle_timeout = crate::acp::idle_timeout_from_env();
+                let stall_timeout = crate::acp::prompt_stall_timeout_from_env();
+                let max_idle = crate::acp::max_idle_connections_from_env();
+                if idle_timeout.is_some() || stall_timeout.is_some() || max_idle.is_some() {
                     let cm = app.state::<ConnectionManager>().clone_ref();
+                    let sweep_db = app.state::<db::AppDatabase>().conn.clone();
                     tauri::async_runtime::spawn(crate::acp::idle_sweep_task(
                         cm,
+                        sweep_db,
                         idle_timeout,
+                        stall_timeout,
+                        max_idle,
                         std::time::Duration::from_secs(crate::acp::SWEEP_INTERVAL_SECS),
                     ));
                 }

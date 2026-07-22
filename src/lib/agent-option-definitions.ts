@@ -179,6 +179,87 @@ export function getLocalAgentModelIds(agentType: AgentType): string[] {
   return [...AGENT_MODEL_IDS[agentType]]
 }
 
+// ── Catalog-driven per-agent scoping ───
+//
+// The online catalog carries no per-agent capability field, so the mapping is
+// derived locally from the model id's family. MUST stay in sync with the
+// backend rules in `src-tauri/src/acp/model_catalog.rs` — both sides seed
+// from the same static lists and must classify identically.
+
+type ModelFamily =
+  | "anthropic"
+  | "openai"
+  | "google"
+  | "deepseek"
+  | "qwen"
+  | "doubao"
+  | "other"
+
+function familyOf(modelId: string): ModelFamily {
+  const id = modelId.toLowerCase()
+  if (id.startsWith("claude")) return "anthropic"
+  if (id.startsWith("gpt") || id.startsWith("o1") || id.startsWith("o3")) {
+    return "openai"
+  }
+  if (id.startsWith("gemini")) return "google"
+  if (id.startsWith("deepseek")) return "deepseek"
+  if (id.startsWith("qwen")) return "qwen"
+  if (id.startsWith("doubao")) return "doubao"
+  return "other"
+}
+
+function familyAllowed(agentType: AgentType, family: ModelFamily): boolean {
+  switch (agentType) {
+    case "grok":
+      return true
+    case "codex":
+      return family === "openai" || family === "deepseek" || family === "other"
+    case "claude_code":
+      return family === "anthropic" || family === "openai"
+    case "gemini":
+      return family === "google" || family === "openai"
+    default:
+      return family === "deepseek" || family === "qwen" || family === "other"
+  }
+}
+
+function primaryFamily(agentType: AgentType): ModelFamily {
+  switch (agentType) {
+    case "claude_code":
+      return "anthropic"
+    case "gemini":
+      return "google"
+    case "codex":
+    case "grok":
+      return "openai"
+    default:
+      return "deepseek"
+  }
+}
+
+/** Scope the (online) catalog to one agent: primary family first, catalog
+ * order within. An EMPTY catalog stays empty (the UI must not invent local
+ * choices before online data arrives); a non-empty catalog with nothing this
+ * agent can run falls back to the built-in local models, matching the
+ * backend's never-empty guarantee for spawn env. */
+export function deriveAgentModels(
+  agentType: AgentType,
+  models: GatewayModel[]
+): GatewayModel[] {
+  if (models.length === 0) return []
+  const primary = primaryFamily(agentType)
+  const head: GatewayModel[] = []
+  const tail: GatewayModel[] = []
+  for (const model of models) {
+    const family = familyOf(model.id)
+    if (!familyAllowed(agentType, family)) continue
+    if (family === primary) head.push(model)
+    else tail.push(model)
+  }
+  const scoped = [...head, ...tail]
+  return scoped.length > 0 ? scoped : getLocalModels(agentType)
+}
+
 export function getLocalModels(agentType: AgentType): GatewayModel[] {
   const byId = new Map(LOCAL_MODELS.map((model) => [model.id, model]))
   return AGENT_MODEL_IDS[agentType].flatMap((id) => {

@@ -278,21 +278,21 @@ async fn process_envelope(
         return;
     }
 
-    // Global event filter first — a filtered-out event needs no bridge lock or
-    // fan-out work. A null filter is the default set: opt-in events that export
-    // prompt text (DEFAULT_OFF_EVENTS) stay off until the user enables them
-    // (which materializes an explicit filter list containing the id).
-    match &config.global_filter {
-        Some(filter) => {
-            if !filter.contains(&event_type) {
-                return;
-            }
-        }
-        None => {
-            if DEFAULT_OFF_EVENTS.contains(&event_type.as_str()) {
-                return;
-            }
-        }
+    // IM pushes require an explicitly saved event filter. A never-configured
+    // filter (None) means channels only carry their own sessions (the session
+    // relay) — desktop/GUI session events must not leak into IM chats the
+    // user never wired up for notifications. Webhooks are their own explicit
+    // opt-in, so they keep the historical default set (everything except the
+    // prompt-text-exporting DEFAULT_OFF_EVENTS) when no filter was saved.
+    let im_allowed =
+        matches!(&config.global_filter, Some(filter) if filter.contains(&event_type));
+    let webhook_allowed = !config.webhooks.is_empty()
+        && match &config.global_filter {
+            Some(filter) => filter.contains(&event_type),
+            None => !DEFAULT_OFF_EVENTS.contains(&event_type.as_str()),
+        };
+    if !im_allowed && !webhook_allowed {
+        return;
     }
 
     // A permission request from a session that was started FROM a chat channel
@@ -310,7 +310,7 @@ async fn process_envelope(
     // independent of the per-channel filter and the debounce below. Built once
     // and delivered fire-and-forget so an unreachable endpoint can't stall the
     // subscriber loop. Runs even with zero enabled IM channels.
-    if !config.webhooks.is_empty() {
+    if webhook_allowed {
         let payload =
             super::webhook::build_webhook_payload(&event_type, &envelope.connection_id, &msg);
         super::webhook::spawn_webhook_delivery(
@@ -318,6 +318,10 @@ async fn process_envelope(
             config.webhooks.clone(),
             payload,
         );
+    }
+
+    if !im_allowed {
+        return;
     }
 
     // Some events bypass the per-(channel, event) debounce. That debounce
@@ -502,7 +506,15 @@ mod permission_push_tests {
     fn config_all_on(channel_id: i32) -> EventConfigCache {
         EventConfigCache {
             lang: Lang::En,
-            global_filter: None,
+            // IM pushes require an explicitly saved filter, so "all on" now
+            // means an explicit list of every event id.
+            global_filter: Some(vec![
+                "turn_complete".to_string(),
+                "error".to_string(),
+                "permission_request".to_string(),
+                "user_prompt_sent".to_string(),
+                "question_request".to_string(),
+            ]),
             // Simulates a cache that has already read the filter cleanly.
             filter_known: true,
             enabled_channels: vec![CachedChannel {
@@ -1002,16 +1014,45 @@ mod permission_push_tests {
         assert!(sent(&rec).await.is_empty());
     }
 
-    /// Opt-in default: with NO explicit filter configured (null = the default
-    /// "all events" set), user_prompt_sent is suppressed — it must not forward
-    /// prompt text to channels until the user enables it deliberately. Contrast
-    /// other default-on events still fire under the same null filter.
+    /// The regression behind "GUI 会话报错被推到微信": with no explicitly saved
+    /// event filter, desktop/GUI session events (here an agent error) must not
+    /// reach IM channels at all — channels only carry their own sessions.
+    #[tokio::test]
+    async fn gui_session_events_not_pushed_without_explicit_filter() {
+        let db = test_helpers::fresh_in_memory_db().await;
+        let (chat, rec) = manager_with_recorder(7).await;
+        let bridge = Arc::new(Mutex::new(SessionBridge::new()));
+        let mut config = config_all_on(7);
+        config.global_filter = None; // never configured (the default)
+        let mut last_push = HashMap::new();
+
+        process_envelope(
+            &error_envelope("desktop-conn"),
+            &bridge,
+            &chat,
+            &db.conn,
+            &config,
+            &mut last_push,
+            &test_client(),
+        )
+        .await;
+
+        assert!(
+            sent(&rec).await.is_empty(),
+            "desktop session errors must not reach IM channels without an explicit filter"
+        );
+    }
+
+    /// Opt-in default: with NO explicit filter configured, user_prompt_sent is
+    /// suppressed everywhere — it must not forward prompt text to channels
+    /// until the user enables it deliberately.
     #[tokio::test]
     async fn user_prompt_sent_off_by_default() {
         let db = test_helpers::fresh_in_memory_db().await;
         let (chat, rec) = manager_with_recorder(7).await;
         let bridge = Arc::new(Mutex::new(SessionBridge::new()));
-        let config = config_all_on(7); // global_filter = None (the default)
+        let mut config = config_all_on(7);
+        config.global_filter = None; // never configured (the default)
         let mut last_push = HashMap::new();
 
         process_envelope(
@@ -1046,7 +1087,8 @@ mod permission_push_tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
 
-        let mut config = config_all_on(7); // global_filter = None (the default)
+        let mut config = config_all_on(7);
+        config.global_filter = None; // never configured (the default)
         config.webhooks = vec![format!("http://{addr}/hook")];
 
         process_envelope(

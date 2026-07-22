@@ -319,6 +319,7 @@ export async function acpSaveAgentSkill(params: {
   workspacePath?: string | null
   layout?: AgentSkillLayout | null
   syncMode?: AgentSkillSyncMode | null
+  official?: boolean | null
 }): Promise<AgentSkillItem> {
   return invoke("acp_save_agent_skill", {
     agentType: params.agentType,
@@ -329,6 +330,7 @@ export async function acpSaveAgentSkill(params: {
     workspacePath: params.workspacePath ?? null,
     layout: params.layout ?? null,
     syncMode: params.syncMode ?? null,
+    official: params.official ?? null,
   })
 }
 

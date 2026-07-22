@@ -81,13 +81,6 @@ impl ClaudeTailAccumulator {
         self.messages.len()
     }
 
-    #[cfg(test)]
-    pub(crate) fn metadata(&self) -> ClaudeTailMetadata {
-        let mut metadata = self.metadata.clone();
-        metadata.title = self.ai_title.clone().or(metadata.title);
-        metadata
-    }
-
     pub(crate) fn collect_turns(&self, cwd: Option<&str>) -> Vec<MessageTurn> {
         let mut messages = self.messages.clone();
         self.lifecycle.apply(&mut messages);

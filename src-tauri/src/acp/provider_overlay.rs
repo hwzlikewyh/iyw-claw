@@ -96,11 +96,15 @@ pub(crate) fn apply_provider_runtime_env_with_base(
         // exposes separate model selectors for the main, reasoning, fast, and
         // sub-agent paths. Keep all selectors pinned to the managed catalog.
         let models = managed_model_ids_for(agent_type);
+        // The catalog can shrink to a single compatible model; reuse the
+        // primary for the fast/sub-agent slots rather than indexing past it.
+        let primary = models[0];
+        let secondary = models.get(1).copied().unwrap_or(primary);
         for (key, model) in [
-            ("CODEBUDDY_MODEL", models[0]),
-            ("CODEBUDDY_BIG_SLOW_MODEL", models[0]),
-            ("CODEBUDDY_SMALL_FAST_MODEL", models[1]),
-            ("CODEBUDDY_CODE_SUBAGENT_MODEL", models[1]),
+            ("CODEBUDDY_MODEL", primary),
+            ("CODEBUDDY_BIG_SLOW_MODEL", primary),
+            ("CODEBUDDY_SMALL_FAST_MODEL", secondary),
+            ("CODEBUDDY_CODE_SUBAGENT_MODEL", secondary),
         ] {
             runtime_env.insert(key.to_string(), model.to_string());
         }

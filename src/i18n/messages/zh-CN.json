@@ -62,7 +62,8 @@
     "tabs": {
       "experts": "专家技能",
       "officeTools": "办公工具",
-      "internetTools": "联网工具"
+      "internetTools": "联网工具",
+      "codexNative": "Codex 自带技能"
     }
   },
   "AppearanceSettings": {
@@ -367,7 +368,7 @@
       },
       "official": {
         "title": "官方市场",
-        "description": "选择常用的官方模板，安装后会进入已安装列表并可继续编辑。",
+        "description": "选择常用的官方模板，安装后进入已安装列表，内容只读；如需替换请先卸载。",
         "install": "安装",
         "viewInstalled": "查看已安装",
         "installedBadge": "已安装",
@@ -440,7 +441,8 @@
         "imported": "Skill 已导入",
         "importFailed": "导入 Skill 失败",
         "generated": "Skill 已生成",
-        "generateFailed": "生成 Skill 失败"
+        "generateFailed": "生成 Skill 失败",
+        "officialReadOnly": "官方市场安装的 Skill 为只读内容，如需替换请先卸载该 Skill。"
       }
     },
     "loadingAgents": "正在加载支持 Skills 的 Agent...",
@@ -479,6 +481,8 @@
       "takeOverHint": "复制到 ~/.iyw-claw/skills 并发布到当前 Agent"
     },
     "disabledBadge": "已停用",
+    "officialBadge": "官方",
+    "officialSkillHint": "来自官方市场 · 内容只读",
     "copyModeBadge": "复制",
     "copyModeWarning": "当前 Agent 端是复制件。中心库更新后，请保存或重新启用以同步最新内容。",
     "syncMode": {
@@ -3325,6 +3329,20 @@
       "enableFailed": "启用专家失败",
       "disableFailed": "禁用专家失败",
       "openFolderFailed": "打开目录失败"
+    }
+  },
+  "CodexNativeSettings": {
+    "title": "Codex 自带技能",
+    "description": "iyw-claw 内置了 Codex CLI 自带技能的替代版本，发布到 Codex 的常规技能目录；启用期间会持续清空 CLI 的 .system 副本，避免会话中出现重复条目。",
+    "loading": "正在加载 Codex 自带技能…",
+    "empty": "没有内置的 Codex 自带技能，请查看应用日志。",
+    "category": "Codex 自带技能",
+    "searchPlaceholder": "按名称、ID 或描述搜索技能",
+    "badges": {
+      "userModified": "用户修改过"
+    },
+    "actions": {
+      "refresh": "刷新"
     }
   },
   "InternetToolsSettings": {

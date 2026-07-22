@@ -59,20 +59,10 @@ const ALL_EVENT_TYPES = [
   },
 ] as const
 
-const ALL_IDS = ALL_EVENT_TYPES.map((e) => e.id)
-
-// Events that export user-authored content (the prompt text itself) to external
-// sinks — IM channels, webhooks, the outbound message log. They are OFF in the
-// default ("all events") filter: a null/absent filter does NOT include them, so
-// an existing install does not begin forwarding prompt text after upgrade. The
-// user must enable them deliberately, which persists an explicit filter list.
-// Mirrors the backend `DEFAULT_OFF_EVENTS` (chat_channel/event_subscriber.rs).
-const DEFAULT_OFF_IDS = new Set<string>(["user_prompt_sent"])
-const DEFAULT_ON_IDS = ALL_IDS.filter((id) => !DEFAULT_OFF_IDS.has(id))
-
 function parseFilter(arr: string[] | null): Set<string> {
-  // null = the default set (everything EXCEPT the opt-in events).
-  if (!arr) return new Set(DEFAULT_ON_IDS)
+  // null = never configured. IM pushes are entirely off in that state (GUI
+  // sessions must not leak into chat channels), so nothing is checked.
+  if (!arr) return new Set()
   return new Set(arr)
 }
 
@@ -141,9 +131,9 @@ const PAYLOAD_EXAMPLES: Record<(typeof ALL_EVENT_TYPES)[number]["id"], string> =
 
 export function ChannelEventsTab() {
   const t = useTranslations("ChatChannelSettings.events")
-  const [enabledEvents, setEnabledEvents] = useState<Set<string>>(
-    new Set(DEFAULT_ON_IDS)
-  )
+  // Starts empty, matching the never-configured default (IM pushes off);
+  // the real selection is loaded from the stored filter on mount.
+  const [enabledEvents, setEnabledEvents] = useState<Set<string>>(new Set())
   const [webhooks, setWebhooks] = useState<WebhookConfig[]>([])
   const [loading, setLoading] = useState(true)
   // True when the initial config fetch failed. We then refuse to render the
@@ -195,15 +185,12 @@ export function ChannelEventsTab() {
         } else {
           next.delete(eventId)
         }
-        // Collapse to the null "default" sentinel ONLY when the selection is
-        // exactly the default-on set. Any other selection (an opt-in event
-        // enabled, or a default-on event disabled) must persist as an explicit
-        // list so it round-trips — null would otherwise re-exclude opt-in
-        // events on reload (see backend DEFAULT_OFF_EVENTS).
-        const isDefault =
-          next.size === DEFAULT_ON_IDS.length &&
-          DEFAULT_ON_IDS.every((id) => next.has(id))
-        await setChatEventFilter(isDefault ? null : [...next])
+        // Always persist the explicit list. The null sentinel means "never
+        // configured" (IM pushes fully off, webhooks on the legacy default
+        // set) — writing it back would silently disable a deliberate
+        // selection, and an explicitly emptied list must round-trip as []
+        // so webhooks also go quiet.
+        await setChatEventFilter([...next])
         setEnabledEvents(next)
         toast.success(t("saved"))
       } catch {

@@ -496,6 +496,10 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
 
   const handleSaveSkill = useCallback(async () => {
     if (!selectedAgent) return
+    if (selectedSkill?.official) {
+      toast.error(t("market.toasts.officialReadOnly"))
+      return
+    }
     if (!skillLocation) {
       toast.error(t("toasts.noSkillDirectory"))
       return
@@ -543,6 +547,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
     loadSkills,
     openSkill,
     selectedAgent,
+    selectedSkill,
     skillDraftContent,
     skillDraftId,
     skillLocation,
@@ -568,6 +573,15 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         return
       }
 
+      // Market-managed content is immutable: importing or generating over an
+      // official Skill would silently clobber it, so refuse up front (the
+      // backend enforces the same rule via the on-disk official marker).
+      const existing = skillItems.find((skill) => skill.id === trimmedId)
+      if (existing?.official && !request.official) {
+        toast.error(t("market.toasts.officialReadOnly"))
+        return
+      }
+
       const saved = await acpSaveAgentSkill({
         agentType: selectedAgent.agent_type,
         scope: backendScope,
@@ -577,6 +591,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         workspacePath: workspacePathForRequest,
         layout: "skill_directory",
         syncMode: null,
+        official: request.official ?? null,
       })
 
       invalidateAgentSkillsCache(selectedAgent.agent_type)
@@ -592,6 +607,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
       loadSkills,
       openSkill,
       selectedAgent,
+      skillItems,
       skillLocation,
       t,
       workspacePathForRequest,
@@ -1043,6 +1059,15 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                                     <span className="text-xs font-medium truncate">
                                       {skill.name}
                                     </span>
+                                    {skill.official && (
+                                      <Badge
+                                        variant="outline"
+                                        title={t("officialSkillHint")}
+                                        className="h-6 px-2 inline-flex items-center gap-1 text-xs leading-none shrink-0 text-muted-foreground"
+                                      >
+                                        {t("officialBadge")}
+                                      </Badge>
+                                    )}
                                     {!skill.enabled && (
                                       <Badge
                                         variant="outline"
@@ -1111,7 +1136,10 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                               {t("actions.preview")}
                             </ContextMenuItem>
                             <ContextMenuItem
-                              disabled={skill.read_only}
+                              disabled={skill.read_only || skill.official}
+                              title={
+                                skill.official ? t("officialSkillHint") : undefined
+                              }
                               onSelect={() => {
                                 handleEditSkill(skill).catch((err) => {
                                   console.error(
@@ -1223,6 +1251,15 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                           <h3 className="text-sm font-semibold truncate">
                             {skillDraftId.trim() || t("newSkillTitle")}
                           </h3>
+                          {selectedSkill?.official && (
+                            <Badge
+                              variant="outline"
+                              title={t("officialSkillHint")}
+                              className="h-5 px-1.5 text-[10px] leading-none shrink-0 text-muted-foreground"
+                            >
+                              {t("officialBadge")}
+                            </Badge>
+                          )}
                           {selectedSkill && !selectedSkill.enabled && (
                             <Badge
                               variant="outline"
@@ -1256,7 +1293,13 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                             disabled={
                               skillSaving ||
                               skillReading ||
-                              Boolean(selectedSkill?.read_only)
+                              Boolean(selectedSkill?.read_only) ||
+                              Boolean(selectedSkill?.official)
+                            }
+                            title={
+                              selectedSkill?.official
+                                ? t("officialSkillHint")
+                                : undefined
                             }
                           >
                             {skillSaving ? (
@@ -1315,7 +1358,13 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                                 }}
                                 disabled={
                                   skillReading ||
-                                  Boolean(selectedSkill?.read_only)
+                                  Boolean(selectedSkill?.read_only) ||
+                                  Boolean(selectedSkill?.official)
+                                }
+                                title={
+                                  selectedSkill?.official
+                                    ? t("officialSkillHint")
+                                    : undefined
                                 }
                               >
                                 {isContentEditing ? (

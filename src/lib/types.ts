@@ -1599,6 +1599,9 @@ export interface AgentSkillItem {
   enabled: boolean
   copy_mode: boolean
   read_only: boolean
+  /** Installed from the official skill market: content edits are refused,
+   * while enable/disable and uninstall stay available. */
+  official: boolean
 }
 
 export interface AgentSkillFile {
@@ -1675,12 +1678,17 @@ export interface LinkOpResult {
   error: string | null
 }
 
-export type ManagedSkillFamily = "experts" | "office_tools" | "internet_tools"
+export type ManagedSkillFamily =
+  | "experts"
+  | "office_tools"
+  | "internet_tools"
+  | "codex_native"
 
 export interface ManagedSkillGlobalState {
   expertsEnabled: boolean
   officeToolsEnabled: boolean
   internetToolsEnabled: boolean
+  codexNativeEnabled: boolean
 }
 
 export interface ManagedSkillState {

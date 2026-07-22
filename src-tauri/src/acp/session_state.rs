@@ -298,6 +298,12 @@ pub struct SessionState {
     // 事件锚点
     pub event_seq: u64,
     pub last_activity_at: DateTime<Utc>,
+    /// Last time an event was actually applied to this session. Unlike
+    /// `last_activity_at`, this is NOT refreshed by frontend keepalive
+    /// touches, so it is the signal the prompt-stall watchdog uses to detect
+    /// a hung generation (upstream stream stalled → no events → the UI would
+    /// spin "生成中" forever without intervention).
+    pub last_agent_event_at: DateTime<Utc>,
 
     /// Per-connection event broadcaster used by the WS attach protocol.
     /// New subscribers register receivers here while holding the SessionState
@@ -429,6 +435,7 @@ impl SessionState {
             session_started_tx: None,
             event_seq: 0,
             last_activity_at: Utc::now(),
+            last_agent_event_at: Utc::now(),
             event_stream: Arc::new(ConnectionEventStream::new()),
             recent_events: RecentEventsBuffer::new(),
             delegation_token: None,
@@ -864,6 +871,7 @@ impl SessionState {
             }
         }
         self.last_activity_at = Utc::now();
+        self.last_agent_event_at = Utc::now();
     }
 
     pub fn has_active_background_work(&self, now: DateTime<Utc>) -> bool {

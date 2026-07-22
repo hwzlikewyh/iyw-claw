@@ -312,14 +312,34 @@ const gatewayModelCatalog = createGatewayModelCatalog({
   cache: browserPayloadCache(),
 })
 
+// ── Periodic auto-refresh ───
+//
+// The catalog used to be fetched once per app session, so a long-running
+// desktop app never saw gateway-side model additions/removals until restart.
+// Arm a background interval on the first catalog access (browser only —
+// never during static export/SSR); consumers keep reading through
+// getCachedGatewayModels() and naturally pick up refreshed data.
+const AUTO_REFRESH_INTERVAL_MS = 30 * 60_000
+
+let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+function ensureAutoRefresh(): void {
+  if (autoRefreshTimer !== null || typeof window === "undefined") return
+  autoRefreshTimer = setInterval(() => {
+    void gatewayModelCatalog.refresh()
+  }, AUTO_REFRESH_INTERVAL_MS)
+}
+
 export function getCachedGatewayModels(): GatewayModel[] {
   return gatewayModelCatalog.getCached()
 }
 
 export function getGatewayModels(): Promise<GatewayModel[]> {
+  ensureAutoRefresh()
   return gatewayModelCatalog.load()
 }
 
 export function refreshGatewayModels(): Promise<GatewayModel[]> {
+  ensureAutoRefresh()
   return gatewayModelCatalog.refresh()
 }

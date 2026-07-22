@@ -29,7 +29,10 @@ import { getActiveRemoteConnectionId, isDesktop } from "@/lib/transport"
 import { invalidateAgentSkillsCache } from "@/hooks/use-agent-skills"
 import type { ExpertListItem, ManagedSkillFamilyState } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
-import { pickLocalized } from "@/lib/expert-presentation"
+import {
+  CODEX_NATIVE_CATEGORY,
+  pickLocalized,
+} from "@/lib/expert-presentation"
 
 const CATEGORY_SORT: Record<string, number> = {
   discovery: 1,
@@ -61,7 +64,11 @@ export function ExpertsSettings() {
         managedSkillsGetGlobalState(),
         managedSkillsGetFamilyState("experts"),
       ])
-      setExperts(expertList)
+      setExperts(
+        expertList.filter(
+          (item) => item.metadata.category !== CODEX_NATIVE_CATEGORY
+        )
+      )
       setGlobalEnabled(globalState.expertsEnabled)
       setFamilyState(nextFamilyState)
     } catch (err) {
