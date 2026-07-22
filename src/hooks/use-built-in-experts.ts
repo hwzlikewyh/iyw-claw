@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 
 import { expertsList } from "@/lib/api"
+import { CODEX_NATIVE_CATEGORY } from "@/lib/expert-presentation"
 import type { ExpertListItem } from "@/lib/types"
 
 // Module-level cache so every MessageInput/ChatInput instance shares a single
@@ -17,12 +18,17 @@ async function loadExperts(): Promise<ExpertListItem[]> {
   if (inflight) return inflight
   inflight = expertsList()
     .then((list) => {
-      cachedExperts = list
+      // codex_native entries are Codex-only replacements managed by their
+      // own family — never surfaced as general-purpose experts.
+      const filtered = list.filter(
+        (item) => item.metadata.category !== CODEX_NATIVE_CATEGORY
+      )
+      cachedExperts = filtered
       inflight = null
       for (const subscriber of subscribers) {
-        subscriber(list)
+        subscriber(filtered)
       }
-      return list
+      return filtered
     })
     .catch((err) => {
       inflight = null

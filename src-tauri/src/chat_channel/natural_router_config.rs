@@ -5,7 +5,7 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
 use crate::acp::provider_overlay::{
-    model_gateway_base_url_for, MANAGED_DEFAULT_MODEL, MANAGED_MODEL_IDS,
+    model_gateway_base_url_for, MANAGED_DEFAULT_MODEL,
 };
 use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
@@ -54,7 +54,8 @@ pub async fn get_chat_natural_router_config(
     let enabled = metadata_bool(db, ENABLED_KEY, DEFAULT_ENABLED).await?;
     let api_url = normalize_chat_completions_url(&model_gateway_base_url_for(AgentType::Codex))?;
     let stored_model = metadata_string(db, MODEL_KEY, MANAGED_DEFAULT_MODEL).await?;
-    let model = if MANAGED_MODEL_IDS.contains(&stored_model.as_str()) {
+    let catalog = crate::acp::model_catalog::all_model_ids();
+    let model = if catalog.iter().any(|id| *id == stored_model) {
         stored_model
     } else {
         MANAGED_DEFAULT_MODEL.to_string()
@@ -78,7 +79,7 @@ pub async fn set_chat_natural_router_config(
     input: ChatNaturalRouterConfigInput,
 ) -> Result<(), AppCommandError> {
     let model = input.model.trim();
-    if !MANAGED_MODEL_IDS.contains(&model) {
+    if !crate::acp::model_catalog::all_model_ids().contains(&model) {
         return Err(AppCommandError::invalid_input(
             "Router model must be one of the managed Agent models",
         ));
@@ -198,6 +199,7 @@ fn normalize_chat_completions_url(raw: &str) -> Result<String, AppCommandError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::acp::provider_overlay::MANAGED_MODEL_IDS;
     use crate::db::test_helpers::fresh_in_memory_db;
 
     #[test]

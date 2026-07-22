@@ -21,9 +21,11 @@ pub mod internal_bus;
 pub mod lifecycle;
 pub mod manager;
 pub mod memory_turn;
+pub mod model_catalog;
 pub mod npm_runtime;
 pub mod opencode_catalog;
 pub mod opencode_plugins;
+pub mod platform_mcp;
 pub mod preflight;
 pub mod profile_import;
 mod profile_import_activation;
@@ -41,7 +43,10 @@ pub mod session_state;
 pub mod terminal_runtime;
 pub mod types;
 
-pub use idle_sweep::{idle_sweep_task, idle_timeout_from_env, SWEEP_INTERVAL_SECS};
+pub use idle_sweep::{
+    idle_sweep_task, idle_timeout_from_env, max_idle_connections_from_env,
+    prompt_stall_timeout_from_env, SWEEP_INTERVAL_SECS,
+};
 pub use internal_bus::{EventBusMetrics, EventBusMetricsSnapshot, InternalEventBus};
 pub use lifecycle::lifecycle_subscriber_task;
 pub use session_state::{LiveSessionSnapshot, SessionState};

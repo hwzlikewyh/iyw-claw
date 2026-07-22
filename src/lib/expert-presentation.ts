@@ -4,19 +4,30 @@ import {
   Bot,
   Bug,
   CheckCheck,
+  Download,
   FileCode2,
   FlaskConical,
   GitBranch,
   GitFork,
   GitMerge,
+  Hammer,
+  Image,
   Lightbulb,
   ListTodo,
   MessageSquareQuote,
   MessageSquareReply,
   PlayCircle,
+  Puzzle,
   Sparkles,
   type LucideIcon,
 } from "lucide-react"
+
+/**
+ * Bundled experts whose `experts.toml` category is `codex_native` are the
+ * replacements for Codex CLI's own `.system` skills. They belong to the
+ * codex-native managed family and must not surface in Experts UIs.
+ */
+export const CODEX_NATIVE_CATEGORY = "codex_native"
 
 /**
  * Lucide icons referenced by built-in expert metadata (`ExpertMetadata.icon`
@@ -38,6 +49,10 @@ export const EXPERT_ICON_MAP: Record<string, LucideIcon> = {
   GitMerge,
   Sparkles,
   FileCode2,
+  Image,
+  Puzzle,
+  Hammer,
+  Download,
 }
 
 /** Resolve an expert's icon name to a Lucide component (Sparkles fallback). */

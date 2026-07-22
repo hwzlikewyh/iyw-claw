@@ -594,6 +594,12 @@ pub struct AgentSkillItem {
     /// `~/.codex/skills/.system/*`). Runtime consumers can still discover
     /// them, while management UIs can hide them; writes are always refused.
     pub read_only: bool,
+    /// True when the skill was installed from the iyw-claw official skill
+    /// market (recorded via a marker file in the central source directory).
+    /// Content is market-managed, so edits are refused, while enable/disable
+    /// and uninstall stay available. Unlike `read_only`, management UIs still
+    /// list these skills.
+    pub official: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

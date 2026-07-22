@@ -41,6 +41,11 @@ export interface SkillContentRequest {
   id: string
   content: string
   files?: AgentSkillFile[]
+  /** True only for installs from the official market tab: the backend stamps
+   * the shared source as market-managed, making the installed Skill
+   * read-only for users. Imports/generations leave this unset so their
+   * Skills stay editable. */
+  official?: boolean
 }
 
 const MAX_SKILL_FOLDER_FILES = 512
@@ -433,6 +438,7 @@ export function OfficialSkillMarketPanel({
                   onInstall({
                     id: selectedTemplate.id,
                     content: t(`official.items.${selectedTemplate.id}.content`),
+                    official: true,
                   })
                 }
               >

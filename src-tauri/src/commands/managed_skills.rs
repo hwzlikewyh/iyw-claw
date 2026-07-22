@@ -19,9 +19,11 @@ use crate::models::agent::AgentType;
 pub const EXPERTS_POLICY_KEY: &str = "managed_skills.experts.enabled.v1";
 pub const OFFICE_TOOLS_POLICY_KEY: &str = "managed_skills.office_tools.enabled.v1";
 pub const INTERNET_TOOLS_POLICY_KEY: &str = "managed_skills.internet_tools.enabled.v1";
+pub const CODEX_NATIVE_POLICY_KEY: &str = "managed_skills.codex_native.enabled.v1";
 pub const EXPERTS_OVERRIDES_KEY: &str = "managed_skills.experts.overrides.v1";
 pub const OFFICE_TOOLS_OVERRIDES_KEY: &str = "managed_skills.office_tools.overrides.v1";
 pub const INTERNET_TOOLS_OVERRIDES_KEY: &str = "managed_skills.internet_tools.overrides.v1";
+pub const CODEX_NATIVE_OVERRIDES_KEY: &str = "managed_skills.codex_native.overrides.v1";
 
 fn policy_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -41,12 +43,14 @@ pub enum ManagedSkillFamily {
     Experts,
     OfficeTools,
     InternetTools,
+    CodexNative,
 }
 
-const MANAGED_SKILL_FAMILIES: [ManagedSkillFamily; 3] = [
+const MANAGED_SKILL_FAMILIES: [ManagedSkillFamily; 4] = [
     ManagedSkillFamily::Experts,
     ManagedSkillFamily::OfficeTools,
     ManagedSkillFamily::InternetTools,
+    ManagedSkillFamily::CodexNative,
 ];
 
 impl ManagedSkillFamily {
@@ -55,6 +59,7 @@ impl ManagedSkillFamily {
             Self::Experts => EXPERTS_POLICY_KEY,
             Self::OfficeTools => OFFICE_TOOLS_POLICY_KEY,
             Self::InternetTools => INTERNET_TOOLS_POLICY_KEY,
+            Self::CodexNative => CODEX_NATIVE_POLICY_KEY,
         }
     }
 
@@ -63,7 +68,26 @@ impl ManagedSkillFamily {
             Self::Experts => EXPERTS_OVERRIDES_KEY,
             Self::OfficeTools => OFFICE_TOOLS_OVERRIDES_KEY,
             Self::InternetTools => INTERNET_TOOLS_OVERRIDES_KEY,
+            Self::CodexNative => CODEX_NATIVE_OVERRIDES_KEY,
         }
+    }
+}
+
+/// CodexNative replaces the skills Codex CLI bundles in
+/// `~/.codex/skills/.system/`, so it defaults to enabled: out of the box the
+/// replacements are published and the `.system` copies cleared. Other
+/// families stay opt-in.
+fn family_default_enabled(family: ManagedSkillFamily) -> bool {
+    matches!(family, ManagedSkillFamily::CodexNative)
+}
+
+/// CodexNative skills are Codex-specific replacements and are never
+/// published to other agents; every other family targets all skill-capable
+/// agents.
+fn family_allows_agent(family: ManagedSkillFamily, agent_type: AgentType) -> bool {
+    match family {
+        ManagedSkillFamily::CodexNative => agent_type == AgentType::Codex,
+        _ => true,
     }
 }
 
@@ -73,6 +97,7 @@ pub struct ManagedSkillGlobalState {
     pub experts_enabled: bool,
     pub office_tools_enabled: bool,
     pub internet_tools_enabled: bool,
+    pub codex_native_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -110,6 +135,7 @@ fn family_skill_ids(family: ManagedSkillFamily) -> Vec<String> {
         ManagedSkillFamily::Experts => experts::managed_expert_ids(),
         ManagedSkillFamily::OfficeTools => office_tools::managed_office_skill_ids(),
         ManagedSkillFamily::InternetTools => internet_tools::managed_internet_skill_ids(),
+        ManagedSkillFamily::CodexNative => experts::managed_codex_native_ids(),
     }
 }
 
@@ -118,6 +144,7 @@ fn family_ready_skill_ids(family: ManagedSkillFamily) -> Vec<String> {
         ManagedSkillFamily::Experts => experts::managed_ready_expert_ids(),
         ManagedSkillFamily::OfficeTools => office_tools::managed_ready_office_skill_ids(),
         ManagedSkillFamily::InternetTools => internet_tools::managed_ready_internet_skill_ids(),
+        ManagedSkillFamily::CodexNative => experts::managed_ready_codex_native_ids(),
     }
 }
 
@@ -250,7 +277,7 @@ async fn persist_skill_override(
 ) -> Result<(), AppCommandError> {
     let default_enabled = load_policy(conn, family.policy_key())
         .await?
-        .unwrap_or(false);
+        .unwrap_or(family_default_enabled(family));
     let mut overrides = load_overrides(conn, family).await?;
     match normalized_override(default_enabled, enabled) {
         Some(value) => {
@@ -269,13 +296,16 @@ async fn load_global_state(
     Ok(ManagedSkillGlobalState {
         experts_enabled: load_policy(conn, EXPERTS_POLICY_KEY)
             .await?
-            .unwrap_or(false),
+            .unwrap_or(family_default_enabled(ManagedSkillFamily::Experts)),
         office_tools_enabled: load_policy(conn, OFFICE_TOOLS_POLICY_KEY)
             .await?
-            .unwrap_or(false),
+            .unwrap_or(family_default_enabled(ManagedSkillFamily::OfficeTools)),
         internet_tools_enabled: load_policy(conn, INTERNET_TOOLS_POLICY_KEY)
             .await?
-            .unwrap_or(false),
+            .unwrap_or(family_default_enabled(ManagedSkillFamily::InternetTools)),
+        codex_native_enabled: load_policy(conn, CODEX_NATIVE_POLICY_KEY)
+            .await?
+            .unwrap_or(family_default_enabled(ManagedSkillFamily::CodexNative)),
     })
 }
 
@@ -285,7 +315,7 @@ async fn load_family_policy(
 ) -> Result<(bool, BTreeMap<String, bool>), AppCommandError> {
     let default_enabled = load_policy(conn, family.policy_key())
         .await?
-        .unwrap_or(false);
+        .unwrap_or(family_default_enabled(family));
     let overrides = load_overrides(conn, family).await?;
     Ok((default_enabled, overrides))
 }
@@ -356,9 +386,13 @@ where
         .await
         .map_err(|error| AppCommandError::database_error(error.to_string()))?;
     if default.is_none() {
-        app_metadata_service::upsert_value(&transaction, family.policy_key(), "false")
-            .await
-            .map_err(AppCommandError::from)?;
+        app_metadata_service::upsert_value(
+            &transaction,
+            family.policy_key(),
+            &family_default_enabled(family).to_string(),
+        )
+        .await
+        .map_err(AppCommandError::from)?;
     }
     app_metadata_service::upsert_value(&transaction, family.overrides_key(), &value)
         .await
@@ -382,6 +416,10 @@ async fn ensure_policies_migrated_locked(conn: &DatabaseConnection) -> Result<()
     .await?;
     migrate_family_policy_with(conn, ManagedSkillFamily::InternetTools, |skill_id| {
         internet_tools::managed_internet_skill_has_owned_link(skill_id, &agents)
+    })
+    .await?;
+    migrate_family_policy_with(conn, ManagedSkillFamily::CodexNative, |skill_id| {
+        experts::managed_expert_has_owned_link(skill_id, &agents)
     })
     .await?;
     Ok(())
@@ -410,12 +448,13 @@ pub async fn get_family_state_core(
 }
 
 fn expand_skill_targets(
+    family: ManagedSkillFamily,
     agents: &[(AgentType, bool)],
     skills: &[(String, bool)],
 ) -> Vec<(AgentType, String, bool)> {
     agents
         .iter()
-        .filter(|(_, eligible)| *eligible)
+        .filter(|(agent_type, eligible)| *eligible && family_allows_agent(family, *agent_type))
         .flat_map(|(agent_type, _)| {
             skills
                 .iter()
@@ -474,6 +513,18 @@ async fn reconcile_targets(
         ManagedSkillFamily::InternetTools => {
             internet_tools::reconcile_managed_internet_tools(targets).await
         }
+        ManagedSkillFamily::CodexNative => {
+            let results = experts::reconcile_managed_experts(targets).await;
+            // With replacements published at the normal skills level, clear
+            // the CLI's own bundled copies so sessions never see duplicate
+            // entries (and dropped skills like openai-docs stay gone). Only
+            // purge while at least one replacement is desired — a fully
+            // disabled family leaves Codex's stock behavior untouched.
+            if targets.iter().any(|(_, _, desired)| *desired) {
+                purge_codex_system_skill_entries();
+            }
+            results
+        }
     };
     let touched_agents = touched_agents(&results);
     ManagedSkillSyncReport {
@@ -482,6 +533,43 @@ async fn reconcile_targets(
         skill_id,
         results,
         touched_agents,
+    }
+}
+
+/// Codex CLI's version marker inside `~/.codex/skills/.system/`. Preserved
+/// on purge: Codex only re-extracts its bundled skills when this marker no
+/// longer matches the CLI's embedded bundle version, so keeping it prevents
+/// a purge/re-extract loop. After a Codex upgrade rewrites the directory,
+/// the next reconcile clears it again.
+const CODEX_SYSTEM_MARKER_FILE: &str = ".codex-system-skills.marker";
+
+/// Clear the bundled skill copies under `~/.codex/skills/.system/` (keeping
+/// the version marker, see above). Entries held open by a running Codex
+/// process fail to delete on Windows — that's tolerated, the next reconcile
+/// retries.
+fn purge_codex_system_skill_entries() {
+    let system_dir = crate::commands::acp::codex_home_dir()
+        .join("skills")
+        .join(".system");
+    purge_codex_system_entries_in(&system_dir);
+}
+
+fn purge_codex_system_entries_in(system_dir: &std::path::Path) {
+    let entries = match std::fs::read_dir(system_dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        if entry.file_name().to_str() == Some(CODEX_SYSTEM_MARKER_FILE) {
+            continue;
+        }
+        let path = entry.path();
+        if let Err(error) = crate::commands::acp::remove_skill_entry(&path) {
+            tracing::warn!(
+                "[ManagedSkills] failed to clear Codex system skill entry {}: {error}",
+                path.display()
+            );
+        }
     }
 }
 
@@ -495,7 +583,7 @@ pub async fn reconcile_family_core(
         .into_iter()
         .map(|skill_id| (skill_id, enabled))
         .collect::<Vec<_>>();
-    let targets = expand_skill_targets(&agents, &skills);
+    let targets = expand_skill_targets(family, &agents, &skills);
     Ok(reconcile_targets(family, enabled, None, &targets).await)
 }
 
@@ -507,7 +595,7 @@ pub async fn reconcile_persisted_family_core(
     ensure_policies_migrated_locked(conn).await?;
     let state = load_family_state(conn, family).await?;
     let agents = agent_eligibility(conn).await?;
-    let targets = expand_skill_targets(&agents, &desired_skills(&state));
+    let targets = expand_skill_targets(family, &agents, &desired_skills(&state));
     Ok(reconcile_targets(family, state.all_enabled, None, &targets).await)
 }
 
@@ -524,7 +612,7 @@ pub async fn set_global_enabled_core(
         .into_iter()
         .map(|skill_id| (skill_id, enabled))
         .collect::<Vec<_>>();
-    let targets = expand_skill_targets(&agents, &skills);
+    let targets = expand_skill_targets(family, &agents, &skills);
     Ok(reconcile_targets(family, enabled, None, &targets).await)
 }
 
@@ -543,7 +631,7 @@ pub async fn set_skill_enabled_core(
     ensure_policies_migrated_locked(conn).await?;
     persist_skill_override(conn, family, &skill_id, enabled).await?;
     let agents = agent_eligibility(conn).await?;
-    let targets = expand_skill_targets(&agents, &[(skill_id.clone(), enabled)]);
+    let targets = expand_skill_targets(family, &agents, &[(skill_id.clone(), enabled)]);
     Ok(reconcile_targets(family, enabled, Some(skill_id), &targets).await)
 }
 
@@ -563,7 +651,7 @@ async fn reconcile_families_for_agents(
     let mut reports = Vec::with_capacity(MANAGED_SKILL_FAMILIES.len());
     for family in MANAGED_SKILL_FAMILIES {
         let state = load_family_state(conn, family).await?;
-        let targets = expand_skill_targets(agents, &desired_skills(&state));
+        let targets = expand_skill_targets(family, agents, &desired_skills(&state));
         reports.push(reconcile_targets(family, state.all_enabled, None, &targets).await);
     }
     Ok(reports)
@@ -656,10 +744,15 @@ mod tests {
             serde_json::to_value(ManagedSkillFamily::InternetTools).unwrap(),
             json!("internet_tools")
         );
+        assert_eq!(
+            serde_json::to_value(ManagedSkillFamily::CodexNative).unwrap(),
+            json!("codex_native")
+        );
         let state = ManagedSkillGlobalState {
             experts_enabled: true,
             office_tools_enabled: false,
             internet_tools_enabled: true,
+            codex_native_enabled: true,
         };
         assert_eq!(
             serde_json::to_value(state).unwrap(),
@@ -667,6 +760,7 @@ mod tests {
                 "expertsEnabled": true,
                 "officeToolsEnabled": false,
                 "internetToolsEnabled": true,
+                "codexNativeEnabled": true,
             })
         );
 
@@ -869,6 +963,15 @@ mod tests {
                 .as_deref(),
             Some("false")
         );
+        // CodexNative replaces Codex's own bundled skills, so its migrated
+        // default is enabled.
+        assert_eq!(
+            app_metadata_service::get_value(&db.conn, CODEX_NATIVE_POLICY_KEY)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("true")
+        );
     }
 
     #[test]
@@ -903,12 +1006,70 @@ mod tests {
         ];
 
         assert_eq!(
-            expand_skill_targets(&agents, &skills),
+            expand_skill_targets(ManagedSkillFamily::Experts, &agents, &skills),
             vec![
                 (AgentType::Codex, "enabled-skill".to_string(), true),
                 (AgentType::Codex, "disabled-skill".to_string(), false),
             ]
         );
+    }
+
+    #[test]
+    fn codex_native_targets_only_codex() {
+        let agents = vec![
+            (AgentType::ClaudeCode, true),
+            (AgentType::Codex, true),
+            (AgentType::Gemini, true),
+        ];
+        let skills = vec![("imagegen".to_string(), true)];
+
+        assert_eq!(
+            expand_skill_targets(ManagedSkillFamily::CodexNative, &agents, &skills),
+            vec![(AgentType::Codex, "imagegen".to_string(), true)]
+        );
+        // The same agents expand normally for other families.
+        assert_eq!(
+            expand_skill_targets(ManagedSkillFamily::Experts, &agents, &skills).len(),
+            3
+        );
+    }
+
+    #[test]
+    fn codex_native_bundle_lists_expected_skills() {
+        let mut ids = experts::managed_codex_native_ids();
+        ids.sort();
+        assert_eq!(
+            ids,
+            vec![
+                "imagegen".to_string(),
+                "plugin-creator".to_string(),
+                "skill-creator".to_string(),
+                "skill-installer".to_string(),
+            ]
+        );
+        // The codex-native entries must not leak into the Experts family.
+        let expert_ids = experts::managed_expert_ids();
+        assert!(ids.iter().all(|id| !expert_ids.contains(id)));
+    }
+
+    #[test]
+    fn purge_keeps_codex_marker_and_clears_other_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let system_dir = tmp.path().join(".system");
+        std::fs::create_dir_all(system_dir.join("imagegen")).unwrap();
+        std::fs::write(system_dir.join("imagegen").join("SKILL.md"), "x").unwrap();
+        std::fs::write(system_dir.join("stray.txt"), "x").unwrap();
+        std::fs::write(system_dir.join(CODEX_SYSTEM_MARKER_FILE), "hash").unwrap();
+
+        purge_codex_system_entries_in(&system_dir);
+
+        assert!(system_dir.join(CODEX_SYSTEM_MARKER_FILE).is_file());
+        assert!(!system_dir.join("imagegen").exists());
+        assert!(!system_dir.join("stray.txt").exists());
+
+        // Idempotent, and a missing directory is a no-op.
+        purge_codex_system_entries_in(&system_dir);
+        purge_codex_system_entries_in(&tmp.path().join("does-not-exist"));
     }
 
     #[tokio::test]

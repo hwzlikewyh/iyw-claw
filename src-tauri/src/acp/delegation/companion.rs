@@ -46,10 +46,12 @@ use tokio::sync::{oneshot, Mutex};
 use crate::acp::delegation::transport::{
     client_ask_round_trip, client_cancel, client_cancel_task_round_trip, client_commit_feedback,
     client_feedback_round_trip, client_memory_append_round_trip, client_memory_proposal_round_trip,
+    client_platform_tools_call_round_trip, client_platform_tools_list_round_trip,
     client_round_trip, client_session_round_trip, client_status_round_trip, BrokerAskRequest,
     BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
-    BrokerFeedbackRequest, BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerRequest,
-    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
+    BrokerFeedbackRequest, BrokerMemoryAppendRequest, BrokerMemoryProposalRequest,
+    BrokerPlatformToolsCallRequest, BrokerPlatformToolsListRequest, BrokerRequest, BrokerResponse,
+    BrokerSessionRequest, BrokerStatusRequest,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -162,6 +164,11 @@ pub struct CompanionFeatures {
     pub images: bool,
     pub memory: bool,
     pub memory_proposal: bool,
+    /// Pure-forwarder mode for the `iyw-platform` MCP entry: `tools/list` /
+    /// `tools/call` relay to the upstream iyw platform MCP through the
+    /// broker, and NONE of the built-in tools are exposed. The parent only
+    /// ever launches this exclusively (`--features platform`).
+    pub platform: bool,
 }
 
 impl CompanionFeatures {
@@ -180,6 +187,7 @@ impl CompanionFeatures {
                 images: false,
                 memory: false,
                 memory_proposal: false,
+                platform: false,
             };
         };
         let mut f = Self {
@@ -190,6 +198,7 @@ impl CompanionFeatures {
             images: false,
             memory: false,
             memory_proposal: false,
+            platform: false,
         };
         for tok in s.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             match tok {
@@ -200,6 +209,7 @@ impl CompanionFeatures {
                 "images" => f.images = true,
                 "memory" => f.memory = true,
                 "memory-proposal" => f.memory_proposal = true,
+                "platform" => f.platform = true,
                 _ => {}
             }
         }
@@ -373,6 +383,11 @@ pub async fn dispatch_line(
             }),
         )),
         "tools/list" => {
+            // Platform-forwarder launches carry no static tools: the catalog
+            // lives upstream and is fetched through the broker per list.
+            if ctx.features.platform {
+                return build_platform_tools_list_spawn(ctx.clone(), inflight, id).await;
+            }
             // The embedded schema is a JSON array of every tool the companion
             // can carry; filter to the groups enabled for this launch so a
             // disabled feature's tools never surface to the LLM.
@@ -423,6 +438,13 @@ async fn build_tools_call_spawn(
         .to_string();
     let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
     let socket = ctx.socket_path.clone();
+    // Platform-forwarder launches relay EVERY tool name upstream — the
+    // companion neither knows nor validates the upstream catalog (the
+    // upstream server rejects unknown tools itself), and the built-in tools
+    // below are deliberately not reachable from this instance.
+    if ctx.features.platform {
+        return build_platform_call_spawn(ctx, inflight, id, name, arguments).await;
+    }
     // Defense in depth: tools/list already hides tools whose feature group is
     // off, but a misbehaving client could still call one by name. A disabled
     // tool is rejected uniformly as "unknown tool" — indistinguishable from a
@@ -649,6 +671,121 @@ async fn build_tools_call_spawn(
         }
         other => LineAction::Respond(err(id, -32602, format!("unknown tool: {other}"))),
     }
+}
+
+/// `tools/list` for a platform-forwarder launch: fetch the upstream catalog
+/// through the broker. Registered as an inflight call so a racing
+/// `notifications/cancelled` suppresses the response like any other spawn.
+async fn build_platform_tools_list_spawn(
+    ctx: CompanionContext,
+    inflight: Arc<InflightCalls>,
+    id: Value,
+) -> LineAction {
+    let req = BrokerPlatformToolsListRequest {
+        token: ctx.token.clone(),
+    };
+    let socket = ctx.socket_path.clone();
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    let id_key = request_id_key(&id);
+    inflight
+        .register(
+            id_key.clone(),
+            InflightEntry {
+                external_handle: None,
+                cancel_tx,
+            },
+        )
+        .await;
+    let id_for_response = id.clone();
+    let id_key_for_task = id_key.clone();
+    let inflight_for_task = inflight.clone();
+    let future = Box::pin(async move {
+        let response = tokio::select! {
+            biased;
+            _ = cancel_rx => {
+                let _ = inflight_for_task.take(&id_key_for_task).await;
+                None
+            }
+            rt = client_platform_tools_list_round_trip(&socket, &req) => {
+                let _ = inflight_for_task.take(&id_key_for_task).await;
+                Some(ok(id_for_response, render_platform_tools_list(rt)))
+            }
+        };
+        SpawnResult {
+            response,
+            after_relay: None,
+        }
+    });
+    LineAction::Spawn(SpawnedCall {
+        request_id: id,
+        request_id_key: id_key,
+        future,
+    })
+}
+
+/// Render the platform `tools/list` outcome. Every failure — broker
+/// transport error, upstream unreachable, not logged in — degrades to an
+/// EMPTY tool list rather than a JSON-RPC error: several agent CLIs treat a
+/// failed `tools/list` as a failed MCP server and abort the whole session,
+/// which a temporarily unreachable gateway must never cause. The reason is
+/// logged to stderr for diagnosis.
+pub fn render_platform_tools_list(rt: std::io::Result<BrokerResponse>) -> Value {
+    let tools = match rt {
+        Ok(resp) => match resp.outcome.get("tools") {
+            Some(Value::Array(tools)) => Value::Array(tools.clone()),
+            _ => {
+                if let Some(error) = resp.outcome.get("error").and_then(Value::as_str) {
+                    tracing::warn!("platform tools/list unavailable: {error}");
+                }
+                Value::Array(Vec::new())
+            }
+        },
+        Err(e) => {
+            tracing::warn!("platform tools/list round-trip failed: {e}");
+            Value::Array(Vec::new())
+        }
+    };
+    json!({ "tools": tools })
+}
+
+/// `tools/call` for a platform-forwarder launch: relay name + arguments
+/// verbatim. No `external_handle` — canceling only suppresses the response;
+/// dropping the round-trip future closes the socket, which the listener
+/// observes to abandon the upstream HTTP request.
+async fn build_platform_call_spawn(
+    ctx: CompanionContext,
+    inflight: Arc<InflightCalls>,
+    id: Value,
+    name: String,
+    arguments: Value,
+) -> LineAction {
+    let req = BrokerPlatformToolsCallRequest {
+        token: ctx.token.clone(),
+        name,
+        arguments,
+    };
+    let socket = ctx.socket_path.clone();
+    let round_trip =
+        Box::pin(async move { client_platform_tools_call_round_trip(&socket, &req).await });
+    register_and_spawn(inflight, id, None, round_trip, render_platform_call_result).await
+}
+
+/// Map the listener's platform `tools/call` outcome to the MCP result body.
+/// An `{ "error": .. }` envelope renders as an `isError` text result the LLM
+/// can read and react to; anything else is the upstream MCP result object and
+/// passes through verbatim. The `content` guard keeps an upstream result that
+/// legitimately carries an `error` field from being misread as a transport
+/// failure.
+pub fn render_platform_call_result(outcome: &Value) -> Value {
+    if let Some(error) = outcome.get("error").and_then(Value::as_str) {
+        if outcome.get("content").is_none() {
+            return json!({
+                "content": [{ "type": "text", "text": error }],
+                "isError": true,
+            });
+        }
+    }
+    outcome.clone()
 }
 
 async fn register_and_spawn_local(
@@ -1520,6 +1657,7 @@ mod tests {
             images: false,
             memory: false,
             memory_proposal: false,
+            platform: false,
         })
     }
 
@@ -1995,6 +2133,7 @@ mod tests {
         images: false,
         memory: false,
         memory_proposal: false,
+        platform: false,
     };
     const BOTH: CompanionFeatures = CompanionFeatures {
         delegation: true,
@@ -2004,6 +2143,7 @@ mod tests {
         images: false,
         memory: false,
         memory_proposal: false,
+        platform: false,
     };
     const ASK_ONLY: CompanionFeatures = CompanionFeatures {
         delegation: false,
@@ -2013,6 +2153,7 @@ mod tests {
         images: false,
         memory: false,
         memory_proposal: false,
+        platform: false,
     };
     const SESSIONS_ONLY: CompanionFeatures = CompanionFeatures {
         delegation: false,
@@ -2022,7 +2163,100 @@ mod tests {
         images: false,
         memory: false,
         memory_proposal: false,
+        platform: false,
     };
+    const PLATFORM_ONLY: CompanionFeatures = CompanionFeatures {
+        delegation: false,
+        feedback: false,
+        ask: false,
+        sessions: false,
+        images: false,
+        memory: false,
+        memory_proposal: false,
+        platform: true,
+    };
+
+    // -- iyw-platform forwarder mode ---------------------------------------
+
+    #[test]
+    fn platform_feature_parses_exclusively() {
+        let features = CompanionFeatures::parse(Some("platform"));
+        assert!(features.platform);
+        assert!(!features.delegation && !features.feedback && !features.images);
+        // Absent value keeps the legacy delegation-only default.
+        assert!(!CompanionFeatures::parse(None).platform);
+    }
+
+    #[tokio::test]
+    async fn platform_tools_list_degrades_to_empty_on_broker_failure() {
+        // The test context's socket path points nowhere, so the round-trip
+        // fails — the response must still be a successful empty list, never a
+        // JSON-RPC error (a failed tools/list can abort a whole agent session).
+        let line = r#"{"jsonrpc":"2.0","id":31,"method":"tools/list"}"#;
+        match dispatch_with_features(PLATFORM_ONLY, line).await {
+            LineAction::Spawn(spawned) => {
+                let SpawnResult { response, .. } = spawned.future.await;
+                let resp = response.expect("uncancelled list must respond");
+                assert!(resp.error.is_none());
+                assert_eq!(resp.result.unwrap()["tools"], json!([]));
+            }
+            _ => panic!("platform tools/list should spawn a round-trip"),
+        }
+    }
+
+    #[tokio::test]
+    async fn platform_mode_forwards_any_tool_name() {
+        // No static schema gate in forwarder mode: an arbitrary upstream tool
+        // name spawns a round-trip instead of the "unknown tool" rejection.
+        let line = r#"{
+            "jsonrpc":"2.0",
+            "id":32,
+            "method":"tools/call",
+            "params": { "name": "query_platform_orders", "arguments": { "order_id": "o-1" } }
+        }"#;
+        match dispatch_with_features(PLATFORM_ONLY, line).await {
+            LineAction::Spawn(spawned) => {
+                let SpawnResult { response, .. } = spawned.future.await;
+                let resp = response.expect("uncancelled call must respond");
+                // The broker socket points nowhere → transport error surfaces
+                // as a JSON-RPC error like every other broker round-trip.
+                assert_eq!(resp.error.expect("transport failure").code, -32603);
+            }
+            _ => panic!("platform tools/call should spawn a round-trip"),
+        }
+    }
+
+    #[test]
+    fn render_platform_tools_list_handles_all_outcomes() {
+        let ok = render_platform_tools_list(Ok(BrokerResponse {
+            outcome: json!({ "tools": [ { "name": "echo" } ] }),
+        }));
+        assert_eq!(ok["tools"][0]["name"], "echo");
+
+        let unavailable = render_platform_tools_list(Ok(BrokerResponse {
+            outcome: json!({ "error": "not logged in" }),
+        }));
+        assert_eq!(unavailable["tools"], json!([]));
+
+        let transport = render_platform_tools_list(Err(std::io::Error::other("no socket")));
+        assert_eq!(transport["tools"], json!([]));
+    }
+
+    #[test]
+    fn render_platform_call_result_maps_error_envelope_only() {
+        let error = render_platform_call_result(&json!({ "error": "login expired" }));
+        assert_eq!(error["isError"], true);
+        assert_eq!(error["content"][0]["text"], "login expired");
+
+        // A genuine upstream result passes through verbatim — including one
+        // that happens to carry an `error` field next to `content`.
+        let verbatim = json!({
+            "content": [{ "type": "text", "text": "ok" }],
+            "error": "domain-level detail",
+            "isError": false
+        });
+        assert_eq!(render_platform_call_result(&verbatim), verbatim);
+    }
 
     fn list_tool_names(action: LineAction) -> Vec<String> {
         let resp = unwrap_respond(action);
