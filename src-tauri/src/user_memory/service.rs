@@ -6,19 +6,14 @@ use std::sync::{Arc, RwLock};
 use sea_orm::DatabaseConnection;
 
 use crate::app_error::AppCommandError;
-use crate::models::agent::AgentType;
 use crate::paths::{ResolvedUserMemoryRoot, UserMemoryPathError, UserMemoryRootSource};
 
 use super::fs;
-use super::helpers::{
-    apply_policy_patch, conflict, disabled_with_fingerprint, hash_parts, policy_from_snapshot,
-    supports_memory_tool,
-};
+use super::helpers::{apply_policy_patch, conflict};
 use super::transaction::document_resource;
 use super::{
-    context::render_user_context, UserMemoryContextSnapshot, UserMemoryDocumentId,
-    UserMemoryGeneration, UserMemoryMigrationReport, UserMemoryOrigin, UserMemorySettingsSnapshot,
-    UserMemoryUpdateRequest,
+    project_settings_capabilities, UserMemoryDocumentId, UserMemoryGeneration,
+    UserMemoryMigrationReport, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
 };
 
 pub(super) const POLICY_KEY: &str = "user_memory.settings";
@@ -148,13 +143,14 @@ impl UserMemoryService {
     }
 
     pub async fn settings_snapshot(&self) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
-        match self.root.as_ref() {
+        let snapshot = match self.root.as_ref() {
             Ok(_) => self.snapshot().await,
             Err(error) => {
                 let policy = self.load_policy_unrecovered().await?;
                 self.unavailable_settings_snapshot(&policy, error)
             }
-        }
+        }?;
+        self.enrich_settings_snapshot(snapshot).await
     }
 
     pub async fn update(
@@ -203,49 +199,19 @@ impl UserMemoryService {
             },
         )
         .await?;
-        self.snapshot_locked(&policy)
+        let snapshot = self.snapshot_locked(&policy)?;
+        drop(_file_guard);
+        drop(_guard);
+        self.enrich_settings_snapshot(snapshot).await
     }
 
-    pub async fn context_for(
+    async fn enrich_settings_snapshot(
         &self,
-        agent_type: AgentType,
-        origin: UserMemoryOrigin,
-    ) -> Result<UserMemoryContextSnapshot, AppCommandError> {
-        if origin == UserMemoryOrigin::Probe {
-            return Ok(UserMemoryContextSnapshot::disabled(origin));
-        }
-        let snapshot = self.snapshot().await?;
-        let policy = policy_from_snapshot(&snapshot);
-        let agent_enabled = policy.per_agent.get(&agent_type).copied().unwrap_or(true);
-        let inherited = origin != UserMemoryOrigin::Delegation || policy.inherit_to_subagents;
-        if !policy.enabled || !agent_enabled || !inherited {
-            return Ok(disabled_with_fingerprint(origin, &snapshot.revision));
-        }
-        let write_enabled = policy.agent_write_enabled
-            && policy
-                .documents
-                .get(&UserMemoryDocumentId::Memory)
-                .copied()
-                .unwrap_or(true)
-            && supports_memory_tool(agent_type);
-        let documents = snapshot
-            .documents
-            .iter()
-            .map(|(id, document)| (*id, document.content.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let rendered: Option<Arc<str>> =
-            render_user_context(&policy, &documents, write_enabled).map(Arc::from);
-        let effective_fingerprint = hash_parts(&[
-            rendered.as_deref().unwrap_or_default().as_bytes(),
-            &[write_enabled as u8],
-        ]);
-        Ok(UserMemoryContextSnapshot {
-            revision: snapshot.revision,
-            effective_fingerprint,
-            rendered,
-            memory_write_enabled: write_enabled,
-            origin,
-        })
+        mut snapshot: UserMemorySettingsSnapshot,
+    ) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
+        let health = crate::acp::companion_health::locate_healthy_companion().await;
+        project_settings_capabilities(&mut snapshot, health, false);
+        Ok(snapshot)
     }
 
     pub(super) async fn acquire_locks(

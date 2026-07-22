@@ -6,12 +6,13 @@ use crate::paths::UserMemoryPathError;
 
 use super::helpers::{conflict, hash_parts, settings_revision, validate_document_update_content};
 use super::service::POLICY_KEY;
+use super::settings_projection::{readable_document_snapshot, unreadable_document_snapshot};
 use super::{candidate_store, fs};
 use super::{
     UserMemoryAvailabilityDiagnostic, UserMemoryAvailabilityReason, UserMemoryCandidateDiagnostic,
     UserMemoryCandidateDiagnosticReason, UserMemoryCandidateStatus, UserMemoryDocumentId,
-    UserMemoryDocumentSnapshot, UserMemoryPolicy, UserMemoryService, UserMemorySettingsSnapshot,
-    UserMemoryUpdateRequest, USER_MEMORY_AGENT_TYPES,
+    UserMemoryPolicy, UserMemoryService, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
+    USER_MEMORY_AGENT_TYPES,
 };
 
 impl UserMemoryService {
@@ -61,19 +62,11 @@ impl UserMemoryService {
         let root = resolution.path.as_path();
         let mut documents = BTreeMap::new();
         for id in UserMemoryDocumentId::ALL {
-            let content = self.read_document(id)?;
-            documents.insert(
-                id,
-                UserMemoryDocumentSnapshot {
-                    id,
-                    file_name: id.file_name().to_string(),
-                    path: root.join(id.file_name()),
-                    etag: hash_parts(&[content.as_bytes()]),
-                    content,
-                    enabled: policy.documents.get(&id).copied().unwrap_or(true),
-                    readonly: fs::is_document_readonly(root, id),
-                },
-            );
+            let snapshot = match self.read_document(id) {
+                Ok(content) => readable_document_snapshot(root, policy, id, content),
+                Err(error) => unreadable_document_snapshot(root, policy, id, error),
+            };
+            documents.insert(id, snapshot);
         }
         let revision = settings_revision(policy, &documents)?;
         let (candidate_diagnostic, candidate_counts) = candidate_settings(root);
@@ -91,6 +84,8 @@ impl UserMemoryService {
             migration_report: self.migration_report(),
             candidate_diagnostic,
             candidate_counts,
+            projected_capabilities: BTreeMap::new(),
+            companion_health: Default::default(),
         })
     }
 
@@ -123,6 +118,8 @@ impl UserMemoryService {
                 detail: Some(error.to_string()),
             },
             candidate_counts: empty_candidate_counts(),
+            projected_capabilities: BTreeMap::new(),
+            companion_health: Default::default(),
         })
     }
 
@@ -169,6 +166,11 @@ impl UserMemoryService {
     ) -> Result<(), AppCommandError> {
         for (id, patch) in &request.documents {
             if let Some(content) = patch.content.as_deref() {
+                if !current.documents[id].readable {
+                    return Err(AppCommandError::permission_denied(
+                        "Unreadable user memory documents cannot be overwritten",
+                    ));
+                }
                 validate_document_update_content(content)?;
                 let expected = patch.expected_etag.as_deref().ok_or_else(|| {
                     AppCommandError::invalid_input("expectedEtag is required for content updates")
@@ -192,7 +194,7 @@ fn available_diagnostic() -> UserMemoryAvailabilityDiagnostic {
     }
 }
 
-fn candidate_settings(
+pub(super) fn candidate_settings(
     root: &std::path::Path,
 ) -> (
     UserMemoryCandidateDiagnostic,
@@ -203,6 +205,16 @@ fn candidate_settings(
         Ok(state) => {
             for candidate in state.candidates {
                 *counts.entry(candidate.status).or_insert(0) += 1;
+            }
+            if candidate_state_readonly(root) {
+                return (
+                    UserMemoryCandidateDiagnostic {
+                        available: false,
+                        reason: Some(UserMemoryCandidateDiagnosticReason::ReadOnly),
+                        detail: Some("Candidate state is read-only".into()),
+                    },
+                    counts,
+                );
             }
             (
                 UserMemoryCandidateDiagnostic {
@@ -222,6 +234,12 @@ fn candidate_settings(
             counts,
         ),
     }
+}
+
+fn candidate_state_readonly(root: &std::path::Path) -> bool {
+    std::fs::symlink_metadata(root.join(super::USER_MEMORY_CANDIDATE_FILE))
+        .map(|metadata| metadata.permissions().readonly())
+        .unwrap_or(false)
 }
 
 fn empty_candidate_counts() -> BTreeMap<UserMemoryCandidateStatus, u32> {

@@ -1482,6 +1482,50 @@ export interface SessionLastError {
   code?: string | null
 }
 
+export type UserMemoryCapabilityReason =
+  | "available"
+  | "not_evaluated"
+  | "service_unavailable"
+  | "root_unavailable"
+  | "policy_disabled"
+  | "agent_disabled"
+  | "delegation_disabled"
+  | "probe_origin"
+  | "no_enabled_documents"
+  | "no_readable_documents"
+  | "agent_writes_disabled"
+  | "memory_document_disabled"
+  | "memory_document_unreadable"
+  | "memory_document_read_only"
+  | "candidate_state_unavailable"
+  | "candidate_state_invalid"
+  | "candidate_state_read_only"
+  | "adapter_rejects_mcp"
+  | "adapter_drops_mcp"
+  | "host_bridge_unavailable"
+  | "companion_missing"
+  | "companion_incompatible"
+  | "companion_probe_failed"
+  | "companion_timeout"
+  | "companion_tool_missing"
+
+export type UserMemoryDegradedReason =
+  | "memory_document_unreadable"
+  | "profile_document_unreadable"
+  | "soul_document_unreadable"
+
+export interface UserMemoryCapabilityResult {
+  available: boolean
+  reason: UserMemoryCapabilityReason
+  degradedReasons: UserMemoryDegradedReason[]
+}
+
+export interface UserMemoryCapabilities {
+  readContext: UserMemoryCapabilityResult
+  confirmedAppend: UserMemoryCapabilityResult
+  candidateProposal: UserMemoryCapabilityResult
+}
+
 export interface LiveSessionSnapshot {
   connection_id: string
   conversation_id: number | null
@@ -1512,6 +1556,8 @@ export interface LiveSessionSnapshot {
    *  The frontend gates the feedback bar on this — the agent's real capability —
    *  not the (possibly later-toggled) global setting. Absent → `false`. */
   feedback_tool_available?: boolean
+  /** Frozen user-memory capability vector for this exact launch. */
+  user_memory_capabilities?: UserMemoryCapabilities
   modes: SessionModeStateInfo | null
   current_mode: string | null
   config_options: SessionConfigOptionInfo[] | null

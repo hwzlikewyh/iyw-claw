@@ -8,8 +8,7 @@ use crate::models::agent::AgentType;
 
 use super::context::{USER_CONTEXT_END, USER_CONTEXT_START};
 use super::{
-    UserMemoryContextSnapshot, UserMemoryDocumentId, UserMemoryDocumentSnapshot, UserMemoryOrigin,
-    UserMemoryPolicy, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
+    UserMemoryDocumentId, UserMemoryDocumentSnapshot, UserMemoryPolicy, UserMemoryUpdateRequest,
     USER_MEMORY_MAX_APPEND_CHARS, USER_MEMORY_MAX_DOCUMENT_CHARS,
 };
 
@@ -32,20 +31,6 @@ pub(super) fn apply_policy_patch(policy: &mut UserMemoryPolicy, request: &UserMe
         if let Some(value) = patch.enabled {
             policy.documents.insert(*id, value);
         }
-    }
-}
-
-pub(super) fn policy_from_snapshot(snapshot: &UserMemorySettingsSnapshot) -> UserMemoryPolicy {
-    UserMemoryPolicy {
-        enabled: snapshot.enabled,
-        agent_write_enabled: snapshot.agent_write_enabled,
-        inherit_to_subagents: snapshot.inherit_to_subagents,
-        per_agent: snapshot.per_agent.clone(),
-        documents: snapshot
-            .documents
-            .iter()
-            .map(|(id, document)| (*id, document.enabled))
-            .collect(),
     }
 }
 
@@ -220,19 +205,6 @@ pub(super) fn reject_symlink(path: &Path) -> Result<(), AppCommandError> {
 
 pub(super) fn conflict(message: &str) -> AppCommandError {
     AppCommandError::new(AppErrorCode::Conflict, message)
-}
-
-pub(super) fn disabled_with_fingerprint(
-    origin: UserMemoryOrigin,
-    revision: &str,
-) -> UserMemoryContextSnapshot {
-    UserMemoryContextSnapshot {
-        revision: revision.to_string(),
-        effective_fingerprint: hash_parts(&[b"disabled"]),
-        rendered: None,
-        memory_write_enabled: false,
-        origin,
-    }
 }
 
 pub(super) fn hash_parts(parts: &[&[u8]]) -> String {

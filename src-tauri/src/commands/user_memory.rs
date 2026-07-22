@@ -4,11 +4,11 @@ use std::sync::Arc;
 use crate::acp::manager::ConnectionManager;
 use crate::app_error::AppCommandError;
 use crate::user_memory::{
-    UserMemoryCandidateDeleteRequest, UserMemoryCandidateDeleteResult,
-    UserMemoryCandidateListRequest, UserMemoryCandidatePage, UserMemoryCandidateResolutionResponse,
-    UserMemoryCandidateResolveRequest, UserMemoryCandidateSummary, UserMemoryService,
-    UserMemorySettingsSnapshot, UserMemoryUpdateRequest, UserMemoryUpdateResult,
-    USER_MEMORY_CANDIDATE_MAX_LIMIT,
+    project_settings_capabilities, UserMemoryCandidateDeleteRequest,
+    UserMemoryCandidateDeleteResult, UserMemoryCandidateListRequest, UserMemoryCandidatePage,
+    UserMemoryCandidateResolutionResponse, UserMemoryCandidateResolveRequest,
+    UserMemoryCandidateSummary, UserMemoryService, UserMemorySettingsSnapshot,
+    UserMemoryUpdateRequest, UserMemoryUpdateResult, USER_MEMORY_CANDIDATE_MAX_LIMIT,
 };
 
 pub async fn list_user_memory_candidates_core(
@@ -65,7 +65,15 @@ pub async fn get_user_memory_settings_core(
     manager: &ConnectionManager,
 ) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
     let mut settings = service.settings_snapshot().await?;
-    settings.stale_running_sessions = manager.count_stale_user_memory(service).await;
+    let health = settings.companion_health.clone();
+    project_settings_capabilities(
+        &mut settings,
+        health,
+        manager.user_memory_host_bridge_available(),
+    );
+    settings.stale_running_sessions = manager
+        .count_stale_user_memory_with_health(service, settings.companion_health.clone())
+        .await;
     Ok(settings)
 }
 
@@ -75,7 +83,15 @@ pub async fn update_user_memory_settings_core(
     request: UserMemoryUpdateRequest,
 ) -> Result<UserMemoryUpdateResult, AppCommandError> {
     let mut settings = service.update(request).await?;
-    let affected = manager.count_stale_user_memory(service).await;
+    let health = settings.companion_health.clone();
+    project_settings_capabilities(
+        &mut settings,
+        health,
+        manager.user_memory_host_bridge_available(),
+    );
+    let affected = manager
+        .count_stale_user_memory_with_health(service, settings.companion_health.clone())
+        .await;
     settings.stale_running_sessions = affected;
     Ok(UserMemoryUpdateResult {
         settings,

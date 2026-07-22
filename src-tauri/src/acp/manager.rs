@@ -76,6 +76,59 @@ fn user_prompt_text_preview(blocks: &[PromptInputBlock]) -> Option<String> {
     }
 }
 
+async fn wait_for_launch_finalization(
+    cmd_tx: &tokio::sync::mpsc::Sender<ConnectionCommand>,
+    state: &Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>,
+) -> Result<(), AcpError> {
+    loop {
+        let notified = {
+            let snapshot = state.read().await;
+            if snapshot.launch_finalized {
+                return Ok(());
+            }
+            snapshot.launch_ready.clone().notified_owned()
+        };
+        tokio::select! {
+            _ = notified => {}
+            _ = cmd_tx.closed() => return Err(AcpError::ProcessExited),
+        }
+    }
+}
+
+struct UserMemoryStalenessSnapshot {
+    agent_type: AgentType,
+    origin: crate::user_memory::UserMemoryOrigin,
+    fingerprint: String,
+    context_known: bool,
+    launch_finalized: bool,
+    status: ConnectionStatus,
+}
+
+impl UserMemoryStalenessSnapshot {
+    fn eligible(&self) -> bool {
+        self.launch_finalized
+            && !matches!(
+                self.status,
+                ConnectionStatus::Disconnected | ConnectionStatus::Error
+            )
+    }
+}
+
+async fn user_memory_staleness_snapshot(
+    state: &Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>,
+) -> UserMemoryStalenessSnapshot {
+    let state = state.read().await;
+    UserMemoryStalenessSnapshot {
+        agent_type: state.agent_type,
+        origin: state.user_memory_context.origin,
+        fingerprint: state.user_memory_context.effective_fingerprint.clone(),
+        context_known: state.user_memory_capabilities.read_context.reason
+            != crate::user_memory::UserMemoryCapabilityReason::NotEvaluated,
+        launch_finalized: state.launch_finalized,
+        status: state.status.clone(),
+    }
+}
+
 /// Seed title for a freshly-created delegation child row, derived from the
 /// delegating prompt's text blocks (the sub-agent's task). Uses the parser's own
 /// `title_from_user_text` (folds reference links, caps at 100 chars) so the value
@@ -274,19 +327,25 @@ impl ConnectionManager {
         origin: crate::user_memory::UserMemoryOrigin,
     ) -> crate::user_memory::UserMemoryContextSnapshot {
         let Some(service) = self.user_memory_service.get() else {
-            return crate::user_memory::UserMemoryContextSnapshot::disabled(origin);
+            return crate::user_memory::UserMemoryContextSnapshot::pending(origin);
         };
-        match service.context_for(agent_type, origin).await {
+        match service.launch_context_for(agent_type, origin).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
                 tracing::warn!("[user-memory] failed to build launch context: {error}");
-                crate::user_memory::UserMemoryContextSnapshot::disabled(origin)
+                crate::user_memory::UserMemoryContextSnapshot::pending(origin)
             }
         }
     }
 
     fn delegation_snapshot(&self) -> Option<crate::acp::connection::DelegationInjection> {
         self.delegation_injection.get().cloned()
+    }
+
+    pub(crate) fn user_memory_host_bridge_available(&self) -> bool {
+        self.delegation_injection
+            .get()
+            .is_some_and(|injection| injection.tokens.listener_ready())
     }
 
     /// Test-only constructor that overrides the spawn-handshake timeout.
@@ -331,10 +390,22 @@ impl ConnectionManager {
             "test-window".to_string(),
             None,
         );
-        state.user_memory_context = self
-            .user_memory_context_for(agent_type, crate::user_memory::UserMemoryOrigin::Root)
-            .await;
+        state.user_memory_context = match self.user_memory_service.get() {
+            Some(service) => service
+                .context_for(agent_type, crate::user_memory::UserMemoryOrigin::Root)
+                .await
+                .unwrap_or_else(|_| {
+                    crate::user_memory::UserMemoryContextSnapshot::disabled(
+                        crate::user_memory::UserMemoryOrigin::Root,
+                    )
+                }),
+            None => crate::user_memory::UserMemoryContextSnapshot::disabled(
+                crate::user_memory::UserMemoryOrigin::Root,
+            ),
+        };
+        state.user_memory_capabilities = state.user_memory_context.capabilities.clone();
         state.status = ConnectionStatus::Connected;
+        state.launch_finalized = true;
         let conn = AgentConnection {
             id: id.to_string(),
             agent_type,
@@ -376,10 +447,22 @@ impl ConnectionManager {
             "test-window".to_string(),
             None,
         );
-        state.user_memory_context = self
-            .user_memory_context_for(agent_type, crate::user_memory::UserMemoryOrigin::Root)
-            .await;
+        state.user_memory_context = match self.user_memory_service.get() {
+            Some(service) => service
+                .context_for(agent_type, crate::user_memory::UserMemoryOrigin::Root)
+                .await
+                .unwrap_or_else(|_| {
+                    crate::user_memory::UserMemoryContextSnapshot::disabled(
+                        crate::user_memory::UserMemoryOrigin::Root,
+                    )
+                }),
+            None => crate::user_memory::UserMemoryContextSnapshot::disabled(
+                crate::user_memory::UserMemoryOrigin::Root,
+            ),
+        };
+        state.user_memory_capabilities = state.user_memory_context.capabilities.clone();
         state.status = ConnectionStatus::Connected;
+        state.launch_finalized = true;
         let conn = AgentConnection {
             id: id.to_string(),
             agent_type,
@@ -407,15 +490,26 @@ impl ConnectionManager {
         let receiver = self
             .insert_test_connection_live(id, agent_type, working_dir, emitter)
             .await;
-        self.connections
+        let state = self
+            .connections
             .lock()
             .await
             .get(id)
             .expect("test connection must exist")
             .state
-            .write()
-            .await
-            .mark_user_context_already_present();
+            .clone();
+        let mut state = state.write().await;
+        let runtime = crate::user_memory::UserMemoryRuntimeEnvironment {
+            companion_health: state
+                .user_memory_context
+                .capability_inputs
+                .companion_health
+                .clone(),
+            host_bridge_available: true,
+        };
+        state.user_memory_context.finalize_resumed_runtime(runtime);
+        state.user_memory_capabilities = state.user_memory_context.capabilities.clone();
+        state.mark_user_context_already_present();
         receiver
     }
 
@@ -762,13 +856,7 @@ impl ConnectionManager {
                 "prompt must contain at least one content block".to_string(),
             ));
         }
-        let (cmd_tx, state_arc) = {
-            let connections = self.connections.lock().await;
-            let conn = connections
-                .get(conn_id)
-                .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
-            (conn.cmd_tx.clone(), conn.state.clone())
-        };
+        let (cmd_tx, state_arc) = self.wait_for_connection_launch(conn_id).await?;
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.
@@ -821,6 +909,27 @@ impl ConnectionManager {
             .get(conn_id)
             .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
         Ok(conn.prompt_lock.clone())
+    }
+
+    async fn wait_for_connection_launch(
+        &self,
+        conn_id: &str,
+    ) -> Result<
+        (
+            tokio::sync::mpsc::Sender<ConnectionCommand>,
+            Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>,
+        ),
+        AcpError,
+    > {
+        let (cmd_tx, state) = {
+            let connections = self.connections.lock().await;
+            let connection = connections
+                .get(conn_id)
+                .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
+            (connection.cmd_tx.clone(), connection.state.clone())
+        };
+        wait_for_launch_finalization(&cmd_tx, &state).await?;
+        Ok((cmd_tx, state))
     }
 
     pub async fn send_prompt(
@@ -928,6 +1037,7 @@ impl ConnectionManager {
         // it can't double-create a conversation row.
         let prompt_lock = self.clone_prompt_lock(conn_id).await?;
         let _prompt_guard = prompt_lock.lock_owned().await;
+        self.wait_for_connection_launch(conn_id).await?;
 
         // Snapshot what we need from the connection map under one short lock.
         // The conversation-linked check happens INSIDE the prompt lock so
@@ -1854,6 +1964,16 @@ impl ConnectionManager {
         &self,
         service: &crate::user_memory::UserMemoryService,
     ) -> usize {
+        let health = crate::acp::companion_health::locate_healthy_companion().await;
+        self.count_stale_user_memory_with_health(service, health)
+            .await
+    }
+
+    pub async fn count_stale_user_memory_with_health(
+        &self,
+        service: &crate::user_memory::UserMemoryService,
+        health: crate::user_memory::CompanionHealthSnapshot,
+    ) -> usize {
         let states = {
             let connections = self.connections.lock().await;
             connections
@@ -1863,16 +1983,23 @@ impl ConnectionManager {
         };
         let mut stale = 0;
         for state in states {
-            let (agent_type, origin, launch_fingerprint) = {
-                let snapshot = state.read().await;
-                (
-                    snapshot.agent_type,
-                    snapshot.user_memory_context.origin,
-                    snapshot.user_memory_context.effective_fingerprint.clone(),
-                )
-            };
-            if let Ok(current) = service.context_for(agent_type, origin).await {
-                if current.effective_fingerprint != launch_fingerprint {
+            let launch = user_memory_staleness_snapshot(&state).await;
+            if !launch.eligible() {
+                continue;
+            }
+            if !launch.context_known {
+                stale += 1;
+                continue;
+            }
+            if let Ok(mut current) = service
+                .launch_context_for(launch.agent_type, launch.origin)
+                .await
+            {
+                current.finalize_runtime(crate::user_memory::UserMemoryRuntimeEnvironment {
+                    companion_health: health.clone(),
+                    host_bridge_available: self.user_memory_host_bridge_available(),
+                });
+                if current.effective_fingerprint != launch.fingerprint {
                     stale += 1;
                 }
             }
@@ -2663,6 +2790,7 @@ mod tests {
         );
         state.conversation_id = conv_id;
         state.status = ConnectionStatus::Connected;
+        state.launch_finalized = true;
         AgentConnection {
             id: id.to_string(),
             agent_type: crate::models::agent::AgentType::ClaudeCode,
@@ -2835,6 +2963,7 @@ mod tests {
             None,
         );
         state.status = ConnectionStatus::Connected;
+        state.launch_finalized = true;
         let conn = AgentConnection {
             id: conn_id.to_string(),
             agent_type,
@@ -3168,6 +3297,7 @@ mod tests {
         );
         state.conversation_id = Some(pre.id);
         state.status = ConnectionStatus::Connected;
+        state.launch_finalized = true;
         let conn = AgentConnection {
             id: "c-shield".to_string(),
             agent_type: AgentType::ClaudeCode,
@@ -4219,6 +4349,7 @@ mod tests {
             let mut s = state.write().await;
             s.external_id = Some("ext-1".into());
             s.status = ConnectionStatus::Connected;
+            s.launch_finalized = true;
         }
 
         // Same session_id + same agent + same working_dir -> reuse.
@@ -4734,6 +4865,7 @@ mod tests {
         );
         state.conversation_id = Some(conversation_id);
         state.status = ConnectionStatus::Connected;
+        state.launch_finalized = true;
         let conn = AgentConnection {
             id: conn_id.to_string(),
             agent_type: crate::models::agent::AgentType::ClaudeCode,
@@ -4987,6 +5119,7 @@ mod tests {
             None,
         );
         state.status = ConnectionStatus::Connected;
+        state.launch_finalized = true;
         let conn = AgentConnection {
             id: "c-relink".to_string(),
             agent_type: AgentType::ClaudeCode,

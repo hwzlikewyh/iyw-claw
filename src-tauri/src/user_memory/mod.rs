@@ -4,14 +4,18 @@ mod candidate_lifecycle;
 mod candidate_resolution;
 mod candidate_store;
 mod candidate_types;
+mod capabilities;
+mod capability_types;
 mod context;
 mod fs;
 mod helpers;
 mod journal;
+mod launch_context;
 mod migration;
 mod platform;
 mod recovery;
 mod service;
+mod settings_projection;
 mod store;
 mod structured_file;
 mod transaction;
@@ -19,6 +23,8 @@ mod types;
 
 pub use candidate_api_types::*;
 pub use candidate_types::*;
+pub use capabilities::*;
+pub use capability_types::*;
 pub use context::{strip_user_context, USER_CONTEXT_END, USER_CONTEXT_START};
 pub use service::UserMemoryService;
 pub use transaction::{
@@ -26,6 +32,8 @@ pub use transaction::{
     USER_MEMORY_TRANSACTION_SCHEMA_VERSION,
 };
 pub use types::*;
+
+pub(crate) use settings_projection::project_settings_capabilities;
 
 pub(crate) fn prepare_candidate_state_for_restore(
     root: &std::path::Path,

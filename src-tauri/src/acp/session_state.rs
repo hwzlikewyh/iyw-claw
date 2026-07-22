@@ -327,6 +327,14 @@ pub struct SessionState {
     /// session snapshot; only the connection loop can place its rendered
     /// envelope on the first accepted wire prompt.
     pub user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
+    /// Immutable launch-time capability vector exposed through live snapshots.
+    /// It remains `not_evaluated` until the companion probe and injection
+    /// decision have completed.
+    pub user_memory_capabilities: crate::user_memory::UserMemoryCapabilities,
+    /// Prompt senders wait for this flag so no turn can capture the provisional
+    /// pre-probe context while the connection is still initializing.
+    pub launch_finalized: bool,
+    pub(crate) launch_ready: Arc<tokio::sync::Notify>,
     /// Set atomically with the first accepted prompt enqueue. A live connection
     /// keeps its launch snapshot and never reinjects it on later turns.
     pub user_context_injected: bool,
@@ -391,6 +399,11 @@ pub struct SessionState {
 }
 
 impl SessionState {
+    pub fn mark_launch_finalized(&mut self) {
+        self.launch_finalized = true;
+        self.launch_ready.notify_one();
+    }
+
     pub(crate) fn mark_user_context_already_present(&mut self) {
         self.user_context_injected = true;
     }
@@ -437,9 +450,12 @@ impl SessionState {
             recent_events: RecentEventsBuffer::new(),
             delegation_token: None,
             memory_turn_tracker: Arc::new(crate::acp::memory_turn::MemoryTurnTracker::default()),
-            user_memory_context: crate::user_memory::UserMemoryContextSnapshot::disabled(
+            user_memory_context: crate::user_memory::UserMemoryContextSnapshot::pending(
                 crate::user_memory::UserMemoryOrigin::Root,
             ),
+            user_memory_capabilities: Default::default(),
+            launch_finalized: false,
+            launch_ready: Arc::new(tokio::sync::Notify::new()),
             user_context_injected: false,
             feedback_tool_available: false,
             last_assistant_text: None,
@@ -1146,6 +1162,7 @@ impl SessionState {
             feedback: self.feedback.clone(),
             background_outstanding: self.background_outstanding,
             feedback_tool_available: self.feedback_tool_available,
+            user_memory_capabilities: self.user_memory_capabilities.clone(),
             modes: self.modes.clone(),
             current_mode: self.current_mode.clone(),
             config_options: self.config_options.clone(),
@@ -1222,6 +1239,8 @@ pub struct LiveSessionSnapshot {
     /// it. Always serialized (a plain bool) so the frontend can rely on it.
     #[serde(default)]
     pub feedback_tool_available: bool,
+    #[serde(default)]
+    pub user_memory_capabilities: crate::user_memory::UserMemoryCapabilities,
     pub modes: Option<SessionModeStateInfo>,
     pub current_mode: Option<String>,
     pub config_options: Option<Vec<SessionConfigOptionInfo>>,

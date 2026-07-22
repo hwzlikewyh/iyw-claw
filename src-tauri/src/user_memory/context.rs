@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use super::{UserMemoryDocumentId, UserMemoryPolicy, USER_MEMORY_MAX_CONTEXT_CHARS};
+use super::{
+    UserMemoryCapabilities, UserMemoryDocumentId, UserMemoryPolicy, APPEND_USER_MEMORY_TOOL,
+    PROPOSE_USER_MEMORY_TOOL, USER_MEMORY_MAX_CONTEXT_CHARS,
+};
 
 pub const USER_CONTEXT_START: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_START -->";
 pub const USER_CONTEXT_END: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_END -->";
@@ -9,27 +12,31 @@ const MAX_DOCUMENT_CONTEXT_CHARS: usize = 7_200;
 pub(crate) fn render_user_context(
     policy: &UserMemoryPolicy,
     documents: &BTreeMap<UserMemoryDocumentId, String>,
-    memory_write_enabled: bool,
+    capabilities: &UserMemoryCapabilities,
 ) -> Option<String> {
     let mut sections = Vec::new();
-    for id in UserMemoryDocumentId::ALL {
-        if !policy.documents.get(&id).copied().unwrap_or(true) {
-            continue;
+    if capabilities.read_context.available {
+        for id in UserMemoryDocumentId::ALL {
+            if !policy.documents.get(&id).copied().unwrap_or(true) {
+                continue;
+            }
+            let Some(content) = documents.get(&id).map(|value| value.trim()) else {
+                continue;
+            };
+            if content.is_empty() {
+                continue;
+            }
+            let content = escape_context_markers(content);
+            sections.push(format!(
+                "## {}\n{}",
+                section_title(id),
+                bounded_document(&content)
+            ));
         }
-        let Some(content) = documents.get(&id).map(|value| value.trim()) else {
-            continue;
-        };
-        if content.is_empty() {
-            continue;
-        }
-        let content = escape_context_markers(content);
-        sections.push(format!(
-            "## {}\n{}",
-            section_title(id),
-            bounded_document(&content)
-        ));
     }
-    if sections.is_empty() && !memory_write_enabled {
+    let append_available = capabilities.confirmed_append.available;
+    let proposal_available = capabilities.candidate_proposal.available;
+    if sections.is_empty() && !append_available && !proposal_available {
         return None;
     }
 
@@ -42,16 +49,31 @@ pub(crate) fn render_user_context(
         body.push_str("\n\n");
         body.push_str(&sections.join("\n\n"));
     }
-    if memory_write_enabled {
-        body.push_str(
-            "\n\n## Memory maintenance\nWhen the `append_user_memory` tool is available, \
-             call it only when the user clearly states a durable, cross-task fact or preference. \
-             Never store secrets, credentials, inferred sensitive traits, repository facts, \
-             temporary progress, or one-off task details. Do not edit memory files with shell \
-             commands.",
-        );
-    }
+    append_maintenance_guidance(&mut body, append_available, proposal_available);
     Some(bounded_envelope(&body))
+}
+
+fn append_maintenance_guidance(body: &mut String, append: bool, proposal: bool) {
+    if !append && !proposal {
+        return;
+    }
+    body.push_str("\n\n## Memory maintenance\n");
+    if append {
+        body.push_str(&format!(
+            "Use `{APPEND_USER_MEMORY_TOOL}` only when the user clearly confirms a durable, \
+             cross-task fact or preference. "
+        ));
+    }
+    if proposal {
+        body.push_str(&format!(
+            "Use `{PROPOSE_USER_MEMORY_TOOL}` for a useful correction, preference, or fact that \
+             may be durable but still needs user review. "
+        ));
+    }
+    body.push_str(
+        "Never store secrets, credentials, inferred sensitive traits, repository facts, \
+         temporary progress, or one-off task details. Do not edit memory files with shell commands.",
+    );
 }
 
 pub fn strip_user_context(input: &str) -> String {

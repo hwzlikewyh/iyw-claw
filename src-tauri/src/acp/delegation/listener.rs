@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -73,6 +74,7 @@ pub struct TokenEntry {
 #[derive(Default)]
 pub struct TokenRegistry {
     inner: RwLock<HashMap<String, TokenEntry>>,
+    listener_ready: AtomicBool,
 }
 
 impl TokenRegistry {
@@ -102,6 +104,27 @@ impl TokenRegistry {
                 true
             }
         });
+    }
+
+    pub fn listener_ready(&self) -> bool {
+        self.listener_ready.load(Ordering::Acquire)
+    }
+}
+
+struct ListenerReadinessGuard {
+    tokens: Arc<TokenRegistry>,
+}
+
+impl ListenerReadinessGuard {
+    fn new(tokens: Arc<TokenRegistry>) -> Self {
+        tokens.listener_ready.store(true, Ordering::Release);
+        Self { tokens }
+    }
+}
+
+impl Drop for ListenerReadinessGuard {
+    fn drop(&mut self) {
+        self.tokens.listener_ready.store(false, Ordering::Release);
     }
 }
 
@@ -156,6 +179,7 @@ impl DelegationListener {
             let _ = tokio::fs::create_dir_all(parent).await;
         }
         let listener = tokio::net::UnixListener::bind(&socket_path)?;
+        let _readiness = ListenerReadinessGuard::new(self.tokens.clone());
         tracing::info!("[delegation] listening on UDS {}", socket_path.display());
         loop {
             match listener.accept().await {
@@ -188,6 +212,7 @@ impl DelegationListener {
         let mut server = ServerOptions::new()
             .first_pipe_instance(true)
             .create(&path_str)?;
+        let _readiness = ListenerReadinessGuard::new(self.tokens.clone());
         tracing::info!("[delegation] listening on named pipe {path_str}");
         loop {
             if let Err(e) = server.connect().await {

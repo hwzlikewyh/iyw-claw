@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::models::agent::AgentType;
 use crate::paths::UserMemoryRootSource;
 
-use super::UserMemoryCandidateStatus;
+use super::{CompanionHealthSnapshot, UserMemoryCandidateStatus, UserMemoryCapabilities};
 
 pub const USER_MEMORY_MAX_DOCUMENT_CHARS: usize = 65_536;
 pub const USER_MEMORY_MAX_APPEND_CHARS: usize = 1_000;
@@ -86,6 +86,14 @@ pub struct UserMemoryDocumentSnapshot {
     pub etag: String,
     pub enabled: bool,
     pub readonly: bool,
+    #[serde(default = "default_true")]
+    pub readable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +115,7 @@ pub struct UserMemoryAvailabilityDiagnostic {
 pub enum UserMemoryCandidateDiagnosticReason {
     RootUnavailable,
     InvalidState,
+    ReadOnly,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,6 +142,8 @@ pub struct UserMemorySettingsSnapshot {
     pub migration_report: Option<UserMemoryMigrationReport>,
     pub candidate_diagnostic: UserMemoryCandidateDiagnostic,
     pub candidate_counts: BTreeMap<UserMemoryCandidateStatus, u32>,
+    pub projected_capabilities: BTreeMap<AgentType, UserMemoryCapabilities>,
+    pub companion_health: CompanionHealthSnapshot,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,18 +186,34 @@ pub struct UserMemoryContextSnapshot {
     pub effective_fingerprint: String,
     pub rendered: Option<Arc<str>>,
     pub memory_write_enabled: bool,
+    pub capabilities: UserMemoryCapabilities,
     pub origin: UserMemoryOrigin,
+    pub(crate) capability_inputs: super::UserMemoryCapabilityInputs,
+    pub(crate) policy: UserMemoryPolicy,
+    pub(crate) documents: BTreeMap<UserMemoryDocumentId, String>,
 }
 
 impl UserMemoryContextSnapshot {
-    pub fn disabled(origin: UserMemoryOrigin) -> Self {
+    pub fn pending(origin: UserMemoryOrigin) -> Self {
         Self {
             revision: String::new(),
             effective_fingerprint: String::new(),
             rendered: None,
             memory_write_enabled: false,
+            capabilities: UserMemoryCapabilities::default(),
             origin,
+            capability_inputs: super::UserMemoryCapabilityInputs::unavailable(origin),
+            policy: UserMemoryPolicy::default(),
+            documents: BTreeMap::new(),
         }
+    }
+
+    pub fn disabled(origin: UserMemoryOrigin) -> Self {
+        let capability_inputs = super::UserMemoryCapabilityInputs::unavailable(origin);
+        let mut snapshot = Self::pending(origin);
+        snapshot.capabilities = super::compose_user_memory_capabilities(&capability_inputs);
+        snapshot.capability_inputs = capability_inputs;
+        snapshot
     }
 }
 

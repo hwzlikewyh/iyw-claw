@@ -1388,130 +1388,23 @@ pub struct DelegationInjection {
     pub questions: Arc<dyn crate::acp::question::SessionQuestionAccess>,
 }
 
-/// Locate the `iyw-claw-mcp` companion binary across the supported deployment
-/// shapes:
-///
-/// 1. `IYW_CLAW_MCP_BIN` env override — explicit absolute path. Lets dev shells,
-///    custom installs, and integration tests point at a freshly compiled
-///    binary without touching the install layout.
-/// 2. Sibling of the running executable — the production layout for every
-///    shipping target. Tauri sidecar (`Contents/MacOS/iyw-claw-mcp` on macOS,
-///    next to `iyw-claw.exe` on Windows, next to the unix binary on Linux
-///    deb/rpm), `install.sh`/`install.ps1` (drops `iyw-claw-mcp` next to
-///    `iyw-claw-server`), Docker image (`/usr/local/bin/iyw-claw-mcp` next to
-///    `iyw-claw-server`), and `cargo build` dev output
-///    (`target/<profile>/iyw-claw-mcp`).
-/// 3. `PATH` lookup — last-resort for atypical layouts where ops moved the
-///    two binaries apart but kept both reachable on `PATH`.
-///
-/// Returns `None` when no candidate is an executable file. Callers MUST
-/// treat `None` as "delegation is unavailable at this site" and skip
-/// injection — never paper over with a phantom path, because that fails
-/// inside the agent's MCP spawn loop and may take the entire ACP session
-/// down on stricter agents.
-fn locate_iyw_claw_mcp_binary() -> Option<PathBuf> {
-    let filename = if cfg!(windows) {
-        "iyw-claw-mcp.exe"
-    } else {
-        "iyw-claw-mcp"
-    };
-
-    if let Some(raw) = std::env::var_os("IYW_CLAW_MCP_BIN") {
-        let candidate = PathBuf::from(raw);
-        if is_compatible_companion(&candidate) {
-            return Some(candidate);
-        }
-    }
-
-    if let Some(dir) = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf))
-    {
-        let candidate = dir.join(filename);
-        if is_compatible_companion(&candidate) {
-            return Some(candidate);
-        }
-    }
-
-    which::which(filename)
-        .ok()
-        .filter(|p| is_compatible_companion(p))
-}
-
-fn is_compatible_companion(path: &Path) -> bool {
-    if !is_executable_file(path) {
-        return false;
-    }
-    let output = crate::process::std_command(path)
-        .arg("--capabilities")
-        .output();
-    let result = output
-        .map_err(|error| format!("capability probe failed: {error}"))
-        .and_then(|output| {
-            if !output.status.success() {
-                return Err(format!("capability probe exited with {}", output.status));
-            }
-            String::from_utf8(output.stdout)
-                .map_err(|error| format!("capability output is not UTF-8: {error}"))
-        })
-        .and_then(|stdout| validate_companion_capabilities(&stdout));
-    if let Err(error) = result {
-        tracing::warn!(
-            "[ACP] ignoring incompatible iyw-claw-mcp at {}: {error}",
-            path.display()
-        );
-        return false;
-    }
-    true
-}
-
+#[cfg(test)]
 fn validate_companion_capabilities(raw: &str) -> Result<(), String> {
-    let manifest: serde_json::Value =
-        serde_json::from_str(raw.trim()).map_err(|error| error.to_string())?;
-    if manifest["name"] != "iyw-claw-mcp" {
-        return Err("unexpected companion name".into());
+    let health = crate::acp::companion_health::parse_companion_manifest(PathBuf::new(), raw);
+    if health.status != crate::user_memory::CompanionHealthStatus::Ready {
+        return Err(format!("{:?}", health.reason));
     }
-    if manifest["version"] != env!("CARGO_PKG_VERSION") {
-        return Err(format!(
-            "version mismatch: expected {}, got {}",
-            env!("CARGO_PKG_VERSION"),
-            manifest["version"]
-        ));
-    }
-    if manifest["protocol_version"] != 1 {
-        return Err("unsupported companion protocol version".into());
-    }
-    let tools = manifest["tools"]
-        .as_array()
-        .ok_or_else(|| "companion tools manifest is missing".to_string())?;
     let expected = crate::acp::delegation::companion::binary_capabilities();
     let expected_tools = expected["tools"]
         .as_array()
         .ok_or_else(|| "built-in companion tools manifest is invalid".to_string())?;
     for required in expected_tools {
-        if !tools.contains(required) {
-            let name = required.as_str().unwrap_or("unknown");
+        let name = required.as_str().unwrap_or("unknown");
+        if !health.advertised_tools.iter().any(|tool| tool == name) {
             return Err(format!("{name} capability is missing"));
         }
     }
     Ok(())
-}
-
-fn is_executable_file(path: &Path) -> bool {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !meta.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if meta.permissions().mode() & 0o111 == 0 {
-            return false;
-        }
-    }
-    true
 }
 
 /// Append the built-in `iyw-claw-mcp` MCP entry when its binary is present.
@@ -1569,6 +1462,37 @@ struct MemoryLaunchAccess {
     turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
 }
 
+async fn finalize_user_memory_launch(
+    state: &Arc<RwLock<SessionState>>,
+    emitter: &EventEmitter,
+    runtime: &crate::user_memory::UserMemoryRuntimeEnvironment,
+    resumed: bool,
+) {
+    {
+        let mut session = state.write().await;
+        if resumed {
+            session
+                .user_memory_context
+                .finalize_resumed_runtime(runtime.clone());
+        } else {
+            session
+                .user_memory_context
+                .finalize_runtime(runtime.clone());
+            session.user_context_injected = false;
+        }
+        session.user_memory_capabilities = session.user_memory_context.capabilities.clone();
+        session.mark_launch_finalized();
+    }
+    emit_with_state(
+        state,
+        emitter,
+        AcpEvent::StatusChanged {
+            status: ConnectionStatus::Connected,
+        },
+    )
+    .await;
+}
+
 async fn inject_iyw_claw_mcp(
     servers: &mut Vec<McpServer>,
     injection: &DelegationInjection,
@@ -1576,13 +1500,22 @@ async fn inject_iyw_claw_mcp(
     working_dir: &Path,
     agent_type: AgentType,
     memory_access: MemoryLaunchAccess,
+    health: &crate::user_memory::CompanionHealthSnapshot,
 ) -> Option<CompanionInjection> {
     // `images` keeps the companion enabled for every MCP-capable session. The
     // remaining feature groups stay independently gated by their settings.
-    let delegation_enabled = injection.broker.config_snapshot().await.enabled;
-    let feedback_enabled = injection.feedback.is_enabled().await;
-    let ask_enabled = injection.ask.is_enabled().await;
-    let sessions_enabled = injection.sessions.is_enabled().await;
+    let has_tool = |name: &str| health.advertised_tools.iter().any(|tool| tool == name);
+    let delegation_enabled = injection.broker.config_snapshot().await.enabled
+        && [
+            "delegate_to_agent",
+            "get_delegation_status",
+            "cancel_delegation",
+        ]
+        .into_iter()
+        .all(has_tool);
+    let feedback_enabled = injection.feedback.is_enabled().await && has_tool("check_user_feedback");
+    let ask_enabled = injection.ask.is_enabled().await && has_tool("ask_user_question");
+    let sessions_enabled = injection.sessions.is_enabled().await && has_tool("get_session_info");
     let mut features_arg = companion_features_arg(
         delegation_enabled,
         feedback_enabled,
@@ -1593,14 +1526,10 @@ async fn inject_iyw_claw_mcp(
     if memory_access.candidate_proposal {
         features_arg.push_str(",memory-proposal");
     }
-    let Some(binary_path) = locate_iyw_claw_mcp_binary() else {
+    let Some(binary_path) = health.selected_path.clone() else {
         tracing::warn!(
-            "[delegation][WARN] iyw-claw-mcp companion binary not found (checked IYW_CLAW_MCP_BIN, \
-             exe sibling, and PATH); skipping delegate_to_agent / check_user_feedback / \
-             ask_user_question / get_session_info / show_image / append_user_memory / \
-             propose_user_memory tool \
-             injection for connection \
-             {parent_connection_id}. Reinstall iyw-claw or set IYW_CLAW_MCP_BIN to fix."
+            "[delegation][WARN] ready iyw-claw-mcp health had no selected path; skipping injection \
+             for connection {parent_connection_id}"
         );
         return None;
     };
@@ -2043,22 +1972,36 @@ async fn run_connection(
                 Vec::new()
             };
 
-            // Inject the built-in `iyw-claw-mcp` MCP server. Stdio is
-            // unconditionally supported by the ACP wire — no `mcp_caps`
-            // filter needed. Teardown revokes every registered token by parent
-            // connection id, including a token registered immediately before a
-            // panic. Skipped for agents that don't accept MCP over the wire.
-            let delegate_injection = if agent_supports_iyw_claw_mcp(agent_type) {
+            // Probe once after ACP Initialize, freeze the actual memory vector,
+            // and reuse the selected path for injection. Health failures only
+            // remove companion-backed tools; the base Agent session continues.
+            let companion_supported = agent_supports_iyw_claw_mcp(agent_type);
+            let host_bridge_available = delegation_injection
+                .as_ref()
+                .is_some_and(|injection| injection.tokens.listener_ready());
+            let companion_health = if companion_supported && host_bridge_available {
+                crate::acp::companion_health::locate_healthy_companion().await
+            } else {
+                crate::user_memory::CompanionHealthSnapshot::default()
+            };
+            let memory_access = {
+                let session = state.read().await;
+                let mut projected = session.user_memory_context.clone();
+                projected.finalize_runtime(crate::user_memory::UserMemoryRuntimeEnvironment {
+                    companion_health: companion_health.clone(),
+                    host_bridge_available,
+                });
+                MemoryLaunchAccess {
+                    confirmed_append: projected.capabilities.confirmed_append.available,
+                    candidate_proposal: projected.capabilities.candidate_proposal.available,
+                    turn_tracker: session.memory_turn_tracker.clone(),
+                }
+            };
+            let delegate_injection = if companion_supported
+                && companion_health.status
+                    == crate::user_memory::CompanionHealthStatus::Ready
+            {
                 if let Some(inj) = delegation_injection.as_ref() {
-                    let memory_access = {
-                        let state = state.read().await;
-                        let enabled = state.user_memory_context.memory_write_enabled;
-                        MemoryLaunchAccess {
-                            confirmed_append: enabled,
-                            candidate_proposal: enabled,
-                            turn_tracker: state.memory_turn_tracker.clone(),
-                        }
-                    };
                     inject_iyw_claw_mcp(
                         &mut mcp_servers,
                         inj,
@@ -2066,12 +2009,19 @@ async fn run_connection(
                         &cwd,
                         agent_type,
                         memory_access,
+                        &companion_health,
                     )
                     .await
                 } else {
                     None
                 }
             } else {
+                if companion_supported && host_bridge_available {
+                    tracing::warn!(
+                        "[ACP] iyw-claw-mcp unavailable for {conn_id}: {:?}",
+                        companion_health.reason
+                    );
+                }
                 None
             };
             if let Some(ref injected) = delegate_injection {
@@ -2081,6 +2031,10 @@ async fn run_connection(
                 // authoritative gate for submit + UI, fixed at launch.
                 s.feedback_tool_available = injected.feedback_available;
             }
+            let user_memory_runtime = crate::user_memory::UserMemoryRuntimeEnvironment {
+                companion_health,
+                host_bridge_available: delegate_injection.is_some(),
+            };
 
             // Emit fork support capability
             emit_with_state(
@@ -2088,19 +2042,6 @@ async fn run_connection(
                 &emitter_clone,
                 AcpEvent::ForkSupported {
                     supported: supports_fork,
-                },
-            )
-            .await;
-
-            // Emit connected status early so the frontend can show cached
-            // selectors and enable sending while the session initialises.
-            // Prompts sent before run_conversation_loop are buffered in
-            // the cmd_rx channel and processed as soon as the loop starts.
-            emit_with_state(
-                &state,
-                &emitter_clone,
-                AcpEvent::StatusChanged {
-                    status: ConnectionStatus::Connected,
                 },
             )
             .await;
@@ -2133,6 +2074,13 @@ async fn run_connection(
                             let grok_effort_specs = (agent_type == AgentType::Grok)
                                 .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
                             let mut session = cx.attach_session(new_resp, Default::default())?;
+                            finalize_user_memory_launch(
+                                &state,
+                                &emitter_clone,
+                                &user_memory_runtime,
+                                true,
+                            )
+                            .await;
 
                             // No drain: session/resume does not replay history,
                             // so there is nothing to discard. Any buffered
@@ -2242,6 +2190,13 @@ async fn run_connection(
                             .then(|| new_resp.meta.clone())
                             .flatten();
                         let mut session = cx.attach_session(new_resp, Default::default())?;
+                        finalize_user_memory_launch(
+                            &state,
+                            &emitter_clone,
+                            &user_memory_runtime,
+                            true,
+                        )
+                        .await;
 
                         // Drain historical replay notifications from session/load,
                         // but forward AvailableCommandsUpdate to the frontend
@@ -2424,6 +2379,13 @@ async fn run_connection(
                         let grok_effort_specs = (agent_type == AgentType::Grok)
                             .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
                         let mut session = cx.attach_session(new_resp, Default::default())?;
+                        finalize_user_memory_launch(
+                            &state,
+                            &emitter_clone,
+                            &user_memory_runtime,
+                            false,
+                        )
+                        .await;
                         emit_with_state(
                             &state,
                             &emitter_clone,
@@ -2500,6 +2462,13 @@ async fn run_connection(
                 let grok_effort_specs = (agent_type == AgentType::Grok)
                     .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
                 let mut session = cx.attach_session(new_resp, Default::default())?;
+                finalize_user_memory_launch(
+                    &state,
+                    &emitter_clone,
+                    &user_memory_runtime,
+                    false,
+                )
+                .await;
                 emit_with_state(
                     &state,
                     &emitter_clone,

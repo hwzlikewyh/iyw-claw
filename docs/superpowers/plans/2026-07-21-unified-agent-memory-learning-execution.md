@@ -584,7 +584,7 @@ pub enum CompanionHealthStatus {
 - Maintenance guidance names only frozen available tools. Candidate state,
   migration, diagnostics, and provenance never enter prompt context.
 
-- [ ] **Step 1: Write composition, health, launch, and context tests**
+- [x] **Step 1: Write composition, health, launch, and context tests**
 
 Use all eleven Agents in a table. Cover policy off, delegation off, probe
 origin, partial readable documents, read-only Memory, invalid/read-only
@@ -592,7 +592,7 @@ candidate state, companion missing/incompatible/malformed/hung, each one-tool
 manifest, both tools, readiness ordering, live serialization, Pi/OpenClaw
 guidance, and exclusion of candidate/diagnostic content.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```powershell
 cargo test --features test-utils --test user_memory_capabilities
@@ -601,20 +601,20 @@ cargo test --features test-utils --test user_memory_capabilities
 Expected: compilation fails because capability/health and live snapshot fields
 are absent.
 
-- [ ] **Step 3: Implement composition and bounded health probing**
+- [x] **Step 3: Implement composition and bounded health probing**
 
 Put new logic in the two new modules; keep large ACP files to lifecycle wiring.
 Omit an unreadable document while retaining degraded read context when another
 enabled document is readable.
 
-- [ ] **Step 4: Run GREEN and context/session regressions**
+- [x] **Step 4: Run GREEN and context/session regressions**
 
 ```powershell
 cargo test --features test-utils --test user_memory_capabilities --test user_memory_context_policy --test user_memory_injection
 cargo test --features test-utils acp::session_state::
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src-tauri/src/user_memory src-tauri/src/acp src/lib/types.ts
