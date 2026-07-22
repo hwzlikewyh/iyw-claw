@@ -9,6 +9,8 @@ use crate::db::service::app_metadata_service;
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
 
+mod token_file;
+
 const IYW_ACCOUNT_SESSION_KEY: &str = "iyw_account_session";
 const ACCOUNT_BASE_URL: &str = "https://account.iyw.cn";
 const GATEWAY_BASE_URL: &str = "https://gateway.iyw.cn";
@@ -230,6 +232,7 @@ async fn save_session(
             .with_detail(err.to_string())
     })?;
 
+    token_file::sync(session.token.as_ref())?;
     app_metadata_service::upsert_value(conn, IYW_ACCOUNT_SESSION_KEY, &serialized)
         .await
         .map_err(AppCommandError::from)
