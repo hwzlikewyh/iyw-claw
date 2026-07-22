@@ -41,6 +41,7 @@ const POLL_OVERLAP_SECS: i64 = 120;
 const SENT_ECHO_TTL: Duration = Duration::from_secs(300);
 const MAX_SEEN_KEYS: usize = 4096;
 const WECOM_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+const WECOM_INIT_ARGS: &[&str] = &["init", "--noninteractive", "--no-open"];
 
 pub struct WecomBackend {
     channel_id: i32,
@@ -661,7 +662,7 @@ pub async fn start_auth() -> Result<String, ChatChannelError> {
     }
 
     let mut command = crate::process::tokio_command("wecom-cli");
-    command.args(["init", "--noninteractive"]);
+    command.args(wecom_init_args());
     command.stdin(std::process::Stdio::null());
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
@@ -711,6 +712,10 @@ fn extract_https_link(line: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
+fn wecom_init_args() -> &'static [&'static str] {
+    WECOM_INIT_ARGS
+}
+
 /// Parse a wecom timestamp; used to keep the API surface honest in tests.
 #[allow(dead_code)]
 fn parse_wecom_time(value: &str) -> Option<DateTime<Local>> {
@@ -750,5 +755,10 @@ mod tests {
             Some("https://work.weixin.qq.com/auth?x=1".to_string())
         );
         assert_eq!(extract_https_link("no link here"), None);
+    }
+
+    #[test]
+    fn init_args_leave_qr_page_under_app_control() {
+        assert!(wecom_init_args().contains(&"--no-open"));
     }
 }
