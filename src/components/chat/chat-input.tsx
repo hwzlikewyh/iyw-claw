@@ -116,7 +116,6 @@ export const ChatInput = memo(function ChatInput({
   const t = useTranslations("Folder.chat.chatInput")
   const isConnected = status === "connected"
   const isPrompting = status === "prompting"
-  const isConnecting = status === "connecting"
 
   return (
     <div
@@ -171,11 +170,9 @@ export const ChatInput = memo(function ChatInput({
         injectContent={injectContent}
         onInjectConsumed={onInjectConsumed}
         placeholder={
-          isConnecting
-            ? t("connecting")
-            : isPrompting
-              ? t("agentResponding", { agent: agentName ?? "Agent" })
-              : t("sendMessage")
+          isPrompting
+            ? t("agentResponding", { agent: agentName ?? "Agent" })
+            : t("sendMessage")
         }
         className={cn(tall ? "min-h-30" : "min-h-24", "max-h-60")}
       />
