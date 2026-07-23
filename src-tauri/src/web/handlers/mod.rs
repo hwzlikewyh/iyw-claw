@@ -27,6 +27,7 @@ pub mod quick_messages;
 pub mod runtime_bootstrap;
 pub mod session_info;
 pub mod system_settings;
+pub mod system_skills;
 pub mod terminal;
 mod upload_jail;
 pub mod usage;

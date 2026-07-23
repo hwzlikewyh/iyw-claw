@@ -17,5 +17,11 @@ pub async fn runtime_bootstrap(
     Json(params): Json<RuntimeBootstrapParams>,
 ) -> Json<rb::RuntimeBootstrapReport> {
     let emitter = state.emitter.clone();
-    Json(rb::runtime_bootstrap_core(params.task_id, &emitter).await)
+    let report = rb::runtime_bootstrap_core(params.task_id, &emitter).await;
+    let conn = state.db.conn.clone();
+    let data_dir = state.data_dir.clone();
+    tokio::spawn(async move {
+        crate::system_skills::startup_update_core(&conn, &data_dir, &emitter).await;
+    });
+    Json(report)
 }

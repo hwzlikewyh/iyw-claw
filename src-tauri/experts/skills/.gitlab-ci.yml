@@ -1,0 +1,58 @@
+workflow:
+  rules:
+    - if: "$CI_COMMIT_TAG"
+    - when: never
+
+stages:
+  - validate
+  - release
+
+validate-release:
+  stage: validate
+  image: python:3.12-alpine
+  script:
+    - |
+      python - <<'PY'
+      import os
+      import pathlib
+      import re
+      import tomllib
+
+      tag = os.environ["CI_COMMIT_TAG"]
+      if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+          raise SystemExit(f"release tag must be stable SemVer: {tag}")
+
+      manifest = tomllib.loads(pathlib.Path("experts.toml").read_text("utf-8"))
+      version = manifest.get("bundle", {}).get("version")
+      if tag != f"v{version}":
+          raise SystemExit(f"tag {tag} does not match bundle version {version}")
+
+      for expert in manifest.get("expert", []):
+          skill = pathlib.Path(expert["id"], "SKILL.md")
+          if not skill.is_file():
+              raise SystemExit(f"missing required skill file: {skill}")
+      PY
+
+package-release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  script:
+    - mkdir -p dist
+    - PACKAGE_FILE="${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_TAG}.tar.gz"
+    - tar --exclude=.git --exclude=dist -czf "dist/${PACKAGE_FILE}" .
+  artifacts:
+    name: "${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_TAG}"
+    paths:
+      - dist/*.tar.gz
+    expire_in: never
+  release:
+    tag_name: "$CI_COMMIT_TAG"
+    name: "Release $CI_COMMIT_TAG"
+    description: "由 Git tag $CI_COMMIT_TAG 自动生成的源码包"
+    assets:
+      links:
+        - name: "${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_TAG}.tar.gz"
+          url: "${CI_PROJECT_URL}/-/jobs/${CI_JOB_ID}/artifacts/raw/dist/${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_TAG}.tar.gz"
+          link_type: package
+  rules:
+    - if: "$CI_COMMIT_TAG"

@@ -240,8 +240,20 @@ fn bootstrap_lock() -> &'static Mutex<()> {
 pub async fn runtime_bootstrap(
     task_id: String,
     app: tauri::AppHandle,
+    db: tauri::State<'_, crate::db::AppDatabase>,
 ) -> Result<RuntimeBootstrapReport, String> {
-    Ok(runtime_bootstrap_core(task_id, &EventEmitter::Tauri(app)).await)
+    let emitter = EventEmitter::Tauri(app);
+    let report = runtime_bootstrap_core(task_id, &emitter).await;
+    let conn = db.conn.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::system_skills::startup_update_core(
+            &conn,
+            &crate::system_skills::data_dir_from_env(),
+            &emitter,
+        )
+        .await;
+    });
+    Ok(report)
 }
 
 pub async fn runtime_bootstrap_core(

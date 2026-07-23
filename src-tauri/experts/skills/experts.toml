@@ -1,0 +1,172 @@
+[bundle]
+schema_version = 1
+version = "0.0.7"
+min_app_version = "0.1.17"
+
+[[expert]]
+id = "writing-plans"
+category = "planning"
+icon = "ListTodo"
+sort_order = 20
+
+[expert.display_name]
+en = "Writing Plans"
+"zh-CN" = "编写计划"
+
+[expert.description]
+en = "Creates detailed implementation plans for multi-step work."
+"zh-CN" = "为多步骤工作编写详细的实施计划。"
+
+[[expert]]
+id = "executing-plans"
+category = "planning"
+icon = "PlayCircle"
+sort_order = 30
+
+[expert.display_name]
+en = "Executing Plans"
+"zh-CN" = "执行计划"
+
+[expert.description]
+en = "Executes written implementation plans with review checkpoints."
+"zh-CN" = "按检查点执行已经确认的实施计划。"
+
+[[expert]]
+id = "using-superpowers"
+category = "meta"
+icon = "Sparkles"
+sort_order = 200
+
+[expert.display_name]
+en = "Using Superpowers"
+"zh-CN" = "使用 Superpowers"
+
+[expert.description]
+en = "Selects and applies the right workflow skills for each task."
+"zh-CN" = "为每项任务选择并应用合适的工作流技能。"
+
+[[expert]]
+id = "writing-skills"
+category = "meta"
+icon = "FileCode2"
+sort_order = 210
+
+[expert.display_name]
+en = "Writing Skills"
+"zh-CN" = "编写技能"
+
+[expert.description]
+en = "Creates, edits, and verifies reusable Agent skills."
+"zh-CN" = "创建、编辑并验证可复用的 Agent 技能。"
+
+[[expert]]
+id = "imagegen"
+category = "codex_native"
+icon = "Image"
+sort_order = 300
+
+[expert.display_name]
+en = "Image Generation"
+"zh-CN" = "图像生成"
+
+[expert.description]
+en = "Generates or edits raster images through the IYW Fusion API."
+"zh-CN" = "通过爱原物 Fusion API 生成或编辑位图图像。"
+
+[[expert]]
+id = "plugin-creator"
+category = "codex_native"
+icon = "Puzzle"
+sort_order = 310
+
+[expert.display_name]
+en = "Plugin Creator"
+"zh-CN" = "插件创建"
+
+[expert.description]
+en = "Creates Codex plugin directories and valid manifests."
+"zh-CN" = "创建 Codex 插件目录和有效清单。"
+
+[[expert]]
+id = "skill-creator"
+category = "codex_native"
+icon = "Hammer"
+sort_order = 320
+
+[expert.display_name]
+en = "Skill Creator"
+"zh-CN" = "技能创建"
+
+[expert.description]
+en = "Creates or updates reusable Agent skills."
+"zh-CN" = "创建或更新可复用的 Agent 技能。"
+
+[[expert]]
+id = "skill-installer"
+category = "codex_native"
+icon = "Download"
+sort_order = 330
+
+[expert.display_name]
+en = "Skill Installer"
+"zh-CN" = "技能安装"
+
+[expert.description]
+en = "Installs Agent skills from curated or repository sources."
+"zh-CN" = "从精选来源或代码仓库安装 Agent 技能。"
+
+[[expert]]
+id = "iyw-image-workflows"
+category = "image"
+icon = "Images"
+sort_order = 400
+
+[expert.display_name]
+en = "IYW Image Workflows"
+"zh-CN" = "爱原物图片工作流"
+
+[expert.description]
+en = "Runs authenticated IYW image, commerce, upload, and review workflows."
+"zh-CN" = "执行已认证的爱原物图片、电商、上传和检测工作流。"
+
+[[expert]]
+id = "lixiao-workflows"
+category = "workflow"
+icon = "Building2"
+sort_order = 410
+
+[expert.display_name]
+en = "Lixiao Workflows"
+"zh-CN" = "励销工作流"
+
+[expert.description]
+en = "Runs captured Lixiao enterprise search and account workflows."
+"zh-CN" = "执行励销企业搜索和账号工作流。"
+
+[[expert]]
+id = "self-improving"
+category = "memory"
+icon = "BrainCircuit"
+sort_order = 420
+
+[expert.display_name]
+en = "Self Improving"
+"zh-CN" = "自我改进"
+
+[expert.description]
+en = "Learns conservatively from explicit feedback through iyw-claw memory."
+"zh-CN" = "通过爱原物现有记忆机制，从明确反馈中谨慎学习。"
+
+[[expert]]
+id = "open-computer-use"
+category = "computer_use"
+icon = "MonitorCog"
+sort_order = 500
+
+[expert.display_name]
+en = "Open Computer Use"
+"zh-CN" = "电脑操作"
+
+[expert.description]
+en = "Lets an Agent configure and operate the optional Open Computer Use MCP service."
+"zh-CN" = "让 Agent 配置和使用可选的 Open Computer Use MCP 服务。"

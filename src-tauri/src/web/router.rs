@@ -804,6 +804,27 @@ pub fn build_router(
             "/managed_skills_reconcile_family",
             post(handlers::managed_skills::managed_skills_reconcile_family),
         )
+        // ─── System skill releases ───
+        .route(
+            "/system_skills_update_state",
+            post(handlers::system_skills::state),
+        )
+        .route(
+            "/system_skills_check_update",
+            post(handlers::system_skills::check_update),
+        )
+        .route(
+            "/system_skills_apply_update",
+            post(handlers::system_skills::apply_update),
+        )
+        .route(
+            "/system_skills_set_auto_update",
+            post(handlers::system_skills::set_auto_update),
+        )
+        .route(
+            "/system_skills_rollback",
+            post(handlers::system_skills::rollback),
+        )
         // ─── Experts ───
         .route("/experts_list", post(handlers::experts::experts_list))
         .route(

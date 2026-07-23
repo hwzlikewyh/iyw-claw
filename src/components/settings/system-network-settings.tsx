@@ -18,6 +18,7 @@ import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
 import { useAppI18n } from "@/components/i18n-provider"
 import { BackupSettings } from "@/components/settings/backup-settings"
+import { SystemSkillsUpdateSettings } from "@/components/settings/system-skills-update-settings"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -652,6 +653,8 @@ export function SystemNetworkSettings() {
             </div>
           )}
         </section>
+
+        <SystemSkillsUpdateSettings />
 
         {SHOW_NETWORK_PROXY_SETTINGS && (
           <section className="rounded-xl border bg-card p-4 space-y-4">

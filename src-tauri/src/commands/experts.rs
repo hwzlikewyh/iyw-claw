@@ -300,10 +300,64 @@ fn load_bundled_metadata_inner() -> Result<Vec<ExpertMetadata>, ExpertsError> {
     Ok(out)
 }
 
-fn find_metadata(expert_id: &str) -> Result<&'static ExpertMetadata, ExpertsError> {
-    bundled_metadata()
-        .iter()
-        .find(|m| m.id == expert_id)
+fn active_metadata() -> Vec<ExpertMetadata> {
+    let repo = crate::system_skills::repository_dir();
+    let manifest = repo.join(EXPERTS_TOML);
+    if manifest.is_file() {
+        match load_disk_metadata(&manifest, &repo) {
+            Ok(metadata) => return metadata,
+            Err(error) => tracing::warn!(
+                target: "system_skills",
+                "remote expert metadata is invalid; using embedded metadata: {error}"
+            ),
+        }
+    }
+    if repo.join(".git").is_dir() {
+        return bundled_metadata()
+            .iter()
+            .filter(|metadata| repo.join(&metadata.id).join("SKILL.md").is_file())
+            .cloned()
+            .collect();
+    }
+    bundled_metadata().to_vec()
+}
+
+fn load_disk_metadata(path: &Path, root: &Path) -> Result<Vec<ExpertMetadata>, ExpertsError> {
+    let content = fs::read_to_string(path)?;
+    let parsed: ExpertsTomlRoot =
+        toml::from_str(&content).map_err(|error| ExpertsError::Metadata(error.to_string()))?;
+    let mut metadata = Vec::with_capacity(parsed.expert.len());
+    for entry in parsed.expert {
+        crate::commands::acp::validate_skill_id(&entry.id)
+            .map_err(|error| ExpertsError::Metadata(error.to_string()))?;
+        if !root.join(&entry.id).join("SKILL.md").is_file() {
+            return Err(ExpertsError::Metadata(format!(
+                "system skill '{}' is missing SKILL.md",
+                entry.id
+            )));
+        }
+        metadata.push(ExpertMetadata {
+            id: entry.id,
+            category: entry.category,
+            icon: entry.icon,
+            sort_order: entry.sort_order,
+            display_name: entry.display_name,
+            description: entry.description,
+            bundled_hash: String::new(),
+        });
+    }
+    metadata.sort_by(|left, right| {
+        left.sort_order
+            .cmp(&right.sort_order)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(metadata)
+}
+
+fn find_metadata(expert_id: &str) -> Result<ExpertMetadata, ExpertsError> {
+    active_metadata()
+        .into_iter()
+        .find(|metadata| metadata.id == expert_id)
         .ok_or_else(|| ExpertsError::NotFound(expert_id.to_string()))
 }
 
@@ -316,7 +370,9 @@ fn require_private_agent_storage_for_write() -> Result<(), ExpertsError> {
 }
 
 pub(crate) fn is_bundled_expert_id(expert_id: &str) -> bool {
-    bundled_metadata().iter().any(|m| m.id == expert_id)
+    active_metadata()
+        .iter()
+        .any(|metadata| metadata.id == expert_id)
 }
 
 // ─── Hashing ────────────────────────────────────────────────────────────
@@ -777,6 +833,17 @@ fn ensure_central_experts_installed_blocking() -> InstallReport {
         return report;
     }
 
+    if crate::system_skills::repository_dir().join(".git").is_dir() {
+        let ids = active_metadata()
+            .into_iter()
+            .map(|metadata| metadata.id)
+            .collect::<Vec<_>>();
+        if let Err(error) = reconcile_system_repo_links_locked(&ids) {
+            report.errors.push(error.to_string());
+        }
+        return report;
+    }
+
     let mut manifest = load_manifest();
     let meta_list = bundled_metadata();
 
@@ -943,7 +1010,7 @@ fn extract_bundle_dir(
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn experts_list() -> Result<Vec<ExpertListItem>, ExpertsError> {
-    let meta_list = bundled_metadata().to_vec();
+    let meta_list = active_metadata();
     let manifest = load_manifest();
     let mut out = Vec::with_capacity(meta_list.len());
     for meta in meta_list {
@@ -1014,53 +1081,53 @@ fn is_computer_use(metadata: &ExpertMetadata) -> bool {
 }
 
 pub(crate) fn managed_expert_ids() -> Vec<String> {
-    bundled_metadata()
-        .iter()
+    active_metadata()
+        .into_iter()
         .filter(|metadata| !is_codex_native(metadata) && !is_computer_use(metadata))
-        .map(|metadata| metadata.id.clone())
+        .map(|metadata| metadata.id)
         .collect()
 }
 
 pub(crate) fn managed_ready_expert_ids() -> Vec<String> {
-    bundled_metadata()
-        .iter()
+    active_metadata()
+        .into_iter()
         .filter(|metadata| !is_codex_native(metadata) && !is_computer_use(metadata))
         .filter(|metadata| expert_central_path(&metadata.id).exists())
-        .map(|metadata| metadata.id.clone())
+        .map(|metadata| metadata.id)
         .collect()
 }
 
 pub(crate) fn managed_codex_native_ids() -> Vec<String> {
-    bundled_metadata()
-        .iter()
+    active_metadata()
+        .into_iter()
         .filter(|metadata| is_codex_native(metadata))
-        .map(|metadata| metadata.id.clone())
+        .map(|metadata| metadata.id)
         .collect()
 }
 
 pub(crate) fn managed_ready_codex_native_ids() -> Vec<String> {
-    bundled_metadata()
-        .iter()
+    active_metadata()
+        .into_iter()
         .filter(|metadata| is_codex_native(metadata))
         .filter(|metadata| expert_central_path(&metadata.id).exists())
-        .map(|metadata| metadata.id.clone())
+        .map(|metadata| metadata.id)
         .collect()
 }
 
 pub(crate) fn managed_computer_use_ids() -> Vec<String> {
-    bundled_metadata()
-        .iter()
+    active_metadata()
+        .into_iter()
         .filter(|metadata| is_computer_use(metadata))
-        .map(|metadata| metadata.id.clone())
+        .map(|metadata| metadata.id)
         .collect()
 }
 
 pub(crate) fn managed_ready_computer_use_ids() -> Vec<String> {
-    bundled_metadata()
-        .iter()
+    active_metadata()
+        .into_iter()
         .filter(|metadata| is_computer_use(metadata))
         .filter(|metadata| expert_central_path(&metadata.id).exists())
-        .map(|metadata| metadata.id.clone())
+        .map(|metadata| metadata.id)
         .collect()
 }
 
@@ -1331,8 +1398,9 @@ pub async fn experts_apply_links(ops: Vec<LinkOp>) -> Result<Vec<LinkOpResult>, 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn experts_list_all_install_statuses() -> Result<Vec<ExpertInstallStatus>, ExpertsError> {
     let agents = supported_agents();
-    let mut out = Vec::with_capacity(bundled_metadata().len() * agents.len());
-    for meta in bundled_metadata() {
+    let metadata = active_metadata();
+    let mut out = Vec::with_capacity(metadata.len() * agents.len());
+    for meta in metadata {
         let expected = expert_central_path(&meta.id);
         for &agent in &agents {
             let link_path = match agent_link_path(agent, &meta.id) {
@@ -1353,6 +1421,124 @@ pub async fn experts_list_all_install_statuses() -> Result<Vec<ExpertInstallStat
         }
     }
     Ok(out)
+}
+
+pub(crate) async fn reconcile_system_repo_links(ids: &[String]) -> Result<(), ExpertsError> {
+    let _guard = mutation_lock().lock().await;
+    reconcile_system_repo_links_locked(ids)
+}
+
+fn reconcile_system_repo_links_locked(ids: &[String]) -> Result<(), ExpertsError> {
+    let source_root = crate::system_skills::repository_dir();
+    for id in ids {
+        let source = source_root.join(id);
+        if !source.join("SKILL.md").is_file() {
+            return Err(ExpertsError::CentralUnavailable(format!(
+                "system skill '{id}' is missing SKILL.md"
+            )));
+        }
+        let target = expert_central_path(id);
+        prepare_system_skill_target(&source, &target, id)?;
+        reconcile_managed_link_entry(&source, &target, true)
+            .map_err(|error| experts_error_from_managed(error, &target))?;
+    }
+    Ok(())
+}
+
+fn prepare_system_skill_target(source: &Path, target: &Path, id: &str) -> Result<(), ExpertsError> {
+    if managed_link_is_owned(source, target) {
+        return Ok(());
+    }
+    if managed_copy_is_owned(source, target) {
+        refresh_runtime_venv_from_copy(source, target)?;
+        return Ok(());
+    }
+    if fs::symlink_metadata(target).is_err() {
+        return Ok(());
+    }
+    migrate_runtime_venv(source, target)?;
+    let backup = next_system_skill_backup(id);
+    fs::rename(target, &backup).map_err(|error| {
+        ExpertsError::Io(format!(
+            "back up existing system skill {} to {}: {error}",
+            target.display(),
+            backup.display()
+        ))
+    })?;
+    tracing::info!(
+        target: "system_skills",
+        skill_id = id,
+        backup = %backup.display(),
+        "backed up previous system skill directory"
+    );
+    Ok(())
+}
+
+fn refresh_runtime_venv_from_copy(source: &Path, target: &Path) -> Result<(), ExpertsError> {
+    let active_venv = target.join(".venv");
+    if !active_venv.is_dir() {
+        return Ok(());
+    }
+    let source_venv = source.join(".venv");
+    let backup = source.join(".venv.system-update-backup");
+    if backup.exists() {
+        return Err(ExpertsError::Io(format!(
+            "runtime environment backup already exists: {}",
+            backup.display()
+        )));
+    }
+    if source_venv.exists() {
+        fs::rename(&source_venv, &backup)?;
+    }
+    if let Err(error) = fs::rename(&active_venv, &source_venv) {
+        if backup.exists() {
+            let _ = fs::rename(&backup, &source_venv);
+        }
+        return Err(ExpertsError::Io(format!(
+            "preserve runtime environment {}: {error}",
+            active_venv.display()
+        )));
+    }
+    if backup.exists() {
+        if let Err(error) = remove_skill_entry(&backup) {
+            tracing::warn!(
+                target: "system_skills",
+                backup = %backup.display(),
+                "failed to remove stale runtime environment backup: {error}"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn migrate_runtime_venv(source: &Path, target: &Path) -> Result<(), ExpertsError> {
+    let old_venv = target.join(".venv");
+    let new_venv = source.join(".venv");
+    if old_venv.is_dir() && !new_venv.exists() {
+        fs::rename(&old_venv, &new_venv).map_err(|error| {
+            ExpertsError::Io(format!(
+                "move runtime environment {} to {}: {error}",
+                old_venv.display(),
+                new_venv.display()
+            ))
+        })?;
+    }
+    Ok(())
+}
+
+fn next_system_skill_backup(id: &str) -> PathBuf {
+    let base = central_experts_dir().join(format!(
+        "{id}.user-backup-{}",
+        Utc::now().format("%Y%m%d-%H%M%S")
+    ));
+    if !base.exists() {
+        return base;
+    }
+    let file_name = base.file_name().unwrap_or_default().to_string_lossy();
+    (1..)
+        .map(|index| central_experts_dir().join(format!("{file_name}.{index}")))
+        .find(|path| !path.exists())
+        .unwrap_or(base)
 }
 
 // ─── Commands: read / open ──────────────────────────────────────────────

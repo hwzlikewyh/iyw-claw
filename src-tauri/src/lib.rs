@@ -27,6 +27,7 @@ pub mod pets;
 pub mod preferences;
 pub mod process;
 pub mod supervise;
+pub mod system_skills;
 mod terminal;
 pub mod update;
 pub mod user_memory;
@@ -64,8 +65,8 @@ mod tauri_app {
         quick_messages as quick_messages_commands, remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands,
         runtime_bootstrap as runtime_bootstrap_commands, session_info as session_info_commands,
-        system_settings, terminal as terminal_commands, usage as usage_commands,
-        user_memory as user_memory_commands, version_control, windows,
+        system_settings, system_skills as system_skills_commands, terminal as terminal_commands,
+        usage as usage_commands, user_memory as user_memory_commands, version_control, windows,
         workspace_state as workspace_state_commands,
     };
     use crate::terminal::manager::TerminalManager;
@@ -437,6 +438,9 @@ mod tauri_app {
                 // (`~/.iyw-claw/skills/`). Runs in the background and does
                 // not block startup; failures are logged but non-fatal.
                 let managed_distribution_db = db.conn.clone();
+                let system_skills_data_dir = effective_data_dir.clone();
+                let system_skills_emitter =
+                    crate::web::event_bridge::EventEmitter::Tauri(app.handle().clone());
                 tauri::async_runtime::spawn(async move {
                     let report = crate::commands::experts::ensure_central_experts_installed().await;
                     if !report.errors.is_empty() {
@@ -453,6 +457,12 @@ mod tauri_app {
                             report.pending_user_review.len()
                         );
                     }
+                    crate::system_skills::startup_update_core(
+                        &managed_distribution_db,
+                        &system_skills_data_dir,
+                        &system_skills_emitter,
+                    )
+                    .await;
                     if let Err(error) =
                         crate::commands::acp::reconcile_shared_market_skills()
                     {
@@ -1100,6 +1110,11 @@ mod tauri_app {
                 managed_skills_commands::managed_skills_get_family_state,
                 managed_skills_commands::managed_skills_set_skill_enabled,
                 managed_skills_commands::managed_skills_reconcile_family,
+                system_skills_commands::system_skills_update_state,
+                system_skills_commands::system_skills_check_update,
+                system_skills_commands::system_skills_apply_update,
+                system_skills_commands::system_skills_set_auto_update,
+                system_skills_commands::system_skills_rollback,
                 experts_commands::experts_list,
                 experts_commands::experts_get_install_status,
                 experts_commands::experts_list_all_install_statuses,

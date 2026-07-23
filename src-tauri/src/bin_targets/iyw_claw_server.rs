@@ -416,6 +416,8 @@ async fn async_main() -> ExitCode {
     // (`~/.iyw-claw/skills/`). Runs in the background; failures are logged
     // but non-fatal.
     let managed_distribution_db = state.db.conn.clone();
+    let system_skills_data_dir = state.data_dir.clone();
+    let system_skills_emitter = state.emitter.clone();
     tokio::spawn(async move {
         let report = iyw_claw_lib::commands::experts::ensure_central_experts_installed().await;
         if !report.errors.is_empty() {
@@ -432,6 +434,12 @@ async fn async_main() -> ExitCode {
                 report.pending_user_review.len()
             );
         }
+        iyw_claw_lib::system_skills::startup_update_core(
+            &managed_distribution_db,
+            &system_skills_data_dir,
+            &system_skills_emitter,
+        )
+        .await;
         if let Err(error) = iyw_claw_lib::commands::acp::reconcile_shared_market_skills() {
             tracing::warn!("[skills] startup central skill reconcile failed: {error}");
         }

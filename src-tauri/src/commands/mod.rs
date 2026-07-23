@@ -40,6 +40,7 @@ pub mod remote_workspace;
 pub mod runtime_bootstrap;
 pub mod session_info;
 pub mod system_settings;
+pub mod system_skills;
 pub mod terminal;
 pub mod usage;
 pub mod user_memory;
