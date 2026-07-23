@@ -40,3 +40,23 @@ export function emitAppendTextToSession(
     })
   )
 }
+
+export const ATTACH_IMAGE_TO_SESSION_EVENT = "iyw-claw:attach-image-to-session"
+
+export interface AttachImageToSessionDetail {
+  tabId: string
+  data: string
+  mimeType: string
+  name: string
+}
+
+export function emitAttachImageToSession(
+  detail: AttachImageToSessionDetail
+): void {
+  if (typeof window === "undefined") return
+  window.dispatchEvent(
+    new CustomEvent<AttachImageToSessionDetail>(ATTACH_IMAGE_TO_SESSION_EVENT, {
+      detail,
+    })
+  )
+}

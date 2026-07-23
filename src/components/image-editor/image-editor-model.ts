@@ -7,6 +7,14 @@ export type EditorTool =
   | "freehand"
   | "text"
 
+export type ImageViewerMode = "view" | "annotate"
+
+export interface ImagePreviewNavigation {
+  index: number
+  total: number
+  onIndexChange: (index: number) => void
+}
+
 export interface StageSize {
   width: number
   height: number
@@ -89,10 +97,11 @@ export interface ImageEditorToolbarProps {
   selectedId: string | null
   canUndo: boolean
   canRedo: boolean
+  hasEdits: boolean
   ready: boolean
   busy: boolean
-  canExport: boolean
   canApply: boolean
+  canSendToChat: boolean
   onToolChange: (tool: EditorTool) => void
   onColorChange: (color: string) => void
   onStrokeWidthChange: (width: number) => void
@@ -102,9 +111,9 @@ export interface ImageEditorToolbarProps {
   onRedo: () => void
   onDelete: () => void
   onClear: () => void
-  onExport: () => void
   onApply: () => void
-  onClose: () => void
+  onSendToChat: () => void
+  onDone: () => void
 }
 
 export interface AnnotationTransformUpdate {
@@ -119,6 +128,14 @@ const MAX_STAGE_WIDTH = 1600
 const MAX_STAGE_HEIGHT = 1200
 const DEFAULT_CROP_RATIO = 0.8
 const ID_RADIX = 36
+
+export const IMAGE_ZOOM_MIN = 0.5
+export const IMAGE_ZOOM_MAX = 3
+export const IMAGE_ZOOM_STEP = 0.25
+
+export function clampImageZoom(zoom: number): number {
+  return Math.min(IMAGE_ZOOM_MAX, Math.max(IMAGE_ZOOM_MIN, zoom))
+}
 
 export function createEmptySnapshot(): EditorSnapshot {
   return { annotations: [], crop: null }

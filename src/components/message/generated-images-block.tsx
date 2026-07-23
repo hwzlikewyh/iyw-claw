@@ -267,7 +267,6 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
         alt={image?.name ?? ""}
         open={previewOpen && image !== null}
         onOpenChange={(open) => setPreviewOpen(open)}
-        onExport={image ? (result) => handleDownload(result) : undefined}
       />
     </div>
   )

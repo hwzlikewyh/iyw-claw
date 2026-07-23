@@ -6,8 +6,10 @@ import {
   Check,
   Circle,
   Crop,
-  Download,
   Eraser,
+  Eye,
+  MessageSquarePlus,
+  MoreHorizontal,
   MousePointer2,
   Pencil,
   Redo2,
@@ -16,7 +18,6 @@ import {
   Trash2,
   Type,
   Undo2,
-  X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react"
@@ -24,13 +25,26 @@ import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import type { EditorTool, ImageEditorToolbarProps } from "./image-editor-model"
+import {
+  clampImageZoom,
+  IMAGE_ZOOM_MAX,
+  IMAGE_ZOOM_MIN,
+  IMAGE_ZOOM_STEP,
+  type EditorTool,
+  type ImageEditorToolbarProps,
+} from "./image-editor-model"
+import { ImageEditorStyleControls } from "./image-editor-style-controls"
 
 interface ToolbarButtonProps {
   label: string
@@ -40,25 +54,22 @@ interface ToolbarButtonProps {
   children: ReactNode
 }
 
-const COLORS = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#f8fafc"]
-const STROKE_WIDTHS = [2, 4, 8]
-const MIN_ZOOM = 0.5
-const MAX_ZOOM = 3
-const ZOOM_STEP = 0.25
-
 function ToolbarButton(props: ToolbarButtonProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
           type="button"
-          variant={props.active ? "secondary" : "ghost"}
+          variant="ghost"
           size="icon-sm"
           disabled={props.disabled}
           aria-label={props.label}
           aria-pressed={props.active}
           onClick={props.onClick}
-          className="rounded-md"
+          className={cn(
+            "rounded-md text-white/70 hover:bg-white/10 hover:text-white",
+            props.active && "bg-white/14 text-white"
+          )}
         >
           {props.children}
         </Button>
@@ -71,7 +82,7 @@ function ToolbarButton(props: ToolbarButtonProps) {
 }
 
 function Separator() {
-  return <span className="mx-0.5 h-6 w-px shrink-0 bg-border" aria-hidden />
+  return <span className="mx-0.5 h-6 w-px shrink-0 bg-white/10" aria-hidden />
 }
 
 function ToolControls({ editor }: { editor: ImageEditorToolbarProps }) {
@@ -98,66 +109,21 @@ function ToolControls({ editor }: { editor: ImageEditorToolbarProps }) {
           {item.icon}
         </ToolbarButton>
       ))}
-      {editor.tool === "text" && (
-        <Input
-          value={editor.text}
-          onChange={(event) => editor.onTextChange(event.target.value)}
-          placeholder={t("imageEditorTextPlaceholder")}
-          aria-label={t("imageEditorTextPlaceholder")}
-          className="h-8 w-36 rounded-md bg-background"
-        />
-      )}
     </>
   )
 }
 
-function ColorControls({ editor }: { editor: ImageEditorToolbarProps }) {
+function TextControl({ editor }: { editor: ImageEditorToolbarProps }) {
   const t = useTranslations("Folder.chat.messageList")
+  if (editor.tool !== "text") return null
   return (
-    <div
-      className="flex h-8 items-center gap-1 px-1"
-      aria-label={t("imageEditorColor")}
-    >
-      {COLORS.map((color) => (
-        <button
-          key={color}
-          type="button"
-          onClick={() => editor.onColorChange(color)}
-          aria-label={t("imageEditorChooseColor", { color })}
-          aria-pressed={editor.color === color}
-          className={cn(
-            "size-5 rounded-full border border-white/40 shadow-sm outline-none transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring",
-            editor.color === color &&
-              "ring-2 ring-ring ring-offset-1 ring-offset-background"
-          )}
-          style={{ backgroundColor: color }}
-        />
-      ))}
-    </div>
-  )
-}
-
-function StrokeControls({ editor }: { editor: ImageEditorToolbarProps }) {
-  const t = useTranslations("Folder.chat.messageList")
-  return (
-    <div
-      className="flex h-8 items-center gap-0.5"
-      aria-label={t("imageEditorStrokeWidth")}
-    >
-      {STROKE_WIDTHS.map((width) => (
-        <ToolbarButton
-          key={width}
-          label={t("imageEditorStrokeWidthValue", { width })}
-          active={editor.strokeWidth === width}
-          onClick={() => editor.onStrokeWidthChange(width)}
-        >
-          <span
-            className="rounded-full bg-current"
-            style={{ width, height: width }}
-          />
-        </ToolbarButton>
-      ))}
-    </div>
+    <Input
+      value={editor.text}
+      onChange={(event) => editor.onTextChange(event.target.value)}
+      placeholder={t("imageEditorTextPlaceholder")}
+      aria-label={t("imageEditorTextPlaceholder")}
+      className="h-8 w-36 rounded-md border-white/10 bg-white/8 text-white placeholder:text-white/35"
+    />
   )
 }
 
@@ -186,34 +152,63 @@ function HistoryControls({ editor }: { editor: ImageEditorToolbarProps }) {
       >
         <Trash2 />
       </ToolbarButton>
-      <ToolbarButton
-        label={t("imageEditorClear")}
-        disabled={!editor.ready || editor.busy}
-        onClick={editor.onClear}
-      >
-        <Eraser />
-      </ToolbarButton>
     </>
+  )
+}
+
+function ClearMenu({ editor }: { editor: ImageEditorToolbarProps }) {
+  const t = useTranslations("Folder.chat.messageList")
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          disabled={!editor.hasEdits || editor.busy}
+          aria-label={t("imageEditorMore")}
+          title={t("imageEditorMore")}
+          className="rounded-md text-white/70 hover:bg-white/10 hover:text-white"
+        >
+          <MoreHorizontal />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={10}
+        className="w-auto rounded-md border border-white/10 bg-zinc-900 p-1.5 text-white"
+      >
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          onClick={editor.onClear}
+          className="w-full justify-start rounded-[5px]"
+        >
+          <Eraser />
+          {t("imageEditorClear")}
+        </Button>
+      </PopoverContent>
+    </Popover>
   )
 }
 
 function ZoomControls({ editor }: { editor: ImageEditorToolbarProps }) {
   const t = useTranslations("Folder.chat.messageList")
   const change = (delta: number) =>
-    editor.onZoomChange(
-      Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, editor.zoom + delta))
-    )
+    editor.onZoomChange(clampImageZoom(editor.zoom + delta))
   return (
     <>
       <ToolbarButton
         label={t("imageEditorZoomOut")}
-        disabled={!editor.ready || editor.zoom <= MIN_ZOOM}
-        onClick={() => change(-ZOOM_STEP)}
+        disabled={!editor.ready || editor.zoom <= IMAGE_ZOOM_MIN}
+        onClick={() => change(-IMAGE_ZOOM_STEP)}
       >
         <ZoomOut />
       </ToolbarButton>
       <ToolbarButton
-        label={t("imageEditorResetZoom")}
+        label={t("imageViewerFit")}
         disabled={!editor.ready || editor.zoom === 1}
         onClick={() => editor.onZoomChange(1)}
       >
@@ -221,8 +216,8 @@ function ZoomControls({ editor }: { editor: ImageEditorToolbarProps }) {
       </ToolbarButton>
       <ToolbarButton
         label={t("imageEditorZoomIn")}
-        disabled={!editor.ready || editor.zoom >= MAX_ZOOM}
-        onClick={() => change(ZOOM_STEP)}
+        disabled={!editor.ready || editor.zoom >= IMAGE_ZOOM_MAX}
+        onClick={() => change(IMAGE_ZOOM_STEP)}
       >
         <ZoomIn />
       </ToolbarButton>
@@ -235,31 +230,46 @@ function ActionControls({ editor }: { editor: ImageEditorToolbarProps }) {
   const disabled = !editor.ready || editor.busy
   return (
     <>
-      {editor.canExport && (
-        <ToolbarButton
-          label={t("imageEditorExport")}
+      {editor.canApply ? (
+        <Button
+          type="button"
+          size="sm"
           disabled={disabled}
-          onClick={editor.onExport}
-        >
-          <Download />
-        </ToolbarButton>
-      )}
-      {editor.canApply && (
-        <ToolbarButton
-          label={t("imageEditorApply")}
-          disabled={disabled}
+          aria-label={t("imageEditorApply")}
           onClick={editor.onApply}
+          className="shrink-0 rounded-md"
         >
           <Check />
-        </ToolbarButton>
-      )}
-      <ToolbarButton
-        label={t("imageEditorClose")}
+          <span className="max-[479px]:hidden">{t("imageEditorApply")}</span>
+        </Button>
+      ) : null}
+      {editor.canSendToChat ? (
+        <Button
+          type="button"
+          size="sm"
+          disabled={disabled}
+          aria-label={t("imageEditorSendToChat")}
+          onClick={editor.onSendToChat}
+          className="shrink-0 rounded-md"
+        >
+          <MessageSquarePlus />
+          <span className="max-[479px]:hidden">
+            {t("imageEditorSendToChat")}
+          </span>
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
         disabled={editor.busy}
-        onClick={editor.onClose}
+        aria-label={t("imageEditorDone")}
+        onClick={editor.onDone}
+        className="shrink-0 rounded-md bg-white/12 text-white hover:bg-white/18"
       >
-        <X />
-      </ToolbarButton>
+        <Eye />
+        <span className="max-[479px]:hidden">{t("imageEditorDone")}</span>
+      </Button>
     </>
   )
 }
@@ -267,17 +277,22 @@ function ActionControls({ editor }: { editor: ImageEditorToolbarProps }) {
 export function ImageEditorToolbar(editor: ImageEditorToolbarProps) {
   return (
     <TooltipProvider>
-      <div className="flex max-w-full flex-wrap items-center justify-center gap-1 rounded-md border border-border/70 bg-background/95 p-1.5 shadow-xl backdrop-blur">
-        <ToolControls editor={editor} />
-        <Separator />
-        <ColorControls editor={editor} />
-        <StrokeControls editor={editor} />
-        <Separator />
-        <HistoryControls editor={editor} />
-        <Separator />
-        <ZoomControls editor={editor} />
-        <Separator />
-        <ActionControls editor={editor} />
+      <div className="flex h-11 min-w-0 max-w-full overflow-hidden rounded-md border border-white/10 bg-zinc-900/95 shadow-xl backdrop-blur">
+        <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex h-full w-max items-center gap-1 px-1.5">
+            <ToolControls editor={editor} />
+            <TextControl editor={editor} />
+            <Separator />
+            <ImageEditorStyleControls editor={editor} />
+            <HistoryControls editor={editor} />
+            <ClearMenu editor={editor} />
+            <Separator />
+            <ZoomControls editor={editor} />
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1 border-l border-white/10 px-1.5">
+          <ActionControls editor={editor} />
+        </div>
       </div>
     </TooltipProvider>
   )

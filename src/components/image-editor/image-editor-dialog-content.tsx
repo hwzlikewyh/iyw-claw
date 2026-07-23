@@ -1,19 +1,24 @@
 "use client"
 
 import dynamic from "next/dynamic"
-import { ImageOff, LoaderCircle, X } from "lucide-react"
+import { ImageOff, LoaderCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { Dialog as DialogPrimitive } from "radix-ui"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ImageEditorToolbar } from "./image-editor-toolbar"
 import type {
   EditorImageResult,
   EditorTool,
   ImageEditorCanvasHandle,
+  ImagePreviewNavigation,
+  ImageViewerMode,
   StageSize,
 } from "./image-editor-model"
 import { useImageEditor } from "./use-image-editor"
+import {
+  ImageViewerHeader,
+  ImageViewerNavigation,
+  ImageViewerZoomControls,
+} from "./image-viewer-controls"
 
 const ImageEditorCanvas = dynamic(
   () =>
@@ -29,6 +34,10 @@ export interface ImageEditorDialogState {
   displayScale: number
   busy: boolean
   ready: boolean
+  mode: ImageViewerMode
+  rotation: number
+  handleModeChange: (mode: ImageViewerMode) => void
+  handleRotate: (delta: number) => void
   handleToolChange: (tool: EditorTool) => void
   runAction: (
     action: ((result: EditorImageResult) => void | Promise<void>) | undefined,
@@ -41,8 +50,10 @@ interface DialogContentProps {
   canvasRef: React.RefObject<ImageEditorCanvasHandle | null>
   workspaceRef: React.RefCallback<HTMLDivElement>
   alt: string
-  onExport?: (result: EditorImageResult) => void | Promise<void>
+  navigation?: ImagePreviewNavigation
+  onDownload: () => void
   onApply?: (result: EditorImageResult) => void | Promise<void>
+  onSendToChat?: (result: EditorImageResult) => void | Promise<void>
   onClose: () => void
 }
 
@@ -60,77 +71,81 @@ function EditorStatus({ failed }: { failed: boolean }) {
   )
 }
 
-function EditorHeader({ alt }: { alt: string }) {
-  const t = useTranslations("Folder.chat.messageList")
-  return (
-    <header className="flex h-12 min-w-0 items-center gap-3 border-b border-white/10 bg-zinc-950/90 px-3">
-      <DialogPrimitive.Title className="min-w-0 flex-1 truncate text-sm font-medium">
-        {alt || t("imageEditorTitle")}
-      </DialogPrimitive.Title>
-      <DialogPrimitive.Close asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="rounded-md text-white/80 hover:bg-white/10 hover:text-white"
-          aria-label={t("imageEditorClose")}
-        >
-          <X />
-        </Button>
-      </DialogPrimitive.Close>
-    </header>
-  )
-}
+type EditorWorkspaceProps = Pick<
+  DialogContentProps,
+  "state" | "canvasRef" | "workspaceRef" | "navigation"
+>
 
 function EditorWorkspace({
   state,
   canvasRef,
   workspaceRef,
-}: Pick<DialogContentProps, "state" | "canvasRef" | "workspaceRef">) {
+  navigation,
+}: EditorWorkspaceProps) {
   const editor = state.editor
   return (
-    <div
-      ref={workspaceRef}
-      className="min-h-0 overflow-auto overscroll-contain"
-    >
+    <div className="relative min-h-0">
       <div
-        className={cn(
-          "grid min-h-full min-w-full place-items-center p-4",
-          !state.ready && "h-full"
-        )}
+        ref={workspaceRef}
+        className="h-full overflow-auto overscroll-contain"
       >
-        {state.image && state.stage ? (
-          <ImageEditorCanvas
-            ref={canvasRef}
-            image={state.image}
-            size={state.stage}
-            displayScale={state.displayScale}
-            snapshot={editor.snapshot}
-            tool={editor.tool}
-            color={editor.color}
-            strokeWidth={editor.strokeWidth}
-            text={editor.text}
-            selectedId={editor.selectedId}
-            onSelect={editor.setSelectedId}
-            onCommit={editor.commit}
-          />
-        ) : (
-          <EditorStatus failed={state.failed} />
-        )}
+        <div
+          className={cn(
+            "grid min-h-full min-w-full place-items-center p-4",
+            !state.ready && "h-full"
+          )}
+        >
+          {state.image && state.stage ? (
+            <ImageEditorCanvas
+              ref={canvasRef}
+              image={state.image}
+              size={state.stage}
+              displayScale={state.displayScale}
+              rotation={state.rotation}
+              snapshot={editor.snapshot}
+              tool={editor.tool}
+              color={editor.color}
+              strokeWidth={editor.strokeWidth}
+              text={editor.text}
+              selectedId={editor.selectedId}
+              onSelect={editor.setSelectedId}
+              onCommit={editor.commit}
+            />
+          ) : (
+            <EditorStatus failed={state.failed} />
+          )}
+        </div>
       </div>
+      {state.mode === "view" ? (
+        <ImageViewerNavigation
+          navigation={navigation}
+          disabled={!state.ready || state.busy}
+        />
+      ) : null}
     </div>
   )
 }
 
-function EditorFooter({
+function ViewerFooter({ state }: { state: ImageEditorDialogState }) {
+  return (
+    <footer className="flex min-h-14 items-center justify-center border-t border-white/8 bg-zinc-950/90 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <ImageViewerZoomControls
+        zoom={state.editor.zoom}
+        ready={state.ready && !state.busy}
+        onZoomChange={state.editor.setZoom}
+      />
+    </footer>
+  )
+}
+
+function AnnotationFooter({
   state,
-  onExport,
   onApply,
-  onClose,
-}: Pick<DialogContentProps, "state" | "onExport" | "onApply" | "onClose">) {
+  onSendToChat,
+}: Pick<DialogContentProps, "state" | "onApply" | "onSendToChat">) {
   const editor = state.editor
   return (
-    <footer className="flex min-h-14 items-center justify-center border-t border-white/10 bg-zinc-950/90 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-foreground">
+    <footer className="flex min-h-14 min-w-0 items-center justify-center overflow-hidden border-t border-white/8 bg-zinc-950/90 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-foreground">
       <ImageEditorToolbar
         tool={editor.tool}
         color={editor.color}
@@ -140,10 +155,14 @@ function EditorFooter({
         selectedId={editor.selectedId}
         canUndo={editor.canUndo}
         canRedo={editor.canRedo}
+        hasEdits={
+          editor.snapshot.annotations.length > 0 ||
+          editor.snapshot.crop !== null
+        }
         ready={state.ready}
         busy={state.busy}
-        canExport={Boolean(onExport)}
         canApply={Boolean(onApply)}
+        canSendToChat={Boolean(onSendToChat)}
         onToolChange={state.handleToolChange}
         onColorChange={editor.setColor}
         onStrokeWidthChange={editor.setStrokeWidth}
@@ -153,11 +172,21 @@ function EditorFooter({
         onRedo={editor.redo}
         onDelete={editor.removeSelected}
         onClear={editor.clearEdits}
-        onExport={() => void state.runAction(onExport, false)}
         onApply={() => void state.runAction(onApply, true)}
-        onClose={onClose}
+        onSendToChat={() => void state.runAction(onSendToChat, true)}
+        onDone={() => state.handleModeChange("view")}
       />
     </footer>
+  )
+}
+
+function EditorFooter(
+  props: Pick<DialogContentProps, "state" | "onApply" | "onSendToChat">
+) {
+  return props.state.mode === "view" ? (
+    <ViewerFooter state={props.state} />
+  ) : (
+    <AnnotationFooter {...props} />
   )
 }
 
@@ -166,23 +195,36 @@ export function ImageEditorDialogContent({
   canvasRef,
   workspaceRef,
   alt,
-  onExport,
+  navigation,
+  onDownload,
   onApply,
+  onSendToChat,
   onClose,
 }: DialogContentProps) {
   return (
     <>
-      <EditorHeader alt={alt} />
+      <ImageViewerHeader
+        title={alt}
+        mode={state.mode}
+        ready={state.ready}
+        busy={state.busy}
+        navigation={navigation}
+        onModeChange={state.handleModeChange}
+        onRotateLeft={() => state.handleRotate(-90)}
+        onRotateRight={() => state.handleRotate(90)}
+        onDownload={onDownload}
+        onClose={onClose}
+      />
       <EditorWorkspace
         state={state}
         canvasRef={canvasRef}
         workspaceRef={workspaceRef}
+        navigation={navigation}
       />
       <EditorFooter
         state={state}
-        onExport={onExport}
         onApply={onApply}
-        onClose={onClose}
+        onSendToChat={onSendToChat}
       />
     </>
   )

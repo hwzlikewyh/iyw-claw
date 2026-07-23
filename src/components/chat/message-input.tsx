@@ -57,7 +57,7 @@ import {
 } from "@/components/ui/context-menu"
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
 import type { EditorImageResult } from "@/components/image-editor/image-editor-model"
-import { cn, copyTextFromMenu } from "@/lib/utils"
+import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import {
   buildFileUri,
   buildFileUriWithRange,
@@ -106,8 +106,10 @@ import type {
 } from "@/lib/types"
 import {
   ATTACH_FILE_TO_SESSION_EVENT,
+  ATTACH_IMAGE_TO_SESSION_EVENT,
   APPEND_TEXT_TO_SESSION_EVENT,
   type AttachFileToSessionDetail,
+  type AttachImageToSessionDetail,
   type AppendTextToSessionDetail,
 } from "@/lib/session-attachment-events"
 import {
@@ -916,6 +918,13 @@ export function MessageInput({
       previewAttachmentId
         ? (imageAttachments.find((a) => a.id === previewAttachmentId) ?? null)
         : null,
+    [previewAttachmentId, imageAttachments]
+  )
+  const previewAttachmentIndex = useMemo(
+    () =>
+      previewAttachmentId
+        ? imageAttachments.findIndex((item) => item.id === previewAttachmentId)
+        : -1,
     [previewAttachmentId, imageAttachments]
   )
   const hasAttachments = attachments.length > 0
@@ -1986,6 +1995,46 @@ export function MessageInput({
       window.removeEventListener(ATTACH_FILE_TO_SESSION_EVENT, handleAttachFile)
     }
   }, [appendResourceAttachments, appendFileRangeAttachment, attachmentTabId])
+
+  useEffect(() => {
+    if (!attachmentTabId) return
+    const handleAttachImage = (event: Event) => {
+      const detail = (event as CustomEvent<AttachImageToSessionDetail>).detail
+      if (!detail || detail.tabId !== attachmentTabId) return
+      if (!detail.data || !detail.mimeType.startsWith("image/")) {
+        console.warn("[MessageInput] ignored invalid image attachment event")
+        return
+      }
+      setAttachments((current) => {
+        console.info("[MessageInput] image added from viewer", {
+          tabId: attachmentTabId,
+          name: detail.name,
+          mimeType: detail.mimeType,
+          base64Length: detail.data.length,
+          attachmentCount: current.length + 1,
+        })
+        return [
+          ...current,
+          {
+            id: randomUUID(),
+            type: "image",
+            data: detail.data,
+            uri: null,
+            name: detail.name || "image.png",
+            mimeType: detail.mimeType,
+          },
+        ]
+      })
+      editorRef.current?.focus()
+    }
+    window.addEventListener(ATTACH_IMAGE_TO_SESSION_EVENT, handleAttachImage)
+    return () => {
+      window.removeEventListener(
+        ATTACH_IMAGE_TO_SESSION_EVENT,
+        handleAttachImage
+      )
+    }
+  }, [attachmentTabId])
 
   useEffect(() => {
     if (!attachmentTabId) return
@@ -3312,6 +3361,17 @@ export function MessageInput({
         onOpenChange={(open) => {
           if (!open) setPreviewAttachmentId(null)
         }}
+        navigation={
+          previewAttachmentIndex >= 0
+            ? {
+                index: previewAttachmentIndex,
+                total: imageAttachments.length,
+                onIndexChange: (index) => {
+                  setPreviewAttachmentId(imageAttachments[index]?.id ?? null)
+                },
+              }
+            : undefined
+        }
         onApply={previewAttachment ? applyAttachmentEdit : undefined}
       />
       {!showNativePaperclip && (

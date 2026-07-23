@@ -5,6 +5,7 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  type CSSProperties,
   type RefObject,
 } from "react"
 import type Konva from "konva"
@@ -26,6 +27,7 @@ export interface ImageEditorCanvasProps {
   image: HTMLImageElement
   size: StageSize
   displayScale: number
+  rotation: number
   snapshot: EditorSnapshot
   tool: EditorTool
   color: string
@@ -170,18 +172,10 @@ export const ImageEditorCanvas = forwardRef<
   useSelectionTransformer(props, transformerRef, nodeRefs)
   useCanvasExport(forwardedRef, stageRef, uiLayerRef, props)
 
-  const wrapper = {
-    width: props.size.width * props.displayScale,
-    height: props.size.height * props.displayScale,
-  }
+  const layout = getCanvasLayout(props)
   return (
-    <div className="shrink-0" style={wrapper}>
-      <div
-        style={{
-          transform: `scale(${props.displayScale})`,
-          transformOrigin: "top left",
-        }}
-      >
+    <div className="relative shrink-0" style={layout.wrapper}>
+      <div style={layout.canvas}>
         <Stage
           ref={stageRef}
           {...props.size}
@@ -209,3 +203,29 @@ export const ImageEditorCanvas = forwardRef<
     </div>
   )
 })
+
+function getCanvasLayout(props: ImageEditorCanvasProps): {
+  wrapper: CSSProperties
+  canvas: CSSProperties
+} {
+  const quarterTurn = Math.abs(props.rotation) % 180 === 90
+  return {
+    wrapper: {
+      width:
+        (quarterTurn ? props.size.height : props.size.width) *
+        props.displayScale,
+      height:
+        (quarterTurn ? props.size.width : props.size.height) *
+        props.displayScale,
+    },
+    canvas: {
+      position: "absolute",
+      left: "50%",
+      top: "50%",
+      width: props.size.width,
+      height: props.size.height,
+      transform: `translate(-50%, -50%) rotate(${props.rotation}deg) scale(${props.displayScale})`,
+      transformOrigin: "center",
+    },
+  }
+}
