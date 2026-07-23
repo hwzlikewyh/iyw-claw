@@ -1,9 +1,9 @@
 //! Centralized resolution of iyw-claw-owned filesystem paths.
 //!
 //! Mirrors the conventions already used by `preferences.rs` (`~/.iyw-claw/`)
-//! and `experts.rs` (`~/.iyw-claw/skills/`). New features that need a
-//! user-scoped persistent directory should call into this module instead of
-//! re-deriving `dirs::home_dir().join(".iyw-claw")` themselves.
+//! and `experts.rs` (`~/.iyw-claw/skills/`). Portable application data may
+//! honor `IYW_CLAW_HOME`, while files consumed directly by user-scoped tools
+//! should use [`iyw_claw_user_dir`] so both sides resolve the same directory.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -49,6 +49,16 @@ pub fn iyw_claw_home_dir() -> PathBuf {
     if let Some(custom) = std::env::var_os("IYW_CLAW_HOME").filter(|s| !s.is_empty()) {
         return PathBuf::from(custom);
     }
+    iyw_claw_user_dir()
+}
+
+/// The operating-system user's `~/.iyw-claw/` directory.
+///
+/// Unlike [`iyw_claw_home_dir`], this deliberately ignores `IYW_CLAW_HOME`.
+/// Bundled skill scripts resolve their credentials from the OS user home and
+/// may run outside an iyw-claw process, where app-scoped environment overrides
+/// are unavailable.
+pub fn iyw_claw_user_dir() -> PathBuf {
     dirs::home_dir()
         .map(|h| h.join(APP_DIR_NAME))
         .unwrap_or_else(|| PathBuf::from(APP_DIR_NAME))

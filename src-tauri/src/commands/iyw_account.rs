@@ -1,5 +1,6 @@
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use std::time::Duration;
 #[cfg(feature = "tauri-runtime")]
 use tauri::State;
@@ -67,6 +68,11 @@ pub struct IywWechatPollingResult {
 #[serde(default)]
 struct StoredSession {
     token: Option<IywAccountToken>,
+}
+
+fn session_sync_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -227,6 +233,7 @@ async fn save_session(
     conn: &DatabaseConnection,
     session: &StoredSession,
 ) -> Result<(), AppCommandError> {
+    let _guard = session_sync_lock().lock().await;
     let serialized = serde_json::to_string(session).map_err(|err| {
         AppCommandError::invalid_input("Failed to serialize iyw account session")
             .with_detail(err.to_string())
@@ -238,10 +245,17 @@ async fn save_session(
         .map_err(AppCommandError::from)
 }
 
+async fn load_synced_session(conn: &DatabaseConnection) -> Result<StoredSession, AppCommandError> {
+    let _guard = session_sync_lock().lock().await;
+    let session = load_session(conn).await?;
+    token_file::sync(session.token.as_ref())?;
+    Ok(session)
+}
+
 pub(crate) async fn iyw_account_access_token_core(
     conn: &DatabaseConnection,
 ) -> Result<Option<crate::acp::account_credentials::AccountAccessToken>, AppCommandError> {
-    let session = load_session(conn).await?;
+    let session = load_synced_session(conn).await?;
     Ok(session.token.and_then(|token| {
         crate::acp::account_credentials::AccountAccessToken::new(token.access_token)
     }))
@@ -534,7 +548,7 @@ pub async fn iyw_account_login_with_password_core(
 pub async fn iyw_account_get_profile_core(
     conn: &DatabaseConnection,
 ) -> Result<IywAccountProfile, AppCommandError> {
-    let session = load_session(conn).await?;
+    let session = load_synced_session(conn).await?;
     let Some(token) = session.token else {
         return Ok(IywAccountProfile::default());
     };

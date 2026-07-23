@@ -9,7 +9,7 @@ use super::IywAccountToken;
 const TOKEN_FILE_NAME: &str = "iyw-account-token.json";
 
 pub(super) fn sync(token: Option<&IywAccountToken>) -> Result<(), AppCommandError> {
-    let path = crate::paths::iyw_claw_home_dir().join(TOKEN_FILE_NAME);
+    let path = crate::paths::iyw_claw_user_dir().join(TOKEN_FILE_NAME);
     let action = if token.is_some() { "write" } else { "remove" };
     tracing::debug!(action, path = %path.display(), "Syncing iyw account token file");
     match sync_at(&path, token) {
@@ -38,10 +38,20 @@ fn sync_at(path: &Path, token: Option<&IywAccountToken>) -> Result<(), AppComman
 }
 
 fn save_to(path: &Path, token: &IywAccountToken) -> Result<(), AppCommandError> {
-    let bytes = serde_json::to_vec_pretty(token).map_err(|error| {
+    let mut bytes = serde_json::to_vec_pretty(token).map_err(|error| {
         AppCommandError::configuration_invalid("Failed to serialize iyw account token")
             .with_detail(error.to_string())
     })?;
+    bytes.push(b'\n');
+    match fs::read(path) {
+        Ok(existing) if existing == bytes => {
+            tracing::debug!(path = %path.display(), "iyw account token file is already current");
+            return Ok(());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(AppCommandError::io(error)),
+    }
     let parent = path.parent().ok_or_else(|| {
         AppCommandError::invalid_input("iyw account token path has no parent directory")
     })?;
@@ -85,7 +95,6 @@ fn write_and_replace(
 
     let mut temp = options.open(temp_path).map_err(AppCommandError::io)?;
     temp.write_all(bytes).map_err(AppCommandError::io)?;
-    temp.write_all(b"\n").map_err(AppCommandError::io)?;
     temp.sync_all().map_err(AppCommandError::io)?;
     replace_file(temp_path, target_path)?;
     sync_directory(target_path.parent().unwrap_or_else(|| Path::new("")))
