@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef } from "react"
+import { useRef, useState } from "react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 import { ImageEditorDialogContent } from "@/components/image-editor/image-editor-dialog-content"
 import type {
@@ -15,7 +15,8 @@ import {
 
 function ImagePreviewDialogSession(props: ImagePreviewDialogProps) {
   const canvasRef = useRef<ImageEditorCanvasHandle>(null)
-  const controller = useImagePreviewDialog(props, canvasRef)
+  const [canvasReady, setCanvasReady] = useState(false)
+  const controller = useImagePreviewDialog(props, canvasRef, canvasReady)
   return (
     <DialogPrimitive.Content
       className="fixed left-1/2 top-1/2 z-50 grid h-[min(88vh,820px)] w-[min(92vw,1200px)] -translate-x-1/2 -translate-y-1/2 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-white/10 bg-zinc-950/96 text-white shadow-2xl outline-none"
@@ -24,6 +25,7 @@ function ImagePreviewDialogSession(props: ImagePreviewDialogProps) {
       <ImageEditorDialogContent
         state={controller.state}
         canvasRef={canvasRef}
+        onCanvasReadyChange={setCanvasReady}
         workspaceRef={controller.workspaceRef}
         alt={props.alt}
         navigation={props.navigation}

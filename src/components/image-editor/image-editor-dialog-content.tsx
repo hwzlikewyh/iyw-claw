@@ -48,6 +48,7 @@ export interface ImageEditorDialogState {
 interface DialogContentProps {
   state: ImageEditorDialogState
   canvasRef: React.RefObject<ImageEditorCanvasHandle | null>
+  onCanvasReadyChange: (ready: boolean) => void
   workspaceRef: React.RefCallback<HTMLDivElement>
   alt: string
   navigation?: ImagePreviewNavigation
@@ -73,12 +74,13 @@ function EditorStatus({ failed }: { failed: boolean }) {
 
 type EditorWorkspaceProps = Pick<
   DialogContentProps,
-  "state" | "canvasRef" | "workspaceRef" | "navigation"
+  "state" | "canvasRef" | "onCanvasReadyChange" | "workspaceRef" | "navigation"
 >
 
 function EditorWorkspace({
   state,
   canvasRef,
+  onCanvasReadyChange,
   workspaceRef,
   navigation,
 }: EditorWorkspaceProps) {
@@ -98,6 +100,7 @@ function EditorWorkspace({
           {state.image && state.stage ? (
             <ImageEditorCanvas
               ref={canvasRef}
+              onReadyChange={onCanvasReadyChange}
               image={state.image}
               size={state.stage}
               displayScale={state.displayScale}
@@ -193,6 +196,7 @@ function EditorFooter(
 export function ImageEditorDialogContent({
   state,
   canvasRef,
+  onCanvasReadyChange,
   workspaceRef,
   alt,
   navigation,
@@ -218,6 +222,7 @@ export function ImageEditorDialogContent({
       <EditorWorkspace
         state={state}
         canvasRef={canvasRef}
+        onCanvasReadyChange={onCanvasReadyChange}
         workspaceRef={workspaceRef}
         navigation={navigation}
       />

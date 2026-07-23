@@ -36,6 +36,7 @@ export interface ImageEditorCanvasProps {
   selectedId: string | null
   onSelect: (id: string | null) => void
   onCommit: (snapshot: EditorSnapshot) => void
+  onReadyChange: (ready: boolean) => void
 }
 
 interface AnnotationLayerProps {
@@ -169,8 +170,13 @@ export const ImageEditorCanvas = forwardRef<
   const transformerRef = useRef<Konva.Transformer>(null)
   const nodeRefs = useRef(new Map<string, Konva.Node>())
   const drawing = useImageEditorDrawing({ stageRef, ...props })
+  const onReadyChange = props.onReadyChange
   useSelectionTransformer(props, transformerRef, nodeRefs)
   useCanvasExport(forwardedRef, stageRef, uiLayerRef, props)
+  useEffect(() => {
+    onReadyChange(true)
+    return () => onReadyChange(false)
+  }, [onReadyChange])
 
   const layout = getCanvasLayout(props)
   return (

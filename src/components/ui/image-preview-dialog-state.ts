@@ -184,6 +184,7 @@ function useViewerState(editor: ReturnType<typeof useImageEditor>) {
 function useDialogEditorState(
   props: ImagePreviewDialogProps,
   canvasRef: React.RefObject<ImageEditorCanvasHandle | null>,
+  canvasReady: boolean,
   workspace: ElementSize,
   onError: (error: unknown) => void
 ): ImageEditorDialogState {
@@ -210,7 +211,7 @@ function useDialogEditorState(
     stage,
     displayScale,
     busy,
-    ready: image !== null && stage !== null,
+    ready: image !== null && stage !== null && canvasReady,
     ...viewer,
     ...actions,
   }
@@ -264,13 +265,15 @@ function useDefaultActions(props: ImagePreviewDialogProps) {
 
 export function useImagePreviewDialog(
   props: ImagePreviewDialogProps,
-  canvasRef: React.RefObject<ImageEditorCanvasHandle | null>
+  canvasRef: React.RefObject<ImageEditorCanvasHandle | null>,
+  canvasReady: boolean
 ) {
   const [workspaceRef, workspace] = useElementSize()
   const actions = useDefaultActions(props)
   const state = useDialogEditorState(
     props,
     canvasRef,
+    canvasReady,
     workspace,
     actions.onError
   )
