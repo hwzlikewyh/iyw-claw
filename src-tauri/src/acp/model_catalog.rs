@@ -9,23 +9,10 @@
 //! persisted under the data dir, so the next launch starts from the last
 //! known online catalog even before sign-in.
 //!
-//! Per-agent scoping is derived LOCALLY from the model id's family — the
-//! gateway payload carries no per-agent capability field (by design, per
-//! product decision 2026-07-21):
-//!
-//! | family (id prefix)      | agents |
-//! |-------------------------|--------|
-//! | `claude*` (anthropic)   | ClaudeCode, Grok |
-//! | `gpt*` (openai)         | Codex, ClaudeCode, Gemini, Grok |
-//! | `gemini*` (google)      | Gemini, Grok |
-//! | `deepseek*`             | Codex, Grok, all OpenAI-compat agents |
-//! | `qwen*`                 | Grok, all OpenAI-compat agents |
-//! | `doubao*`               | Grok only (mirrors the historical curation) |
-//! | anything else           | Codex, Grok, all OpenAI-compat agents |
-//!
-//! Ordering: an agent's primary family first (its default = first entry),
-//! then the remaining allowed models in catalog order. With the seed catalog
-//! this reproduces the historical per-agent lists byte-for-byte.
+//! The gateway response is authoritative for every agent. The fusion gateway
+//! owns protocol conversion, while `/v1/models` currently exposes no
+//! per-agent capability field; filtering by model-name prefixes here would
+//! silently discard models that the gateway explicitly made available.
 //!
 //! Interning: ids from the online catalog are leaked into `&'static str`
 //! (deduplicated), so the long-standing `&'static` signatures of
@@ -138,8 +125,10 @@ pub fn all_model_ids() -> Vec<&'static str> {
     catalog().read().expect("catalog poisoned").clone()
 }
 
-// ── Per-agent derivation ───
+// Historical family derivation is retained only for regression coverage of
+// the bundled seed. Runtime selection must use the gateway catalog verbatim.
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ModelFamily {
     Anthropic,
@@ -151,6 +140,7 @@ enum ModelFamily {
     Other,
 }
 
+#[cfg(test)]
 fn family_of(model_id: &str) -> ModelFamily {
     let id = model_id.to_ascii_lowercase();
     if id.starts_with("claude") {
@@ -170,6 +160,7 @@ fn family_of(model_id: &str) -> ModelFamily {
     }
 }
 
+#[cfg(test)]
 fn family_allowed(agent: AgentType, family: ModelFamily) -> bool {
     use ModelFamily::*;
     match agent {
@@ -181,6 +172,7 @@ fn family_allowed(agent: AgentType, family: ModelFamily) -> bool {
     }
 }
 
+#[cfg(test)]
 fn primary_family(agent: AgentType) -> ModelFamily {
     match agent {
         AgentType::ClaudeCode => ModelFamily::Anthropic,
@@ -190,6 +182,7 @@ fn primary_family(agent: AgentType) -> ModelFamily {
     }
 }
 
+#[cfg(test)]
 fn scoped_ids(agent: AgentType, source: &[&'static str]) -> Vec<&'static str> {
     let primary = primary_family(agent);
     let mut head = Vec::new();
@@ -209,18 +202,13 @@ fn scoped_ids(agent: AgentType, source: &[&'static str]) -> Vec<&'static str> {
     head
 }
 
-/// Models the given agent may run, primary family first, catalog order
-/// within. Never empty: falls back to the seed-derived list, then the raw
-/// seed, so config writers can index `[0]` safely.
-pub fn model_ids_for(agent: AgentType) -> Vec<&'static str> {
-    let cached = all_model_ids();
-    let scoped = scoped_ids(agent, &cached);
-    if !scoped.is_empty() {
-        return scoped;
-    }
-    let seeded = scoped_ids(agent, MANAGED_MODEL_IDS.as_slice());
-    if !seeded.is_empty() {
-        return seeded;
+/// Models exposed by the gateway, preserving its order for every agent.
+/// Never empty: the bundled seed remains the offline/startup fallback so
+/// config writers can index `[0]` safely.
+pub fn model_ids_for(_agent: AgentType) -> Vec<&'static str> {
+    let ids = all_model_ids();
+    if !ids.is_empty() {
+        return ids;
     }
     MANAGED_MODEL_IDS.to_vec()
 }

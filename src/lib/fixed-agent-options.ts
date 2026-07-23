@@ -15,9 +15,8 @@ export function getFixedAgentOptions(
   configValues: Record<string, string> = {},
   translator?: SessionConfigTranslator
 ): AgentOptionsSnapshot {
-  // Scope the shared catalog to what THIS agent can actually run — the raw
-  // list would offer models the agent silently ignores (e.g. DeepSeek on a
-  // Claude Code session, which then falls back to its own default).
+  // Preserve the gateway response exactly. The fusion layer owns protocol
+  // conversion and the response has no per-agent field to filter on here.
   const snapshot = buildAgentOptionsSnapshot(
     agentType,
     deriveAgentModels(agentType, getCachedGatewayModels()),
