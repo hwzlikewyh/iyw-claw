@@ -43,11 +43,11 @@
 //! binaries at the same path. The MCP config pointing the agent CLI at
 //! `iyw-claw-mcp` uses an absolute path that is replaced atomically by the
 //! upgrade, so an old-version companion talking to a new-version listener
-//! is not a supported configuration. As a consequence this protocol does
-//! NOT carry a version field and the tagged-enum cutover from the older
-//! plain-`BrokerRequest` frame is deliberately non-backward-compatible —
-//! a stale companion would fail to decode and surface as a JSON-RPC
-//! error to the LLM, which is preferable to silent misbehavior.
+//! is not a supported configuration. Ordinary tool messages therefore omit
+//! version fields. The authenticated readiness report is the sole exception:
+//! it verifies the actual launched companion before memory tools are enabled.
+//! Tagged-enum cutovers remain deliberately non-backward-compatible — a stale
+//! companion should fail visibly rather than behave incorrectly.
 
 use std::io;
 
@@ -212,6 +212,18 @@ pub struct BrokerMemoryProposalResult {
     pub observation_count: u32,
     pub confirmation_recommended: bool,
 }
+
+/// Confirm that this companion launch returned its actual `tools/list`
+/// catalog to the parent Agent. The per-launch token authenticates the report;
+/// the listener also rejects version-skewed companions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerCompanionReadyRequest {
+    pub token: String,
+    pub version: String,
+    pub tools: Vec<String>,
+}
+
 /// Tagged top-level message dispatched by the listener. Adding new variants
 /// is the wire-stable way to grow the broker protocol without touching the
 /// frame layer.
@@ -228,6 +240,7 @@ pub enum BrokerMessage {
     SessionInfo(BrokerSessionRequest),
     MemoryAppend(BrokerMemoryAppendRequest),
     MemoryProposal(BrokerMemoryProposalRequest),
+    CompanionReady(BrokerCompanionReadyRequest),
 }
 
 /// The wrapped outcome the main process returns over the same socket.
@@ -396,6 +409,16 @@ pub async fn client_memory_proposal_round_trip(
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::MemoryProposal(req.clone())).await
 }
+
+/// Report that the authenticated companion successfully wrote its
+/// `tools/list` response to the Agent-facing stdio channel.
+pub async fn client_companion_ready_round_trip(
+    socket_path: &str,
+    req: &BrokerCompanionReadyRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::CompanionReady(req.clone())).await
+}
+
 /// Total budget for `open()` retries on Windows named pipes. Has to be
 /// short enough that it nests comfortably inside the companion's
 /// `BROKER_CANCEL_BUDGET` (500 ms) — leaving ≥ 300 ms for the actual

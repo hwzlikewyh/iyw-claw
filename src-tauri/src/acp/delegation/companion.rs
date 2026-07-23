@@ -45,11 +45,12 @@ use tokio::sync::{oneshot, Mutex};
 
 use crate::acp::delegation::transport::{
     client_ask_round_trip, client_cancel, client_cancel_task_round_trip, client_commit_feedback,
-    client_feedback_round_trip, client_memory_append_round_trip, client_memory_proposal_round_trip,
-    client_round_trip, client_session_round_trip, client_status_round_trip, BrokerAskRequest,
-    BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
-    BrokerFeedbackRequest, BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerRequest,
-    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
+    client_companion_ready_round_trip, client_feedback_round_trip, client_memory_append_round_trip,
+    client_memory_proposal_round_trip, client_round_trip, client_session_round_trip,
+    client_status_round_trip, BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
+    BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest, BrokerFeedbackRequest,
+    BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerRequest, BrokerResponse,
+    BrokerSessionRequest, BrokerStatusRequest,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -63,6 +64,7 @@ use crate::acp::session_info::MAX_SESSION_MESSAGES;
 /// main side's `cancel_by_parent` cascade when the parent ACP connection
 /// eventually ends.
 const BROKER_CANCEL_BUDGET: Duration = Duration::from_millis(500);
+const COMPANION_READY_REPORT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Wrap `client_cancel` in [`BROKER_CANCEL_BUDGET`] so callers can fire
 /// a synchronous cancel without worrying about a hung listener freezing
@@ -404,6 +406,51 @@ pub async fn dispatch_line(
         }
         "tools/call" => build_tools_call_spawn(ctx.clone(), inflight, id, req.params).await,
         _ => LineAction::Respond(err(id, -32601, format!("method not found: {}", req.method))),
+    }
+}
+
+/// Build the authenticated readiness report for a successful static
+/// `tools/list` response. The binary schedules delivery only after stdout has
+/// been flushed to the Agent.
+pub fn companion_ready_report_after_tools_list(
+    ctx: &CompanionContext,
+    line: &str,
+    response: &JsonRpcResponse,
+) -> Option<BrokerCompanionReadyRequest> {
+    let Ok(request) = serde_json::from_str::<JsonRpcRequest>(line) else {
+        return None;
+    };
+    if request.method != "tools/list" || response.error.is_some() {
+        return None;
+    }
+    let tools = response
+        .result
+        .as_ref()
+        .and_then(|result| result.get("tools"))
+        .and_then(Value::as_array)?;
+    let names = tools
+        .iter()
+        .filter_map(|tool| tool.get("name")?.as_str().map(str::to_string))
+        .collect();
+    Some(BrokerCompanionReadyRequest {
+        token: ctx.token.clone(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        tools: names,
+    })
+}
+
+/// Deliver readiness out-of-band so a stuck host bridge cannot block the MCP
+/// stdin loop. This bound is shorter than the host-side readiness wait.
+pub async fn send_companion_ready_report(socket_path: String, report: BrokerCompanionReadyRequest) {
+    match tokio::time::timeout(
+        COMPANION_READY_REPORT_TIMEOUT,
+        client_companion_ready_round_trip(&socket_path, &report),
+    )
+    .await
+    {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => tracing::warn!(error = %error, "companion ready report failed"),
+        Err(_) => tracing::warn!("companion ready report timed out"),
     }
 }
 
