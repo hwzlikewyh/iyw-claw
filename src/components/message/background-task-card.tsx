@@ -9,19 +9,17 @@
  * the old behaviour, which also dumped the raw XML envelope and ANSI-garbled
  * output through the Markdown renderer — the adapter collapses the run into a
  * `background-task-group` part and this card renders ONE row per `task_id`,
- * showing the latest outcome (status badge + exit code) with the shell output
- * routed through the ANSI-aware <Terminal>.
+ * showing the latest outcome (status badge + exit code). Command output stays
+ * hidden so background tasks remain a compact activity summary.
  *
  * Mirrors `DelegationStatusGroupCard` (the `get_delegation_status` analogue);
  * see `@/lib/background-task` for the parsing + grouping.
  */
 
-import { useId, useMemo, useState } from "react"
+import { useMemo } from "react"
 import {
   Ban,
   CheckCircleIcon,
-  ChevronDown,
-  ChevronRight,
   Clock,
   Loader2,
   TerminalIcon,
@@ -37,7 +35,6 @@ import {
 } from "@/lib/background-task"
 import { Badge } from "@/components/ui/badge"
 import { Shimmer } from "@/components/ai-elements/shimmer"
-import { Terminal } from "@/components/ai-elements/terminal"
 
 export function BackgroundTaskCard({
   polls,
@@ -79,10 +76,6 @@ export function BackgroundTaskCard({
 
 function BackgroundTaskRowView({ row }: { row: BackgroundTaskRow }) {
   const t = useTranslations("Folder.chat.contentParts.backgroundTask")
-  const [expanded, setExpanded] = useState(false)
-  const panelId = useId()
-
-  const hasOutput = !!(row.output && row.output.trim() !== "")
   const shortId = row.taskId ? row.taskId.slice(0, 9) : null
   const title = row.command
     ? row.command.split("\n")[0].slice(0, 80)
@@ -126,40 +119,11 @@ function BackgroundTaskRowView({ row }: { row: BackgroundTaskRow }) {
         </span>
       )}
       <TaskBadge badge={row.badge} isInFlight={row.isInFlight} />
-      {hasOutput &&
-        (expanded ? (
-          <ChevronDown className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="ml-auto size-3.5 shrink-0 text-muted-foreground" />
-        ))}
     </>
   )
 
   return (
-    <>
-      {hasOutput ? (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          aria-controls={expanded ? panelId : undefined}
-          className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50"
-        >
-          {header}
-        </button>
-      ) : (
-        <div className="flex w-full items-center gap-2 px-3 py-2">{header}</div>
-      )}
-      {hasOutput && expanded && (
-        <div id={panelId} className="border-t border-border">
-          <Terminal
-            output={row.output ?? ""}
-            isStreaming={row.isInFlight}
-            className="max-h-80 rounded-none border-0"
-          />
-        </div>
-      )}
-    </>
+    <div className="flex w-full items-center gap-2 px-3 py-2">{header}</div>
   )
 }
 

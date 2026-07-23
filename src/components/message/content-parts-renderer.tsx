@@ -29,7 +29,6 @@ import {
   ToolContent,
   ToolOutput,
 } from "@/components/ai-elements/tool"
-import { Terminal } from "@/components/ai-elements/terminal"
 import { CodeBlock } from "@/components/ai-elements/code-block"
 import { UnifiedDiffPreview } from "@/components/diff/unified-diff-preview"
 import { generateUnifiedDiff } from "@/lib/unified-diff-generator"
@@ -261,61 +260,6 @@ function simplifyShellCommand(command: string): string {
   }
 
   return current
-}
-
-function extractDisplayCommandFromToolInput(
-  input: string | null | undefined
-): string | null {
-  if (!input) return null
-  const parsed = tryParseJson(input)
-  const command =
-    (parsed ? commandFromUnknownValue(parsed) : null) ??
-    extractCommandFromUnknownInput(input)
-  if (!command) return null
-  const simplified = simplifyShellCommand(command).trim()
-  return simplified.length > 0 ? simplified : null
-}
-
-function formatCommandPrompt(command: string): string {
-  return command
-    .split("\n")
-    .map((line, index) => `${index === 0 ? "$" : ">"} ${line}`)
-    .join("\n")
-}
-
-function buildCommandTerminalOutput(
-  command: string | null,
-  output: string | null,
-  isStreaming: boolean = false
-): string {
-  if (!command) return output ?? ""
-  const prompt = formatCommandPrompt(command)
-  const terminalOutput = output ?? ""
-  const withTrailingNewline = (text: string): string =>
-    text.endsWith("\n") ? text : `${text}\n`
-  if (!terminalOutput) {
-    return isStreaming ? withTrailingNewline(prompt) : prompt
-  }
-
-  const lines = terminalOutput.split("\n")
-  const firstNonEmptyLine = lines.find((line) => line.trim().length > 0)
-  const commandFirstLine = command.split("\n")[0]?.trim() ?? ""
-
-  if (firstNonEmptyLine) {
-    const trimmedLine = firstNonEmptyLine.trim()
-    const lineWithoutPrompt = trimmedLine.replace(/^\$\s*/, "")
-    if (
-      trimmedLine === commandFirstLine ||
-      lineWithoutPrompt === commandFirstLine
-    ) {
-      if (isStreaming && !terminalOutput.includes("\n")) {
-        return withTrailingNewline(terminalOutput)
-      }
-      return terminalOutput
-    }
-  }
-
-  return `${prompt}\n${terminalOutput}`
 }
 
 function extractCommandFromUnknownInput(input: string): string | null {
@@ -1983,15 +1927,6 @@ function commandOutputFromJsonString(output: string): string | null {
   }
 }
 
-function stripMarkdownCodeFence(text: string): string {
-  let result = text
-  // Remove leading fenced-code line like ```sh / ```bash / ```
-  result = result.replace(/^\s*```[\w-]*\s*\n?/, "")
-  // Remove trailing closing fence if present
-  result = result.replace(/\n?\s*```\s*$/, "")
-  return result
-}
-
 /** Regex matching metadata lines in CLI execution output envelopes. */
 const CLI_META_LINE_RE =
   /^(exit code\s*[:=]|wall time\s*[:=]|chunk id\s*[:=]|original token count\s*[:=]|total output lines\s*[:=]|process exited with code\s)/i
@@ -2109,9 +2044,6 @@ const ToolCallPart = memo(function ToolCallPart({
   const toolNameLower = normalizedToolName.toLowerCase()
   const isCommandTool =
     toolNameLower === "bash" || toolNameLower === "exec_command"
-  const isCommandLikeTool = isCommandTool || toolNameLower === "apply_patch"
-  const isRunning =
-    part.state === "input-available" || part.state === "input-streaming"
   // A `Bash(run_in_background: true)` launch — its result is just the task id +
   // an "output is being written to …" notice. Flag the command card as a
   // background launch (header badge + concise body) instead of dumping that
@@ -2224,71 +2156,6 @@ const ToolCallPart = memo(function ToolCallPart({
     () => getToolIcon(normalizedToolName, part.input),
     [normalizedToolName, part.input]
   )
-  const displayCommand = useMemo(() => {
-    if (!isCommandTool) return null
-    return (
-      extractDisplayCommandFromToolInput(part.input) ??
-      extractDisplayCommandFromToolInput(part.output) ??
-      extractDisplayCommandFromToolInput(part.errorText)
-    )
-  }, [isCommandTool, part.input, part.output, part.errorText])
-  const commandOutput = useMemo(() => {
-    if (!isCommandLikeTool) return null
-    const source =
-      typeof part.output === "string"
-        ? part.output
-        : typeof part.errorText === "string"
-          ? part.errorText
-          : null
-    if (!source) return null
-    const normalized = commandOutputFromJsonString(source) ?? source
-    const envelope = parseCliExecutionEnvelope(normalized)
-    return stripMarkdownCodeFence(envelope.output)
-  }, [isCommandLikeTool, part.output, part.errorText])
-  const hasLiveOutput =
-    isRunning && isCommandTool && typeof commandOutput === "string"
-  const liveOutput = useMemo(() => {
-    if (!hasLiveOutput || typeof commandOutput !== "string") {
-      return null
-    }
-    const maxChars = 24000
-    return commandOutput.length > maxChars
-      ? commandOutput.slice(-maxChars)
-      : commandOutput
-  }, [hasLiveOutput, commandOutput])
-  const liveOutputTruncated =
-    hasLiveOutput &&
-    typeof commandOutput === "string" &&
-    typeof liveOutput === "string" &&
-    liveOutput.length < commandOutput.length
-  const shouldRenderCommandTerminal =
-    isCommandTool &&
-    (isRunning ||
-      (typeof commandOutput === "string" && commandOutput.length > 0) ||
-      (typeof displayCommand === "string" && displayCommand.length > 0))
-  const terminalOutput = useMemo(() => {
-    if (!shouldRenderCommandTerminal) return ""
-    if (backgroundLaunch) {
-      // Replace the verbose "Output is being written to <tmp path>…" notice
-      // with a concise localized line; the real run shows in its own card.
-      return buildCommandTerminalOutput(
-        displayCommand,
-        t("backgroundTask.launchNote", { id: backgroundLaunch.taskId }),
-        false
-      )
-    }
-    const output = hasLiveOutput ? (liveOutput ?? "") : (commandOutput ?? "")
-    return buildCommandTerminalOutput(displayCommand, output, isRunning)
-  }, [
-    shouldRenderCommandTerminal,
-    backgroundLaunch,
-    t,
-    hasLiveOutput,
-    liveOutput,
-    commandOutput,
-    displayCommand,
-    isRunning,
-  ])
   const isFileTool =
     toolNameLower === "read" ||
     toolNameLower === "read file" ||
@@ -2466,7 +2333,7 @@ const ToolCallPart = memo(function ToolCallPart({
     )
   }
 
-  const open = (isRunning && (isCommandTool || hasLiveOutput)) || manualOpen
+  const open = manualOpen
 
   return (
     <Tool open={open} onOpenChange={setManualOpen}>
@@ -2479,7 +2346,7 @@ const ToolCallPart = memo(function ToolCallPart({
         icon={icon}
       />
       <ToolContent>
-        {part.input && (!isCommandTool || !shouldRenderCommandTerminal) && (
+        {part.input && (
           <StructuredToolInput
             toolName={normalizedToolName}
             input={part.input}
@@ -2490,28 +2357,15 @@ const ToolCallPart = memo(function ToolCallPart({
           <div className="text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
             <MessageResponse>{part.output}</MessageResponse>
           </div>
+        ) : isCommandTool ? (
+          part.errorText ? (
+            <ToolOutput output={null} errorText={part.errorText} />
+          ) : null
         ) : (
-          <>
-            {shouldRenderCommandTerminal ? (
-              <div>
-                <Terminal
-                  output={terminalOutput}
-                  isStreaming={isRunning}
-                  className="max-h-80"
-                />
-                {liveOutputTruncated && (
-                  <div className="text-[11px] text-muted-foreground">
-                    {t("showingTailOutput")}
-                  </div>
-                )}
-              </div>
-            ) : (
-              !shouldHideDuplicateResult &&
-              (part.output || part.errorText) && (
-                <ToolOutput output={part.output} errorText={part.errorText} />
-              )
-            )}
-          </>
+          !shouldHideDuplicateResult &&
+          (part.output || part.errorText) && (
+            <ToolOutput output={part.output} errorText={part.errorText} />
+          )
         )}
       </ToolContent>
     </Tool>
