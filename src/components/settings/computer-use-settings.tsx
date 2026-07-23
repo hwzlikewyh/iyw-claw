@@ -84,11 +84,12 @@ export function ComputerUseSettings() {
         toast.error(t("saveFailed"), {
           description: toErrorMessage(error),
         })
+        await refresh()
       } finally {
         setSaving(false)
       }
     },
-    [t]
+    [refresh, t]
   )
 
   if (loading) {
@@ -121,17 +122,29 @@ export function ComputerUseSettings() {
               )}
             </div>
           </div>
-          <Switch
-            aria-label={t("toggleLabel")}
-            checked={enabled}
-            disabled={saving || !skill?.installed_centrally}
-            onCheckedChange={(next) => {
-              setComputerUseEnabled(next).catch((error) => {
-                console.error("[ComputerUseSettings] toggle failed:", error)
-              })
-            }}
-            className="shrink-0"
-          />
+          <div
+            className="flex h-5 w-9 shrink-0 items-center justify-center"
+            role={saving ? "status" : undefined}
+            aria-label={saving ? t("loading") : undefined}
+          >
+            {saving ? (
+              <Loader2
+                aria-hidden="true"
+                className="h-4 w-4 animate-spin text-muted-foreground"
+              />
+            ) : (
+              <Switch
+                aria-label={t("toggleLabel")}
+                checked={enabled}
+                disabled={!skill?.installed_centrally}
+                onCheckedChange={(next) => {
+                  setComputerUseEnabled(next).catch((error) => {
+                    console.error("[ComputerUseSettings] toggle failed:", error)
+                  })
+                }}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>

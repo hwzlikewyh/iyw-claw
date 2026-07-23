@@ -10,6 +10,7 @@ pub mod automation;
 pub mod backup;
 pub mod chat_attachments;
 pub mod chat_channel;
+pub mod computer_use;
 pub mod conversations;
 pub mod delegation;
 pub mod experts;

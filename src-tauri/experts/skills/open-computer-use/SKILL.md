@@ -1,6 +1,6 @@
 ---
 name: open-computer-use
-description: Guidance for installing, configuring, and operating Open Computer Use, an open-source Computer Use MCP service for macOS, Linux, and Windows.
+description: Use when operating or troubleshooting the Open Computer Use MCP service from iyw-claw or a standalone Agent runtime on macOS, Linux, or Windows.
 ---
 
 # Open Computer Use
@@ -11,7 +11,25 @@ Open Computer Use is an open-source Computer Use service exposed through MCP. It
 
 Use this skill when a user wants to install, configure, verify, troubleshoot, or operate Open Computer Use from an agent runtime such as Codex, Claude Code, Gemini CLI, opencode, or another MCP client.
 
-## Install
+## iyw-claw Managed Setup
+
+When this Skill is available inside iyw-claw, the application owns the private
+runtime and MCP registration for every enabled Agent.
+
+- Do not run `npm i -g`, an `install-*-mcp` command, or edit an Agent's MCP
+  configuration.
+- Use the exposed Computer Use tools directly.
+- If the tools are unavailable, ask the user to enable Computer Use in
+  Settings and start a new Agent session after installation finishes.
+- Treat a missing tool as an iyw-claw setup or session-refresh issue, not as
+  permission to modify `~/.codex/config.toml` or another global config.
+
+## Standalone Setup
+
+Use these commands only when the Agent is running outside iyw-claw or the user
+explicitly requests a standalone installation.
+
+### Install
 
 Install the CLI:
 
@@ -27,7 +45,7 @@ open-computer-use
 
 Windows and Linux do not require the macOS permission step.
 
-## MCP Setup
+### MCP Setup
 
 Install into Codex:
 
@@ -48,7 +66,7 @@ Or configure any MCP client manually:
 }
 ```
 
-## Other Agent Integrations
+### Other Agent Integrations
 
 Open Computer Use also includes installer commands for common agent runtimes:
 

@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 use crate::acp::registry;
 use crate::app_error::AppCommandError;
 use crate::commands::acp::skill_storage_spec;
+use crate::commands::computer_use;
 use crate::commands::experts::{self, LinkOpResult};
 use crate::commands::internet_tools;
 use crate::commands::office_tools;
@@ -563,6 +564,25 @@ fn touched_agents(results: &[LinkOpResult]) -> Vec<AgentType> {
     touched
 }
 
+fn failed_link_detail(report: &ManagedSkillSyncReport) -> Option<String> {
+    let failures = report
+        .results
+        .iter()
+        .filter(|result| !result.ok)
+        .map(|result| {
+            format!(
+                "{:?}: {}",
+                result.agent_type,
+                result
+                    .error
+                    .as_deref()
+                    .unwrap_or("skill publication failed")
+            )
+        })
+        .collect::<Vec<_>>();
+    (!failures.is_empty()).then(|| failures.join("\n"))
+}
+
 async fn reconcile_targets(
     family: ManagedSkillFamily,
     enabled: bool,
@@ -681,6 +701,9 @@ pub async fn set_global_enabled_core(
     }
     let _guard = policy_lock().lock().await;
     ensure_policies_migrated_locked(conn).await?;
+    if family == ManagedSkillFamily::ComputerUse {
+        return set_computer_use_enabled_locked(conn, None, enabled).await;
+    }
     persist_family_default(conn, family, enabled).await?;
     let agents = agent_eligibility(conn).await?;
     let skills = family_skill_ids(family)
@@ -709,10 +732,108 @@ pub async fn set_skill_enabled_core(
     }
     let _guard = policy_lock().lock().await;
     ensure_policies_migrated_locked(conn).await?;
+    if family == ManagedSkillFamily::ComputerUse {
+        return set_computer_use_enabled_locked(conn, Some(skill_id), enabled).await;
+    }
     persist_skill_override(conn, family, &skill_id, enabled).await?;
     let agents = agent_eligibility(conn).await?;
     let targets = expand_skill_targets(family, &agents, &[(skill_id.clone(), enabled)]);
     Ok(reconcile_targets(family, enabled, Some(skill_id), &targets).await)
+}
+
+async fn persist_computer_use_policy(
+    conn: &DatabaseConnection,
+    skill_id: Option<&str>,
+    enabled: bool,
+) -> Result<(), AppCommandError> {
+    match skill_id {
+        Some(skill_id) => {
+            persist_skill_override(conn, ManagedSkillFamily::ComputerUse, skill_id, enabled).await
+        }
+        None => persist_family_default(conn, ManagedSkillFamily::ComputerUse, enabled).await,
+    }
+}
+
+fn computer_use_skill_states(skill_id: Option<&str>, enabled: bool) -> Vec<(String, bool)> {
+    match skill_id {
+        Some(skill_id) => vec![(skill_id.to_string(), enabled)],
+        None => family_skill_ids(ManagedSkillFamily::ComputerUse)
+            .into_iter()
+            .map(|id| (id, enabled))
+            .collect(),
+    }
+}
+
+async fn restore_computer_use_state(
+    conn: &DatabaseConnection,
+    skill_id: Option<&str>,
+    previous_enabled: bool,
+    agents: &[(AgentType, bool)],
+) {
+    if let Err(error) = persist_computer_use_policy(conn, skill_id, previous_enabled).await {
+        tracing::error!(error = %error.message, "[computer-use] policy rollback failed");
+    }
+    let skills = computer_use_skill_states(skill_id, previous_enabled);
+    let targets = expand_skill_targets(ManagedSkillFamily::ComputerUse, agents, &skills);
+    let report = reconcile_targets(
+        ManagedSkillFamily::ComputerUse,
+        previous_enabled,
+        skill_id.map(str::to_string),
+        &targets,
+    )
+    .await;
+    if let Some(detail) = failed_link_detail(&report) {
+        tracing::error!(detail, "[computer-use] skill publication rollback failed");
+    }
+    if let Err(error) = computer_use::set_enabled_core(conn, previous_enabled).await {
+        tracing::error!(error = %error.message, "[computer-use] MCP rollback failed");
+    }
+}
+
+async fn set_computer_use_enabled_locked(
+    conn: &DatabaseConnection,
+    skill_id: Option<String>,
+    enabled: bool,
+) -> Result<ManagedSkillSyncReport, AppCommandError> {
+    let state = load_family_state(conn, ManagedSkillFamily::ComputerUse).await?;
+    let previous_enabled = skill_id
+        .as_ref()
+        .and_then(|id| state.skills.iter().find(|skill| &skill.skill_id == id))
+        .map(|skill| skill.enabled)
+        .unwrap_or(state.all_enabled);
+    let agents = agent_eligibility(conn).await?;
+    if !enabled {
+        computer_use::set_enabled_core(conn, false).await?;
+    }
+    if let Err(error) = persist_computer_use_policy(conn, skill_id.as_deref(), enabled).await {
+        if !enabled && previous_enabled {
+            let _ = computer_use::set_enabled_core(conn, true).await;
+        }
+        return Err(error);
+    }
+    if enabled {
+        if let Err(error) = computer_use::set_enabled_core(conn, true).await {
+            restore_computer_use_state(conn, skill_id.as_deref(), previous_enabled, &agents).await;
+            return Err(error);
+        }
+    }
+    let skills = computer_use_skill_states(skill_id.as_deref(), enabled);
+    let targets = expand_skill_targets(ManagedSkillFamily::ComputerUse, &agents, &skills);
+    let report = reconcile_targets(
+        ManagedSkillFamily::ComputerUse,
+        enabled,
+        skill_id.clone(),
+        &targets,
+    )
+    .await;
+    if let Some(detail) = failed_link_detail(&report) {
+        restore_computer_use_state(conn, skill_id.as_deref(), previous_enabled, &agents).await;
+        return Err(AppCommandError::task_execution_failed(
+            "Open Computer Use skill publication failed",
+        )
+        .with_detail(detail));
+    }
+    Ok(report)
 }
 
 pub async fn reconcile_all_core(

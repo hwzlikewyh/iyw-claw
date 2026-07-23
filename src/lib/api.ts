@@ -863,10 +863,14 @@ export async function managedSkillsSetGlobalEnabled(
   family: ManagedSkillFamily,
   enabled: boolean
 ): Promise<ManagedSkillSyncReport> {
-  return getTransport().call("managed_skills_set_global_enabled", {
-    family,
-    enabled,
-  })
+  return getTransport().call(
+    "managed_skills_set_global_enabled",
+    {
+      family,
+      enabled,
+    },
+    family === "computer_use" && enabled ? { timeoutMs: 630_000 } : undefined
+  )
 }
 
 export async function managedSkillsSetSkillEnabled(
@@ -874,11 +878,15 @@ export async function managedSkillsSetSkillEnabled(
   skillId: string,
   enabled: boolean
 ): Promise<ManagedSkillSyncReport> {
-  return getTransport().call("managed_skills_set_skill_enabled", {
-    family,
-    skillId,
-    enabled,
-  })
+  return getTransport().call(
+    "managed_skills_set_skill_enabled",
+    {
+      family,
+      skillId,
+      enabled,
+    },
+    family === "computer_use" && enabled ? { timeoutMs: 630_000 } : undefined
+  )
 }
 
 export async function managedSkillsReconcileFamily(
