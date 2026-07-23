@@ -29,9 +29,7 @@ import {
 import { CronBuilderDialog } from "./cron-builder-dialog"
 import { useAgentOptions } from "./use-agent-options"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -46,7 +44,6 @@ import type {
   AgentType,
   Automation,
   AutomationDraft,
-  AutomationIsolation,
   AutomationTriggerKind,
   PromptInputBlock,
 } from "@/lib/types"
@@ -98,9 +95,6 @@ export function AutomationEditor({
   const [prompt, setPrompt] = useState(automation?.config?.display_text ?? "")
   const [folderId, setFolderId] = useState<number | null>(
     automation?.root_folder_id ?? folders[0]?.id ?? null
-  )
-  const [isolation, setIsolation] = useState<AutomationIsolation>(
-    automation?.isolation ?? "worktree_per_run"
   )
   const [trigger, setTrigger] = useState<AutomationTriggerKind>(
     automation?.trigger_kind ?? "schedule"
@@ -281,15 +275,9 @@ export function AutomationEditor({
         timezone,
         agent_type: persistedAgentType,
         root_folder_id: folderId,
-        isolation,
-        branch:
-          isolation === "shared_in_root" && branch.trim()
-            ? branch.trim()
-            : null,
-        is_remote_branch:
-          isolation === "shared_in_root" && branch.trim()
-            ? isRemoteBranch
-            : false,
+        isolation: "shared_in_root",
+        branch: branch.trim() || null,
+        is_remote_branch: branch.trim() ? isRemoteBranch : false,
         config: fellBackToSubstitute
           ? {
               // Preserve the original agent's saved config verbatim; only the
@@ -410,7 +398,7 @@ export function AutomationEditor({
         </div>
       </div>
 
-      {/* Target — where the run happens: workspace folder, isolation, branch. */}
+      {/* Target — where the run happens: workspace folder and optional branch. */}
       <div className="flex flex-col gap-2">
         <h3 className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
           {t("sectionTarget")}
@@ -444,44 +432,25 @@ export function AutomationEditor({
             </SelectContent>
           </Select>
 
-          {/* A worktree run gets its own fresh tree, so a branch only applies to
-              the shared-folder case — the picker shows there and the checkbox
-              sits after it. Ticking the checkbox switches to worktree isolation
-              and hides the picker. */}
-          {isolation === "shared_in_root" ? (
-            <AutomationBranchPicker
-              folderPath={folderPath}
-              value={branch}
-              onChange={(b, isRemote) => {
-                setBranch(b)
-                setIsRemoteBranch(isRemote)
-              }}
-              placeholder={t("branchPlaceholder")}
-              disabled={folderId == null}
-              // shared_in_root checks the branch out in the root tree, which
-              // can't track a remote-only branch — the backend rejects that
-              // combination, so don't offer it here.
-              allowRemote={false}
-            />
-          ) : null}
-
-          <Label className="h-7 text-xs font-normal text-muted-foreground">
-            <Checkbox
-              checked={isolation === "worktree_per_run"}
-              onCheckedChange={(v) =>
-                setIsolation(v === true ? "worktree_per_run" : "shared_in_root")
-              }
-            />
-            {t("isolationWorktree")}
-          </Label>
+          <AutomationBranchPicker
+            folderPath={folderPath}
+            value={branch}
+            onChange={(b, isRemote) => {
+              setBranch(b)
+              setIsRemoteBranch(isRemote)
+            }}
+            placeholder={t("branchPlaceholder")}
+            disabled={folderId == null}
+            // Shared-folder runs can't track a remote-only branch; the backend
+            // rejects that combination, so don't offer it here.
+            allowRemote={false}
+          />
         </div>
         {/* Running in the folder shares the user's working tree (and any
-            concurrent shared run); surface that trade-off where it's chosen. */}
-        {isolation === "shared_in_root" ? (
-          <p className="text-xs text-muted-foreground">
-            {t("isolationSharedCaveat")}
-          </p>
-        ) : null}
+            concurrent run); surface that trade-off near the target controls. */}
+        <p className="text-xs text-muted-foreground">
+          {t("isolationSharedCaveat")}
+        </p>
       </div>
 
       {/* Trigger — manual vs scheduled, with the schedule details folded in. */}

@@ -20,7 +20,31 @@ use crate::models::{
     AutomationConfig, AutomationDraft, AutomationInfo, AutomationRunInfo, AutomationRunStatus,
 };
 
-fn to_info(m: automation::Model) -> AutomationInfo {
+fn normalize_legacy_isolation(m: &mut automation::Model) {
+    if m.isolation != IsolationMode::WorktreePerRun {
+        return;
+    }
+    m.isolation = IsolationMode::SharedInRoot;
+    m.branch = None;
+    m.is_remote_branch = false;
+}
+
+fn normalize_draft(mut draft: AutomationDraft) -> AutomationDraft {
+    if draft.isolation == IsolationMode::WorktreePerRun {
+        tracing::info!(
+            requested_isolation = "worktree_per_run",
+            effective_isolation = "shared_in_root",
+            "normalized deprecated automation isolation"
+        );
+        draft.isolation = IsolationMode::SharedInRoot;
+        draft.branch = None;
+        draft.is_remote_branch = false;
+    }
+    draft
+}
+
+fn to_info(mut m: automation::Model) -> AutomationInfo {
+    normalize_legacy_isolation(&mut m);
     AutomationInfo {
         id: m.id,
         name: m.name,
@@ -185,16 +209,12 @@ fn validate_draft(draft: &AutomationDraft) -> Result<(), DbError> {
     if cfg.display_text.trim().is_empty() && cfg.prompt_blocks.is_empty() {
         return Err(DbError::Validation("prompt is required".into()));
     }
-    // A remote branch is resolved by minting a per-run worktree that tracks it;
-    // it can't be checked out in the shared root tree (the engine would refuse
-    // at fire time). Reject the combination at save so the misconfiguration
-    // surfaces immediately instead of as a failed run — covers Web/API callers,
-    // not just the UI (which also hides remote branches for shared_in_root).
-    if draft.isolation == IsolationMode::SharedInRoot && draft.is_remote_branch {
+    // Automations now run in the selected folder, where a remote-only branch
+    // cannot be checked out safely. Reject direct API attempts as the UI only
+    // offers local branches.
+    if draft.is_remote_branch {
         return Err(DbError::Validation(
-            "a remote branch requires a per-run worktree; it can't be used with shared-in-root \
-             isolation"
-                .into(),
+            "remote branches are not supported for automations; choose a local branch".into(),
         ));
     }
     if draft.trigger_kind == TriggerKind::Schedule {
@@ -266,6 +286,7 @@ pub async fn create(
     conn: &DatabaseConnection,
     draft: AutomationDraft,
 ) -> Result<AutomationInfo, DbError> {
+    let draft = normalize_draft(draft);
     validate_draft(&draft)?;
     let now = Utc::now();
     let next_run_at = next_run_for(&draft, now)?;
@@ -302,6 +323,7 @@ pub async fn update(
     id: i32,
     draft: AutomationDraft,
 ) -> Result<AutomationInfo, DbError> {
+    let draft = normalize_draft(draft);
     validate_draft(&draft)?;
     let row = find_active(conn, id).await?;
     let now = Utc::now();

@@ -3902,7 +3902,7 @@
     "isolation": "隔离方式",
     "isolationWorktree": "每次运行新建 worktree",
     "isolationShared": "在文件夹内运行",
-    "isolationSharedCaveat": "运行会直接使用该文件夹的工作树，可能与你未提交的改动冲突。勾选每次运行新建工作树以隔离每次运行。",
+    "isolationSharedCaveat": "运行会直接使用该文件夹的工作树，可能与你未提交的改动冲突。",
     "trigger": "触发方式",
     "triggerSchedule": "按计划",
     "triggerManual": "仅手动",
