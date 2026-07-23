@@ -26,6 +26,12 @@ export interface ImageSourceLink {
   label: string
 }
 
+interface LoadedImageDimensions {
+  imageKey: string
+  width: number
+  height: number
+}
+
 interface GeneratedImagesBlockProps {
   /**
    * codex's revised prompt — what the model rewrote the user's request
@@ -87,11 +93,18 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
 }: GeneratedImagesBlockProps) {
   const t = useTranslations("Folder.chat.messageList")
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [loadedDimensions, setLoadedDimensions] =
+    useState<LoadedImageDimensions | null>(null)
   // Treat `failed` (and the unusual `completed`-without-image case) as
   // failure so the user gets a clear error indicator instead of a
   // perpetual skeleton when codex reports the call ended without an image.
   const isFailed =
     image === null && (status === "failed" || status === "completed")
+  const imageKey = image
+    ? `${image.mime_type}:${image.data.length}:${image.data.slice(0, 32)}`
+    : null
+  const dimensions =
+    loadedDimensions?.imageKey === imageKey ? loadedDimensions : null
 
   const handleDownload = useCallback(
     async (img: UserImageDisplay) => {
@@ -171,9 +184,22 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
                 width={256}
                 height={256}
                 unoptimized
+                onLoad={(event) => {
+                  if (!imageKey) return
+                  setLoadedDimensions({
+                    imageKey,
+                    width: event.currentTarget.naturalWidth,
+                    height: event.currentTarget.naturalHeight,
+                  })
+                }}
                 className="h-auto max-h-64 w-auto max-w-full object-contain"
               />
             </button>
+            {dimensions ? (
+              <span className="pointer-events-none absolute bottom-1 left-1 rounded-sm bg-background/85 px-1.5 py-0.5 text-[11px] tabular-nums text-foreground/85 shadow-sm">
+                {dimensions.width} × {dimensions.height}px
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={(e) => {

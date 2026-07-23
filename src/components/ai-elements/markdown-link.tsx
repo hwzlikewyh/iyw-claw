@@ -11,6 +11,7 @@ import type { ReferenceAttrs } from "@/components/chat/composer/types"
 import { classifyResourceKind, type ResourceKind } from "@/lib/resource-kind"
 import { cn } from "@/lib/utils"
 import { useStreamdownLinkSafety } from "./link-safety"
+import { isImageUrl, MarkdownImageLink } from "./markdown-image-link"
 
 const RESOURCE_KIND_ICON: Record<ResourceKind, LucideIcon> = {
   file: FileText,
@@ -112,6 +113,20 @@ export function MarkdownLink({
     isOpen: modalOpen,
     onClose: () => setModalOpen(false),
     onConfirm: () => window.open(href, "_blank", "noreferrer"),
+  }
+
+  if (!isIncomplete && isImageUrl(href)) {
+    return (
+      <>
+        <MarkdownImageLink
+          key={href}
+          src={href}
+          alt={nodeText(children)}
+          onOpenSource={handleClick}
+        />
+        {linkSafety.renderModal ? linkSafety.renderModal(modalProps) : null}
+      </>
+    )
   }
 
   // A file reference — a `file://` uri (rewritten to a local path by
