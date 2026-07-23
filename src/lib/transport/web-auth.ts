@@ -6,6 +6,21 @@
 // call site.
 
 const TOKEN_KEY = "iyw-claw_token"
+const DEVELOPMENT_SERVER_URL = "http://127.0.0.1:3080"
+const DEVELOPMENT_ACCESS_TOKEN = "hwz123456"
+
+function isDevelopment(): boolean {
+  return process.env.NODE_ENV === "development"
+}
+
+export function getIywClawWebBaseUrl(): string {
+  if (isDevelopment()) return DEVELOPMENT_SERVER_URL
+  return window.location.origin
+}
+
+export function getIywClawDefaultLoginToken(): string {
+  return isDevelopment() ? DEVELOPMENT_ACCESS_TOKEN : ""
+}
 
 export function getIywClawToken(): string {
   return localStorage.getItem(TOKEN_KEY) ?? ""

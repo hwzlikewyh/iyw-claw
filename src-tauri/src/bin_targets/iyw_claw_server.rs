@@ -9,6 +9,28 @@ use iyw_claw_lib::web::{
     WebServerState,
 };
 
+#[cfg(debug_assertions)]
+const DEVELOPMENT_ACCESS_TOKEN: &str = "hwz123456";
+
+fn configured_server_token() -> Option<String> {
+    let configured = std::env::var("IYW_CLAW_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if configured.is_some() {
+        return configured;
+    }
+    #[cfg(debug_assertions)]
+    {
+        tracing::info!("[SERVER] Using the fixed development access token");
+        Some(DEVELOPMENT_ACCESS_TOKEN.to_string())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
+}
+
 fn main() -> ExitCode {
     // Capture our own executable path before anything can rename it (an
     // in-place upgrade swaps the binary mid-run; `current_exe()` would then
@@ -228,12 +250,9 @@ async fn async_main() -> ExitCode {
     // persisted and reused across restarts (a self-update restart must not
     // rotate it). An empty/whitespace IYW_CLAW_TOKEN is treated as unset.
     let mut token_generated = false;
-    let token = resolve_persisted_server_token(
-        &db.conn,
-        std::env::var("IYW_CLAW_TOKEN").ok(),
-        &mut token_generated,
-    )
-    .await;
+    let token =
+        resolve_persisted_server_token(&db.conn, configured_server_token(), &mut token_generated)
+            .await;
     if token_generated {
         // Operator-facing startup notice on stderr ONLY: the access token is a
         // bearer credential and must never enter the durable log files or the

@@ -1,5 +1,6 @@
 import { detectEnvironment } from "./detect"
 import type { RemoteTransportConfig, Transport } from "./types"
+import { getIywClawWebBaseUrl } from "./web-auth"
 
 export type { RemoteTransportConfig, Transport, UnsubscribeFn } from "./types"
 
@@ -30,7 +31,7 @@ export function getShellTransport(): Transport {
     _shellTransport =
       env === "tauri"
         ? createTauriTransport()
-        : createWebTransport(window.location.origin)
+        : createWebTransport(getIywClawWebBaseUrl())
   }
   return _shellTransport
 }
@@ -81,7 +82,8 @@ export function isRemoteDesktopMode(): boolean {
 /// the local origin only as a harmless fallback.
 export function getServerBaseUrl(): string {
   if (_remoteConfig) return _remoteConfig.baseUrl.replace(/\/+$/, "")
-  return typeof window !== "undefined" ? window.location.origin : ""
+  if (typeof window === "undefined") return ""
+  return isDesktop() ? window.location.origin : getIywClawWebBaseUrl()
 }
 
 /// Surface a remote-server 401 to the same UI the transport uses for its

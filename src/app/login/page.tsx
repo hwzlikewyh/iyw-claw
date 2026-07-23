@@ -4,11 +4,15 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
 import { isDesktop } from "@/lib/platform"
+import {
+  getIywClawDefaultLoginToken,
+  getIywClawWebBaseUrl,
+} from "@/lib/transport/web-auth"
 
 export default function LoginPage() {
   const router = useRouter()
   const t = useTranslations("LoginPage")
-  const [token, setToken] = useState("")
+  const [token, setToken] = useState(getIywClawDefaultLoginToken)
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
 
@@ -29,7 +33,7 @@ export default function LoginPage() {
 
     try {
       // Validate token by calling a lightweight API endpoint
-      const res = await fetch("/api/health", {
+      const res = await fetch(`${getIywClawWebBaseUrl()}/api/health`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

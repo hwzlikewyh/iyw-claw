@@ -24,6 +24,7 @@ import {
   type IntlLocale,
 } from "@/lib/i18n"
 import { getSystemLanguageSettings } from "@/lib/api"
+import { toErrorMessage } from "@/lib/app-error"
 import { disposeTauriListener } from "@/lib/tauri-listener"
 import { AppBootLoading } from "@/components/layout/app-boot-loading"
 import type { AppLocale, SystemLanguageSettings } from "@/lib/types"
@@ -189,7 +190,15 @@ export function AppI18nProvider({
         setLanguageSettings(settings)
       })
       .catch((err) => {
-        console.error("[i18n] load language settings failed:", err)
+        const message = toErrorMessage(err)
+        if (window.location.pathname.startsWith("/login")) {
+          console.warn(
+            "[i18n] language settings unavailable on login; using local fallback",
+            { message }
+          )
+          return
+        }
+        console.error("[i18n] load language settings failed", { message })
       })
       .finally(() => {
         if (!cancelled) {
