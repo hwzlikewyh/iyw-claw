@@ -51,6 +51,8 @@ const APP_VERSION = JSON.parse(
 ).version
 const UV_VERSION = "0.8.10"
 const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000
+const DOWNLOAD_ATTEMPTS = 3
+const DOWNLOAD_RETRY_DELAY_MS = 2 * 1000
 
 function log(msg) {
   console.log(`[prepare-sidecars] ${msg}`)
@@ -173,15 +175,27 @@ export function resolveExtractor(
   }
 }
 
-async function download(url, label) {
-  try {
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-    })
-    if (!response.ok) die(`${label} download failed: HTTP ${response.status}`)
-    return response
-  } catch (error) {
-    die(`${label} download failed: ${error.message}`)
+async function download(url, label, readBody) {
+  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      return await readBody(response)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      if (attempt === DOWNLOAD_ATTEMPTS) {
+        die(
+          `${label} download failed after ${DOWNLOAD_ATTEMPTS} attempts: ${reason}`
+        )
+      }
+      const delay = DOWNLOAD_RETRY_DELAY_MS * attempt
+      log(
+        `${label} download attempt ${attempt}/${DOWNLOAD_ATTEMPTS} failed: ${reason}; retrying in ${delay}ms`
+      )
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
   }
 }
 
@@ -219,13 +233,14 @@ async function stageUvSidecars(target, isWindows) {
     const extracted = join(work, "extracted")
     mkdirSync(extracted, { recursive: true })
     log(`downloading uv ${UV_VERSION} from ${release.url}`)
-    const response = await download(release.url, "uv")
-    const bytes = Buffer.from(await response.arrayBuffer())
-    const checksumResponse = await download(
-      `${release.url}.sha256`,
-      "uv checksum"
+    const bytes = Buffer.from(
+      await download(release.url, "uv", (response) => response.arrayBuffer())
     )
-    const expected = parseSha256(await checksumResponse.text())
+    const expected = parseSha256(
+      await download(`${release.url}.sha256`, "uv checksum", (response) =>
+        response.text()
+      )
+    )
     const actual = createHash("sha256").update(bytes).digest("hex")
     if (actual !== expected)
       die(`uv checksum mismatch: expected ${expected}, got ${actual}`)
