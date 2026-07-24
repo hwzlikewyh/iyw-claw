@@ -2650,6 +2650,8 @@
         "imageEditorLoading": "正在加载图片",
         "imageEditorLoadFailed": "无法加载图片",
         "imageEditorActionFailed": "图片操作失败：{message}",
+        "imageEditorCanvasNotReady": "画布尚未就绪，请稍后重试",
+        "imageEditorExportTainted": "无法导出该图片：图片来源不允许跨域访问",
         "imageEditorSelect": "选择和移动",
         "imageEditorCrop": "调整裁剪区域",
         "imageEditorRectangle": "矩形",

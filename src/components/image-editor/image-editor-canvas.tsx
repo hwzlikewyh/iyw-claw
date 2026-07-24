@@ -140,12 +140,12 @@ function useCanvasExport(
     exportPng: () => {
       const stage = stageRef.current
       const uiLayer = uiLayerRef.current
-      if (!stage || !uiLayer) return null
+      if (!stage || !uiLayer) return { status: "not-ready" as const }
       const crop = props.snapshot.crop
       uiLayer.hide()
       uiLayer.batchDraw()
       try {
-        return stage.toDataURL({
+        const dataUrl = stage.toDataURL({
           x: crop?.x ?? 0,
           y: crop?.y ?? 0,
           width: crop?.width ?? props.size.width,
@@ -153,6 +153,10 @@ function useCanvasExport(
           pixelRatio: props.image.naturalWidth / props.size.width,
           mimeType: "image/png",
         })
+        // Konva catches the tainted-canvas SecurityError internally and
+        // returns "" — an empty data URL is the taint signal.
+        if (!dataUrl) return { status: "tainted" as const }
+        return { status: "ok" as const, dataUrl }
       } finally {
         uiLayer.show()
         uiLayer.batchDraw()

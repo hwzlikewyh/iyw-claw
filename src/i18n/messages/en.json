@@ -2650,6 +2650,8 @@
         "imageEditorLoading": "Loading image",
         "imageEditorLoadFailed": "Unable to load image",
         "imageEditorActionFailed": "Image action failed: {message}",
+        "imageEditorCanvasNotReady": "The image canvas is not ready yet, please try again",
+        "imageEditorExportTainted": "This image cannot be exported because its source does not allow cross-origin access",
         "imageEditorSelect": "Select and move",
         "imageEditorCrop": "Adjust crop region",
         "imageEditorRectangle": "Rectangle",

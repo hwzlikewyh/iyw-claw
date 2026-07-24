@@ -80,12 +80,24 @@ export interface EditorSnapshot {
 
 export interface EditorImageResult {
   data: string
-  mime_type: "image/png"
+  mime_type: string
   name: string
 }
 
+/**
+ * Outcome of a canvas export attempt. `not-ready` means the Konva stage
+ * isn't mounted (yet); `tainted` means the browser refused the export
+ * because a cross-origin image was drawn without CORS (Konva swallows the
+ * SecurityError and returns an empty data URL, which is the only signal
+ * available).
+ */
+export type CanvasExportOutcome =
+  | { status: "ok"; dataUrl: string }
+  | { status: "not-ready" }
+  | { status: "tainted" }
+
 export interface ImageEditorCanvasHandle {
-  exportPng: () => string | null
+  exportPng: () => CanvasExportOutcome
 }
 
 export interface ImageEditorToolbarProps {

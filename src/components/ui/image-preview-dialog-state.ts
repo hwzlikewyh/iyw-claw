@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl"
 import type { ImageEditorDialogState } from "@/components/image-editor/image-editor-dialog-content"
 import {
   exportCanvasImage,
+  fetchInlineImage,
   parseInlineImage,
 } from "@/components/image-editor/image-editor-export"
 import {
@@ -78,11 +79,25 @@ function useLoadedImage(src: string, open: boolean): LoadedImageState {
   useEffect(() => {
     if (!source) return
     let active = true
+    let retriedWithoutCors = false
     const image = new window.Image()
     image.decoding = "async"
+    // Remote images: request CORS so canvas export stays possible. Hosts
+    // without CORS headers fail this load — retry without CORS so the
+    // preview still displays (export then surfaces a clear cross-origin
+    // error instead of breaking the preview).
+    if (/^https?:\/\//i.test(source)) image.crossOrigin = "anonymous"
     image.onload = () => active && setState({ source, image, failed: false })
-    image.onerror = () =>
-      active && setState({ source, image: null, failed: true })
+    image.onerror = () => {
+      if (!active) return
+      if (!retriedWithoutCors && image.crossOrigin !== null) {
+        retriedWithoutCors = true
+        image.crossOrigin = null
+        image.src = source
+        return
+      }
+      setState({ source, image: null, failed: true })
+    }
     image.src = source
     return () => {
       active = false
@@ -124,6 +139,7 @@ interface DialogActionOptions {
 
 function useDialogActions(options: DialogActionOptions) {
   const { editor, stage, canvasRef, props, setBusy, onError } = options
+  const t = useTranslations("Folder.chat.messageList")
   const handleToolChange = useCallback(
     (tool: EditorTool) => {
       editor.setTool(tool)
@@ -140,12 +156,37 @@ function useDialogActions(options: DialogActionOptions) {
       if (!action) return
       setBusy(true)
       try {
-        const result = exportCanvasImage(
-          canvasRef.current,
-          props.alt,
-          hasEdits(editor)
-        )
-        if (!result) throw new Error("Image canvas is not ready for export")
+        const edited = hasEdits(editor)
+        let result: EditorImageResult | null = null
+        if (!edited) {
+          // Unedited: ship the original bytes — no PNG re-encode, and no
+          // canvas needed (a cross-origin remote image taints the canvas
+          // and would make export impossible).
+          const inline =
+            parseInlineImage(props.src, props.alt) ??
+            (await fetchInlineImage(props.src, props.alt).catch(() => null))
+          if (inline) {
+            result = {
+              data: inline.data,
+              mime_type: inline.mime_type,
+              name: inline.suggestedName,
+            }
+          }
+        }
+        if (!result) {
+          const outcome = exportCanvasImage(
+            canvasRef.current,
+            props.alt,
+            edited
+          )
+          if (outcome.status === "ok") {
+            result = outcome.result
+          } else if (outcome.status === "tainted") {
+            throw new Error(t("imageEditorExportTainted"))
+          } else {
+            throw new Error(t("imageEditorCanvasNotReady"))
+          }
+        }
         await action(result)
         if (closeAfter) props.onOpenChange(false)
       } catch (error) {
@@ -154,7 +195,7 @@ function useDialogActions(options: DialogActionOptions) {
         setBusy(false)
       }
     },
-    [canvasRef, editor, onError, props, setBusy]
+    [canvasRef, editor, onError, props, setBusy, t]
   )
   return { handleToolChange, runAction }
 }
@@ -278,16 +319,8 @@ export function useImagePreviewDialog(
     actions.onError
   )
   const onDownload = useCallback(() => {
-    const original =
-      !props.onExport && !hasEdits(state.editor)
-        ? parseInlineImage(props.src, props.alt)
-        : null
-    if (original) {
-      void downloadImage(original).catch(actions.onError)
-      return
-    }
     void state.runAction(actions.exportAction, false)
-  }, [actions.exportAction, actions.onError, props, state])
+  }, [actions.exportAction, state])
   useImageViewerShortcuts({
     active: props.open,
     mode: state.mode,
