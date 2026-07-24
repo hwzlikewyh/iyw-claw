@@ -1,0 +1,14 @@
+[project]
+name = "bggg-creator-image2psd"
+version = "0.1.0"
+description = "Build layered PSD files from raster image assets"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10",
+    "numpy>=1.24",
+    "opencv-python>=4.6",
+    "scikit-learn>=1.2",
+]
+
+[tool.uv]
+package = false

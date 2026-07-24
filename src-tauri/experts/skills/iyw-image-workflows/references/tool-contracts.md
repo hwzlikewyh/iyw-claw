@@ -12,8 +12,9 @@ origin 为 `https://gateway.iyw.cn`。分身模型配置是唯一例外，固定
 token: <access_token>
 ```
 
-token 默认来自当前用户目录 `.iyw-claw/iyw-account-token.json` 的
-`access_token`。不得发送 `Authorization`、`tokenInfo` 或 `securityKey`。
+token 优先来自当前用户目录 `.iyw-claw/iyw-account-token.json` 的
+`access_token`；没有非空账号 token 时，再按 `--token`、`IYW_TOKEN` 的顺序解析。
+不得发送 `Authorization`、`tokenInfo` 或 `securityKey`。
 
 ## 已确认接口
 

@@ -40,8 +40,8 @@ uv sync --project $skillDir --python 3.13
 - 图片 API 在代码内固定追加 `/ai-application`；分身模型配置固定使用
   `/platform/basic/dict/getByKeys`。两者都不接受 `--prefix`。
 - agent 不得传入或猜测 `--prefix`，也不得使用 `/iyw-fusion-api/v1` 等路径。
-- token 按 `--token`、`IYW_TOKEN`、当前用户目录
-  `.iyw-claw/iyw-account-token.json` 中 `access_token` 的顺序解析。
+- token 优先读取当前用户目录 `.iyw-claw/iyw-account-token.json` 中的
+  `access_token`；没有非空账号 token 时，再按 `--token`、`IYW_TOKEN` 的顺序解析。
 - agent 默认依赖账号文件，不要把 token 写进命令、payload、日志或回复。
 - 除非用户明确指定测试环境，否则不要传 `--base-url` 或 `--token`。
 

@@ -498,17 +498,19 @@ def _load_account_access_token(path: Path | None = None) -> str:
 
 
 def _resolve_token(explicit_token: str | None) -> str:
+    account_token = _load_account_access_token()
+    if account_token:
+        return account_token
     if explicit_token and explicit_token.strip():
         return explicit_token.strip()
-    env_token = os.getenv("IYW_TOKEN", "").strip()
-    return env_token or _load_account_access_token()
+    return os.getenv("IYW_TOKEN", "").strip()
 
 
 def _add_connection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--base-url", default=os.getenv("IYW_API_BASE_URL", "https://gateway.iyw.cn"))
     parser.add_argument(
         "--token",
-        help="IYW token; overrides IYW_TOKEN and the IYW Claw account token",
+        help="fallback IYW token; used before IYW_TOKEN when the IYW Claw account token is unavailable",
     )
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--poll-interval", type=float, default=5.0)

@@ -1,16 +1,25 @@
 # Memory Operations
 
-## Durable User Memory
+## Layered User Memory
 
 Use iyw-claw host tools and settings as the only authority.
 
-| Request | Action |
+| Request or signal | Layer and action |
 |---|---|
-| Remember a durable fact/preference | Call `append_user_memory` |
-| Record a reusable correction/preference/fact for review | Call `propose_user_memory` |
-| Show or review memory | Direct the user to iyw-claw User Memory settings or use an available read surface |
-| Forget/delete memory | Use the supported user-memory delete/resolve UI; confirm the exact target |
-| Export memory | Use iyw-claw backup/export behavior |
+| One-time instruction | M0: use now and do not persist |
+| Explicit reusable correction/preference/goal/constraint/fact | M1: call `propose_user_memory` |
+| Explicit remember request | M2: call `append_user_memory` |
+| Approved candidate | M2: let the host approval flow persist it |
+| Profile or interaction-principle synthesis | M3/M4: leave to iyw-claw |
+| Show, review, forget, or export | Use supported host UI or operations |
+
+Repeated signals remain candidates until the user approves them. When current
+input conflicts with older memory, follow the current instruction and propose
+an update. Never edit or rewrite the storage files directly.
+
+If a required host memory tool is unavailable, continue the active task
+without persistence and say that durable memory was not changed. Do not fall
+back to shell or file-edit tools.
 
 Never use shell commands to edit `~/.iyw-claw/user-memory.md`,
 `user-profile.md`, or `user-soul.md`.
