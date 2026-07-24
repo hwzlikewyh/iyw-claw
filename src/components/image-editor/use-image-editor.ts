@@ -68,30 +68,36 @@ function useEditorHistory() {
 
 function useEditorControls() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [tool, setTool] = useState<EditorTool>("select")
+  const [toolState, setToolState] = useState({
+    tool: "select" as EditorTool,
+    revision: 0,
+  })
   const [color, setColor] = useState(DEFAULT_COLOR)
   const [strokeWidth, setStrokeWidth] = useState(DEFAULT_STROKE_WIDTH)
-  const [text, setText] = useState("")
   const [zoom, setZoom] = useState(DEFAULT_ZOOM)
+  const setTool = useCallback((tool: EditorTool) => {
+    setToolState((state) => ({ tool, revision: state.revision + 1 }))
+  }, [])
   const resetControls = useCallback(() => {
     setSelectedId(null)
-    setTool("select")
+    setToolState((state) => ({
+      tool: "select",
+      revision: state.revision + 1,
+    }))
     setColor(DEFAULT_COLOR)
     setStrokeWidth(DEFAULT_STROKE_WIDTH)
-    setText("")
     setZoom(DEFAULT_ZOOM)
   }, [])
   return {
     selectedId,
     setSelectedId,
-    tool,
+    tool: toolState.tool,
+    toolRevision: toolState.revision,
     setTool,
     color,
     setColor,
     strokeWidth,
     setStrokeWidth,
-    text,
-    setText,
     zoom,
     setZoom,
     resetControls,

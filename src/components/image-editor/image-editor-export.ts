@@ -2,6 +2,7 @@ import type {
   EditorImageResult,
   ImageEditorCanvasHandle,
 } from "./image-editor-model"
+import { fetchRemoteImageBlob, isRemoteImageUrl } from "./remote-image-source"
 
 export interface InlineImageData {
   data: string
@@ -88,6 +89,22 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
+export async function blobToInlineImage(
+  blob: Blob,
+  alt: string
+): Promise<InlineImageData> {
+  if (blob.size === 0) throw new Error("Fetched image is empty")
+  const mimeType = blob.type.toLowerCase()
+  if (!mimeType.startsWith("image/")) {
+    throw new Error("Fetched resource is not an image")
+  }
+  return {
+    data: arrayBufferToBase64(await blob.arrayBuffer()),
+    mime_type: mimeType,
+    suggestedName: suggestedImageName(alt, mimeType),
+  }
+}
+
 /**
  * Fetch the original bytes of a non-inline image (remote URL) so an
  * unedited export doesn't need the canvas at all — the canvas would
@@ -98,20 +115,13 @@ export async function fetchInlineImage(
   src: string,
   alt: string
 ): Promise<InlineImageData> {
-  const response = await fetch(src)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image (HTTP ${response.status})`)
-  }
-  const blob = await response.blob()
-  if (blob.size === 0) throw new Error("Fetched image is empty")
-  const mimeType = blob.type.toLowerCase()
-  if (!mimeType.startsWith("image/")) {
-    throw new Error("Fetched resource is not an image")
-  }
-  const data = arrayBufferToBase64(await blob.arrayBuffer())
-  return {
-    data,
-    mime_type: mimeType,
-    suggestedName: suggestedImageName(alt, mimeType),
-  }
+  const blob = isRemoteImageUrl(src)
+    ? await fetchRemoteImageBlob(src)
+    : await fetch(src).then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to fetch image (HTTP ${response.status})`)
+        }
+        return response.blob()
+      })
+  return blobToInlineImage(blob, alt)
 }

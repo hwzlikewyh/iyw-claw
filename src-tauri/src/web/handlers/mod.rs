@@ -24,6 +24,7 @@ pub mod office_tools;
 pub mod office_watch_proxy;
 pub mod question;
 pub mod quick_messages;
+pub mod remote_image;
 pub mod runtime_bootstrap;
 pub mod session_info;
 pub mod system_settings;

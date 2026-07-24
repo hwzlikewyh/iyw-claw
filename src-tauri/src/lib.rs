@@ -26,6 +26,7 @@ pub mod pets;
 #[cfg(feature = "tauri-runtime")]
 pub mod preferences;
 pub mod process;
+pub mod remote_image;
 pub mod supervise;
 pub mod system_skills;
 mod terminal;
@@ -62,7 +63,8 @@ mod tauri_app {
         logging as logging_commands, managed_skills as managed_skills_commands,
         mcp as mcp_commands, model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, question as question_commands,
-        quick_messages as quick_messages_commands, remote_proxy as remote_proxy_commands,
+        quick_messages as quick_messages_commands, remote_image as remote_image_commands,
+        remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands,
         runtime_bootstrap as runtime_bootstrap_commands, session_info as session_info_commands,
         system_settings, system_skills as system_skills_commands, terminal as terminal_commands,
@@ -1191,6 +1193,7 @@ mod tauri_app {
                 notification::send_notification,
                 file_io::save_binary_file,
                 file_io::save_text_file,
+                remote_image_commands::fetch_remote_image,
                 backup::backup_create,
                 backup::backup_inspect,
                 backup::backup_scan_external_conflicts,

@@ -23,7 +23,6 @@ import {
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   Popover,
   PopoverContent,
@@ -110,20 +109,6 @@ function ToolControls({ editor }: { editor: ImageEditorToolbarProps }) {
         </ToolbarButton>
       ))}
     </>
-  )
-}
-
-function TextControl({ editor }: { editor: ImageEditorToolbarProps }) {
-  const t = useTranslations("Folder.chat.messageList")
-  if (editor.tool !== "text") return null
-  return (
-    <Input
-      value={editor.text}
-      onChange={(event) => editor.onTextChange(event.target.value)}
-      placeholder={t("imageEditorTextPlaceholder")}
-      aria-label={t("imageEditorTextPlaceholder")}
-      className="h-8 w-36 rounded-md border-white/10 bg-white/8 text-white placeholder:text-white/35"
-    />
   )
 }
 
@@ -281,7 +266,6 @@ export function ImageEditorToolbar(editor: ImageEditorToolbarProps) {
         <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="flex h-full w-max items-center gap-1 px-1.5">
             <ToolControls editor={editor} />
-            <TextControl editor={editor} />
             <Separator />
             <ImageEditorStyleControls editor={editor} />
             <HistoryControls editor={editor} />

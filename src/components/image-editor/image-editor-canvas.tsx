@@ -12,6 +12,7 @@ import type Konva from "konva"
 import { Image as KonvaImage, Layer, Stage, Transformer } from "react-konva"
 import { ImageEditorAnnotationNode } from "./image-editor-annotation"
 import { ImageEditorCrop } from "./image-editor-crop"
+import { ImageEditorInlineText } from "./image-editor-inline-text"
 import {
   replaceAnnotation,
   type AnnotationTransformUpdate,
@@ -27,14 +28,16 @@ export interface ImageEditorCanvasProps {
   image: HTMLImageElement
   size: StageSize
   displayScale: number
+  displayRotation: number
   rotation: number
   snapshot: EditorSnapshot
   tool: EditorTool
+  toolRevision: number
   color: string
   strokeWidth: number
-  text: string
   selectedId: string | null
   onSelect: (id: string | null) => void
+  onToolChange: (tool: EditorTool) => void
   onCommit: (snapshot: EditorSnapshot) => void
   onReadyChange: (ready: boolean) => void
 }
@@ -130,6 +133,54 @@ function useSelectionTransformer(
   ])
 }
 
+function renderExportCanvas(
+  stage: Konva.Stage,
+  props: ImageEditorCanvasProps
+): HTMLCanvasElement {
+  const crop = props.snapshot.crop
+  return stage.toCanvas({
+    x: crop?.x ?? 0,
+    y: crop?.y ?? 0,
+    width: crop?.width ?? props.size.width,
+    height: crop?.height ?? props.size.height,
+    pixelRatio: props.image.naturalWidth / props.size.width,
+  })
+}
+
+function rotateExportCanvas(
+  source: HTMLCanvasElement,
+  rotation: number
+): HTMLCanvasElement {
+  const normalized = ((rotation % 360) + 360) % 360
+  if (normalized === 0) return source
+  const quarterTurn = normalized === 90 || normalized === 270
+  const output = document.createElement("canvas")
+  output.width = quarterTurn ? source.height : source.width
+  output.height = quarterTurn ? source.width : source.height
+  const context = output.getContext("2d")
+  if (!context) throw new Error("Cannot create image export canvas")
+  context.translate(output.width / 2, output.height / 2)
+  context.rotate((normalized * Math.PI) / 180)
+  context.drawImage(source, -source.width / 2, -source.height / 2)
+  return output
+}
+
+function exportStagePng(stage: Konva.Stage, props: ImageEditorCanvasProps) {
+  try {
+    const rendered = renderExportCanvas(stage, props)
+    const output = rotateExportCanvas(rendered, props.rotation)
+    const dataUrl = output.toDataURL("image/png")
+    return dataUrl
+      ? { status: "ok" as const, dataUrl }
+      : { status: "tainted" as const }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "SecurityError") {
+      return { status: "tainted" as const }
+    }
+    throw error
+  }
+}
+
 function useCanvasExport(
   forwardedRef: React.ForwardedRef<ImageEditorCanvasHandle>,
   stageRef: RefObject<Konva.Stage | null>,
@@ -141,22 +192,10 @@ function useCanvasExport(
       const stage = stageRef.current
       const uiLayer = uiLayerRef.current
       if (!stage || !uiLayer) return { status: "not-ready" as const }
-      const crop = props.snapshot.crop
       uiLayer.hide()
       uiLayer.batchDraw()
       try {
-        const dataUrl = stage.toDataURL({
-          x: crop?.x ?? 0,
-          y: crop?.y ?? 0,
-          width: crop?.width ?? props.size.width,
-          height: crop?.height ?? props.size.height,
-          pixelRatio: props.image.naturalWidth / props.size.width,
-          mimeType: "image/png",
-        })
-        // Konva catches the tainted-canvas SecurityError internally and
-        // returns "" — an empty data URL is the taint signal.
-        if (!dataUrl) return { status: "tainted" as const }
-        return { status: "ok" as const, dataUrl }
+        return exportStagePng(stage, props)
       } finally {
         uiLayer.show()
         uiLayer.batchDraw()
@@ -209,6 +248,16 @@ export const ImageEditorCanvas = forwardRef<
             transformerRef={transformerRef}
           />
         </Stage>
+        {drawing.textDraft ? (
+          <ImageEditorInlineText
+            draft={drawing.textDraft}
+            color={props.color}
+            size={props.size}
+            onChange={drawing.onTextChange}
+            onCommit={drawing.onTextCommit}
+            onCancel={drawing.onTextCancel}
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -218,7 +267,7 @@ function getCanvasLayout(props: ImageEditorCanvasProps): {
   wrapper: CSSProperties
   canvas: CSSProperties
 } {
-  const quarterTurn = Math.abs(props.rotation) % 180 === 90
+  const quarterTurn = Math.abs(props.displayRotation) % 180 === 90
   return {
     wrapper: {
       width:
@@ -234,7 +283,7 @@ function getCanvasLayout(props: ImageEditorCanvasProps): {
       top: "50%",
       width: props.size.width,
       height: props.size.height,
-      transform: `translate(-50%, -50%) rotate(${props.rotation}deg) scale(${props.displayScale})`,
+      transform: `translate(-50%, -50%) rotate(${props.displayRotation}deg) scale(${props.displayScale})`,
       transformOrigin: "center",
     },
   }

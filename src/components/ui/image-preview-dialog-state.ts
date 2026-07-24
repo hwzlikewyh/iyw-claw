@@ -1,9 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { useTranslations } from "next-intl"
 import type { ImageEditorDialogState } from "@/components/image-editor/image-editor-dialog-content"
 import {
+  blobToInlineImage,
   exportCanvasImage,
   fetchInlineImage,
   parseInlineImage,
@@ -24,6 +25,11 @@ import { toErrorMessage } from "@/lib/app-error"
 import { downloadImage } from "@/lib/image-download"
 import { emitAttachImageToSession } from "@/lib/session-attachment-events"
 import { useTabStore } from "@/stores/tab-store"
+import {
+  useElementSize,
+  useLoadedImage,
+  type ElementSize,
+} from "./image-preview-dialog-hooks"
 
 export interface ImagePreviewDialogProps {
   src: string
@@ -36,79 +42,8 @@ export interface ImagePreviewDialogProps {
   onSendToChat?: (result: EditorImageResult) => void | Promise<void>
 }
 
-interface ElementSize {
-  width: number
-  height: number
-}
-
-interface LoadedImageState {
-  source: string
-  image: HTMLImageElement | null
-  failed: boolean
-}
-
 const WORKSPACE_PADDING = 96
 const MAX_FIT_SCALE = 2
-
-function useElementSize(): [React.RefCallback<HTMLDivElement>, ElementSize] {
-  const [size, setSize] = useState<ElementSize>({ width: 0, height: 0 })
-  const observerRef = useRef<ResizeObserver | null>(null)
-  const callbackRef = useCallback((element: HTMLDivElement | null) => {
-    observerRef.current?.disconnect()
-    observerRef.current = null
-    if (!element) return
-    const update = (bounds: DOMRectReadOnly) =>
-      setSize({ width: bounds.width, height: bounds.height })
-    update(element.getBoundingClientRect())
-    observerRef.current = new ResizeObserver((entries) => {
-      const bounds = entries[0]?.contentRect
-      if (bounds) update(bounds)
-    })
-    observerRef.current.observe(element)
-  }, [])
-  return [callbackRef, size]
-}
-
-function useLoadedImage(src: string, open: boolean): LoadedImageState {
-  const source = open ? src : ""
-  const [state, setState] = useState<LoadedImageState>({
-    source: "",
-    image: null,
-    failed: false,
-  })
-  useEffect(() => {
-    if (!source) return
-    let active = true
-    let retriedWithoutCors = false
-    const image = new window.Image()
-    image.decoding = "async"
-    // Remote images: request CORS so canvas export stays possible. Hosts
-    // without CORS headers fail this load — retry without CORS so the
-    // preview still displays (export then surfaces a clear cross-origin
-    // error instead of breaking the preview).
-    if (/^https?:\/\//i.test(source)) image.crossOrigin = "anonymous"
-    image.onload = () => active && setState({ source, image, failed: false })
-    image.onerror = () => {
-      if (!active) return
-      if (!retriedWithoutCors && image.crossOrigin !== null) {
-        retriedWithoutCors = true
-        image.crossOrigin = null
-        image.src = source
-        return
-      }
-      setState({ source, image: null, failed: true })
-    }
-    image.src = source
-    return () => {
-      active = false
-      image.onload = null
-      image.onerror = null
-    }
-  }, [source])
-  return state.source === source
-    ? state
-    : { source, image: null, failed: false }
-}
 
 function getFitScale(
   workspace: ElementSize,
@@ -124,8 +59,15 @@ function getFitScale(
   return Math.min(MAX_FIT_SCALE, width / imageWidth, height / imageHeight)
 }
 
-function hasEdits(state: ReturnType<typeof useImageEditor>): boolean {
-  return state.snapshot.annotations.length > 0 || state.snapshot.crop !== null
+function hasEdits(
+  state: ReturnType<typeof useImageEditor>,
+  rotation: number
+): boolean {
+  return (
+    state.snapshot.annotations.length > 0 ||
+    state.snapshot.crop !== null ||
+    rotation !== 0
+  )
 }
 
 interface DialogActionOptions {
@@ -133,12 +75,23 @@ interface DialogActionOptions {
   stage: StageSize | null
   canvasRef: React.RefObject<ImageEditorCanvasHandle | null>
   props: ImagePreviewDialogProps
+  originalBlob: Blob | null
+  rotation: number
   setBusy: React.Dispatch<React.SetStateAction<boolean>>
   onError: (error: unknown) => void
 }
 
 function useDialogActions(options: DialogActionOptions) {
-  const { editor, stage, canvasRef, props, setBusy, onError } = options
+  const {
+    editor,
+    stage,
+    canvasRef,
+    props,
+    originalBlob,
+    rotation,
+    setBusy,
+    onError,
+  } = options
   const t = useTranslations("Folder.chat.messageList")
   const handleToolChange = useCallback(
     (tool: EditorTool) => {
@@ -156,7 +109,7 @@ function useDialogActions(options: DialogActionOptions) {
       if (!action) return
       setBusy(true)
       try {
-        const edited = hasEdits(editor)
+        const edited = hasEdits(editor, rotation)
         let result: EditorImageResult | null = null
         if (!edited) {
           // Unedited: ship the original bytes — no PNG re-encode, and no
@@ -164,6 +117,9 @@ function useDialogActions(options: DialogActionOptions) {
           // and would make export impossible).
           const inline =
             parseInlineImage(props.src, props.alt) ??
+            (originalBlob
+              ? await blobToInlineImage(originalBlob, props.alt)
+              : null) ??
             (await fetchInlineImage(props.src, props.alt).catch(() => null))
           if (inline) {
             result = {
@@ -195,7 +151,7 @@ function useDialogActions(options: DialogActionOptions) {
         setBusy(false)
       }
     },
-    [canvasRef, editor, onError, props, setBusy, t]
+    [canvasRef, editor, onError, originalBlob, props, rotation, setBusy, t]
   )
   return { handleToolChange, runAction }
 }
@@ -207,10 +163,7 @@ function useViewerState(editor: ReturnType<typeof useImageEditor>) {
     (nextMode: ImageViewerMode) => {
       setMode(nextMode)
       editor.setSelectedId(null)
-      if (nextMode === "annotate") {
-        setRotation(0)
-        editor.setTool("select")
-      }
+      editor.setTool("select")
     },
     [editor]
   )
@@ -235,13 +188,16 @@ function useDialogEditorState(
   const [busy, setBusy] = useState(false)
   const image = loaded.image
   const stage = useMemo(() => (image ? fitStageSize(image) : null), [image])
+  const displayRotation = viewer.mode === "view" ? viewer.rotation : 0
   const displayScale =
-    getFitScale(workspace, stage, viewer.rotation) * editor.zoom
+    getFitScale(workspace, stage, displayRotation) * editor.zoom
   const actions = useDialogActions({
     editor,
     stage,
     canvasRef,
     props,
+    originalBlob: loaded.originalBlob,
+    rotation: viewer.rotation,
     setBusy,
     onError,
   })

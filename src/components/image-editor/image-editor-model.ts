@@ -104,7 +104,6 @@ export interface ImageEditorToolbarProps {
   tool: EditorTool
   color: string
   strokeWidth: number
-  text: string
   zoom: number
   selectedId: string | null
   canUndo: boolean
@@ -117,7 +116,6 @@ export interface ImageEditorToolbarProps {
   onToolChange: (tool: EditorTool) => void
   onColorChange: (color: string) => void
   onStrokeWidthChange: (width: number) => void
-  onTextChange: (text: string) => void
   onZoomChange: (zoom: number) => void
   onUndo: () => void
   onRedo: () => void

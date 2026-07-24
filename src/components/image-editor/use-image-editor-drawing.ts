@@ -7,6 +7,7 @@ import {
   type EditorAnnotation,
   type EditorSnapshot,
   type EditorTool,
+  type StageSize,
 } from "./image-editor-model"
 
 interface Point {
@@ -18,11 +19,19 @@ interface DrawingOptions {
   stageRef: RefObject<Konva.Stage | null>
   snapshot: EditorSnapshot
   tool: EditorTool
+  toolRevision: number
+  size: StageSize
   color: string
   strokeWidth: number
-  text: string
   onSelect: (id: string | null) => void
+  onToolChange: (tool: EditorTool) => void
   onCommit: (snapshot: EditorSnapshot) => void
+}
+
+export interface TextDraft {
+  x: number
+  y: number
+  value: string
 }
 
 const MIN_DRAW_SIZE = 3
@@ -133,30 +142,66 @@ function usable(draft: EditorAnnotation): boolean {
   return draft.kind === "freehand" && draft.points.length >= 4
 }
 
-function addText(options: DrawingOptions, point: Point) {
-  const text = options.text.trim()
-  if (!text) return
-  const annotation: EditorAnnotation = {
-    ...baseAnnotation("text", options),
-    kind: "text",
-    x: point.x,
-    y: point.y,
-    text,
-    fontSize: TEXT_FONT_SIZE,
+function useTextDraft(options: DrawingOptions) {
+  const draftRef = useRef<{
+    revision: number
+    draft: TextDraft
+  } | null>(null)
+  const [state, setState] = useState<{
+    revision: number
+    draft: TextDraft | null
+  }>({ revision: options.toolRevision, draft: null })
+  const current = state.revision === options.toolRevision ? state.draft : null
+  const start = (point: Point) => {
+    const draft = { ...point, value: "" }
+    draftRef.current = { revision: options.toolRevision, draft }
+    setState({ revision: options.toolRevision, draft })
   }
-  options.onCommit({
-    ...options.snapshot,
-    annotations: [...options.snapshot.annotations, annotation],
-  })
-  options.onSelect(annotation.id)
+  const change = (value: string) => {
+    const previous = draftRef.current
+    if (!previous || previous.revision !== options.toolRevision) return
+    const draft = { ...previous.draft, value }
+    draftRef.current = { revision: options.toolRevision, draft }
+    setState({ revision: options.toolRevision, draft })
+  }
+  const cancel = () => {
+    draftRef.current = null
+    setState({ revision: options.toolRevision, draft: null })
+  }
+  const commit = () => {
+    const entry = draftRef.current
+    if (!entry || entry.revision !== options.toolRevision) return
+    draftRef.current = null
+    setState({ revision: options.toolRevision, draft: null })
+    const draft = entry.draft
+    const text = draft?.value.trim()
+    if (!text) return
+    const annotation: EditorAnnotation = {
+      ...baseAnnotation("text", options),
+      kind: "text",
+      x: draft.x,
+      y: draft.y,
+      text,
+      fontSize: TEXT_FONT_SIZE,
+    }
+    options.onCommit({
+      ...options.snapshot,
+      annotations: [...options.snapshot.annotations, annotation],
+    })
+    options.onSelect(annotation.id)
+    options.onToolChange("select")
+  }
+  return { draft: current, start, change, cancel, commit }
 }
 
 export function useImageEditorDrawing(options: DrawingOptions) {
   const startRef = useRef<Point | null>(null)
   const draftRef = useRef<EditorAnnotation | null>(null)
   const [draft, setDraft] = useState<EditorAnnotation | null>(null)
+  const textDraft = useTextDraft(options)
   const point = () => options.stageRef.current?.getPointerPosition() ?? null
   const down = (event: Konva.KonvaEventObject<Event>) => {
+    if (event.evt instanceof MouseEvent && event.evt.button !== 0) return
     const background =
       event.target === event.target.getStage() ||
       event.target.name() === "background"
@@ -164,7 +209,10 @@ export function useImageEditorDrawing(options: DrawingOptions) {
     const position = point()
     if (!position) return
     if (options.tool === "select") return options.onSelect(null)
-    if (options.tool === "text") return addText(options, position)
+    if (options.tool === "text") {
+      if (textDraft.draft) return
+      return textDraft.start(position)
+    }
     const next = createDraft(options, position)
     if (!next) return
     startRef.current = position
@@ -199,5 +247,14 @@ export function useImageEditorDrawing(options: DrawingOptions) {
         : options.snapshot.annotations,
     [draft, options.snapshot.annotations]
   )
-  return { annotations, down, move, up }
+  return {
+    annotations,
+    down,
+    move,
+    up,
+    textDraft: textDraft.draft,
+    onTextChange: textDraft.change,
+    onTextCommit: textDraft.commit,
+    onTextCancel: textDraft.cancel,
+  }
 }

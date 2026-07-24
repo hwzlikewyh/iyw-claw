@@ -1,6 +1,7 @@
 "use client"
 
 import dynamic from "next/dynamic"
+import { useCallback, useRef } from "react"
 import { ImageOff, LoaderCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn } from "@/lib/utils"
@@ -14,6 +15,7 @@ import type {
   StageSize,
 } from "./image-editor-model"
 import { useImageEditor } from "./use-image-editor"
+import { useImageWorkspaceNavigation } from "./use-image-workspace-navigation"
 import {
   ImageViewerHeader,
   ImageViewerNavigation,
@@ -85,11 +87,32 @@ function EditorWorkspace({
   navigation,
 }: EditorWorkspaceProps) {
   const editor = state.editor
+  const elementRef = useRef<HTMLDivElement>(null)
+  const navigationHandlers = useImageWorkspaceNavigation(elementRef, {
+    ready: state.ready,
+    busy: state.busy,
+    setZoom: editor.setZoom,
+  })
+  const setWorkspaceRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      elementRef.current = element
+      workspaceRef(element)
+    },
+    [workspaceRef]
+  )
   return (
     <div className="relative min-h-0">
       <div
-        ref={workspaceRef}
-        className="h-full overflow-auto overscroll-contain"
+        ref={setWorkspaceRef}
+        onPointerDown={navigationHandlers.onPointerDown}
+        onPointerMove={navigationHandlers.onPointerMove}
+        onPointerUp={navigationHandlers.endPan}
+        onPointerCancel={navigationHandlers.endPan}
+        onAuxClick={(event) => event.button === 1 && event.preventDefault()}
+        className={cn(
+          "h-full overflow-auto overscroll-contain",
+          navigationHandlers.panning && "cursor-grabbing select-none"
+        )}
       >
         <div
           className={cn(
@@ -104,14 +127,16 @@ function EditorWorkspace({
               image={state.image}
               size={state.stage}
               displayScale={state.displayScale}
+              displayRotation={state.mode === "view" ? state.rotation : 0}
               rotation={state.rotation}
               snapshot={editor.snapshot}
               tool={editor.tool}
+              toolRevision={editor.toolRevision}
               color={editor.color}
               strokeWidth={editor.strokeWidth}
-              text={editor.text}
               selectedId={editor.selectedId}
               onSelect={editor.setSelectedId}
+              onToolChange={state.handleToolChange}
               onCommit={editor.commit}
             />
           ) : (
@@ -153,7 +178,6 @@ function AnnotationFooter({
         tool={editor.tool}
         color={editor.color}
         strokeWidth={editor.strokeWidth}
-        text={editor.text}
         zoom={editor.zoom}
         selectedId={editor.selectedId}
         canUndo={editor.canUndo}
@@ -169,7 +193,6 @@ function AnnotationFooter({
         onToolChange={state.handleToolChange}
         onColorChange={editor.setColor}
         onStrokeWidthChange={editor.setStrokeWidth}
-        onTextChange={editor.setText}
         onZoomChange={editor.setZoom}
         onUndo={editor.undo}
         onRedo={editor.redo}

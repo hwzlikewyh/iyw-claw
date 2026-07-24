@@ -33,6 +33,7 @@ pub mod office_tools;
 pub mod pet;
 pub mod question;
 pub mod quick_messages;
+pub mod remote_image;
 #[cfg(feature = "tauri-runtime")]
 pub mod remote_proxy;
 #[cfg(feature = "tauri-runtime")]

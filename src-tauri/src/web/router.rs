@@ -33,6 +33,10 @@ pub fn build_router(
 
     let api = Router::new()
         .route("/health", post(health_check))
+        .route(
+            "/fetch_remote_image",
+            post(handlers::remote_image::fetch_remote_image),
+        )
         // ─── iyw account ───
         .route(
             "/iyw_account_get_wechat_qrcode",
