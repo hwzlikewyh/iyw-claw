@@ -181,6 +181,26 @@ pub(super) fn ensure_agent_write_allowed(
     }
 }
 
+pub(super) fn ensure_manual_write_allowed(
+    policy: &UserMemoryPolicy,
+) -> Result<(), AppCommandError> {
+    ensure_manual_document_write_allowed(policy, UserMemoryDocumentId::Memory)
+}
+
+pub(super) fn ensure_manual_document_write_allowed(
+    policy: &UserMemoryPolicy,
+    document: UserMemoryDocumentId,
+) -> Result<(), AppCommandError> {
+    let allowed = policy.enabled && policy.documents.get(&document).copied().unwrap_or(true);
+    if allowed {
+        Ok(())
+    } else {
+        Err(AppCommandError::permission_denied(
+            "User memory writes are disabled",
+        ))
+    }
+}
+
 pub(super) fn supports_memory_tool(agent: AgentType) -> bool {
     !matches!(agent, AgentType::OpenClaw | AgentType::Pi)
 }

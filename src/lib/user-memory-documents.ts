@@ -10,6 +10,8 @@ export interface UserMemoryDocumentSnapshot {
   etag: string
   enabled: boolean
   readonly: boolean
+  readable: boolean
+  diagnostic?: string | null
 }
 
 export interface UserMemorySettingsSnapshot {

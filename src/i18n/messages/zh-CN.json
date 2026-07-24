@@ -2690,7 +2690,31 @@
         "tokenCacheWrite": "缓存写入",
         "duration": "耗时",
         "completedAt": "完成时间",
-        "jumpToPreviousUserMessage": "跳转到上一条用户消息"
+        "jumpToPreviousUserMessage": "跳转到上一条用户消息",
+        "userMemory": {
+          "remember": "记住这条消息",
+          "remembered": "已写入用户记忆",
+          "alreadyRemembered": "这条内容已经在用户记忆中",
+          "rememberFailed": "用户记忆保存失败",
+          "correct": "更正用户记忆",
+          "correctTitle": "更正用户记忆",
+          "correctDescription": "通过宿主服务精确替换一条记忆记录。",
+          "document": "文档",
+          "documents": {
+            "memory": "记忆",
+            "profile": "档案",
+            "soul": "人格"
+          },
+          "oldContent": "现有内容",
+          "oldContentPlaceholder": "准确输入旧记忆内容",
+          "newContent": "更正后的内容",
+          "cancel": "取消",
+          "saveCorrection": "保存更正",
+          "saving": "保存中...",
+          "corrected": "用户记忆已更正",
+          "conflict": "文档在打开期间发生变化，请重新加载后再试。",
+          "newConversationRequired": "请新建会话，让更新后的记忆生效。"
+        }
       },
       "liveTurnStats": {
         "thinking": "思考中...",

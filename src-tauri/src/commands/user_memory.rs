@@ -4,12 +4,82 @@ use std::sync::Arc;
 use crate::acp::manager::ConnectionManager;
 use crate::app_error::AppCommandError;
 use crate::user_memory::{
-    project_settings_capabilities, UserMemoryCandidateDeleteRequest,
-    UserMemoryCandidateDeleteResult, UserMemoryCandidateListRequest, UserMemoryCandidatePage,
-    UserMemoryCandidateResolutionResponse, UserMemoryCandidateResolveRequest,
-    UserMemoryCandidateSummary, UserMemoryService, UserMemorySettingsSnapshot,
-    UserMemoryUpdateRequest, UserMemoryUpdateResult, USER_MEMORY_CANDIDATE_MAX_LIMIT,
+    project_settings_capabilities, AgentMemoryAppend, AppendUserMemoryRequest,
+    CorrectUserMemoryRequest, CorrectUserMemoryResult, UserMemoryAppendResult,
+    UserMemoryCandidateDeleteRequest, UserMemoryCandidateDeleteResult,
+    UserMemoryCandidateListRequest, UserMemoryCandidatePage, UserMemoryCandidateResolutionResponse,
+    UserMemoryCandidateResolveRequest, UserMemoryCandidateSummary, UserMemoryService,
+    UserMemorySettingsSnapshot, UserMemoryUpdateRequest, UserMemoryUpdateResult,
+    USER_MEMORY_CANDIDATE_MAX_LIMIT,
 };
+
+pub async fn append_user_memory_direct_core(
+    service: &UserMemoryService,
+    request: AppendUserMemoryRequest,
+) -> Result<UserMemoryAppendResult, AppCommandError> {
+    let agent_type = request.agent_type;
+    let content_chars = request.content.chars().count();
+    let result = service
+        .append_user_memory_manual(AgentMemoryAppend {
+            content: request.content,
+            agent_type,
+        })
+        .await;
+    match &result {
+        Ok(value) => tracing::info!(
+            target: "user_memory",
+            operation = "manual_append",
+            agent_type = ?agent_type,
+            content_chars,
+            appended = value.appended,
+            entry_id = value.entry_id,
+            "host user-memory append completed"
+        ),
+        Err(error) => tracing::warn!(
+            target: "user_memory",
+            operation = "manual_append",
+            agent_type = ?agent_type,
+            content_chars,
+            error_code = ?error.code,
+            error = %error,
+            "host user-memory append failed"
+        ),
+    }
+    result
+}
+
+pub async fn correct_user_memory_core(
+    service: &UserMemoryService,
+    request: CorrectUserMemoryRequest,
+) -> Result<CorrectUserMemoryResult, AppCommandError> {
+    let document = request.document;
+    let old_content_chars = request.old_content.chars().count();
+    let new_content_chars = request.new_content.chars().count();
+    let result = service.correct_user_memory(request).await;
+    match &result {
+        Ok(value) => tracing::info!(
+            target: "user_memory",
+            operation = "manual_correction",
+            document = ?document,
+            old_content_chars,
+            new_content_chars,
+            old_entry_id = value.old_entry_id,
+            new_entry_id = value.new_entry_id,
+            "host user-memory correction completed"
+        ),
+        Err(error) => tracing::warn!(
+            target: "user_memory",
+            operation = "manual_correction",
+            document = ?document,
+            old_content_chars,
+            new_content_chars,
+            error_code = ?error.code,
+            error = %error,
+            "host user-memory correction failed"
+        ),
+    }
+    result
+}
 
 pub async fn list_user_memory_candidates_core(
     service: &UserMemoryService,
@@ -97,6 +167,38 @@ pub async fn update_user_memory_settings_core(
         settings,
         affected_running_sessions: affected,
     })
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn append_user_memory_direct(
+    #[cfg(feature = "tauri-runtime")] service: tauri::State<'_, Arc<UserMemoryService>>,
+    request: AppendUserMemoryRequest,
+) -> Result<UserMemoryAppendResult, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        append_user_memory_direct_core(service.inner().as_ref(), request).await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let _ = request;
+        Err(AppCommandError::configuration_invalid("tauri-only command"))
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn correct_user_memory(
+    #[cfg(feature = "tauri-runtime")] service: tauri::State<'_, Arc<UserMemoryService>>,
+    request: CorrectUserMemoryRequest,
+) -> Result<CorrectUserMemoryResult, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        correct_user_memory_core(service.inner().as_ref(), request).await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let _ = request;
+        Err(AppCommandError::configuration_invalid("tauri-only command"))
+    }
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]

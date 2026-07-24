@@ -224,6 +224,36 @@ pub struct AgentMemoryAppend {
     pub agent_type: AgentType,
 }
 
+/// A deliberate user action that appends one entry through the host-owned
+/// memory service. This is separate from an agent tool request so it does not
+/// inherit an ACP launch policy or depend on MCP routing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppendUserMemoryRequest {
+    pub content: String,
+    pub agent_type: AgentType,
+}
+
+/// A deliberate replacement of one exact memory entry. The caller must send
+/// the document eTag it read so concurrent edits fail instead of overwriting.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CorrectUserMemoryRequest {
+    pub document: UserMemoryDocumentId,
+    pub old_content: String,
+    pub new_content: String,
+    pub expected_etag: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CorrectUserMemoryResult {
+    pub document: UserMemoryDocumentId,
+    pub old_entry_id: String,
+    pub new_entry_id: String,
+    pub revision: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserMemoryAppendResult {

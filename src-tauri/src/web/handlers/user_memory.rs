@@ -6,16 +6,47 @@ use serde::Deserialize;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::user_memory::{
-    delete_user_memory_candidate_core, get_user_memory_settings_core,
-    list_user_memory_candidates_core, resolve_user_memory_candidate_core,
-    update_user_memory_settings_core,
+    append_user_memory_direct_core, correct_user_memory_core, delete_user_memory_candidate_core,
+    get_user_memory_settings_core, list_user_memory_candidates_core,
+    resolve_user_memory_candidate_core, update_user_memory_settings_core,
 };
 use crate::user_memory::{
-    UserMemoryCandidateDeleteRequest, UserMemoryCandidateDeleteResult,
+    AppendUserMemoryRequest, CorrectUserMemoryRequest, CorrectUserMemoryResult,
+    UserMemoryAppendResult, UserMemoryCandidateDeleteRequest, UserMemoryCandidateDeleteResult,
     UserMemoryCandidateListRequest, UserMemoryCandidatePage, UserMemoryCandidateResolutionResponse,
     UserMemoryCandidateResolveRequest, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
     UserMemoryUpdateResult,
 };
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AppendUserMemoryDirectParams {
+    pub request: AppendUserMemoryRequest,
+}
+
+pub async fn append_user_memory_direct(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<AppendUserMemoryDirectParams>,
+) -> Result<Json<UserMemoryAppendResult>, AppCommandError> {
+    Ok(Json(
+        append_user_memory_direct_core(&state.user_memory, params.request).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CorrectUserMemoryParams {
+    pub request: CorrectUserMemoryRequest,
+}
+
+pub async fn correct_user_memory(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<CorrectUserMemoryParams>,
+) -> Result<Json<CorrectUserMemoryResult>, AppCommandError> {
+    Ok(Json(
+        correct_user_memory_core(&state.user_memory, params.request).await?,
+    ))
+}
 
 pub async fn get_user_memory_settings(
     Extension(state): Extension<Arc<AppState>>,

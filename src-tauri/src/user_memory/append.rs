@@ -4,8 +4,8 @@ use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
 
 use super::helpers::{
-    ensure_agent_write_allowed, memory_entry_id, normalize_append, normalize_candidate,
-    validate_document_content,
+    ensure_agent_write_allowed, ensure_manual_write_allowed, memory_entry_id, normalize_append,
+    normalize_candidate, validate_document_content,
 };
 use super::transaction::{candidate_resource, document_resource};
 use super::{candidate_store, structured_file};
@@ -23,12 +23,19 @@ struct PreparedMemoryAppend {
     next_markdown: String,
 }
 
+enum AppendPolicy {
+    Agent,
+    AuthorizedSession,
+    ManualUser,
+}
+
 impl UserMemoryService {
     pub async fn append_agent_memory(
         &self,
         input: AgentMemoryAppend,
     ) -> Result<UserMemoryAppendResult, AppCommandError> {
-        self.append_agent_memory_with_policy(input, true).await
+        self.append_agent_memory_with_policy(input, AppendPolicy::Agent)
+            .await
     }
 
     /// Append for an authenticated connection whose launch token already
@@ -37,20 +44,31 @@ impl UserMemoryService {
         &self,
         input: AgentMemoryAppend,
     ) -> Result<UserMemoryAppendResult, AppCommandError> {
-        self.append_agent_memory_with_policy(input, false).await
+        self.append_agent_memory_with_policy(input, AppendPolicy::AuthorizedSession)
+            .await
+    }
+
+    pub async fn append_user_memory_manual(
+        &self,
+        input: AgentMemoryAppend,
+    ) -> Result<UserMemoryAppendResult, AppCommandError> {
+        self.append_agent_memory_with_policy(input, AppendPolicy::ManualUser)
+            .await
     }
 
     async fn append_agent_memory_with_policy(
         &self,
         input: AgentMemoryAppend,
-        enforce_current_policy: bool,
+        policy_mode: AppendPolicy,
     ) -> Result<UserMemoryAppendResult, AppCommandError> {
         let content = normalize_append(&input.content)?;
         let (_guard, _file_guard) = self.acquire_locks().await?;
         self.recover_pending_transaction().await?;
         let policy = self.load_policy_unrecovered().await?;
-        if enforce_current_policy {
-            ensure_agent_write_allowed(&policy, input.agent_type)?;
+        match policy_mode {
+            AppendPolicy::Agent => ensure_agent_write_allowed(&policy, input.agent_type)?,
+            AppendPolicy::ManualUser => ensure_manual_write_allowed(&policy)?,
+            AppendPolicy::AuthorizedSession => {}
         }
 
         let prepared = self.prepare_memory_append(&content, input.agent_type)?;

@@ -16,6 +16,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+#[cfg(windows)]
+use std::time::Duration;
 
 use chrono::Utc;
 use include_dir::{include_dir, Dir, DirEntry};
@@ -1450,21 +1452,18 @@ fn prepare_system_skill_target(source: &Path, target: &Path, id: &str) -> Result
         return Ok(());
     }
     if managed_copy_is_owned(source, target) {
-        refresh_runtime_venv_from_copy(source, target)?;
+        refresh_runtime_venv_from_copy(source, target, id)?;
         return Ok(());
     }
     if fs::symlink_metadata(target).is_err() {
         return Ok(());
     }
-    migrate_runtime_venv(source, target)?;
     let backup = next_system_skill_backup(id);
-    fs::rename(target, &backup).map_err(|error| {
-        ExpertsError::Io(format!(
-            "back up existing system skill {} to {}: {error}",
-            target.display(),
-            backup.display()
-        ))
-    })?;
+    rename_system_skill_entry(target, &backup, id)
+        .map_err(|error| system_skill_backup_error(id, target, &backup, error))?;
+    if let Err(error) = migrate_runtime_venv(source, &backup, id) {
+        return Err(restore_system_skill_backup(target, &backup, id, error));
+    }
     tracing::info!(
         target: "system_skills",
         skill_id = id,
@@ -1474,7 +1473,89 @@ fn prepare_system_skill_target(source: &Path, target: &Path, id: &str) -> Result
     Ok(())
 }
 
-fn refresh_runtime_venv_from_copy(source: &Path, target: &Path) -> Result<(), ExpertsError> {
+fn restore_system_skill_backup(
+    target: &Path,
+    backup: &Path,
+    id: &str,
+    original_error: ExpertsError,
+) -> ExpertsError {
+    match rename_system_skill_entry(backup, target, id) {
+        Ok(()) => original_error,
+        Err(restore_error) => ExpertsError::Io(format!(
+            "{original_error}; failed to restore system skill backup {} to {}: {restore_error}",
+            backup.display(),
+            target.display()
+        )),
+    }
+}
+
+fn system_skill_backup_error(
+    id: &str,
+    target: &Path,
+    backup: &Path,
+    error: io::Error,
+) -> ExpertsError {
+    #[cfg(windows)]
+    if is_windows_file_in_use(&error) {
+        return ExpertsError::Io(format!(
+            "system skill '{id}' is in use; close active Agent sessions or tools using {}, then retry: {error}",
+            target.display()
+        ));
+    }
+    ExpertsError::Io(format!(
+        "back up existing system skill {} to {}: {error}",
+        target.display(),
+        backup.display()
+    ))
+}
+
+#[cfg(not(windows))]
+fn rename_system_skill_entry(source: &Path, target: &Path, _id: &str) -> io::Result<()> {
+    fs::rename(source, target)
+}
+
+#[cfg(windows)]
+fn rename_system_skill_entry(source: &Path, target: &Path, id: &str) -> io::Result<()> {
+    const RETRY_DELAYS: [Duration; 5] = [
+        Duration::from_millis(50),
+        Duration::from_millis(100),
+        Duration::from_millis(250),
+        Duration::from_millis(500),
+        Duration::from_millis(1_000),
+    ];
+
+    for (index, delay) in RETRY_DELAYS.iter().enumerate() {
+        match fs::rename(source, target) {
+            Ok(()) => return Ok(()),
+            Err(error) if is_windows_file_in_use(&error) => {
+                tracing::warn!(
+                    target: "system_skills",
+                    skill_id = id,
+                    source = %source.display(),
+                    destination = %target.display(),
+                    attempt = index + 1,
+                    retry_delay_ms = delay.as_millis(),
+                    os_error = ?error.raw_os_error(),
+                    "system skill path is busy; retrying rename"
+                );
+                std::thread::sleep(*delay);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    fs::rename(source, target)
+}
+
+#[cfg(windows)]
+fn is_windows_file_in_use(error: &io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(5 | 32 | 33))
+}
+
+fn refresh_runtime_venv_from_copy(
+    source: &Path,
+    target: &Path,
+    id: &str,
+) -> Result<(), ExpertsError> {
     let active_venv = target.join(".venv");
     if !active_venv.is_dir() {
         return Ok(());
@@ -1488,11 +1569,16 @@ fn refresh_runtime_venv_from_copy(source: &Path, target: &Path) -> Result<(), Ex
         )));
     }
     if source_venv.exists() {
-        fs::rename(&source_venv, &backup)?;
+        rename_system_skill_entry(&source_venv, &backup, id).map_err(|error| {
+            ExpertsError::Io(format!(
+                "preserve existing runtime environment {}: {error}",
+                source_venv.display()
+            ))
+        })?;
     }
-    if let Err(error) = fs::rename(&active_venv, &source_venv) {
+    if let Err(error) = rename_system_skill_entry(&active_venv, &source_venv, id) {
         if backup.exists() {
-            let _ = fs::rename(&backup, &source_venv);
+            let _ = rename_system_skill_entry(&backup, &source_venv, id);
         }
         return Err(ExpertsError::Io(format!(
             "preserve runtime environment {}: {error}",
@@ -1511,11 +1597,11 @@ fn refresh_runtime_venv_from_copy(source: &Path, target: &Path) -> Result<(), Ex
     Ok(())
 }
 
-fn migrate_runtime_venv(source: &Path, target: &Path) -> Result<(), ExpertsError> {
+fn migrate_runtime_venv(source: &Path, target: &Path, id: &str) -> Result<(), ExpertsError> {
     let old_venv = target.join(".venv");
     let new_venv = source.join(".venv");
     if old_venv.is_dir() && !new_venv.exists() {
-        fs::rename(&old_venv, &new_venv).map_err(|error| {
+        rename_system_skill_entry(&old_venv, &new_venv, id).map_err(|error| {
             ExpertsError::Io(format!(
                 "move runtime environment {} to {}: {error}",
                 old_venv.display(),

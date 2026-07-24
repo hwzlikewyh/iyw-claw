@@ -68,6 +68,7 @@ import type { MessageScrollContextValue } from "@/components/message/message-scr
 import { extractSessionFilesGrouped } from "@/lib/session-files"
 import { unescapeComposerText } from "@/lib/composer-copy-text"
 import { useStickToBottomContext } from "use-stick-to-bottom"
+import { UserMemoryMessageActions } from "@/components/message/user-memory-message-actions"
 
 interface MessageListViewProps {
   conversationId: number
@@ -94,6 +95,8 @@ interface MessageListViewProps {
    * conversation view; disabled in compact embeds (e.g. the sub-agent dialog).
    */
   showMessageNav?: boolean
+  /** Keep host-memory actions out of compact sub-agent transcript embeds. */
+  enableUserMemoryActions?: boolean
 }
 
 interface ResolvedMessageGroup {
@@ -435,6 +438,8 @@ const UserMessageCopyButton = memo(function UserMessageCopyButton({
 
 const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   group,
+  agentType,
+  enableUserMemoryActions,
   dimmed = false,
   showStats = true,
   previousUserIndex = null,
@@ -442,6 +447,8 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   sourceTurns,
 }: {
   group: ResolvedMessageGroup
+  agentType: AgentType
+  enableUserMemoryActions: boolean
   dimmed?: boolean
   showStats?: boolean
   previousUserIndex?: number | null
@@ -452,6 +459,11 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
     return <CollapsibleSystemMessage group={group} />
   }
 
+  const userText =
+    group.role === "user"
+      ? unescapeComposerText(extractTextFromParts(group.parts))
+      : ""
+
   return (
     <div className={dimmed ? "opacity-70" : undefined}>
       <Message from={group.role}>
@@ -461,6 +473,12 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
         {group.role === "user" ? (
           <div className="group/user-msg flex w-fit ml-auto max-w-full items-start gap-1">
             <UserMessageCopyButton parts={group.parts} />
+            {enableUserMemoryActions && (
+              <UserMemoryMessageActions
+                content={userText}
+                agentType={agentType}
+              />
+            )}
             <MessageContent>
               <ContentPartsRenderer parts={group.parts} role={group.role} />
             </MessageContent>
@@ -552,6 +570,7 @@ export function MessageListView({
   onReload,
   onNewSession,
   showMessageNav = true,
+  enableUserMemoryActions = true,
 }: MessageListViewProps) {
   const t = useTranslations("Folder.chat.messageList")
   const sharedT = useTranslations("Folder.chat.shared")
@@ -729,29 +748,34 @@ export function MessageListView({
     groupCache,
   ])
 
-  const renderThreadItem = useCallback((item: ThreadRenderItem) => {
-    switch (item.kind) {
-      case "turn": {
-        const pt = item.isRoleTransition ? 16 : 0
-        return (
-          <div style={pt > 0 ? { paddingTop: pt } : undefined}>
-            <HistoricalMessageGroup
-              group={item.group}
-              dimmed={item.phase === "optimistic"}
-              showStats={item.showStats}
-              previousUserIndex={item.previousUserIndex}
-              isResponseComplete={item.phase === "persisted"}
-              sourceTurns={item.sourceTurns}
-            />
-          </div>
-        )
+  const renderThreadItem = useCallback(
+    (item: ThreadRenderItem) => {
+      switch (item.kind) {
+        case "turn": {
+          const pt = item.isRoleTransition ? 16 : 0
+          return (
+            <div style={pt > 0 ? { paddingTop: pt } : undefined}>
+              <HistoricalMessageGroup
+                group={item.group}
+                agentType={agentType}
+                enableUserMemoryActions={enableUserMemoryActions}
+                dimmed={item.phase === "optimistic"}
+                showStats={item.showStats}
+                previousUserIndex={item.previousUserIndex}
+                isResponseComplete={item.phase === "persisted"}
+                sourceTurns={item.sourceTurns}
+              />
+            </div>
+          )
+        }
+        case "typing":
+          return <PendingTypingIndicator />
+        default:
+          return null
       }
-      case "typing":
-        return <PendingTypingIndicator />
-      default:
-        return null
-    }
-  }, [])
+    },
+    [agentType, enableUserMemoryActions]
+  )
 
   const emptyState = useMemo(
     () =>

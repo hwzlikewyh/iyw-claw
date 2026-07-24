@@ -2690,7 +2690,31 @@
         "tokenCacheWrite": "Cache write",
         "duration": "Duration",
         "completedAt": "Completed at",
-        "jumpToPreviousUserMessage": "Jump to user message"
+        "jumpToPreviousUserMessage": "Jump to user message",
+        "userMemory": {
+          "remember": "Remember this message",
+          "remembered": "Added to user memory",
+          "alreadyRemembered": "Already in user memory",
+          "rememberFailed": "Could not save user memory",
+          "correct": "Correct user memory",
+          "correctTitle": "Correct user memory",
+          "correctDescription": "Replace one exact memory entry through the host service.",
+          "document": "Document",
+          "documents": {
+            "memory": "Memory",
+            "profile": "Profile",
+            "soul": "Soul"
+          },
+          "oldContent": "Existing content",
+          "oldContentPlaceholder": "Enter the old memory exactly",
+          "newContent": "Corrected content",
+          "cancel": "Cancel",
+          "saveCorrection": "Save correction",
+          "saving": "Saving...",
+          "corrected": "User memory corrected",
+          "conflict": "This document changed while it was open. Reload and try again.",
+          "newConversationRequired": "Start a new conversation for the updated memory to be injected."
+        }
       },
       "liveTurnStats": {
         "thinking": "Thinking...",

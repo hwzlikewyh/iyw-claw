@@ -7,6 +7,7 @@ mod candidate_types;
 mod capabilities;
 mod capability_types;
 mod context;
+mod correction;
 mod fs;
 mod helpers;
 mod journal;

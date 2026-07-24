@@ -1040,6 +1040,8 @@ mod tauri_app {
                 question_commands::set_question_settings,
                 session_info_commands::get_session_info_settings,
                 session_info_commands::set_session_info_settings,
+                user_memory_commands::append_user_memory_direct,
+                user_memory_commands::correct_user_memory,
                 user_memory_commands::get_user_memory_settings,
                 user_memory_commands::update_user_memory_settings,
                 user_memory_commands::list_user_memory_candidates,

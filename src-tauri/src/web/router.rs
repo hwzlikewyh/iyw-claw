@@ -101,6 +101,14 @@ pub fn build_router(
         )
         // ─── User memory ───
         .route(
+            "/append_user_memory_direct",
+            post(handlers::user_memory::append_user_memory_direct),
+        )
+        .route(
+            "/correct_user_memory",
+            post(handlers::user_memory::correct_user_memory),
+        )
+        .route(
             "/get_user_memory_settings",
             post(handlers::user_memory::get_user_memory_settings),
         )

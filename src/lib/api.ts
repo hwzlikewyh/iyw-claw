@@ -29,6 +29,12 @@ import type {
   UserMemoryUpdateResult,
 } from "./user-memory-documents"
 import type {
+  AppendUserMemoryRequest,
+  CorrectUserMemoryRequest,
+  CorrectUserMemoryResult,
+  UserMemoryAppendResult,
+} from "./user-memory-actions"
+import type {
   AgentType,
   AgentStorageStatus,
   AgentStorageRootValidation,
@@ -2234,6 +2240,18 @@ export async function getHomeDirectory(): Promise<string> {
 
 export async function getUserMemorySettings(): Promise<UserMemorySettingsSnapshot> {
   return getTransport().call("get_user_memory_settings")
+}
+
+export async function appendUserMemoryDirect(
+  request: AppendUserMemoryRequest
+): Promise<UserMemoryAppendResult> {
+  return getTransport().call("append_user_memory_direct", { request })
+}
+
+export async function correctUserMemory(
+  request: CorrectUserMemoryRequest
+): Promise<CorrectUserMemoryResult> {
+  return getTransport().call("correct_user_memory", { request })
 }
 
 export async function updateUserMemorySettings(
