@@ -1605,6 +1605,7 @@ mod tests {
             sessions: true,
             images: true,
             memory: true,
+            memory_proposal: true,
         };
         let tools: Value = serde_json::from_str(TOOL_SCHEMA_JSON).expect("schema should parse");
         let names = tools

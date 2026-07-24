@@ -1100,7 +1100,7 @@ pub(crate) fn managed_ready_expert_ids() -> Vec<String> {
 pub(crate) fn managed_codex_native_ids() -> Vec<String> {
     active_metadata()
         .into_iter()
-        .filter(|metadata| is_codex_native(metadata))
+        .filter(is_codex_native)
         .map(|metadata| metadata.id)
         .collect()
 }
@@ -1108,7 +1108,7 @@ pub(crate) fn managed_codex_native_ids() -> Vec<String> {
 pub(crate) fn managed_ready_codex_native_ids() -> Vec<String> {
     active_metadata()
         .into_iter()
-        .filter(|metadata| is_codex_native(metadata))
+        .filter(is_codex_native)
         .filter(|metadata| expert_central_path(&metadata.id).exists())
         .map(|metadata| metadata.id)
         .collect()
@@ -1117,7 +1117,7 @@ pub(crate) fn managed_ready_codex_native_ids() -> Vec<String> {
 pub(crate) fn managed_computer_use_ids() -> Vec<String> {
     active_metadata()
         .into_iter()
-        .filter(|metadata| is_computer_use(metadata))
+        .filter(is_computer_use)
         .map(|metadata| metadata.id)
         .collect()
 }
@@ -1125,7 +1125,7 @@ pub(crate) fn managed_computer_use_ids() -> Vec<String> {
 pub(crate) fn managed_ready_computer_use_ids() -> Vec<String> {
     active_metadata()
         .into_iter()
-        .filter(|metadata| is_computer_use(metadata))
+        .filter(is_computer_use)
         .filter(|metadata| expert_central_path(&metadata.id).exists())
         .map(|metadata| metadata.id)
         .collect()

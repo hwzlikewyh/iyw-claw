@@ -58,6 +58,12 @@ fn append_maintenance_guidance(body: &mut String, append: bool, proposal: bool) 
         return;
     }
     body.push_str("\n\n## Memory maintenance\n");
+    body.push_str(
+        "The memory tools below come from the `iyw-claw-mcp` MCP server, so your tool list may \
+         show them under a prefixed name (for example `iyw-claw-mcp__append_user_memory` or \
+         `mcp__iyw-claw-mcp__append_user_memory`). Always call the tool from your own tool list \
+         whose name ends with the name given here; never call a bare name that is not listed. ",
+    );
     if append {
         body.push_str(&format!(
             "Use `{APPEND_USER_MEMORY_TOOL}` only when the user clearly confirms a durable, \
