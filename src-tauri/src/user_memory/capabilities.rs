@@ -104,7 +104,12 @@ impl UserMemoryContextSnapshot {
         self.finalize_runtime(runtime);
         self.capabilities.read_context = UserMemoryCapabilityResult::default();
         self.memory_write_enabled = self.capabilities.confirmed_append.available;
-        self.rendered = None;
+        // Re-render with read_context cleared: produces maintenance-guidance-only
+        // context (no memory document sections). This ensures the model receives
+        // current tool instructions even when resuming across a host restart or
+        // upgrade where the companion process has been replaced.
+        self.rendered =
+            render_user_context(&self.policy, &self.documents, &self.capabilities).map(Arc::from);
         let encoded = serde_json::to_vec(&self.capabilities).unwrap_or_default();
         self.effective_fingerprint = hash_parts(&[b"resumed-user-context-unknown", &encoded]);
     }

@@ -1543,6 +1543,13 @@ async fn finalize_user_memory_launch(
             session
                 .user_memory_context
                 .finalize_resumed_runtime(runtime.clone());
+            // Force context re-injection on resume: the companion may have been
+            // replaced (host restart / upgrade) and the model's in-context tool
+            // guidance is stale. Resetting this flag causes the updated Memory
+            // maintenance block to be re-sent in the next user turn.
+            if session.user_memory_context.memory_write_enabled {
+                session.user_context_injected = false;
+            }
         } else {
             session
                 .user_memory_context
