@@ -1505,6 +1505,7 @@ async fn user_memory_runtime_after_companion_ready(
     };
     tracing::info!(
         detected_version = %report.version,
+        protocol_version = report.protocol_version,
         advertised_tools = ?report.tools,
         selected_path = ?health.selected_path,
         "[ACP] verified iyw-claw-mcp tools/list readiness"

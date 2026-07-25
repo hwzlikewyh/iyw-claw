@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
+use crate::acp::delegation::transport::COMPANION_PROTOCOL_VERSION;
 use crate::user_memory::{CompanionHealthReason, CompanionHealthSnapshot, CompanionHealthStatus};
 
 const MAX_DETAIL_CHARS: usize = 1_024;
@@ -56,13 +57,7 @@ fn apply_compatibility(health: &mut CompanionHealthSnapshot, manifest: Companion
             CompanionHealthReason::NameMismatch,
             format!("unexpected companion name: {}", manifest.name),
         );
-    } else if manifest.version != env!("CARGO_PKG_VERSION") {
-        incompatible(
-            health,
-            CompanionHealthReason::VersionMismatch,
-            format!("detected companion version {}", manifest.version),
-        );
-    } else if manifest.protocol_version != 1 {
+    } else if manifest.protocol_version != COMPANION_PROTOCOL_VERSION {
         incompatible(
             health,
             CompanionHealthReason::ProtocolMismatch,
@@ -71,6 +66,12 @@ fn apply_compatibility(health: &mut CompanionHealthSnapshot, manifest: Companion
     } else {
         health.status = CompanionHealthStatus::Ready;
         health.reason = CompanionHealthReason::Ready;
+        if manifest.version != env!("CARGO_PKG_VERSION") {
+            health.detail = Some(bounded_detail(format!(
+                "package version {} accepted via compatible protocol {}",
+                manifest.version, manifest.protocol_version
+            )));
+        }
     }
 }
 

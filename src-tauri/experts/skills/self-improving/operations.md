@@ -17,9 +17,23 @@ Repeated signals remain candidates until the user approves them. When current
 input conflicts with older memory, follow the current instruction and propose
 an update. Never edit or rewrite the storage files directly.
 
-If a required host memory tool is unavailable, continue the active task
-without persistence and say that durable memory was not changed. Do not fall
-back to shell or file-edit tools.
+## Route Preflight And Fallback
+
+For `append_user_memory` or `propose_user_memory`, inspect the current tool list
+and accept an exact bare-name match or a suffix match at a separator boundary
+such as `__`, `_`, `.`, `/`, or `:`. Require exactly one match and call that
+complete listed name. Zero matches means the route is unavailable; multiple
+matches are ambiguous. In either case, never guess a prefix or call an unlisted
+bare name.
+
+On `unsupported call`, route unavailable, or a structured memory error:
+
+1. Do not retry alternate names or claim the memory was saved.
+2. Continue the user's active task and say no durable memory change was
+   confirmed.
+3. Point the user to the host **Memory** (brain) action beside the source
+   message. It bypasses MCP and uses iyw-claw's existing memory service.
+4. Never use shell commands or direct file edits as a fallback.
 
 Never use shell commands to edit `~/.iyw-claw/user-memory.md`,
 `user-profile.md`, or `user-soul.md`.

@@ -59,10 +59,11 @@ fn append_maintenance_guidance(body: &mut String, append: bool, proposal: bool) 
     }
     body.push_str("\n\n## Memory maintenance\n");
     body.push_str(
-        "The memory tools below come from the `iyw-claw-mcp` MCP server, so your tool list may \
-         show them under a prefixed name (for example `iyw-claw-mcp__append_user_memory` or \
-         `mcp__iyw-claw-mcp__append_user_memory`). Always call the tool from your own tool list \
-         whose name ends with the name given here; never call a bare name that is not listed. ",
+        "Treat your current tool list as the only routing authority. For each memory tool below, \
+         collect listed names that equal its bare name or end with that name at a separator \
+         boundary such as `__`, `_`, `.`, `/`, or `:`, and call the exact listed name only when \
+         there is exactly one match. This supports native and MCP-prefixed routes. With zero or \
+         multiple matches, do not call, guess a prefix, or retry an unlisted bare name. ",
     );
     if append {
         body.push_str(&format!(
@@ -78,7 +79,10 @@ fn append_maintenance_guidance(body: &mut String, append: bool, proposal: bool) 
     }
     body.push_str(
         "Never store secrets, credentials, inferred sensitive traits, repository facts, \
-         temporary progress, or one-off task details. Do not edit memory files with shell commands.",
+         temporary progress, or one-off task details. If routing fails or returns `unsupported \
+         call`, state that no durable memory change was confirmed and direct the user to the host \
+         Memory (brain) action beside the source message. Do not edit memory files with shell \
+         commands.",
     );
 }
 

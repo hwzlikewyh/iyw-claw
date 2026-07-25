@@ -22,6 +22,7 @@ use crate::acp::delegation::transport::{
     BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest, BrokerFeedbackRequest,
     BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerMemoryProposalResult,
     BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
+    COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
@@ -30,7 +31,7 @@ use crate::acp::session_info::{SessionInfo, SessionInfoAccess};
 use crate::models::AgentType;
 use crate::user_memory::{
     AgentMemoryAppend, AgentMemoryProposal, CandidateObservationSource, UserMemoryAppendResult,
-    UserMemoryService, APPEND_USER_MEMORY_TOOL, PROPOSE_USER_MEMORY_TOOL,
+    UserMemoryProposalResult, UserMemoryService, APPEND_USER_MEMORY_TOOL, PROPOSE_USER_MEMORY_TOOL,
 };
 use serde_json::Value;
 
@@ -39,6 +40,9 @@ use serde_json::Value;
 /// keeps running past this; the LLM simply re-issues the wait. An explicit
 /// `wait_ms = 0` opts out of the ceiling and blocks until the task is terminal.
 const STATUS_WAIT_MAX_MS: u64 = 60_000;
+const MAX_COMPANION_VERSION_CHARS: usize = 128;
+const MAX_COMPANION_TOOL_NAME_CHARS: usize = 128;
+const MAX_COMPANION_TOOLS: usize = 64;
 
 /// Pluggable "what conversation is this parent currently in?" lookup. The
 /// production impl wraps `ConnectionManager.get_state`; tests use an
@@ -74,12 +78,23 @@ pub struct TokenEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompanionReadyReport {
     pub version: String,
+    pub protocol_version: u32,
     pub tools: Vec<String>,
 }
 
 struct RegisteredToken {
     entry: TokenEntry,
     ready: watch::Sender<CompanionReadyState>,
+}
+
+struct CompanionReadyCandidate {
+    ready: watch::Sender<CompanionReadyState>,
+    parent_connection_id: String,
+    version: String,
+    protocol_version: u32,
+    tools: Vec<String>,
+    append_required: bool,
+    proposal_required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,40 +168,25 @@ impl TokenRegistry {
             (
                 entry.ready.clone(),
                 entry.entry.parent_connection_id.clone(),
+                entry.entry.memory_write_enabled,
+                entry.entry.memory_proposal_enabled,
             )
         });
-        let Some((ready, parent_connection_id)) = registered else {
+        let Some((ready, parent_connection_id, append_required, proposal_required)) = registered
+        else {
             tracing::warn!("rejected companion readiness report with unknown token");
             return false;
         };
-        if request.version != env!("CARGO_PKG_VERSION") {
-            tracing::warn!(
-                connection_id = %parent_connection_id,
-                expected_version = env!("CARGO_PKG_VERSION"),
-                detected_version = %request.version,
-                advertised_tools = ?request.tools,
-                "rejected version-skewed companion readiness report"
-            );
-            ready.send_if_modified(|current| {
-                if !matches!(current, CompanionReadyState::Pending) {
-                    return false;
-                }
-                *current = CompanionReadyState::Disabled;
-                true
-            });
-            return false;
+        CompanionReadyCandidate {
+            ready,
+            parent_connection_id,
+            version: bounded_companion_version(&request.version),
+            protocol_version: request.protocol_version,
+            tools: bounded_companion_tools(request.tools),
+            append_required,
+            proposal_required,
         }
-        let report = CompanionReadyReport {
-            version: request.version,
-            tools: request.tools,
-        };
-        ready.send_if_modified(|current| {
-            if !matches!(current, CompanionReadyState::Pending) {
-                return false;
-            }
-            *current = CompanionReadyState::Ready(report);
-            true
-        })
+        .publish()
     }
 
     pub async fn wait_for_companion_ready(
@@ -244,6 +244,107 @@ impl TokenRegistry {
     }
 }
 
+impl CompanionReadyCandidate {
+    fn publish(self) -> bool {
+        if !self.protocol_compatible() || !self.required_tools_present() {
+            disable_pending_ready(&self.ready);
+            return false;
+        }
+        self.log_package_skew();
+        let report = CompanionReadyReport {
+            version: self.version,
+            protocol_version: self.protocol_version,
+            tools: self.tools,
+        };
+        self.ready.send_if_modified(|current| {
+            if !matches!(current, CompanionReadyState::Pending) {
+                return false;
+            }
+            *current = CompanionReadyState::Ready(report);
+            true
+        })
+    }
+
+    fn protocol_compatible(&self) -> bool {
+        if self.protocol_version != COMPANION_PROTOCOL_VERSION {
+            tracing::warn!(
+                connection_id = %self.parent_connection_id,
+                expected_protocol = COMPANION_PROTOCOL_VERSION,
+                detected_protocol = self.protocol_version,
+                detected_version = %self.version,
+                advertised_tools = ?self.tools,
+                "rejected protocol-incompatible companion readiness report"
+            );
+            return false;
+        }
+        true
+    }
+
+    fn required_tools_present(&self) -> bool {
+        let missing_append = self.append_required
+            && !self
+                .tools
+                .iter()
+                .any(|tool| tool == APPEND_USER_MEMORY_TOOL);
+        let missing_proposal = self.proposal_required
+            && !self
+                .tools
+                .iter()
+                .any(|tool| tool == PROPOSE_USER_MEMORY_TOOL);
+        if missing_append || missing_proposal {
+            tracing::warn!(
+                connection_id = %self.parent_connection_id,
+                protocol_version = self.protocol_version,
+                detected_version = %self.version,
+                append_required = self.append_required,
+                proposal_required = self.proposal_required,
+                advertised_tools = ?self.tools,
+                "rejected companion readiness report missing authorized memory tools"
+            );
+            return false;
+        }
+        true
+    }
+
+    fn log_package_skew(&self) {
+        if self.version != env!("CARGO_PKG_VERSION") {
+            tracing::info!(
+                connection_id = %self.parent_connection_id,
+                expected_version = env!("CARGO_PKG_VERSION"),
+                detected_version = %self.version,
+                protocol_version = self.protocol_version,
+                "accepted package-version-skewed companion via compatible protocol"
+            );
+        }
+    }
+}
+
+fn bounded_companion_version(version: &str) -> String {
+    version.chars().take(MAX_COMPANION_VERSION_CHARS).collect()
+}
+
+fn disable_pending_ready(ready: &watch::Sender<CompanionReadyState>) {
+    ready.send_if_modified(|current| {
+        if !matches!(current, CompanionReadyState::Pending) {
+            return false;
+        }
+        *current = CompanionReadyState::Disabled;
+        true
+    });
+}
+
+fn bounded_companion_tools(tools: Vec<String>) -> Vec<String> {
+    let mut tools = tools
+        .into_iter()
+        .filter(|tool| !tool.trim().is_empty())
+        .map(|tool| tool.chars().take(MAX_COMPANION_TOOL_NAME_CHARS).collect())
+        .collect::<Vec<String>>();
+    tools.sort();
+    tools.dedup();
+    tools.truncate(MAX_COMPANION_TOOLS);
+    tools
+}
+
 fn effective_token_entry(registered: &RegisteredToken) -> TokenEntry {
     let mut entry = registered.entry.clone();
     match &*registered.ready.borrow() {
@@ -271,6 +372,79 @@ fn companion_ready_outcome(state: &CompanionReadyState) -> Option<Option<Compani
         CompanionReadyState::Pending => None,
         CompanionReadyState::Ready(report) => Some(Some(report.clone())),
         CompanionReadyState::NotRequired | CompanionReadyState::Disabled => Some(None),
+    }
+}
+
+fn log_memory_unavailable(operation: &str, reason: &str, content_chars: usize) {
+    tracing::warn!(
+        target: "user_memory",
+        route = "mcp_companion",
+        operation,
+        error_code = "memory_session_unavailable",
+        reason,
+        content_chars,
+        "agent memory route unavailable"
+    );
+}
+
+fn log_memory_append_result(
+    entry: &TokenEntry,
+    content_chars: usize,
+    result: &Result<UserMemoryAppendResult, crate::app_error::AppCommandError>,
+) {
+    match result {
+        Ok(value) => tracing::info!(
+            target: "user_memory",
+            route = "mcp_companion",
+            operation = "append",
+            connection_id = %entry.parent_connection_id,
+            agent_type = ?entry.agent_type,
+            content_chars,
+            appended = value.appended,
+            "agent memory append completed"
+        ),
+        Err(error) => tracing::warn!(
+            target: "user_memory",
+            route = "mcp_companion",
+            operation = "append",
+            connection_id = %entry.parent_connection_id,
+            agent_type = ?entry.agent_type,
+            content_chars,
+            error_code = ?error.code,
+            error = %error,
+            "agent memory append failed"
+        ),
+    }
+}
+
+fn log_memory_proposal_result(
+    entry: &TokenEntry,
+    content_chars: usize,
+    result: &Result<UserMemoryProposalResult, crate::app_error::AppCommandError>,
+) {
+    match result {
+        Ok(value) => tracing::info!(
+            target: "user_memory",
+            route = "mcp_companion",
+            operation = "proposal",
+            connection_id = %entry.parent_connection_id,
+            agent_type = ?entry.agent_type,
+            content_chars,
+            observation_added = value.observation_added,
+            confirmation_recommended = value.confirmation_recommended,
+            "agent memory proposal completed"
+        ),
+        Err(error) => tracing::warn!(
+            target: "user_memory",
+            route = "mcp_companion",
+            operation = "proposal",
+            connection_id = %entry.parent_connection_id,
+            agent_type = ?entry.agent_type,
+            content_chars,
+            error_code = ?error.code,
+            error = %error,
+            "agent memory proposal failed"
+        ),
     }
 }
 
@@ -699,19 +873,24 @@ impl DelegationListener {
         &self,
         req: BrokerMemoryAppendRequest,
     ) -> Result<UserMemoryAppendResult, String> {
+        let content_chars = req.content.chars().count();
         let Some(entry) = self.tokens.lookup(&req.token).await else {
+            log_memory_unavailable("append", "unknown_token", content_chars);
             return Err("User memory update is unavailable for this session.".into());
         };
         if !entry.memory_write_enabled {
+            log_memory_unavailable("append", "capability_disabled", content_chars);
             return Err("User memory update is unavailable for this session.".into());
         }
-        self.user_memory
+        let result = self
+            .user_memory
             .append_agent_memory_authorized(AgentMemoryAppend {
                 content: req.content,
                 agent_type: entry.agent_type,
             })
-            .await
-            .map_err(|error| error.message)
+            .await;
+        log_memory_append_result(&entry, content_chars, &result);
+        result.map_err(|error| error.message)
     }
 
     /// Authenticate proposal capability and derive all provenance from the
@@ -721,18 +900,19 @@ impl DelegationListener {
         req: BrokerMemoryProposalRequest,
     ) -> Result<BrokerMemoryProposalResult, String> {
         let unavailable = || "User memory proposal is unavailable for this session.".to_string();
-        let entry = self
-            .tokens
-            .lookup(&req.token)
-            .await
-            .ok_or_else(unavailable)?;
+        let content_chars = req.content.chars().count();
+        let entry = self.tokens.lookup(&req.token).await.ok_or_else(|| {
+            log_memory_unavailable("proposal", "unknown_token", content_chars);
+            unavailable()
+        })?;
         if !entry.memory_proposal_enabled {
+            log_memory_unavailable("proposal", "capability_disabled", content_chars);
             return Err(unavailable());
         }
-        let turn_nonce = entry
-            .memory_turn_tracker
-            .active_nonce()
-            .ok_or_else(unavailable)?;
+        let turn_nonce = entry.memory_turn_tracker.active_nonce().ok_or_else(|| {
+            log_memory_unavailable("proposal", "turn_inactive", content_chars);
+            unavailable()
+        })?;
         let turn_tracker = entry.memory_turn_tracker.clone();
         let result = self
             .user_memory
@@ -743,13 +923,14 @@ impl DelegationListener {
                 },
                 CandidateObservationSource {
                     agent_type: entry.agent_type,
-                    opaque_source_id: entry.opaque_source_id,
+                    opaque_source_id: entry.opaque_source_id.clone(),
                     turn_nonce,
                 },
                 move || turn_tracker.acquire_commit_lease(turn_nonce),
             )
-            .await
-            .map_err(|error| error.message)?;
+            .await;
+        log_memory_proposal_result(&entry, content_chars, &result);
+        let result = result.map_err(|error| error.message)?;
         Ok(BrokerMemoryProposalResult {
             observation_added: result.observation_added,
             status: result.candidate.status,
@@ -894,7 +1075,7 @@ fn memory_append_response(
         Ok(result) => serde_json::to_value(result).map_err(|e| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {e}"))
         })?,
-        Err(message) => serde_json::json!({ "error": message }),
+        Err(message) => memory_failure_outcome("memory_append_failed", message),
     };
     Ok(BrokerResponse { outcome })
 }
@@ -906,9 +1087,20 @@ fn memory_proposal_response(
         Ok(result) => serde_json::to_value(result).map_err(|error| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {error}"))
         })?,
-        Err(message) => serde_json::json!({ "error": message }),
+        Err(message) => memory_failure_outcome("memory_proposal_failed", message),
     };
     Ok(BrokerResponse { outcome })
+}
+
+fn memory_failure_outcome(default_code: &str, message: String) -> Value {
+    let unavailable = message.contains("unavailable for this session");
+    serde_json::json!({
+        "error": message,
+        "code": if unavailable { "memory_session_unavailable" } else { default_code },
+        "retryable": false,
+        "durableChanged": false,
+        "fallback": "host_memory_action",
+    })
 }
 /// The `declined` outcome — used when the token is invalid, the connection is
 /// gone, or the answer one-shot was dropped without a response. The LLM reads it

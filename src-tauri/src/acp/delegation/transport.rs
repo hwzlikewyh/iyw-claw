@@ -57,6 +57,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::acp::question::QuestionSpec;
 
+pub const COMPANION_PROTOCOL_VERSION: u32 = 1;
+
+const fn default_companion_protocol_version() -> u32 {
+    COMPANION_PROTOCOL_VERSION
+}
+
 /// One delegation call's worth of input forwarded from the companion to the
 /// main process. The main process re-validates `token` and maps
 /// `parent_connection_id` to the live ACP connection.
@@ -215,12 +221,15 @@ pub struct BrokerMemoryProposalResult {
 
 /// Confirm that this companion launch returned its actual `tools/list`
 /// catalog to the parent Agent. The per-launch token authenticates the report;
-/// the listener also rejects version-skewed companions.
+/// wire protocol and required tools determine compatibility. Package version
+/// is retained for diagnostics only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BrokerCompanionReadyRequest {
     pub token: String,
     pub version: String,
+    #[serde(default = "default_companion_protocol_version")]
+    pub protocol_version: u32,
     pub tools: Vec<String>,
 }
 
@@ -397,7 +406,12 @@ pub async fn client_memory_append_round_trip(
     socket_path: &str,
     req: &BrokerMemoryAppendRequest,
 ) -> io::Result<BrokerResponse> {
-    message_round_trip(socket_path, &BrokerMessage::MemoryAppend(req.clone())).await
+    retry_memory_round_trip(
+        socket_path,
+        BrokerMessage::MemoryAppend(req.clone()),
+        "append",
+    )
+    .await
 }
 
 /// Submit one candidate observation through the authenticated main-process
@@ -407,7 +421,35 @@ pub async fn client_memory_proposal_round_trip(
     socket_path: &str,
     req: &BrokerMemoryProposalRequest,
 ) -> io::Result<BrokerResponse> {
-    message_round_trip(socket_path, &BrokerMessage::MemoryProposal(req.clone())).await
+    retry_memory_round_trip(
+        socket_path,
+        BrokerMessage::MemoryProposal(req.clone()),
+        "proposal",
+    )
+    .await
+}
+
+/// Memory writes are content/turn-idempotent in `UserMemoryService`, so an
+/// identical broker frame may be retried once when the first transport result
+/// is unknown. No token or memory content is logged.
+async fn retry_memory_round_trip(
+    socket_path: &str,
+    message: BrokerMessage,
+    operation: &'static str,
+) -> io::Result<BrokerResponse> {
+    match message_round_trip(socket_path, &message).await {
+        Ok(response) => Ok(response),
+        Err(first_error) => {
+            tracing::warn!(
+                target: "user_memory",
+                route = "mcp_companion",
+                operation,
+                error = %first_error,
+                "memory broker transport failed; retrying identical request once"
+            );
+            message_round_trip(socket_path, &message).await
+        }
+    }
 }
 
 /// Report that the authenticated companion successfully wrote its

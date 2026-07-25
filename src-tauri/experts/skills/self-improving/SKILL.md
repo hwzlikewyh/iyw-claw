@@ -29,15 +29,27 @@ Operational reflections are separate and are not a memory layer.
 `append_user_memory` and `propose_user_memory` are served by the
 `iyw-claw-mcp` MCP server, so different agents expose them under different
 prefixed names (for example `iyw-claw-mcp__append_user_memory` or
-`mcp__iyw-claw-mcp__append_user_memory`). Before calling, find the tool in
-your own tool list whose name **ends with** the bare name used in this skill
-and call that exact listed name. Calling a bare name that is not in your tool
-list fails (for example Codex returns `unsupported call`). If no tool with
-that suffix is listed, the memory feature is unavailable for this session.
+`mcp__iyw-claw-mcp__append_user_memory`). Treat the current session's actual
+tool list as the only routing authority; a name written in this skill or in
+context is not proof that the tool is mounted.
 
-If the relevant host memory tool is unavailable, continue without persistence
-and state that no durable memory was changed. Do not fall back to shell or
-file-edit tools.
+Before every memory call:
+
+1. Collect listed tools whose name is exactly the bare name or ends with that
+   name at a separator boundary such as `__`, `_`, `.`, `/`, or `:`.
+2. Call the exact listed name only when there is exactly one match. This
+   supports native names and MCP-prefixed names without guessing.
+3. If there are zero matches or multiple matches, do not call any of them and
+   do not invent another prefix.
+4. If a call returns `unsupported call`, an unavailable result, or a structured
+   memory error, do not retry guessed tool names. A transport retry, when safe,
+   is owned by iyw-claw itself.
+
+When routing fails, continue the active task, state that no durable memory
+change was confirmed, and tell the user they can use the host **Memory** (brain)
+action beside the source message. That host action bypasses MCP while writing
+through the same iyw-claw memory service. Do not fall back to shell or file-edit
+tools.
 
 Never store secrets, credentials, inferred sensitive traits, repository facts,
 temporary progress, one-off instructions, third-party personal information, or
@@ -67,9 +79,10 @@ When an eligible signal appears naturally in the user's message:
 3. Route an explicit remember request to M2 with `append_user_memory`.
 4. Route another explicit reusable signal to M1 with
    `propose_user_memory` using `correction`, `preference`, or `fact`.
-5. Deduplicate repeated signals in the visible context; repetition never
+5. Apply the Tool Name Resolution preflight before either call.
+6. Deduplicate repeated signals in the visible context; repetition never
    grants permission to promote a candidate.
-6. Stay silent when there is no reusable signal. Do not interrogate the user
+7. Stay silent when there is no reusable signal. Do not interrogate the user
    to build a profile or interrupt the active task to manufacture memory.
 
 | Signal | Layer and action |

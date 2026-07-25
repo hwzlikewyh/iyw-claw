@@ -50,7 +50,7 @@ use crate::acp::delegation::transport::{
     client_status_round_trip, BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
     BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest, BrokerFeedbackRequest,
     BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerRequest, BrokerResponse,
-    BrokerSessionRequest, BrokerStatusRequest,
+    BrokerSessionRequest, BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -94,7 +94,7 @@ pub fn binary_capabilities() -> Value {
     json!({
         "name": "iyw-claw-mcp",
         "version": env!("CARGO_PKG_VERSION"),
-        "protocol_version": 1,
+        "protocol_version": COMPANION_PROTOCOL_VERSION,
         "tools": tools,
     })
 }
@@ -435,6 +435,7 @@ pub fn companion_ready_report_after_tools_list(
     Some(BrokerCompanionReadyRequest {
         token: ctx.token.clone(),
         version: env!("CARGO_PKG_VERSION").to_string(),
+        protocol_version: COMPANION_PROTOCOL_VERSION,
         tools: names,
     })
 }
@@ -505,8 +506,12 @@ async fn build_tools_call_spawn(
                 token: ctx.token.clone(),
                 content,
             };
-            let round_trip =
-                Box::pin(async move { client_memory_append_round_trip(&socket, &req).await });
+            let round_trip = Box::pin(async move {
+                memory_round_trip_result(
+                    client_memory_append_round_trip(&socket, &req).await,
+                    "append",
+                )
+            });
             register_and_spawn(inflight, id, None, round_trip, render_memory_append_result).await
         }
         "propose_user_memory" => {
@@ -539,8 +544,12 @@ async fn build_tools_call_spawn(
                 content: proposal.content,
                 signal: proposal.signal,
             };
-            let round_trip =
-                Box::pin(async move { client_memory_proposal_round_trip(&socket, &req).await });
+            let round_trip = Box::pin(async move {
+                memory_round_trip_result(
+                    client_memory_proposal_round_trip(&socket, &req).await,
+                    "proposal",
+                )
+            });
             register_and_spawn(
                 inflight,
                 id,
@@ -1362,10 +1371,11 @@ pub fn render_task_report(report: &Value) -> Value {
 /// can continue the turn without treating the MCP transport itself as broken.
 pub fn render_memory_append_result(outcome: &Value) -> Value {
     if let Some(message) = outcome.get("error").and_then(Value::as_str) {
+        let structured = normalized_memory_error(outcome, "memory_append_failed");
         return json!({
-            "content": [{ "type": "text", "text": message }],
+            "content": [{ "type": "text", "text": memory_error_text(message) }],
             "isError": true,
-            "structuredContent": outcome.clone(),
+            "structuredContent": structured,
         });
     }
     let appended = outcome
@@ -1384,14 +1394,80 @@ pub fn render_memory_append_result(outcome: &Value) -> Value {
     })
 }
 
+fn memory_round_trip_result(
+    result: std::io::Result<BrokerResponse>,
+    operation: &'static str,
+) -> std::io::Result<BrokerResponse> {
+    Ok(match result {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(
+                target: "user_memory",
+                route = "mcp_companion",
+                operation,
+                error_code = "memory_transport_failed",
+                retryable = true,
+                error = %error,
+                "memory broker transport failed after retry"
+            );
+            BrokerResponse {
+                outcome: memory_error_outcome(
+                    "memory_transport_failed",
+                    format!("Memory transport failed after one retry: {error}"),
+                    true,
+                    None,
+                ),
+            }
+        }
+    })
+}
+
+fn memory_error_outcome(
+    code: &str,
+    message: impl Into<String>,
+    retryable: bool,
+    durable_changed: Option<bool>,
+) -> Value {
+    json!({
+        "error": message.into(),
+        "code": code,
+        "retryable": retryable,
+        "durableChanged": durable_changed,
+        "fallback": "host_memory_action",
+    })
+}
+
+fn normalized_memory_error(outcome: &Value, default_code: &str) -> Value {
+    let mut structured = outcome.clone();
+    let Some(fields) = structured.as_object_mut() else {
+        return memory_error_outcome(default_code, "Memory operation failed.", false, Some(false));
+    };
+    fields.entry("code").or_insert_with(|| json!(default_code));
+    fields.entry("retryable").or_insert_with(|| json!(false));
+    fields
+        .entry("durableChanged")
+        .or_insert_with(|| json!(false));
+    fields
+        .entry("fallback")
+        .or_insert_with(|| json!("host_memory_action"));
+    structured
+}
+
+fn memory_error_text(message: &str) -> String {
+    format!(
+        "{message} No durable memory change was confirmed. Use the host Memory action on the source message if persistence is still needed."
+    )
+}
+
 /// Render a bounded candidate-observation report without implying that the
 /// candidate is already durable confirmed memory.
 pub fn render_memory_proposal_result(outcome: &Value) -> Value {
     if let Some(message) = outcome.get("error").and_then(Value::as_str) {
+        let structured = normalized_memory_error(outcome, "memory_proposal_failed");
         return json!({
-            "content": [{ "type": "text", "text": message }],
+            "content": [{ "type": "text", "text": memory_error_text(message) }],
             "isError": true,
-            "structuredContent": outcome.clone(),
+            "structuredContent": structured,
         });
     }
     let added = outcome
