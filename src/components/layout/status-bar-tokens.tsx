@@ -43,6 +43,8 @@ interface SessionUsageButtonProps extends SessionUsageSourceProps {
   variant?: "status" | "chip"
   className?: string
   popoverSide?: "top" | "right" | "bottom" | "left"
+  popoverSideOffset?: number
+  popoverAvoidCollisions?: boolean
   stopPropagation?: boolean
   showIcon?: boolean
 }
@@ -165,6 +167,8 @@ function SessionUsageButton({
   variant = "status",
   className,
   popoverSide = "top",
+  popoverSideOffset,
+  popoverAvoidCollisions = true,
   stopPropagation = false,
   showIcon = true,
 }: SessionUsageButtonProps) {
@@ -258,6 +262,8 @@ function SessionUsageButton({
       </PopoverTrigger>
       <PopoverContent
         side={popoverSide}
+        sideOffset={popoverSideOffset}
+        avoidCollisions={popoverAvoidCollisions}
         align="end"
         className="w-56 gap-2 p-3 text-xs"
       >
@@ -325,13 +331,20 @@ export function StatusBarTokens(props: SessionUsageSourceProps) {
 export function SessionUsageChip({
   className,
   popoverSide = "bottom",
+  popoverSideOffset = 4,
+  popoverAvoidCollisions = false,
   stopPropagation = true,
   showIcon = true,
   ...props
 }: SessionUsageSourceProps &
   Pick<
     SessionUsageButtonProps,
-    "className" | "popoverSide" | "stopPropagation" | "showIcon"
+    | "className"
+    | "popoverSide"
+    | "popoverSideOffset"
+    | "popoverAvoidCollisions"
+    | "stopPropagation"
+    | "showIcon"
   >) {
   return (
     <SessionUsageButton
@@ -339,6 +352,8 @@ export function SessionUsageChip({
       variant="chip"
       className={className}
       popoverSide={popoverSide}
+      popoverSideOffset={popoverSideOffset}
+      popoverAvoidCollisions={popoverAvoidCollisions}
       stopPropagation={stopPropagation}
       showIcon={showIcon}
     />
