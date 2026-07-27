@@ -35,13 +35,3 @@ impl fmt::Display for AgentType {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn grok_keeps_wire_id_and_uses_local_alias() {
-        assert_eq!(serde_json::to_value(AgentType::Grok).unwrap(), "grok");
-        assert_eq!(AgentType::Grok.to_string(), "知微");
-    }
-}

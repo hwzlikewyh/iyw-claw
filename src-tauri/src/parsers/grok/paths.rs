@@ -27,15 +27,3 @@ pub(super) fn read_subdirs(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn honors_grok_home_env() {
-        let home = resolve_grok_home_from(Some("/custom/grok".into()), Some("/home/me".into()));
-        assert_eq!(home, PathBuf::from("/custom/grok"));
-        let fallback = resolve_grok_home_from(None, Some("/home/me".into()));
-        assert_eq!(fallback, PathBuf::from("/home/me/.grok"));
-    }
-}

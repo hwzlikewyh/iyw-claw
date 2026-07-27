@@ -63,11 +63,6 @@ impl UserMemoryService {
     }
 
     /// Compatibility accessor for callers that construct an available service.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn root(&self) -> &Path {
-        self.resolved_root()
-            .expect("UserMemoryService::root requires an available root")
-    }
 
     pub fn resolved_root(&self) -> Result<&Path, AppCommandError> {
         self.root

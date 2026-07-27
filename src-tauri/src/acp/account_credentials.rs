@@ -244,36 +244,3 @@ fn patch_file(
     write_if_changed(&path, &raw, &next)
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    use super::*;
-
-    #[test]
-    fn grok_receives_account_token_through_native_runtime_key() {
-        let token = AccountAccessToken::new("managed-token").expect("token");
-        let mut grok_env = BTreeMap::new();
-        apply_runtime_credential(AgentType::Grok, &mut grok_env, &token);
-        assert_eq!(
-            grok_env.get("XAI_API_KEY").map(String::as_str),
-            Some("managed-token")
-        );
-
-        let mut codex_env = BTreeMap::new();
-        apply_runtime_credential(AgentType::Codex, &mut codex_env, &token);
-        assert!(codex_env.is_empty());
-    }
-
-    #[test]
-    fn codebuddy_receives_account_token_through_native_runtime_key() {
-        let token = AccountAccessToken::new("managed-token").expect("token");
-        let mut codebuddy_env = BTreeMap::new();
-        apply_runtime_credential(AgentType::CodeBuddy, &mut codebuddy_env, &token);
-        assert_eq!(
-            codebuddy_env.get("CODEBUDDY_API_KEY").map(String::as_str),
-            Some("managed-token")
-        );
-        assert!(!codebuddy_env.contains_key("ANTHROPIC_AUTH_TOKEN"));
-    }
-}

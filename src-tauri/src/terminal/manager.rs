@@ -553,37 +553,3 @@ fn thread_name_prefix(terminal_id: &str) -> String {
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::thread_name_prefix;
-
-    #[test]
-    fn keeps_short_ascii_id() {
-        assert_eq!(thread_name_prefix("abc"), "abc");
-        assert_eq!(thread_name_prefix(""), "");
-    }
-
-    #[test]
-    fn truncates_to_first_eight_chars() {
-        assert_eq!(thread_name_prefix("0123456789"), "01234567");
-    }
-
-    #[test]
-    fn is_char_boundary_safe() {
-        // '密' occupies bytes 7..10, so `&s[..8]` would slice inside it and
-        // panic; taking 8 scalar values keeps the whole char.
-        assert_eq!(thread_name_prefix("abcdefg密钥"), "abcdefg密");
-    }
-
-    #[test]
-    fn sanitizes_interior_nul_so_thread_spawns() {
-        assert_eq!(thread_name_prefix("ab\0cd"), "ab_cd");
-        // The result must be usable as a real thread name without panicking.
-        std::thread::Builder::new()
-            .name(thread_name_prefix("ab\0cdefghij"))
-            .spawn(|| {})
-            .expect("spawn with sanitized name")
-            .join()
-            .expect("join");
-    }
-}

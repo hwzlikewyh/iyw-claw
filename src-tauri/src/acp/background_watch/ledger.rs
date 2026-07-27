@@ -64,10 +64,4 @@ impl PromptLedger {
         true
     }
 
-    #[cfg(test)]
-    pub(super) fn record_text(&self, text: &str) {
-        self.record_prompt_blocks(&[PromptInputBlock::Text {
-            text: text.to_string(),
-        }]);
-    }
 }

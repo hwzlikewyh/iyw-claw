@@ -20,7 +20,6 @@ mod session_picker;
 mod session_runtime;
 mod session_topic;
 mod session_topic_messages;
-#[cfg(test)]
 pub mod tool_detail;
 pub mod traits;
 pub mod types;

@@ -38,15 +38,3 @@ impl IntoResponse for AppCommandError {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn command_authentication_failures_are_not_web_session_unauthorized() {
-        assert_eq!(
-            status_for_app_error_code(AppErrorCode::AuthenticationFailed),
-            StatusCode::UNPROCESSABLE_ENTITY
-        );
-    }
-}

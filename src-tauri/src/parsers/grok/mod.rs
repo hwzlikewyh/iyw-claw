@@ -35,10 +35,6 @@ impl GrokParser {
         }
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn with_base_dir(base_dir: PathBuf) -> Self {
-        Self { base_dir }
-    }
 
     fn build_summary(&self, session_dir: &Path, session_id: &str) -> Option<ConversationSummary> {
         let parsed = parse_updates(&session_dir.join("updates.jsonl"));

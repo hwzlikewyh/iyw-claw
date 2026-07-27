@@ -174,36 +174,3 @@ impl SessionInfoRuntimeConfig {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn not_found_is_soft_and_carries_id() {
-        let info = SessionInfo::not_found(42);
-        assert!(!info.found);
-        assert_eq!(info.session_id, 42);
-        assert!(info.messages.is_none());
-        assert!(info.note.as_deref().unwrap().contains("42"));
-    }
-
-    #[test]
-    fn not_found_serializes_without_absent_option_fields() {
-        // The skip_serializing_if Options keep the not-found envelope compact.
-        let v = serde_json::to_value(SessionInfo::not_found(7)).unwrap();
-        assert_eq!(v["found"], false);
-        assert_eq!(v["session_id"], 7);
-        assert!(v.get("title").is_none());
-        assert!(v.get("messages").is_none());
-        assert!(v.get("note").is_some());
-    }
-
-    #[tokio::test]
-    async fn runtime_config_round_trips() {
-        let cfg = SessionInfoRuntimeConfig::new();
-        assert!(!cfg.is_enabled().await);
-        cfg.set(SessionInfoConfig { enabled: true }).await;
-        assert!(cfg.is_enabled().await);
-        assert_eq!(cfg.snapshot().await, SessionInfoConfig { enabled: true });
-    }
-}

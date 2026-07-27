@@ -30,11 +30,6 @@ tauri-runtime = [
     "dep:tauri-plugin-single-instance",
     "dep:keyring",
 ]
-# Exposes test scaffolding (`AppState::new_for_test`, `EventEmitter::test_web_only`,
-# `ConnectionManager::insert_test_connection`, parser `with_base_dir`, the
-# `db::test_helpers` module) for integration tests in `tests/*.rs`. Without
-# this feature the items are physically uncompiled in release builds.
-test-utils = []
 # Release test packages opt into the internal model gateway. Debug builds keep
 # using the local gateway, while ordinary release builds use production.
 test-gateway = []

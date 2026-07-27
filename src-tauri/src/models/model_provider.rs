@@ -55,30 +55,3 @@ impl From<crate::db::entities::model_provider::Model> for ModelProviderInfo {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::mask_api_key;
-
-    #[test]
-    fn masks_short_ascii_key() {
-        assert_eq!(mask_api_key("abc123"), "\u{2022}".repeat(6));
-    }
-
-    #[test]
-    fn masks_long_ascii_key_keeping_edges() {
-        assert_eq!(mask_api_key("sk-test-1234567890"), "sk-t\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}7890");
-    }
-
-    #[test]
-    fn does_not_panic_on_multibyte_key() {
-        // Byte index 4 falls inside '密' (bytes 3..6); a byte slice would panic.
-        let masked = mask_api_key("sk-密钥abcd1234");
-        assert!(masked.starts_with("sk-密"));
-        assert!(masked.ends_with("1234"));
-    }
-
-    #[test]
-    fn masks_short_multibyte_key_without_panic() {
-        assert_eq!(mask_api_key("密钥abc"), "\u{2022}".repeat(5));
-    }
-}

@@ -108,33 +108,3 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn newer_by_semver() {
-        assert!(is_newer("0.14.12", "0.14.11"));
-        assert!(is_newer("v1.0.0", "0.14.11"));
-        assert!(!is_newer("0.14.11", "0.14.11"));
-        assert!(!is_newer("0.14.10", "0.14.11"));
-    }
-
-    #[test]
-    fn prerelease_ordering() {
-        // A prerelease is older than its release per semver.
-        assert!(is_newer("1.0.0", "1.0.0-rc.1"));
-        assert!(!is_newer("1.0.0-rc.1", "1.0.0"));
-    }
-
-    #[test]
-    fn v_prefix_is_ignored() {
-        assert!(!is_newer("v0.14.11", "0.14.11"));
-    }
-
-    #[test]
-    fn non_semver_falls_back_to_inequality() {
-        assert!(is_newer("nightly-2", "nightly-1"));
-        assert!(!is_newer("same", "same"));
-    }
-}

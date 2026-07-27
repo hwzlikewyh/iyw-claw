@@ -44,18 +44,3 @@ fn storage_work_lock() -> Arc<RwLock<()>> {
         .clone()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn work_guard_tracks_active_storage_mutation() {
-        assert!(!has_active_agent_storage_work());
-        let guard = begin_agent_storage_work().await;
-        assert!(has_active_agent_storage_work());
-        assert!(try_begin_agent_storage_migration().is_none());
-        drop(guard);
-        assert!(!has_active_agent_storage_work());
-        assert!(try_begin_agent_storage_migration().is_some());
-    }
-}

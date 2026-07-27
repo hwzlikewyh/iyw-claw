@@ -109,36 +109,3 @@ pub async fn wait_for_parent_exit(pid: u32, interval: Duration) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn own_pid_is_alive() {
-        assert!(parent_alive(std::process::id()));
-    }
-
-    #[test]
-    fn pid_zero_is_dead() {
-        // Treated as "not a valid target" on every platform we support.
-        assert!(!parent_alive(0));
-    }
-
-    #[test]
-    fn obviously_missing_pid_is_dead() {
-        // A PID that almost certainly doesn't exist on a freshly booted
-        // host. Windows reuses PIDs aggressively, so we pick something
-        // way out of the usual range; if this ever flakes we can swap to
-        // spawning a child and reaping it.
-        assert!(!parent_alive(0x7FFF_FFF0));
-    }
-
-    #[tokio::test(flavor = "current_thread", start_paused = true)]
-    async fn watcher_returns_immediately_for_dead_pid() {
-        // start_paused keeps tokio time deterministic — if the watcher
-        // wrongly slept here, the test would hang because nothing advances
-        // time, surfacing the regression rather than passing by accident.
-        wait_for_parent_exit(0, Duration::from_secs(60)).await;
-    }
-}

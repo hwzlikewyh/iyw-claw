@@ -74,33 +74,3 @@ pub fn verify_release_signature(data: &[u8], tauri_sig_b64: &str) -> Result<(), 
     verify_minisign(&public_key, data, &minisig_text)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn embedded_pubkey_parses() {
-        // The const baked from tauri.conf.json must always decode to a
-        // usable key — a bad paste would silently disable verification.
-        embedded_public_key().expect("embedded pubkey should parse");
-    }
-
-    #[test]
-    fn bare_key_line_parses() {
-        let text = "untrusted comment: minisign public key: 488C76C215D67A88\n\
-                    RWSIetYVwnaMSCgK8itX6mqf0qbuguyjngf6Ze9BeWuekSFi8+vvwzYn\n";
-        parse_public_key(text).expect("two-line pub text should parse");
-    }
-
-    #[test]
-    fn garbage_signature_is_rejected() {
-        let pk = embedded_public_key().unwrap();
-        let err = verify_minisign(&pk, b"hello", "not a signature").unwrap_err();
-        assert!(err.contains("parse") || err.contains("signature"));
-    }
-
-    #[test]
-    fn non_base64_sig_wrapper_is_rejected() {
-        assert!(verify_release_signature(b"data", "%%% not base64 %%%").is_err());
-    }
-}

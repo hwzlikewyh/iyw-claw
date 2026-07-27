@@ -36,10 +36,6 @@ pub(super) struct WatchState {
 }
 
 impl WatchState {
-    #[cfg(test)]
-    pub(super) fn with_file_for_test(session_id: &str, file: PathBuf) -> Self {
-        Self::new(session_id.to_string(), file, 0)
-    }
 
     pub(super) fn new(session_id: String, file: PathBuf, offset: u64) -> Self {
         Self {

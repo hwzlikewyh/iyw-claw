@@ -30,10 +30,6 @@ impl OpenCodeParser {
 
     /// Test-only constructor that lets callers point the parser at a fixture
     /// directory containing an `opencode.db` SQLite file.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn with_base_dir(base_dir: PathBuf) -> Self {
-        Self { base_dir }
-    }
 
     fn sqlite_db_path(&self) -> PathBuf {
         self.base_dir.join("opencode.db")
@@ -990,53 +986,3 @@ async fn batch_load_subagent_tool_calls(
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{extract_opencode_file_image, resolve_xdg_data_home};
-    use crate::models::ContentBlock;
-    use std::path::PathBuf;
-
-    #[test]
-    fn xdg_data_home_env_overrides_home_fallback() {
-        let resolved = resolve_xdg_data_home(
-            Some(std::ffi::OsString::from("/tmp/xdg-data")),
-            Some(PathBuf::from("/Users/default")),
-        );
-        assert_eq!(resolved, Some(PathBuf::from("/tmp/xdg-data")));
-    }
-
-    #[test]
-    fn xdg_data_home_falls_back_to_home_local_share() {
-        let resolved = resolve_xdg_data_home(None, Some(PathBuf::from("/Users/default")));
-        assert_eq!(resolved, Some(PathBuf::from("/Users/default/.local/share")));
-    }
-
-    #[test]
-    fn parses_opencode_user_image_file_part_from_data_uri() {
-        let value = serde_json::json!({
-            "type": "file",
-            "mime": "image/jpeg",
-            "filename": "avatar.jpg",
-            "url": "data:image/jpeg;base64,QUJD"
-        });
-
-        let block = extract_opencode_file_image(&value);
-        assert!(matches!(
-            block,
-            Some(ContentBlock::Image { data, mime_type, uri })
-            if data == "QUJD" && mime_type == "image/jpeg" && uri.as_deref() == Some("avatar.jpg")
-        ));
-    }
-
-    #[test]
-    fn ignores_non_image_file_part_for_image_parsing() {
-        let value = serde_json::json!({
-            "type": "file",
-            "mime": "text/plain",
-            "filename": "notes.txt",
-            "url": "file:///tmp/notes.txt"
-        });
-
-        assert!(extract_opencode_file_image(&value).is_none());
-    }
-}

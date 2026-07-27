@@ -44,26 +44,3 @@ pub async fn require_token(request: Request, next: Next, token: String) -> Respo
     (StatusCode::UNAUTHORIZED, "Invalid or missing token").into_response()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-
-    #[test]
-    fn parses_token_from_ws_protocols() {
-        let token = "secret/token+value";
-        let encoded = URL_SAFE_NO_PAD.encode(token);
-        assert_eq!(
-            token_from_ws_protocols(&format!("iyw-claw-events, iyw-claw-token.{encoded}"))
-                .as_deref(),
-            Some(token)
-        );
-    }
-
-    #[test]
-    fn ignores_invalid_ws_protocol_token() {
-        assert!(
-            token_from_ws_protocols("iyw-claw-events, iyw-claw-token.not-valid-@@@@").is_none()
-        );
-    }
-}

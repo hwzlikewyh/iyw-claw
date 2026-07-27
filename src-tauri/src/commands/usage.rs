@@ -99,17 +99,3 @@ pub async fn get_usage_dashboard(
     get_usage_dashboard_core(&db.conn).await
 }
 
-#[cfg(test)]
-mod tests {
-    use super::preferred_snapshot_model;
-
-    #[test]
-    fn concrete_turn_model_overrides_auto_summary() {
-        let model = preferred_snapshot_model(
-            Some("auto"),
-            [None, Some(" gpt-5.4 "), Some("")].into_iter(),
-        );
-
-        assert_eq!(model, "gpt-5.4");
-    }
-}

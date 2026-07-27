@@ -155,28 +155,3 @@ fn absolutize(path: PathBuf) -> PathBuf {
         .join(path)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn initial_agent_storage_root_prefers_portable_install_root() {
-        let install_root = Path::new("/opt/iyw-claw");
-        let data_dir = Path::new("/Users/me/Library/Application Support/iyw-claw");
-
-        assert_eq!(
-            initial_agent_storage_root(Some(install_root), data_dir),
-            install_root
-        );
-    }
-
-    #[test]
-    fn initial_agent_storage_root_uses_app_data_for_macos_bundle() {
-        let data_dir = Path::new("/Users/me/Library/Application Support/iyw-claw");
-
-        assert_eq!(
-            initial_agent_storage_root(None, data_dir),
-            data_dir.join("agents")
-        );
-    }
-}

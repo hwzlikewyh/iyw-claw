@@ -68,27 +68,3 @@ impl ChildLiveReplyLookup for ConnectionManagerLiveReplyLookup {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
-pub mod mock {
-    use super::*;
-
-    /// Returns a fixed reply for every lookup so broker tests can assert the
-    /// running-status message composition without a live child session.
-    #[derive(Default, Clone)]
-    pub struct MockChildLiveReplyLookup {
-        pub reply: Option<String>,
-    }
-
-    impl MockChildLiveReplyLookup {
-        pub fn new(reply: Option<String>) -> Self {
-            Self { reply }
-        }
-    }
-
-    #[async_trait]
-    impl ChildLiveReplyLookup for MockChildLiveReplyLookup {
-        async fn latest_reply(&self, _child_connection_id: &str) -> Option<String> {
-            self.reply.clone()
-        }
-    }
-}

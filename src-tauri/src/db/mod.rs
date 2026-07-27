@@ -3,15 +3,10 @@ pub mod error;
 pub mod migration;
 pub mod service;
 
-#[cfg(any(test, feature = "test-utils"))]
-pub mod test_helpers;
-
 use std::path::Path;
 use std::time::Duration;
 
-use sea_orm::{
-    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, Statement,
-};
+use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, Statement};
 use sea_orm_migration::MigratorTrait;
 
 use error::DbError;

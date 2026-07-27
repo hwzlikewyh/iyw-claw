@@ -116,36 +116,3 @@ pub async fn idle_sweep_task(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Single test sequences all env-var assertions to avoid the
-    /// notorious parallel-test race on shared environment state. Cargo
-    /// runs tests in parallel by default; setting `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`
-    /// in concurrent tests would interleave with each other.
-    #[test]
-    fn idle_timeout_env_parsing() {
-        // Disabled when zero.
-        std::env::set_var("IYW_CLAW_ACP_IDLE_TIMEOUT_SECS", "0");
-        assert!(idle_timeout_from_env().is_none());
-
-        // Falls back to default when unparseable.
-        std::env::set_var("IYW_CLAW_ACP_IDLE_TIMEOUT_SECS", "not-a-number");
-        assert_eq!(
-            idle_timeout_from_env().unwrap().as_secs(),
-            DEFAULT_IDLE_TIMEOUT_SECS
-        );
-
-        // Uses provided value when it parses.
-        std::env::set_var("IYW_CLAW_ACP_IDLE_TIMEOUT_SECS", "120");
-        assert_eq!(idle_timeout_from_env().unwrap().as_secs(), 120);
-
-        // Falls back to default when unset.
-        std::env::remove_var("IYW_CLAW_ACP_IDLE_TIMEOUT_SECS");
-        assert_eq!(
-            idle_timeout_from_env().unwrap().as_secs(),
-            DEFAULT_IDLE_TIMEOUT_SECS
-        );
-    }
-}

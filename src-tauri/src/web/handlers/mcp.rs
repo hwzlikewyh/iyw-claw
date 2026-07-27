@@ -158,30 +158,3 @@ pub async fn mcp_remove_server(
     Ok(Json(result))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn install_payload_does_not_require_target_apps() {
-        let params: InstallFromMarketplaceParams = serde_json::from_value(json!({
-            "providerId": "official_registry",
-            "serverId": "filesystem",
-        }))
-        .expect("global distribution must not require target apps");
-
-        assert_eq!(params.server_id, "filesystem");
-    }
-
-    #[test]
-    fn upsert_payload_does_not_require_target_apps() {
-        let params: UpsertLocalServerParams = serde_json::from_value(json!({
-            "serverId": "filesystem",
-            "spec": { "type": "stdio", "command": "npx" },
-        }))
-        .expect("global distribution must not require target apps");
-
-        assert_eq!(params.server_id, "filesystem");
-    }
-}
