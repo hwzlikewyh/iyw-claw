@@ -23,6 +23,15 @@ import {
   type UserMemorySettingsSnapshot,
 } from "@/lib/user-memory-documents"
 
+function sanitizeMemoryContent(text: string): string {
+  return text
+    .replace(/<!--.*?-->/gs, "")
+    .replace(/\s*\[Codex CLI\]\s*/g, " ")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+}
+
 export function UserMemorySettings() {
   const t = useTranslations("UserMemorySettings")
   const [activeDocumentId, setActiveDocumentId] =
@@ -57,8 +66,18 @@ export function UserMemorySettings() {
   )
 
   const applySettings = useCallback((next: UserMemorySettingsSnapshot) => {
-    setSettings(next)
-    setDraft(createUserMemoryDraft(next))
+    const cleaned: UserMemorySettingsSnapshot = {
+      ...next,
+      documents: {
+        ...next.documents,
+        memory: {
+          ...next.documents.memory,
+          content: sanitizeMemoryContent(next.documents.memory.content),
+        },
+      },
+    }
+    setSettings(cleaned)
+    setDraft(createUserMemoryDraft(cleaned))
     setStaleRunningSessions(next.staleRunningSessions)
   }, [])
 

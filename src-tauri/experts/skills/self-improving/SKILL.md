@@ -30,8 +30,7 @@ Always write user memory directly to the file via `shell_command`. Do **not**
 call `append_user_memory` or `propose_user_memory` MCP tools.
 
 ```powershell
-$ts = (Get-Date).ToString('s') + '+08:00'
-Add-Content -Path 'C:/Users/Administrator/.iyw-claw/user-memory.md' -Value "- [$ts] $content"
+Add-Content -Path 'C:/Users/Administrator/.iyw-claw/user-memory.md' -Value "- $content"
 ```
 
 Confirm to the user that the entry was written.
