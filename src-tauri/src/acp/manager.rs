@@ -815,12 +815,20 @@ impl ConnectionManager {
     ) -> Option<String> {
         // No session_id → caller is opening a fresh session; never dedup.
         let session_id = session_id?;
-        let connections = self.connections.lock().await;
-        for (id, conn) in connections.iter() {
-            if conn.agent_type != agent_type {
-                continue;
-            }
-            let state = conn.state.read().await;
+        // Collect (id, state_arc) pairs for matching agent_type while holding
+        // the connections lock for as short as possible — do NOT await the state
+        // read lock while holding the connections lock (that serialises ALL
+        // connection map operations for the duration of the loop).
+        let candidates: Vec<(String, Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>)> = {
+            let connections = self.connections.lock().await;
+            connections
+                .iter()
+                .filter(|(_, conn)| conn.agent_type == agent_type)
+                .map(|(id, conn)| (id.clone(), conn.state.clone()))
+                .collect()
+        };
+        for (id, state_arc) in candidates {
+            let state = state_arc.read().await;
             if state.external_id.as_deref() != Some(session_id) {
                 continue;
             }
@@ -833,7 +841,7 @@ impl ConnectionManager {
             ) {
                 continue;
             }
-            return Some(id.clone());
+            return Some(id);
         }
         None
     }
@@ -1872,43 +1880,61 @@ impl ConnectionManager {
         timeout: Duration,
     ) -> Result<AgentOptionsSnapshot, AcpError> {
         let start = std::time::Instant::now();
-        let poll_interval = Duration::from_millis(50);
         // Grace window between `selectors_ready` flipping true and the
-        // snapshot we return. Lets a stragging `ConfigOptionUpdate` that
+        // snapshot we return. Lets a straggling `ConfigOptionUpdate` that
         // an agent emits in the same tick land before we read.
         let grace_period = Duration::from_millis(500);
-        let mut selectors_ready_at: Option<std::time::Instant> = None;
+
+        // Step 1: get the state Arc (briefly) so we can use the per-state
+        // RwLock for the Notify pattern — without holding the connections map
+        // lock across any await.
+        let state_arc = {
+            let conns = self.connections.lock().await;
+            let conn = conns
+                .get(conn_id)
+                .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
+            conn.state.clone()
+        };
+
+        // Step 2: wait until `selectors_ready` using the proper Notify pattern.
+        // We create `notified()` while holding the state READ lock so no wakeup
+        // is lost (mirrors `wait_for_launch_finalization`): `notify_waiters()`
+        // is only called from `emit_with_state` which holds the WRITE lock, so
+        // the window between our condition check and our `notified()` creation
+        // is closed by the read lock.
         loop {
-            let (config_options, modes, available_commands, selectors_ready) = {
-                let conns = self.connections.lock().await;
-                let conn = conns
-                    .get(conn_id)
-                    .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
-                let s = conn.state.read().await;
-                (
-                    s.config_options.clone(),
-                    s.modes.clone(),
-                    s.available_commands.clone(),
-                    s.selectors_ready,
-                )
-            };
-            if selectors_ready {
-                let ready_at = *selectors_ready_at.get_or_insert_with(std::time::Instant::now);
-                if ready_at.elapsed() >= grace_period {
-                    // Commands ride along from the same probe session (the grace
-                    // window lets a late `available_commands` land before we read).
-                    return Ok(AgentOptionsSnapshot {
-                        modes,
-                        config_options: config_options.unwrap_or_default(),
-                        available_commands,
-                    });
+            let notified = {
+                let snap = state_arc.read().await;
+                if snap.selectors_ready {
+                    break; // already ready — proceed to grace period
                 }
-            }
-            if start.elapsed() >= timeout {
+                snap.selectors_ready_notify.clone().notified_owned()
+            };
+            let remaining = timeout.saturating_sub(start.elapsed());
+            if remaining.is_zero() {
                 return Err(AcpError::ProbeTimedOut);
             }
-            tokio::time::sleep(poll_interval).await;
+            match tokio::time::timeout(remaining, notified).await {
+                Ok(()) => { /* loop to re-check selectors_ready */ }
+                Err(_elapsed) => return Err(AcpError::ProbeTimedOut),
+            }
         }
+
+        // Step 3: Grace window — lets any tightly-following ConfigOptionUpdate
+        // land before we snapshot. Apply remaining timeout so the overall
+        // deadline is still honoured.
+        let grace_wait = grace_period.min(timeout.saturating_sub(start.elapsed()));
+        tokio::time::sleep(grace_wait).await;
+
+        // Step 4: Final snapshot. Re-verify the connection is still alive
+        // (the probe calls disconnect() after us, but another path could have
+        // already removed it).
+        let snap = state_arc.read().await;
+        Ok(AgentOptionsSnapshot {
+            modes: snap.modes.clone(),
+            config_options: snap.config_options.clone().unwrap_or_default(),
+            available_commands: snap.available_commands.clone(),
+        })
     }
 
     pub async fn disconnect_by_owner_window(&self, owner_window_label: &str) -> usize {
@@ -2029,10 +2055,18 @@ impl ConnectionManager {
     /// the connections mutex while taking each per-session read lock (the
     /// reads are microseconds and released each iteration).
     pub async fn list_active_sessions(&self) -> Vec<crate::models::pet::PetSessionEntry> {
-        let connections = self.connections.lock().await;
+        // Collect (id, agent_type, state_arc) without holding connections lock
+        // across state reads.
+        let candidates: Vec<(String, AgentType, Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>)> = {
+            let connections = self.connections.lock().await;
+            connections
+                .iter()
+                .map(|(id, conn)| (id.clone(), conn.agent_type, conn.state.clone()))
+                .collect()
+        };
         let mut out = Vec::new();
-        for (id, conn) in connections.iter() {
-            let state = conn.state.read().await;
+        for (id, agent_type, state_arc) in candidates {
+            let state = state_arc.read().await;
             let (Some(conversation_id), Some(folder_id)) = (state.conversation_id, state.folder_id)
             else {
                 continue;
@@ -2050,10 +2084,10 @@ impl ConnectionManager {
                 continue;
             }
             out.push(crate::models::pet::PetSessionEntry {
-                connection_id: id.clone(),
+                connection_id: id,
                 conversation_id,
                 folder_id,
-                agent_type: state.agent_type,
+                agent_type,
                 title: String::new(),
                 status: state.status.clone(),
                 pending,
@@ -2440,15 +2474,19 @@ impl ConnectionManager {
 
     /// Resolve a conversation_id to its currently-active connection id, if any.
     /// Used by the by-conversation snapshot endpoint and the LifecycleSubscriber.
-    /// Per-session state is acquired via `read().await` to avoid the
-    /// `try_read`-skip false negative that would intermittently return None
-    /// while `emit_with_state` is mid-update — the wait is microseconds.
     pub async fn find_connection_by_conversation_id(&self, conversation_id: i32) -> Option<String> {
-        let connections = self.connections.lock().await;
-        for (id, conn) in connections.iter() {
-            let state = conn.state.read().await;
+        // Collect state arcs without holding the connections lock across awaits.
+        let candidates: Vec<(String, Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>)> = {
+            let connections = self.connections.lock().await;
+            connections
+                .iter()
+                .map(|(id, conn)| (id.clone(), conn.state.clone()))
+                .collect()
+        };
+        for (id, state_arc) in candidates {
+            let state = state_arc.read().await;
             if state.conversation_id == Some(conversation_id) {
-                return Some(id.clone());
+                return Some(id);
             }
         }
         None
@@ -2474,9 +2512,12 @@ impl ConnectionManager {
         crate::acp::session_state::PendingUserMessage,
         Option<chrono::DateTime<chrono::Utc>>,
     )> {
-        let connections = self.connections.lock().await;
-        for conn in connections.values() {
-            let state = conn.state.read().await;
+        let candidates: Vec<Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>> = {
+            let connections = self.connections.lock().await;
+            connections.values().map(|c| c.state.clone()).collect()
+        };
+        for state_arc in candidates {
+            let state = state_arc.read().await;
             if state.conversation_id == Some(conversation_id) {
                 return state
                     .pending_user_message
@@ -2507,14 +2548,19 @@ impl ConnectionManager {
         external_id: &str,
         agent_type: AgentType,
     ) -> Option<String> {
-        let connections = self.connections.lock().await;
-        for (id, conn) in connections.iter() {
-            if conn.agent_type != agent_type {
-                continue;
-            }
-            let state = conn.state.read().await;
+        // Collect matching candidates without holding connections lock across awaits.
+        let candidates: Vec<(String, Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>)> = {
+            let connections = self.connections.lock().await;
+            connections
+                .iter()
+                .filter(|(_, conn)| conn.agent_type == agent_type)
+                .map(|(id, conn)| (id.clone(), conn.state.clone()))
+                .collect()
+        };
+        for (id, state_arc) in candidates {
+            let state = state_arc.read().await;
             if state.external_id.as_deref() == Some(external_id) {
-                return Some(id.clone());
+                return Some(id);
             }
         }
         None

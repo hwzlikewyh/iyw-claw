@@ -256,6 +256,30 @@ pub async fn update_external_id(
     Ok(())
 }
 
+/// Persist the model name used in a conversation. Called by the lifecycle
+/// subscriber when `TurnComplete` fires so each conversation row remembers
+/// the model that was active during its turns. `None` clears the field.
+/// Uses `update_many` for a direct column-level UPDATE (no round-trip fetch).
+pub async fn update_model(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+    model: Option<String>,
+) -> Result<(), DbError> {
+    use sea_orm::sea_query::Expr;
+
+    conversation::Entity::update_many()
+        .col_expr(
+            conversation::Column::Model,
+            Expr::value(model),
+        )
+        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(conversation::Column::Id.eq(conversation_id))
+        .filter(conversation::Column::DeletedAt.is_null())
+        .exec(conn)
+        .await?;
+    Ok(())
+}
+
 pub async fn soft_delete(conn: &DatabaseConnection, conversation_id: i32) -> Result<(), DbError> {
     let conv = conversation::Entity::find_by_id(conversation_id)
         .filter(conversation::Column::DeletedAt.is_null())

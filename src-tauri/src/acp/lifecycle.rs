@@ -231,9 +231,9 @@ pub(crate) async fn handle_event(
             else {
                 return Ok(());
             };
-            let (conversation_id, last_text) = {
+            let (conversation_id, last_text, current_model) = {
                 let snap = state_arc.read().await;
-                (snap.conversation_id, snap.last_assistant_text.clone())
+                (snap.conversation_id, snap.last_assistant_text.clone(), snap.current_model.clone())
             };
             // No conversation row bound (defensive — should never happen in
             // practice since `send_prompt_linked` runs before TurnComplete can
@@ -269,6 +269,13 @@ pub(crate) async fn handle_event(
                     last_text,
                 )
                 .await;
+            }
+
+            // Persist the model name that was active when this turn finished.
+            // Best-effort: a None current_model (agent has no model selector)
+            // clears the field, which is the desired initial state.
+            if let Err(e) = conversation_service::update_model(db_conn, cid, current_model).await {
+                tracing::warn!("[lifecycle] failed to persist model for conversation {cid}: {e}");
             }
 
             // Persist only usage produced by a conversation actively running

@@ -149,6 +149,15 @@ export function SettingsDialog() {
       <DialogContent
         className="h-[min(760px,calc(100dvh-2rem))] max-w-[min(1120px,calc(100vw-2rem))] gap-0 overflow-hidden rounded-xl p-0"
         closeButtonClassName="top-1.5 right-2 z-50 h-7 w-7"
+        onInteractOutside={(e) => {
+          // Prevent the settings dialog from closing when the user interacts
+          // with portal-rendered elements (comboboxes, selects, popovers)
+          // that appear outside the dialog's DOM node. Without this guard,
+          // clicking a dropdown option that is portaled outside the dialog
+          // also lands a pointer-down event on the overlay, dismissing the
+          // whole settings dialog unexpectedly ("随机跳回主界面" issue).
+          e.preventDefault()
+        }}
       >
         <DialogTitle className="sr-only">{t("title")}</DialogTitle>
         <SettingsShell

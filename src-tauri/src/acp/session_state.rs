@@ -13,7 +13,8 @@ use crate::acp::feedback::{FeedbackItem, FeedbackStatus};
 use crate::acp::question::PendingQuestionState;
 use crate::acp::types::{
     AcpEvent, AvailableCommandInfo, ConfigStaleKind, ConnectionStatus, EventEnvelope,
-    PromptCapabilitiesInfo, SessionConfigOptionInfo, SessionModeStateInfo, ToolCallImageInfo,
+    PromptCapabilitiesInfo, SessionConfigKindInfo, SessionConfigOptionInfo, SessionModeStateInfo,
+    ToolCallImageInfo,
 };
 use crate::models::agent::AgentType;
 use crate::models::message::MessageRole;
@@ -261,6 +262,12 @@ pub struct SessionState {
     pub modes: Option<SessionModeStateInfo>,
     pub current_mode: Option<String>,
     pub config_options: Option<Vec<SessionConfigOptionInfo>>,
+    /// Model name currently selected in the agent's `model` config option.
+    /// Extracted from `SessionConfigOptions` whenever it fires (the agent
+    /// broadcasts the full option set on every config change, so this always
+    /// reflects the latest selection). `None` when the agent advertises no
+    /// `model` option or before the first `SessionConfigOptions` event.
+    pub current_model: Option<String>,
     pub(crate) grok_effort_specs: Option<crate::acp::grok::EffortSpecs>,
     pub prompt_capabilities: Option<PromptCapabilitiesInfo>,
     pub fork_supported: bool,
@@ -271,6 +278,11 @@ pub struct SessionState {
     /// on the snapshot so a frontend that reconnects after refresh can see
     /// "init complete" without waiting for an event that already fired.
     pub selectors_ready: bool,
+    /// Wakes `wait_for_session_options` the instant `selectors_ready` flips
+    /// true. Created with `notify_waiters()` inside the `apply_event` write
+    /// lock so no notification is lost: callers must create their `notified()`
+    /// future WHILE HOLDING the state read lock (mirrors `launch_ready`).
+    pub(crate) selectors_ready_notify: Arc<tokio::sync::Notify>,
 
     /// Most recent `AcpEvent::Error` payload, or `None` if no error has
     /// landed since the connection started. The probe path reads this
@@ -445,12 +457,14 @@ impl SessionState {
             modes: None,
             current_mode: None,
             config_options: None,
+            current_model: None,
             grok_effort_specs: None,
             prompt_capabilities: None,
             fork_supported: false,
             available_commands: Vec::new(),
             usage: None,
             selectors_ready: false,
+            selectors_ready_notify: Arc::new(tokio::sync::Notify::new()),
             last_error: None,
             session_started_tx: None,
             event_seq: 0,
@@ -567,6 +581,7 @@ impl SessionState {
                 }
             }
             AcpEvent::SessionConfigOptions { config_options } => {
+                self.current_model = extract_model_from_config_options(config_options);
                 self.config_options = Some(config_options.clone());
             }
             AcpEvent::SessionConfigStale { stale, kind } => {
@@ -823,6 +838,11 @@ impl SessionState {
                 // after browser refresh) can tell the initial handshake is
                 // already done — the event fires only once per connection.
                 self.selectors_ready = true;
+                // Wake any `wait_for_session_options` callers. This is called
+                // from `emit_with_state` while holding the SessionState write
+                // lock, so callers who created their `notified()` future while
+                // holding the read lock cannot miss the wakeup.
+                self.selectors_ready_notify.notify_waiters();
             }
             AcpEvent::Error {
                 message,
@@ -1298,6 +1318,22 @@ fn truncate_one_line(line: &str, max_chars: usize) -> String {
         out.push('…');
     }
     out
+}
+
+/// Extract the currently-selected model name from a `SessionConfigOptions`
+/// payload. Finds the option whose `id` is `"model"` and returns its
+/// `Select.current_value`. Returns `None` when no such option exists (e.g.
+/// agents that don't advertise a model selector, or the slice is empty).
+fn extract_model_from_config_options(options: &[SessionConfigOptionInfo]) -> Option<String> {
+    options.iter().find(|o| o.id == "model").and_then(|o| {
+        let SessionConfigKindInfo::Select(select) = &o.kind;
+        let v = select.current_value.trim();
+        if v.is_empty() {
+            None
+        } else {
+            Some(v.to_string())
+        }
+    })
 }
 
 fn parse_tool_kind(s: &str) -> ToolKind {
