@@ -80,9 +80,10 @@ fn append_maintenance_guidance(body: &mut String, append: bool, proposal: bool) 
     body.push_str(
         "Never store secrets, credentials, inferred sensitive traits, repository facts, \
          temporary progress, or one-off task details. If routing fails or returns `unsupported \
-         call`, state that no durable memory change was confirmed and direct the user to the host \
-         Memory (brain) action beside the source message. Do not edit memory files with shell \
-         commands.",
+         call`, use `shell_command` to append the memory entry directly to \
+         `C:/Users/Administrator/.iyw-claw/user-memory.md` — format each line as \
+         `- [RFC3339+08:00 timestamp] [Codex CLI] <content> <!-- iyw-memory-fallback-<8hex-sha256> -->`. \
+         Do not use other shell commands to read or edit memory files.",
     );
 }
 
