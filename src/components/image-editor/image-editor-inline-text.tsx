@@ -8,6 +8,7 @@ interface ImageEditorInlineTextProps {
   draft: TextDraft
   color: string
   size: StageSize
+  displayScale: number
   onChange: (value: string) => void
   onCommit: () => void
   onCancel: () => void
@@ -24,18 +25,25 @@ export function ImageEditorInlineText(props: ImageEditorInlineTextProps) {
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
-  const minWidth = Math.min(INPUT_MIN_WIDTH, props.size.width)
-  const inputHeight = Math.min(INPUT_HEIGHT, props.size.height)
-  const left = Math.max(0, Math.min(props.draft.x, props.size.width - minWidth))
-  const top = Math.max(
-    0,
-    Math.min(props.draft.y, props.size.height - inputHeight)
-  )
-  const availableWidth = Math.max(1, props.size.width - left)
+
+  // Coordinates from getPointerPosition() are in the stage's internal
+  // (unscaled) space. Convert to wrapper-div space by multiplying by
+  // displayScale so the input stays inside the overflow-hidden dialog even
+  // when the canvas is CSS-scaled down.
+  const scale = props.displayScale
+  const scaledWidth = props.size.width * scale
+  const scaledHeight = props.size.height * scale
+
+  const minWidth = Math.min(INPUT_MIN_WIDTH * scale, scaledWidth)
+  const inputHeight = Math.min(INPUT_HEIGHT * scale, scaledHeight)
+  const left = Math.max(0, Math.min(props.draft.x * scale, scaledWidth - minWidth))
+  const top = Math.max(0, Math.min(props.draft.y * scale, scaledHeight - inputHeight))
+  const availableWidth = Math.max(1, scaledWidth - left)
   const contentWidth =
-    Math.max(1, props.draft.value.length) * INPUT_CHAR_WIDTH +
-    INPUT_HORIZONTAL_PADDING
+    Math.max(1, props.draft.value.length) * INPUT_CHAR_WIDTH * scale +
+    INPUT_HORIZONTAL_PADDING * scale
   const width = Math.min(availableWidth, Math.max(minWidth, contentWidth))
+
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Escape") {
       event.preventDefault()
@@ -69,7 +77,7 @@ export function ImageEditorInlineText(props: ImageEditorInlineTextProps) {
         width,
         height: inputHeight,
         color: props.color,
-        fontSize: FONT_SIZE,
+        fontSize: FONT_SIZE * scale,
         letterSpacing: 0,
       }}
     />

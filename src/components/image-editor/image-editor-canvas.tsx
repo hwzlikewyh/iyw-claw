@@ -248,17 +248,22 @@ export const ImageEditorCanvas = forwardRef<
             transformerRef={transformerRef}
           />
         </Stage>
-        {drawing.textDraft ? (
-          <ImageEditorInlineText
-            draft={drawing.textDraft}
-            color={props.color}
-            size={props.size}
-            onChange={drawing.onTextChange}
-            onCommit={drawing.onTextCommit}
-            onCancel={drawing.onTextCancel}
-          />
-        ) : null}
       </div>
+      {/* Rendered in the wrapper (unscaled) div so its layout position stays
+          within the dialog's overflow-hidden box even when displayScale < 1.
+          Coordinates are converted from stage space by multiplying by
+          displayScale inside ImageEditorInlineText. */}
+      {drawing.textDraft ? (
+        <ImageEditorInlineText
+          draft={drawing.textDraft}
+          color={props.color}
+          size={props.size}
+          displayScale={props.displayScale}
+          onChange={drawing.onTextChange}
+          onCommit={drawing.onTextCommit}
+          onCancel={drawing.onTextCancel}
+        />
+      ) : null}
     </div>
   )
 })
