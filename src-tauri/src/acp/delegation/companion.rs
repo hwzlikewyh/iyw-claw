@@ -464,11 +464,16 @@ async fn build_tools_call_spawn(
     id: Value,
     params: Value,
 ) -> LineAction {
-    let name = params
+    let raw_name = params
         .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    // Strip any MCP namespace prefix (e.g. "mcp__iyw_claw_mcp__append_user_memory"
+    // → "append_user_memory"). Some Responses API hosts (Codex CLI) forward the
+    // full namespace-prefixed name to the MCP server rather than stripping it
+    // before dispatch; we normalise here so routing works regardless.
+    let name = strip_namespace_prefix(&raw_name);
     let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
     let socket = ctx.socket_path.clone();
     // Defense in depth: tools/list already hides tools whose feature group is
@@ -705,6 +710,28 @@ async fn build_tools_call_spawn(
         }
         other => LineAction::Respond(err(id, -32602, format!("unknown tool: {other}"))),
     }
+}
+
+/// Strip any MCP namespace prefix from a tool name, returning the bare name.
+///
+/// Codex CLI (and possibly other Responses API hosts) forwards the full
+/// namespace-prefixed tool name to the MCP server's `tools/call` instead of
+/// stripping it before dispatch.  For example:
+///
+///   `mcp__iyw_claw_mcp__append_user_memory` → `append_user_memory`
+///   `iyw-claw-mcp__append_user_memory`      → `append_user_memory`
+///   `append_user_memory`                     → `append_user_memory` (unchanged)
+///
+/// The stripping rule: take everything after the last `__` occurrence.  This
+/// is safe because none of the bare tool names contain `__`.
+fn strip_namespace_prefix(name: &str) -> String {
+    if let Some(idx) = name.rfind("__") {
+        let bare = &name[idx + 2..];
+        if !bare.is_empty() {
+            return bare.to_string();
+        }
+    }
+    name.to_string()
 }
 
 async fn register_and_spawn_local(
