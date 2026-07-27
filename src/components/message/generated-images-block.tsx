@@ -95,6 +95,10 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
   const [previewOpen, setPreviewOpen] = useState(false)
   const [loadedDimensions, setLoadedDimensions] =
     useState<LoadedImageDimensions | null>(null)
+  // Tracks the imageKey that failed to render so the error resets automatically
+  // when a new/different image arrives (e.g. on retry), without needing an
+  // explicit effect or a mutable ref.
+  const [errorImageKey, setErrorImageKey] = useState<string | null>(null)
   // Treat `failed` (and the unusual `completed`-without-image case) as
   // failure so the user gets a clear error indicator instead of a
   // perpetual skeleton when codex reports the call ended without an image.
@@ -103,6 +107,9 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
   const imageKey = image
     ? `${image.mime_type}:${image.data.length}:${image.data.slice(0, 32)}`
     : null
+  // True only when the *current* image's data failed to decode in the browser
+  // (e.g. truncated or invalid base64 returned by an MCP tool).
+  const renderError = imageKey !== null && errorImageKey === imageKey
   const dimensions =
     loadedDimensions?.imageKey === imageKey ? loadedDimensions : null
 
@@ -171,7 +178,17 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
           </div>
         ) : null}
 
-        {image ? (
+        {image && renderError ? (
+          <div
+            className="flex h-64 w-64 max-w-full shrink-0 items-center justify-center rounded-md border border-dashed border-destructive/40 bg-destructive/5 text-xs text-destructive"
+            role="alert"
+          >
+            <div className="flex flex-col items-center gap-1.5">
+              <AlertCircle className="h-6 w-6 opacity-80" />
+              <span>{t("imageRenderFailed")}</span>
+            </div>
+          </div>
+        ) : image ? (
           <div className="group relative inline-block shrink-0 overflow-hidden rounded-md border border-border/70 bg-muted/30">
             <button
               type="button"
@@ -191,6 +208,9 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
                     width: event.currentTarget.naturalWidth,
                     height: event.currentTarget.naturalHeight,
                   })
+                }}
+                onError={() => {
+                  if (imageKey) setErrorImageKey(imageKey)
                 }}
                 className="h-auto max-h-64 w-auto max-w-full object-contain"
               />

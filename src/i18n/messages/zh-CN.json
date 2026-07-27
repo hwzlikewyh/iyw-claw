@@ -37,6 +37,15 @@
     "title": "设置",
     "preferences": "偏好设置",
     "backToWorkspace": "返回主界面",
+    "searchPlaceholder": "搜索设置...",
+    "searchEmpty": "未找到匹配项",
+    "navGroups": {
+      "personalization": "个性化",
+      "aiModels": "AI 与模型",
+      "productivity": "效率工具",
+      "integrations": "集成",
+      "system": "系统"
+    },
     "nav": {
       "general": "常规",
       "appearance": "外观",
@@ -2684,6 +2693,7 @@
         "imageGeneration": "图片生成",
         "imageGenerationPending": "正在生成图片…",
         "imageGenerationFailed": "图片生成失败",
+        "imageRenderFailed": "图片展示失败",
         "model": "模型",
         "tokenStats": "Token 使用情况",
         "tokenInput": "输入",

@@ -37,6 +37,15 @@
     "title": "Settings",
     "preferences": "Preferences",
     "backToWorkspace": "Back to Workspace",
+    "searchPlaceholder": "Search settings...",
+    "searchEmpty": "No results found",
+    "navGroups": {
+      "personalization": "Personalization",
+      "aiModels": "AI & Models",
+      "productivity": "Productivity",
+      "integrations": "Integrations",
+      "system": "System"
+    },
     "nav": {
       "general": "General",
       "appearance": "Appearance",
@@ -2684,6 +2693,7 @@
         "imageGeneration": "Image generation",
         "imageGenerationPending": "Generating image…",
         "imageGenerationFailed": "Image generation failed",
+        "imageRenderFailed": "Failed to display image",
         "model": "Model",
         "tokenStats": "Token usage",
         "tokenInput": "Input",
