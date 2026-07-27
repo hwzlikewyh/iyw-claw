@@ -222,7 +222,10 @@ where
         } else {
             builder
         };
-        builder.decorations(false)
+        // transparent(true) is required so the OS composites the rounded
+        // corners cut by CSS border-radius against the desktop background
+        // instead of the solid window background colour.
+        builder.decorations(false).transparent(true)
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]

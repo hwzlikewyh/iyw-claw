@@ -10,6 +10,17 @@
 @import "@fontsource-variable/geist-mono";
 @custom-variant dark (&:is(.dark *));
 
+/* ── 窗口圆角（桌面模式无装饰窗口）──────────────────────────────────────────
+   transparent(true) 让 OS 合成器把圆角以外区域渲染为透明；
+   border-radius 裁剪背景与所有子元素；overflow: hidden 确保固定定位子树
+   也被裁剪到圆角矩形内。macOS 由系统级原生圆角处理，无需此规则。
+   ─────────────────────────────────────────────────────────────────────── */
+html,
+body {
+  border-radius: 10px;
+  overflow: hidden;
+}
+
 :root {
   /* 默认界面字体 = Inter（与 DEFAULT_UI_FONT_ID = "inter" 一致，须等于
      font-presets.ts 的 resolveFontStack("inter", "", "sans")，否则首屏到水合会闪字），
