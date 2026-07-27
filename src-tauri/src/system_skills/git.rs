@@ -27,6 +27,27 @@ pub struct CheckoutInfo {
     pub dirty: bool,
 }
 
+pub async fn force_reset(
+    repo: &Path,
+    conn: &DatabaseConnection,
+    data_dir: &Path,
+) -> Result<(), AppCommandError> {
+    repo_output(repo, ["reset", "--hard", "HEAD"], conn, data_dir)
+        .await
+        .map(|_| ())
+}
+
+async fn inject_system_skills_credentials(cmd: &mut Command, data_dir: &Path) {
+    let askpass = match crate::git_credential::ensure_askpass_script(data_dir) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(target: "system_skills", "failed to create askpass script: {e}");
+            return;
+        }
+    };
+    crate::git_credential::inject_credentials(cmd, "iyw_lq", "iyw@123456789", &askpass);
+}
+
 pub fn is_newer(current: Option<&str>, latest: &Version) -> bool {
     current
         .and_then(|value| Version::parse(value.trim_start_matches('v')).ok())
@@ -39,7 +60,7 @@ pub async fn latest_stable_tag(
 ) -> Result<RemoteTag, AppCommandError> {
     let mut command = crate::process::tokio_command("git");
     command.args(["ls-remote", "--tags", "--refs", REPOSITORY_URL]);
-    crate::git_credential::try_inject_for_url(&mut command, REPOSITORY_URL, conn, data_dir).await;
+    inject_system_skills_credentials(&mut command, data_dir).await;
     let output = run(command, "list system skill tags", DISCOVERY_TIMEOUT).await?;
     parse_tags(&String::from_utf8_lossy(&output.stdout))
         .into_iter()
@@ -88,7 +109,7 @@ pub async fn clone_tag(
         .args(["--depth", "1", "--branch", tag])
         .arg(REPOSITORY_URL)
         .arg(target);
-    crate::git_credential::try_inject_for_url(&mut command, REPOSITORY_URL, conn, data_dir).await;
+    inject_system_skills_credentials(&mut command, data_dir).await;
     run(command, "clone system skills", TRANSFER_TIMEOUT).await?;
     write_local_excludes(target)?;
     repo_output(target, ["rev-parse", "HEAD"], conn, data_dir).await
@@ -152,18 +173,12 @@ fn parse_tags(raw: &str) -> Vec<RemoteTag> {
 async fn repo_output<const N: usize>(
     repo: &Path,
     args: [&str; N],
-    conn: &DatabaseConnection,
+    _conn: &DatabaseConnection,
     data_dir: &Path,
 ) -> Result<String, AppCommandError> {
     let mut command = crate::process::tokio_command("git");
     command.arg("-C").arg(repo).args(args);
-    crate::git_credential::try_inject_for_repo(
-        &mut command,
-        &repo.to_string_lossy(),
-        conn,
-        data_dir,
-    )
-    .await;
+    inject_system_skills_credentials(&mut command, data_dir).await;
     let output = run(command, "update system skills", TRANSFER_TIMEOUT).await?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }

@@ -1,25 +1,16 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import {
-  CheckCircle2,
-  KeyRound,
-  Loader2,
-  PackageCheck,
-  RefreshCw,
-  RotateCcw,
-} from "lucide-react"
+import { CheckCircle2, Loader2, PackageCheck, RefreshCw } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { openSettingsWindow } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
 import {
   applySystemSkillsUpdate,
   checkSystemSkillsUpdate,
   getSystemSkillsUpdateState,
-  rollbackSystemSkillsUpdate,
   setSystemSkillsAutoUpdate,
   subscribeSystemSkillsUpdate,
   type SystemSkillsUpdateState,
@@ -174,25 +165,6 @@ export function SystemSkillsUpdateSettings() {
             {t("systemSkillsInstall")}
           </Button>
         )}
-        {state?.previousVersion && (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy || state.dirty}
-            onClick={() => void run(rollbackSystemSkillsUpdate)}
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            {t("systemSkillsRollback")}
-          </Button>
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => void openSettingsWindow("version-control")}
-        >
-          <KeyRound className="h-3.5 w-3.5" />
-          {t("systemSkillsCredentials")}
-        </Button>
       </div>
 
       <p className="text-[11px] leading-5 text-muted-foreground">

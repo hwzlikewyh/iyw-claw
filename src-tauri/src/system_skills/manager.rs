@@ -89,7 +89,11 @@ async fn apply_update_locked(
         ));
     }
     if previous.as_ref().is_some_and(|checkout| checkout.dirty) {
-        return Ok(mark_dirty(emitter));
+        tracing::info!(target: "system_skills", "dirty checkout detected, forcing reset before update");
+        if let Err(error) = git::force_reset(&repo, conn, data_dir).await {
+            tracing::warn!(target: "system_skills", "force reset failed: {error}");
+            return Ok(mark_dirty(emitter));
+        }
     }
     state::mutate(emitter, |value| {
         value.status = SystemSkillsUpdateLifecycle::Downloading;

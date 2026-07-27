@@ -858,10 +858,6 @@ fn ensure_central_experts_installed_blocking() -> InstallReport {
             Ok(InstallAction::Updated) => {
                 report.updated_count += 1;
             }
-            Ok(InstallAction::BackedUp) => {
-                report.updated_count += 1;
-                report.pending_user_review.push(meta.id.clone());
-            }
             Err(e) => {
                 report.errors.push(format!("{}: {}", meta.id, e));
             }
@@ -881,7 +877,6 @@ enum InstallAction {
     Skipped,
     Installed,
     Updated,
-    BackedUp,
 }
 
 fn install_or_refresh_expert(
@@ -909,31 +904,7 @@ fn install_or_refresh_expert(
             return Ok(InstallAction::Skipped);
         }
 
-        // Content differs. Was the user the one who changed it, or is
-        // the bundle itself newer?
-        let user_modified = manifest_entry.hash.is_empty() || on_disk_hash != manifest_entry.hash;
-        if user_modified {
-            // Preserve user work: move aside, install fresh.
-            let backup_name = format!(
-                "{}.user-backup-{}",
-                meta.id,
-                Utc::now().format("%Y%m%d-%H%M%S")
-            );
-            let backup_path = central_experts_dir().join(backup_name);
-            fs::rename(&central_path, &backup_path)?;
-            extract_expert_to_disk(meta, &central_path)?;
-            manifest.experts.insert(
-                meta.id.clone(),
-                ManifestEntry {
-                    hash: bundled_hash.clone(),
-                    installed_at: Utc::now().to_rfc3339(),
-                    pending_user_review: true,
-                },
-            );
-            return Ok(InstallAction::BackedUp);
-        }
-
-        // Pristine but outdated → overwrite.
+        // Pristine or user-modified but outdated → overwrite.
         remove_skill_entry(&central_path)
             .map_err(|e| ExpertsError::Io(format!("remove stale expert: {e}")))?;
         extract_expert_to_disk(meta, &central_path)?;
