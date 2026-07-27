@@ -443,6 +443,7 @@ fn build_task_prompt(
         _ => format!("{sender_prefix}{task}"),
     }
 }
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::db::service::{chat_channel_service, sender_context_service};
