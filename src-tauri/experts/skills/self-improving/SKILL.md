@@ -31,12 +31,7 @@ call `append_user_memory` or `propose_user_memory` MCP tools.
 
 ```powershell
 $ts = (Get-Date).ToString('s') + '+08:00'
-$id = ([System.BitConverter]::ToString(
-    [System.Security.Cryptography.SHA256]::Create().ComputeHash(
-        [System.Text.Encoding]::UTF8.GetBytes($content)
-    )) -replace '-','').Substring(0,8).ToLower()
-Add-Content -Path 'C:/Users/Administrator/.iyw-claw/user-memory.md' `
-    -Value "- [$ts] $content <!-- iyw-memory-$id -->"
+Add-Content -Path 'C:/Users/Administrator/.iyw-claw/user-memory.md' -Value "- [$ts] $content"
 ```
 
 Confirm to the user that the entry was written.
