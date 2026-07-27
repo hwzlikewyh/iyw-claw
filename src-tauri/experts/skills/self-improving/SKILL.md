@@ -36,7 +36,7 @@ $id = ([System.BitConverter]::ToString(
         [System.Text.Encoding]::UTF8.GetBytes($content)
     )) -replace '-','').Substring(0,8).ToLower()
 Add-Content -Path 'C:/Users/Administrator/.iyw-claw/user-memory.md' `
-    -Value "- [$ts] [Codex CLI] $content <!-- iyw-memory-$id -->"
+    -Value "- [$ts] $content <!-- iyw-memory-$id -->"
 ```
 
 Confirm to the user that the entry was written.
