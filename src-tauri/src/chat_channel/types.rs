@@ -67,6 +67,10 @@ pub struct SentMessageId(pub String);
 pub struct IncomingCommand {
     pub channel_id: i32,
     pub sender_id: String,
+    /// Display name of the sender, if resolved by the backend (e.g. WeCom
+    /// contact lookup). Used to give the agent human-readable context about
+    /// who is speaking without requiring the user to identify themselves.
+    pub sender_name: Option<String>,
     pub command_text: String,
     pub callback_data: Option<String>,
     pub target: ChannelMessageTarget,

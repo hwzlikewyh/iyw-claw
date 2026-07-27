@@ -400,9 +400,11 @@ async fn poll_chat(
             thread_kind: Some(WECOM_CHAT_THREAD_KIND.to_string()),
             provider_payload: Some(serde_json::json!({"chat_type": chat_type})),
         };
+        let sender_name = fetch_user_display_name(sender).await;
         let command = IncomingCommand {
             channel_id,
             sender_id: sender.to_string(),
+            sender_name: sender_name.clone(),
             command_text: content.to_string(),
             callback_data: None,
             target,
@@ -411,6 +413,7 @@ async fn poll_chat(
                 "chat_name": chat_name,
                 "chat_type": chat_type,
                 "send_time": send_time,
+                "sender_name": sender_name,
             }),
         };
         if let Err(error) = command_tx.send(command).await {
@@ -520,6 +523,27 @@ fn split_utf8_chunks(text: &str, max_bytes: usize) -> Vec<&str> {
     }
     chunks.push(rest);
     chunks
+}
+
+// ── User info ──
+
+/// Best-effort: call `wecom-cli contact get_member_info` to resolve a userid
+/// into a human-readable display name. Returns `None` on any error so the
+/// caller can fall back to the raw userid without surfacing failures.
+async fn fetch_user_display_name(userid: &str) -> Option<String> {
+    let payload = serde_json::json!({"userid": userid});
+    let result = run_cli_json(&["contact", "get_member_info", &payload.to_string()]).await;
+    match result {
+        Ok(json) => json
+            .get("name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(String::from),
+        Err(e) => {
+            tracing::debug!("[WeCom] user info fetch skipped for {userid}: {e}");
+            None
+        }
+    }
 }
 
 // ── wecom-cli process helpers (also used by the command layer) ──

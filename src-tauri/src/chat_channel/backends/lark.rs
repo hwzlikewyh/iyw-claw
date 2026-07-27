@@ -511,6 +511,7 @@ async fn handle_lark_event(
             .send(IncomingCommand {
                 channel_id,
                 sender_id,
+                sender_name: None,
                 command_text: clean_text,
                 callback_data: None,
                 target: ChannelMessageTarget::channel(channel_id),

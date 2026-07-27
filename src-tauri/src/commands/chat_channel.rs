@@ -49,7 +49,86 @@ pub async fn create_chat_channel_core(
     )
     .await
     .map_err(AppCommandError::from)?;
-    Ok(ChatChannelInfo::from(model))
+
+    // Auto-create a dedicated workspace folder for this channel so messages
+    // route there without any heuristics — zero-config for the user.
+    let info = init_channel_workspace(db, model).await;
+    Ok(info)
+}
+
+/// Compute the channel's dedicated workspace root.
+/// Daily subfolders (`{root}/{YYYY-MM-DD}/`) are created on demand by the
+/// natural router — this function only returns the persistent root path.
+pub fn channel_workspace_root(channel_id: i32) -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".iyw-claw")
+        .join("channel-workspaces")
+        .join(channel_id.to_string())
+}
+
+/// After channel creation, create the workspace root directory on disk and
+/// store its path in the channel's config_json so the natural router can
+/// create per-day subfolders without any heuristics.
+/// All errors are non-fatal.
+async fn init_channel_workspace(
+    db: &AppDatabase,
+    model: crate::db::entities::chat_channel::Model,
+) -> ChatChannelInfo {
+    let root = channel_workspace_root(model.id);
+    if let Err(e) = std::fs::create_dir_all(&root) {
+        tracing::warn!(
+            "[create_chat_channel] workspace root creation failed for channel {}: {e}",
+            model.id
+        );
+        return ChatChannelInfo::from(model);
+    }
+
+    // Store the root path; daily subfolders ({root}/{date}/) are created on
+    // demand — no folder row is registered here.
+    let updated_config = patch_config_with_workspace_root(&model.config_json, &root.to_string_lossy());
+    match chat_channel_service::update(
+        &db.conn,
+        model.id,
+        None,
+        None,
+        Some(updated_config),
+        None,
+        None,
+        None,
+    )
+    .await
+    {
+        Ok(updated) => {
+            tracing::info!(
+                "[create_chat_channel] channel {} workspace root ready: {}",
+                model.id,
+                root.display()
+            );
+            ChatChannelInfo::from(updated)
+        }
+        Err(e) => {
+            tracing::warn!(
+                "[create_chat_channel] failed to persist workspace root for channel {}: {e}",
+                model.id
+            );
+            ChatChannelInfo::from(model)
+        }
+    }
+}
+
+fn patch_config_with_workspace_root(config_json: &str, root_path: &str) -> String {
+    let mut config: serde_json::Value = serde_json::from_str(config_json)
+        .unwrap_or_else(|_| serde_json::json!({}));
+    if let serde_json::Value::Object(ref mut map) = config {
+        map.insert(
+            "channel_workspace_root".to_string(),
+            serde_json::Value::String(root_path.to_string()),
+        );
+        // Remove any legacy default_folder_id written by older versions.
+        map.remove("default_folder_id");
+    }
+    config.to_string()
 }
 
 #[allow(clippy::too_many_arguments)]

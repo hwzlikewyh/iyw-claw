@@ -104,6 +104,7 @@ pub fn spawn_command_dispatcher(
                 &data_dir,
                 cmd.channel_id,
                 &cmd.sender_id,
+                cmd.sender_name.as_deref(),
                 &cmd.target,
                 cmd.callback_data.as_deref(),
                 config.lang,
@@ -149,6 +150,7 @@ async fn dispatch_command(
     data_dir: &Path,
     channel_id: i32,
     sender_id: &str,
+    sender_name: Option<&str>,
     target: &ChannelMessageTarget,
     callback_data: Option<&str>,
     lang: Lang,
@@ -188,7 +190,7 @@ async fn dispatch_command(
             }
             return dispatch_natural_message(
                 text, prefix, db, manager, conn_mgr, emitter, bridge, data_dir, channel_id,
-                sender_id, target, lang,
+                sender_id, sender_name, target, lang,
             )
             .await;
         }
@@ -320,6 +322,7 @@ async fn dispatch_natural_message(
     data_dir: &Path,
     channel_id: i32,
     sender_id: &str,
+    sender_name: Option<&str>,
     target: &ChannelMessageTarget,
     lang: Lang,
 ) -> DispatchResponse {
@@ -386,10 +389,16 @@ async fn dispatch_natural_message(
                 Some(natural_router::agent_type_to_wire(agent_type)),
             )
             .await;
+            // Build prompt: memory context (recent days) + sender name + task.
+            // Memory is only fetched for dedicated-folder channels; returns
+            // None quickly for regular channels so there's no extra latency.
+            let memory =
+                natural_router::build_channel_memory_context(db, channel_id, lang).await;
+            let prompt = build_task_prompt(memory.as_deref(), sender_name, &task);
             DispatchResponse::from_command_result(
                 session_commands::handle_task(
-                    db, &task, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge,
-                    lang, prefix, data_dir,
+                    db, &prompt, channel_id, sender_id, target, manager, conn_mgr, emitter,
+                    bridge, lang, prefix, data_dir,
                 )
                 .await,
             )
@@ -406,16 +415,34 @@ async fn dispatch_natural_message(
         ),
         NaturalRouteDecision::AskClarification { message } => {
             tracing::info!(
-                "[ChatChannel] natural message needs clarification; suppressing canned \
-                 channel reply: {}",
+                "[ChatChannel] sending clarification to channel={} sender={}: {}",
+                channel_id,
+                sender_id,
                 message
             );
-            DispatchResponse::none(target)
+            DispatchResponse::current(RichMessage::info(message), target)
         }
     }
 }
 
-#[cfg(test)]
+/// Assemble the initial agent prompt from optional pieces:
+/// memory context (recent session titles) + sender name + task text.
+fn build_task_prompt(
+    memory: Option<&str>,
+    sender_name: Option<&str>,
+    task: &str,
+) -> String {
+    let sender_prefix = match sender_name {
+        Some(name) if !name.is_empty() => format!("[来自 {name}] "),
+        _ => String::new(),
+    };
+    match memory {
+        Some(ctx) if !ctx.is_empty() => {
+            format!("{ctx}\n{sender_prefix}{task}")
+        }
+        _ => format!("{sender_prefix}{task}"),
+    }
+}
 mod tests {
     use super::*;
     use crate::db::service::{chat_channel_service, sender_context_service};
@@ -455,6 +482,7 @@ mod tests {
             Path::new("/tmp/iyw-claw-dispatch-data"),
             channel_id,
             "sender-1",
+            None,
             &target,
             Some(&format!("cfg:folder:{folder_id}")),
             Lang::En,
@@ -486,6 +514,7 @@ mod tests {
             Path::new("/tmp/iyw-claw-dispatch-data"),
             channel_id,
             "sender-1",
+            None,
             &target,
             None,
             Lang::En,

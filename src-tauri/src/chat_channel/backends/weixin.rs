@@ -702,6 +702,7 @@ impl ChatChannelBackend for WeixinBackend {
                                         .send(IncomingCommand {
                                             channel_id,
                                             sender_id: from_user_id.to_string(),
+                                            sender_name: None,
                                             command_text: text.to_string(),
                                             callback_data: None,
                                             target: ChannelMessageTarget::channel(channel_id),
