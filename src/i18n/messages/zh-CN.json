@@ -212,7 +212,6 @@
     "rollbackSuccess": "已回滚到上一个版本，正在重新加载……",
     "rollbackFailed": "回滚失败，请检查服务器日志。",
     "systemSkillsTitle": "系统技能更新",
-    "systemSkillsDescription": "从系统技能仓库获取最新稳定 tag，校验后更新内置技能；运行时生成的 .venv 会保留。",
     "systemSkillsCurrentVersion": "当前技能版本",
     "systemSkillsLatestVersion": "最新技能版本",
     "systemSkillsAutoUpdate": "启动时自动更新",

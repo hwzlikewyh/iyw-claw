@@ -212,7 +212,6 @@
     "rollbackSuccess": "Rolled back to the previous version. Reloading...",
     "rollbackFailed": "Rollback failed. Check the server logs.",
     "systemSkillsTitle": "System Skills Update",
-    "systemSkillsDescription": "Install the latest stable tag from the system skills repository after validation. Runtime .venv directories are preserved.",
     "systemSkillsCurrentVersion": "Current skills version",
     "systemSkillsLatestVersion": "Latest skills version",
     "systemSkillsAutoUpdate": "Update automatically at startup",

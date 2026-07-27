@@ -103,10 +103,6 @@ export function SystemSkillsUpdateSettings() {
         <h2 className="text-sm font-semibold">{t("systemSkillsTitle")}</h2>
       </div>
 
-      <p className="text-xs leading-5 text-muted-foreground">
-        {t("systemSkillsDescription")}
-      </p>
-
       <div className="space-y-3 border-y py-3 text-xs">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-muted-foreground">
