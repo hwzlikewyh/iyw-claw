@@ -6,6 +6,7 @@ import {
   Eye,
   LockKeyhole,
   Loader2,
+  Package,
   PackageCheck,
   Pencil,
   Plus,
@@ -852,7 +853,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
     <div
       className={cn(
         "h-full flex flex-col",
-        isMarketMode ? "bg-background" : "p-3 md:p-4"
+        isMarketMode ? "bg-background" : "px-5 py-5"
       )}
     >
       <div
@@ -861,13 +862,22 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
           isMarketMode ? "shrink-0 border-b border-border px-4 py-3" : "pb-4"
         )}
       >
-        <div>
-          <h2 className="text-base font-semibold">
-            {t(isMarketMode ? "market.title" : "title")}
-          </h2>
-          <p className="text-xs text-muted-foreground mt-1">
-            {t(isMarketMode ? "market.description" : "description")}
-          </p>
+        <div
+          className={cn("flex items-center gap-2.5", isMarketMode && "gap-2")}
+        >
+          {!isMarketMode && (
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+              <Package className="h-4 w-4 text-muted-foreground" />
+            </div>
+          )}
+          <div>
+            <h1 className="text-base font-semibold tracking-tight">
+              {t(isMarketMode ? "market.title" : "title")}
+            </h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {t(isMarketMode ? "market.description" : "description")}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -1138,7 +1148,9 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
                             <ContextMenuItem
                               disabled={skill.read_only || skill.official}
                               title={
-                                skill.official ? t("officialSkillHint") : undefined
+                                skill.official
+                                  ? t("officialSkillHint")
+                                  : undefined
                               }
                               onSelect={() => {
                                 handleEditSkill(skill).catch((err) => {

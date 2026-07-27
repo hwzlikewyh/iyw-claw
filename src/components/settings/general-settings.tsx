@@ -1,12 +1,11 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Loader2, MonitorCog, RefreshCw } from "lucide-react"
+import { Loader2, MonitorCog, RefreshCw, SlidersHorizontal } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   getSystemRenderingSettings,
   updateSystemRenderingSettings,
@@ -20,6 +19,10 @@ import { DelegationSettingsSection } from "@/components/settings/delegation-sett
 import { SessionFeedbackSettingsSection } from "@/components/settings/session-feedback-settings"
 import { AskQuestionSettingsSection } from "@/components/settings/ask-question-settings"
 import { SessionInfoSettingsSection } from "@/components/settings/session-info-settings"
+import {
+  SettingsPageLayout,
+  SettingsPageHeader,
+} from "@/components/settings/settings-ui"
 
 // Captured the first time the rendering section loads: represents the value
 // the running webview process was launched with. Survives settings-shell
@@ -123,32 +126,31 @@ export function GeneralSettings() {
   }
 
   return (
-    <ScrollArea className="h-full">
-      <div className="w-full space-y-4 p-3 md:p-4">
-        <section className="space-y-1">
-          <h1 className="text-sm font-semibold">{t("sectionTitle")}</h1>
-          <p className="text-xs text-muted-foreground">
-            {t("sectionDescription")}
-          </p>
-        </section>
+    <SettingsPageLayout>
+      <SettingsPageHeader
+        icon={SlidersHorizontal}
+        title={t("sectionTitle")}
+        description={t("sectionDescription")}
+      />
 
-        {loadError && (
-          <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
-            {t("loadFailed", { message: loadError })}
-          </div>
-        )}
+      {loadError && (
+        <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+          {t("loadFailed", { message: loadError })}
+        </div>
+      )}
 
-        {renderingSectionVisible && (
-          <section className="rounded-xl border bg-card p-4 space-y-4">
+      {renderingSectionVisible && (
+        <section className="overflow-hidden rounded-xl border bg-card">
+          <div className="border-b px-4 py-3">
             <div className="flex items-center gap-2">
               <MonitorCog className="h-4 w-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">{t("renderingTitle")}</h2>
             </div>
-
+          </div>
+          <div className="space-y-4 p-4">
             <p className="text-xs text-muted-foreground leading-5">
               {t("renderingDescription")}
             </p>
-
             <label className="inline-flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -163,7 +165,6 @@ export function GeneralSettings() {
               />
               {t("disableHardwareAcceleration")}
             </label>
-
             {renderingDirty && (
               <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2 text-xs">
                 <span className="text-muted-foreground">
@@ -179,17 +180,17 @@ export function GeneralSettings() {
                 </Button>
               </div>
             )}
-          </section>
-        )}
+          </div>
+        </section>
+      )}
 
-        <DelegationSettingsSection />
+      <DelegationSettingsSection />
 
-        <SessionFeedbackSettingsSection />
+      <SessionFeedbackSettingsSection />
 
-        <AskQuestionSettingsSection />
+      <AskQuestionSettingsSection />
 
-        <SessionInfoSettingsSection />
-      </div>
-    </ScrollArea>
+      <SessionInfoSettingsSection />
+    </SettingsPageLayout>
   )
 }

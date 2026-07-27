@@ -3,11 +3,13 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useState,
   type ComponentType,
   type ReactNode,
 } from "react"
 import {
+  Activity,
   ArrowLeft,
   BarChart3,
   Bot,
@@ -17,13 +19,13 @@ import {
   Menu,
   MessageSquareText,
   Package,
-  SendHorizontal,
   Palette,
   PlugZap,
+  ScrollText,
+  Search,
+  SendHorizontal,
   Settings,
   SlidersHorizontal,
-  ScrollText,
-  Activity,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { usePathname } from "next/navigation"
@@ -56,98 +58,131 @@ export interface SettingsNavItem {
   icon: ComponentType<{ className?: string }>
 }
 
+export type SettingsNavGroupKey =
+  | "personalization"
+  | "aiModels"
+  | "productivity"
+  | "integrations"
+  | "system"
+
+export interface SettingsNavGroup {
+  groupKey: SettingsNavGroupKey
+  items: SettingsNavItem[]
+}
+
 const SHOW_RUNTIME_LOGS_SETTINGS = false
 const SHOW_VERSION_CONTROL_SETTINGS = false
 
-const SETTINGS_NAV_ITEMS_WITH_HIDDEN: SettingsNavItem[] = [
+// ─── Nav item definitions ─────────────────────────────────────────────────────
+
+const NAV_APPEARANCE: SettingsNavItem = {
+  href: "/settings/appearance",
+  labelKey: "appearance",
+  icon: Palette,
+}
+const NAV_GENERAL: SettingsNavItem = {
+  href: "/settings/general",
+  labelKey: "general",
+  icon: SlidersHorizontal,
+}
+const NAV_AGENTS: SettingsNavItem = {
+  href: "/settings/agents",
+  labelKey: "agents",
+  icon: Bot,
+}
+const NAV_MCP: SettingsNavItem = {
+  href: "/settings/mcp",
+  labelKey: "mcp",
+  icon: PlugZap,
+}
+const NAV_SKILLS: SettingsNavItem = {
+  href: "/settings/skills",
+  labelKey: "skills",
+  icon: Package,
+}
+const NAV_QUICK_MESSAGES: SettingsNavItem = {
+  href: "/settings/quick-messages",
+  labelKey: "quick_messages",
+  icon: MessageSquareText,
+}
+const NAV_SHORTCUTS: SettingsNavItem = {
+  href: "/settings/shortcuts",
+  labelKey: "shortcuts",
+  icon: Keyboard,
+}
+const NAV_USER_MEMORY: SettingsNavItem = {
+  href: "/settings/user-memory",
+  labelKey: "user_memory",
+  icon: Brain,
+}
+const NAV_CHAT_CHANNELS: SettingsNavItem = {
+  href: "/settings/chat-channels",
+  labelKey: "chat_channels",
+  icon: SendHorizontal,
+}
+const NAV_PERFORMANCE: SettingsNavItem = {
+  href: "/settings/performance",
+  labelKey: "performance",
+  icon: Activity,
+}
+const NAV_USAGE: SettingsNavItem = {
+  href: "/settings/usage",
+  labelKey: "usage",
+  icon: BarChart3,
+}
+const NAV_SYSTEM: SettingsNavItem = {
+  href: "/settings/system",
+  labelKey: "system",
+  icon: Settings,
+}
+const NAV_LOGS: SettingsNavItem = {
+  href: "/settings/logs",
+  labelKey: "logs",
+  icon: ScrollText,
+}
+const NAV_VERSION_CONTROL: SettingsNavItem = {
+  href: "/settings/version-control",
+  labelKey: "version_control",
+  icon: GitBranch,
+}
+
+// ─── Grouped structure (model-providers + web-service excluded from nav) ──────
+
+const NAV_GROUPS_BASE: SettingsNavGroup[] = [
   {
-    href: "/settings/appearance",
-    labelKey: "appearance",
-    icon: Palette,
+    groupKey: "personalization",
+    items: [NAV_APPEARANCE, NAV_GENERAL],
   },
   {
-    href: "/settings/general",
-    labelKey: "general",
-    icon: SlidersHorizontal,
+    groupKey: "aiModels",
+    items: [NAV_AGENTS, NAV_MCP, NAV_SKILLS],
   },
   {
-    href: "/settings/usage",
-    labelKey: "usage",
-    icon: BarChart3,
+    groupKey: "productivity",
+    items: [NAV_QUICK_MESSAGES, NAV_SHORTCUTS, NAV_USER_MEMORY],
   },
   {
-    href: "/settings/performance",
-    labelKey: "performance",
-    icon: Activity,
+    groupKey: "integrations",
+    items: [NAV_CHAT_CHANNELS],
   },
   {
-    href: "/settings/user-memory",
-    labelKey: "user_memory",
-    icon: Brain,
-  },
-  {
-    href: "/settings/mcp",
-    labelKey: "mcp",
-    icon: PlugZap,
-  },
-  {
-    href: "/settings/skills",
-    labelKey: "skills",
-    icon: Package,
-  },
-  {
-    href: "/settings/agents",
-    labelKey: "agents",
-    icon: Bot,
-  },
-  {
-    href: "/settings/quick-messages",
-    labelKey: "quick_messages",
-    icon: MessageSquareText,
-  },
-  {
-    href: "/settings/shortcuts",
-    labelKey: "shortcuts",
-    icon: Keyboard,
-  },
-  {
-    href: "/settings/version-control",
-    labelKey: "version_control",
-    icon: GitBranch,
-  },
-  {
-    href: "/settings/chat-channels",
-    labelKey: "chat_channels",
-    icon: SendHorizontal,
-  },
-  {
-    href: "/settings/system",
-    labelKey: "system",
-    icon: Settings,
-  },
-  {
-    href: "/settings/logs",
-    labelKey: "logs",
-    icon: ScrollText,
+    groupKey: "system",
+    items: [
+      NAV_PERFORMANCE,
+      NAV_USAGE,
+      NAV_SYSTEM,
+      ...(SHOW_RUNTIME_LOGS_SETTINGS ? [NAV_LOGS] : []),
+      ...(SHOW_VERSION_CONTROL_SETTINGS ? [NAV_VERSION_CONTROL] : []),
+    ],
   },
 ]
 
-export const SETTINGS_NAV_ITEMS = SETTINGS_NAV_ITEMS_WITH_HIDDEN.filter(
-  (item) =>
-    (SHOW_RUNTIME_LOGS_SETTINGS || item.href !== "/settings/logs") &&
-    (SHOW_VERSION_CONTROL_SETTINGS || item.href !== "/settings/version-control")
+// Flat list kept for backward compatibility with any external consumers.
+export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = NAV_GROUPS_BASE.flatMap(
+  (g) => g.items
 )
 
-interface SettingsShellProps {
-  children: ReactNode
-  activePath?: string
-  className?: string
-  onBack?: () => void
-  onNavigate?: (href: string) => void
-  showToaster?: boolean
-  showWindowControls?: boolean
-  updateDocumentTitle?: boolean
-}
+// ─── Path normalisation ───────────────────────────────────────────────────────
 
 export function normalizeSettingsPath(path: string): string {
   const noSuffix = path.replace(/\/index\.html$/, "").replace(/\.html$/, "")
@@ -175,6 +210,21 @@ function isWindowsRuntime(): boolean {
   return platform.includes("win") || userAgent.includes("windows")
 }
 
+// ─── Shell props ──────────────────────────────────────────────────────────────
+
+interface SettingsShellProps {
+  children: ReactNode
+  activePath?: string
+  className?: string
+  onBack?: () => void
+  onNavigate?: (href: string) => void
+  showToaster?: boolean
+  showWindowControls?: boolean
+  updateDocumentTitle?: boolean
+}
+
+// ─── Shell ────────────────────────────────────────────────────────────────────
+
 export function SettingsShell({
   children,
   activePath,
@@ -191,6 +241,7 @@ export function SettingsShell({
   const normalizedPathname = normalizeSettingsNavPath(activePath ?? pathname)
   const isMobile = useIsMobile()
   const [navOpen, setNavOpen] = useState(false)
+  const [search, setSearch] = useState("")
 
   useEffect(() => {
     if (!updateDocumentTitle) return
@@ -217,9 +268,7 @@ export function SettingsShell({
       }
 
       // Preserve current query string so the active remote workspace context
-      // (`?remoteConnectionId=N`) carries over to sub-pages — without this,
-      // navigating from /settings/appearance to /settings/mcp drops the
-      // remote id and the next page falls back to the local Tauri backend.
+      // (`?remoteConnectionId=N`) carries over to sub-pages.
       const search = window.location.search
       const fullTarget = search ? `${target}${search}` : target
 
@@ -234,43 +283,102 @@ export function SettingsShell({
     [normalizedPathname, onNavigate, router, setNavOpen]
   )
 
+  // Filter groups by search query
+  const filteredGroups = useMemo<SettingsNavGroup[]>(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return NAV_GROUPS_BASE
+    return NAV_GROUPS_BASE.map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        t(`nav.${item.labelKey}`).toLowerCase().includes(q)
+      ),
+    })).filter((group) => group.items.length > 0)
+  }, [search, t])
+
   const navContent = (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="px-2 pb-2 text-[11px] font-medium text-muted-foreground">
-        {t("preferences")}
+    <div className="flex min-h-0 flex-1 flex-col gap-1">
+      {/* Search bar */}
+      <div className="px-2 pb-1">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t("searchPlaceholder")}
+            className={cn(
+              "h-7 w-full rounded-md border border-transparent bg-muted/50 pl-7 pr-3 text-xs",
+              "outline-none transition-[border-color,box-shadow]",
+              "placeholder:text-muted-foreground/40",
+              "focus:border-border focus:bg-background focus:ring-1 focus:ring-ring/30"
+            )}
+          />
+        </div>
       </div>
+
+      {/* Grouped navigation */}
       <ScrollArea className="min-h-0 flex-1">
-        <nav className="space-y-1">
-          {SETTINGS_NAV_ITEMS.map((item) => {
-            const Icon = item.icon
-            const translationKey = `nav.${item.labelKey}` as const
-            const active =
-              normalizedPathname === item.href ||
-              normalizedPathname.startsWith(`${item.href}/`)
-            return (
-              <Button
-                key={item.href}
-                variant={active ? "secondary" : "ghost"}
-                size="sm"
-                className={cn("w-full justify-start px-2")}
-                type="button"
-                onClick={() => navigateTo(item.href)}
-                aria-current={active ? "page" : undefined}
-              >
-                <span className="inline-flex items-center gap-1">
-                  <Icon className="h-3.5 w-3.5" />
-                  {t(translationKey)}
-                </span>
-              </Button>
-            )
-          })}
+        <nav className="space-y-0.5 pb-1">
+          {filteredGroups.map((group) => (
+            <div key={group.groupKey}>
+              {/* Group label – hidden during search */}
+              {!search.trim() && (
+                <div className="px-2 pb-1 pt-3 first:pt-0.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+                    {t(`navGroups.${group.groupKey}`)}
+                  </span>
+                </div>
+              )}
+              {group.items.map((item) => {
+                const Icon = item.icon
+                const active =
+                  normalizedPathname === item.href ||
+                  normalizedPathname.startsWith(`${item.href}/`)
+                return (
+                  <Button
+                    key={item.href}
+                    variant={active ? "secondary" : "ghost"}
+                    size="sm"
+                    className={cn(
+                      "w-full justify-start px-2 transition-colors",
+                      active && "font-medium"
+                    )}
+                    type="button"
+                    onClick={() => navigateTo(item.href)}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <Icon
+                        className={cn(
+                          "h-3.5 w-3.5 shrink-0",
+                          active
+                            ? "text-foreground"
+                            : "text-muted-foreground/70"
+                        )}
+                      />
+                      {t(`nav.${item.labelKey}`)}
+                    </span>
+                  </Button>
+                )
+              })}
+            </div>
+          ))}
+
+          {/* Empty search state */}
+          {filteredGroups.length === 0 && (
+            <p className="px-2 py-6 text-center text-xs text-muted-foreground/50">
+              {t("searchEmpty")}
+            </p>
+          )}
         </nav>
       </ScrollArea>
-      <div className="mt-2 border-t pt-2">
+
+      {/* Back to workspace */}
+      <div className="border-t pt-2">
         <Button
           variant="ghost"
           size="sm"
-          className="w-full justify-start px-2"
+          className="w-full justify-start px-2 text-muted-foreground hover:text-foreground"
           type="button"
           onClick={() => {
             if (onBack) {
@@ -280,8 +388,8 @@ export function SettingsShell({
             navigateTo("/workspace")
           }}
         >
-          <span className="inline-flex items-center gap-1">
-            <ArrowLeft className="h-3.5 w-3.5" />
+          <span className="inline-flex items-center gap-1.5">
+            <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
             {t("backToWorkspace")}
           </span>
         </Button>
@@ -316,10 +424,10 @@ export function SettingsShell({
         }
       />
 
-      <div className="flex-1 min-h-0 flex">
+      <div className="flex min-h-0 flex-1">
         {/* Desktop sidebar */}
         {!isMobile && (
-          <aside className="flex min-h-0 w-56 shrink-0 flex-col border-r px-2 py-3">
+          <aside className="flex min-h-0 w-52 shrink-0 flex-col border-r px-2 py-3">
             {navContent}
           </aside>
         )}
@@ -338,10 +446,15 @@ export function SettingsShell({
           </Sheet>
         )}
 
-        <section className="flex-1 min-w-0 min-h-0 overflow-hidden">
+        {/* Content area — keyed to trigger fade-in on navigation */}
+        <section
+          key={normalizedPathname}
+          className="min-h-0 min-w-0 flex-1 overflow-hidden animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
+        >
           {children}
         </section>
       </div>
+
       {showToaster && (
         <AppToaster position="bottom-right" closeButton duration={4000} />
       )}

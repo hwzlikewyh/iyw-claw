@@ -14,6 +14,7 @@ import { useLocale } from "next-intl"
 import { useSearchParams } from "next/navigation"
 import {
   CheckCircle2,
+  Bot,
   ChevronDown,
   Copy,
   Download,
@@ -7084,13 +7085,20 @@ export function AcpAgentSettings({
   }
 
   return (
-    <div className="h-full flex flex-col p-3 md:p-4">
+    <div className="h-full flex flex-col px-5 py-5">
       <div className="flex items-center justify-between gap-3 pb-4">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold">{t("title")}</h2>
-          <p className="mt-1 break-words text-xs text-muted-foreground">
-            {t("description")}
-          </p>
+        <div className="min-w-0 flex items-center gap-2.5">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+            <Bot className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-base font-semibold tracking-tight">
+              {t("title")}
+            </h1>
+            <p className="mt-0.5 break-words text-xs text-muted-foreground">
+              {t("description")}
+            </p>
+          </div>
         </div>
       </div>
 

@@ -1,17 +1,20 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { FileText, Loader2, RefreshCw, Save } from "lucide-react"
+import { FileText, Brain, Loader2, RefreshCw, Save } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { UserMemoryPolicyPanel } from "./user-memory-policy-panel"
 import { getUserMemorySettings, updateUserMemorySettings } from "@/lib/api"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
+import {
+  SettingsPageLayout,
+  SettingsPageHeader,
+} from "@/components/settings/settings-ui"
 import {
   buildUserMemoryUpdateRequest,
   createUserMemoryDraft,
@@ -169,39 +172,31 @@ export function UserMemorySettings() {
   const fullPath = activeSnapshot?.path ?? activeDocument.fileName
 
   return (
-    <ScrollArea className="h-full">
-      <div className="flex min-h-full flex-col gap-4 p-3 md:p-4">
-        <section className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-sm font-semibold">{t("title")}</h1>
-              <span
-                aria-live="polite"
-                className="flex flex-wrap items-center gap-2"
-              >
-                {!settings.enabled && (
-                  <Badge variant="outline" className="text-[11px]">
-                    {t("status.disabled")}
-                  </Badge>
-                )}
-                {staleRunningSessions > 0 ? (
-                  <Badge variant="destructive" className="text-[11px]">
-                    {t("status.newConversationRequired", {
-                      count: staleRunningSessions,
-                    })}
-                  </Badge>
-                ) : (
-                  settings.enabled && (
-                    <Badge variant="outline" className="text-[11px]">
-                      {t("status.active")}
-                    </Badge>
-                  )
-                )}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">{t("description")}</p>
-          </div>
-          <div className="flex items-center gap-2">
+    <SettingsPageLayout>
+      <SettingsPageHeader
+        icon={Brain}
+        title={t("title")}
+        description={t("description")}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            {!settings.enabled && (
+              <Badge variant="outline" className="text-[11px]">
+                {t("status.disabled")}
+              </Badge>
+            )}
+            {staleRunningSessions > 0 ? (
+              <Badge variant="destructive" className="text-[11px]">
+                {t("status.newConversationRequired", {
+                  count: staleRunningSessions,
+                })}
+              </Badge>
+            ) : (
+              settings.enabled && (
+                <Badge variant="outline" className="text-[11px]">
+                  {t("status.active")}
+                </Badge>
+              )
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -224,93 +219,89 @@ export function UserMemorySettings() {
               {saving ? t("saving") : t("save")}
             </Button>
           </div>
-        </section>
+        }
+      />
 
-        {draft && (
-          <UserMemoryPolicyPanel
-            draft={draft}
-            disabled={saving}
-            onChange={setDraft}
-          />
-        )}
+      {draft && (
+        <UserMemoryPolicyPanel
+          draft={draft}
+          disabled={saving}
+          onChange={setDraft}
+        />
+      )}
 
-        <section className="grid gap-2 sm:grid-cols-3">
-          {USER_MEMORY_DOCUMENTS.map((document) => {
-            const active = document.id === activeDocumentId
-            return (
-              <button
-                key={document.id}
-                type="button"
-                onClick={() => switchDocument(document.id)}
-                aria-current={active ? "page" : undefined}
-                className={`rounded-lg border p-3 text-left transition-colors ${
-                  active
-                    ? "border-primary/60 bg-primary/10"
-                    : "bg-card hover:bg-muted/40"
-                }`}
-              >
-                <div className="text-sm font-medium">
-                  {t(document.labelKey)}
-                </div>
-                <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {t(document.descriptionKey)}
-                </div>
-              </button>
-            )
-          })}
-        </section>
+      <section className="grid gap-2 sm:grid-cols-3">
+        {USER_MEMORY_DOCUMENTS.map((document) => {
+          const active = document.id === activeDocumentId
+          return (
+            <button
+              key={document.id}
+              type="button"
+              onClick={() => switchDocument(document.id)}
+              aria-current={active ? "page" : undefined}
+              className={`rounded-xl border p-3 text-left transition-colors ${
+                active
+                  ? "border-primary/60 bg-primary/10"
+                  : "bg-card hover:bg-muted/40"
+              }`}
+            >
+              <div className="text-sm font-medium">{t(document.labelKey)}</div>
+              <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                {t(document.descriptionKey)}
+              </div>
+            </button>
+          )
+        })}
+      </section>
 
-        {error && (
-          <div
-            role="alert"
-            className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400"
-          >
-            {error}
+      {error && (
+        <div
+          role="alert"
+          className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400"
+        >
+          {error}
+        </div>
+      )}
+
+      <section className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <FileText className="h-4 w-4 shrink-0" />
+            <span className="truncate font-mono">
+              {t(activeDocument.labelKey)} · {fullPath}
+            </span>
           </div>
-        )}
-
-        <section className="flex flex-1 flex-col gap-3 rounded-lg border bg-card p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-              <FileText className="h-4 w-4 shrink-0" />
-              <span className="truncate font-mono">
-                {t(activeDocument.labelKey)} · {fullPath}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              {dirty && <span className="text-amber-500">{t("dirty")}</span>}
-              {readonly && (
-                <span className="text-red-400">{t("readonly")}</span>
-              )}
-              <span>{t("stats", stats)}</span>
-            </div>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            {dirty && <span className="text-amber-500">{t("dirty")}</span>}
+            {readonly && <span className="text-red-400">{t("readonly")}</span>}
+            <span>{t("stats", stats)}</span>
           </div>
+        </div>
 
-          <Textarea
-            value={content}
-            onChange={(event) => {
-              const nextContent = event.target.value
-              setDraft((current) =>
-                current
-                  ? {
-                      ...current,
-                      documents: {
-                        ...current.documents,
-                        [activeDocumentId]: {
-                          ...current.documents[activeDocumentId],
-                          content: nextContent,
-                        },
+        <Textarea
+          value={content}
+          onChange={(event) => {
+            const nextContent = event.target.value
+            setDraft((current) =>
+              current
+                ? {
+                    ...current,
+                    documents: {
+                      ...current.documents,
+                      [activeDocumentId]: {
+                        ...current.documents[activeDocumentId],
+                        content: nextContent,
                       },
-                    }
-                  : current
-              )
-            }}
-            placeholder={t(activeDocument.placeholderKey)}
-            disabled={readonly || saving}
-            className="min-h-[420px] flex-1 resize-none font-mono text-sm leading-6"
-          />
-        </section>
-      </div>
-    </ScrollArea>
+                    },
+                  }
+                : current
+            )
+          }}
+          placeholder={t(activeDocument.placeholderKey)}
+          disabled={readonly || saving}
+          className="min-h-[420px] flex-1 resize-none font-mono text-sm leading-6"
+        />
+      </section>
+    </SettingsPageLayout>
   )
 }

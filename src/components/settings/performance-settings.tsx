@@ -5,9 +5,12 @@ import { RefreshCw, Activity } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { getShellTransport } from "@/lib/transport"
+import {
+  SettingsPageLayout,
+  SettingsPageHeader,
+} from "@/components/settings/settings-ui"
 
 // ─── 类型定义（与 Rust serde camelCase 对应）───────────────────────────────
 
@@ -167,14 +170,11 @@ export function PerformanceSettings() {
   const totalAgentMemory = agentProcs.reduce((s, p) => s + p.memoryBytes, 0)
 
   return (
-    <ScrollArea className="h-full">
-      <div className="p-6 space-y-5">
-        {/* 标题栏 */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-muted-foreground" />
-            <h2 className="text-base font-semibold">性能监控</h2>
-          </div>
+    <SettingsPageLayout>
+      <SettingsPageHeader
+        icon={Activity}
+        title="性能监控"
+        action={
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <span className="text-sm text-muted-foreground">自动刷新</span>
@@ -196,139 +196,139 @@ export function PerformanceSettings() {
               刷新
             </Button>
           </div>
+        }
+      />
+
+      {/* 错误提示 */}
+      {error && (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard
+          label="系统 CPU"
+          value={`${cpuPercent}%`}
+          progress={stats ? stats.cpuUsage : 0}
+        />
+        <StatCard
+          label="系统内存"
+          value={`${memPercent}%`}
+          sub={
+            stats
+              ? `${formatBytes(stats.memoryUsedBytes)} / ${formatBytes(stats.memoryTotalBytes)}`
+              : undefined
+          }
+          progress={
+            stats ? (stats.memoryUsedBytes / stats.memoryTotalBytes) * 100 : 0
+          }
+        />
+        <StatCard
+          label="智能体进程"
+          value={String(agentProcs.length)}
+          sub={`占用 ${formatBytes(totalAgentMemory)}`}
+        />
+        <StatCard
+          label="系统运行时间"
+          value={stats ? formatUptime(stats.osInfo.uptimeSecs) : "—"}
+          sub={
+            stats
+              ? `${stats.osInfo.cpuCount} 核 · ${stats.osInfo.arch}`
+              : undefined
+          }
+        />
+      </div>
+
+      {/* 进程列表 */}
+      <div className="rounded-lg border overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
+          <span className="text-sm font-medium">
+            进程
+            {stats?.osInfo.osName && (
+              <span className="ml-2 text-xs text-muted-foreground font-normal">
+                {stats.osInfo.osName} · {stats.osInfo.arch} · 运行{" "}
+                {formatUptime(stats.osInfo.uptimeSecs)}
+              </span>
+            )}
+          </span>
+          {lastUpdate && (
+            <span className="text-xs text-muted-foreground">
+              更新于{" "}
+              {lastUpdate.toLocaleTimeString("zh-CN", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
+            </span>
+          )}
         </div>
 
-        {/* 错误提示 */}
-        {error && (
-          <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {error}
+        {/* 表头 */}
+        {stats && stats.processes.length > 0 && (
+          <div className="flex items-center gap-4 px-4 py-2 border-b bg-muted/10">
+            <div className="flex-1 text-xs text-muted-foreground">名称</div>
+            <div className="w-16 text-right text-xs text-muted-foreground">
+              CPU
+            </div>
+            <div className="w-20 text-right text-xs text-muted-foreground">
+              内存
+            </div>
+            <div className="w-14 text-xs text-muted-foreground">状态</div>
           </div>
         )}
 
-        {/* 统计卡片 */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard
-            label="系统 CPU"
-            value={`${cpuPercent}%`}
-            progress={stats ? stats.cpuUsage : 0}
-          />
-          <StatCard
-            label="系统内存"
-            value={`${memPercent}%`}
-            sub={
-              stats
-                ? `${formatBytes(stats.memoryUsedBytes)} / ${formatBytes(stats.memoryTotalBytes)}`
-                : undefined
-            }
-            progress={
-              stats ? (stats.memoryUsedBytes / stats.memoryTotalBytes) * 100 : 0
-            }
-          />
-          <StatCard
-            label="智能体进程"
-            value={String(agentProcs.length)}
-            sub={`占用 ${formatBytes(totalAgentMemory)}`}
-          />
-          <StatCard
-            label="系统运行时间"
-            value={stats ? formatUptime(stats.osInfo.uptimeSecs) : "—"}
-            sub={
-              stats
-                ? `${stats.osInfo.cpuCount} 核 · ${stats.osInfo.arch}`
-                : undefined
-            }
-          />
-        </div>
-
-        {/* 进程列表 */}
-        <div className="rounded-lg border overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
-            <span className="text-sm font-medium">
-              进程
-              {stats?.osInfo.osName && (
-                <span className="ml-2 text-xs text-muted-foreground font-normal">
-                  {stats.osInfo.osName} · {stats.osInfo.arch} · 运行{" "}
-                  {formatUptime(stats.osInfo.uptimeSecs)}
-                </span>
-              )}
-            </span>
-            {lastUpdate && (
-              <span className="text-xs text-muted-foreground">
-                更新于{" "}
-                {lastUpdate.toLocaleTimeString("zh-CN", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                })}
-              </span>
-            )}
+        {!stats || stats.processes.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            {loading ? "加载中..." : "暂无进程数据"}
           </div>
-
-          {/* 表头 */}
-          {stats && stats.processes.length > 0 && (
-            <div className="flex items-center gap-4 px-4 py-2 border-b bg-muted/10">
-              <div className="flex-1 text-xs text-muted-foreground">名称</div>
-              <div className="w-16 text-right text-xs text-muted-foreground">
-                CPU
-              </div>
-              <div className="w-20 text-right text-xs text-muted-foreground">
-                内存
-              </div>
-              <div className="w-14 text-xs text-muted-foreground">状态</div>
-            </div>
-          )}
-
-          {!stats || stats.processes.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              {loading ? "加载中..." : "暂无进程数据"}
-            </div>
-          ) : (
-            <div className="divide-y">
-              {stats.processes.map((proc) => (
-                <ProcessRow key={proc.pid} proc={proc} />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* 智能体内存汇总 */}
-        {agentProcs.length > 0 && (
-          <div className="rounded-lg border overflow-hidden">
-            <div className="px-4 py-3 border-b bg-muted/30">
-              <span className="text-sm font-medium">智能体内存汇总</span>
-            </div>
-            <div className="divide-y">
-              {agentProcs
-                .slice()
-                .sort((a, b) => b.memoryBytes - a.memoryBytes)
-                .map((proc) => (
-                  <div
-                    key={proc.pid}
-                    className="flex items-center gap-4 px-4 py-2.5"
-                  >
-                    <div className="flex-1 text-sm">{proc.displayName}</div>
-                    <div className="text-sm tabular-nums text-muted-foreground">
-                      {formatBytes(proc.memoryBytes)}
-                    </div>
-                    <div className="w-32">
-                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-blue-500/70 transition-all duration-500"
-                          style={{
-                            width:
-                              totalAgentMemory > 0
-                                ? `${((proc.memoryBytes / totalAgentMemory) * 100).toFixed(1)}%`
-                                : "0%",
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-            </div>
+        ) : (
+          <div className="divide-y">
+            {stats.processes.map((proc) => (
+              <ProcessRow key={proc.pid} proc={proc} />
+            ))}
           </div>
         )}
       </div>
-    </ScrollArea>
+
+      {/* 智能体内存汇总 */}
+      {agentProcs.length > 0 && (
+        <div className="rounded-lg border overflow-hidden">
+          <div className="px-4 py-3 border-b bg-muted/30">
+            <span className="text-sm font-medium">智能体内存汇总</span>
+          </div>
+          <div className="divide-y">
+            {agentProcs
+              .slice()
+              .sort((a, b) => b.memoryBytes - a.memoryBytes)
+              .map((proc) => (
+                <div
+                  key={proc.pid}
+                  className="flex items-center gap-4 px-4 py-2.5"
+                >
+                  <div className="flex-1 text-sm">{proc.displayName}</div>
+                  <div className="text-sm tabular-nums text-muted-foreground">
+                    {formatBytes(proc.memoryBytes)}
+                  </div>
+                  <div className="w-32">
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-blue-500/70 transition-all duration-500"
+                        style={{
+                          width:
+                            totalAgentMemory > 0
+                              ? `${((proc.memoryBytes / totalAgentMemory) * 100).toFixed(1)}%`
+                              : "0%",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+    </SettingsPageLayout>
   )
 }

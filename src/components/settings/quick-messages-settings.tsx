@@ -9,7 +9,14 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react"
-import { GripVertical, Loader2, Plus, Save, Trash2 } from "lucide-react"
+import {
+  GripVertical,
+  Loader2,
+  MessageSquareText,
+  Plus,
+  Save,
+  Trash2,
+} from "lucide-react"
 import { Reorder, useDragControls } from "motion/react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
@@ -334,13 +341,20 @@ export function QuickMessagesSettings() {
       : null
 
   return (
-    <div className="h-full flex flex-col p-3 md:p-4">
+    <div className="h-full flex flex-col px-5 py-5">
       <div className="flex items-center justify-between gap-3 pb-4">
-        <div>
-          <h2 className="text-base font-semibold">{t("title")}</h2>
-          <p className="text-xs text-muted-foreground mt-1">
-            {t("description")}
-          </p>
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+            <MessageSquareText className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div>
+            <h1 className="text-base font-semibold tracking-tight">
+              {t("title")}
+            </h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {t("description")}
+            </p>
+          </div>
         </div>
       </div>
 

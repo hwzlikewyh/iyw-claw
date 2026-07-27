@@ -935,7 +935,7 @@ export function McpSettings() {
         </DialogContent>
       </Dialog>
 
-      <div className="h-full min-h-0 grid grid-cols-1 gap-4 p-3 md:p-4 lg:grid-cols-[360px_1fr]">
+      <div className="h-full min-h-0 grid grid-cols-1 gap-4 px-5 py-5 lg:grid-cols-[360px_1fr]">
         <section className="min-h-0 rounded-xl border bg-card p-3">
           <Tabs
             value={leftTab}
