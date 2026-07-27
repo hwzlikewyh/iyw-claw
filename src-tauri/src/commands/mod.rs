@@ -15,6 +15,7 @@ pub mod conversations;
 pub mod delegation;
 pub mod experts;
 pub mod feedback;
+pub mod performance;
 #[cfg(feature = "tauri-runtime")]
 pub mod file_io;
 pub mod folder_commands;

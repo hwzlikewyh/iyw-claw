@@ -84,6 +84,10 @@ pub fn build_router(
             post(handlers::conversations::list_child_conversations),
         )
         .route(
+            "/get_performance_stats",
+            post(handlers::performance::get_performance_stats),
+        )
+        .route(
             "/get_usage_dashboard",
             post(handlers::usage::get_usage_dashboard),
         )

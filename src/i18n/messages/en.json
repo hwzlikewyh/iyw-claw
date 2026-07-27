@@ -55,7 +55,8 @@
       "quick_messages": "Quick Messages",
       "logs": "Runtime Logs",
       "usage": "Usage",
-      "user_memory": "User Memory"
+      "user_memory": "User Memory",
+      "performance": "Performance"
     }
   },
   "SkillPacksSettings": {

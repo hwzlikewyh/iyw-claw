@@ -23,6 +23,7 @@ import {
   Settings,
   SlidersHorizontal,
   ScrollText,
+  Activity,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { usePathname } from "next/navigation"
@@ -51,6 +52,7 @@ export interface SettingsNavItem {
     | "chat_channels"
     | "system"
     | "logs"
+    | "performance"
   icon: ComponentType<{ className?: string }>
 }
 
@@ -72,6 +74,11 @@ const SETTINGS_NAV_ITEMS_WITH_HIDDEN: SettingsNavItem[] = [
     href: "/settings/usage",
     labelKey: "usage",
     icon: BarChart3,
+  },
+  {
+    href: "/settings/performance",
+    labelKey: "performance",
+    icon: Activity,
   },
   {
     href: "/settings/user-memory",
