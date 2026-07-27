@@ -117,6 +117,7 @@ import {
   ConversationFolderBranchPicker,
   useConversationFolderBranchPickerVisible,
 } from "@/components/chat/conversation-context-bar"
+import { SessionUsageChip } from "@/components/layout/status-bar-tokens"
 import { InlineModeSelector } from "@/components/chat/mode-selector"
 import { InlineSessionConfigSelector } from "@/components/chat/session-config-selector"
 import { ModelOptionPicker } from "@/components/chat/model-option-picker"
@@ -3252,7 +3253,14 @@ export function MessageInput({
                     </div>
                   )}
                 </div>
-                <div className="shrink-0">{actionButtons}</div>
+                <div className="flex shrink-0 items-end gap-1">
+                  <SessionUsageChip
+                    contextKey={attachmentTabId ?? null}
+                    popoverSide="top"
+                    popoverSideOffset={8}
+                  />
+                  {actionButtons}
+                </div>
               </div>
               {showDragActive && (
                 <div className="pointer-events-none absolute inset-1 z-20 flex items-center justify-center rounded-md border border-dashed border-primary/50 bg-background/80 text-xs text-muted-foreground">

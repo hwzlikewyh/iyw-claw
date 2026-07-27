@@ -19,6 +19,10 @@ const INPUT_MIN_WIDTH = 96
 const INPUT_CHAR_WIDTH = 15
 const INPUT_HORIZONTAL_PADDING = 12
 const INPUT_HEIGHT = 38
+// Minimum pixel sizes so the input stays visible when displayScale is small
+const MIN_INPUT_HEIGHT_PX = 28
+const MIN_FONT_SIZE_PX = 14
+const MIN_INPUT_WIDTH_PX = 80
 
 export function ImageEditorInlineText(props: ImageEditorInlineTextProps) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -34,8 +38,14 @@ export function ImageEditorInlineText(props: ImageEditorInlineTextProps) {
   const scaledWidth = props.size.width * scale
   const scaledHeight = props.size.height * scale
 
-  const minWidth = Math.min(INPUT_MIN_WIDTH * scale, scaledWidth)
-  const inputHeight = Math.min(INPUT_HEIGHT * scale, scaledHeight)
+  const minWidth = Math.min(
+    Math.max(MIN_INPUT_WIDTH_PX, INPUT_MIN_WIDTH * scale),
+    scaledWidth
+  )
+  const inputHeight = Math.min(
+    Math.max(MIN_INPUT_HEIGHT_PX, INPUT_HEIGHT * scale),
+    scaledHeight
+  )
   const left = Math.max(0, Math.min(props.draft.x * scale, scaledWidth - minWidth))
   const top = Math.max(0, Math.min(props.draft.y * scale, scaledHeight - inputHeight))
   const availableWidth = Math.max(1, scaledWidth - left)
@@ -77,7 +87,7 @@ export function ImageEditorInlineText(props: ImageEditorInlineTextProps) {
         width,
         height: inputHeight,
         color: props.color,
-        fontSize: FONT_SIZE * scale,
+        fontSize: Math.max(MIN_FONT_SIZE_PX, FONT_SIZE * scale),
         letterSpacing: 0,
       }}
     />
