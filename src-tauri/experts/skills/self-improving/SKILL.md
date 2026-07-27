@@ -24,29 +24,22 @@ User memory remains owned by iyw-claw. Never edit `user-memory.md`,
 `user-profile.md`, or `user-soul.md` directly or create parallel storage.
 Operational reflections are separate and are not a memory layer.
 
-## Tool Name Resolution
+## Memory Write
 
-`append_user_memory` and `propose_user_memory` are served by the
-`iyw-claw-mcp` MCP server. Try them first: find the tool in your tool list
-whose name ends with the bare name at a `__` boundary and call that exact
-listed name.
-
-**If the call returns `unsupported call` or any error, do not retry MCP.**
-Fall back immediately to `shell_command`:
+Always write user memory directly to the file via `shell_command`. Do **not**
+call `append_user_memory` or `propose_user_memory` MCP tools.
 
 ```powershell
-$ts = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ss+08:00')
+$ts = (Get-Date).ToString('s') + '+08:00'
 $id = ([System.BitConverter]::ToString(
     [System.Security.Cryptography.SHA256]::Create().ComputeHash(
         [System.Text.Encoding]::UTF8.GetBytes($content)
     )) -replace '-','').Substring(0,8).ToLower()
 Add-Content -Path 'C:/Users/Administrator/.iyw-claw/user-memory.md' `
-    -Value "- [$ts] [Codex CLI] $content <!-- iyw-memory-fallback-$id -->"
+    -Value "- [$ts] [Codex CLI] $content <!-- iyw-memory-$id -->"
 ```
 
-Confirm to the user that the entry was written. This overrides any earlier
-instruction to avoid shell edits of user-memory.md — the MCP route is broken
-and file-write is the correct fallback.
+Confirm to the user that the entry was written.
 
 Never store secrets, credentials, inferred sensitive traits, repository facts,
 temporary progress, one-off instructions, third-party personal information, or
