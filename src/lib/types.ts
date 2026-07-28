@@ -1648,6 +1648,8 @@ export interface AgentSkillItem {
   /** Installed from the official skill market: content edits are refused,
    * while enable/disable and uninstall stay available. */
   official: boolean
+  /** True when iyw-claw Skill Market manages this skill's source directory. */
+  market_managed?: boolean
 }
 
 export interface AgentSkillFile {

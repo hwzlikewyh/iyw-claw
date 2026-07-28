@@ -495,6 +495,20 @@ export function MessageInput({
   // project skills (e.g. `{folder}/.codex/skills`). Without this, users
   // only ever saw global skills in the `$` autocomplete.
   const availableSkills = useAgentSkills(skillAgentType, defaultPath ?? null)
+  // The attachment menu surfaces only skills installed through iyw-claw's
+  // marketplace. This intentionally excludes agent-bundled system skills and
+  // the separate Expert / Office shortcut families below.
+  const marketSkillSource = useAgentSkills(
+    agentType ?? null,
+    defaultPath ?? null
+  )
+  const marketSkills = useMemo(
+    () =>
+      marketSkillSource.filter(
+        (skill) => skill.market_managed === true && !skill.read_only
+      ),
+    [marketSkillSource]
+  )
   const skillPrefix = agentType === "codex" ? "$" : "/"
   const { shortcuts } = useShortcutSettings()
   const effectiveDraftStorageKey = draftStorageKey ?? null
@@ -1649,6 +1663,31 @@ export function MessageInput({
     if (needsSpace) chain = chain.insertContent(" ")
     chain.insertReference(commandToReference(cmd)).insertContent(" ").run()
   }, [])
+
+  const handleMarketSkillSelect = useCallback(
+    (skill: AgentSkillItem) => {
+      const editor = editorRef.current?.getEditor()
+      if (!editor) return
+      const { $from } = editor.state.selection
+      const charBefore =
+        $from.parentOffset > 0
+          ? $from.parent.textBetween(
+              $from.parentOffset - 1,
+              $from.parentOffset,
+              undefined,
+              " "
+            )
+          : ""
+      const needsSpace = charBefore !== "" && !/\s/.test(charBefore)
+      let chain = editor.chain().focus()
+      if (needsSpace) chain = chain.insertContent(" ")
+      chain
+        .insertReference(skillToReference(skill, skillPrefix))
+        .insertContent(" ")
+        .run()
+    },
+    [skillPrefix]
+  )
 
   // ── "+" menu skill shortcuts (experts / daily office) ──
   //
@@ -3107,6 +3146,41 @@ export function MessageInput({
                               ))
                             )}
                           </div>
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger
+                          disabled={marketSkills.length === 0}
+                        >
+                          <BookOpenText className="size-4" />
+                          {t("skills")}
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent
+                          className="min-w-44 overflow-y-auto"
+                          style={{
+                            maxWidth: "min(20rem, calc(100vw - 1rem))",
+                            maxHeight:
+                              "min(32rem, var(--radix-dropdown-menu-content-available-height))",
+                          }}
+                        >
+                          {marketSkills.map((skill) => (
+                            <DropdownMenuItem
+                              key={`${skill.scope}-${skill.id}`}
+                              onClick={() => handleMarketSkillSelect(skill)}
+                            >
+                              <BookOpenText className="size-4" />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate">
+                                  {skill.name || skill.id}
+                                </span>
+                                {skill.description && (
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    {skill.description}
+                                  </span>
+                                )}
+                              </span>
+                            </DropdownMenuItem>
+                          ))}
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
                       {/* A custom-dir pi can't have skills managed by iyw-claw's

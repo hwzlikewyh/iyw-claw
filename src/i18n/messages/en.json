@@ -2551,6 +2551,7 @@
         "send": "Send",
         "forkAndSend": "Fork & Send",
         "slashCommands": "Slash commands",
+        "skills": "Skills",
         "slashSearchPlaceholder": "Search commands...",
         "slashSearchEmpty": "No matching commands",
         "experts": "Experts",
