@@ -17,8 +17,17 @@ import {
   hasSessionConfigValueIcon,
   SessionConfigValueIcon,
 } from "@/components/chat/session-config-value-icon"
+import { ReasoningEffortSlider } from "@/components/chat/reasoning-effort-slider"
 import type { ModelOptionGroup } from "@/lib/model-config-groups"
 import type { SessionConfigOptionInfo } from "@/lib/types"
+
+/** Matches the same rule as `isReasoningConfig` in session-config-value-icon. */
+function isReasoningOption(id: string): boolean {
+  const n = id.trim().toLowerCase().replace(/_/g, "-")
+  return (
+    n.includes("reasoning") || n.includes("thought") || n.includes("effort")
+  )
+}
 
 interface SessionConfigSelectorProps {
   option: SessionConfigOptionInfo
@@ -38,6 +47,12 @@ export function InlineSessionConfigSelector({
   derivedGroups,
 }: SessionConfigSelectorProps) {
   if (option.kind.type !== "select") return null
+
+  // Reasoning / effort / thought-level options get a slider instead of a
+  // plain dropdown — matches the Codex-style draggable effort selector.
+  if (isReasoningOption(option.id)) {
+    return <ReasoningEffortSlider option={option} onSelect={onSelect} />
+  }
 
   // Unified group list rendered in the dropdown body. Derived (model) groups
   // win; otherwise server-provided groups; otherwise `null` → flat options.

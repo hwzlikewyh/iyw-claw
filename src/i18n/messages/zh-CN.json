@@ -693,7 +693,7 @@
     "systemHint": "CLI 内置 Skill · 只读",
     "systemSkill": {
       "title": "系统内置 Skill",
-      "description": "这个 Skill 来自 Agent CLI 的内置目录。iyw-claw 会在加载时自动复制到中心库并发布到全部支持的平台；如果仍显示只读，说明自动接管未完成。",
+      "description": "这个 Skill 来自 Agent CLI 的内置目录。原助理 会在加载时自动复制到中心库并发布到全部支持的平台；如果仍显示只读，说明自动接管未完成。",
       "readOnly": "只读",
       "takeOverHint": "复制到 ~/.iyw-claw/skills 并发布到当前 Agent"
     },
@@ -713,7 +713,7 @@
     "enableSwitch": {
       "title": "使用这个 Skill",
       "enabledHint": "启用后会保留在 Agent 可发现的 Skills 目录中。",
-      "disabledHint": "停用后由 iyw-claw 保留，但 Agent 不会再发现它。",
+      "disabledHint": "停用后由 原助理 保留，但 Agent 不会再发现它。",
       "aria": "切换 Skill {name}"
     },
     "scope": {
@@ -757,7 +757,7 @@
       "enabled": "Skill 已启用",
       "disabled": "Skill 已停用",
       "toggleFailed": "更新 Skill 状态失败",
-      "takenOver": "Skill 已由 iyw-claw 接管",
+      "takenOver": "Skill 已由 原助理 接管",
       "takeOverFailed": "接管 Skill 失败",
       "deleted": "Skill 已删除",
       "deleteFailed": "删除 Skill 失败"
@@ -900,10 +900,10 @@
       "resetProfile": "使用默认目录",
       "profileSaved": "Agent 配置目录已保存",
       "profileReset": "Agent 配置目录已恢复默认",
-      "restartRequired": "安装或启动 Agent 前需要重启 iyw-claw。",
+      "restartRequired": "安装或启动 Agent 前需要重启 原助理。",
       "restartNow": "立即重启",
       "confirmTitle": "确认目录",
-      "globalProfileWarning": "这是该 Agent 现有的用户全局配置目录。iyw-claw 会在此目录强制写入受管 Provider 配置，可能影响你原来的命令行环境。",
+      "globalProfileWarning": "这是该 Agent 现有的用户全局配置目录。原助理 会在此目录强制写入受管 Provider 配置，可能影响你原来的命令行环境。",
       "systemDriveWarning": "该目录位于 Windows 系统盘。仅当你确定要把 Agent 数据存放在系统盘时才继续。",
       "cancel": "取消",
       "confirm": "继续",
@@ -1112,7 +1112,7 @@
       "notRun": "尚未执行检测。"
     },
     "codex": {
-      "configDescription": "选择模型和思考强度。托管启动始终使用 iyw-claw 提供方。",
+      "configDescription": "选择模型和思考强度。托管启动始终使用 原助理 提供方。",
       "authMode": "认证方式",
       "chatgptSubscription": "官网订阅",
       "chatgptSubscriptionHint": "使用 ChatGPT 官网订阅登录，无需配置 API Key",
@@ -1238,7 +1238,7 @@
     },
     "hermes": {
       "configManagement": "Hermes 配置",
-      "configDescription": "Hermes 在 ~/.hermes/.env 中管理自己的凭据，在 ~/.hermes/config.yaml 中管理设置。选择一个供应商，然后设置 API 密钥和模型——iyw-claw 会替你写入这两个文件。",
+      "configDescription": "Hermes 在 ~/.hermes/.env 中管理自己的凭据，在 ~/.hermes/config.yaml 中管理设置。选择一个供应商，然后设置 API 密钥和模型——原助理 会替你写入这两个文件。",
       "providerLabel": "供应商",
       "providerHint": "供应商决定 Hermes 使用哪个 API 密钥变量和 model.provider。OAuth 供应商通过下方的终端设置进行配置。",
       "groupApiKey": "API 密钥提供商",
@@ -1280,8 +1280,8 @@
     },
     "kimiCode": {
       "configManagement": "Kimi Code 配置",
-      "configDescription": "`kimi acp` 仅凭已存储的登录令牌鉴权，单独的 API Key 不被接受。为支持 API Key，iyw-claw 会写入受管的 ~/.kimi-code/config.toml 供应商，并在本地播种一个门控令牌以打开会话——推理仍走你的 Key。",
-      "gateReadyApiKey": "已通过 API Key 鉴权（iyw-claw 已播种本地门控令牌）。",
+      "configDescription": "`kimi acp` 仅凭已存储的登录令牌鉴权，单独的 API Key 不被接受。为支持 API Key，原助理 会写入受管的 ~/.kimi-code/config.toml 供应商，并在本地播种一个门控令牌以打开会话——推理仍走你的 Key。",
+      "gateReadyApiKey": "已通过 API Key 鉴权（原助理 已播种本地门控令牌）。",
       "gateReadyLogin": "已通过 Kimi 账号登录鉴权。",
       "gateNotReady": "尚未鉴权——请在下方保存 API Key（或登录）以打开 Kimi 会话。",
       "authModeLabel": "鉴权方式",
@@ -1315,9 +1315,9 @@
       "fetchModelsNeedsKey": "请先填写 API Key 和接入点",
       "maxContextLabel": "最大上下文长度（可选）",
       "maxContextHint": "Token 数，例如 262144。留空则使用模型默认值。",
-      "loginHint": "在终端运行 `kimi login`，用 Kimi 订阅账号登录（设备码 OAuth）。iyw-claw 不存储任何凭据，复用 Kimi 自己的登录。在此保存会移除 iyw-claw 的 API Key 门控令牌。",
+      "loginHint": "在终端运行 `kimi login`，用 Kimi 订阅账号登录（设备码 OAuth）。原助理 不存储任何凭据，复用 Kimi 自己的登录。在此保存会移除 原助理 的 API Key 门控令牌。",
       "rawEditorLabel": "高级：直接编辑 config.toml",
-      "rawEditorHint": "逐字写入（保留注释）并按 TOML 校验。iyw-claw 同时会播种门控令牌以打开会话。",
+      "rawEditorHint": "逐字写入（保留注释）并按 TOML 校验。原助理 同时会播种门控令牌以打开会话。",
       "rawEditorPlaceholder": "[providers.iyw-claw]\ntype = \"kimi\"\nbase_url = \"https://api.moonshot.cn/v1\"\napi_key = \"sk-...\""
     },
     "authModeOfficialSubscription": "官网订阅",
@@ -1384,11 +1384,11 @@
       "storageNotInitialized": "Agent 存储尚未初始化",
       "storageNotInitializedDescription": "请先在 Agent 设置中选择私有存储目录，再安装或修复 Agent。",
       "storageInitialized": "Agent 私有存储已初始化",
-      "storageRestartRequired": "请重启 iyw-claw，然后再次点击“安装”。",
-      "storageRestartingForInstall": "iyw-claw 将重启并自动继续安装。",
+      "storageRestartRequired": "请重启 原助理，然后再次点击“安装”。",
+      "storageRestartingForInstall": "原助理 将重启并自动继续安装。",
       "storageSuggestionUnavailable": "请先打开 Agent 设置并选择私有存储目录。",
       "storageInitializationFailed": "初始化 Agent 存储失败",
-      "storageRestartFailed": "Agent 存储已就绪，但 iyw-claw 重启失败",
+      "storageRestartFailed": "Agent 存储已就绪，但 原助理 重启失败",
       "localVersion": "本地版本：{version}",
       "installCompletedVersionLater": "安装完成，版本将在下一次检测时更新",
       "uninstallCompleted": "{name}卸载完成",
@@ -1480,7 +1480,7 @@
       "saveConfig": "保存 Pi 配置",
       "modelRequired": "模型为必填项",
       "trustTitle": "自动信任打开的工作区",
-      "trustDescription": "iyw-claw 连接 pi 到某个目录时，将该目录标记为受信任，使 pi 无需单独确认即可加载该项目的本地配置与技能。",
+      "trustDescription": "原助理 连接 pi 到某个目录时，将该目录标记为受信任，使 pi 无需单独确认即可加载该项目的本地配置与技能。",
       "trustHint": "仅信任你在此打开的目录，绝不涉及整台机器；且只影响配置加载，不影响 pi 能执行什么。"
     }
   },
@@ -1501,8 +1501,8 @@
     "loadFailed": "加载失败：{message}"
   },
   "LoginPage": {
-    "documentTitle": "登录 - iyw-claw",
-    "brand": "iyw-claw",
+    "documentTitle": "登录 - 原助理",
+    "brand": "原助理",
     "subtitle": "输入访问 Token 以连接到桌面端",
     "tokenPlaceholder": "Access Token",
     "connect": "连接",
@@ -2684,7 +2684,7 @@
           "shortcutsAuxPanel": "<shortcut>{toggleAuxPanel}</shortcut> 切换右侧面板，查看本次会话改动的文件与 Git 变更",
           "shortcutsTerminalSidebar": "<shortcut>{toggleTerminal}</shortcut> 打开内置终端，<shortcut>{toggleSidebar}</shortcut> 切换侧边栏",
           "customShortcuts": "所有快捷键都可在「设置 → 快捷键」中自定义",
-          "webService": "开启「设置 → Web 服务」后，团队成员可从浏览器接入同一台 iyw-claw",
+          "webService": "开启「设置 → Web 服务」后，团队成员可从浏览器接入同一台 原助理",
           "fusionMode": "打开文件或差异后，会自动与会话并排显示",
           "quickMessages": "点输入框旁的 + 按钮选择「快捷消息」，可一键插入预存片段（在「设置 → 快捷消息」中管理）",
           "experts": "通过 + 按钮里的「专家技能」可一键加载预设角色（调试 / 规划等）"
@@ -2844,6 +2844,7 @@
         "imageEditorDraw": "自由绘制",
         "imageEditorText": "文字",
         "imageEditorTextPlaceholder": "标注文字",
+        "imageEditorTextHint": "点击图片选择文字位置",
         "imageEditorColor": "标注颜色",
         "imageEditorChooseColor": "使用颜色 {color}",
         "imageEditorStrokeWidth": "线条粗细",
@@ -3246,11 +3247,11 @@
   "WebServiceSettings": {
     "addressSwitchHint": "切换只改变这里显示和打开的地址；服务监听所有网卡，每个地址都可访问。",
     "sectionTitle": "Web 服务",
-    "sectionDescription": "启用后可通过浏览器远程访问 iyw-claw",
+    "sectionDescription": "启用后可通过浏览器远程访问 原助理",
     "port": "端口",
     "status": "状态",
     "autoStart": "自动启动",
-    "autoStartHint": "iyw-claw 启动时自动开启 Web 服务",
+    "autoStartHint": "原助理 启动时自动开启 Web 服务",
     "running": "运行中",
     "stopped": "已停止",
     "processing": "处理中...",
@@ -3265,7 +3266,7 @@
     "copy": "复制",
     "qrcode": "二维码",
     "qrcodeTitle": "扫码打开",
-    "qrcodeHint": "用手机扫描，在浏览器中打开 iyw-claw",
+    "qrcodeHint": "用手机扫描，在浏览器中打开 原助理",
     "addressLabel": "访问地址",
     "tokenLabel": "访问 Token",
     "tokenHint": "Web 客户端首次访问时需输入此 Token",
@@ -3273,7 +3274,7 @@
     "regenerate": "重新生成",
     "stalePortOccupiedTitle": "端口 {port} 已被其他进程占用",
     "stalePortUnknownTitle": "端口 {port} 状态未知",
-    "stalePortHint": "在端口释放前 iyw-claw 无法绑定。可以更换上方的端口，或结束占用该端口的进程。",
+    "stalePortHint": "在端口释放前 原助理 无法绑定。可以更换上方的端口，或结束占用该端口的进程。",
     "errors": {
       "alreadyRunning": "Web 服务已在运行",
       "invalidAddress": "主机或端口格式无效",
@@ -3326,6 +3327,7 @@
     "wecomAuthLinkHint": "打开授权页面后，用企业微信扫描页面中展示的二维码完成授权：",
     "wecomOpenAuthPage": "打开授权页面",
     "wecomWaitingScan": "等待扫码确认…",
+    "wecomAuthProcessGone": "授权会话在扫码完成前已结束，请重新发起扫码授权获取新的二维码。",
     "defaultAgent": "默认 Agent",
     "defaultAgentNone": "跟随工作目录默认",
     "defaultAgentHint": "该渠道中的消息将直接与此 Agent 对话，无需指令。仅列出已安装的 Agent。",
@@ -3554,7 +3556,7 @@
     },
     "confirm": {
       "disableTitle": "禁用这些链接？",
-      "disableBody": "这将移除 {count} 个由 iyw-claw 管理的技能链接。占用自定义目录的技能不受影响。你可以随时重新启用。",
+      "disableBody": "这将移除 {count} 个由 原助理 管理的技能链接。占用自定义目录的技能不受影响。你可以随时重新启用。",
       "cancel": "取消",
       "confirm": "禁用"
     },
@@ -3584,7 +3586,7 @@
     "searchPlaceholder": "按名称、ID 或描述搜索专家",
     "enableForAgents": "为代理启用",
     "noAgents": "未检测到 ACP 代理。",
-    "copyModeWarning": "已复制(非软链接)。iyw-claw 更新后需要重新启用以获取最新版本。",
+    "copyModeWarning": "已复制(非软链接)。原助理 更新后需要重新启用以获取最新版本。",
     "previewTitle": "SKILL.md 预览",
     "categories": {
       "discovery": "发现与设计",
@@ -3620,7 +3622,7 @@
   },
   "CodexNativeSettings": {
     "title": "Codex 自带技能",
-    "description": "iyw-claw 内置了 Codex CLI 自带技能的替代版本，发布到 Codex 的常规技能目录；启用期间会持续清空 CLI 的 .system 副本，避免会话中出现重复条目。",
+    "description": "原助理 内置了 Codex CLI 自带技能的替代版本，发布到 Codex 的常规技能目录；启用期间会持续清空 CLI 的 .system 副本，避免会话中出现重复条目。",
     "loading": "正在加载 Codex 自带技能…",
     "empty": "没有内置的 Codex 自带技能，请查看应用日志。",
     "category": "Codex 自带技能",
@@ -3949,7 +3951,7 @@
   },
   "BackupSettings": {
     "title": "备份与恢复",
-    "description": "导出一份可移植的 iyw-claw 数据备份，或从备份中恢复。",
+    "description": "导出一份可移植的 原助理 数据备份，或从备份中恢复。",
     "tabs": {
       "backup": "备份",
       "restore": "恢复"
@@ -3979,9 +3981,9 @@
         "incompatible": "不兼容",
         "createdAt": "创建时间：{value}",
         "appVersion": "应用版本：{value}",
-        "incompatibleHint": "该备份由更新版本的 iyw-claw 创建，无法恢复。"
+        "incompatibleHint": "该备份由更新版本的 原助理 创建，无法恢复。"
       },
-      "replaceWarning": "恢复将替换当前全部 iyw-claw 数据（数据库与上传文件）。当前数据会先做快照以便回退。",
+      "replaceWarning": "恢复将替换当前全部 原助理 数据（数据库与上传文件）。当前数据会先做快照以便回退。",
       "keyringNote": "桌面端的 GitHub/聊天 token 存于系统钥匙串，不包含在备份中；恢复后需重新填写。",
       "button": "恢复",
       "staging": "正在准备恢复…",
@@ -3990,7 +3992,7 @@
       "restartTimeout": "服务未能及时恢复。待其启动后请刷新页面。",
       "externalSideLocation": "会话记录已恢复到 {path}",
       "confirmTitle": "替换全部数据？",
-      "confirmBody": "这将用备份替换当前的 iyw-claw 数据库与上传文件，然后重启。当前数据会先做快照。",
+      "confirmBody": "这将用备份替换当前的 原助理 数据库与上传文件，然后重启。当前数据会先做快照。",
       "cancel": "取消",
       "confirmAction": "替换并重启",
       "external": {
@@ -4008,15 +4010,15 @@
       },
       "restartFailed": "恢复已就绪，但服务未能重启。请手动重启以应用此次恢复。"
     },
-    "remoteUnsupported": "备份与恢复作用于运行 iyw-claw 的那台机器上的数据。你当前连接的是远程工作区——请直接在该服务器上管理其备份。"
+    "remoteUnsupported": "备份与恢复作用于运行 原助理 的那台机器上的数据。你当前连接的是远程工作区——请直接在该服务器上管理其备份。"
   },
   "backup": {
     "restore": {
       "error": {
         "badPassphrase": "口令错误或备份已损坏。",
         "corrupted": "备份归档已损坏。",
-        "unknownFormat": "该文件不是可识别的 iyw-claw 备份。",
-        "newerVersion": "该备份由 iyw-claw {backupVersion} 创建，比当前版本（{appVersion}）更新。",
+        "unknownFormat": "该文件不是可识别的 原助理 备份。",
+        "newerVersion": "该备份由 原助理 {backupVersion} 创建，比当前版本（{appVersion}）更新。",
         "alreadyPending": "已有一个恢复在等待生效。请先重启应用它，再暂存新的恢复。"
       }
     },
@@ -4269,7 +4271,7 @@
     "branchNone": "无分支"
   },
   "StartupLogin": {
-    "title": "登录 iyw-claw",
+    "title": "登录 原助理",
     "description": "登录后才能安装并使用 Agent。",
     "checkingTitle": "正在检查账户",
     "checkingDescription": "正在确认登录状态。",

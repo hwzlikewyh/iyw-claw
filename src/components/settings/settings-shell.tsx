@@ -245,7 +245,7 @@ export function SettingsShell({
 
   useEffect(() => {
     if (!updateDocumentTitle) return
-    document.title = `${t("title")} - iyw-claw`
+    document.title = `${t("title")} - 原助理`
   }, [t, updateDocumentTitle])
 
   const navigateTo = useCallback(

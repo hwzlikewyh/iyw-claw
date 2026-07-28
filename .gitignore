@@ -54,5 +54,12 @@ docs/superpowers
 # release.yml, not git.
 src-tauri/binaries/
 
+# Bundled runtime archives (downloaded/built by prepare-sidecars.mjs).
+# Large binary artifacts staged for inclusion in the installer; not tracked in git.
+# The parent directory resources/runtime/ itself IS tracked (with a placeholder) so
+# the Tauri build never errors on a missing resource path.
+src-tauri/resources/runtime/downloads/
+src-tauri/resources/runtime/npm/
+
 # pnpm local store (pnpm 11+)
 .pnpm-store/

@@ -840,6 +840,90 @@ fn set_executable_permissions(path: &Path) -> Result<(), AcpError> {
     }
 }
 
+// ─── Bundled codex-acp npm prefix ───────────────────────────────────────
+
+/// Pinned codex-acp version that was bundled by `prepare-sidecars.mjs`.
+/// Must match the `CODEX_ACP_VERSION` constant in that script and the
+/// `version` field in `registry::get_agent_meta(AgentType::Codex)`.
+pub(crate) const BUNDLED_CODEX_ACP_VERSION: &str = "1.1.5";
+
+/// Path to the bundled codex-acp npm prefix zip inside the installer bundle.
+///
+/// `prepare-sidecars.mjs` builds a private npm prefix for codex-acp and
+/// zips it into `src-tauri/resources/runtime/npm/` at build time.  Tauri
+/// copies that directory alongside the exe so we can find it here.
+fn bundled_codex_zip(executable: &Path) -> Option<std::path::PathBuf> {
+    let dir = executable.parent()?;
+    let name = format!(
+        "codex-acp-{BUNDLED_CODEX_ACP_VERSION}-{}.zip",
+        registry::current_platform()
+    );
+    let candidate = dir.join("resources").join("runtime").join("npm").join(name);
+    candidate.is_file().then_some(candidate)
+}
+
+/// Seed the bundled codex-acp npm prefix into private Agent storage so the
+/// startup gate can skip the network-dependent `npm install` entirely.
+///
+/// Returns `Ok(true)` when the prefix was seeded, `Ok(false)` when it was
+/// already present or no bundle was found, and `Err(...)` on a fatal error.
+pub fn seed_bundled_codex_acp(
+    paths: &AgentStoragePaths,
+    executable: &Path,
+) -> Result<bool, AcpError> {
+    use crate::acp::npm_runtime;
+
+    let Some(zip) = bundled_codex_zip(executable) else {
+        return Ok(false);
+    };
+
+    // Fast-exit: if the command shim already exists for the bundled version
+    // there's nothing to do (network install or a prior seed beat us here).
+    if npm_runtime::resolve_private_npm_command(
+        paths,
+        AgentType::Codex,
+        BUNDLED_CODEX_ACP_VERSION,
+        "codex-acp",
+    )
+    .is_some()
+    {
+        return Ok(false);
+    }
+
+    let staging = paths.staging_dir().join(format!(
+        "codex-acp-bundled-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&staging)
+        .map_err(|e| AcpError::DownloadFailed(format!("create codex staging dir failed: {e}")))?;
+
+    let result = (|| {
+        extract_zip(&zip, &staging)?;
+
+        // The bundled zip was created on the build platform; verify the cmd
+        // shim or shell script is present before activating.
+        let cmd_name = if cfg!(windows) { "codex-acp.cmd" } else { "codex-acp" };
+        if !staging.join(cmd_name).is_file() {
+            return Err(AcpError::DownloadFailed(format!(
+                "bundled codex-acp zip is missing {cmd_name}"
+            )));
+        }
+
+        npm_runtime::activate_private_npm_runtime(
+            paths,
+            AgentType::Codex,
+            BUNDLED_CODEX_ACP_VERSION,
+            &staging,
+            &["codex-acp"],
+        )?;
+        Ok(true)
+    })();
+
+    // Best-effort staging cleanup.
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
 pub(crate) fn is_binary_file_compatible(path: &Path) -> bool {
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,

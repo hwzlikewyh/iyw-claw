@@ -82,8 +82,8 @@ function WorkspaceDocumentTitle() {
 
   useEffect(() => {
     document.title = activeFolder
-      ? `${activeFolder.name} - iyw-claw`
-      : "iyw-claw"
+      ? `${activeFolder.name} - 原助理`
+      : "原助理"
   }, [activeFolder])
 
   return null

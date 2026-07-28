@@ -31,6 +31,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -53,6 +54,92 @@ const UV_VERSION = "0.8.10"
 const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000
 const DOWNLOAD_ATTEMPTS = 3
 const DOWNLOAD_RETRY_DELAY_MS = 2 * 1000
+
+// ─── Bundled runtime resources ───────────────────────────────────────────
+// Node.js and MinGit archives are pre-staged into resources/runtime/downloads/
+// so the first-launch runtime_bootstrap can use them without a network round-trip.
+// @agentclientprotocol/codex-acp is pre-installed into a private npm prefix and
+// zipped into resources/runtime/npm/ so acpPrepareNpxAgent never hits the network.
+
+const CODEX_ACP_VERSION = "1.1.5"
+const CODEX_ACP_PACKAGE = `@agentclientprotocol/codex-acp@${CODEX_ACP_VERSION}`
+const CODEX_ACP_REGISTRY =
+  process.env.IYW_CLAW_NPM_REGISTRY || "https://registry.npmmirror.com"
+const RESOURCES_DIR = join(SRC_TAURI, "resources", "runtime")
+const RESOURCES_DOWNLOADS_DIR = join(RESOURCES_DIR, "downloads")
+const RESOURCES_NPM_DIR = join(RESOURCES_DIR, "npm")
+
+// Pinned specs per Tauri target triple — mirrors runtime_bootstrap.rs
+// (NODE_VERSION_X64, NODE_VERSION_X86, GIT_VERSION, sha256 values).  These
+// MUST stay in sync with the Rust constants; a mismatch is silently safe (Rust
+// re-verifies against its own pinned hash and falls back to the network) but
+// would waste CI time staging an archive that will never pass.
+const NODE_GIT_SPECS = {
+  "x86_64-pc-windows-msvc": {
+    node: {
+      version: "24.0.0",
+      asset: "node-v24.0.0-win-x64.zip",
+      mirror:
+        "https://registry.npmmirror.com/-/binary/node/v24.0.0/node-v24.0.0-win-x64.zip",
+      official: "https://nodejs.org/dist/v24.0.0/node-v24.0.0-win-x64.zip",
+      sha256:
+        "3d0fff80c87bb9a8d7f49f2f27832aa34a1477d137af46f5b14df5498be81304",
+    },
+    git: {
+      asset: "MinGit-2.55.0.2-64-bit.zip",
+      mirror:
+        "https://registry.npmmirror.com/-/binary/git-for-windows/v2.55.0.windows.2/MinGit-2.55.0.2-64-bit.zip",
+      official:
+        "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.2/MinGit-2.55.0.2-64-bit.zip",
+      sha256:
+        "e3ea2944cea4b3fabcd69c7c1669ef69b1b66c05ac7806d81224d0abad2dec31",
+    },
+    codex: { npmOs: "win32", npmCpu: "x64" },
+  },
+  "aarch64-pc-windows-msvc": {
+    node: {
+      version: "24.0.0",
+      asset: "node-v24.0.0-win-arm64.zip",
+      mirror:
+        "https://registry.npmmirror.com/-/binary/node/v24.0.0/node-v24.0.0-win-arm64.zip",
+      official: "https://nodejs.org/dist/v24.0.0/node-v24.0.0-win-arm64.zip",
+      sha256:
+        "03b6676f4872fbe4645113de8e23da834a7c1464045369f2b7a374bf482a5e12",
+    },
+    git: {
+      asset: "MinGit-2.55.0.2-arm64.zip",
+      mirror:
+        "https://registry.npmmirror.com/-/binary/git-for-windows/v2.55.0.windows.2/MinGit-2.55.0.2-arm64.zip",
+      official:
+        "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.2/MinGit-2.55.0.2-arm64.zip",
+      sha256:
+        "0b2b81fdce284efd174cbb51b886ccea2fd271679c4b5c21f07d9e03bae51413",
+    },
+    codex: { npmOs: "win32", npmCpu: "arm64" },
+  },
+  "i686-pc-windows-msvc": {
+    node: {
+      version: "22.23.1",
+      asset: "node-v22.23.1-win-x86.zip",
+      mirror:
+        "https://registry.npmmirror.com/-/binary/node/v22.23.1/node-v22.23.1-win-x86.zip",
+      official: "https://nodejs.org/dist/v22.23.1/node-v22.23.1-win-x86.zip",
+      sha256:
+        "e298b368aad86c571447a3650db3ce19063373ffd39d6d73d014a5d9ad31dc62",
+    },
+    git: {
+      asset: "MinGit-2.55.0.2-32-bit.zip",
+      mirror:
+        "https://registry.npmmirror.com/-/binary/git-for-windows/v2.55.0.windows.2/MinGit-2.55.0.2-32-bit.zip",
+      official:
+        "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.2/MinGit-2.55.0.2-32-bit.zip",
+      sha256:
+        "04009f6150c1cec2d6779c51406c8c6a3f0133e57fa91c91eb8a030b93e68ccb",
+    },
+    // No @openai/codex win32-ia32 optional dep; skip codex bundling for 32-bit.
+    codex: null,
+  },
+}
 
 function log(msg) {
   console.log(`[prepare-sidecars] ${msg}`)
@@ -272,6 +359,160 @@ function readFileIfPresent(path) {
   }
 }
 
+async function stageNodeGitArchives(target) {
+  const spec = NODE_GIT_SPECS[target]
+  if (!spec) {
+    log(`no node/git archives for target ${target} — skipping`)
+    return
+  }
+
+  mkdirSync(RESOURCES_DOWNLOADS_DIR, { recursive: true })
+
+  for (const [component, { asset, mirror, official, sha256 }] of Object.entries(
+    {
+      node: spec.node,
+      git: spec.git,
+    }
+  )) {
+    const dest = join(RESOURCES_DOWNLOADS_DIR, asset)
+    if (existsSync(dest)) {
+      const actual = createHash("sha256")
+        .update(readFileSync(dest))
+        .digest("hex")
+      if (actual === sha256) {
+        log(`${component} archive already staged: ${asset}`)
+        continue
+      }
+      log(`${component} archive checksum mismatch, re-downloading`)
+    }
+
+    log(`staging ${component} archive: ${asset}`)
+    let lastError = null
+    for (const [source, url] of [
+      ["mirror", mirror],
+      ["official", official],
+    ]) {
+      try {
+        const bytes = Buffer.from(
+          await download(url, `${component} ${source}`, (r) => r.arrayBuffer())
+        )
+        const actual = createHash("sha256").update(bytes).digest("hex")
+        if (actual !== sha256) {
+          throw new Error(
+            `checksum mismatch: expected ${sha256}, got ${actual}`
+          )
+        }
+        writeFileSync(dest, bytes)
+        log(`staged ${component} archive from ${source}: ${asset}`)
+        lastError = null
+        break
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        log(`${component} ${source} failed: ${msg}`)
+        lastError = `${source}: ${msg}`
+      }
+    }
+    if (lastError) {
+      die(`all sources failed for ${component} ${asset} — ${lastError}`)
+    }
+  }
+}
+
+/** Map from Tauri target triple to the same platform token that
+ *  `registry::current_platform()` returns on the running binary.
+ *  Used to name the bundle so the Rust seeder can find it with a trivial
+ *  `format!("codex-acp-{version}-{current_platform()}.zip")` call.
+ */
+function registryPlatformFor(target) {
+  const map = {
+    "x86_64-pc-windows-msvc": "windows-x86_64",
+    "aarch64-pc-windows-msvc": "windows-aarch64",
+    "i686-pc-windows-msvc": "windows-i686",
+    "x86_64-apple-darwin": "darwin-x86_64",
+    "aarch64-apple-darwin": "darwin-aarch64",
+    "x86_64-unknown-linux-gnu": "linux-x86_64",
+    "aarch64-unknown-linux-gnu": "linux-aarch64",
+  }
+  return map[target] ?? null
+}
+
+async function stageCodexBundle(target, isWindows) {
+  const spec = NODE_GIT_SPECS[target]
+  if (!spec?.codex) {
+    log(`no codex bundle spec for target ${target} — skipping`)
+    return
+  }
+
+  const registryPlatform = registryPlatformFor(target)
+  if (!registryPlatform) {
+    log(`unknown registry platform for ${target} — skipping codex bundle`)
+    return
+  }
+
+  mkdirSync(RESOURCES_NPM_DIR, { recursive: true })
+
+  const bundleAsset = `codex-acp-${CODEX_ACP_VERSION}-${registryPlatform}.zip`
+  const bundleDest = join(RESOURCES_NPM_DIR, bundleAsset)
+  if (existsSync(bundleDest)) {
+    log(`codex bundle already staged: ${bundleAsset}`)
+    return
+  }
+
+  log(`building codex npm prefix for ${target}...`)
+  const work = mkdtempSync(join(tmpdir(), "iyw-claw-codex-"))
+  try {
+    const prefixDir = join(work, "prefix")
+    mkdirSync(prefixDir, { recursive: true })
+
+    const npmArgs = [
+      "install",
+      "--global",
+      "--include=optional",
+      `--registry=${CODEX_ACP_REGISTRY}`,
+      `--prefix=${prefixDir}`,
+      `--os=${spec.codex.npmOs}`,
+      `--cpu=${spec.codex.npmCpu}`,
+      CODEX_ACP_PACKAGE,
+    ]
+    log(`$ npm ${npmArgs.join(" ")}`)
+    // npm is a .cmd shim on Windows; execFileSync can't spawn .cmd files
+    // directly — shell:true is required so the OS resolves PATHEXT.
+    execFileSync("npm", npmArgs, {
+      stdio: "inherit",
+      cwd: work,
+      shell: process.platform === "win32",
+    })
+
+    // Verify the command shim exists
+    const cmdName = isWindows ? "codex-acp.cmd" : "codex-acp"
+    const cmdPath = join(prefixDir, cmdName)
+    if (!existsSync(cmdPath)) {
+      die(`npm install succeeded but ${cmdName} is missing from prefix`)
+    }
+
+    // Zip the prefix — use Python zipfile for cross-platform consistency
+    log(`zipping ${prefixDir} -> ${bundleAsset}`)
+    const zipScript = `
+import zipfile, os, sys
+src, out = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for root, dirs, files in os.walk(src):
+        for fn in files:
+            fp = os.path.join(root, fn)
+            zf.write(fp, os.path.relpath(fp, src))
+size_mb = os.path.getsize(out) / 1024 / 1024
+print(f"Created {os.path.basename(out)} ({size_mb:.1f} MB)")
+`.trim()
+    const pythonCmd = isWindows ? "python" : "python3"
+    execFileSync(pythonCmd, ["-c", zipScript, prefixDir, bundleDest], {
+      stdio: "inherit",
+    })
+    log(`codex bundle staged: ${bundleAsset}`)
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
+}
+
 async function main() {
   if (process.env.IYW_CLAW_SKIP_SIDECAR === "1") {
     log("IYW_CLAW_SKIP_SIDECAR=1 — skipping sidecar preparation")
@@ -302,7 +543,22 @@ async function main() {
   // Keep the companion free of Tauri runtime dependencies while satisfying
   // the bin's feature gate, so desktop builds do not compile it a second time.
   const build = resolveBuildInvocation(SRC_TAURI, target, ext)
-  execFileSync("cargo", build.args, { stdio: "inherit", cwd: SRC_TAURI })
+  // Statically link the MSVC CRT on Windows so the sidecar runs on machines
+  // that lack the VC++ 2015–2022 redistributable.  The sidecar is a pure
+  // stdio/socket binary with no DLL loading, so mixing static CRT with the
+  // system DLLs it calls (kernel32, ws2_32 …) is safe and well-supported.
+  const buildEnv = { ...process.env }
+  if (target.includes("windows-msvc")) {
+    const existing = buildEnv.RUSTFLAGS || ""
+    buildEnv.RUSTFLAGS = [existing, "-C target-feature=+crt-static"]
+      .filter(Boolean)
+      .join(" ")
+  }
+  execFileSync("cargo", build.args, {
+    stdio: "inherit",
+    cwd: SRC_TAURI,
+    env: buildEnv,
+  })
 
   const built = build.built
   if (!existsSync(built)) {
@@ -339,6 +595,25 @@ async function main() {
   }
 
   await stageUvSidecars(target, isWindows)
+  // Pre-stage node/git archives and codex-acp npm bundle so the installer is
+  // fully self-contained.  Non-fatal: a download failure is logged but does not
+  // break the build — the app will fall back to its runtime download flow.
+  try {
+    await stageNodeGitArchives(target)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    log(
+      `[WARN] node/git archive staging failed (installer will download at runtime): ${msg}`
+    )
+  }
+  try {
+    await stageCodexBundle(target, isWindows)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    log(
+      `[WARN] codex bundle staging failed (installer will install via npm): ${msg}`
+    )
+  }
 }
 
 if (

@@ -106,10 +106,10 @@ FunctionEnd
   ${If} $UpdateMode = 1
     DetailPrint "已保留现有运行环境、配置、数据和日志。"
   ${Else}
-    ; Node.js/npm 与 Git 运行环境不再由安装器打包安装：应用首次启动时会在
-    ; 初始化界面通过国内加速镜像自动下载（见 commands/runtime_bootstrap.rs），
-    ; 已存在的环境则直接复用，安装器只负责准备好 runtime 目录结构。
-    DetailPrint "基础运行环境将在应用首次启动时自动准备。"
+    ; Node.js、Git 和 codex-acp 已由安装包内置：应用首次启动时从安装目录的
+    ; resources/runtime/ 直接解压到运行目录（无需网络），已存在的运行环境直接复用。
+    ; uv/uvx 同样内置为 externalBin sidecar，由 seed_bundled_uv_tools 自动激活。
+    DetailPrint "基础运行环境随安装包附带，将在应用首次启动时自动解压。"
   ${EndIf}
 !macroend
 

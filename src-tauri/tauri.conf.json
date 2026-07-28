@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "iyw-claw",
-  "version": "0.1.32",
+  "productName": "原助理",
+  "mainBinaryName": "iyw-claw",
+  "version": "0.1.36",
   "identifier": "app.iywclaw",
   "build": {
     "beforeDevCommand": "pnpm tauri:before-dev",
@@ -28,11 +29,12 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../out": "resources/bundle/"
+      "../out": "resources/bundle/",
+      "resources/runtime": "resources/runtime/"
     },
     "externalBin": [
       "binaries/iyw-claw-mcp",
-      "binaries/iyw-claw-mcp-0.1.32",
+      "binaries/iyw-claw-mcp-0.1.36",
       "binaries/uv",
       "binaries/uvx"
     ],

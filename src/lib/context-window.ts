@@ -30,10 +30,12 @@ export function resolveContextWindowPercent(
 }
 
 /**
- * Format a context-window percentage keeping one decimal place (e.g. `87.3%`),
- * matching the bottom status bar. Returns `--` for an unknown value.
+ * Format a context-window percentage keeping one decimal place, dropping a
+ * trailing `.0` so a fresh session reads `0%` rather than `0.0%` and a full
+ * one reads `100%` (e.g. `87.3%`, `0%`, `100%`). Returns `--` for an unknown
+ * value.
  */
 export function formatContextWindowPercent(percent: number | null): string {
   if (percent == null) return "--"
-  return `${percent.toFixed(1)}%`
+  return `${percent.toFixed(1).replace(/\.0$/, "")}%`
 }

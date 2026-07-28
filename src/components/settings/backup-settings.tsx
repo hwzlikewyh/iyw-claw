@@ -195,7 +195,7 @@ export function BackupSettings() {
     const { open } = await import("@tauri-apps/plugin-dialog")
     const picked = await open({
       multiple: false,
-      filters: [{ name: "iyw-claw backup", extensions: ["iyw-clawbak", "zip"] }],
+      filters: [{ name: "原助理 备份", extensions: ["iyw-clawbak", "zip"] }],
     })
     if (typeof picked !== "string") return
     const name = picked.split(/[\\/]/).pop() ?? picked

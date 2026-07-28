@@ -246,7 +246,9 @@ function SessionUsageButton({
                   />
                 </svg>
               ) : null}
-              <span>{formatContextWindowPercent(contextPercent)}</span>
+              <span className="tabular-nums">
+                {formatContextWindowPercent(contextPercent)}
+              </span>
             </>
           ) : (
             <>
@@ -255,7 +257,9 @@ function SessionUsageButton({
                   className={variant === "status" ? "size-3.5" : "size-3"}
                 />
               ) : null}
-              <span>{formatTokenCount(total ?? 0)}</span>
+              <span className="tabular-nums">
+                {formatTokenCount(total ?? 0)}
+              </span>
             </>
           )}
         </button>

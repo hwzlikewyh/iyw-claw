@@ -59,20 +59,35 @@ pub fn npm_registry(explicit: Option<&str>) -> Result<String, AcpError> {
     Ok(value.to_string())
 }
 
+/// The registry every managed `npm install` must go through: the
+/// `IYW_CLAW_NPM_REGISTRY` override when set, otherwise the npmmirror default
+/// (mainland-China acceleration). Callers that build an npm command by hand
+/// should use [`npm_registry_arg`] rather than re-deriving this, so no install
+/// path silently falls back to registry.npmjs.org.
+pub fn configured_npm_registry() -> Result<String, AcpError> {
+    match std::env::var(NPM_REGISTRY_ENV) {
+        Ok(value) => npm_registry(Some(&value)),
+        Err(std::env::VarError::NotPresent) => npm_registry(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(AcpError::DownloadFailed(
+            "npm registry environment is not valid Unicode".to_string(),
+        )),
+    }
+}
+
+/// `--registry=<configured>`, ready to push onto any npm invocation.
+pub fn npm_registry_arg() -> Result<OsString, AcpError> {
+    Ok(OsString::from(format!(
+        "--registry={}",
+        configured_npm_registry()?
+    )))
+}
+
 pub fn private_npm_install_args(
     prefix: &Path,
     cache: &Path,
     packages: &[&str],
 ) -> Result<Vec<OsString>, AcpError> {
-    let registry = match std::env::var(NPM_REGISTRY_ENV) {
-        Ok(value) => npm_registry(Some(&value))?,
-        Err(std::env::VarError::NotPresent) => npm_registry(None)?,
-        Err(std::env::VarError::NotUnicode(_)) => {
-            return Err(AcpError::DownloadFailed(
-                "npm registry environment is not valid Unicode".to_string(),
-            ));
-        }
-    };
+    let registry = configured_npm_registry()?;
     let mut args = vec![
         OsString::from("install"),
         OsString::from("--global"),
@@ -89,6 +104,136 @@ fn path_arg(name: &str, path: &Path) -> OsString {
     let mut value = OsString::from(name);
     value.push(path.as_os_str());
     value
+}
+
+/// The npm platform token for the host, in the `<os>-<arch>` form npm packages
+/// conventionally use for per-platform binary sub-packages (esbuild, sharp,
+/// `@openai/codex`, …). `None` on a target whose npm spelling we don't know, in
+/// which case the optional-dependency audit below is skipped rather than
+/// guessed at.
+pub fn host_npm_platform_token() -> Option<String> {
+    let os = match std::env::consts::OS {
+        "windows" => "win32",
+        "macos" => "darwin",
+        "linux" => "linux",
+        _ => return None,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        "x86" => "ia32",
+        _ => return None,
+    };
+    Some(format!("{os}-{arch}"))
+}
+
+/// Names of `optionalDependencies` in `manifest` that target the host platform.
+///
+/// npm treats a failed optional dependency as a warning and still exits 0, so a
+/// per-platform binary package that failed to download leaves an install that
+/// looks successful and only breaks when the agent is launched. These are the
+/// entries whose absence is therefore fatal rather than optional. Matching is
+/// on the *key* (the alias, e.g. `@openai/codex-win32-x64`) containing the host
+/// token, which holds regardless of whether the value is a version range or an
+/// `npm:` alias.
+fn host_platform_optional_deps(manifest: &serde_json::Value, host_token: &str) -> Vec<String> {
+    manifest
+        .get("optionalDependencies")
+        .and_then(serde_json::Value::as_object)
+        .map(|deps| {
+            deps.keys()
+                .filter(|name| name.contains(host_token))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Resolve a package directory under `<prefix>` the way Node would: the
+/// top-level `node_modules`, or nested inside another package.
+fn npm_package_dir(prefix: &Path, package: &str) -> PathBuf {
+    let mut dir = prefix.join("node_modules");
+    for segment in package.split('/') {
+        dir = dir.join(segment);
+    }
+    dir
+}
+
+/// Every `package.json` under `<prefix>/node_modules` that declares
+/// `optionalDependencies`, walking nested `node_modules` because npm nests a
+/// dependency's own platform packages (codex-acp bundles `@openai/codex`, whose
+/// binary sub-packages live under *its* `node_modules`).
+fn manifests_with_optional_deps(root: &Path, depth: usize, out: &mut Vec<(PathBuf, PathBuf)>) {
+    // 6 levels of nesting is far beyond what npm's hoisting produces in
+    // practice; the bound just keeps a symlink cycle from hanging the install.
+    if depth > 6 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        // Scoped packages (`@scope/name`) are a directory level, not a package.
+        if name.starts_with('@') {
+            manifests_with_optional_deps(&path, depth + 1, out);
+            continue;
+        }
+        let manifest = path.join("package.json");
+        if manifest.is_file() {
+            out.push((path.clone(), manifest));
+        }
+        let nested = path.join("node_modules");
+        if nested.is_dir() {
+            manifests_with_optional_deps(&nested, depth + 1, out);
+        }
+    }
+}
+
+/// Fail when a host-platform optional dependency declared by any installed
+/// package did not actually land on disk.
+///
+/// This is the check that catches npm's silent optional-dependency failure. It
+/// is deliberately generic (driven by `optionalDependencies` + the host token)
+/// so every npm agent is covered without a per-agent list — the packages are
+/// large (`@openai/codex` unpacks to ~390 MB) and mainland-China networks drop
+/// them often enough that "npm exited 0" is not evidence of a usable install.
+pub fn verify_host_platform_optional_deps(prefix: &Path) -> Result<(), AcpError> {
+    let Some(host_token) = host_npm_platform_token() else {
+        return Ok(());
+    };
+    let mut manifests = Vec::new();
+    manifests_with_optional_deps(&prefix.join("node_modules"), 0, &mut manifests);
+
+    for (package_dir, manifest_path) in manifests {
+        let Ok(raw) = std::fs::read_to_string(&manifest_path) else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        for dependency in host_platform_optional_deps(&manifest, &host_token) {
+            // npm may satisfy it nested under the declaring package or hoisted
+            // to the install prefix; Node's resolution accepts either.
+            let nested = npm_package_dir(package_dir.as_path(), &dependency);
+            let hoisted = npm_package_dir(prefix, &dependency);
+            if nested.join("package.json").is_file() || hoisted.join("package.json").is_file() {
+                continue;
+            }
+            return Err(AcpError::DownloadFailed(format!(
+                "npm skipped the platform binary '{dependency}' required on this machine \
+                 ({host_token}); npm reports optional-dependency failures as warnings and \
+                 still exits successfully, so the download most likely failed or ran out of \
+                 disk space. Retry the installation."
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub fn resolve_private_npm_command(

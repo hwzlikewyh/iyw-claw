@@ -23,6 +23,9 @@ export function WecomAuthPanel() {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Polls tolerated after the init process exits cleanly but before
+  // `authorized` flips, so a successful scan is never reported as a failure.
+  const graceRef = useRef(0)
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -52,6 +55,7 @@ export function WecomAuthPanel() {
   const startAuth = useCallback(async () => {
     setError(null)
     setPhase("authorizing")
+    graceRef.current = 0
     try {
       const result = await wecomStartAuth()
       setAuthUrl(result.auth_url)
@@ -64,6 +68,23 @@ export function WecomAuthPanel() {
               stopPolling()
               setPhase("authorized")
               setAuthUrl(null)
+              return
+            }
+            // The scan is completed by the wecom-cli process, so once it is
+            // gone the link is dead — surface that instead of spinning
+            // forever on a pending authorization nobody is listening for.
+            if (!status.auth_process_running) {
+              // A clean exit can land a beat before the credential file is
+              // readable, so give `authorized` one more poll to catch up
+              // rather than reporting failure on a successful scan.
+              if (!status.auth_process_error && graceRef.current < 1) {
+                graceRef.current += 1
+                return
+              }
+              stopPolling()
+              setPhase("unauthorized")
+              setAuthUrl(null)
+              setError(status.auth_process_error ?? t("wecomAuthProcessGone"))
             }
           })
           .catch(() => {})
@@ -72,7 +93,7 @@ export function WecomAuthPanel() {
       setPhase("unauthorized")
       setError(toErrorMessage(err))
     }
-  }, [stopPolling])
+  }, [stopPolling, t])
 
   const copyLink = useCallback(async () => {
     if (!authUrl) return

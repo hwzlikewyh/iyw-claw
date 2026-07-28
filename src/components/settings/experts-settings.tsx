@@ -29,10 +29,7 @@ import { getActiveRemoteConnectionId, isDesktop } from "@/lib/transport"
 import { invalidateAgentSkillsCache } from "@/hooks/use-agent-skills"
 import type { ExpertListItem, ManagedSkillFamilyState } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
-import {
-  CODEX_NATIVE_CATEGORY,
-  pickLocalized,
-} from "@/lib/expert-presentation"
+import { CODEX_NATIVE_CATEGORY, pickLocalized } from "@/lib/expert-presentation"
 
 const CATEGORY_SORT: Record<string, number> = {
   discovery: 1,
