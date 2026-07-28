@@ -2669,6 +2669,7 @@
         "imageEditorDraw": "自由绘制",
         "imageEditorText": "文字",
         "imageEditorTextPlaceholder": "标注文字",
+        "imageEditorTextHint": "点击图片选择文字位置",
         "imageEditorColor": "标注颜色",
         "imageEditorChooseColor": "使用颜色 {color}",
         "imageEditorStrokeWidth": "线条粗细",

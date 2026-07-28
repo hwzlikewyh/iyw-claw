@@ -2669,6 +2669,7 @@
         "imageEditorDraw": "Freehand draw",
         "imageEditorText": "Text",
         "imageEditorTextPlaceholder": "Annotation text",
+        "imageEditorTextHint": "Click the image to place text",
         "imageEditorColor": "Annotation color",
         "imageEditorChooseColor": "Use color {color}",
         "imageEditorStrokeWidth": "Stroke width",

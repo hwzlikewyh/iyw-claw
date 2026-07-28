@@ -213,7 +213,14 @@ export function useImageEditorDrawing(options: DrawingOptions) {
     if (!position) return
     if (options.tool === "select") return options.onSelect(null)
     if (options.tool === "text") {
-      if (textDraft.draft) return
+      // Konva does not preventDefault on mousedown, so the browser would move
+      // focus to the nearest focusable ancestor (the dialog panel) right after
+      // this handler returns — that steals focus from the input we are about to
+      // mount and blurs it away before the user can type.
+      if (event.evt.cancelable) event.evt.preventDefault()
+      // A click while an input is open commits that block and opens a new one
+      // at the new spot, instead of being swallowed.
+      if (textDraft.draft) textDraft.commit()
       return textDraft.start(position)
     }
     const next = createDraft(options, position)

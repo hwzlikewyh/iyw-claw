@@ -10,6 +10,8 @@ import {
 } from "react"
 import type Konva from "konva"
 import { Image as KonvaImage, Layer, Stage, Transformer } from "react-konva"
+import { useTranslations } from "next-intl"
+import { cn } from "@/lib/utils"
 import { ImageEditorAnnotationNode } from "./image-editor-annotation"
 import { ImageEditorCrop } from "./image-editor-crop"
 import { ImageEditorInlineText } from "./image-editor-inline-text"
@@ -204,6 +206,20 @@ function useCanvasExport(
   }))
 }
 
+/**
+ * Shown while the text tool is armed but no input is open yet. Placing text
+ * needs a second gesture (pick the spot on the image), which is not obvious
+ * from the toolbar button alone.
+ */
+function TextToolHint() {
+  const t = useTranslations("Folder.chat.messageList")
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-2 z-10 -translate-x-1/2 rounded-sm bg-black/75 px-2 py-1 text-xs font-medium text-white shadow-lg">
+      {t("imageEditorTextHint")}
+    </div>
+  )
+}
+
 export const ImageEditorCanvas = forwardRef<
   ImageEditorCanvasHandle,
   ImageEditorCanvasProps
@@ -223,7 +239,13 @@ export const ImageEditorCanvas = forwardRef<
 
   const layout = getCanvasLayout(props)
   return (
-    <div className="relative shrink-0" style={layout.wrapper}>
+    <div
+      className={cn(
+        "relative shrink-0",
+        props.tool === "text" && "cursor-text"
+      )}
+      style={layout.wrapper}
+    >
       <div style={layout.canvas}>
         <Stage
           ref={stageRef}
@@ -263,6 +285,8 @@ export const ImageEditorCanvas = forwardRef<
           onCommit={drawing.onTextCommit}
           onCancel={drawing.onTextCancel}
         />
+      ) : props.tool === "text" ? (
+        <TextToolHint />
       ) : null}
     </div>
   )
