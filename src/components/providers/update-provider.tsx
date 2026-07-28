@@ -26,6 +26,7 @@ import {
   waitForServerHealthy,
 } from "@/lib/updater"
 import { getTransport } from "@/lib/transport"
+import { RequiredUpdateGate } from "@/components/providers/required-update-gate"
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
@@ -440,7 +441,14 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <UpdateContext.Provider value={value}>{children}</UpdateContext.Provider>
+    <UpdateContext.Provider value={value}>
+      {children}
+      <RequiredUpdateGate
+        state={state}
+        onStart={startUpdate}
+        onRestart={restart}
+      />
+    </UpdateContext.Provider>
   )
 }
 

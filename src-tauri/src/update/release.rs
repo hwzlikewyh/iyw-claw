@@ -146,16 +146,22 @@ pub async fn check_desktop_update(
 pub async fn download_and_install(
     app: &tauri::AppHandle,
     preferences: &UpdatePreferences,
+    expected: &crate::update::offer::Identity,
     handle: AppUpdateStateHandle,
     emitter: EventEmitter,
 ) -> Result<(), String> {
+    if preferences.channel.as_str() != expected.channel {
+        return Err("The selected update channel changed before installation".to_string());
+    }
     let update = desktop_updater(app, preferences, CheckReason::Manual)
         .map_err(|error| error.to_string())?
         .check()
         .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "No update available".to_string())?;
-    validated_extensions(&update, preferences).map_err(|error| error.to_string())?;
+    let extensions =
+        validated_extensions(&update, preferences).map_err(|error| error.to_string())?;
+    crate::update::offer::validate_checked_update(&update, &extensions, expected)?;
     let version = update.version.clone();
     update_state::set_download_target(&handle, &emitter, version.clone());
     let progress = std::sync::Arc::new(update_state::ProgressEmitter::new(

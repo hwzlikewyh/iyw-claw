@@ -12,6 +12,7 @@
 //! - **Standalone** (no supervisor): the worker re-execs itself.
 
 pub mod install;
+pub mod offer;
 pub mod preferences;
 pub mod release;
 pub mod runtime;

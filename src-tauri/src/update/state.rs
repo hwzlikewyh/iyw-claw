@@ -271,8 +271,13 @@ pub fn try_begin_check(
             return (false, state.clone());
         }
         state.seq += 1;
-        state.clear_operation_fields();
         state.status = AppUpdateLifecycle::Checking;
+        state.downloaded = None;
+        state.total = None;
+        state.restart_delay_ms = None;
+        state.trial_seconds = None;
+        state.capability = None;
+        state.error = None;
         state.clone()
     };
     emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snap);
@@ -399,8 +404,10 @@ pub fn set_ready(
     capability: Option<UpdateCapability>,
 ) -> AppUpdateState {
     mutate(handle, emitter, |s| {
-        s.clear_operation_fields();
         s.status = AppUpdateLifecycle::ReadyToRestart;
+        s.downloaded = None;
+        s.total = None;
+        s.error = None;
         s.version = version;
         s.restart_delay_ms = restart_delay_ms;
         s.trial_seconds = trial_seconds;
@@ -416,8 +423,12 @@ pub fn set_error(
     message: impl Into<String>,
 ) -> AppUpdateState {
     mutate(handle, emitter, |s| {
-        s.clear_operation_fields();
         s.status = AppUpdateLifecycle::Error;
+        s.downloaded = None;
+        s.total = None;
+        s.restart_delay_ms = None;
+        s.trial_seconds = None;
+        s.capability = None;
         s.error = Some(message.into());
     })
 }

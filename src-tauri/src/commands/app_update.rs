@@ -171,18 +171,18 @@ pub async fn skip_app_update(
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<UpdatePreferences, AppCommandError> {
     let emitter = EventEmitter::Tauri(app);
-    if !update_state::try_dismiss_optional_offer(state.inner(), &emitter, &version) {
+    if !crate::update::offer::is_current_optional(state.inner(), &version) {
         return Err(AppCommandError::invalid_input(
             "Only the current optional update can be skipped",
         ));
     }
-    match preferences::skip_version(&db.conn, version).await {
-        Ok(preferences) => Ok(preferences),
-        Err(error) => {
-            update_state::set_error(state.inner(), &emitter, error.to_string());
-            Err(error)
-        }
+    let preferences = preferences::skip_version(&db.conn, version.clone()).await?;
+    if !update_state::try_dismiss_optional_offer(state.inner(), &emitter, &version) {
+        return Err(AppCommandError::invalid_input(
+            "The optional update changed before it could be skipped",
+        ));
     }
+    Ok(preferences)
 }
 
 #[tauri::command]
@@ -199,21 +199,19 @@ pub async fn remind_app_update_later(
         ));
     }
     let emitter = EventEmitter::Tauri(app);
-    if !update_state::try_dismiss_optional_offer(state.inner(), &emitter, &version) {
+    if !crate::update::offer::is_current_optional(state.inner(), &version) {
         return Err(AppCommandError::invalid_input(
             "Only the current optional update can be postponed",
         ));
     }
-    match preferences::remind_later(&db.conn, version, minutes).await {
-        Ok(preferences) => {
-            crate::update::scheduler::wake();
-            Ok(preferences)
-        }
-        Err(error) => {
-            update_state::set_error(state.inner(), &emitter, error.to_string());
-            Err(error)
-        }
+    let preferences = preferences::remind_later(&db.conn, version.clone(), minutes).await?;
+    if !update_state::try_dismiss_optional_offer(state.inner(), &emitter, &version) {
+        return Err(AppCommandError::invalid_input(
+            "The optional update changed before it could be postponed",
+        ));
     }
+    crate::update::scheduler::wake();
+    Ok(preferences)
 }
 
 /// Begin (or attach to) a download+install of the available update. Returns
@@ -228,17 +226,30 @@ pub async fn perform_app_update(
     let handle = state.inner().clone();
     let emitter = EventEmitter::Tauri(app.clone());
 
-    let (started, snap) = update_state::try_begin(&handle, &emitter);
+    let (started, snap, offer) = crate::update::offer::try_begin(&handle, &emitter);
     if !started {
         // A download is already in flight (or staged) — attach to it.
         return Ok(snap);
     }
+    let Some(offer) = offer else {
+        update_state::set_error(&handle, &emitter, "Available update metadata is incomplete");
+        return Err(AppCommandError::configuration_invalid(
+            "Available update metadata is incomplete",
+        ));
+    };
 
     let conn = db.conn.clone();
     tauri::async_runtime::spawn(async move {
         let result = async {
             let preferences = preferences::load(&conn).await.map_err(|e| e.to_string())?;
-            release::download_and_install(&app, &preferences, handle.clone(), emitter.clone()).await
+            release::download_and_install(
+                &app,
+                &preferences,
+                &offer,
+                handle.clone(),
+                emitter.clone(),
+            )
+            .await
         }
         .await;
         if let Err(message) = result {

@@ -4786,19 +4786,26 @@ pub(crate) fn install_market_skill(
     let _guard = shared_skill_mutation_guard();
     let source = shared_skill_path(&skill_id);
     ensure_market_install_target(&source, &marker)?;
-    let copy_mode = if path_entry_exists(&source) {
-        shared_skill_publish_status(agent_type, &source, &skill_id)?.1
+    let (enabled, copy_mode) = if path_entry_exists(&source) {
+        let enabled = shared_skill_publish_enabled(&source, &skill_id)?;
+        let copy_mode = shared_skill_publish_status(agent_type, &source, &skill_id)?.1;
+        (enabled, copy_mode)
     } else {
-        false
+        (true, false)
     };
-    let files = market_install_files(&skill_id, &marker, package)?;
+    let files = market_install_files(&skill_id, &marker, package, enabled)?;
     let swap = begin_skill_directory_swap(&source, &files)?;
     let mode = if copy_mode {
         AgentSkillSyncMode::Copy
     } else {
         AgentSkillSyncMode::Symlink
     };
-    match publish_shared_skill_to_all_agents_locked(agent_type, &skill_id, mode) {
+    let result = if enabled {
+        publish_shared_skill_to_all_agents_locked(agent_type, &skill_id, mode)
+    } else {
+        build_shared_skill_item_for_agent(agent_type, skill_id.clone())
+    };
+    match result {
         Ok(skill) => {
             swap.commit();
             Ok(skill)
@@ -4867,6 +4874,7 @@ fn market_install_files(
     skill_id: &str,
     marker: &MarketSkillMarker,
     package: crate::acp::skill_package::ValidatedSkillPackage,
+    enabled: bool,
 ) -> Result<Vec<(PathBuf, Vec<u8>)>, AcpError> {
     let mut files: Vec<(PathBuf, Vec<u8>)> = package
         .files
@@ -4878,7 +4886,7 @@ fn market_install_files(
     })?;
     let publish = serde_json::to_vec_pretty(&SharedSkillPublishStateMarker {
         skill_id: skill_id.to_string(),
-        enabled: true,
+        enabled,
     })
     .map_err(|error| AcpError::protocol(format!("failed to serialize publish state: {error}")))?;
     files.push((PathBuf::from(MARKET_SKILL_MARKER), market));
