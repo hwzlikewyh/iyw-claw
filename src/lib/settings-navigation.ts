@@ -6,6 +6,7 @@ export type SettingsSection =
   | "appearance"
   | "general"
   | "usage"
+  | "performance"
   | "user-memory"
   | "agents"
   | "mcp"
@@ -40,6 +41,7 @@ export function normalizeSettingsSection(
     case "appearance":
     case "general":
     case "usage":
+    case "performance":
     case "user-memory":
     case "agents":
     case "mcp":

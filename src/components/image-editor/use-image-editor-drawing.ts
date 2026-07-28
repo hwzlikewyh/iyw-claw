@@ -188,8 +188,11 @@ function useTextDraft(options: DrawingOptions) {
       ...options.snapshot,
       annotations: [...options.snapshot.annotations, annotation],
     })
+    // Keep the text tool armed after committing so the user can drop several
+    // text blocks in a row: click canvas → type → click away → click again.
+    // Selecting the new annotation is safe because the transformer only
+    // renders while the select tool is active.
     options.onSelect(annotation.id)
-    options.onToolChange("select")
   }
   return { draft: current, start, change, cancel, commit }
 }

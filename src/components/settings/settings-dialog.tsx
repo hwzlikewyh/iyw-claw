@@ -8,6 +8,7 @@ import { ChatChannelSettings } from "@/components/settings/chat-channel-settings
 import { GeneralSettings } from "@/components/settings/general-settings"
 import { LogsSettings } from "@/components/settings/logs-settings"
 import { McpSettings } from "@/components/settings/mcp-settings"
+import { PerformanceSettings } from "@/components/settings/performance-settings"
 import { SkillPacksSettings } from "@/components/settings/skill-packs-settings"
 import { QuickMessagesSettings } from "@/components/settings/quick-messages-settings"
 import { ShortcutSettings } from "@/components/settings/shortcut-settings"
@@ -56,6 +57,8 @@ function SettingsDialogBody({ section, agentType }: SettingsDialogState) {
       return <QuickMessagesSettings />
     case "usage":
       return <UsageSettings />
+    case "performance":
+      return <PerformanceSettings />
     case "user-memory":
       return <UserMemorySettings />
     case "shortcuts":
