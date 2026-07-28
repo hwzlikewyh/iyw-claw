@@ -368,10 +368,12 @@ async function stageNodeGitArchives(target) {
 
   mkdirSync(RESOURCES_DOWNLOADS_DIR, { recursive: true })
 
-  for (const [component, { asset, mirror, official, sha256 }] of Object.entries({
-    node: spec.node,
-    git: spec.git,
-  })) {
+  for (const [component, { asset, mirror, official, sha256 }] of Object.entries(
+    {
+      node: spec.node,
+      git: spec.git,
+    }
+  )) {
     const dest = join(RESOURCES_DOWNLOADS_DIR, asset)
     if (existsSync(dest)) {
       const actual = createHash("sha256")
@@ -396,7 +398,9 @@ async function stageNodeGitArchives(target) {
         )
         const actual = createHash("sha256").update(bytes).digest("hex")
         if (actual !== sha256) {
-          throw new Error(`checksum mismatch: expected ${sha256}, got ${actual}`)
+          throw new Error(
+            `checksum mismatch: expected ${sha256}, got ${actual}`
+          )
         }
         writeFileSync(dest, bytes)
         log(`staged ${component} archive from ${source}: ${asset}`)
@@ -471,9 +475,12 @@ async function stageCodexBundle(target, isWindows) {
       CODEX_ACP_PACKAGE,
     ]
     log(`$ npm ${npmArgs.join(" ")}`)
+    // npm is a .cmd shim on Windows; execFileSync can't spawn .cmd files
+    // directly — shell:true is required so the OS resolves PATHEXT.
     execFileSync("npm", npmArgs, {
       stdio: "inherit",
       cwd: work,
+      shell: process.platform === "win32",
     })
 
     // Verify the command shim exists
@@ -595,13 +602,17 @@ async function main() {
     await stageNodeGitArchives(target)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
-    log(`[WARN] node/git archive staging failed (installer will download at runtime): ${msg}`)
+    log(
+      `[WARN] node/git archive staging failed (installer will download at runtime): ${msg}`
+    )
   }
   try {
     await stageCodexBundle(target, isWindows)
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
-    log(`[WARN] codex bundle staging failed (installer will install via npm): ${msg}`)
+    log(
+      `[WARN] codex bundle staging failed (installer will install via npm): ${msg}`
+    )
   }
 }
 
