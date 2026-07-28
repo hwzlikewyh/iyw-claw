@@ -468,6 +468,22 @@ async fn install_component(
     result
 }
 
+// ─── Bundled archive resolution ─────────────────────────────────────────
+
+/// Path to the pre-staged archive inside the installer's bundled resources.
+///
+/// `prepare-sidecars.mjs` downloads the pinned node/git archives into
+/// `src-tauri/resources/runtime/downloads/` at build time; Tauri copies that
+/// directory into the installed bundle at `<exe_dir>/resources/runtime/`.
+/// We check there first so the first-run download is a local copy, not a
+/// network round-trip.
+fn bundled_archive_path(asset: &str) -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let candidate = dir.join("resources").join("runtime").join("downloads").join(asset);
+    candidate.is_file().then_some(candidate)
+}
+
 // ─── Download ───────────────────────────────────────────────────────────
 
 async fn download_verified(
@@ -486,6 +502,29 @@ async fn download_verified(
             format!("using cached {}", spec.asset),
         );
         return Ok(());
+    }
+
+    // Fast path: use the archive that was pre-staged into the installer bundle
+    // by prepare-sidecars.mjs.  Avoids a network download on the first launch
+    // of a freshly installed desktop app.
+    if let Some(bundled) = bundled_archive_path(&spec.asset) {
+        if archive_matches(&bundled, spec.sha256).await {
+            emit(
+                emitter,
+                task_id,
+                RuntimeBootstrapEventKind::Log,
+                Some(spec.kind),
+                None,
+                format!("using bundled {}", spec.asset),
+            );
+            tokio::fs::create_dir_all(dest.parent().unwrap_or(dest))
+                .await
+                .map_err(|e| format!("failed to create downloads dir: {e}"))?;
+            tokio::fs::copy(&bundled, dest)
+                .await
+                .map_err(|e| format!("failed to copy bundled archive: {e}"))?;
+            return Ok(());
+        }
     }
 
     let client = reqwest::Client::builder()

@@ -611,6 +611,39 @@ async fn install_private_npm_package(
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<PathBuf, AcpError> {
+    // Fast path: if the installer bundled a pre-built npm prefix for this
+    // agent+version, seed it directly without running npm. This avoids a
+    // multi-hundred-MB network download on the first launch of a freshly
+    // installed desktop app. Non-fatal: if the seed fails we fall through to
+    // the regular npm install.
+    if agent_type == AgentType::Codex && version == binary_cache::BUNDLED_CODEX_ACP_VERSION {
+        if let Ok(exe) = std::env::current_exe() {
+            match binary_cache::seed_bundled_codex_acp(paths, &exe) {
+                Ok(true) => {
+                    emit_agent_install_event(
+                        emitter,
+                        task_id,
+                        AgentInstallEventKind::Log,
+                        "Installed from bundled package (no network download)",
+                    );
+                    let prefix = npm_runtime::private_npm_prefix(paths, agent_type, version)?;
+                    return Ok(prefix);
+                }
+                Ok(false) => {
+                    // Already installed or no bundle — fall through to npm.
+                }
+                Err(error) => {
+                    emit_agent_install_event(
+                        emitter,
+                        task_id,
+                        AgentInstallEventKind::Log,
+                        format!("Bundled install failed: {error}; falling back to npm"),
+                    );
+                }
+            }
+        }
+    }
+
     let staging = npm_runtime::private_npm_staging_prefix(paths, agent_type);
     tokio::fs::create_dir_all(paths.staging_dir())
         .await
