@@ -313,7 +313,11 @@ async function main() {
       .filter(Boolean)
       .join(" ")
   }
-  execFileSync("cargo", build.args, { stdio: "inherit", cwd: SRC_TAURI, env: buildEnv })
+  execFileSync("cargo", build.args, {
+    stdio: "inherit",
+    cwd: SRC_TAURI,
+    env: buildEnv,
+  })
 
   const built = build.built
   if (!existsSync(built)) {
