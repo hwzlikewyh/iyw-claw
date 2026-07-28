@@ -302,7 +302,18 @@ async function main() {
   // Keep the companion free of Tauri runtime dependencies while satisfying
   // the bin's feature gate, so desktop builds do not compile it a second time.
   const build = resolveBuildInvocation(SRC_TAURI, target, ext)
-  execFileSync("cargo", build.args, { stdio: "inherit", cwd: SRC_TAURI })
+  // Statically link the MSVC CRT on Windows so the sidecar runs on machines
+  // that lack the VC++ 2015–2022 redistributable.  The sidecar is a pure
+  // stdio/socket binary with no DLL loading, so mixing static CRT with the
+  // system DLLs it calls (kernel32, ws2_32 …) is safe and well-supported.
+  const buildEnv = { ...process.env }
+  if (target.includes("windows-msvc")) {
+    const existing = buildEnv.RUSTFLAGS || ""
+    buildEnv.RUSTFLAGS = [existing, "-C target-feature=+crt-static"]
+      .filter(Boolean)
+      .join(" ")
+  }
+  execFileSync("cargo", build.args, { stdio: "inherit", cwd: SRC_TAURI, env: buildEnv })
 
   const built = build.built
   if (!existsSync(built)) {

@@ -121,6 +121,9 @@ async fn install_opencli(paths: &AgentStoragePaths) -> Result<(), String> {
         .arg(&prefix)
         .arg("--cache")
         .arg(paths.npm_cache_dir())
+        // Route through the same registry as every other managed install
+        // (npmmirror by default) instead of npm's built-in registry.npmjs.org.
+        .arg(npm_runtime::npm_registry_arg().map_err(|error| error.to_string())?)
         .arg(opencli_package_spec())
         .arg(mcporter_package_spec());
     run_install_command(command, "OpenCLI and mcporter").await?;

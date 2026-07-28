@@ -562,6 +562,46 @@ async fn run_npm_streaming(
     Ok((status.success(), collected_stderr))
 }
 
+/// How many times a managed npm install is attempted before giving up. See the
+/// retry comment in [`install_private_npm_package`].
+const NPM_INSTALL_ATTEMPTS: u32 = 3;
+
+/// One `npm install` attempt plus the checks that decide whether it produced a
+/// *usable* tree.
+///
+/// npm exits 0 when an optional dependency fails, so exit status alone is not
+/// evidence of success: the version check catches a wrong/missing top-level
+/// package, and the platform audit catches a per-platform binary sub-package
+/// that npm skipped after a failed download. Without the audit the install is
+/// recorded as successful and the failure only surfaces when the agent is
+/// launched (`Missing optional dependency @openai/codex-win32-x64`, the agent
+/// process exiting 1 during ACP `initialize`).
+async fn run_private_npm_install_attempt(
+    staging: &Path,
+    args: &[OsString],
+    packages: &[&str],
+    version: &str,
+    task_id: &str,
+    emitter: &EventEmitter,
+) -> Result<(), AcpError> {
+    let (success, stderr) = run_npm_streaming(args, task_id, emitter).await?;
+    if !success {
+        let detail = stderr.trim();
+        return Err(AcpError::protocol(if detail.is_empty() {
+            "private npm install failed".to_string()
+        } else {
+            format!("private npm install failed: {detail}")
+        }));
+    }
+    let package_name = packages
+        .first()
+        .map(|package| package_name_from_spec(package))
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| AcpError::protocol("private npm package name is empty"))?;
+    verify_private_npm_package_version(staging, &package_name, version).await?;
+    npm_runtime::verify_host_platform_optional_deps(staging)
+}
+
 async fn install_private_npm_package(
     paths: &AgentStoragePaths,
     agent_type: AgentType,
@@ -592,21 +632,41 @@ async fn install_private_npm_package(
     );
 
     let result = async {
-        let (success, stderr) = run_npm_streaming(&args, task_id, emitter).await?;
-        if !success {
-            let detail = stderr.trim();
-            return Err(AcpError::protocol(if detail.is_empty() {
-                "private npm install failed".to_string()
-            } else {
-                format!("private npm install failed: {detail}")
-            }));
+        // Agent packages carry per-platform binary sub-packages that unpack to
+        // hundreds of MB (`@openai/codex` is ~390 MB), and a dropped connection
+        // mid-download is common enough on mainland-China networks that a single
+        // attempt is not enough. Retries are cheap: the shared npm cache means a
+        // retry only refetches what actually failed.
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let outcome = run_private_npm_install_attempt(
+                &staging,
+                &args,
+                packages,
+                version,
+                task_id,
+                emitter,
+            )
+            .await;
+            match outcome {
+                Ok(()) => break,
+                Err(error) if attempt < NPM_INSTALL_ATTEMPTS => {
+                    emit_agent_install_event(
+                        emitter,
+                        task_id,
+                        AgentInstallEventKind::Log,
+                        format!(
+                            "Install attempt {attempt}/{NPM_INSTALL_ATTEMPTS} failed: {error}; retrying"
+                        ),
+                    );
+                    // A partially-populated prefix would make the next attempt's
+                    // audit pass on stale files, so start each attempt clean.
+                    let _ = tokio::fs::remove_dir_all(&staging).await;
+                }
+                Err(error) => return Err(error),
+            }
         }
-        let package_name = packages
-            .first()
-            .map(|package| package_name_from_spec(package))
-            .filter(|name| !name.is_empty())
-            .ok_or_else(|| AcpError::protocol("private npm package name is empty"))?;
-        verify_private_npm_package_version(&staging, &package_name, version).await?;
         npm_runtime::activate_private_npm_runtime(
             paths,
             agent_type,
