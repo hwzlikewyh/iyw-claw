@@ -80,7 +80,7 @@
     "description": "Allow Agents to operate this computer's desktop and applications through Open Computer Use. Enable it only when real desktop control is needed.",
     "toggleLabel": "Enable Open Computer Use",
     "loading": "Loading computer use settings...",
-    "notReady": "The bundled skill is not ready yet. Restart iyw-claw and try again.",
+    "notReady": "The bundled skill is not ready yet. Restart 原助理 and try again.",
     "enabled": "Computer Use enabled",
     "disabled": "Computer Use disabled",
     "saveFailed": "Could not update Computer Use"
@@ -518,7 +518,7 @@
     "systemHint": "Built-in CLI skill · read-only",
     "systemSkill": {
       "title": "Built-in system Skill",
-      "description": "This Skill comes from the agent CLI's built-in directory. iyw-claw automatically copies it into the central store and publishes it to all supported platforms when skills load; if this read-only fallback remains visible, takeover did not complete.",
+      "description": "This Skill comes from the agent CLI's built-in directory. 原助理 automatically copies it into the central store and publishes it to all supported platforms when skills load; if this read-only fallback remains visible, takeover did not complete.",
       "readOnly": "Read-only",
       "takeOverHint": "Copy into ~/.iyw-claw/skills and publish to current agent"
     },
@@ -538,7 +538,7 @@
     "enableSwitch": {
       "title": "Use this Skill",
       "enabledHint": "Enabled skills stay in the agent's Skills directory.",
-      "disabledHint": "Disabled skills are kept by iyw-claw but hidden from the agent.",
+      "disabledHint": "Disabled skills are kept by 原助理 but hidden from the agent.",
       "aria": "Toggle Skill {name}"
     },
     "scope": {
@@ -582,7 +582,7 @@
       "enabled": "Skill enabled",
       "disabled": "Skill disabled",
       "toggleFailed": "Failed to update skill status",
-      "takenOver": "Skill taken over by iyw-claw",
+      "takenOver": "Skill taken over by 原助理",
       "takeOverFailed": "Failed to take over skill",
       "deleted": "Skill deleted",
       "deleteFailed": "Failed to delete skill"
@@ -725,10 +725,10 @@
       "resetProfile": "Use default",
       "profileSaved": "Agent configuration directory saved",
       "profileReset": "Agent configuration directory reset",
-      "restartRequired": "Restart iyw-claw before installing or launching Agents.",
+      "restartRequired": "Restart 原助理 before installing or launching Agents.",
       "restartNow": "Restart now",
       "confirmTitle": "Confirm directory",
-      "globalProfileWarning": "This is the Agent's existing user-global profile. iyw-claw will enforce its managed provider configuration in this directory and may affect your existing command-line setup.",
+      "globalProfileWarning": "This is the Agent's existing user-global profile. 原助理 will enforce its managed provider configuration in this directory and may affect your existing command-line setup.",
       "systemDriveWarning": "This directory is on the Windows system drive. Continue only if you intentionally want Agent data stored there.",
       "cancel": "Cancel",
       "confirm": "Continue",
@@ -937,7 +937,7 @@
       "notRun": "Checks have not run yet."
     },
     "codex": {
-      "configDescription": "Choose the model and thinking level. Managed launches always use the iyw-claw provider.",
+      "configDescription": "Choose the model and thinking level. Managed launches always use the 原助理 provider.",
       "authMode": "Auth Mode",
       "chatgptSubscription": "Official Subscription",
       "chatgptSubscriptionHint": "Log in with ChatGPT official subscription, no API Key required",
@@ -1063,7 +1063,7 @@
     },
     "hermes": {
       "configManagement": "Hermes Configuration",
-      "configDescription": "Hermes manages its own credentials in ~/.hermes/.env and settings in ~/.hermes/config.yaml. Pick a provider, then set the API key and model — iyw-claw writes both files for you.",
+      "configDescription": "Hermes manages its own credentials in ~/.hermes/.env and settings in ~/.hermes/config.yaml. Pick a provider, then set the API key and model — 原助理 writes both files for you.",
       "providerLabel": "Provider",
       "providerHint": "The provider selects which API key variable and model.provider Hermes uses. OAuth providers are configured through the terminal setup below.",
       "groupApiKey": "API key providers",
@@ -1105,14 +1105,14 @@
     },
     "kimiCode": {
       "configManagement": "Kimi Code Configuration",
-      "configDescription": "`kimi acp` only authenticates with a stored login token and rejects API keys on their own. To use an API key, iyw-claw writes a managed ~/.kimi-code/config.toml provider AND seeds a local gate token so the session opens — inference still runs on your key.",
-      "gateReadyApiKey": "Authenticated via API key (iyw-claw seeded the local gate token).",
+      "configDescription": "`kimi acp` only authenticates with a stored login token and rejects API keys on their own. To use an API key, 原助理 writes a managed ~/.kimi-code/config.toml provider AND seeds a local gate token so the session opens — inference still runs on your key.",
+      "gateReadyApiKey": "Authenticated via API key (原助理 seeded the local gate token).",
       "gateReadyLogin": "Authenticated via a Kimi account login.",
       "gateNotReady": "Not authenticated yet — save an API key below (or sign in) to open Kimi sessions.",
       "authModeLabel": "Authentication method",
       "authModeApiKey": "API key",
       "authModeLogin": "Kimi account login (subscription)",
-      "authModeHint": "“API key” writes a iyw-claw-managed config.toml provider and seeds a gate token. “Login” clears that and uses a real `kimi login` session (requires a Kimi subscription).",
+      "authModeHint": "“API key” writes a 原助理-managed config.toml provider and seeds a gate token. “Login” clears that and uses a real `kimi login` session (requires a Kimi subscription).",
       "interfaceTypeLabel": "Provider type",
       "interfaceTypeHint": "The provider protocol Kimi speaks (config.toml `type`). Use Kimi / Moonshot for a Moonshot / platform.kimi.com key.",
       "endpointLabel": "Endpoint",
@@ -1140,9 +1140,9 @@
       "fetchModelsNeedsKey": "Enter an API key and endpoint first",
       "maxContextLabel": "Max context size (optional)",
       "maxContextHint": "Tokens, e.g. 262144. Leave blank to use the model default.",
-      "loginHint": "Run `kimi login` in a terminal to sign in with a Kimi subscription account (device-code OAuth). iyw-claw stores nothing and reuses Kimi’s own login. Saving here removes iyw-claw’s API-key gate token.",
+      "loginHint": "Run `kimi login` in a terminal to sign in with a Kimi subscription account (device-code OAuth). 原助理 stores nothing and reuses Kimi’s own login. Saving here removes 原助理’s API-key gate token.",
       "rawEditorLabel": "Advanced: edit config.toml directly",
-      "rawEditorHint": "Written verbatim (comments preserved) and validated as TOML. iyw-claw also seeds the gate token so the session opens.",
+      "rawEditorHint": "Written verbatim (comments preserved) and validated as TOML. 原助理 also seeds the gate token so the session opens.",
       "rawEditorPlaceholder": "[providers.iyw-claw]\ntype = \"kimi\"\nbase_url = \"https://api.moonshot.cn/v1\"\napi_key = \"sk-...\""
     },
     "authModeOfficialSubscription": "Official Subscription",
@@ -1209,11 +1209,11 @@
       "storageNotInitialized": "Agent storage is not initialized",
       "storageNotInitializedDescription": "Choose a private storage directory in Agent Settings before installing or repairing an Agent.",
       "storageInitialized": "Private Agent storage initialized",
-      "storageRestartRequired": "Restart iyw-claw, then click Install again.",
-      "storageRestartingForInstall": "iyw-claw will restart and continue the installation automatically.",
+      "storageRestartRequired": "Restart 原助理, then click Install again.",
+      "storageRestartingForInstall": "原助理 will restart and continue the installation automatically.",
       "storageSuggestionUnavailable": "Open Agent Settings and choose a private storage directory first.",
       "storageInitializationFailed": "Failed to initialize Agent storage",
-      "storageRestartFailed": "Agent storage is ready, but iyw-claw could not restart",
+      "storageRestartFailed": "Agent storage is ready, but 原助理 could not restart",
       "localVersion": "Local version: {version}",
       "installCompletedVersionLater": "Install completed, version will update on next check",
       "uninstallCompleted": "{name} uninstall completed",
@@ -1305,7 +1305,7 @@
       "saveConfig": "Save Pi Config",
       "modelRequired": "Model is required",
       "trustTitle": "Auto-trust opened workspaces",
-      "trustDescription": "When iyw-claw connects pi to a folder, mark that folder trusted so pi loads the project's local config and skills without a separate prompt.",
+      "trustDescription": "When 原助理 connects pi to a folder, mark that folder trusted so pi loads the project's local config and skills without a separate prompt.",
       "trustHint": "Only folders you open here are trusted, never your whole machine — and this affects config loading only, not what pi is allowed to run."
     }
   },
@@ -1326,8 +1326,8 @@
     "loadFailed": "Load failed: {message}"
   },
   "LoginPage": {
-    "documentTitle": "Login - iyw-claw",
-    "brand": "iyw-claw",
+    "documentTitle": "Login - 原助理",
+    "brand": "原助理",
     "subtitle": "Enter your access token to connect to the desktop app",
     "tokenPlaceholder": "Access Token",
     "connect": "Connect",
@@ -2509,7 +2509,7 @@
           "shortcutsAuxPanel": "<shortcut>{toggleAuxPanel}</shortcut> toggles the right panel to view this session's touched files and Git changes.",
           "shortcutsTerminalSidebar": "<shortcut>{toggleTerminal}</shortcut> opens the built-in terminal, <shortcut>{toggleSidebar}</shortcut> toggles the sidebar.",
           "customShortcuts": "Every shortcut is fully remappable under Settings → Shortcuts.",
-          "webService": "Enable Settings → Web Service so teammates can reach the same iyw-claw from a browser.",
+          "webService": "Enable Settings → Web Service so teammates can reach the same 原助理 from a browser.",
           "fusionMode": "Open a file or diff to automatically show it alongside the conversation.",
           "quickMessages": "Open the + button next to the input and pick Quick Messages to insert a saved snippet (manage them under Settings → Quick Messages).",
           "experts": "The + button has an Expert Skills menu — preload roles like Debug or Planning with one click."
@@ -3071,11 +3071,11 @@
   "WebServiceSettings": {
     "addressSwitchHint": "Switching only changes the address shown and opened here — the service listens on all interfaces and stays reachable at every address.",
     "sectionTitle": "Web Service",
-    "sectionDescription": "Enable to access iyw-claw remotely via browser",
+    "sectionDescription": "Enable to access 原助理 remotely via browser",
     "port": "Port",
     "status": "Status",
     "autoStart": "Auto-start",
-    "autoStartHint": "Start the Web service when iyw-claw launches",
+    "autoStartHint": "Start the Web service when 原助理 launches",
     "running": "Running",
     "stopped": "Stopped",
     "processing": "Processing...",
@@ -3090,7 +3090,7 @@
     "copy": "Copy",
     "qrcode": "QR Code",
     "qrcodeTitle": "Scan to Open",
-    "qrcodeHint": "Scan with your phone to open iyw-claw in a browser",
+    "qrcodeHint": "Scan with your phone to open 原助理 in a browser",
     "addressLabel": "Access Address",
     "tokenLabel": "Access Token",
     "tokenHint": "Enter this token when accessing the Web client for the first time",
@@ -3098,7 +3098,7 @@
     "regenerate": "Regenerate",
     "stalePortOccupiedTitle": "Port {port} is held by another process",
     "stalePortUnknownTitle": "Port {port} status is unclear",
-    "stalePortHint": "iyw-claw can't bind here until the port is released. Change the port above, or close the process holding it.",
+    "stalePortHint": "原助理 can't bind here until the port is released. Change the port above, or close the process holding it.",
     "errors": {
       "alreadyRunning": "Web service is already running",
       "invalidAddress": "Invalid host or port format",
@@ -3380,7 +3380,7 @@
     },
     "confirm": {
       "disableTitle": "Disable these links?",
-      "disableBody": "This removes {count} iyw-claw-managed skill link(s). Skills occupying a custom directory are left untouched. You can re-enable them anytime.",
+      "disableBody": "This removes {count} 原助理-managed skill link(s). Skills occupying a custom directory are left untouched. You can re-enable them anytime.",
       "cancel": "Cancel",
       "confirm": "Disable"
     },
@@ -3410,7 +3410,7 @@
     "searchPlaceholder": "Search experts by name, id, or description",
     "enableForAgents": "Enable for agents",
     "noAgents": "No ACP agents detected.",
-    "copyModeWarning": "Copied (not linked). Re-enable after iyw-claw updates to get the latest version.",
+    "copyModeWarning": "Copied (not linked). Re-enable after 原助理 updates to get the latest version.",
     "previewTitle": "SKILL.md preview",
     "categories": {
       "discovery": "Discovery & Design",
@@ -3446,7 +3446,7 @@
   },
   "CodexNativeSettings": {
     "title": "Codex Built-ins",
-    "description": "iyw-claw ships its own copies of the skills bundled with Codex CLI and publishes them to Codex's regular skills directory. While enabled, the CLI's .system copies are kept cleared so sessions never see duplicates.",
+    "description": "原助理 ships its own copies of the skills bundled with Codex CLI and publishes them to Codex's regular skills directory. While enabled, the CLI's .system copies are kept cleared so sessions never see duplicates.",
     "loading": "Loading Codex built-in skills…",
     "empty": "No Codex built-in skills bundled. Check the application logs.",
     "category": "Codex Built-ins",
@@ -3775,7 +3775,7 @@
   },
   "BackupSettings": {
     "title": "Backup & Restore",
-    "description": "Export a portable backup of your iyw-claw data, or restore from one.",
+    "description": "Export a portable backup of your 原助理 data, or restore from one.",
     "tabs": {
       "backup": "Backup",
       "restore": "Restore"
@@ -3805,9 +3805,9 @@
         "incompatible": "Incompatible",
         "createdAt": "Created: {value}",
         "appVersion": "App version: {value}",
-        "incompatibleHint": "This backup was created by a newer version of iyw-claw and cannot be restored."
+        "incompatibleHint": "This backup was created by a newer version of 原助理 and cannot be restored."
       },
-      "replaceWarning": "Restoring replaces all current iyw-claw data (database and uploads). Your current data is snapshotted first so it can be recovered.",
+      "replaceWarning": "Restoring replaces all current 原助理 data (database and uploads). Your current data is snapshotted first so it can be recovered.",
       "keyringNote": "Desktop GitHub/chat tokens live in your OS keychain and are not included; re-enter them after restoring.",
       "button": "Restore",
       "staging": "Preparing restore…",
@@ -3816,7 +3816,7 @@
       "restartTimeout": "The server did not come back in time. Reload the page once it is up.",
       "externalSideLocation": "Conversation transcripts were restored to {path}",
       "confirmTitle": "Replace all data?",
-      "confirmBody": "This will replace your current iyw-claw database and uploads with the backup, then restart. Your current data is snapshotted first.",
+      "confirmBody": "This will replace your current 原助理 database and uploads with the backup, then restart. Your current data is snapshotted first.",
       "cancel": "Cancel",
       "confirmAction": "Replace & restart",
       "external": {
@@ -3834,15 +3834,15 @@
       },
       "restartFailed": "Restore staged, but the server couldn't restart. Restart it manually to apply the restore."
     },
-    "remoteUnsupported": "Backup & restore acts on the data of the machine running iyw-claw. You're connected to a remote workspace — manage its backups from that server directly."
+    "remoteUnsupported": "Backup & restore acts on the data of the machine running 原助理. You're connected to a remote workspace — manage its backups from that server directly."
   },
   "backup": {
     "restore": {
       "error": {
         "badPassphrase": "Incorrect passphrase or corrupted backup.",
         "corrupted": "The backup archive is corrupted.",
-        "unknownFormat": "This file is not a recognized iyw-claw backup.",
-        "newerVersion": "This backup was created by iyw-claw {backupVersion}, newer than this version ({appVersion}).",
+        "unknownFormat": "This file is not a recognized 原助理 backup.",
+        "newerVersion": "This backup was created by 原助理 {backupVersion}, newer than this version ({appVersion}).",
         "alreadyPending": "A restore is already staged. Restart to apply it before staging another."
       }
     },
@@ -4095,7 +4095,7 @@
     "branchNone": "No branches"
   },
   "StartupLogin": {
-    "title": "Sign in to iyw-claw",
+    "title": "Sign in to 原助理",
     "description": "Sign in to install and use Agents.",
     "checkingTitle": "Checking your account",
     "checkingDescription": "Confirming your sign-in status.",

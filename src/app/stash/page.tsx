@@ -68,7 +68,7 @@ function StashPageInner() {
   const pageTitle = folder ? `${t("title")} · ${folder.name}` : t("title")
 
   useEffect(() => {
-    document.title = `${pageTitle} - iyw-claw`
+    document.title = `${pageTitle} - 原助理`
   }, [pageTitle])
 
   return (

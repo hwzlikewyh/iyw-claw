@@ -2899,7 +2899,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
               ? AGENT_LABELS[connection.agentType]
               : "Agent"
             const folderName = folderNameRef.current
-            const title = folderName ? `${folderName} - iyw-claw` : "iyw-claw"
+            const title = folderName ? `${folderName} - 原助理` : "原助理"
             for (const settled of e.settled) {
               const body =
                 settled.summary ??
@@ -2945,7 +2945,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             if (nc) {
               const agentLabel = AGENT_LABELS[nc.agentType]
               const fn = folderNameRef.current
-              const title = fn ? `${fn} - iyw-claw` : "iyw-claw"
+              const title = fn ? `${fn} - 原助理` : "原助理"
               sendSystemNotification(
                 title,
                 `${agentLabel}: ${tChat("permissionDialog.subtitle")}`
@@ -3118,7 +3118,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             if (nc) {
               const agentLabel = AGENT_LABELS[nc.agentType]
               const fn = folderNameRef.current
-              const title = fn ? `${fn} - iyw-claw` : "iyw-claw"
+              const title = fn ? `${fn} - 原助理` : "原助理"
               sendSystemNotification(
                 title,
                 t("notificationTurnComplete", { agent: agentLabel })
@@ -3193,7 +3193,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           // Send OS notification for agent errors
           if (nc) {
             const fn = folderNameRef.current
-            const title = fn ? `${fn} - iyw-claw` : "iyw-claw"
+            const title = fn ? `${fn} - 原助理` : "原助理"
             sendSystemNotification(
               title,
               t("notificationError", {
