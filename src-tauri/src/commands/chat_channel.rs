@@ -807,6 +807,12 @@ pub async fn weixin_get_qrcode() -> Result<WeixinQrcodeInfo, AppCommandError> {
 pub struct WecomAuthStatus {
     pub cli_installed: bool,
     pub authorized: bool,
+    /// Whether the `wecom-cli init` process launched by `wecom_start_auth` is
+    /// still alive and able to receive the scan. Lets the UI distinguish "not
+    /// scanned yet" from "the pending authorization is gone".
+    pub auth_process_running: bool,
+    /// Why that process exited, when it exited without authorizing.
+    pub auth_process_error: Option<String>,
 }
 
 pub async fn wecom_get_auth_status_core() -> Result<WecomAuthStatus, AppCommandError> {
@@ -818,9 +824,12 @@ pub async fn wecom_get_auth_status_core() -> Result<WecomAuthStatus, AppCommandE
     } else {
         false
     };
+    let process = crate::chat_channel::backends::wecom::auth_process_state();
     Ok(WecomAuthStatus {
         cli_installed,
         authorized,
+        auth_process_running: process.running,
+        auth_process_error: process.last_error,
     })
 }
 

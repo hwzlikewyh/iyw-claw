@@ -668,9 +668,48 @@ async fn ensure_authorized() -> Result<(), ChatChannelError> {
     ))
 }
 
+/// Liveness of the detached `wecom-cli init` process started by [`start_auth`].
+///
+/// The QR scan is completed by that process, not by us: it holds the pending
+/// authorization and writes the credential file once the scan lands. If it
+/// dies early the UI would otherwise poll [`auth_status`] forever, so its
+/// state is published here.
+#[derive(Debug, Clone, Default)]
+pub struct AuthProcessState {
+    pub running: bool,
+    /// Last line(s) the process emitted before exiting non-zero, if any.
+    pub last_error: Option<String>,
+}
+
+static AUTH_PROCESS: std::sync::LazyLock<std::sync::Mutex<AuthProcessState>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(AuthProcessState::default()));
+
+pub fn auth_process_state() -> AuthProcessState {
+    AUTH_PROCESS
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default()
+}
+
+fn set_auth_process(running: bool, last_error: Option<String>) {
+    if let Ok(mut guard) = AUTH_PROCESS.lock() {
+        *guard = AuthProcessState {
+            running,
+            last_error,
+        };
+    }
+}
+
 /// Kick off `wecom-cli init --noninteractive` in the background and return
 /// the authorization link parsed from its output. The process keeps running
 /// until the user scans; poll [`auth_status`] to observe completion.
+///
+/// Both pipes must be drained for the child's entire lifetime, not just until
+/// the link appears. `wecom-cli init` keeps writing after the link (the ASCII
+/// QR block, then `等待扫码中...`) — closing the read end makes those writes
+/// fail and the process aborts (exit 101) within a fraction of a second, long
+/// before the user can scan. An undrained stderr would stall it the same way
+/// once the pipe buffer fills.
 pub async fn start_auth() -> Result<String, ChatChannelError> {
     ensure_cli_installed().await?;
     if auth_status().await.unwrap_or(false) {
@@ -691,28 +730,88 @@ pub async fn start_auth() -> Result<String, ChatChannelError> {
     let stdout = child.stdout.take().ok_or_else(|| {
         ChatChannelError::ConnectionFailed("wecom-cli init produced no stdout".into())
     })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        ChatChannelError::ConnectionFailed("wecom-cli init produced no stderr".into())
+    })?;
 
-    // Read until an https link shows up (the QR is just that link rendered
-    // as ASCII). The child stays alive waiting for the scan; detach it.
-    let link = tokio::time::timeout(Duration::from_secs(30), async move {
+    set_auth_process(true, None);
+
+    // The QR is just the link rendered as ASCII, so the first https:// line is
+    // what the UI needs — but the reader keeps running past it so the child can
+    // continue writing while it waits for the scan.
+    let (link_tx, link_rx) = tokio::sync::oneshot::channel::<String>();
+    tokio::spawn(async move {
         use tokio::io::AsyncBufReadExt;
         let mut lines = tokio::io::BufReader::new(stdout).lines();
+        let mut link_tx = Some(link_tx);
+        let mut tail = String::new();
         while let Ok(Some(line)) = lines.next_line().await {
-            if let Some(link) = extract_https_link(&line) {
-                return Some(link);
+            if let Some(sender) = link_tx.take() {
+                match extract_https_link(&line) {
+                    Some(link) => {
+                        let _ = sender.send(link);
+                    }
+                    None => link_tx = Some(sender),
+                }
+            }
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                tracing::debug!("[WeCom] init: {trimmed}");
+                tail = trimmed.to_string();
             }
         }
-        None
-    })
-    .await;
-
-    tokio::spawn(async move {
-        let _ = child.wait().await;
+        tracing::info!("[WeCom] init stdout closed (last line: {tail})");
     });
 
-    match link {
-        Ok(Some(link)) => Ok(link),
-        Ok(None) => Err(ChatChannelError::ConnectionFailed(
+    // Drained purely to keep the child from blocking on a full pipe; the
+    // final lines double as the failure message when it exits non-zero.
+    let stderr_tail = Arc::new(Mutex::new(String::new()));
+    let stderr_tail_writer = Arc::clone(&stderr_tail);
+    tokio::spawn(async move {
+        use tokio::io::AsyncBufReadExt;
+        let mut lines = tokio::io::BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            tracing::debug!("[WeCom] init stderr: {trimmed}");
+            let mut tail = stderr_tail_writer.lock().await;
+            *tail = trimmed.to_string();
+        }
+    });
+
+    tokio::spawn(async move {
+        let status = child.wait().await;
+        let detail = stderr_tail.lock().await.clone();
+        match status {
+            Ok(status) if status.success() => {
+                tracing::info!("[WeCom] init finished (authorization complete)");
+                set_auth_process(false, None);
+            }
+            Ok(status) => {
+                tracing::warn!("[WeCom] init exited with {status}: {detail}");
+                set_auth_process(
+                    false,
+                    Some(if detail.is_empty() {
+                        format!("wecom-cli init exited with {status}")
+                    } else {
+                        format!("wecom-cli init exited with {status}: {detail}")
+                    }),
+                );
+            }
+            Err(error) => {
+                tracing::warn!("[WeCom] init wait failed: {error}");
+                set_auth_process(false, Some(format!("wecom-cli init failed: {error}")));
+            }
+        }
+    });
+
+    match tokio::time::timeout(Duration::from_secs(30), link_rx).await {
+        Ok(Ok(link)) => Ok(link),
+        // Sender dropped: the reader hit EOF without a link, i.e. the process
+        // exited early.
+        Ok(Err(_)) => Err(ChatChannelError::ConnectionFailed(
             "wecom-cli init ended without printing an authorization link".into(),
         )),
         Err(_) => Err(ChatChannelError::ConnectionFailed(

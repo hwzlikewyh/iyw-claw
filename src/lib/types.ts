@@ -2475,6 +2475,10 @@ export type ChannelType = "lark" | "wecom" | "weixin"
 export interface WecomAuthStatus {
   cli_installed: boolean
   authorized: boolean
+  /** Whether the `wecom-cli init` process that receives the scan is alive. */
+  auth_process_running: boolean
+  /** Why that process exited, when it exited without authorizing. */
+  auth_process_error: string | null
 }
 
 export interface WecomAuthStart {

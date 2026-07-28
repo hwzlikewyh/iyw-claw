@@ -2863,8 +2863,8 @@ export function MessageInput({
                 onExternalMenuKeyDown={handleExternalMenuKeyDown}
                 className="min-h-0 flex-1"
               />
-              <div className="flex shrink-0 items-end justify-between gap-1 px-2 pb-2">
-                <div className="flex min-w-0 items-end gap-1">
+              <div className="flex shrink-0 items-center justify-between gap-1 px-2 pb-2">
+                <div className="flex min-w-0 items-center gap-1">
                   <DropdownMenu onOpenChange={handleAddMenuOpenChange}>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -3253,7 +3253,7 @@ export function MessageInput({
                     </div>
                   )}
                 </div>
-                <div className="flex shrink-0 items-end gap-1">
+                <div className="flex shrink-0 items-center gap-1">
                   <SessionUsageChip
                     contextKey={attachmentTabId ?? null}
                     popoverSide="top"

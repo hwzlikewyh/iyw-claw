@@ -3151,6 +3151,7 @@
     "wecomAuthLinkHint": "Open the authorization page, then scan the QR shown there with WeCom:",
     "wecomOpenAuthPage": "Open auth page",
     "wecomWaitingScan": "Waiting for scan confirmation…",
+    "wecomAuthProcessGone": "The authorization session ended before the scan completed. Start it again to get a fresh QR code.",
     "defaultAgent": "Default Agent",
     "defaultAgentNone": "Follow folder default",
     "defaultAgentHint": "Messages in this channel chat with this agent — no commands needed. Only installed agents are listed.",
