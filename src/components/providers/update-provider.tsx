@@ -33,7 +33,10 @@ const IDLE_STATE: AppUpdateState = { seq: 0, status: "idle" }
 
 const LIFECYCLES = new Set([
   "idle",
+  "checking",
+  "available",
   "downloading",
+  "verifying",
   "installing",
   "ready_to_restart",
   "restarting",
@@ -398,12 +401,15 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   }, [t])
 
   const isUpdating =
-    state.status === "downloading" || state.status === "installing"
+    state.status === "downloading" ||
+    state.status === "verifying" ||
+    state.status === "installing"
   const isBusy =
     isUpdating ||
     isRollingBack ||
     isRestarting ||
     restartCountdown !== null ||
+    state.status === "checking" ||
     state.status === "restarting"
 
   const value = useMemo<UpdateContextValue>(

@@ -185,6 +185,21 @@
     "updateTitle": "应用升级",
     "versionTitle": "软件更新",
     "updateDescription": "点击检查后会从配置的发布源拉取最新版本信息，有新版本时可直接下载并安装。",
+    "autoCheckUpdates": "自动检查更新",
+    "autoCheckUpdatesHint": "启动后及约每 6 小时检查一次，不会静默下载或安装。",
+    "updateChannel": "更新通道",
+    "stableChannel": "稳定版",
+    "betaChannel": "测试版",
+    "betaChannelHint": "测试版可能包含尚未充分验证的功能或变更。",
+    "updatePreferenceFailed": "保存更新偏好失败：{message}",
+    "remindLater": "4 小时后提醒",
+    "remindLaterSaved": "将在 4 小时后再次提醒此更新",
+    "skipThisVersion": "跳过此版本",
+    "versionSkipped": "已跳过 v{version}",
+    "requiredUpdate": "必须更新",
+    "requiredUpdateHint": "此更新不能跳过。",
+    "requiredUpdateDeadline": "请在 {time} 前完成更新。",
+    "downloadAndInstall": "下载并安装",
     "currentVersion": "当前版本",
     "upgradableVersion": "最新版本",
     "none": "暂无",
@@ -403,10 +418,164 @@
       "target": "目标：{target}",
       "noTarget": "先在“已安装”中选择目标",
       "tabs": {
+        "market": "技能市场",
         "installed": "已安装",
-        "official": "官方市场",
-        "import": "导入技能",
-        "generate": "生成技能"
+        "mine": "我的上传"
+      },
+      "actions": {
+        "upload": "上传 Skill",
+        "import": "导入本地 Skill",
+        "generate": "生成本地 Skill",
+        "retry": "重试",
+        "install": "安装",
+        "update": "更新",
+        "reinstall": "重新安装",
+        "installVersion": "安装此版本",
+        "editMetadata": "编辑元数据",
+        "publishVersion": "发布新版本",
+        "delete": "删除",
+        "deleting": "删除中...",
+        "cancel": "取消",
+        "back": "上一步",
+        "next": "下一步",
+        "publish": "发布",
+        "save": "保存",
+        "openFolder": "打开目录",
+        "uninstall": "卸载"
+      },
+      "filters": {
+        "searchPlaceholder": "搜索名称、描述、slug 或标签...",
+        "allPublishers": "全部发布者",
+        "allVisibility": "全部可见性",
+        "allCategories": "全部分类"
+      },
+      "publisher": {
+        "official": "官方",
+        "user": "用户发布"
+      },
+      "visibility": {
+        "public": "公开",
+        "private": "私有"
+      },
+      "categories": {
+        "office-efficiency": "办公效率",
+        "content-creation": "内容创作",
+        "dev-programming": "开发编程",
+        "data-analysis": "数据分析",
+        "design-media": "设计多媒体",
+        "ai-agent": "AI Agent",
+        "knowledge-management": "知识管理",
+        "business-ops": "商业运营",
+        "education": "教育学习",
+        "professional": "行业专业",
+        "it-ops-security": "IT 运维与安全",
+        "life-service": "生活服务"
+      },
+      "states": {
+        "loading": "正在加载 Skills",
+        "loadFailed": "技能市场加载失败",
+        "emptyTitle": "没有匹配的 Skill",
+        "emptyDescription": "请调整搜索词或筛选条件后重试。"
+      },
+      "pagination": {
+        "navigation": "Skill 市场分页",
+        "previous": "上一页",
+        "next": "下一页",
+        "page": "{page} / {pages}",
+        "summary": "第 {start}-{end} 项，共 {total} 项"
+      },
+      "detail": {
+        "selectHint": "选择一个 Skill 查看文件和版本信息。",
+        "loadFailed": "无法加载此 Skill",
+        "versionsLoadFailed": "版本历史加载失败：{message}",
+        "retryVersions": "重试加载版本历史",
+        "versionUnavailable": "此版本尚未就绪，无法安装。",
+        "installUnavailable": "请先选择可用的本地安装目标。",
+        "changelog": "更新说明",
+        "noChangelog": "此版本未提供更新说明。",
+        "fileTree": "完整文件树",
+        "fileCount": "{count} 个文件",
+        "noFiles": "暂无文件清单。"
+      },
+      "confirm": {
+        "installTitle": "安装这个 Skill？",
+        "updateTitle": "更新这个 Skill？",
+        "reinstallTitle": "重新安装此版本？",
+        "installVersionTitle": "安装所选版本？",
+        "installDescription": "当前版本：{current}；目标版本：{target}。只有完整性校验通过后才会替换现有内容。",
+        "notInstalled": "尚未安装"
+      },
+      "installed": {
+        "emptyTitle": "尚未安装本地 Skill",
+        "emptyDescription": "可从市场安装，或导入一个本地目录。",
+        "managed": "市场托管",
+        "local": "本地",
+        "updateAvailable": "可更新",
+        "disabled": "已停用",
+        "noDescription": "未提供描述。",
+        "enabled": "使用这个 Skill",
+        "enabledHint": "启用后，支持的 Agent 可以发现此 Skill。",
+        "uninstallTitle": "卸载这个 Skill？",
+        "uninstallDescription": "{name} 将从本地中心库和支持的 Agent 目录中移除。"
+      },
+      "upload": {
+        "title": "上传 Skill",
+        "description": "发布包含完整文件树、明确版本号和可见性的 Skill。",
+        "progressLabel": "上传进度",
+        "steps": {
+          "folder": "1. 选择完整目录",
+          "metadata": "2. 填写市场元数据",
+          "review": "3. 复核并发布"
+        },
+        "folderHint": "根目录必须包含非空 UTF-8 SKILL.md，最多 512 个文件、25 MB。",
+        "selectFolder": "选择 Skill 目录",
+        "replaceFolder": "重新选择目录",
+        "clearFolder": "清除所选目录",
+        "folderSummary": "{count} 个文件 · {size}",
+        "formInvalid": "请填写所有必填项，并输入完整有效的 SemVer。",
+        "folderErrors": {
+          "emptyFolder": "所选目录为空。",
+          "tooManyFiles": "一个 Skill 最多包含 512 个文件。",
+          "invalidFolder": "无法读取一个完整的目录。",
+          "folderTooLarge": "目录总大小不能超过 25 MB。",
+          "missingSkillFile": "根目录必须包含 SKILL.md。",
+          "skillFileTooLarge": "SKILL.md 不能超过 1 MB。",
+          "emptySkillFile": "SKILL.md 不能为空。",
+          "invalidSkillFile": "SKILL.md 必须是有效的 UTF-8。",
+          "invalidPath": "目录中包含不安全或保留路径。",
+          "duplicatePath": "目录中包含重复路径。",
+          "pathConflict": "文件路径与目录路径发生冲突。",
+          "readFailed": "读取所选目录失败。"
+        }
+      },
+      "fields": {
+        "slug": "稳定 slug",
+        "displayName": "展示名称",
+        "summary": "摘要",
+        "category": "分类",
+        "selectCategory": "选择分类",
+        "version": "版本号",
+        "tags": "标签",
+        "tagsPlaceholder": "document, automation",
+        "iconUrl": "图标 URL（可选）",
+        "changelog": "更新说明",
+        "public": "公开展示",
+        "visibility": "可见性",
+        "visibilityHint": "私有 Skill 仅自己可见和下载。"
+      },
+      "metadata": {
+        "title": "编辑市场元数据",
+        "description": "slug 和已发布版本内容保持不可变。"
+      },
+      "version": {
+        "title": "发布新版本",
+        "description": "请重新选择完整目录，版本号必须高于 {version}。",
+        "placeholder": "例如 1.1.0",
+        "invalid": "请输入严格高于 {version} 的有效 SemVer。"
+      },
+      "delete": {
+        "title": "删除已上传的 Skill？",
+        "description": "{name} 将从远程列表消失，已经安装的本地副本不会被移除。"
       },
       "official": {
         "title": "官方市场",
@@ -476,9 +645,15 @@
         "submit": "生成并保存"
       },
       "toasts": {
+        "actionFailed": "Skill 操作失败",
+        "published": "Skill 已发布",
+        "metadataUpdated": "市场元数据已更新",
+        "versionPublished": "新版本已发布",
+        "deleted": "已上传的 Skill 已删除",
+        "updated": "Skill 已更新",
         "noTarget": "请先选择可用的 Agent 和 Skill 范围",
         "contentRequired": "Skill ID 和内容不能为空",
-        "installed": "官方 Skill 已安装",
+        "installed": "Skill 已安装",
         "installFailed": "安装官方 Skill 失败",
         "imported": "Skill 已导入",
         "importFailed": "导入 Skill 失败",

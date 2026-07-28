@@ -63,11 +63,12 @@ mod tauri_app {
         logging as logging_commands, managed_skills as managed_skills_commands,
         mcp as mcp_commands, model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, performance as performance_commands,
-        question as question_commands,
-        quick_messages as quick_messages_commands, remote_image as remote_image_commands,
-        remote_proxy as remote_proxy_commands, remote_workspace as remote_workspace_commands,
+        question as question_commands, quick_messages as quick_messages_commands,
+        remote_image as remote_image_commands, remote_proxy as remote_proxy_commands,
+        remote_workspace as remote_workspace_commands,
         runtime_bootstrap as runtime_bootstrap_commands, session_info as session_info_commands,
-        system_settings, system_skills as system_skills_commands, terminal as terminal_commands,
+        skill_market as skill_market_commands, system_settings,
+        system_skills as system_skills_commands, terminal as terminal_commands,
         usage as usage_commands, user_memory as user_memory_commands, version_control, windows,
         workspace_state as workspace_state_commands,
     };
@@ -394,6 +395,14 @@ mod tauri_app {
                 // Restore and apply saved system proxy settings before any network operation.
                 let db = app.state::<db::AppDatabase>();
                 tauri::async_runtime::block_on(network::proxy::init_proxy_from_db(&db.conn));
+
+                crate::update::scheduler::spawn(
+                    app.handle().clone(),
+                    db.conn.clone(),
+                    app.state::<crate::update::AppUpdateStateHandle>()
+                        .inner()
+                        .clone(),
+                );
 
                 // Logging phase 2/3: override the default level from the
                 // persisted `logging.level` now that the DB is open, then wire
@@ -1009,8 +1018,22 @@ mod tauri_app {
                 windows::update_appearance_mode,
                 windows::set_tray_locale,
                 app_update_commands::app_update_state,
+                app_update_commands::check_app_update,
+                app_update_commands::get_app_update_preferences,
+                app_update_commands::update_app_update_preferences,
+                app_update_commands::skip_app_update,
+                app_update_commands::remind_app_update_later,
                 app_update_commands::perform_app_update,
                 app_update_commands::restart_app,
+                skill_market_commands::skill_market_list,
+                skill_market_commands::skill_market_categories,
+                skill_market_commands::skill_market_detail,
+                skill_market_commands::skill_market_list_versions,
+                skill_market_commands::skill_market_publish,
+                skill_market_commands::skill_market_add_version,
+                skill_market_commands::skill_market_update_metadata,
+                skill_market_commands::skill_market_delete,
+                skill_market_commands::skill_market_install,
                 iyw_account_commands::iyw_account_get_wechat_qrcode,
                 iyw_account_commands::iyw_account_poll_wechat_login,
                 iyw_account_commands::iyw_account_login_with_password,

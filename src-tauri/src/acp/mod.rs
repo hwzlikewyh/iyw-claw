@@ -41,6 +41,7 @@ pub mod runtime_context;
 mod session_config_compat;
 pub mod session_info;
 pub mod session_state;
+pub mod skill_package;
 pub mod terminal_runtime;
 pub mod types;
 

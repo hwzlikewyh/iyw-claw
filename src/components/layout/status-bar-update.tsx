@@ -24,7 +24,14 @@ export function StatusBarUpdate() {
   const update = useAppUpdate()
   if (!update) return null
 
-  const { state, isUpdating, restartCountdown, isRestarting, restart } = update
+  const {
+    state,
+    isUpdating,
+    restartCountdown,
+    isRestarting,
+    restart,
+    startUpdate,
+  } = update
 
   // A relaunch is in progress (countdown, the backend `restarting` event, or
   // the brief desktop window right after the click) — show progress, never a
@@ -55,6 +62,18 @@ export function StatusBarUpdate() {
       >
         <ArrowUpCircle className="h-3.5 w-3.5" />
         <span>{t("restartToUpdate")}</span>
+      </button>
+    )
+  }
+
+  if (state.status === "available" && state.version) {
+    return (
+      <button
+        onClick={() => void startUpdate()}
+        className="flex items-center gap-1.5 text-primary hover:text-primary/80 transition-colors"
+      >
+        <ArrowUpCircle className="h-3.5 w-3.5" />
+        <span>{t("upgradeTo", { version: state.version })}</span>
       </button>
     )
   }

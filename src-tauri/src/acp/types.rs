@@ -600,6 +600,13 @@ pub struct AgentSkillItem {
     /// and uninstall stay available. Unlike `read_only`, management UIs still
     /// list these skills.
     pub official: bool,
+    /// True when a market marker owns the central Skill directory.
+    pub market_managed: bool,
+    pub market_skill_id: Option<String>,
+    pub installed_version: Option<String>,
+    pub market_visibility: Option<String>,
+    pub publisher_type: Option<String>,
+    pub market_content_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -649,4 +656,3 @@ pub struct ForkResultInfo {
     /// (still bound in `SessionState`) gets re-pointed to S2 in the same call.
     pub sibling_conversation_id: i32,
 }
-

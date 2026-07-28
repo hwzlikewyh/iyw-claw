@@ -13,16 +13,207 @@
 //! right place per runtime), but drive the platform updater instead of the
 //! in-place tarball swap.
 
-use tauri_plugin_updater::UpdaterExt;
+use sea_orm::DatabaseConnection;
+use serde::Serialize;
 
 use crate::app_error::AppCommandError;
+use crate::db::AppDatabase;
+use crate::update::preferences::{self, UpdatePreferences, UpdatePreferencesPatch};
+use crate::update::release::{self, AppUpdateInfo, CheckReason};
 use crate::update::state::{self as update_state, AppUpdateState, AppUpdateStateHandle};
 use crate::web::event_bridge::EventEmitter;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateCheckResult {
+    pub current_version: String,
+    pub update: Option<AppUpdateInfo>,
+}
 
 /// Current update snapshot, for the renderer to re-sync on mount.
 #[tauri::command]
 pub fn app_update_state(state: tauri::State<'_, AppUpdateStateHandle>) -> AppUpdateState {
     update_state::snapshot(state.inner())
+}
+
+#[tauri::command]
+pub async fn check_app_update(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+    state: tauri::State<'_, AppUpdateStateHandle>,
+) -> Result<AppUpdateCheckResult, AppCommandError> {
+    check_desktop_update_core(&app, &db.conn, state.inner(), CheckReason::Manual).await
+}
+
+pub(crate) async fn check_desktop_update_core(
+    app: &tauri::AppHandle,
+    conn: &DatabaseConnection,
+    state: &AppUpdateStateHandle,
+    reason: CheckReason,
+) -> Result<AppUpdateCheckResult, AppCommandError> {
+    let preferences = preferences::load(conn).await?;
+    let checked_channel = preferences.channel;
+    let emitter = EventEmitter::Tauri(app.clone());
+    let (started, _) = update_state::try_begin_check(state, &emitter);
+    if !started {
+        return Err(AppCommandError::already_exists(
+            "An application update operation is already in progress",
+        ));
+    }
+
+    let result = release::check_desktop_update(app, &preferences, reason).await;
+    let update = match result {
+        Ok(update) => update,
+        Err(error) => {
+            record_check_failure(conn, state, &emitter, checked_channel, &error).await;
+            return Err(error);
+        }
+    };
+    let result =
+        finish_successful_check(conn, state, &emitter, checked_channel, reason, update).await;
+    if let Err(error) = &result {
+        update_state::set_error(state, &emitter, error.to_string());
+    }
+    result
+}
+
+async fn finish_successful_check(
+    conn: &DatabaseConnection,
+    state: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+    checked_channel: preferences::UpdateChannel,
+    reason: CheckReason,
+    update: Option<AppUpdateInfo>,
+) -> Result<AppUpdateCheckResult, AppCommandError> {
+    let release_id = update.as_ref().and_then(|value| value.release_id.clone());
+    let (preferences, applies) =
+        preferences::record_check_success(conn, checked_channel, release_id).await?;
+    let checked_at = preferences.last_checked_at.clone().unwrap_or_default();
+    if !applies {
+        tracing::info!("[app-update] discarded check after channel changed");
+        update_state::set_idle_checked(state, emitter, checked_at);
+        return Ok(AppUpdateCheckResult {
+            current_version: env!("CARGO_PKG_VERSION").to_string(),
+            update: None,
+        });
+    }
+    let visible = update.filter(|value| {
+        reason == CheckReason::Manual
+            || !preferences.suppresses(&value.version, value.update_policy == "required")
+    });
+    match &visible {
+        Some(value) => {
+            tracing::info!(
+                version = %value.version,
+                channel = %value.channel,
+                policy = %value.update_policy,
+                reason = reason.as_str(),
+                "[app-update] update available"
+            );
+            update_state::set_available(state, emitter, value, checked_at);
+        }
+        None => {
+            tracing::info!(reason = reason.as_str(), "[app-update] no visible update");
+            update_state::set_idle_checked(state, emitter, checked_at);
+        }
+    }
+    Ok(AppUpdateCheckResult {
+        current_version: env!("CARGO_PKG_VERSION").to_string(),
+        update: visible,
+    })
+}
+
+async fn record_check_failure(
+    conn: &DatabaseConnection,
+    state: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+    checked_channel: preferences::UpdateChannel,
+    error: &AppCommandError,
+) {
+    match preferences::record_check_failure(conn, checked_channel).await {
+        Ok((latest, false)) => {
+            tracing::info!("[app-update] ignored failed check after channel changed");
+            update_state::set_idle_checked(
+                state,
+                emitter,
+                latest.last_checked_at.unwrap_or_default(),
+            );
+            return;
+        }
+        Err(save_error) => {
+            tracing::warn!("[app-update] failed to persist check failure: {save_error}");
+        }
+        Ok(_) => {}
+    }
+    update_state::set_error(state, emitter, error.to_string());
+}
+
+#[tauri::command]
+pub async fn get_app_update_preferences(
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<UpdatePreferences, AppCommandError> {
+    preferences::load(&db.conn).await
+}
+
+#[tauri::command]
+pub async fn update_app_update_preferences(
+    patch: UpdatePreferencesPatch,
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<UpdatePreferences, AppCommandError> {
+    preferences::patch(&db.conn, patch).await
+}
+
+#[tauri::command]
+pub async fn skip_app_update(
+    version: String,
+    db: tauri::State<'_, AppDatabase>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppUpdateStateHandle>,
+) -> Result<UpdatePreferences, AppCommandError> {
+    let emitter = EventEmitter::Tauri(app);
+    if !update_state::try_dismiss_optional_offer(state.inner(), &emitter, &version) {
+        return Err(AppCommandError::invalid_input(
+            "Only the current optional update can be skipped",
+        ));
+    }
+    match preferences::skip_version(&db.conn, version).await {
+        Ok(preferences) => Ok(preferences),
+        Err(error) => {
+            update_state::set_error(state.inner(), &emitter, error.to_string());
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn remind_app_update_later(
+    version: String,
+    minutes: u32,
+    db: tauri::State<'_, AppDatabase>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppUpdateStateHandle>,
+) -> Result<UpdatePreferences, AppCommandError> {
+    if !(1..=10_080).contains(&minutes) {
+        return Err(AppCommandError::invalid_input(
+            "Reminder delay must be between 1 minute and 7 days",
+        ));
+    }
+    let emitter = EventEmitter::Tauri(app);
+    if !update_state::try_dismiss_optional_offer(state.inner(), &emitter, &version) {
+        return Err(AppCommandError::invalid_input(
+            "Only the current optional update can be postponed",
+        ));
+    }
+    match preferences::remind_later(&db.conn, version, minutes).await {
+        Ok(preferences) => {
+            crate::update::scheduler::wake();
+            Ok(preferences)
+        }
+        Err(error) => {
+            update_state::set_error(state.inner(), &emitter, error.to_string());
+            Err(error)
+        }
+    }
 }
 
 /// Begin (or attach to) a download+install of the available update. Returns
@@ -31,6 +222,7 @@ pub fn app_update_state(state: tauri::State<'_, AppUpdateStateHandle>) -> AppUpd
 #[tauri::command]
 pub async fn perform_app_update(
     app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<AppUpdateState, AppCommandError> {
     let handle = state.inner().clone();
@@ -42,57 +234,19 @@ pub async fn perform_app_update(
         return Ok(snap);
     }
 
+    let conn = db.conn.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(message) = run_download(app, handle.clone(), emitter.clone()).await {
+        let result = async {
+            let preferences = preferences::load(&conn).await.map_err(|e| e.to_string())?;
+            release::download_and_install(&app, &preferences, handle.clone(), emitter.clone()).await
+        }
+        .await;
+        if let Err(message) = result {
             update_state::set_error(&handle, &emitter, message);
         }
     });
 
     Ok(snap)
-}
-
-/// Re-check, download, and install the update, driving progress into the shared
-/// handle. On success leaves the state at `ReadyToRestart`. Returns the error
-/// message (already stringified) so the caller can record it.
-async fn run_download(
-    app: tauri::AppHandle,
-    handle: AppUpdateStateHandle,
-    emitter: EventEmitter,
-) -> Result<(), String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    let update = updater
-        .check()
-        .await
-        .map_err(|e| e.to_string())?
-        // The renderer only enables the button when a check found an update,
-        // but a release could vanish between check and click.
-        .ok_or_else(|| "No update available".to_string())?;
-    let version = update.version.clone();
-
-    let pe = std::sync::Arc::new(update_state::ProgressEmitter::new(
-        handle.clone(),
-        emitter.clone(),
-    ));
-    let pe_chunk = pe.clone();
-    let pe_finish = pe.clone();
-    let mut downloaded: u64 = 0;
-    update
-        .download_and_install(
-            move |chunk_len, content_len| {
-                downloaded += chunk_len as u64;
-                pe_chunk.downloading(downloaded, content_len);
-            },
-            move || {
-                pe_finish.installing();
-            },
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // The desktop app relaunches itself, so there is no supervisor trial or
-    // restart-delay metadata to carry (those are server-only).
-    update_state::set_ready(&handle, &emitter, Some(version), None, None, None);
-    Ok(())
 }
 
 /// Relaunch into the freshly-installed bytes. Flips the shared snapshot to

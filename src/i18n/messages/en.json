@@ -185,6 +185,21 @@
     "updateTitle": "App Update",
     "versionTitle": "Software Update",
     "updateDescription": "Check the configured release source for newer versions and install directly when available.",
+    "autoCheckUpdates": "Check for updates automatically",
+    "autoCheckUpdatesHint": "Checks after startup and about every 6 hours. Updates are never installed silently.",
+    "updateChannel": "Update channel",
+    "stableChannel": "Stable",
+    "betaChannel": "Beta",
+    "betaChannelHint": "Beta releases may contain unfinished or less-tested changes.",
+    "updatePreferenceFailed": "Failed to save update preferences: {message}",
+    "remindLater": "Remind me in 4 hours",
+    "remindLaterSaved": "This update will be offered again in 4 hours",
+    "skipThisVersion": "Skip this version",
+    "versionSkipped": "Skipped v{version}",
+    "requiredUpdate": "Required",
+    "requiredUpdateHint": "This update cannot be skipped.",
+    "requiredUpdateDeadline": "Update required by {time}.",
+    "downloadAndInstall": "Download and install",
     "currentVersion": "Current version",
     "upgradableVersion": "Latest version",
     "none": "None",
@@ -403,10 +418,164 @@
       "target": "Target: {target}",
       "noTarget": "Choose a target in Installed first",
       "tabs": {
+        "market": "Skill Marketplace",
         "installed": "Installed",
-        "official": "Official Market",
-        "import": "Import Skill",
-        "generate": "Generate Skill"
+        "mine": "My uploads"
+      },
+      "actions": {
+        "upload": "Upload Skill",
+        "import": "Import local",
+        "generate": "Generate local",
+        "retry": "Try again",
+        "install": "Install",
+        "update": "Update",
+        "reinstall": "Reinstall",
+        "installVersion": "Install version",
+        "editMetadata": "Edit metadata",
+        "publishVersion": "Publish new version",
+        "delete": "Delete",
+        "deleting": "Deleting...",
+        "cancel": "Cancel",
+        "back": "Back",
+        "next": "Next",
+        "publish": "Publish",
+        "save": "Save",
+        "openFolder": "Open folder",
+        "uninstall": "Uninstall"
+      },
+      "filters": {
+        "searchPlaceholder": "Search names, descriptions, slugs, or tags...",
+        "allPublishers": "All publishers",
+        "allVisibility": "All visibility",
+        "allCategories": "All categories"
+      },
+      "publisher": {
+        "official": "Official",
+        "user": "Community"
+      },
+      "visibility": {
+        "public": "Public",
+        "private": "Private"
+      },
+      "categories": {
+        "office-efficiency": "Office productivity",
+        "content-creation": "Content creation",
+        "dev-programming": "Development",
+        "data-analysis": "Data analysis",
+        "design-media": "Design and media",
+        "ai-agent": "AI agents",
+        "knowledge-management": "Knowledge management",
+        "business-ops": "Business operations",
+        "education": "Education",
+        "professional": "Professional",
+        "it-ops-security": "IT operations and security",
+        "life-service": "Life services"
+      },
+      "states": {
+        "loading": "Loading Skills",
+        "loadFailed": "Could not load the marketplace",
+        "emptyTitle": "No matching Skills",
+        "emptyDescription": "Adjust the search or filters and try again."
+      },
+      "pagination": {
+        "navigation": "Skill marketplace pages",
+        "previous": "Previous page",
+        "next": "Next page",
+        "page": "{page} / {pages}",
+        "summary": "{start}-{end} of {total}"
+      },
+      "detail": {
+        "selectHint": "Select a Skill to inspect its files and versions.",
+        "loadFailed": "Could not load this Skill",
+        "versionsLoadFailed": "Version history could not be loaded: {message}",
+        "retryVersions": "Retry version history",
+        "versionUnavailable": "This version is not ready and cannot be installed.",
+        "installUnavailable": "Choose an available local target before installing.",
+        "changelog": "Changelog",
+        "noChangelog": "No changelog was provided for this version.",
+        "fileTree": "Complete file tree",
+        "fileCount": "{count} files",
+        "noFiles": "No file manifest is available."
+      },
+      "confirm": {
+        "installTitle": "Install this Skill?",
+        "updateTitle": "Update this Skill?",
+        "reinstallTitle": "Reinstall this version?",
+        "installVersionTitle": "Install the selected version?",
+        "installDescription": "Current: {current}. Target: {target}. Existing content is replaced only after the package passes integrity checks.",
+        "notInstalled": "Not installed"
+      },
+      "installed": {
+        "emptyTitle": "No local Skills installed",
+        "emptyDescription": "Install one from the marketplace or import a local folder.",
+        "managed": "Market managed",
+        "local": "Local",
+        "updateAvailable": "Update available",
+        "disabled": "Disabled",
+        "noDescription": "No description provided.",
+        "enabled": "Use this Skill",
+        "enabledHint": "Enabled Skills are visible to supported agents.",
+        "uninstallTitle": "Uninstall this Skill?",
+        "uninstallDescription": "{name} will be removed from the local Skill store and supported agent directories."
+      },
+      "upload": {
+        "title": "Upload Skill",
+        "description": "Publish a complete Skill directory with an explicit version and visibility.",
+        "progressLabel": "Upload progress",
+        "steps": {
+          "folder": "1. Select the complete directory",
+          "metadata": "2. Add marketplace metadata",
+          "review": "3. Review and publish"
+        },
+        "folderHint": "The root must contain a non-empty UTF-8 SKILL.md. Up to 512 files and 25 MB are accepted.",
+        "selectFolder": "Select Skill folder",
+        "replaceFolder": "Choose another folder",
+        "clearFolder": "Clear selected folder",
+        "folderSummary": "{count} files · {size}",
+        "formInvalid": "Complete all required fields and enter a valid full SemVer.",
+        "folderErrors": {
+          "emptyFolder": "The selected folder is empty.",
+          "tooManyFiles": "A Skill can contain at most 512 files.",
+          "invalidFolder": "Could not read one complete folder.",
+          "folderTooLarge": "The folder cannot exceed 25 MB.",
+          "missingSkillFile": "The folder root must contain SKILL.md.",
+          "skillFileTooLarge": "SKILL.md cannot exceed 1 MB.",
+          "emptySkillFile": "SKILL.md cannot be empty.",
+          "invalidSkillFile": "SKILL.md must be valid UTF-8.",
+          "invalidPath": "The folder contains an unsafe or reserved path.",
+          "duplicatePath": "The folder contains duplicate paths.",
+          "pathConflict": "A file path conflicts with a directory path.",
+          "readFailed": "Failed to read the selected folder."
+        }
+      },
+      "fields": {
+        "slug": "Stable slug",
+        "displayName": "Display name",
+        "summary": "Summary",
+        "category": "Category",
+        "selectCategory": "Select a category",
+        "version": "Version",
+        "tags": "Tags",
+        "tagsPlaceholder": "document, automation",
+        "iconUrl": "Icon URL (optional)",
+        "changelog": "Changelog",
+        "public": "Public listing",
+        "visibility": "Visibility",
+        "visibilityHint": "Private Skills are visible and downloadable only by you."
+      },
+      "metadata": {
+        "title": "Edit marketplace metadata",
+        "description": "The slug and published version contents remain immutable."
+      },
+      "version": {
+        "title": "Publish a new version",
+        "description": "Select the complete directory again. The version must be higher than {version}.",
+        "placeholder": "e.g. 1.1.0",
+        "invalid": "Enter a valid SemVer strictly higher than {version}."
+      },
+      "delete": {
+        "title": "Delete uploaded Skill?",
+        "description": "{name} will disappear from remote listings. Existing local copies are not removed."
       },
       "official": {
         "title": "Official Market",
@@ -476,9 +645,15 @@
         "submit": "Generate and save"
       },
       "toasts": {
+        "actionFailed": "The Skill operation failed",
+        "published": "Skill published",
+        "metadataUpdated": "Marketplace metadata updated",
+        "versionPublished": "New version published",
+        "deleted": "Uploaded Skill deleted",
+        "updated": "Skill updated",
         "noTarget": "Choose an available agent and Skill scope first",
         "contentRequired": "Skill ID and content are required",
-        "installed": "Official Skill installed",
+        "installed": "Skill installed",
         "installFailed": "Failed to install official Skill",
         "imported": "Skill imported",
         "importFailed": "Failed to import Skill",

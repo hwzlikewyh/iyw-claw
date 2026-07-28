@@ -11,15 +11,39 @@ export function usesTauriUpdater(): boolean {
   return isDesktop() && !isRemoteDesktopMode()
 }
 
-// All updater imports are dynamic to avoid crashing in non-Tauri browsers.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Update = any
+export interface AppUpdateInfo {
+  version: string
+  body: string
+  date?: string | null
+  releaseId?: string
+  channel?: AppUpdateChannel
+  updatePolicy?: "optional" | "required"
+  enforceAfter?: string
+  rolloutPercent?: number
+  size?: number
+  sha256?: string
+}
+
+export type AppUpdateChannel = "stable" | "beta"
+
+export interface AppUpdatePreferences {
+  autoCheck: boolean
+  channel: AppUpdateChannel
+  installationId: string
+  lastCheckedAt?: string
+  lastSuccessfulCheckAt?: string
+  failureCount: number
+  skippedVersion?: string
+  remindVersion?: string
+  remindAfter?: string
+  lastOfferedReleaseId?: string
+}
 
 export type ServerUpdateCapability = "supervised" | "reexec"
 
 export interface AppUpdateCheckResult {
   currentVersion: string
-  update: Update | null
+  update: AppUpdateInfo | null
   // Server-mode only (absent in desktop). Whether THIS server process can
   // apply the update in place, how it would restart, the deployment kind,
   // the restart delay to drive the frontend countdown, and whether a
@@ -60,7 +84,10 @@ export interface ServerUpdateStatus {
 
 export type AppUpdateLifecycle =
   | "idle"
+  | "checking"
+  | "available"
   | "downloading"
+  | "verifying"
   | "installing"
   | "ready_to_restart"
   | "restarting"
@@ -76,6 +103,13 @@ export interface AppUpdateState {
   total?: number | null
   /** Target version, once known. */
   version?: string
+  releaseId?: string
+  channel?: AppUpdateChannel
+  updatePolicy?: "optional" | "required"
+  enforceAfter?: string
+  notes?: string
+  pubDate?: string
+  lastCheckedAt?: string
   /** Server-only: relaunch delay for the restart countdown. */
   restartDelayMs?: number
   /** Server-only: supervisor probation window. */
@@ -172,13 +206,37 @@ export async function getCurrentAppVersion(): Promise<string> {
 }
 
 export async function checkAppUpdate(): Promise<AppUpdateCheckResult> {
-  if (!usesTauriUpdater()) {
-    return getTransport().call<AppUpdateCheckResult>("check_app_update")
-  }
-  const { getVersion } = await import("@tauri-apps/api/app")
-  const { check } = await import("@tauri-apps/plugin-updater")
-  const [currentVersion, update] = await Promise.all([getVersion(), check()])
-  return { currentVersion, update }
+  return getTransport().call<AppUpdateCheckResult>("check_app_update")
+}
+
+export function getAppUpdatePreferences(): Promise<AppUpdatePreferences> {
+  return getTransport().call<AppUpdatePreferences>("get_app_update_preferences")
+}
+
+export function updateAppUpdatePreferences(patch: {
+  autoCheck?: boolean
+  channel?: AppUpdateChannel
+}): Promise<AppUpdatePreferences> {
+  return getTransport().call<AppUpdatePreferences>(
+    "update_app_update_preferences",
+    { patch }
+  )
+}
+
+export function skipAppUpdate(version: string): Promise<AppUpdatePreferences> {
+  return getTransport().call<AppUpdatePreferences>("skip_app_update", {
+    version,
+  })
+}
+
+export function remindAppUpdateLater(
+  version: string,
+  minutes: number
+): Promise<AppUpdatePreferences> {
+  return getTransport().call<AppUpdatePreferences>("remind_app_update_later", {
+    version,
+    minutes,
+  })
 }
 
 /**
@@ -298,11 +356,8 @@ export async function confirmRollbackVersion(
   return everRead ? "unchanged" : "unreachable"
 }
 
-export async function closeAppUpdate(
-  update: NonNullable<Update>
-): Promise<void> {
-  if (typeof update?.close !== "function") return
-  await update.close()
+export function closeAppUpdate(_update: AppUpdateInfo): Promise<void> {
+  return Promise.resolve()
 }
 
 export function normalizeAppUpdateError(error: unknown): AppUpdateErrorInfo {

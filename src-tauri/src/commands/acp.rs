@@ -4546,6 +4546,9 @@ fn build_skill_item(
     enabled: bool,
 ) -> AgentSkillItem {
     let description = read_skill_description(&skill_content_path(layout, &path));
+    let market = read_market_skill_marker(&path);
+    let market_managed = is_market_skill_source(&path);
+    let official = is_official_skill_source(&path);
     AgentSkillItem {
         name: skill_name_from_id(&id),
         id,
@@ -4556,7 +4559,13 @@ fn build_skill_item(
         enabled,
         copy_mode: false,
         read_only: false,
-        official: false,
+        official,
+        market_managed,
+        market_skill_id: market.as_ref().map(|value| value.skill_id.to_string()),
+        installed_version: market.as_ref().map(|value| value.installed_version.clone()),
+        market_visibility: market.as_ref().map(|value| value.visibility.clone()),
+        publisher_type: market.as_ref().map(|value| value.publisher_type.clone()),
+        market_content_sha256: market.map(|value| value.content_sha256),
     }
 }
 
@@ -4570,6 +4579,7 @@ const SHARED_SKILL_PUBLISH_STATE_MARKER: &str = ".iyw-claw-publish-state.json";
 /// uninstall keep working. Deleting the skill removes the whole source
 /// directory, so the marker needs no separate cleanup.
 const OFFICIAL_SKILL_MARKER: &str = ".iyw-claw-official-skill.json";
+const MARKET_SKILL_MARKER: &str = ".iyw-claw-market-skill.json";
 
 fn disabled_skills_dir(dir: &Path) -> PathBuf {
     dir.join(DISABLED_SKILLS_DIR)
@@ -4600,6 +4610,12 @@ fn ensure_shared_skill_writable(skill_id: &str) -> Result<(), AcpError> {
 
 fn is_official_skill_source(source: &Path) -> bool {
     source.join(OFFICIAL_SKILL_MARKER).is_file()
+        || read_market_skill_marker(source)
+            .is_some_and(|marker| marker.publisher_type == "official")
+}
+
+fn is_market_skill_source(source: &Path) -> bool {
+    source.join(MARKET_SKILL_MARKER).is_file()
 }
 
 fn is_official_shared_skill(skill_id: &str) -> bool {
@@ -4610,9 +4626,10 @@ fn is_official_shared_skill(skill_id: &str) -> bool {
 /// itself passes `official: true` so it can (re)install over its own marker.
 /// Enable/disable and delete deliberately bypass this guard.
 fn ensure_shared_skill_not_official(skill_id: &str) -> Result<(), AcpError> {
-    if is_official_shared_skill(skill_id) {
+    let source = shared_skill_path(skill_id);
+    if is_official_shared_skill(skill_id) || is_market_skill_source(&source) {
         return Err(AcpError::protocol(format!(
-            "skill '{skill_id}' was installed from the official market and cannot be modified"
+            "skill '{skill_id}' is managed by the Skill market and cannot be modified"
         )));
     }
     Ok(())
@@ -4622,6 +4639,20 @@ fn ensure_shared_skill_not_official(skill_id: &str) -> Result<(), AcpError> {
 struct OfficialSkillMarker {
     skill_id: String,
     source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct MarketSkillMarker {
+    pub schema_version: u8,
+    pub source: String,
+    pub skill_id: i64,
+    pub slug: String,
+    pub installed_version: String,
+    pub content_sha256: String,
+    pub object_sha256: String,
+    pub visibility: String,
+    pub publisher_type: String,
+    pub installed_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4639,6 +4670,127 @@ fn write_official_skill_marker(source: &Path, skill_id: &str) -> Result<(), AcpE
         .map_err(|e| AcpError::protocol(format!("failed to serialize official marker: {e}")))?;
     fs::write(source.join(OFFICIAL_SKILL_MARKER), serialized)
         .map_err(|e| AcpError::protocol(format!("failed to write official marker: {e}")))
+}
+
+fn read_market_skill_marker(source: &Path) -> Option<MarketSkillMarker> {
+    let value = fs::read_to_string(source.join(MARKET_SKILL_MARKER)).ok()?;
+    serde_json::from_str(&value).ok()
+}
+
+fn read_official_skill_marker(source: &Path) -> Option<OfficialSkillMarker> {
+    let value = fs::read_to_string(source.join(OFFICIAL_SKILL_MARKER)).ok()?;
+    serde_json::from_str(&value).ok()
+}
+
+pub(crate) fn install_market_skill(
+    agent_type: AgentType,
+    marker: MarketSkillMarker,
+    package: crate::acp::skill_package::ValidatedSkillPackage,
+) -> Result<AgentSkillItem, AcpError> {
+    let _paths = require_private_agent_storage_for_write()?;
+    let skill_id = validate_skill_id(&marker.slug)?;
+    ensure_shared_skill_writable(&skill_id)?;
+    let _guard = shared_skill_mutation_guard();
+    let source = shared_skill_path(&skill_id);
+    ensure_market_install_target(&source, &marker)?;
+    let copy_mode = if path_entry_exists(&source) {
+        shared_skill_publish_status(agent_type, &source, &skill_id)?.1
+    } else {
+        false
+    };
+    let files = market_install_files(&skill_id, &marker, package)?;
+    let swap = begin_skill_directory_swap(&source, &files)?;
+    let mode = if copy_mode {
+        AgentSkillSyncMode::Copy
+    } else {
+        AgentSkillSyncMode::Symlink
+    };
+    match publish_shared_skill_to_all_agents_locked(agent_type, &skill_id, mode) {
+        Ok(skill) => {
+            swap.commit();
+            Ok(skill)
+        }
+        Err(error) => {
+            if let Err(rollback_error) = swap.rollback() {
+                tracing::error!(
+                    skill_id,
+                    error = %rollback_error,
+                    "[skill-market] failed to roll back central Skill after publication failure"
+                );
+            }
+            Err(error)
+        }
+    }
+}
+
+fn ensure_market_install_target(source: &Path, marker: &MarketSkillMarker) -> Result<(), AcpError> {
+    if !path_entry_exists(source) {
+        return Ok(());
+    }
+    if !is_real_skill_directory(source) {
+        return Err(AcpError::protocol(
+            "An existing non-directory entry uses this Skill slug",
+        ));
+    }
+    if let Some(existing) = read_market_skill_marker(source) {
+        if existing.skill_id == marker.skill_id {
+            return Ok(());
+        }
+        return Err(AcpError::protocol(
+            "A different market Skill uses this slug",
+        ));
+    }
+    if marker.publisher_type == "official" {
+        if let Some(existing) = read_official_skill_marker(source) {
+            if existing.skill_id == marker.slug && existing.source == "official_market" {
+                return Ok(());
+            }
+        }
+    }
+    Err(AcpError::protocol(
+        "A local Skill with this slug already exists and will not be overwritten",
+    ))
+}
+
+fn is_real_skill_directory(path: &Path) -> bool {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return false;
+        }
+    }
+    true
+}
+
+fn market_install_files(
+    skill_id: &str,
+    marker: &MarketSkillMarker,
+    package: crate::acp::skill_package::ValidatedSkillPackage,
+) -> Result<Vec<(PathBuf, Vec<u8>)>, AcpError> {
+    let mut files: Vec<(PathBuf, Vec<u8>)> = package
+        .files
+        .into_iter()
+        .map(|file| (file.path, file.bytes))
+        .collect();
+    let market = serde_json::to_vec_pretty(marker).map_err(|error| {
+        AcpError::protocol(format!("failed to serialize market marker: {error}"))
+    })?;
+    let publish = serde_json::to_vec_pretty(&SharedSkillPublishStateMarker {
+        skill_id: skill_id.to_string(),
+        enabled: true,
+    })
+    .map_err(|error| AcpError::protocol(format!("failed to serialize publish state: {error}")))?;
+    files.push((PathBuf::from(MARKET_SKILL_MARKER), market));
+    files.push((PathBuf::from(SHARED_SKILL_PUBLISH_STATE_MARKER), publish));
+    Ok(files)
 }
 
 fn shared_skill_publish_state_path(source: &Path) -> PathBuf {
@@ -4917,39 +5069,66 @@ fn take_over_read_only_global_native_skill(
     publish_shared_skill_to_all_agents(agent_type, skill_id, sync_mode)
 }
 
-fn ensure_shared_publish_target_available(
+struct PreparedPublishTarget {
+    target: PathBuf,
+    backup: PathBuf,
+    keep_on_success: bool,
+}
+
+impl PreparedPublishTarget {
+    fn commit(self) {
+        if !self.keep_on_success {
+            if let Err(error) = remove_skill_entry(&self.backup) {
+                tracing::warn!(path = %self.backup.display(), error = %error, "failed to remove publication backup");
+            }
+        }
+    }
+
+    fn rollback(self) -> Result<(), AcpError> {
+        if path_entry_exists(&self.target) {
+            remove_skill_entry(&self.target).map_err(|error| {
+                AcpError::protocol(format!(
+                    "failed to remove partial Skill publication: {error}"
+                ))
+            })?;
+        }
+        move_skill_entry(&self.backup, &self.target)
+    }
+}
+
+fn prepare_shared_publish_target(
     target: &Path,
     source: &Path,
     skill_id: &str,
-) -> Result<(), AcpError> {
+) -> Result<Option<PreparedPublishTarget>, AcpError> {
     if !path_entry_exists(target) {
-        return Ok(());
+        return Ok(None);
     }
-    if classify_link(target, source) == ExpertLinkState::LinkedToIywClaw {
-        remove_skill_entry(target)
-            .map_err(|e| AcpError::protocol(format!("failed to replace existing link: {e}")))?;
-        return Ok(());
-    }
-    if shared_copy_marker_matches(target, source, skill_id) {
-        remove_skill_entry(target)
-            .map_err(|e| AcpError::protocol(format!("failed to replace existing copy: {e}")))?;
-        return Ok(());
-    }
-    preserve_unmanaged_publish_target(target, skill_id)
-}
-
-fn preserve_unmanaged_publish_target(target: &Path, skill_id: &str) -> Result<(), AcpError> {
     let agent_skills_dir = target
         .parent()
         .ok_or_else(|| AcpError::protocol("skill target has no parent directory"))?;
-    let backup = next_conflict_backup_path(agent_skills_dir, skill_id);
+    let managed = classify_link(target, source) == ExpertLinkState::LinkedToIywClaw
+        || shared_copy_marker_matches(target, source, skill_id);
+    let backup = if managed {
+        agent_skills_dir.join(format!(
+            ".iyw-claw-publish-backup-{skill_id}-{}",
+            uuid::Uuid::new_v4()
+        ))
+    } else {
+        next_conflict_backup_path(agent_skills_dir, skill_id)
+    };
     move_skill_entry(target, &backup).map_err(|error| {
         AcpError::protocol(format!(
             "failed to preserve conflicting skill '{}' at '{}': {error}",
             target.display(),
             backup.display()
         ))
-    })
+    })?;
+    Ok(Some(PreparedPublishTarget {
+        target: target.to_path_buf(),
+        backup,
+        keep_on_success: !managed,
+    }))
 }
 
 fn next_conflict_backup_path(agent_skills_dir: &Path, skill_id: &str) -> PathBuf {
@@ -4982,13 +5161,47 @@ fn publish_shared_skill_to_agent(
             AcpError::protocol(format!("failed to create agent skills directory: {e}"))
         })?;
     }
-    ensure_shared_publish_target_available(&target, &source, skill_id)?;
+    let prepared = prepare_shared_publish_target(&target, &source, skill_id)?;
+    let result = (|| {
+        let copy_mode = create_shared_skill_publication(&source, &target, skill_id, sync_mode)?;
+        let mut skill = build_shared_skill_item_for_agent(agent_type, skill_id.to_string())?;
+        skill.enabled = true;
+        skill.copy_mode = copy_mode;
+        Ok(skill)
+    })();
+    match result {
+        Ok(skill) => {
+            if let Some(prepared) = prepared {
+                prepared.commit();
+            }
+            Ok(skill)
+        }
+        Err(error) => {
+            let rollback = match prepared {
+                Some(prepared) => prepared.rollback(),
+                None => remove_partial_publish_target(&target),
+            };
+            if let Err(rollback_error) = rollback {
+                return Err(AcpError::protocol(format!(
+                    "{error}; failed to restore previous publication: {rollback_error}"
+                )));
+            }
+            Err(error)
+        }
+    }
+}
 
-    let copy_mode = match sync_mode {
-        AgentSkillSyncMode::Symlink => match create_link_raw(&source, &target) {
+fn create_shared_skill_publication(
+    source: &Path,
+    target: &Path,
+    skill_id: &str,
+    sync_mode: AgentSkillSyncMode,
+) -> Result<bool, AcpError> {
+    Ok(match sync_mode {
+        AgentSkillSyncMode::Symlink => match create_link_raw(source, target) {
             Ok(is_copy) => {
                 if is_copy {
-                    write_shared_copy_marker(&target, &source, skill_id)?;
+                    write_shared_copy_marker(target, source, skill_id)?;
                 }
                 is_copy
             }
@@ -4999,17 +5212,23 @@ fn publish_shared_skill_to_agent(
             }
         },
         AgentSkillSyncMode::Copy => {
-            copy_dir_recursive(&source, &target)
+            copy_dir_recursive(source, target)
                 .map_err(|e| AcpError::protocol(format!("failed to copy skill: {e}")))?;
-            write_shared_copy_marker(&target, &source, skill_id)?;
+            write_shared_copy_marker(target, source, skill_id)?;
             true
         }
-    };
+    })
+}
 
-    let mut skill = build_shared_skill_item_for_agent(agent_type, skill_id.to_string())?;
-    skill.enabled = true;
-    skill.copy_mode = copy_mode;
-    Ok(skill)
+fn remove_partial_publish_target(target: &Path) -> Result<(), AcpError> {
+    if !path_entry_exists(target) {
+        return Ok(());
+    }
+    remove_skill_entry(target).map_err(|error| {
+        AcpError::protocol(format!(
+            "failed to remove partial Skill publication: {error}"
+        ))
+    })
 }
 
 fn publish_shared_skill_to_all_agents(
@@ -5018,6 +5237,14 @@ fn publish_shared_skill_to_all_agents(
     sync_mode: AgentSkillSyncMode,
 ) -> Result<AgentSkillItem, AcpError> {
     let _guard = shared_skill_mutation_guard();
+    publish_shared_skill_to_all_agents_locked(primary_agent_type, skill_id, sync_mode)
+}
+
+fn publish_shared_skill_to_all_agents_locked(
+    primary_agent_type: AgentType,
+    skill_id: &str,
+    sync_mode: AgentSkillSyncMode,
+) -> Result<AgentSkillItem, AcpError> {
     let primary = publish_shared_skill_to_agent(primary_agent_type, skill_id, sync_mode)?;
     for agent_type in skill_capable_agent_types()
         .into_iter()
@@ -5156,8 +5383,7 @@ fn remove_shared_skill_publication_from_agent(
     Ok(removed)
 }
 
-fn remove_shared_skill_publications(skill_id: &str) -> Result<(), AcpError> {
-    let _guard = shared_skill_mutation_guard();
+fn remove_shared_skill_publications_locked(skill_id: &str) -> Result<(), AcpError> {
     for agent_type in skill_capable_agent_types() {
         remove_shared_skill_publication_from_agent(agent_type, skill_id)?;
     }
@@ -5279,6 +5505,43 @@ fn validate_skill_file_path(raw: &str) -> Result<PathBuf, AcpError> {
 }
 
 fn write_skill_directory(target: &Path, files: &[(PathBuf, Vec<u8>)]) -> Result<(), AcpError> {
+    begin_skill_directory_swap(target, files)?.commit();
+    Ok(())
+}
+
+struct PendingSkillDirectorySwap {
+    target: PathBuf,
+    backup: Option<PathBuf>,
+}
+
+impl PendingSkillDirectorySwap {
+    fn commit(self) {
+        if let Some(backup) = self.backup {
+            if let Err(error) = remove_skill_entry(&backup) {
+                tracing::warn!(path = %backup.display(), error = %error, "failed to remove Skill backup");
+            }
+        }
+    }
+
+    fn rollback(self) -> Result<(), AcpError> {
+        if path_entry_exists(&self.target) {
+            remove_skill_entry(&self.target).map_err(|error| {
+                AcpError::protocol(format!("failed to remove replacement Skill: {error}"))
+            })?;
+        }
+        if let Some(backup) = self.backup {
+            fs::rename(&backup, &self.target).map_err(|error| {
+                AcpError::protocol(format!("failed to restore previous Skill: {error}"))
+            })?;
+        }
+        Ok(())
+    }
+}
+
+fn begin_skill_directory_swap(
+    target: &Path,
+    files: &[(PathBuf, Vec<u8>)],
+) -> Result<PendingSkillDirectorySwap, AcpError> {
     let parent = target
         .parent()
         .ok_or_else(|| AcpError::protocol("skill directory has no parent"))?;
@@ -5292,30 +5555,30 @@ fn write_skill_directory(target: &Path, files: &[(PathBuf, Vec<u8>)]) -> Result<
         let _ = remove_skill_entry(&staging);
         return Err(error);
     }
-    let had_target = path_entry_exists(target);
-    if had_target {
+    let backup = if path_entry_exists(target) {
         if let Err(error) = fs::rename(target, &backup) {
             let _ = remove_skill_entry(&staging);
             return Err(AcpError::protocol(format!(
                 "failed to replace skill folder: {error}"
             )));
         }
-    }
+        Some(backup)
+    } else {
+        None
+    };
     if let Err(error) = fs::rename(&staging, target) {
-        if had_target {
-            let _ = fs::rename(&backup, target);
+        if let Some(backup) = &backup {
+            let _ = fs::rename(backup, target);
         }
         let _ = remove_skill_entry(&staging);
         return Err(AcpError::protocol(format!(
             "failed to install skill folder: {error}"
         )));
     }
-    if had_target {
-        if let Err(error) = remove_skill_entry(&backup) {
-            tracing::warn!("failed to remove skill import backup: {error}");
-        }
-    }
-    Ok(())
+    Ok(PendingSkillDirectorySwap {
+        target: target.to_path_buf(),
+        backup,
+    })
 }
 
 fn write_skill_directory_files(
@@ -8712,6 +8975,7 @@ pub async fn acp_save_agent_skill(
     if scope == AgentSkillScope::Global {
         let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
+        let _guard = shared_skill_mutation_guard();
         let official_install = official.unwrap_or(false);
         if !official_install {
             ensure_shared_skill_not_official(&id)?;
@@ -8743,7 +9007,7 @@ pub async fn acp_save_agent_skill(
         } else {
             AgentSkillSyncMode::Symlink
         });
-        return publish_shared_skill_to_all_agents(agent_type, &id, mode);
+        return publish_shared_skill_to_all_agents_locked(agent_type, &id, mode);
     }
 
     let dirs = scoped_skill_dirs(agent_type, scope, workspace_path.as_deref())?;
@@ -8839,17 +9103,18 @@ pub async fn acp_set_agent_skill_enabled(
     if scope == AgentSkillScope::Global {
         let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
+        let _guard = shared_skill_mutation_guard();
         let source = shared_skill_path(&id);
         if enabled {
             write_shared_skill_publish_state(&source, &id, true)?;
-            return publish_shared_skill_to_all_agents(
+            return publish_shared_skill_to_all_agents_locked(
                 agent_type,
                 &id,
                 sync_mode.unwrap_or_default(),
             );
         }
         write_shared_skill_publish_state(&source, &id, false)?;
-        remove_shared_skill_publications(&id)?;
+        remove_shared_skill_publications_locked(&id)?;
         return build_shared_skill_item_for_agent(agent_type, id);
     }
 
@@ -8906,12 +9171,13 @@ pub async fn acp_delete_agent_skill(
     if scope == AgentSkillScope::Global {
         let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
+        let _guard = shared_skill_mutation_guard();
         let skill_path = shared_skill_path(&id);
         if !skill_path.join("SKILL.md").is_file() {
             return Err(AcpError::protocol(format!("skill not found: {id}")));
         }
         write_shared_skill_publish_state(&skill_path, &id, false)?;
-        remove_shared_skill_publications(&id)?;
+        remove_shared_skill_publications_locked(&id)?;
         remove_skill_entry(&skill_path)
             .map_err(|e| AcpError::protocol(format!("failed to delete skill entry: {e}")))?;
         return Ok(());
@@ -9214,4 +9480,3 @@ pub(crate) async fn codex_poll_device_code_core(
         account_id: Some(account_id),
     })
 }
-

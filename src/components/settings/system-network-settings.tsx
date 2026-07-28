@@ -4,15 +4,15 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   ArrowUpCircle,
   CheckCircle2,
+  Download,
   Languages,
   Loader2,
   RefreshCw,
   RotateCcw,
   Settings,
+  ShieldAlert,
   Wifi,
 } from "lucide-react"
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Update = any
 import { useLocale, useTranslations } from "next-intl"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import {
   Select,
   SelectContent,
@@ -51,11 +52,17 @@ import {
 import { openUrl } from "@/lib/platform"
 import type { AppLocale } from "@/lib/types"
 import {
+  type AppUpdateInfo,
+  type AppUpdatePreferences,
   checkAppUpdate,
   closeAppUpdate,
+  getAppUpdatePreferences,
   getCurrentAppVersion,
   getServerUpdateStatus,
   normalizeAppUpdateError,
+  remindAppUpdateLater,
+  skipAppUpdate,
+  updateAppUpdatePreferences,
   usesTauriUpdater,
 } from "@/lib/updater"
 import { useAppUpdate } from "@/components/providers/update-provider"
@@ -95,10 +102,15 @@ export function SystemNetworkSettings() {
   const [proxyUrlError, setProxyUrlError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [currentVersion, setCurrentVersion] = useState<string>("")
-  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null)
+  const [availableUpdate, setAvailableUpdate] = useState<AppUpdateInfo | null>(
+    null
+  )
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null)
+  const [updatePreferences, setUpdatePreferences] =
+    useState<AppUpdatePreferences | null>(null)
+  const [savingUpdatePreferences, setSavingUpdatePreferences] = useState(false)
   // Server/Docker self-update capability reported by `check_app_update`
   // (absent in desktop mode). Drives whether the upgrade button performs a
   // real in-place update or just links to the release page.
@@ -134,6 +146,7 @@ export function SystemNetworkSettings() {
     restart,
     rollback,
   } = update
+  const isCheckingUpdate = checkingUpdate || updateState.status === "checking"
   const updateReady = updateState.status === "ready_to_restart"
   // Rollback is only safe from a settled lifecycle (never while an upgrade is
   // downloading/installing/staged/restarting — that conflicts with the
@@ -159,6 +172,29 @@ export function SystemNetworkSettings() {
         ((updateState.downloaded ?? 0) / (updateState.total as number)) * 100
       )
     : 0
+
+  useEffect(() => {
+    if (updateState.status === "available" && updateState.version) {
+      setAvailableUpdate({
+        version: updateState.version,
+        body: updateState.notes ?? "",
+        date: updateState.pubDate,
+        releaseId: updateState.releaseId,
+        channel: updateState.channel,
+        updatePolicy: updateState.updatePolicy,
+        enforceAfter: updateState.enforceAfter,
+      })
+    } else if (
+      (updateState.status === "idle" && updateState.lastCheckedAt) ||
+      updateState.status === "error"
+    ) {
+      setAvailableUpdate(null)
+    }
+    if (updateState.lastCheckedAt) {
+      const checkedAt = new Date(updateState.lastCheckedAt)
+      if (!Number.isNaN(checkedAt.getTime())) setLastCheckedAt(checkedAt)
+    }
+  }, [updateState])
 
   const [appLanguage, setAppLanguage] = useState<LanguageSelectValue>(
     languageSettings.mode === "system" ? "system" : languageSettings.language
@@ -197,18 +233,28 @@ export function SystemNetworkSettings() {
     }).format(parsed)
   }, [availableUpdate?.date, locale])
 
+  const formattedEnforceAfter = useMemo(() => {
+    if (!availableUpdate?.enforceAfter) return null
+    const parsed = new Date(availableUpdate.enforceAfter)
+    if (Number.isNaN(parsed.getTime())) return null
+    return new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(parsed)
+  }, [availableUpdate?.enforceAfter, locale])
+
   const updateNotes = useMemo(
     () => availableUpdate?.body?.trim() ?? "",
     [availableUpdate?.body]
   )
 
   const updateStatusMessage = useMemo(() => {
-    if (checkingUpdate) return t("checking")
+    if (isCheckingUpdate) return t("checking")
     if (isUpdating) return t("updating")
     if (availableUpdate) return null
     if (lastCheckedAt) return t("alreadyLatest")
     return null
-  }, [availableUpdate, checkingUpdate, isUpdating, lastCheckedAt, t])
+  }, [availableUpdate, isCheckingUpdate, isUpdating, lastCheckedAt, t])
 
   const loadSettings = useCallback(async () => {
     setLoading(true)
@@ -233,12 +279,28 @@ export function SystemNetworkSettings() {
   }, [])
 
   useEffect(() => {
+    if (!usesTauriUpdater()) return
+    getAppUpdatePreferences()
+      .then((next) => {
+        setUpdatePreferences(next)
+        if (!next.lastCheckedAt) return
+        const checkedAt = new Date(next.lastCheckedAt)
+        if (!Number.isNaN(checkedAt.getTime())) setLastCheckedAt(checkedAt)
+      })
+      .catch((err) => {
+        console.error("[Settings] load update preferences failed:", err)
+      })
+  }, [])
+
+  useEffect(() => {
     loadSettings().catch((err) => {
       console.error("[Settings] load system settings failed:", err)
     })
-    checkForUpdates().catch((err) => {
-      console.error("[Settings] auto check update failed:", err)
-    })
+    if (!usesTauriUpdater()) {
+      checkForUpdates().catch((err) => {
+        console.error("[Settings] auto check update failed:", err)
+      })
+    }
     loadServerUpdateStatus().catch((err) => {
       console.error("[Settings] load server update status failed:", err)
     })
@@ -365,6 +427,47 @@ export function SystemNetworkSettings() {
     }
   }, [availableUpdate, formatUpdateError, t])
 
+  const saveUpdatePreferences = useCallback(
+    async (patch: { autoCheck?: boolean; channel?: "stable" | "beta" }) => {
+      setSavingUpdatePreferences(true)
+      try {
+        const next = await updateAppUpdatePreferences(patch)
+        setUpdatePreferences(next)
+        if (patch.channel) await checkForUpdates()
+      } catch (err) {
+        const message = toErrorMessage(err)
+        toast.error(t("updatePreferenceFailed", { message }))
+      } finally {
+        setSavingUpdatePreferences(false)
+      }
+    },
+    [checkForUpdates, t]
+  )
+
+  const postponeUpdate = useCallback(async () => {
+    if (!availableUpdate) return
+    try {
+      const next = await remindAppUpdateLater(availableUpdate.version, 240)
+      setUpdatePreferences(next)
+      setAvailableUpdate(null)
+      toast.success(t("remindLaterSaved"))
+    } catch (err) {
+      toast.error(t("updatePreferenceFailed", { message: toErrorMessage(err) }))
+    }
+  }, [availableUpdate, t])
+
+  const skipUpdate = useCallback(async () => {
+    if (!availableUpdate) return
+    try {
+      const next = await skipAppUpdate(availableUpdate.version)
+      setUpdatePreferences(next)
+      setAvailableUpdate(null)
+      toast.success(t("versionSkipped", { version: availableUpdate.version }))
+    } catch (err) {
+      toast.error(t("updatePreferenceFailed", { message: toErrorMessage(err) }))
+    }
+  }, [availableUpdate, t])
+
   // Populate the local self-update capability (incl. rollback availability)
   // independent of the manifest-dependent update check, so the rollback button
   // stays reachable even when the update source is down. No-op on a genuine
@@ -430,7 +533,7 @@ export function SystemNetworkSettings() {
 
       <section className="rounded-xl border bg-card p-4 space-y-4">
         <div className="flex items-center gap-2">
-          {checkingUpdate ? (
+          {isCheckingUpdate ? (
             <RefreshCw className="h-4 w-4 text-muted-foreground animate-spin" />
           ) : availableUpdate ? (
             <ArrowUpCircle className="h-4 w-4 text-muted-foreground" />
@@ -452,7 +555,7 @@ export function SystemNetworkSettings() {
               {t("currentVersion")}：
               {currentVersion ? `v${currentVersion}` : "-"}
             </p>
-            {checkingUpdate ? (
+            {isCheckingUpdate ? (
               <Button
                 key="checking-update"
                 size="sm"
@@ -490,7 +593,7 @@ export function SystemNetworkSettings() {
               // protocol. An older remote server falls back to "view release".
               usesTauriUpdater() || (serverSelfUpdate && serverLiveProgress) ? (
                 <Button size="sm" onClick={() => void startUpdate()}>
-                  <ArrowUpCircle className="h-3.5 w-3.5" />
+                  <Download className="h-3.5 w-3.5" />
                   {t("upgradeTo", { version: availableUpdate.version })}
                 </Button>
               ) : (
@@ -519,6 +622,60 @@ export function SystemNetworkSettings() {
               </Button>
             )}
           </div>
+
+          {usesTauriUpdater() && updatePreferences && (
+            <div className="space-y-3 border-t border-border/70 pt-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground">
+                    {t("autoCheckUpdates")}
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-5 text-muted-foreground">
+                    {t("autoCheckUpdatesHint")}
+                  </p>
+                </div>
+                <Switch
+                  checked={updatePreferences.autoCheck}
+                  disabled={savingUpdatePreferences || isCheckingUpdate}
+                  onCheckedChange={(autoCheck) =>
+                    void saveUpdatePreferences({ autoCheck })
+                  }
+                  aria-label={t("autoCheckUpdates")}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <span className="font-medium text-foreground">
+                  {t("updateChannel")}
+                </span>
+                <div className="grid grid-cols-2 rounded-md border bg-background p-0.5">
+                  {(["stable", "beta"] as const).map((channel) => (
+                    <button
+                      key={channel}
+                      type="button"
+                      disabled={savingUpdatePreferences || isCheckingUpdate}
+                      onClick={() => void saveUpdatePreferences({ channel })}
+                      className={`h-7 min-w-20 px-3 text-xs transition-colors ${
+                        updatePreferences.channel === channel
+                          ? "rounded-sm bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {t(
+                        channel === "stable" ? "stableChannel" : "betaChannel"
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {updatePreferences.channel === "beta" && (
+                <p className="text-[11px] leading-5 text-amber-600 dark:text-amber-400">
+                  {t("betaChannelHint")}
+                </p>
+              )}
+            </div>
+          )}
 
           {!availableUpdate && formattedLastCheckedAt && (
             <p className="text-muted-foreground">
@@ -613,11 +770,26 @@ export function SystemNetworkSettings() {
                 <span className="font-medium">
                   {t("upgradableVersion")}：v{availableUpdate.version}
                 </span>
-                {formattedUpdateDate && (
-                  <span className="text-muted-foreground text-[11px]">
-                    {formattedUpdateDate}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className="rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {t(
+                      availableUpdate.channel === "beta"
+                        ? "betaChannel"
+                        : "stableChannel"
+                    )}
                   </span>
-                )}
+                  {availableUpdate.updatePolicy === "required" && (
+                    <span className="inline-flex items-center gap-1 rounded border border-amber-500/40 px-1.5 py-0.5 text-[10px] text-amber-600 dark:text-amber-400">
+                      <ShieldAlert className="h-3 w-3" />
+                      {t("requiredUpdate")}
+                    </span>
+                  )}
+                  {formattedUpdateDate && (
+                    <span className="text-muted-foreground text-[11px]">
+                      {formattedUpdateDate}
+                    </span>
+                  )}
+                </div>
               </div>
               <div
                 className={
@@ -642,6 +814,40 @@ export function SystemNetworkSettings() {
                   t("none")
                 )}
               </div>
+
+              {usesTauriUpdater() &&
+                updateState.status === "available" &&
+                !isBusy && (
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {availableUpdate.updatePolicy === "required" ? (
+                      <p className="mr-auto flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                        <ShieldAlert className="h-3.5 w-3.5" />
+                        {formattedEnforceAfter
+                          ? t("requiredUpdateDeadline", {
+                              time: formattedEnforceAfter,
+                            })
+                          : t("requiredUpdateHint")}
+                      </p>
+                    ) : (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={postponeUpdate}
+                        >
+                          {t("remindLater")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={skipUpdate}
+                        >
+                          {t("skipThisVersion")}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                )}
             </div>
           )}
         </div>

@@ -841,6 +841,38 @@ pub fn build_router(
             "/system_skills_rollback",
             post(handlers::system_skills::rollback),
         )
+        // ─── Skill market ───
+        .route("/skill_market_list", post(handlers::skill_market::list))
+        .route(
+            "/skill_market_categories",
+            post(handlers::skill_market::categories),
+        )
+        .route("/skill_market_detail", post(handlers::skill_market::detail))
+        .route(
+            "/skill_market_list_versions",
+            post(handlers::skill_market::versions),
+        )
+        .route(
+            "/skill_market_publish",
+            post(handlers::skill_market::publish).layer(DefaultBodyLimit::max(
+                crate::commands::skill_market::MAX_SKILL_MARKET_REQUEST_BYTES,
+            )),
+        )
+        .route(
+            "/skill_market_add_version",
+            post(handlers::skill_market::add_version).layer(DefaultBodyLimit::max(
+                crate::commands::skill_market::MAX_SKILL_MARKET_REQUEST_BYTES,
+            )),
+        )
+        .route(
+            "/skill_market_update_metadata",
+            post(handlers::skill_market::update_metadata),
+        )
+        .route("/skill_market_delete", post(handlers::skill_market::delete))
+        .route(
+            "/skill_market_install",
+            post(handlers::skill_market::install),
+        )
         // ─── Experts ───
         .route("/experts_list", post(handlers::experts::experts_list))
         .route(

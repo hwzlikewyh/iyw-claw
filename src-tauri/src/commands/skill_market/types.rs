@@ -1,0 +1,199 @@
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::app_error::AppCommandError;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketListParams {
+    pub view: String,
+    pub visibility: Option<String>,
+    pub publisher_type: Option<String>,
+    pub category: Option<String>,
+    pub q: Option<String>,
+    pub page: Option<u32>,
+    pub page_size: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketCategory {
+    pub key: String,
+    pub fallback_name: String,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketVersion {
+    #[serde(deserialize_with = "deserialize_id")]
+    pub id: String,
+    pub version: String,
+    #[serde(default)]
+    pub changelog: Option<String>,
+    pub status: String,
+    #[serde(default)]
+    pub file_count: u64,
+    pub package_size: u64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketFile {
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketItem {
+    #[serde(deserialize_with = "deserialize_id")]
+    pub id: String,
+    pub slug: String,
+    pub display_name: String,
+    pub summary: String,
+    pub category: String,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub visibility: String,
+    pub publisher_type: String,
+    pub current_version: SkillMarketVersion,
+    #[serde(default)]
+    pub owned_by_me: bool,
+    #[serde(default)]
+    pub can_manage: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketDetail {
+    #[serde(flatten)]
+    pub skill: SkillMarketItem,
+    #[serde(default)]
+    pub files: Vec<SkillMarketFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketListResult {
+    pub items: Vec<SkillMarketItem>,
+    pub total: u64,
+    pub page: u32,
+    pub page_size: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketUploadFile {
+    pub path: String,
+    pub content_base64: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketPublishRequest {
+    pub slug: String,
+    pub display_name: String,
+    pub summary: String,
+    pub category: String,
+    pub icon_url: Option<String>,
+    pub tags: Vec<String>,
+    pub visibility: String,
+    pub version: String,
+    pub changelog: String,
+    pub files: Vec<SkillMarketUploadFile>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketMetadataRequest {
+    pub id: String,
+    pub display_name: String,
+    pub summary: String,
+    pub category: String,
+    pub icon_url: Option<String>,
+    pub tags: Vec<String>,
+    pub visibility: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketAddVersionRequest {
+    pub id: String,
+    pub version: String,
+    pub changelog: String,
+    pub files: Vec<SkillMarketUploadFile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDownloadInfo {
+    pub url: String,
+    pub version: String,
+    pub package_size: u64,
+    pub content_sha256: String,
+    pub object_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTree {
+    pub tree: Vec<FileNode>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileNode {
+    pub path: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub size: Option<u64>,
+    #[serde(default)]
+    pub sha256: String,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub children: Vec<FileNode>,
+}
+
+pub fn parse_id(value: &str) -> Result<i64, AppCommandError> {
+    value
+        .trim()
+        .parse::<i64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| AppCommandError::invalid_input("Invalid Skill ID"))
+}
+
+pub fn parse_value<T: DeserializeOwned>(
+    value: serde_json::Value,
+    key: Option<&str>,
+) -> Result<T, AppCommandError> {
+    let selected = key.and_then(|key| value.get(key).cloned()).unwrap_or(value);
+    serde_json::from_value(selected).map_err(|error| {
+        AppCommandError::configuration_invalid("Invalid Skill market response")
+            .with_detail(error.to_string())
+    })
+}
+
+fn deserialize_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::String(value) => Ok(value),
+        serde_json::Value::Number(value) => Ok(value.to_string()),
+        _ => Err(serde::de::Error::custom(
+            "Skill ID must be a string or number",
+        )),
+    }
+}

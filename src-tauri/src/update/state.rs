@@ -42,7 +42,10 @@ const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
 #[serde(rename_all = "snake_case")]
 pub enum AppUpdateLifecycle {
     Idle,
+    Checking,
+    Available,
     Downloading,
+    Verifying,
     Installing,
     ReadyToRestart,
     Restarting,
@@ -73,6 +76,20 @@ pub struct AppUpdateState {
     /// in when the swap completes).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enforce_after: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pub_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_checked_at: Option<String>,
     /// Relaunch delay (ms) for the renderer countdown — set on `ReadyToRestart`
     /// in server mode so it matches the supervisor's actual relaunch delay.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,6 +116,13 @@ impl AppUpdateState {
             downloaded: None,
             total: None,
             version: None,
+            release_id: None,
+            channel: None,
+            update_policy: None,
+            enforce_after: None,
+            notes: None,
+            pub_date: None,
+            last_checked_at: None,
             restart_delay_ms: None,
             trial_seconds: None,
             capability: None,
@@ -113,6 +137,12 @@ impl AppUpdateState {
         self.downloaded = None;
         self.total = None;
         self.version = None;
+        self.release_id = None;
+        self.channel = None;
+        self.update_policy = None;
+        self.enforce_after = None;
+        self.notes = None;
+        self.pub_date = None;
         self.restart_delay_ms = None;
         self.trial_seconds = None;
         self.capability = None;
@@ -156,7 +186,11 @@ pub fn try_claim_rollback(handle: &AppUpdateStateHandle, emitter: &EventEmitter)
     claim_restarting(
         handle,
         emitter,
-        &[AppUpdateLifecycle::Idle, AppUpdateLifecycle::Error],
+        &[
+            AppUpdateLifecycle::Idle,
+            AppUpdateLifecycle::Available,
+            AppUpdateLifecycle::Error,
+        ],
     )
 }
 
@@ -210,7 +244,7 @@ pub fn try_begin(handle: &AppUpdateStateHandle, emitter: &EventEmitter) -> (bool
         let mut g = handle.write().unwrap_or_else(|p| p.into_inner());
         if !matches!(
             g.status,
-            AppUpdateLifecycle::Idle | AppUpdateLifecycle::Error
+            AppUpdateLifecycle::Idle | AppUpdateLifecycle::Available | AppUpdateLifecycle::Error
         ) {
             return (false, g.clone());
         }
@@ -222,6 +256,95 @@ pub fn try_begin(handle: &AppUpdateStateHandle, emitter: &EventEmitter) -> (bool
     };
     emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snap);
     (true, snap)
+}
+
+pub fn try_begin_check(
+    handle: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+) -> (bool, AppUpdateState) {
+    let snap = {
+        let mut state = handle.write().unwrap_or_else(|error| error.into_inner());
+        if !matches!(
+            state.status,
+            AppUpdateLifecycle::Idle | AppUpdateLifecycle::Available | AppUpdateLifecycle::Error
+        ) {
+            return (false, state.clone());
+        }
+        state.seq += 1;
+        state.clear_operation_fields();
+        state.status = AppUpdateLifecycle::Checking;
+        state.clone()
+    };
+    emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snap);
+    (true, snap)
+}
+
+pub fn set_idle_checked(
+    handle: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+    checked_at: String,
+) -> AppUpdateState {
+    mutate(handle, emitter, |state| {
+        state.clear_operation_fields();
+        state.status = AppUpdateLifecycle::Idle;
+        state.last_checked_at = Some(checked_at);
+    })
+}
+
+/// Dismiss the exact optional offer currently visible. The status, policy and
+/// version are checked and cleared under one lock so a stale renderer cannot
+/// suppress a required, replaced, downloading, or already-staged update.
+pub fn try_dismiss_optional_offer(
+    handle: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+    version: &str,
+) -> bool {
+    let snap = {
+        let mut state = handle.write().unwrap_or_else(|error| error.into_inner());
+        if state.status != AppUpdateLifecycle::Available
+            || state.update_policy.as_deref() != Some("optional")
+            || state.version.as_deref() != Some(version)
+        {
+            return false;
+        }
+        state.seq += 1;
+        state.clear_operation_fields();
+        state.status = AppUpdateLifecycle::Idle;
+        state.clone()
+    };
+    emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snap);
+    true
+}
+
+pub fn set_available(
+    handle: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+    info: &crate::update::release::AppUpdateInfo,
+    checked_at: String,
+) -> AppUpdateState {
+    mutate(handle, emitter, |state| {
+        state.clear_operation_fields();
+        state.status = AppUpdateLifecycle::Available;
+        state.version = Some(info.version.clone());
+        state.release_id = info.release_id.clone();
+        state.channel = Some(info.channel.clone());
+        state.update_policy = Some(info.update_policy.clone());
+        state.enforce_after = info.enforce_after.clone();
+        state.notes = Some(info.body.clone());
+        state.pub_date = info.date.clone();
+        state.last_checked_at = Some(checked_at);
+    })
+}
+
+pub fn set_download_target(
+    handle: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+    version: String,
+) -> AppUpdateState {
+    mutate(handle, emitter, |state| {
+        state.status = AppUpdateLifecycle::Downloading;
+        state.version = Some(version);
+    })
 }
 
 /// Revert a just-claimed download back to `Idle` — but only if the state is
@@ -254,9 +377,19 @@ pub fn set_installing(handle: &AppUpdateStateHandle, emitter: &EventEmitter) -> 
     })
 }
 
+/// The updater has received all bytes and is validating the signed artifact.
+pub fn set_verifying(handle: &AppUpdateStateHandle, emitter: &EventEmitter) -> AppUpdateState {
+    mutate(handle, emitter, |state| {
+        state.status = AppUpdateLifecycle::Verifying;
+        state.downloaded = None;
+        state.total = None;
+    })
+}
+
 /// The new bytes are staged and the app is ready to relaunch into them.
-/// `restart_delay_ms` / `trial_seconds` / `capability` are server-only
-/// (the desktop app relaunches itself with no supervisor trial).
+/// `restart_delay_ms` / `trial_seconds` / `capability` are server-only. Desktop
+/// reaches this state on platforms where the updater can stage without exiting;
+/// Windows NSIS exits from `Installing` instead.
 pub fn set_ready(
     handle: &AppUpdateStateHandle,
     emitter: &EventEmitter,
@@ -351,5 +484,8 @@ impl ProgressEmitter {
     pub fn installing(&self) {
         set_installing(&self.handle, &self.emitter);
     }
-}
 
+    pub fn verifying(&self) {
+        set_verifying(&self.handle, &self.emitter);
+    }
+}

@@ -7,15 +7,11 @@ import {
   LockKeyhole,
   Loader2,
   Package,
-  PackageCheck,
   Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
   Save,
-  Store,
-  Upload,
-  WandSparkles,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import ReactMarkdown from "react-markdown"
@@ -45,15 +41,9 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  GenerateSkillPanel,
-  ImportSkillPanel,
-  OfficialSkillMarketPanel,
-  type SkillContentRequest,
-  type SkillMarketTab,
-} from "@/components/settings/skill-market-panels"
+import type { SkillContentRequest } from "@/components/settings/skill-market-panels"
+import { SkillMarketWorkspace } from "@/components/skills/skill-market-workspace"
 import { cn } from "@/lib/utils"
 import {
   acpDeleteAgentSkill,
@@ -218,8 +208,6 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
     useState<AgentSkillItem | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [isContentEditing, setIsContentEditing] = useState(false)
-  const [marketTab, setMarketTab] = useState<SkillMarketTab>("installed")
-  const [marketBusyKey, setMarketBusyKey] = useState<string | null>(null)
   // True only while the user is authoring a brand-new skill (clicked "New
   // Skill"). Opening an existing skill clears this. The right panel renders
   // the form iff a skill is selected OR the user is drafting — otherwise it
@@ -257,11 +245,6 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
   const selectedSkill = useMemo(
     () => skillItems.find((item) => item.id === selectedSkillId) ?? null,
     [selectedSkillId, skillItems]
-  )
-
-  const installedSkillIds = useMemo(
-    () => new Set(skillItems.map((skill) => skill.id)),
-    [skillItems]
   )
 
   const marketTargetName = useMemo(() => {
@@ -558,32 +541,28 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
   ])
 
   const saveMarketSkill = useCallback(
-    async (request: SkillContentRequest, successMessage: string) => {
+    async (request: SkillContentRequest) => {
       if (!selectedAgent) {
-        toast.error(t("market.toasts.noTarget"))
-        return
+        throw new Error(t("market.toasts.noTarget"))
       }
       if (!skillLocation) {
-        toast.error(t("toasts.noSkillDirectory"))
-        return
+        throw new Error(t("toasts.noSkillDirectory"))
       }
 
       const trimmedId = request.id.trim()
       if (!trimmedId || !request.content.trim()) {
-        toast.error(t("market.toasts.contentRequired"))
-        return
+        throw new Error(t("market.toasts.contentRequired"))
       }
 
       // Market-managed content is immutable: importing or generating over an
       // official Skill would silently clobber it, so refuse up front (the
       // backend enforces the same rule via the on-disk official marker).
       const existing = skillItems.find((skill) => skill.id === trimmedId)
-      if (existing?.official && !request.official) {
-        toast.error(t("market.toasts.officialReadOnly"))
-        return
+      if (existing?.official) {
+        throw new Error(t("market.toasts.officialReadOnly"))
       }
 
-      const saved = await acpSaveAgentSkill({
+      await acpSaveAgentSkill({
         agentType: selectedAgent.agent_type,
         scope: backendScope,
         skillId: trimmedId,
@@ -592,85 +571,22 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
         workspacePath: workspacePathForRequest,
         layout: "skill_directory",
         syncMode: null,
-        official: request.official ?? null,
       })
 
       invalidateAgentSkillsCache(selectedAgent.agent_type)
       await loadSkills(selectedAgent.agent_type)
-      await openSkill(selectedAgent.agent_type, saved, "preview")
       setIsDrafting(false)
       setIsContentEditing(false)
-      setMarketTab("installed")
-      toast.success(successMessage)
     },
     [
       backendScope,
       loadSkills,
-      openSkill,
       selectedAgent,
       skillItems,
       skillLocation,
       t,
       workspacePathForRequest,
     ]
-  )
-
-  const handleInstallOfficialSkill = useCallback(
-    async (request: SkillContentRequest) => {
-      if (!selectedAgent) {
-        toast.error(t("market.toasts.noTarget"))
-        return
-      }
-
-      const existing = skillItems.find((skill) => skill.id === request.id)
-      if (existing) {
-        setMarketTab("installed")
-        await openSkill(selectedAgent.agent_type, existing, "preview")
-        return
-      }
-
-      const busyKey = `official:${request.id}`
-      setMarketBusyKey(busyKey)
-      try {
-        await saveMarketSkill(request, t("market.toasts.installed"))
-      } catch (err) {
-        const message = toErrorMessage(err)
-        toast.error(t("market.toasts.installFailed"), { description: message })
-      } finally {
-        setMarketBusyKey(null)
-      }
-    },
-    [openSkill, saveMarketSkill, selectedAgent, skillItems, t]
-  )
-
-  const handleImportMarketSkill = useCallback(
-    async (request: SkillContentRequest) => {
-      setMarketBusyKey("import")
-      try {
-        await saveMarketSkill(request, t("market.toasts.imported"))
-      } catch (err) {
-        const message = toErrorMessage(err)
-        toast.error(t("market.toasts.importFailed"), { description: message })
-      } finally {
-        setMarketBusyKey(null)
-      }
-    },
-    [saveMarketSkill, t]
-  )
-
-  const handleGenerateMarketSkill = useCallback(
-    async (request: SkillContentRequest) => {
-      setMarketBusyKey("generate")
-      try {
-        await saveMarketSkill(request, t("market.toasts.generated"))
-      } catch (err) {
-        const message = toErrorMessage(err)
-        toast.error(t("market.toasts.generateFailed"), { description: message })
-      } finally {
-        setMarketBusyKey(null)
-      }
-    },
-    [saveMarketSkill, t]
   )
 
   const handleDeleteSkill = useCallback(
@@ -711,6 +627,7 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
       } catch (err) {
         const message = toErrorMessage(err)
         toast.error(t("toasts.deleteFailed"), { description: message })
+        throw err
       } finally {
         setSkillDeletingId(null)
         setDeleteDialogOpen(false)
@@ -849,127 +766,59 @@ export function SkillsSettings({ mode = "settings" }: SkillsSettingsProps) {
     )
   }
 
+  if (isMarketMode) {
+    return (
+      <SkillMarketWorkspace
+        installedSkills={skillItems}
+        installedLoading={skillsLoading}
+        targetName={marketTargetName}
+        agentType={selectedAgent?.agent_type ?? null}
+        installDisabled={marketTargetDisabled}
+        localBusyId={skillDeletingId ?? skillTogglingId}
+        onInstalledChanged={async () => {
+          if (!selectedAgent) return
+          invalidateAgentSkillsCache(selectedAgent.agent_type)
+          await loadSkills(selectedAgent.agent_type)
+        }}
+        onImport={saveMarketSkill}
+        onGenerate={saveMarketSkill}
+        onOpenFolder={handleOpenSkillDirectory}
+        onDeleteLocal={handleDeleteSkill}
+        onToggleLocal={handleToggleSkillEnabled}
+      />
+    )
+  }
+
   return (
-    <div
-      className={cn(
-        "h-full flex flex-col",
-        isMarketMode ? "bg-background" : "px-5 py-5"
-      )}
-    >
-      <div
-        className={cn(
-          "flex items-center justify-between gap-3",
-          isMarketMode ? "shrink-0 border-b border-border px-4 py-3" : "pb-4"
-        )}
-      >
-        <div
-          className={cn("flex items-center gap-2.5", isMarketMode && "gap-2")}
-        >
-          {!isMarketMode && (
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
-              <Package className="h-4 w-4 text-muted-foreground" />
-            </div>
-          )}
+    <div className="h-full flex flex-col px-5 py-5">
+      <div className="flex items-center justify-between gap-3 pb-4">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+            <Package className="h-4 w-4 text-muted-foreground" />
+          </div>
           <div>
             <h1 className="text-base font-semibold tracking-tight">
-              {t(isMarketMode ? "market.title" : "title")}
+              {t("title")}
             </h1>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {t(isMarketMode ? "market.description" : "description")}
+              {t("description")}
             </p>
           </div>
         </div>
       </div>
 
-      {isMarketMode && (
-        <Tabs
-          value={marketTab}
-          onValueChange={(value) => setMarketTab(value as SkillMarketTab)}
-          className="shrink-0 border-b border-border px-3 py-2"
-        >
-          <TabsList variant="line" className="max-w-full justify-start">
-            <TabsTrigger value="installed">
-              <PackageCheck className="size-3.5" aria-hidden="true" />
-              {t("market.tabs.installed")}
-            </TabsTrigger>
-            <TabsTrigger value="official">
-              <Store className="size-3.5" aria-hidden="true" />
-              {t("market.tabs.official")}
-            </TabsTrigger>
-            <TabsTrigger value="import">
-              <Upload className="size-3.5" aria-hidden="true" />
-              {t("market.tabs.import")}
-            </TabsTrigger>
-            <TabsTrigger value="generate">
-              <WandSparkles className="size-3.5" aria-hidden="true" />
-              {t("market.tabs.generate")}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      )}
-
       {loadingError && (
-        <div
-          className={cn(
-            "rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400",
-            isMarketMode ? "mx-3 mt-3" : "mb-3"
-          )}
-        >
+        <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
           {loadingError}
         </div>
       )}
 
-      {isMarketMode && marketTab === "official" ? (
-        <OfficialSkillMarketPanel
-          targetName={marketTargetName}
-          installedIds={installedSkillIds}
-          disabled={marketTargetDisabled}
-          busyKey={marketBusyKey}
-          onInstall={(request) => {
-            handleInstallOfficialSkill(request).catch((err) => {
-              console.error(
-                "[SkillsSettings] install official skill failed:",
-                err
-              )
-            })
-          }}
-        />
-      ) : isMarketMode && marketTab === "import" ? (
-        <ImportSkillPanel
-          targetName={marketTargetName}
-          disabled={marketTargetDisabled}
-          busy={marketBusyKey === "import"}
-          onImport={(request) => {
-            handleImportMarketSkill(request).catch((err) => {
-              console.error("[SkillsSettings] import skill failed:", err)
-            })
-          }}
-        />
-      ) : isMarketMode && marketTab === "generate" ? (
-        <GenerateSkillPanel
-          targetName={marketTargetName}
-          disabled={marketTargetDisabled}
-          busy={marketBusyKey === "generate"}
-          onGenerate={(request) => {
-            handleGenerateMarketSkill(request).catch((err) => {
-              console.error("[SkillsSettings] generate skill failed:", err)
-            })
-          }}
-        />
-      ) : sortedAgents.length === 0 ? (
-        <div
-          className={cn(
-            "h-full rounded-lg border bg-card flex items-center justify-center text-sm text-muted-foreground",
-            isMarketMode && "m-3 md:m-4"
-          )}
-        >
+      {sortedAgents.length === 0 ? (
+        <div className="h-full rounded-lg border bg-card flex items-center justify-center text-sm text-muted-foreground">
           {t("emptyNoManageableAgents")}
         </div>
       ) : (
-        <div
-          ref={panelContainerRef}
-          className={cn("flex-1 min-h-0 min-w-0", isMarketMode && "p-3 md:p-4")}
-        >
+        <div ref={panelContainerRef} className="flex-1 min-h-0 min-w-0">
           <ResizablePanelGroup
             direction="horizontal"
             className="h-full min-h-0 min-w-0"
