@@ -143,6 +143,35 @@ en = "Runs captured Lixiao enterprise search and account workflows."
 "zh-CN" = "执行励销企业搜索和账号工作流。"
 
 [[expert]]
+id = "iyw-crm-workflows"
+category = "workflow"
+icon = "Contact"
+sort_order = 415
+
+[expert.display_name]
+en = "IYW CRM Workflows"
+"zh-CN" = "爱原物 CRM 工作流"
+
+[expert.description]
+en = "Runs authenticated IYW CRM login and customer search workflows."
+"zh-CN" = "执行已认证的爱原物 CRM 登录和客户查询工作流。"
+
+[[expert]]
+id = "iyw-sales-assistant-workflows"
+category = "workflow"
+icon = "BriefcaseBusiness"
+sort_order = 417
+dependencies = ["lixiao-workflows", "iyw-crm-workflows"]
+
+[expert.display_name]
+en = "IYW AI Sales Assistant"
+"zh-CN" = "爱原物 AI 销售助理"
+
+[expert.description]
+en = "Researches, scores, and packages qualified sales leads."
+"zh-CN" = "调研、评分并整理符合条件的销售线索。"
+
+[[expert]]
 id = "self-improving"
 category = "memory"
 icon = "BrainCircuit"

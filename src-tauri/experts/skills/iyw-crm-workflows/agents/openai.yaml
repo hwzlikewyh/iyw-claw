@@ -1,0 +1,4 @@
+interface:
+  display_name: "IYW CRM Workflows"
+  short_description: "Log in and query IYW CRM customers safely"
+  default_prompt: "Use $iyw-crm-workflows to reuse a local CRM session and search customer records without exposing credentials."

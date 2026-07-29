@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { compareSemVer } from "@/components/skills/skill-market-semver"
-import type { SkillMarketVersion } from "@/lib/skill-market"
+import type { SkillDependency, SkillMarketVersion } from "@/lib/skill-market"
 
 export type InstallAction =
   | "install"
@@ -169,6 +169,7 @@ type InstallConfirmProps = {
   action: InstallAction
   current: string | null
   target: string
+  dependencies: SkillDependency[]
   onOpenChange: (open: boolean) => void
   onInstall: () => void
 }
@@ -187,6 +188,15 @@ export function InstallConfirm(props: InstallConfirmProps) {
               current: props.current ?? t("confirm.notInstalled"),
               target: props.target,
             })}
+            {props.dependencies.length ? (
+              <span className="mt-2 block break-words font-mono text-xs">
+                {t("confirm.expertDependencies", {
+                  dependencies: props.dependencies
+                    .map((item) => `${item.slug}@${item.version}`)
+                    .join(", "),
+                })}
+              </span>
+            ) : null}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

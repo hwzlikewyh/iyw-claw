@@ -1677,6 +1677,8 @@ export interface AgentSkillContent {
 export interface ExpertMetadata {
   id: string
   category: string
+  package_type: "skill" | "expert"
+  dependencies: string[]
   icon: string | null
   sort_order: number
   display_name: Record<string, string>

@@ -52,6 +52,10 @@ static IYW_IMAGE_WORKFLOWS_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-image-workflows");
 static LIXIAO_WORKFLOWS_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/lixiao-workflows");
+static IYW_CRM_WORKFLOWS_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-crm-workflows");
+static IYW_SALES_ASSISTANT_WORKFLOWS_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-sales-assistant-workflows");
 static SELF_IMPROVING_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/self-improving");
 static OPEN_COMPUTER_USE_BUNDLE: Dir<'_> =
@@ -92,6 +96,14 @@ pub enum ExpertsError {
     #[error("central expert store is unavailable: {0}")]
     CentralUnavailable(String),
     #[error(
+        "expert '{dependency}' is required by enabled expert '{dependent}' for agent {agent:?}"
+    )]
+    DependencyInUse {
+        dependency: String,
+        dependent: String,
+        agent: AgentType,
+    },
+    #[error(
         "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
     )]
     AgentStorageNotInitialized,
@@ -118,6 +130,8 @@ impl From<io::Error> for ExpertsError {
 pub struct ExpertMetadata {
     pub id: String,
     pub category: String,
+    pub package_type: String,
+    pub dependencies: Vec<String>,
     pub icon: Option<String>,
     pub sort_order: i32,
     pub display_name: BTreeMap<String, String>,
@@ -257,6 +271,8 @@ struct ExpertTomlEntry {
     id: String,
     category: String,
     #[serde(default)]
+    dependencies: Vec<String>,
+    #[serde(default)]
     icon: Option<String>,
     #[serde(default)]
     sort_order: i32,
@@ -280,13 +296,17 @@ fn bundled_metadata() -> &'static [ExpertMetadata] {
 fn load_bundled_metadata_inner() -> Result<Vec<ExpertMetadata>, ExpertsError> {
     let root: ExpertsTomlRoot = toml::from_str(EXPERTS_TOML_CONTENT)
         .map_err(|e| ExpertsError::Metadata(format!("failed to parse {EXPERTS_TOML}: {e}")))?;
+    validate_expert_entries(&root.expert)?;
 
     let mut out = Vec::with_capacity(root.expert.len());
     for entry in root.expert {
         let bundled_hash = hash_bundled_expert(&entry.id)?;
+        let package_type = package_type(&entry.dependencies).to_string();
         out.push(ExpertMetadata {
             id: entry.id,
             category: entry.category,
+            package_type,
+            dependencies: entry.dependencies,
             icon: entry.icon,
             sort_order: entry.sort_order,
             display_name: entry.display_name,
@@ -328,6 +348,7 @@ fn load_disk_metadata(path: &Path, root: &Path) -> Result<Vec<ExpertMetadata>, E
     let content = fs::read_to_string(path)?;
     let parsed: ExpertsTomlRoot =
         toml::from_str(&content).map_err(|error| ExpertsError::Metadata(error.to_string()))?;
+    validate_expert_entries(&parsed.expert)?;
     let mut metadata = Vec::with_capacity(parsed.expert.len());
     for entry in parsed.expert {
         crate::commands::acp::validate_skill_id(&entry.id)
@@ -338,9 +359,12 @@ fn load_disk_metadata(path: &Path, root: &Path) -> Result<Vec<ExpertMetadata>, E
                 entry.id
             )));
         }
+        let package_type = package_type(&entry.dependencies).to_string();
         metadata.push(ExpertMetadata {
             id: entry.id,
             category: entry.category,
+            package_type,
+            dependencies: entry.dependencies,
             icon: entry.icon,
             sort_order: entry.sort_order,
             display_name: entry.display_name,
@@ -356,11 +380,146 @@ fn load_disk_metadata(path: &Path, root: &Path) -> Result<Vec<ExpertMetadata>, E
     Ok(metadata)
 }
 
+fn package_type(dependencies: &[String]) -> &'static str {
+    if dependencies.is_empty() {
+        "skill"
+    } else {
+        "expert"
+    }
+}
+
+fn validate_expert_entries(entries: &[ExpertTomlEntry]) -> Result<(), ExpertsError> {
+    let mut graph = BTreeMap::new();
+    for entry in entries {
+        validate_skill_id(&entry.id).map_err(|error| ExpertsError::Metadata(error.to_string()))?;
+        if graph
+            .insert(entry.id.clone(), entry.dependencies.clone())
+            .is_some()
+        {
+            return Err(ExpertsError::Metadata(format!(
+                "duplicate system skill id: {}",
+                entry.id
+            )));
+        }
+    }
+    for (id, dependencies) in &graph {
+        let mut unique = BTreeSet::new();
+        for dependency in dependencies {
+            validate_skill_id(dependency)
+                .map_err(|error| ExpertsError::Metadata(error.to_string()))?;
+            if dependency == id {
+                return Err(ExpertsError::Metadata(format!(
+                    "system skill '{id}' depends on itself"
+                )));
+            }
+            if !unique.insert(dependency) {
+                return Err(ExpertsError::Metadata(format!(
+                    "system skill '{id}' repeats dependency '{dependency}'"
+                )));
+            }
+            if !graph.contains_key(dependency) {
+                return Err(ExpertsError::Metadata(format!(
+                    "system skill '{id}' requires missing dependency '{dependency}'"
+                )));
+            }
+        }
+    }
+    let mut visiting = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    for id in graph.keys() {
+        visit_dependency_graph(id, &graph, &mut visiting, &mut visited)?;
+    }
+    Ok(())
+}
+
+fn visit_dependency_graph(
+    id: &str,
+    graph: &BTreeMap<String, Vec<String>>,
+    visiting: &mut BTreeSet<String>,
+    visited: &mut BTreeSet<String>,
+) -> Result<(), ExpertsError> {
+    if visited.contains(id) {
+        return Ok(());
+    }
+    if !visiting.insert(id.to_string()) {
+        return Err(ExpertsError::Metadata(format!(
+            "system skill dependency cycle detected at '{id}'"
+        )));
+    }
+    for dependency in graph.get(id).into_iter().flatten() {
+        visit_dependency_graph(dependency, graph, visiting, visited)?;
+    }
+    visiting.remove(id);
+    visited.insert(id.to_string());
+    Ok(())
+}
+
 fn find_metadata(expert_id: &str) -> Result<ExpertMetadata, ExpertsError> {
     active_metadata()
         .into_iter()
         .find(|metadata| metadata.id == expert_id)
         .ok_or_else(|| ExpertsError::NotFound(expert_id.to_string()))
+}
+
+fn dependency_order(expert_id: &str) -> Result<Vec<String>, ExpertsError> {
+    let metadata = active_metadata();
+    let graph = metadata
+        .into_iter()
+        .map(|value| (value.id, value.dependencies))
+        .collect::<BTreeMap<_, _>>();
+    if !graph.contains_key(expert_id) {
+        return Err(ExpertsError::NotFound(expert_id.to_string()));
+    }
+    let mut visited = BTreeSet::new();
+    let mut ordered = Vec::new();
+    collect_dependency_order(expert_id, &graph, &mut visited, &mut ordered);
+    Ok(ordered)
+}
+
+fn collect_dependency_order(
+    expert_id: &str,
+    graph: &BTreeMap<String, Vec<String>>,
+    visited: &mut BTreeSet<String>,
+    ordered: &mut Vec<String>,
+) {
+    if !visited.insert(expert_id.to_string()) {
+        return;
+    }
+    for dependency in graph.get(expert_id).into_iter().flatten() {
+        collect_dependency_order(dependency, graph, visited, ordered);
+    }
+    ordered.push(expert_id.to_string());
+}
+
+fn expert_enabled_for_agent(expert_id: &str, agent_type: AgentType) -> bool {
+    let central = expert_central_path(expert_id);
+    scoped_skill_dirs(agent_type, AgentSkillScope::Global, None).is_ok_and(|directories| {
+        directories
+            .into_iter()
+            .any(|directory| managed_link_is_owned(&central, &directory.join(expert_id)))
+    })
+}
+
+fn ensure_dependency_not_in_use(
+    expert_id: &str,
+    agent_type: AgentType,
+) -> Result<(), ExpertsError> {
+    for metadata in active_metadata() {
+        if metadata.id == expert_id || !expert_enabled_for_agent(&metadata.id, agent_type) {
+            continue;
+        }
+        if dependency_order(&metadata.id)?
+            .iter()
+            .any(|dependency| dependency == expert_id)
+        {
+            return Err(ExpertsError::DependencyInUse {
+                dependency: expert_id.to_string(),
+                dependent: metadata.id,
+                agent: agent_type,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn require_private_agent_storage_for_write() -> Result<(), ExpertsError> {
@@ -407,6 +566,8 @@ fn bundled_skill_dir(expert_id: &str) -> Option<&'static Dir<'static>> {
         "skill-installer" => Some(&SKILL_INSTALLER_BUNDLE),
         "iyw-image-workflows" => Some(&IYW_IMAGE_WORKFLOWS_BUNDLE),
         "lixiao-workflows" => Some(&LIXIAO_WORKFLOWS_BUNDLE),
+        "iyw-crm-workflows" => Some(&IYW_CRM_WORKFLOWS_BUNDLE),
+        "iyw-sales-assistant-workflows" => Some(&IYW_SALES_ASSISTANT_WORKFLOWS_BUNDLE),
         "self-improving" => Some(&SELF_IMPROVING_BUNDLE),
         "open-computer-use" => Some(&OPEN_COMPUTER_USE_BUNDLE),
         _ => None,
@@ -1120,7 +1281,7 @@ pub(crate) fn managed_expert_has_owned_link(expert_id: &str, agents: &[AgentType
 /// already held** by the caller — `tokio::sync::Mutex` is not reentrant, so the
 /// batch path (`experts_apply_links`) locks once and calls this directly rather
 /// than the public command (which would self-deadlock).
-fn link_one_locked(
+fn link_one_exact_locked(
     expert_id: &str,
     agent_type: AgentType,
 ) -> Result<ExpertInstallStatus, ExpertsError> {
@@ -1153,13 +1314,27 @@ fn link_one_locked(
     })
 }
 
+fn link_with_dependencies_locked(
+    expert_id: &str,
+    agent_type: AgentType,
+) -> Result<ExpertInstallStatus, ExpertsError> {
+    let mut root_status = None;
+    for dependency in dependency_order(expert_id)? {
+        let status = link_one_exact_locked(&dependency, agent_type)?;
+        if dependency == expert_id {
+            root_status = Some(status);
+        }
+    }
+    root_status.ok_or_else(|| ExpertsError::NotFound(expert_id.to_string()))
+}
+
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn experts_link_to_agent(
     expert_id: String,
     agent_type: AgentType,
 ) -> Result<ExpertInstallStatus, ExpertsError> {
     let _guard = mutation_lock().lock().await;
-    link_one_locked(&expert_id, agent_type)
+    link_with_dependencies_locked(&expert_id, agent_type)
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
@@ -1176,6 +1351,7 @@ pub async fn experts_unlink_from_agent(
 fn unlink_one_locked(expert_id: &str, agent_type: AgentType) -> Result<(), ExpertsError> {
     let expert_id =
         validate_skill_id(expert_id).map_err(|e| ExpertsError::Metadata(e.to_string()))?;
+    ensure_dependency_not_in_use(&expert_id, agent_type)?;
 
     // Scan ALL global dirs for this agent to handle shared-dir agents
     // (Codex, Gemini and Cline all also point at `~/.agents/skills/`).
@@ -1310,14 +1486,78 @@ fn link_failure(expert_id: &str, agent_type: AgentType, error: String) -> LinkOp
     }
 }
 
+fn sort_link_operations<T>(values: &mut [(usize, T)], operation: impl Fn(&T) -> (&str, bool)) {
+    values.sort_by(|(left_index, left), (right_index, right)| {
+        let (left_id, left_enable) = operation(left);
+        let (right_id, right_enable) = operation(right);
+        match (left_enable, right_enable) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            (true, true) => left_index.cmp(right_index),
+            (false, false) => dependency_order(right_id)
+                .map(|order| order.len())
+                .unwrap_or_default()
+                .cmp(
+                    &dependency_order(left_id)
+                        .map(|order| order.len())
+                        .unwrap_or_default(),
+                )
+                .then_with(|| left_index.cmp(right_index)),
+        }
+    });
+}
+
+fn managed_expert_target_results(
+    expert_id: &str,
+    agent_type: AgentType,
+    enable: bool,
+) -> Vec<LinkOpResult> {
+    if !enable {
+        if let Err(error) = ensure_dependency_not_in_use(expert_id, agent_type) {
+            return vec![link_failure(expert_id, agent_type, error.to_string())];
+        }
+        return managed_expert_pair_result(expert_id, agent_type, false)
+            .into_iter()
+            .collect();
+    }
+    let ordered = match dependency_order(expert_id) {
+        Ok(ordered) => ordered,
+        Err(error) => return vec![link_failure(expert_id, agent_type, error.to_string())],
+    };
+    let mut results = Vec::new();
+    for dependency in ordered {
+        if !expert_central_path(&dependency).exists() {
+            results.push(link_failure(
+                &dependency,
+                agent_type,
+                ExpertsError::CentralUnavailable(format!(
+                    "required expert '{dependency}' is not installed in central store"
+                ))
+                .to_string(),
+            ));
+            break;
+        }
+        if let Some(result) = managed_expert_pair_result(&dependency, agent_type, true) {
+            let ok = result.ok;
+            results.push(result);
+            if !ok {
+                break;
+            }
+        }
+    }
+    results
+}
+
 pub(crate) async fn reconcile_managed_experts(
     targets: &[(AgentType, String, bool)],
 ) -> Vec<LinkOpResult> {
     let _guard = mutation_lock().lock().await;
-    targets
-        .iter()
-        .filter_map(|(agent_type, expert_id, enable)| {
-            managed_expert_pair_result(expert_id, *agent_type, *enable)
+    let mut ordered = targets.iter().cloned().enumerate().collect::<Vec<_>>();
+    sort_link_operations(&mut ordered, |value| (&value.1, value.2));
+    ordered
+        .into_iter()
+        .flat_map(|(_, (agent_type, expert_id, enable))| {
+            managed_expert_target_results(&expert_id, agent_type, enable)
         })
         .collect()
 }
@@ -1333,19 +1573,22 @@ pub(crate) async fn reconcile_managed_experts(
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn experts_apply_links(ops: Vec<LinkOp>) -> Result<Vec<LinkOpResult>, ExpertsError> {
     let _guard = mutation_lock().lock().await;
-    let mut out = Vec::with_capacity(ops.len());
-    for op in ops {
+    let result_count = ops.len();
+    let mut indexed = ops.into_iter().enumerate().collect::<Vec<_>>();
+    sort_link_operations(&mut indexed, |value| (&value.expert_id, value.enable));
+    let mut out = vec![None; result_count];
+    for (index, op) in indexed {
         let LinkOp {
             expert_id,
             agent_type,
             enable,
         } = op;
         let res = if enable {
-            link_one_locked(&expert_id, agent_type).map(Some)
+            link_with_dependencies_locked(&expert_id, agent_type).map(Some)
         } else {
             unlink_one_locked(&expert_id, agent_type).map(|()| None)
         };
-        out.push(match res {
+        out[index] = Some(match res {
             Ok(status) => LinkOpResult {
                 expert_id,
                 agent_type,
@@ -1362,7 +1605,7 @@ pub async fn experts_apply_links(ops: Vec<LinkOp>) -> Result<Vec<LinkOpResult>, 
             },
         });
     }
-    Ok(out)
+    Ok(out.into_iter().flatten().collect())
 }
 
 /// One-shot snapshot of every (expert, agent) link state — lets the matrix UI
@@ -1627,4 +1870,3 @@ pub async fn experts_open_central_dir() -> Result<String, ExpertsError> {
     fs::create_dir_all(&dir)?;
     Ok(dir.to_string_lossy().to_string())
 }
-

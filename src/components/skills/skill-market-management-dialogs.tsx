@@ -19,6 +19,8 @@ import { SkillMarketFolderPicker } from "@/components/skills/skill-market-folder
 import {
   compareSemVer,
   isValidSemVer,
+  isValidSkillDependencies,
+  parseSkillDependencies,
 } from "@/components/skills/skill-market-semver"
 import type {
   SelectedSkillMarketFolder,
@@ -38,17 +40,26 @@ function useVersionForm(props: VersionDialogProps) {
   const [folder, setFolder] = useState<SelectedSkillMarketFolder | null>(null)
   const [version, setVersion] = useState("")
   const [changelog, setChangelog] = useState("")
+  const [dependencies, setDependencies] = useState(() =>
+    props.detail
+      ? props.detail.currentVersion.dependencies
+          .map((dependency) => `${dependency.slug}@${dependency.version}`)
+          .join("\n")
+      : ""
+  )
   const valid = Boolean(
     props.detail &&
     folder &&
     isValidSemVer(version) &&
-    compareSemVer(version, props.detail.currentVersion.version) > 0
+    compareSemVer(version, props.detail.currentVersion.version) > 0 &&
+    isValidSkillDependencies(dependencies)
   )
   const close = (nextOpen: boolean) => {
     if (!nextOpen && !props.busy) {
       setFolder(null)
       setVersion("")
       setChangelog("")
+      setDependencies("")
     }
     props.onOpenChange(nextOpen)
   }
@@ -58,6 +69,7 @@ function useVersionForm(props: VersionDialogProps) {
       id: props.detail.id,
       version: version.trim(),
       changelog: changelog.trim(),
+      dependencies: parseSkillDependencies(dependencies),
       files: folder.files,
     })
     close(false)
@@ -69,6 +81,8 @@ function useVersionForm(props: VersionDialogProps) {
     setVersion,
     changelog,
     setChangelog,
+    dependencies,
+    setDependencies,
     valid,
     close,
     publish,
@@ -118,6 +132,18 @@ function VersionFields({
           onChange={(event) => form.setChangelog(event.target.value)}
         />
       </label>
+      <label className="space-y-2">
+        <Label>{t("fields.dependencies")}</Label>
+        <Textarea
+          className="min-h-20 font-mono"
+          value={form.dependencies}
+          placeholder={t("fields.dependenciesPlaceholder")}
+          onChange={(event) => form.setDependencies(event.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t("fields.dependenciesHint")}
+        </p>
+      </label>
     </div>
   )
 }
@@ -144,25 +170,34 @@ function VersionFooter({ form, busy }: { form: VersionForm; busy: boolean }) {
   )
 }
 
-export function SkillMarketVersionDialog(props: VersionDialogProps) {
+function VersionDialogContent(props: VersionDialogProps) {
   const t = useTranslations("SkillsSettings.market")
   const form = useVersionForm(props)
   return (
-    <Dialog open={props.open} onOpenChange={form.close}>
-      <DialogContent className="max-w-2xl rounded-lg">
-        <DialogHeader>
-          <DialogTitle>{t("version.title")}</DialogTitle>
-          <DialogDescription>
-            {props.detail
-              ? t("version.description", {
-                  version: props.detail.currentVersion.version,
-                })
-              : ""}
-          </DialogDescription>
-        </DialogHeader>
-        <VersionFields form={form} detail={props.detail} busy={props.busy} />
-        <VersionFooter form={form} busy={props.busy} />
-      </DialogContent>
+    <DialogContent className="max-w-2xl rounded-lg">
+      <DialogHeader>
+        <DialogTitle>{t("version.title")}</DialogTitle>
+        <DialogDescription>
+          {props.detail
+            ? t("version.description", {
+                version: props.detail.currentVersion.version,
+              })
+            : ""}
+        </DialogDescription>
+      </DialogHeader>
+      <VersionFields form={form} detail={props.detail} busy={props.busy} />
+      <VersionFooter form={form} busy={props.busy} />
+    </DialogContent>
+  )
+}
+
+export function SkillMarketVersionDialog(props: VersionDialogProps) {
+  const formKey = props.detail
+    ? `${props.detail.id}:${props.detail.currentVersion.version}`
+    : "empty"
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      {props.open ? <VersionDialogContent key={formKey} {...props} /> : null}
     </Dialog>
   )
 }

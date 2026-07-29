@@ -26,6 +26,8 @@ struct BundleMetadata {
 #[derive(Debug, Deserialize)]
 struct RemoteExpert {
     id: String,
+    #[serde(default)]
+    dependencies: Vec<String>,
 }
 
 pub fn embedded_version() -> Result<Version, AppCommandError> {
@@ -71,11 +73,85 @@ fn validate_manifest(path: &Path, tag: &str) -> Result<Vec<String>, AppCommandEr
             "System skills {tag} require iyw-claw {minimum} or newer"
         )));
     }
+    validate_dependency_graph(&manifest.expert)?;
     Ok(manifest
         .expert
         .into_iter()
         .map(|expert| expert.id)
         .collect())
+}
+
+fn validate_dependency_graph(experts: &[RemoteExpert]) -> Result<(), AppCommandError> {
+    let ids = experts
+        .iter()
+        .map(|expert| expert.id.as_str())
+        .collect::<BTreeSet<_>>();
+    if ids.len() != experts.len() {
+        return Err(AppCommandError::configuration_invalid(
+            "System skill manifest contains duplicate ids",
+        ));
+    }
+    for expert in experts {
+        let mut unique = BTreeSet::new();
+        for dependency in &expert.dependencies {
+            crate::commands::acp::validate_skill_id(dependency).map_err(|error| {
+                AppCommandError::configuration_invalid(format!(
+                    "Invalid dependency for system skill '{}': {error}",
+                    expert.id
+                ))
+            })?;
+            if dependency == &expert.id {
+                return Err(AppCommandError::configuration_invalid(format!(
+                    "System skill '{}' depends on itself",
+                    expert.id
+                )));
+            }
+            if !unique.insert(dependency.as_str()) {
+                return Err(AppCommandError::configuration_invalid(format!(
+                    "System skill '{}' repeats dependency '{dependency}'",
+                    expert.id
+                )));
+            }
+            if !ids.contains(dependency.as_str()) {
+                return Err(AppCommandError::configuration_invalid(format!(
+                    "System skill '{}' requires missing dependency '{dependency}'",
+                    expert.id
+                )));
+            }
+        }
+    }
+    let graph = experts
+        .iter()
+        .map(|expert| (expert.id.as_str(), expert.dependencies.as_slice()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut visiting = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    for id in graph.keys() {
+        visit_dependency(id, &graph, &mut visiting, &mut visited)?;
+    }
+    Ok(())
+}
+
+fn visit_dependency<'a>(
+    id: &'a str,
+    graph: &std::collections::BTreeMap<&'a str, &'a [String]>,
+    visiting: &mut BTreeSet<&'a str>,
+    visited: &mut BTreeSet<&'a str>,
+) -> Result<(), AppCommandError> {
+    if visited.contains(id) {
+        return Ok(());
+    }
+    if !visiting.insert(id) {
+        return Err(AppCommandError::configuration_invalid(format!(
+            "System skill dependency cycle detected at '{id}'"
+        )));
+    }
+    for dependency in graph.get(id).into_iter().flat_map(|values| values.iter()) {
+        visit_dependency(dependency.as_str(), graph, visiting, visited)?;
+    }
+    visiting.remove(id);
+    visited.insert(id);
+    Ok(())
 }
 
 fn validate_skill_paths(root: &Path, ids: Vec<String>) -> Result<Vec<String>, AppCommandError> {

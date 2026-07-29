@@ -33,6 +33,7 @@ export interface SkillMarketUploadDraft {
   visibility: "public" | "private"
   version: string
   changelog: string
+  dependencies: string
 }
 
 type MetadataStepProps = {
@@ -75,7 +76,7 @@ function DraftTextarea({
   draft,
   onChange,
 }: {
-  field: "summary" | "changelog"
+  field: "summary" | "changelog" | "dependencies"
   draft: SkillMarketUploadDraft
   onChange: MetadataStepProps["onChange"]
 }) {
@@ -171,6 +172,7 @@ export function SkillMarketMetadataStep({
         type="url"
       />
       <DraftTextarea field="changelog" draft={draft} onChange={onChange} />
+      <DraftTextarea field="dependencies" draft={draft} onChange={onChange} />
       <VisibilityField
         draft={draft}
         categories={categories}
@@ -214,6 +216,12 @@ export function SkillMarketReviewStep({
           <dt className="text-muted-foreground">{t("detail.fileTree")}</dt>
           <dd className="mt-1">
             {t("detail.fileCount", { count: folder.files.length })}
+          </dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="text-muted-foreground">{t("fields.dependencies")}</dt>
+          <dd className="mt-1 whitespace-pre-wrap break-all font-mono">
+            {draft.dependencies.trim() || t("detail.noDependencies")}
           </dd>
         </div>
       </dl>

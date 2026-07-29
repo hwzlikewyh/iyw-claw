@@ -1,8 +1,43 @@
+import type { SkillDependencyInput } from "@/lib/skill-market"
+
 const SEMVER_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 
 export function isValidSemVer(version: string): boolean {
   return SEMVER_PATTERN.test(version.trim())
+}
+
+export function parseSkillDependencies(value: string): SkillDependencyInput[] {
+  const lines = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length > 16) throw new Error("tooManyDependencies")
+  const seen = new Set<string>()
+  return lines.map((line) => {
+    const separator = line.lastIndexOf("@")
+    const slug = line.slice(0, separator).trim()
+    const version = line.slice(separator + 1).trim()
+    if (
+      separator <= 0 ||
+      !/^[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?$/.test(slug) ||
+      !isValidSemVer(version) ||
+      seen.has(slug)
+    ) {
+      throw new Error("invalidDependency")
+    }
+    seen.add(slug)
+    return { slug, version }
+  })
+}
+
+export function isValidSkillDependencies(value: string): boolean {
+  try {
+    parseSkillDependencies(value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function parseSemVer(value: string) {

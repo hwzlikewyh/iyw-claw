@@ -34,7 +34,35 @@ pub struct SkillMarketVersion {
     #[serde(default)]
     pub file_count: u64,
     pub package_size: u64,
+    #[serde(default)]
+    pub package_type: SkillPackageType,
+    #[serde(default)]
+    pub dependencies: Vec<SkillDependency>,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SkillPackageType {
+    #[default]
+    Skill,
+    Expert,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDependency {
+    #[serde(deserialize_with = "deserialize_id")]
+    pub skill_id: String,
+    pub slug: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDependencyInput {
+    pub slug: String,
+    pub version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +137,8 @@ pub struct SkillMarketPublishRequest {
     pub visibility: String,
     pub version: String,
     pub changelog: String,
+    #[serde(default)]
+    pub dependencies: Vec<SkillDependencyInput>,
     pub files: Vec<SkillMarketUploadFile>,
 }
 
@@ -130,6 +160,8 @@ pub struct SkillMarketAddVersionRequest {
     pub id: String,
     pub version: String,
     pub changelog: String,
+    #[serde(default)]
+    pub dependencies: Vec<SkillDependencyInput>,
     pub files: Vec<SkillMarketUploadFile>,
 }
 
@@ -141,6 +173,32 @@ pub struct SkillDownloadInfo {
     pub package_size: u64,
     pub content_sha256: String,
     pub object_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallPlan {
+    #[serde(deserialize_with = "deserialize_id")]
+    pub root_skill_id: String,
+    pub root_slug: String,
+    pub root_version: String,
+    pub items: Vec<SkillInstallPlanItem>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallPlanItem {
+    #[serde(deserialize_with = "deserialize_id")]
+    pub skill_id: String,
+    pub slug: String,
+    pub display_name: String,
+    pub version: String,
+    pub package_type: SkillPackageType,
+    pub visibility: String,
+    pub publisher_type: String,
+    #[serde(default)]
+    pub dependencies: Vec<SkillDependency>,
+    pub download: SkillDownloadInfo,
 }
 
 #[derive(Debug, Deserialize)]

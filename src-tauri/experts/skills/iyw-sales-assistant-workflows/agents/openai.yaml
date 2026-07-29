@@ -1,0 +1,4 @@
+interface:
+  display_name: "IYW AI Sales Assistant"
+  short_description: "Research, score, and package qualified sales leads"
+  default_prompt: "Use $iyw-sales-assistant-workflows to research qualified leads, apply CRM protection rules, and create auditable customer packages."

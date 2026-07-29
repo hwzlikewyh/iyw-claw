@@ -115,6 +115,7 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
         action={action}
         current={props.installedVersion}
         target={version}
+        dependencies={selectedVersion.dependencies}
         onOpenChange={setConfirmOpen}
         onInstall={() => props.onInstall(version)}
       />

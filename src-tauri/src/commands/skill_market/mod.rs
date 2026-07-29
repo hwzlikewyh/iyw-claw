@@ -1,5 +1,6 @@
 mod client;
 mod install;
+mod install_plan;
 mod types;
 
 pub use install::install_core;
@@ -12,9 +13,9 @@ use sea_orm::DatabaseConnection;
 use crate::app_error::AppCommandError;
 use types::{parse_id, parse_value, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
 pub use types::{
-    SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail, SkillMarketListParams,
-    SkillMarketListResult, SkillMarketMetadataRequest, SkillMarketPublishRequest,
-    SkillMarketVersion,
+    SkillDependencyInput, SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail,
+    SkillMarketListParams, SkillMarketListResult, SkillMarketMetadataRequest,
+    SkillMarketPublishRequest, SkillMarketVersion, SkillPackageType,
 };
 
 pub async fn list_core(
@@ -88,6 +89,7 @@ pub async fn publish_core(
     conn: &DatabaseConnection,
     request: SkillMarketPublishRequest,
 ) -> Result<SkillMarketDetail, AppCommandError> {
+    let dependencies = serialize_dependencies(&request.dependencies)?;
     let form = client::upload_form(
         vec![
             ("slug", request.slug),
@@ -98,6 +100,7 @@ pub async fn publish_core(
             ("visibility", request.visibility),
             ("version", request.version),
             ("changelog", request.changelog),
+            ("dependencies", dependencies),
         ],
         &request.tags,
         request.files,
@@ -122,12 +125,14 @@ pub async fn add_version_core(
     request: SkillMarketAddVersionRequest,
 ) -> Result<SkillMarketDetail, AppCommandError> {
     let id = request.id;
+    let dependencies = serialize_dependencies(&request.dependencies)?;
     let mut fallback = detail_core(conn, id.clone(), None).await?;
     let form = client::upload_form(
         vec![
             ("id", parse_id(&id)?.to_string()),
             ("version", request.version),
             ("changelog", request.changelog),
+            ("dependencies", dependencies),
         ],
         &[],
         request.files,
@@ -147,6 +152,15 @@ pub async fn add_version_core(
     fallback.files.clear();
     tracing::info!(skill_id = %id, version = %fallback.skill.current_version.version, "[skill-market] Skill version published");
     Ok(refresh_detail_or_fallback(conn, id, fallback).await)
+}
+
+fn serialize_dependencies(
+    dependencies: &[SkillDependencyInput],
+) -> Result<String, AppCommandError> {
+    serde_json::to_string(dependencies).map_err(|error| {
+        AppCommandError::invalid_input("Failed to serialize Skill dependencies")
+            .with_detail(error.to_string())
+    })
 }
 
 pub async fn update_metadata_core(

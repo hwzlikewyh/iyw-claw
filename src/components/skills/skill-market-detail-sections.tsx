@@ -7,6 +7,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Workflow,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Badge } from "@/components/ui/badge"
@@ -83,6 +84,12 @@ export function DetailHeader({
             <Badge variant="secondary">
               {t(`visibility.${detail.visibility}`)}
             </Badge>
+            {detail.currentVersion.packageType === "expert" ? (
+              <Badge variant="secondary" className="gap-1">
+                <Workflow className="size-3" />
+                {t("packageType.expert")}
+              </Badge>
+            ) : null}
           </div>
           <p className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
             {detail.slug}
@@ -112,6 +119,22 @@ export function VersionChangelog({ version }: { version: SkillMarketVersion }) {
       <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
         {version.changelog || t("detail.noChangelog")}
       </p>
+      {version.dependencies.length ? (
+        <div className="mt-3">
+          <h4 className="text-xs font-semibold">{t("detail.dependencies")}</h4>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {version.dependencies.map((dependency) => (
+              <Badge
+                key={dependency.skillId}
+                variant="outline"
+                className="font-mono text-[10px]"
+              >
+                {dependency.slug}@{dependency.version}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

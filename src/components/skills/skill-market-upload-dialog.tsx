@@ -13,7 +13,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { SkillMarketFolderPicker } from "@/components/skills/skill-market-folder-picker"
-import { isValidSemVer } from "@/components/skills/skill-market-semver"
+import {
+  isValidSemVer,
+  isValidSkillDependencies,
+  parseSkillDependencies,
+} from "@/components/skills/skill-market-semver"
 import {
   SkillMarketMetadataStep,
   SkillMarketReviewStep,
@@ -36,6 +40,7 @@ const EMPTY_DRAFT: SkillMarketUploadDraft = {
   visibility: "private",
   version: "1.0.0",
   changelog: "",
+  dependencies: "",
 }
 
 function normalizeSlug(value: string): string {
@@ -52,7 +57,8 @@ function isDraftValid(draft: SkillMarketUploadDraft): boolean {
     Boolean(draft.displayName.trim()) &&
     Boolean(draft.summary.trim()) &&
     Boolean(draft.category) &&
-    isValidSemVer(draft.version)
+    isValidSemVer(draft.version) &&
+    isValidSkillDependencies(draft.dependencies)
   )
 }
 
@@ -72,6 +78,7 @@ function buildPublishRequest(
     summary: draft.summary.trim(),
     version: draft.version.trim(),
     changelog: draft.changelog.trim(),
+    dependencies: parseSkillDependencies(draft.dependencies),
     files: folder.files,
   }
 }

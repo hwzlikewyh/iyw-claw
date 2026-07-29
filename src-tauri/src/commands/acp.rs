@@ -4745,7 +4745,27 @@ pub(crate) struct MarketSkillMarker {
     pub object_sha256: String,
     pub visibility: String,
     pub publisher_type: String,
+    #[serde(default = "default_market_package_type")]
+    pub package_type: String,
+    #[serde(default)]
+    pub dependencies: Vec<MarketSkillDependencyMarker>,
     pub installed_at: String,
+}
+
+fn default_market_package_type() -> String {
+    "skill".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct MarketSkillDependencyMarker {
+    pub skill_id: i64,
+    pub slug: String,
+    pub version: String,
+}
+
+pub(crate) struct MarketSkillInstall {
+    pub marker: MarketSkillMarker,
+    pub package: crate::acp::skill_package::ValidatedSkillPackage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4770,55 +4790,211 @@ fn read_market_skill_marker(source: &Path) -> Option<MarketSkillMarker> {
     serde_json::from_str(&value).ok()
 }
 
+fn ensure_market_dependency_not_in_use(skill_id: &str) -> Result<(), AcpError> {
+    let root = shared_skills_dir();
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(AcpError::protocol(format!(
+                "failed to inspect market Skill dependencies: {error}"
+            )))
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            AcpError::protocol(format!(
+                "failed to inspect market Skill dependencies: {error}"
+            ))
+        })?;
+        let source = entry.path();
+        let Some(marker) = read_market_skill_marker(&source) else {
+            continue;
+        };
+        if marker.slug == skill_id
+            || !marker
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.slug == skill_id)
+        {
+            continue;
+        }
+        if shared_skill_publish_enabled(&source, &marker.slug)? {
+            return Err(AcpError::protocol(format!(
+                "skill '{skill_id}' is required by enabled expert package '{}'",
+                marker.slug
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn read_official_skill_marker(source: &Path) -> Option<OfficialSkillMarker> {
     let value = fs::read_to_string(source.join(OFFICIAL_SKILL_MARKER)).ok()?;
     serde_json::from_str(&value).ok()
 }
 
-pub(crate) fn install_market_skill(
+struct PreparedMarketSkillInstall {
+    skill_id: String,
+    source: PathBuf,
+    files: Vec<(PathBuf, Vec<u8>)>,
+    previous: PreviousMarketSkillState,
+}
+
+#[derive(Clone)]
+struct PreviousMarketSkillState {
+    skill_id: String,
+    existed: bool,
+    enabled: bool,
+    copy_mode: bool,
+}
+
+struct PendingMarketSkillInstall {
+    prepared: PreparedMarketSkillInstall,
+    swap: PendingSkillDirectorySwap,
+}
+
+pub(crate) fn install_market_skills(
     agent_type: AgentType,
-    marker: MarketSkillMarker,
-    package: crate::acp::skill_package::ValidatedSkillPackage,
-) -> Result<AgentSkillItem, AcpError> {
+    installs: Vec<MarketSkillInstall>,
+) -> Result<Vec<AgentSkillItem>, AcpError> {
     let _paths = require_private_agent_storage_for_write()?;
-    let skill_id = validate_skill_id(&marker.slug)?;
-    ensure_shared_skill_writable(&skill_id)?;
+    if installs.is_empty() {
+        return Err(AcpError::protocol("market Skill install plan is empty"));
+    }
     let _guard = shared_skill_mutation_guard();
-    let source = shared_skill_path(&skill_id);
-    ensure_market_install_target(&source, &marker)?;
-    let (enabled, copy_mode) = if path_entry_exists(&source) {
-        let enabled = shared_skill_publish_enabled(&source, &skill_id)?;
-        let copy_mode = shared_skill_publish_status(agent_type, &source, &skill_id)?.1;
-        (enabled, copy_mode)
-    } else {
-        (true, false)
-    };
-    let files = market_install_files(&skill_id, &marker, package, enabled)?;
-    let swap = begin_skill_directory_swap(&source, &files)?;
-    let mode = if copy_mode {
-        AgentSkillSyncMode::Copy
-    } else {
-        AgentSkillSyncMode::Symlink
-    };
-    let result = if enabled {
-        publish_shared_skill_to_all_agents_locked(agent_type, &skill_id, mode)
-    } else {
-        build_shared_skill_item_for_agent(agent_type, skill_id.clone())
-    };
-    match result {
-        Ok(skill) => {
-            swap.commit();
-            Ok(skill)
-        }
+    let prepared = prepare_market_skill_installs(agent_type, installs)?;
+    let pending = begin_market_skill_swaps(agent_type, prepared)?;
+    let installed = match publish_market_skill_installs(agent_type, &pending) {
+        Ok(installed) => installed,
         Err(error) => {
-            if let Err(rollback_error) = swap.rollback() {
-                tracing::error!(
-                    skill_id,
-                    error = %rollback_error,
-                    "[skill-market] failed to roll back central Skill after publication failure"
-                );
+            rollback_market_skill_installs(agent_type, pending, true);
+            return Err(error);
+        }
+    };
+    for value in pending {
+        value.swap.commit();
+    }
+    Ok(installed)
+}
+
+fn prepare_market_skill_installs(
+    agent_type: AgentType,
+    installs: Vec<MarketSkillInstall>,
+) -> Result<Vec<PreparedMarketSkillInstall>, AcpError> {
+    let mut slugs = BTreeSet::new();
+    let mut skill_ids = BTreeSet::new();
+    let mut prepared = Vec::with_capacity(installs.len());
+    for install in installs {
+        let skill_id = validate_skill_id(&install.marker.slug)?;
+        ensure_shared_skill_writable(&skill_id)?;
+        if !slugs.insert(skill_id.clone()) || !skill_ids.insert(install.marker.skill_id) {
+            return Err(AcpError::protocol(
+                "market Skill install plan contains duplicate packages",
+            ));
+        }
+        let source = shared_skill_path(&skill_id);
+        ensure_market_install_target(&source, &install.marker)?;
+        let existed = path_entry_exists(&source);
+        let (enabled, copy_mode) = if existed {
+            (
+                shared_skill_publish_enabled(&source, &skill_id)?,
+                shared_skill_publish_status(agent_type, &source, &skill_id)?.1,
+            )
+        } else {
+            (false, false)
+        };
+        let files = market_install_files(&skill_id, &install.marker, install.package, true)?;
+        prepared.push(PreparedMarketSkillInstall {
+            skill_id: skill_id.clone(),
+            source,
+            files,
+            previous: PreviousMarketSkillState {
+                skill_id,
+                existed,
+                enabled,
+                copy_mode,
+            },
+        });
+    }
+    Ok(prepared)
+}
+
+fn begin_market_skill_swaps(
+    agent_type: AgentType,
+    prepared: Vec<PreparedMarketSkillInstall>,
+) -> Result<Vec<PendingMarketSkillInstall>, AcpError> {
+    let mut pending = Vec::with_capacity(prepared.len());
+    for prepared in prepared {
+        match begin_skill_directory_swap(&prepared.source, &prepared.files) {
+            Ok(swap) => pending.push(PendingMarketSkillInstall { prepared, swap }),
+            Err(error) => {
+                rollback_market_skill_installs(agent_type, pending, false);
+                return Err(error);
             }
-            Err(error)
+        }
+    }
+    Ok(pending)
+}
+
+fn publish_market_skill_installs(
+    agent_type: AgentType,
+    pending: &[PendingMarketSkillInstall],
+) -> Result<Vec<AgentSkillItem>, AcpError> {
+    let mut installed = Vec::with_capacity(pending.len());
+    for value in pending {
+        let mode = if value.prepared.previous.copy_mode {
+            AgentSkillSyncMode::Copy
+        } else {
+            AgentSkillSyncMode::Symlink
+        };
+        installed.push(publish_shared_skill_to_all_agents_locked(
+            agent_type,
+            &value.prepared.skill_id,
+            mode,
+        )?);
+    }
+    Ok(installed)
+}
+
+fn rollback_market_skill_installs(
+    agent_type: AgentType,
+    pending: Vec<PendingMarketSkillInstall>,
+    restore_publications: bool,
+) {
+    let previous = pending
+        .iter()
+        .map(|value| value.prepared.previous.clone())
+        .collect::<Vec<_>>();
+    for value in pending.into_iter().rev() {
+        if let Err(error) = value.swap.rollback() {
+            tracing::error!(
+                skill_id = %value.prepared.skill_id,
+                error = %error,
+                "[skill-market] failed to roll back Skill directory"
+            );
+        }
+    }
+    if !restore_publications {
+        return;
+    }
+    for state in previous {
+        let result = if state.existed && state.enabled {
+            let mode = if state.copy_mode {
+                AgentSkillSyncMode::Copy
+            } else {
+                AgentSkillSyncMode::Symlink
+            };
+            publish_shared_skill_to_all_agents_locked(agent_type, &state.skill_id, mode).map(|_| ())
+        } else {
+            remove_shared_skill_publications_locked(&state.skill_id)
+        };
+        if let Err(error) = result {
+            tracing::error!(
+                skill_id = %state.skill_id,
+                error = %error,
+                "[skill-market] failed to restore Skill publication during rollback"
+            );
         }
     }
 }
@@ -9214,6 +9390,7 @@ pub async fn acp_set_agent_skill_enabled(
                 sync_mode.unwrap_or_default(),
             );
         }
+        ensure_market_dependency_not_in_use(&id)?;
         write_shared_skill_publish_state(&source, &id, false)?;
         remove_shared_skill_publications_locked(&id)?;
         return build_shared_skill_item_for_agent(agent_type, id);
@@ -9277,6 +9454,7 @@ pub async fn acp_delete_agent_skill(
         if !skill_path.join("SKILL.md").is_file() {
             return Err(AcpError::protocol(format!("skill not found: {id}")));
         }
+        ensure_market_dependency_not_in_use(&id)?;
         write_shared_skill_publish_state(&skill_path, &id, false)?;
         remove_shared_skill_publications_locked(&id)?;
         remove_skill_entry(&skill_path)

@@ -4,13 +4,12 @@ use reqwest::Method;
 use sea_orm::DatabaseConnection;
 
 use crate::app_error::AppCommandError;
-use crate::commands::acp::MarketSkillMarker;
+use crate::commands::acp::MarketSkillInstall;
 use crate::models::AgentType;
 
 use super::client;
-use super::types::{parse_id, parse_value, SkillDownloadInfo};
-
-const MAX_PACKAGE_BYTES: u64 = 30 * 1024 * 1024;
+use super::install_plan::{market_marker, validate_install_plan, MAX_PACKAGE_BYTES};
+use super::types::{parse_id, parse_value, SkillDownloadInfo, SkillInstallPlan};
 
 pub async fn install_core(
     conn: &DatabaseConnection,
@@ -24,58 +23,42 @@ pub async fn install_core(
             AppCommandError::invalid_input("Invalid Skill version").with_detail(error.to_string())
         })?
         .to_string();
-    let detail = super::detail_core(
-        conn,
-        requested_id.to_string(),
-        Some(requested_version.clone()),
-    )
-    .await?;
-    validate_install_identity(&detail, requested_id, &requested_version)?;
-    let metadata = download_metadata(conn, &id, &requested_version).await?;
-    if metadata.version != requested_version {
-        return Err(AppCommandError::configuration_invalid(
-            "Skill download metadata returned a different version",
-        ));
+    let plan = request_install_plan(conn, requested_id, &requested_version).await?;
+    validate_install_plan(&plan, requested_id, &requested_version)?;
+    let root_slug = plan.root_slug.clone();
+    let package_count = plan.items.len();
+    let mut installs = Vec::with_capacity(package_count);
+    for item in plan.items {
+        let skill_id = item.skill_id.clone();
+        let item_version = item.version.clone();
+        let package_bytes = download_package(&item.download).await.map_err(|error| {
+            tracing::error!(skill_id = %skill_id, slug = %item.slug, version = %item_version, error = %error, "[skill-market] package download failed");
+            error
+        })?;
+        let object_hash = crate::acp::skill_package::hash_bytes(&package_bytes);
+        if !object_hash.eq_ignore_ascii_case(&item.download.object_sha256) {
+            return Err(AppCommandError::invalid_input(format!(
+                "Downloaded Skill package integrity check failed for {}@{}",
+                item.slug, item.version
+            )));
+        }
+        let package =
+            crate::acp::skill_package::validate_zip(&package_bytes, &item.download.content_sha256)?;
+        let marker = market_marker(&item, object_hash)?;
+        installs.push(MarketSkillInstall { marker, package });
     }
-    let package_bytes = download_package(&metadata).await.map_err(|error| {
-        tracing::error!(skill_id = %id, version = %requested_version, error = %error, "[skill-market] package download failed");
-        error
-    })?;
-    let object_hash = crate::acp::skill_package::hash_bytes(&package_bytes);
-    if !object_hash.eq_ignore_ascii_case(&metadata.object_sha256) {
-        return Err(AppCommandError::invalid_input(
-            "Downloaded Skill package integrity check failed",
-        ));
-    }
-    let package =
-        crate::acp::skill_package::validate_zip(&package_bytes, &metadata.content_sha256)?;
-    let marker = market_marker(&detail, &metadata, object_hash)?;
-    crate::commands::acp::install_market_skill(agent_type, marker, package).map_err(|error| {
+    crate::commands::acp::install_market_skills(agent_type, installs).map_err(|error| {
         tracing::error!(skill_id = %id, version = %requested_version, agent_type = %agent_type, error = %error, "[skill-market] local installation failed");
         map_local_install_error(error)
     })?;
     tracing::info!(
         skill_id = %id,
-        slug = %detail.skill.slug,
-        version = %metadata.version,
+        slug = %root_slug,
+        version = %requested_version,
+        packages = package_count,
         agent_type = %agent_type,
-        "[skill-market] Skill installed"
+        "[skill-market] expert package dependency closure installed"
     );
-    Ok(())
-}
-
-fn validate_install_identity(
-    detail: &super::types::SkillMarketDetail,
-    requested_id: i64,
-    requested_version: &str,
-) -> Result<(), AppCommandError> {
-    if parse_id(&detail.skill.id)? != requested_id
-        || detail.skill.current_version.version != requested_version
-    {
-        return Err(AppCommandError::configuration_invalid(
-            "Skill detail response does not match the requested release",
-        ));
-    }
     Ok(())
 }
 
@@ -98,13 +81,12 @@ fn map_local_install_error(error: crate::acp::error::AcpError) -> AppCommandErro
     result.with_detail(detail)
 }
 
-async fn download_metadata(
+async fn request_install_plan(
     conn: &DatabaseConnection,
-    id: &str,
+    id: i64,
     version: &str,
-) -> Result<SkillDownloadInfo, AppCommandError> {
-    let id = parse_id(id)?;
-    let builder = client::request(conn, Method::POST, "/skills/download")
+) -> Result<SkillInstallPlan, AppCommandError> {
+    let builder = client::request(conn, Method::POST, "/skills/install-plan")
         .await?
         .json(&serde_json::json!({ "id": id, "version": version }));
     parse_value(client::send(builder).await?, None)
@@ -197,23 +179,4 @@ async fn read_download(
         ));
     }
     Ok(bytes)
-}
-
-fn market_marker(
-    detail: &super::types::SkillMarketDetail,
-    metadata: &SkillDownloadInfo,
-    object_sha256: String,
-) -> Result<MarketSkillMarker, AppCommandError> {
-    Ok(MarketSkillMarker {
-        schema_version: 1,
-        source: "iyw_skill_market".to_string(),
-        skill_id: parse_id(&detail.skill.id)?,
-        slug: detail.skill.slug.clone(),
-        installed_version: metadata.version.clone(),
-        content_sha256: metadata.content_sha256.clone(),
-        object_sha256,
-        visibility: detail.skill.visibility.clone(),
-        publisher_type: detail.skill.publisher_type.clone(),
-        installed_at: chrono::Utc::now().to_rfc3339(),
-    })
 }

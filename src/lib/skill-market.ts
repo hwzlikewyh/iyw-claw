@@ -4,6 +4,18 @@ import type { AgentSkillItem, AgentType } from "@/lib/types"
 export type SkillMarketVisibility = "public" | "private"
 export type SkillMarketPublisher = "official" | "user"
 export type SkillMarketView = "market" | "mine"
+export type SkillPackageType = "skill" | "expert"
+
+export interface SkillDependency {
+  skillId: string
+  slug: string
+  version: string
+}
+
+export interface SkillDependencyInput {
+  slug: string
+  version: string
+}
 
 export interface SkillMarketCategory {
   key: string
@@ -18,6 +30,8 @@ export interface SkillMarketVersion {
   status: "ready" | "failed"
   fileCount: number
   packageSize: number
+  packageType: SkillPackageType
+  dependencies: SkillDependency[]
   createdAt: string
 }
 
@@ -88,6 +102,7 @@ export interface SkillMarketPublishRequest {
   visibility: SkillMarketVisibility
   version: string
   changelog: string
+  dependencies: SkillDependencyInput[]
   files: SkillMarketUploadFile[]
 }
 
@@ -105,6 +120,7 @@ export interface SkillMarketAddVersionRequest {
   id: string
   version: string
   changelog: string
+  dependencies: SkillDependencyInput[]
   files: SkillMarketUploadFile[]
 }
 

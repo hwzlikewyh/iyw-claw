@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Package,
   RotateCcw,
+  Workflow,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -59,6 +60,12 @@ function MarketItemBadges({
       {item.visibility === "private" ? (
         <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
           {t("visibility.private")}
+        </Badge>
+      ) : null}
+      {item.currentVersion.packageType === "expert" ? (
+        <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
+          <Workflow className="size-3" aria-hidden="true" />
+          {t("packageType.expert")}
         </Badge>
       ) : null}
     </span>

@@ -457,6 +457,9 @@
         "public": "Public",
         "private": "Private"
       },
+      "packageType": {
+        "expert": "Expert package"
+      },
       "categories": {
         "office-efficiency": "Office productivity",
         "content-creation": "Content creation",
@@ -493,6 +496,8 @@
         "installUnavailable": "Choose an available local target before installing.",
         "changelog": "Changelog",
         "noChangelog": "No changelog was provided for this version.",
+        "dependencies": "Required dependencies",
+        "noDependencies": "None (normal Skill package)",
         "fileTree": "Complete file tree",
         "fileCount": "{count} files",
         "noFiles": "No file manifest is available."
@@ -503,7 +508,8 @@
         "reinstallTitle": "Reinstall this version?",
         "installVersionTitle": "Install the selected version?",
         "installDescription": "Current: {current}. Target: {target}. Existing content is replaced only after the package passes integrity checks.",
-        "notInstalled": "Not installed"
+        "notInstalled": "Not installed",
+        "expertDependencies": "Installs and enables the required closure (direct: {dependencies})"
       },
       "installed": {
         "emptyTitle": "No local Skills installed",
@@ -532,7 +538,7 @@
         "replaceFolder": "Choose another folder",
         "clearFolder": "Clear selected folder",
         "folderSummary": "{count} files · {size}",
-        "formInvalid": "Complete all required fields and enter a valid full SemVer.",
+        "formInvalid": "Complete required fields and check the SemVer and dependency formats.",
         "folderErrors": {
           "emptyFolder": "The selected folder is empty.",
           "tooManyFiles": "A Skill can contain at most 512 files.",
@@ -559,6 +565,9 @@
         "tagsPlaceholder": "document, automation",
         "iconUrl": "Icon URL (optional)",
         "changelog": "Changelog",
+        "dependencies": "Required dependencies (optional)",
+        "dependenciesPlaceholder": "lixiao-workflows@1.2.0\niyw-crm-workflows@1.1.0",
+        "dependenciesHint": "One exact slug@SemVer per line. Adding any dependency publishes this version as an expert package.",
         "public": "Public listing",
         "visibility": "Visibility",
         "visibilityHint": "Private Skills are visible and downloadable only by you."
