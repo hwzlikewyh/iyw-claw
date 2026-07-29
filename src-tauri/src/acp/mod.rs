@@ -44,6 +44,7 @@ pub mod session_state;
 pub mod skill_package;
 pub mod terminal_runtime;
 pub mod types;
+pub mod version_center;
 
 pub use auto_update::agent_auto_update_task;
 pub use idle_sweep::{

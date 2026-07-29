@@ -54,7 +54,7 @@ mod tauri_app {
     use crate::acp::manager::ConnectionManager;
     use crate::chat_channel::manager::ChatChannelManager;
     use crate::commands::{
-        acp as acp_commands, agent_storage as agent_storage_commands,
+        acp as acp_commands, agent_storage as agent_storage_commands, agent_version_center_tauri,
         app_update as app_update_commands, automation as automation_commands, backup,
         chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
         conversations, delegation as delegation_commands, experts as experts_commands,
@@ -368,6 +368,24 @@ mod tauri_app {
                     }
                 }
                 app.manage(database);
+                let catalog = tauri::async_runtime::block_on(
+                    crate::acp::version_center::CatalogStore::load(
+                        &app.state::<db::AppDatabase>().conn,
+                    ),
+                );
+                app.manage(catalog);
+                {
+                    let catalog = app
+                        .state::<crate::acp::version_center::CatalogStore>()
+                        .inner()
+                        .clone();
+                    let conn = app.state::<db::AppDatabase>().conn.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error) = catalog.refresh(&conn).await {
+                            tracing::info!(error = %error, "[agent-version-center] startup refresh deferred");
+                        }
+                    });
+                }
                 let migration_sources =
                     desktop_bootstrap.user_memory_migration_sources(&effective_data_dir);
                 let user_memory = std::sync::Arc::new(
@@ -1100,6 +1118,13 @@ mod tauri_app {
                 acp_commands::acp_get_session_snapshot_by_conversation,
                 acp_commands::acp_find_connection_for_conversation,
                 acp_commands::acp_list_agents,
+                agent_version_center_tauri::agent_version_center_snapshot,
+                agent_version_center_tauri::agent_version_center_refresh,
+                agent_version_center_tauri::agent_version_center_agent_history,
+                agent_version_center_tauri::agent_version_center_tool_history,
+                agent_version_center_tauri::agent_version_center_set_agent_pin,
+                agent_version_center_tauri::agent_version_center_set_tool_pin,
+                agent_version_center_tauri::agent_version_center_install_tool,
                 acp_commands::acp_get_agent_status,
                 acp_commands::acp_clear_binary_cache,
                 acp_commands::acp_download_agent_binary,

@@ -1,3 +1,4 @@
+pub mod agent_installation;
 pub mod agent_setting;
 pub mod app_metadata;
 pub mod automation;
@@ -9,6 +10,8 @@ pub mod chat_channel_thread_binding;
 pub mod conversation;
 pub mod folder;
 pub mod folder_command;
+pub mod managed_tool_installation;
+pub mod managed_tool_setting;
 pub mod model_provider;
 pub mod opened_tab;
 pub mod prelude;

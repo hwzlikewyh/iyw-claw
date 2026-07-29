@@ -318,8 +318,10 @@ async fn async_main() -> ExitCode {
         db.conn.clone(),
         data_dir.clone(),
     );
+    let agent_catalog = iyw_claw_lib::acp::version_center::CatalogStore::load(&db.conn).await;
     let state = Arc::new(AppState {
         db,
+        agent_catalog,
         connection_manager,
         terminal_manager: iyw_claw_lib::app_state::default_terminal_manager(),
         event_broadcaster: broadcaster,
@@ -341,6 +343,19 @@ async fn async_main() -> ExitCode {
         system_op_lock: iyw_claw_lib::app_state::default_system_op_lock(),
         update_state: iyw_claw_lib::app_state::default_update_state(),
     });
+
+    {
+        let catalog = state.agent_catalog.clone();
+        let conn = state.db.conn.clone();
+        tokio::spawn(async move {
+            if let Err(error) = catalog.refresh(&conn).await {
+                tracing::info!(
+                    error = %error,
+                    "[agent-version-center] startup refresh deferred"
+                );
+            }
+        });
+    }
 
     // Logging phase 3: wire the emitter so the Logs viewer's live tail
     // (`logs://appended`) reaches WS clients.

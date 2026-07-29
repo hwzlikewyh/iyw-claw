@@ -26,6 +26,7 @@ mod m20260621_000001_automation;
 mod m20260630_000001_conversation_parent_id_index;
 mod m20260703_000001_chat_channel_thread_binding;
 mod m20260721_000001_chat_channel_drop_telegram;
+mod m20260729_000001_agent_version_center;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -58,6 +59,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260630_000001_conversation_parent_id_index::Migration),
             Box::new(m20260703_000001_chat_channel_thread_binding::Migration),
             Box::new(m20260721_000001_chat_channel_drop_telegram::Migration),
+            Box::new(m20260729_000001_agent_version_center::Migration),
         ]
     }
 }

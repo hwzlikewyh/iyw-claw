@@ -59,6 +59,12 @@ pub async fn ensure_defaults(
             enabled: Set(default_enabled(default.agent_type)),
             sort_order: Set(default.default_sort_order),
             installed_version: Set(None),
+            pinned_version: Set(None),
+            last_known_good_version: Set(None),
+            update_channel: Set("stable".to_string()),
+            update_policy: Set("recommended".to_string()),
+            catalog_revision: Set(0),
+            activation_generation: Set(0),
             env_json: Set(None),
             model_provider_id: Set(None),
             created_at: Set(now),
@@ -274,4 +280,3 @@ fn is_sqlite_full_error(err: &DbError) -> bool {
     let message = err.to_string();
     message.contains("database or disk is full") || message.contains("(code: 13)")
 }
-

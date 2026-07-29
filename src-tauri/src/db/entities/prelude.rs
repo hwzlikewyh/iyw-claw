@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 
+pub use super::agent_installation::Entity as AgentInstallation;
 pub use super::agent_setting::Entity as AgentSetting;
 pub use super::app_metadata::Entity as AppMetadata;
 pub use super::automation::Entity as Automation;
@@ -11,6 +12,8 @@ pub use super::chat_channel_thread_binding::Entity as ChatChannelThreadBinding;
 pub use super::conversation::Entity as Conversation;
 pub use super::folder::Entity as Folder;
 pub use super::folder_command::Entity as FolderCommand;
+pub use super::managed_tool_installation::Entity as ManagedToolInstallation;
+pub use super::managed_tool_setting::Entity as ManagedToolSetting;
 pub use super::model_provider::Entity as ModelProvider;
 pub use super::opened_tab::Entity as OpenedTab;
 pub use super::quick_message::Entity as QuickMessage;

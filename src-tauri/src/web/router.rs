@@ -634,6 +634,34 @@ pub fn build_router(
             post(handlers::acp::acp_get_agent_status),
         )
         .route("/acp_list_agents", post(handlers::acp::acp_list_agents))
+        .route(
+            "/agent_version_center_snapshot",
+            post(handlers::agent_version_center::snapshot),
+        )
+        .route(
+            "/agent_version_center_refresh",
+            post(handlers::agent_version_center::refresh),
+        )
+        .route(
+            "/agent_version_center_agent_history",
+            post(handlers::agent_version_center::agent_history),
+        )
+        .route(
+            "/agent_version_center_tool_history",
+            post(handlers::agent_version_center::tool_history),
+        )
+        .route(
+            "/agent_version_center_set_agent_pin",
+            post(handlers::agent_version_center::set_agent_pin),
+        )
+        .route(
+            "/agent_version_center_set_tool_pin",
+            post(handlers::agent_version_center::set_tool_pin),
+        )
+        .route(
+            "/agent_version_center_install_tool",
+            post(handlers::agent_version_center::install_tool),
+        )
         .route("/acp_connect", post(handlers::acp::acp_connect))
         .route("/acp_disconnect", post(handlers::acp::acp_disconnect))
         .route(

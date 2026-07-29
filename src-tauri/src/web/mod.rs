@@ -765,6 +765,10 @@ pub(crate) async fn do_start_web_server_tauri(
         db: crate::db::AppDatabase {
             conn: app.state::<crate::db::AppDatabase>().conn.clone(),
         },
+        agent_catalog: app
+            .state::<crate::acp::version_center::CatalogStore>()
+            .inner()
+            .clone(),
         connection_manager: (*app.state::<crate::acp::manager::ConnectionManager>()).clone_ref(),
         terminal_manager: (*app.state::<crate::terminal::manager::TerminalManager>()).clone_ref(),
         event_broadcaster: app
@@ -939,4 +943,3 @@ pub async fn probe_web_service_port(
 ) -> Result<WebServicePortProbe, AppCommandError> {
     do_probe_web_service_port(&db.conn, port).await
 }
-

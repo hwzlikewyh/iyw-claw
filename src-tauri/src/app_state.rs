@@ -14,6 +14,7 @@ use crate::workspace_transfer::WorkspaceTransferManager;
 
 pub struct AppState {
     pub db: AppDatabase,
+    pub agent_catalog: crate::acp::version_center::CatalogStore,
     pub connection_manager: ConnectionManager,
     pub terminal_manager: TerminalManager,
     pub event_broadcaster: Arc<WebEventBroadcaster>,
@@ -172,4 +173,3 @@ pub fn build_delegation_stack(
 
     (broker, tokens, socket_path, feedback, ask, sessions)
 }
-

@@ -4,6 +4,9 @@ mod agent_storage_migration;
 mod agent_storage_profile;
 #[cfg(feature = "tauri-runtime")]
 mod agent_storage_tauri;
+pub mod agent_version_center;
+#[cfg(feature = "tauri-runtime")]
+pub mod agent_version_center_tauri;
 #[cfg(feature = "tauri-runtime")]
 pub mod app_update;
 pub mod automation;

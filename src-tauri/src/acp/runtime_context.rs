@@ -24,6 +24,9 @@ fn discover_tools(paths: Option<&AgentStoragePaths>) -> Vec<RuntimeTool> {
 }
 
 fn resolve_tool(paths: Option<&AgentStoragePaths>, name: &str) -> Option<PathBuf> {
+    if let Some(managed) = crate::acp::version_center::managed_tool_executable(name) {
+        return Some(managed);
+    }
     if matches!(name, "uv" | "uvx") {
         if let Some(managed) =
             paths.and_then(|paths| crate::acp::binary_cache::find_cached_uv_tool(paths, name))
