@@ -68,6 +68,8 @@ pub(crate) fn patch_codex_toml(raw: &str, base_url: &str) -> Result<String, Stri
         .unwrap_or(default_model)
         .to_string();
     root.insert("model".into(), toml::Value::String(model));
+    root.insert("request_max_retries".into(), toml::Value::Integer(10));
+    root.insert("stream_max_retries".into(), toml::Value::Integer(10));
 
     let providers = table_entry(root, "model_providers")?;
     providers.retain(|name, _| name == MANAGED_PROVIDER_ID);
@@ -130,7 +132,11 @@ pub(crate) fn patch_grok_toml(raw: &str, base_url: &str) -> Result<String, Strin
         .filter(|model| model_ids.contains(model))
         .unwrap_or(default_model)
         .to_string();
-    table_entry(root, "models")?.insert("default".into(), toml::Value::String(selected_model));
+    {
+        let models_table = table_entry(root, "models")?;
+        models_table.insert("default".into(), toml::Value::String(selected_model));
+        models_table.insert("max_retries".into(), toml::Value::Integer(10));
+    }
     let models = table_entry(root, "model")?;
     models.clear();
     for model_id in model_ids {
@@ -163,6 +169,7 @@ pub(crate) fn patch_json_config(
         AgentType::ClaudeCode => {
             set_json(root, &["env"], "ANTHROPIC_BASE_URL", base_url);
             set_json(root, &["env"], "ANTHROPIC_MODEL", default_model);
+            set_json(root, &["env"], "ANTHROPIC_MAX_RETRIES", "10");
             set_json(root, &["env"], "ANTHROPIC_DEFAULT_OPUS_MODEL", model_ids[0]);
             set_json(
                 root,
@@ -312,6 +319,20 @@ pub(crate) fn patch_hermes_yaml(raw: &str, base_url: &str) -> Result<String, Str
         Value::String("default".into()),
         Value::String(managed_default_model_for(AgentType::Hermes).into()),
     );
+    // Inject retry limit into the `agent` section
+    let agent_entry = map
+        .entry(Value::String("agent".into()))
+        .or_insert_with(|| Value::Mapping(Mapping::new()));
+    if !agent_entry.is_mapping() {
+        *agent_entry = Value::Mapping(Mapping::new());
+    }
+    let agent_map = agent_entry
+        .as_mapping_mut()
+        .ok_or("hermes agent must be a YAML mapping")?;
+    agent_map.insert(
+        Value::String("api_max_retries".into()),
+        Value::Number(serde_yaml::Number::from(10_i64)),
+    );
     serde_yaml::to_string(&root).map_err(|e| e.to_string())
 }
 
@@ -381,4 +402,3 @@ fn managed_model_array(model_ids: &[&str]) -> serde_json::Value {
             .collect(),
     )
 }
-
