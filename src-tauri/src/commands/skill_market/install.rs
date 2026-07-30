@@ -31,7 +31,7 @@ pub async fn install_core(
     for item in plan.items {
         let skill_id = item.skill_id.clone();
         let item_version = item.version.clone();
-        let package_bytes = download_package(&item.download).await.map_err(|error| {
+        let package_bytes = download_package(conn, &skill_id, &item_version, &item.download).await.map_err(|error| {
             tracing::error!(skill_id = %skill_id, slug = %item.slug, version = %item_version, error = %error, "[skill-market] package download failed");
             error
         })?;
@@ -92,21 +92,21 @@ async fn request_install_plan(
     parse_value(client::send(builder).await?, None)
 }
 
-async fn download_package(metadata: &SkillDownloadInfo) -> Result<Vec<u8>, AppCommandError> {
+async fn download_package(
+    conn: &DatabaseConnection,
+    skill_id: &str,
+    version: &str,
+    metadata: &SkillDownloadInfo,
+) -> Result<Vec<u8>, AppCommandError> {
     if metadata.package_size == 0 || metadata.package_size > MAX_PACKAGE_BYTES {
         return Err(AppCommandError::invalid_input(
             "Skill package size is outside the allowed range",
         ));
     }
-    let url = reqwest::Url::parse(&metadata.url)
-        .map_err(|_| AppCommandError::configuration_invalid("Invalid Skill download URL"))?;
-    if url.scheme() != "https" {
-        return Err(AppCommandError::configuration_invalid(
-            "Skill download URL must use HTTPS",
-        ));
-    }
-    let response = client::http_client()?
-        .get(url)
+    let id = parse_id(skill_id)?;
+    let response = client::request(conn, Method::POST, "/skills/download")
+        .await?
+        .json(&serde_json::json!({ "id": id, "version": version }))
         .timeout(client::transfer_timeout())
         .send()
         .await

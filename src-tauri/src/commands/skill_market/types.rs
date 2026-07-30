@@ -168,7 +168,6 @@ pub struct SkillMarketAddVersionRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillDownloadInfo {
-    pub url: String,
     pub version: String,
     pub package_size: u64,
     pub content_sha256: String,
