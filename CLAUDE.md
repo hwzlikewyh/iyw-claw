@@ -113,6 +113,18 @@ INSTA_UPDATE=auto cargo test --features test-utils     # 自动写新 .snap
 - **服务器部署**：通过环境变量配置（`IYW_CLAW_PORT`、`IYW_CLAW_HOST`、`IYW_CLAW_TOKEN`、`IYW_CLAW_DATA_DIR`、`IYW_CLAW_STATIC_DIR`）
 - **Docker 支持**：多阶段构建（Node.js + Rust），支持 `docker-compose` 一键部署
 
+## 版本升级清单
+
+每次升版本号时，必须同步修改以下所有位置（漏掉任意一处会导致 CI 构建失败）：
+
+| 文件 | 修改内容 |
+|------|---------|
+| `package.json` | `"version"` 字段 |
+| `src-tauri/Cargo.toml` | `version = "..."` 字段 |
+| `src-tauri/tauri.conf.json` | `"version"` 字段 **以及** `"externalBin"` 数组中的 `"binaries/iyw-claw-mcp-<旧版本>"` → `"binaries/iyw-claw-mcp-<新版本>"` |
+
+> **关键**：`tauri.conf.json` 的 `externalBin` 里有一条带版本号的条目（如 `"binaries/iyw-claw-mcp-0.1.40"`），版本不同步时 Tauri 构建脚本会报 `resource path ... doesn't exist` 并以 exit code 1 退出，导致所有平台的 Release 构建全部失败。
+
 ## 代码风格
 
 - Prettier：无分号、尾逗号（es5）、2 空格缩进、80 字符宽度
