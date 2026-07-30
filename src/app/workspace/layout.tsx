@@ -76,14 +76,23 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { IywAccountProvider } from "@/contexts/iyw-account-context"
 import { StartupLoginGate } from "@/components/account/startup-login-gate"
 import { StartupCodexGate } from "@/components/account/startup-codex-gate"
+import { getGatewayModels } from "@/lib/gateway-model-catalog"
+
+// Fires getGatewayModels() once on mount so the model catalog is warm from the
+// first user interaction. Placed inside StartupLoginGate so it only runs after
+// authentication is confirmed.
+function ModelCatalogBootstrap() {
+  useEffect(() => {
+    void getGatewayModels()
+  }, [])
+  return null
+}
 
 function WorkspaceDocumentTitle() {
   const { activeFolder } = useActiveFolder()
 
   useEffect(() => {
-    document.title = activeFolder
-      ? `${activeFolder.name} - 原助理`
-      : "原助理"
+    document.title = activeFolder ? `${activeFolder.name} - 原助理` : "原助理"
   }, [activeFolder])
 
   return null
@@ -967,6 +976,7 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                           <TabProvider>
                             <WorkspaceDocumentTitle />
                             <TabKeysSync />
+                            <ModelCatalogBootstrap />
                             <HeavyPluginsWarmup />
                             <DeepLinkBootstrap />
                             <SidebarViewOptionsProvider>

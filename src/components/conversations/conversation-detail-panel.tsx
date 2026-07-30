@@ -90,7 +90,10 @@ import {
   getFixedAgentOptions,
   loadFixedAgentOptions,
 } from "@/lib/fixed-agent-options"
-import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
+import {
+  reconcileModelConfigValues,
+  refreshGatewayModels,
+} from "@/lib/gateway-model-catalog"
 import { planSessionConfigSync } from "@/lib/session-config-compat"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
 import {
@@ -220,6 +223,12 @@ const ConversationTabView = memo(function ConversationTabView({
       active = false
     }
   }, [accountStatus])
+  // Refresh model catalog in the background when a new (unsaved) conversation
+  // tab is active — conversationId is null until the first message is saved.
+  useEffect(() => {
+    if (conversationId !== null || accountStatus !== "authenticated") return
+    void refreshGatewayModels()
+  }, [conversationId, accountStatus])
   const t = useTranslations("Folder.conversation")
   const tWelcome = useTranslations("Folder.chat.welcomeInputPanel")
   const sharedT = useTranslations("Folder.chat.shared")
