@@ -7,6 +7,7 @@ use crate::commands::agent_version_center::{
     ToolInstallRequest, ToolPinRequest,
 };
 use crate::db::AppDatabase;
+use crate::web::event_bridge::EventEmitter;
 
 #[tauri::command]
 pub async fn agent_version_center_snapshot(
@@ -65,16 +66,52 @@ pub async fn agent_version_center_set_tool_pin(
 #[tauri::command]
 pub async fn agent_version_center_install_tool(
     request: ToolInstallRequest,
+    app: tauri::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     connection_manager: tauri::State<'_, ConnectionManager>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
-    install_tool_core(
+    let task_id = uuid::Uuid::new_v4().to_string();
+    let emitter = EventEmitter::Tauri(app);
+    // Emit started so the frontend knows to show progress UI
+    crate::web::event_bridge::emit_event(
+        &emitter,
+        "app://agent-install",
+        crate::commands::acp::AgentInstallEvent {
+            task_id: task_id.clone(),
+            kind: crate::commands::acp::AgentInstallEventKind::Started,
+            payload: String::new(),
+        },
+    );
+    let result = install_tool_core(
         &db.conn,
         &connection_manager,
         &crate::system_skills::data_dir_from_env(),
         request.tool_id,
         request.version,
         request.channel,
+        Some(&task_id),
+        Some(&emitter),
     )
-    .await
+    .await;
+    match &result {
+        Ok(r) => crate::web::event_bridge::emit_event(
+            &emitter,
+            "app://agent-install",
+            crate::commands::acp::AgentInstallEvent {
+                task_id: task_id.clone(),
+                kind: crate::commands::acp::AgentInstallEventKind::Completed,
+                payload: format!("{} v{} installed", r.tool_id, r.version),
+            },
+        ),
+        Err(e) => crate::web::event_bridge::emit_event(
+            &emitter,
+            "app://agent-install",
+            crate::commands::acp::AgentInstallEvent {
+                task_id: task_id.clone(),
+                kind: crate::commands::acp::AgentInstallEventKind::Failed,
+                payload: e.to_string(),
+            },
+        ),
+    }
+    result
 }

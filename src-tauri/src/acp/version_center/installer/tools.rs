@@ -30,12 +30,19 @@ pub struct ManagedToolInstallResult {
     pub catalog_revision: u64,
 }
 
+/// Install a managed tool, optionally emitting download-progress events.
+///
+/// `task_id` and `emitter` must both be `Some` or both `None`. When provided,
+/// `app://agent-install` events with kind `progress` are emitted during the
+/// archive download so the UI can render a progress bar.
 pub async fn install_managed_tool(
     conn: &DatabaseConnection,
     data_dir: &Path,
     tool_id: &str,
     requested_version: Option<&str>,
     channel: &str,
+    task_id: Option<&str>,
+    emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
     let _guard = install_lock().lock().await;
     validate_request(tool_id, requested_version, channel)?;
@@ -63,7 +70,7 @@ pub async fn install_managed_tool(
         },
     )
     .await?;
-    install_offer(conn, data_dir, &offer, channel).await
+    install_offer(conn, data_dir, &offer, channel, task_id, emitter).await
 }
 
 async fn install_offer(
@@ -71,9 +78,11 @@ async fn install_offer(
     data_dir: &Path,
     offer: &ToolOffer,
     channel: &str,
+    task_id: Option<&str>,
+    emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
     let stage = staging_dir(data_dir, &offer.tool_id)?;
-    let result = install_offer_inner(conn, data_dir, &stage, offer, channel).await;
+    let result = install_offer_inner(conn, data_dir, &stage, offer, channel, task_id, emitter).await;
     if let Err(error) = tokio::fs::remove_dir_all(&stage).await {
         if error.kind() != std::io::ErrorKind::NotFound {
             tracing::warn!(
@@ -93,6 +102,8 @@ async fn install_offer_inner(
     stage: &Path,
     offer: &ToolOffer,
     channel: &str,
+    task_id: Option<&str>,
+    emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
     tokio::fs::create_dir_all(stage)
         .await
@@ -121,7 +132,33 @@ async fn install_offer_inner(
         &ticket.signature,
     )?;
     let archive = stage.join("artifact.zip");
-    download_archive(&ticket.url, &archive, ticket.size, &ticket.sha256).await?;
+
+    // Build a progress callback that emits app://agent-install progress events.
+    let progress_cb: Option<Box<dyn Fn(u64, u64) + Send + Sync>> =
+        match (task_id, emitter) {
+            (Some(tid), Some(em)) => {
+                let tid = tid.to_string();
+                let em = em.clone();
+                Some(Box::new(move |downloaded: u64, total: u64| {
+                    let pct = if total > 0 {
+                        ((downloaded as f64 / total as f64) * 100.0) as u8
+                    } else {
+                        0
+                    };
+                    crate::commands::acp::emit_managed_tool_progress(&em, &tid, pct);
+                }))
+            }
+            _ => None,
+        };
+
+    download_archive(
+        &ticket.url,
+        &archive,
+        ticket.size,
+        &ticket.sha256,
+        progress_cb.as_deref(),
+    )
+    .await?;
     let bytes = tokio::fs::read(&archive)
         .await
         .map_err(AppCommandError::io)?;

@@ -318,6 +318,15 @@ mod tauri_app {
                 )
                 .map_err(|e| e.to_string())?;
 
+                // Eagerly generate and persist installation_id on first launch
+                // so every subsequent network call has a non-empty
+                // X-IYW-Installation-ID header. This is a no-op after the first run.
+                if let Err(error) = tauri::async_runtime::block_on(
+                    crate::update::preferences::load(&database.conn),
+                ) {
+                    tracing::warn!("[startup] failed to initialize update preferences: {error}");
+                }
+
                 let initial_agent_root =
                     crate::desktop_bootstrap::initial_agent_storage_root(
                         desktop_bootstrap.selected_root(),

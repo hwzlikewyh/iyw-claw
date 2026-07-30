@@ -66,6 +66,7 @@ const AGENT_INSTALL_EVENT: &str = "app://agent-install";
 pub(crate) enum AgentInstallEventKind {
     Started,
     Log,
+    Progress,
     Completed,
     Failed,
 }
@@ -75,6 +76,10 @@ pub(crate) struct AgentInstallEvent {
     pub task_id: String,
     pub kind: AgentInstallEventKind,
     pub payload: String,
+}
+
+pub(crate) fn emit_managed_tool_progress(emitter: &EventEmitter, task_id: &str, percent: u8) {
+    emit_agent_install_event(emitter, task_id, AgentInstallEventKind::Progress, percent.to_string());
 }
 
 fn emit_agent_install_event(

@@ -2415,7 +2415,12 @@ export interface PluginInstallEvent {
   payload: string
 }
 
-export type AgentInstallEventKind = "started" | "log" | "completed" | "failed"
+export type AgentInstallEventKind =
+  | "started"
+  | "log"
+  | "progress"
+  | "completed"
+  | "failed"
 
 export interface AgentInstallEvent {
   task_id: string

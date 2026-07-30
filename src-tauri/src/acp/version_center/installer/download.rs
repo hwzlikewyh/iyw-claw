@@ -47,11 +47,17 @@ pub fn validate_ticket(
     Ok(())
 }
 
+/// Download `url` to `path`, verifying size and SHA-256.
+///
+/// `on_progress` is called with `(bytes_downloaded, total_bytes)` after each
+/// chunk so callers can emit progress events without blocking the download.
+/// Pass `None` to skip progress reporting.
 pub async fn download_archive(
     url: &str,
     path: &Path,
     expected_size: i64,
     expected_sha256: &str,
+    on_progress: Option<&(dyn Fn(u64, u64) + Send + Sync)>,
 ) -> Result<(), AppCommandError> {
     let client = DOWNLOAD_CLIENT.as_ref().map_err(|error| {
         AppCommandError::configuration_invalid("Managed tool download client is unavailable")
@@ -75,6 +81,10 @@ pub async fn download_archive(
     let mut stream = response.bytes_stream();
     let mut total = 0_u64;
     let mut hasher = Sha256::new();
+    // Throttle progress callbacks: emit at most once per 128 KiB to avoid
+    // flooding the event bus on fast connections.
+    let mut last_reported = 0_u64;
+    const PROGRESS_GRANULARITY: u64 = 128 * 1024;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
             AppCommandError::network("Managed tool download was interrupted")
@@ -91,6 +101,16 @@ pub async fn download_archive(
             .write_all(&chunk)
             .await
             .map_err(AppCommandError::io)?;
+        if let Some(cb) = on_progress {
+            if total - last_reported >= PROGRESS_GRANULARITY {
+                cb(total, expected_size as u64);
+                last_reported = total;
+            }
+        }
+    }
+    // Final progress tick at 100 %
+    if let Some(cb) = on_progress {
+        cb(total, expected_size as u64);
     }
     output.flush().await.map_err(AppCommandError::io)?;
     let actual = format!("{:x}", hasher.finalize());

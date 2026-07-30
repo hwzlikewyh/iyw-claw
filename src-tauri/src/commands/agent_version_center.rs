@@ -151,6 +151,8 @@ pub async fn install_tool_core(
     tool_id: String,
     version: Option<String>,
     channel: Option<String>,
+    task_id: Option<&str>,
+    emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
     let live_connections = connection_manager
         .list_connections()
@@ -170,7 +172,7 @@ pub async fn install_tool_core(
         ));
     }
     let channel = normalize_channel(channel)?;
-    install_managed_tool(conn, data_dir, &tool_id, version.as_deref(), &channel).await
+    install_managed_tool(conn, data_dir, &tool_id, version.as_deref(), &channel, task_id, emitter).await
 }
 
 async fn validate_agent_pin(

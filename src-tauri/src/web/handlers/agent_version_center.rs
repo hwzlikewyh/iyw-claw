@@ -89,6 +89,8 @@ pub async fn install_tool(
             request.tool_id,
             request.version,
             request.channel,
+            None, // no task_id in server mode
+            None, // no emitter in server mode
         )
         .await?,
     ))

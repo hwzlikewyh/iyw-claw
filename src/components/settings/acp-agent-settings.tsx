@@ -48,6 +48,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import { Input } from "@/components/ui/input"
+import { Progress } from "@/components/ui/progress"
 import {
   Select,
   SelectContent,
@@ -7504,6 +7505,21 @@ export function AcpAgentSettings({
                     </div>
                   </div>
                 )}
+                {/* Download progress bar — visible while a binary install/upgrade is streaming */}
+                {installStream.status === "running" &&
+                  streamAgentType === selectedAgent.agent_type &&
+                  installStream.progress > 0 && (
+                    <div className="px-4 pb-3 space-y-1">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>{t("actions.downloading", "Downloading…")}</span>
+                        <span>{installStream.progress}%</span>
+                      </div>
+                      <Progress
+                        value={installStream.progress}
+                        className="h-1.5"
+                      />
+                    </div>
+                  )}
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
