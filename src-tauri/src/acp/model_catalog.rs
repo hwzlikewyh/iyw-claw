@@ -51,7 +51,14 @@ fn catalog() -> &'static RwLock<Vec<&'static str>> {
 
 /// Seed order matters: it is the catalog order until the first online fetch.
 fn initial_catalog() -> Vec<&'static str> {
-    load_persisted().unwrap_or_else(|| MANAGED_MODEL_IDS.to_vec())
+    load_persisted().unwrap_or_else(|| {
+        tracing::info!(
+            "[ModelCatalog] no persisted catalog, using built-in seed ({} models): {:?}",
+            MANAGED_MODEL_IDS.len(),
+            MANAGED_MODEL_IDS
+        );
+        MANAGED_MODEL_IDS.to_vec()
+    })
 }
 
 fn persist_path() -> Option<PathBuf> {
@@ -63,15 +70,33 @@ fn persist_path() -> Option<PathBuf> {
 }
 
 fn load_persisted() -> Option<Vec<&'static str>> {
-    let raw = std::fs::read_to_string(persist_path()?).ok()?;
-    let ids: Vec<String> = serde_json::from_str(&raw).ok()?;
+    let path = persist_path()?;
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            tracing::debug!("[ModelCatalog] no persisted catalog at {}: {}", path.display(), error);
+            return None;
+        }
+    };
+    let ids: Vec<String> = match serde_json::from_str(&raw) {
+        Ok(ids) => ids,
+        Err(error) => {
+            tracing::warn!("[ModelCatalog] failed to parse persisted catalog: {}", error);
+            return None;
+        }
+    };
     let ids: Vec<&'static str> = ids
         .iter()
         .map(String::as_str)
         .filter(|id| !id.trim().is_empty())
         .map(intern)
         .collect();
-    (!ids.is_empty()).then_some(ids)
+    if ids.is_empty() {
+        tracing::warn!("[ModelCatalog] persisted catalog is empty, will use seed");
+        return None;
+    }
+    tracing::info!("[ModelCatalog] loaded {} models from disk: {:?}", ids.len(), ids);
+    Some(ids)
 }
 
 fn persist(ids: &[&'static str]) {

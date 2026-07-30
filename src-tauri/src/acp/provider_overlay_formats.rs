@@ -4,9 +4,11 @@ pub const MANAGED_PROVIDER_ID: &str = "iyw-claw";
 /// Seed catalog: the compiled-in fallback used until the first successful
 /// online `/v1/models` fetch (see `acp::model_catalog`). Order matters — it
 /// is the catalog order, and each agent's default model derives from it.
-pub const MANAGED_MODEL_IDS: [&str; 7] = [
-    "gpt-5.4",
-    "claude-opus-4-6",
+pub const MANAGED_MODEL_IDS: [&str; 9] = [
+    "claude-fable-5",
+    "gpt-5.6-sol",
+    "gpt-5.6-luna",
+    "gpt-5.6-terra",
     "deepseek-v4-pro",
     "deepseek-v4-flash",
     "doubao-seed-2-1-pro-260628",

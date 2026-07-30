@@ -170,11 +170,22 @@ impl AgentPlatformClient {
         let token = iyw_account_access_token_core(conn)
             .await?
             .ok_or_else(|| AppCommandError::authentication_failed("Sign in to iyw-claw first"))?;
-        let installation_id = preferences::load(conn).await?.installation_id;
+        let prefs = preferences::load(conn).await?;
+        let installation_id = prefs.installation_id;
+        let url = endpoint(path)?;
+        tracing::debug!(
+            "[AgentPlatform] {} {} installation_id={}",
+            method,
+            url,
+            if installation_id.is_empty() { "<empty>" } else { &installation_id }
+        );
+        if installation_id.is_empty() {
+            tracing::warn!("[AgentPlatform] installation_id is empty — server may reject request");
+        }
         Ok(http_client()?
-            .request(method, endpoint(path)?)
+            .request(method, url)
             .header("token", token.expose())
-            .header(INSTALLATION_HEADER, installation_id))
+            .header(INSTALLATION_HEADER, &installation_id))
     }
 }
 
@@ -234,17 +245,39 @@ fn configured_base_url() -> String {
 async fn decode_response<T: DeserializeOwned>(
     response: reqwest::Response,
 ) -> Result<T, AppCommandError> {
-    if !response.status().is_success() {
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        tracing::warn!(
+            "[AgentPlatform] HTTP {} — body: {}",
+            status,
+            if body.len() > 512 { &body[..512] } else { &body }
+        );
         return Err(
             AppCommandError::network("Agent platform gateway rejected the request")
-                .with_detail(response.status().to_string()),
+                .with_detail(status.to_string()),
         );
     }
-    let envelope = response.json::<Envelope>().await.map_err(|error| {
+    let bytes = response.bytes().await.map_err(|error| {
         AppCommandError::configuration_invalid("Invalid Agent platform response")
             .with_detail(error.to_string())
     })?;
+    let envelope = serde_json::from_slice::<Envelope>(&bytes).map_err(|error| {
+        tracing::warn!(
+            "[AgentPlatform] failed to parse response envelope: {} — body: {}",
+            error,
+            String::from_utf8_lossy(if bytes.len() > 512 { &bytes[..512] } else { &bytes })
+        );
+        AppCommandError::configuration_invalid("Invalid Agent platform response data")
+            .with_detail(error.to_string())
+    })?;
     if envelope.code != 1 {
+        tracing::warn!(
+            "[AgentPlatform] envelope code={} message={} data={}",
+            envelope.code,
+            envelope.message,
+            envelope.data
+        );
         return Err(AppCommandError::invalid_input(envelope.message));
     }
     serde_json::from_value(envelope.data).map_err(|error| {

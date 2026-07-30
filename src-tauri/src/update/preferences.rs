@@ -70,6 +70,10 @@ impl UpdatePreferences {
             return false;
         }
         self.installation_id = uuid::Uuid::new_v4().to_string();
+        tracing::info!(
+            "[UpdatePrefs] generated new installation_id={}",
+            self.installation_id
+        );
         true
     }
 
@@ -161,6 +165,10 @@ pub async fn load(conn: &DatabaseConnection) -> Result<UpdatePreferences, AppCom
     let _guard = PREFERENCES_WRITE_LOCK.lock().await;
     let (preferences, dirty) = load_unlocked(conn).await?;
     if dirty {
+        tracing::info!(
+            "[UpdatePrefs] saving preferences (installation_id={})",
+            preferences.installation_id
+        );
         save_unlocked(conn, &preferences).await?;
     }
     Ok(preferences)
