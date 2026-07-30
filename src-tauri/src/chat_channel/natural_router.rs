@@ -259,7 +259,10 @@ async fn channel_dedicated_folder(db: &DatabaseConnection, channel_id: i32) -> O
     let config: serde_json::Value = serde_json::from_str(&channel.config_json).ok()?;
 
     // New-style: daily subfolders under a persistent root path.
-    if let Some(root) = config.get("channel_workspace_root").and_then(|v| v.as_str()) {
+    if let Some(root) = config
+        .get("channel_workspace_root")
+        .and_then(|v| v.as_str())
+    {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let today_path = std::path::PathBuf::from(root).join(&today);
         if let Err(e) = std::fs::create_dir_all(&today_path) {
@@ -574,4 +577,3 @@ fn no_workspace_message(lang: Lang) -> String {
         _ => "I do not have a workspace context yet. Mention the project name or open one in iyw-claw first.".to_string(),
     }
 }
-

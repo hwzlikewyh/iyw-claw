@@ -142,4 +142,3 @@ enum Conversation {
     ParentId,
     FolderId,
 }
-

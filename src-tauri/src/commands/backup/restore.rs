@@ -640,4 +640,3 @@ fn emit(emitter: &EventEmitter, op_id: &str, phase: BackupPhase) {
 fn spawn_err(e: tokio::task::JoinError) -> AppCommandError {
     AppCommandError::task_execution_failed("Restore task failed").with_detail(e.to_string())
 }
-

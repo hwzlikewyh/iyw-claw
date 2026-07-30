@@ -303,4 +303,3 @@ pub async fn list_log_files() -> Result<Vec<LogFileInfo>, AppCommandError> {
 pub async fn open_logs_dir() -> Result<String, AppCommandError> {
     open_logs_dir_core()
 }
-

@@ -128,7 +128,6 @@ pub fn all_model_ids() -> Vec<&'static str> {
 // Historical family derivation is retained only for regression coverage of
 // the bundled seed. Runtime selection must use the gateway catalog verbatim.
 
-
 /// Models exposed by the gateway, preserving its order for every agent.
 /// Never empty: the bundled seed remains the offline/startup fallback so
 /// config writers can index `[0]` safely.
@@ -143,4 +142,3 @@ pub fn model_ids_for(_agent: AgentType) -> Vec<&'static str> {
 pub fn default_model_for(agent: AgentType) -> &'static str {
     model_ids_for(agent)[0]
 }
-

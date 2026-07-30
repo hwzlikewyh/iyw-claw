@@ -151,4 +151,3 @@ pub struct EventBusMetricsSnapshot {
     pub forwarder_lagged_count: u64,
     pub worker_queue_full_count: u64,
 }
-

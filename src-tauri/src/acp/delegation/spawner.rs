@@ -99,4 +99,3 @@ pub trait ConnectionSpawner: Send + Sync {
     /// semantics.
     async fn disconnect(&self, conn_id: &str) -> Result<(), SpawnerError>;
 }
-

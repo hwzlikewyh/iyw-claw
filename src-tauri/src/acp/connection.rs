@@ -1395,7 +1395,6 @@ pub struct DelegationInjection {
     pub questions: Arc<dyn crate::acp::question::SessionQuestionAccess>,
 }
 
-
 /// Append the built-in `iyw-claw-mcp` MCP entry when its binary is present.
 /// Image display is always exposed; other tool groups follow their settings.
 /// Returns the per-launch token, or `None` when the binary is missing.
@@ -4592,14 +4591,10 @@ fn extract_tool_call_images(content: &[ToolCallContent]) -> Option<Vec<ToolCallI
 fn extract_images_from_raw_mcp_output(
     raw_output: Option<&serde_json::Value>,
 ) -> Option<Vec<ToolCallImageInfo>> {
-    let content = raw_output?
-        .get("content")
-        .and_then(|c| c.as_array())?;
+    let content = raw_output?.get("content").and_then(|c| c.as_array())?;
     let imgs: Vec<ToolCallImageInfo> = content
         .iter()
-        .filter(|item| {
-            item.get("type").and_then(|t| t.as_str()) == Some("image")
-        })
+        .filter(|item| item.get("type").and_then(|t| t.as_str()) == Some("image"))
         .filter_map(|item| {
             let data = item
                 .get("data")
@@ -4614,10 +4609,7 @@ fn extract_images_from_raw_mcp_output(
                 .and_then(|m| m.as_str())
                 .map(str::trim)
                 .filter(|m| !m.is_empty() && m.starts_with("image/"))?;
-            let uri = item
-                .get("uri")
-                .and_then(|u| u.as_str())
-                .map(str::to_string);
+            let uri = item.get("uri").and_then(|u| u.as_str()).map(str::to_string);
             Some(ToolCallImageInfo {
                 data: data.to_string(),
                 mime_type: mime_type.to_string(),
@@ -5536,4 +5528,3 @@ async fn emit_conversation_update(
         }
     }
 }
-

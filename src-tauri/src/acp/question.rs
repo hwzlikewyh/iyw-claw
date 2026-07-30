@@ -458,4 +458,3 @@ impl QuestionRuntimeConfig {
         self.inner.read().await.enabled
     }
 }
-

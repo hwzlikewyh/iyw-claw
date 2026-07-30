@@ -126,4 +126,3 @@ pub async fn set_question_settings(
         Err(AppCommandError::configuration_invalid("tauri-only command"))
     }
 }
-

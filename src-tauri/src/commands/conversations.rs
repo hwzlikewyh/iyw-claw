@@ -1553,4 +1553,3 @@ fn parse_error_to_app_error(error: ParseError) -> AppCommandError {
             .with_detail(err.to_string()),
     }
 }
-

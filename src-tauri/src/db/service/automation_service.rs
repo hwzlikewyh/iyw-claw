@@ -693,4 +693,3 @@ pub async fn prune_old_runs(conn: &DatabaseConnection, keep_days: i64) -> Result
         .await?;
     Ok(res.rows_affected)
 }
-

@@ -1191,4 +1191,3 @@ pub fn default_socket_path(_temp_dir: &Path) -> PathBuf {
         std::process::id()
     ))
 }
-

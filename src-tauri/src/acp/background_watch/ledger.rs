@@ -63,5 +63,4 @@ impl PromptLedger {
         entries.remove(position);
         true
     }
-
 }

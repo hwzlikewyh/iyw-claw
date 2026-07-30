@@ -143,4 +143,3 @@ pub async fn submit_session_feedback(
 ) -> Result<crate::acp::feedback::FeedbackItem, crate::acp::error::AcpError> {
     manager.submit_feedback(&connection_id, text).await
 }
-

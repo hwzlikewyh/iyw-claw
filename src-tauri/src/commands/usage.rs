@@ -98,4 +98,3 @@ pub async fn get_usage_dashboard(
 ) -> Result<UsageDashboardStats, AppCommandError> {
     get_usage_dashboard_core(&db.conn).await
 }
-

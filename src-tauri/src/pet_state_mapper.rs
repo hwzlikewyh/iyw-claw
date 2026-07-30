@@ -494,4 +494,3 @@ pub fn pet_state_subscriber_task(
         }
     }
 }
-

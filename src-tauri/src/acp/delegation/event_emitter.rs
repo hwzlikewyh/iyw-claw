@@ -179,4 +179,3 @@ impl DelegationEventEmitter for ConnectionManagerEventEmitter {
         .await;
     }
 }
-

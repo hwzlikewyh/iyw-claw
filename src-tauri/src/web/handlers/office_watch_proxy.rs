@@ -302,4 +302,3 @@ async fn proxy_inner(
         .body(Body::from_stream(upstream_resp.bytes_stream()))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
-

@@ -480,7 +480,11 @@ async fn install_component(
 fn bundled_archive_path(asset: &str) -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
-    let candidate = dir.join("resources").join("runtime").join("downloads").join(asset);
+    let candidate = dir
+        .join("resources")
+        .join("runtime")
+        .join("downloads")
+        .join(asset);
     candidate.is_file().then_some(candidate)
 }
 
@@ -745,4 +749,3 @@ fn finalize_component(
         .map_err(|e| format!("failed to publish runtime state: {e}"))?;
     Ok(target)
 }
-

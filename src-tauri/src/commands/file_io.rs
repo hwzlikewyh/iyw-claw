@@ -42,4 +42,3 @@ pub async fn save_text_file(path: String, contents: String) -> Result<(), AppCom
     std::fs::write(&path, contents).map_err(AppCommandError::io)?;
     Ok(())
 }
-

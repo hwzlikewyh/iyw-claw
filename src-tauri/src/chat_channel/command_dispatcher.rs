@@ -189,8 +189,19 @@ async fn dispatch_command(
                 );
             }
             return dispatch_natural_message(
-                text, prefix, db, manager, conn_mgr, emitter, bridge, data_dir, channel_id,
-                sender_id, sender_name, target, lang,
+                text,
+                prefix,
+                db,
+                manager,
+                conn_mgr,
+                emitter,
+                bridge,
+                data_dir,
+                channel_id,
+                sender_id,
+                sender_name,
+                target,
+                lang,
             )
             .await;
         }
@@ -392,13 +403,12 @@ async fn dispatch_natural_message(
             // Build prompt: memory context (recent days) + sender name + task.
             // Memory is only fetched for dedicated-folder channels; returns
             // None quickly for regular channels so there's no extra latency.
-            let memory =
-                natural_router::build_channel_memory_context(db, channel_id, lang).await;
+            let memory = natural_router::build_channel_memory_context(db, channel_id, lang).await;
             let prompt = build_task_prompt(memory.as_deref(), sender_name, &task);
             DispatchResponse::from_command_result(
                 session_commands::handle_task(
-                    db, &prompt, channel_id, sender_id, target, manager, conn_mgr, emitter,
-                    bridge, lang, prefix, data_dir,
+                    db, &prompt, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge,
+                    lang, prefix, data_dir,
                 )
                 .await,
             )
@@ -427,11 +437,7 @@ async fn dispatch_natural_message(
 
 /// Assemble the initial agent prompt from optional pieces:
 /// memory context (recent session titles) + sender name + task text.
-fn build_task_prompt(
-    memory: Option<&str>,
-    sender_name: Option<&str>,
-    task: &str,
-) -> String {
+fn build_task_prompt(memory: Option<&str>, sender_name: Option<&str>, task: &str) -> String {
     let sender_prefix = match sender_name {
         Some(name) if !name.is_empty() => format!("[来自 {name}] "),
         _ => String::new(),

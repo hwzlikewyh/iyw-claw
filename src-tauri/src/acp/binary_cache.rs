@@ -890,10 +890,9 @@ pub fn seed_bundled_codex_acp(
         return Ok(false);
     }
 
-    let staging = paths.staging_dir().join(format!(
-        "codex-acp-bundled-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let staging = paths
+        .staging_dir()
+        .join(format!("codex-acp-bundled-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&staging)
         .map_err(|e| AcpError::DownloadFailed(format!("create codex staging dir failed: {e}")))?;
 
@@ -902,7 +901,11 @@ pub fn seed_bundled_codex_acp(
 
         // The bundled zip was created on the build platform; verify the cmd
         // shim or shell script is present before activating.
-        let cmd_name = if cfg!(windows) { "codex-acp.cmd" } else { "codex-acp" };
+        let cmd_name = if cfg!(windows) {
+            "codex-acp.cmd"
+        } else {
+            "codex-acp"
+        };
         if !staging.join(cmd_name).is_file() {
             return Err(AcpError::DownloadFailed(format!(
                 "bundled codex-acp zip is missing {cmd_name}"
@@ -964,4 +967,3 @@ pub(crate) fn is_binary_file_compatible(path: &Path) -> bool {
         true
     }
 }
-

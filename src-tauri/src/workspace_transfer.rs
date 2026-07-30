@@ -221,4 +221,3 @@ pub fn env_duration_secs(name: &str, default_secs: u64) -> Duration {
             .unwrap_or(default_secs),
     )
 }
-

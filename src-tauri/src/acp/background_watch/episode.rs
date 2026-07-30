@@ -182,4 +182,3 @@ fn hash_turn(turn: &MessageTurn) -> u64 {
         .hash(&mut hasher);
     hasher.finish()
 }
-

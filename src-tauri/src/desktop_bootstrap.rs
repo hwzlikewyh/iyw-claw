@@ -154,4 +154,3 @@ fn absolutize(path: PathBuf) -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(OsStr::new(".")))
         .join(path)
 }
-

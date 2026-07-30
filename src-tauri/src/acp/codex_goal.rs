@@ -184,4 +184,3 @@ pub(crate) fn normalize_goal_status(status: &str) -> String {
     }
     out
 }
-

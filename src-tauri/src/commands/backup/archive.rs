@@ -334,4 +334,3 @@ fn to_hex(bytes: &[u8]) -> String {
 fn zip_err(e: zip::result::ZipError) -> AppCommandError {
     AppCommandError::io_error("ZIP archive operation failed").with_detail(e.to_string())
 }
-

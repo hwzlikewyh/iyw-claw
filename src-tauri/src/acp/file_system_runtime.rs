@@ -429,4 +429,3 @@ fn log_if_slow(operation: &str, path: &Path, started_at: Instant) {
         );
     }
 }
-

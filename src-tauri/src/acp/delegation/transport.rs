@@ -536,4 +536,3 @@ pub async fn client_cancel(socket_path: &str, req: &BrokerCancelRequest) -> io::
     let _: io::Result<BrokerResponse> = read_frame(&mut stream).await;
     Ok(())
 }
-

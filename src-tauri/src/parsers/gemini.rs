@@ -873,4 +873,3 @@ fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
 
     turns
 }
-

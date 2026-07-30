@@ -53,4 +53,3 @@ pub(crate) fn launch_args(subcommand: &[&str]) -> Vec<String> {
     let raw = fs::read_to_string(config_path).ok();
     launch_args_from_toml(subcommand, raw.as_deref())
 }
-

@@ -611,4 +611,3 @@ pub async fn try_inject_for_url(
     inject_credentials(cmd, &account.username, &token, &askpass);
     true
 }
-

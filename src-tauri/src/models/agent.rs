@@ -34,4 +34,3 @@ impl fmt::Display for AgentType {
         }
     }
 }
-

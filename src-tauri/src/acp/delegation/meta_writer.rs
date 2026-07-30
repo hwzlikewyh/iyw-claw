@@ -111,7 +111,6 @@ impl DelegationMetaWriter for ConnectionManagerMetaWriter {
     }
 }
 
-
 /// Helper to construct the canonical `meta["iyw-claw.delegation"]` value.
 /// Keeps the schema in one place so the writer impls and the broker
 /// callsites can't drift apart on field naming.
@@ -184,4 +183,3 @@ pub fn build_delegation_meta(
 pub fn is_synthetic_parent_tool_use_id(id: &str) -> bool {
     id.starts_with("delegation-")
 }
-

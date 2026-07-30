@@ -137,4 +137,3 @@ fn provider_model_env_key(agent_type: AgentType) -> &'static str {
         _ => "OPENAI_MODEL",
     }
 }
-

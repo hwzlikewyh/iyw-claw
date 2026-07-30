@@ -205,4 +205,3 @@ pub(crate) async fn apply_preferred_options(
         }
     }
 }
-

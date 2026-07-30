@@ -1886,4 +1886,3 @@ fn http_url_to_ws_url(base_url: &str) -> String {
         format!("{trimmed}/ws/events")
     }
 }
-

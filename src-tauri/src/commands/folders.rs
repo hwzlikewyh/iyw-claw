@@ -4226,13 +4226,10 @@ async fn get_unpushed_hashes(
     Ok((Some(hashes), has_upstream))
 }
 
-
 // Symlink confinement that `read_workspace_file_base64` relies on. Unix-only
 // because it uses real filesystem symlinks.
 #[cfg(all(test, unix))]
 mod workspace_confinement_tests {
     use super::*;
     use std::os::unix::fs::symlink;
-
-
 }

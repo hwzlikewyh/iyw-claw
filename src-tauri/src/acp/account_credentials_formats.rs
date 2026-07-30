@@ -315,4 +315,3 @@ fn existing_toml_table<'a>(
     }
     Some(current)
 }
-

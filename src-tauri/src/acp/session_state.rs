@@ -1397,4 +1397,3 @@ fn extract_tool_call_id(tool_call: &serde_json::Value) -> String {
         .unwrap_or("")
         .to_string()
 }
-

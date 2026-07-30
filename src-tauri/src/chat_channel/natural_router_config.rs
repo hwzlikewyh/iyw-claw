@@ -193,4 +193,3 @@ fn normalize_chat_completions_url(raw: &str) -> Result<String, AppCommandError> 
         Ok(format!("{trimmed}/v1/chat/completions"))
     }
 }
-

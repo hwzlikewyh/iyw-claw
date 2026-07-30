@@ -173,4 +173,3 @@ impl SessionInfoRuntimeConfig {
         self.inner.read().await.enabled
     }
 }
-

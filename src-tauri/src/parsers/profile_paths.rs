@@ -106,4 +106,3 @@ fn pi_agent_dir_from(agent_env: Option<OsString>, home: Option<PathBuf>) -> Path
 fn nonempty_path(value: Option<OsString>) -> Option<PathBuf> {
     value.filter(|item| !item.is_empty()).map(PathBuf::from)
 }
-

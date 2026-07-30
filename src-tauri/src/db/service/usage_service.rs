@@ -97,4 +97,3 @@ pub async fn upsert_session_snapshot(
     txn.commit().await?;
     Ok(())
 }
-

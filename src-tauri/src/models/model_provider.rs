@@ -54,4 +54,3 @@ impl From<crate::db::entities::model_provider::Model> for ModelProviderInfo {
         }
     }
 }
-

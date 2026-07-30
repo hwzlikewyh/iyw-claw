@@ -264,4 +264,3 @@ pub async fn provider_catalog(data_dir: &Path, force_refresh: bool) -> Vec<Catal
         _ => read_cache(data_dir, false).unwrap_or_else(bundled_catalog),
     }
 }
-

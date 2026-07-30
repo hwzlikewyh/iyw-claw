@@ -233,7 +233,11 @@ pub(crate) async fn handle_event(
             };
             let (conversation_id, last_text, current_model) = {
                 let snap = state_arc.read().await;
-                (snap.conversation_id, snap.last_assistant_text.clone(), snap.current_model.clone())
+                (
+                    snap.conversation_id,
+                    snap.last_assistant_text.clone(),
+                    snap.current_model.clone(),
+                )
             };
             // No conversation row bound (defensive — should never happen in
             // practice since `send_prompt_linked` runs before TurnComplete can
@@ -730,7 +734,6 @@ async fn register_delegation_tool_call_from_event(
         .await;
 }
 
-
 /// Per-connection worker that owns the cache for one connection and
 /// serializes its DB writes. Multiple connections run in parallel; within a
 /// connection, ordering is preserved by the mpsc FIFO. Decouples the bus
@@ -959,4 +962,3 @@ pub fn lifecycle_subscriber_task(
         }
     }
 }
-

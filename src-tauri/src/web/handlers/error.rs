@@ -37,4 +37,3 @@ impl IntoResponse for AppCommandError {
         (status, Json(self)).into_response()
     }
 }
-

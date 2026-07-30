@@ -187,4 +187,3 @@ impl FeedbackRuntimeConfig {
         self.inner.read().await.enabled
     }
 }
-

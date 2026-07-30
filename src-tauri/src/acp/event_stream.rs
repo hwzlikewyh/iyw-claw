@@ -176,8 +176,6 @@ impl RecentEventsBuffer {
                 .collect(),
         )
     }
-
-
 }
 
 /// Serialized-JSON length of a string: its UTF-8 byte length plus the extra
@@ -506,4 +504,3 @@ fn agent_stats_size(stats: &crate::models::message::AgentExecutionStats) -> usiz
             })
             .sum::<usize>()
 }
-

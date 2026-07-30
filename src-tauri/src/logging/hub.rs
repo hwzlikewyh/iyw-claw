@@ -201,6 +201,4 @@ impl LogHub {
             *filter = build_env_filter(settings);
         });
     }
-
 }
-

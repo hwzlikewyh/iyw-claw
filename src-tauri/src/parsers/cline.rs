@@ -114,7 +114,6 @@ impl ClineParser {
             base_dir: cline_data_dir(),
         }
     }
-
 }
 
 impl AgentParser for ClineParser {

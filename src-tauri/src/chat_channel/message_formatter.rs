@@ -125,5 +125,3 @@ pub fn format_daily_report(report: &DailyReportData, lang: Lang) -> RichMessage 
 
     RichMessage::info(body).with_title(i18n::daily_report_title(lang))
 }
-
-

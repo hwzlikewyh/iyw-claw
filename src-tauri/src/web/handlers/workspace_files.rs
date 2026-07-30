@@ -835,4 +835,3 @@ async fn write_zip_archive_to_stream(
     })?;
     Ok(())
 }
-

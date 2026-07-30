@@ -669,4 +669,3 @@ fn decode_available_utf8(pending: &mut Vec<u8>) -> String {
     }
     output
 }
-

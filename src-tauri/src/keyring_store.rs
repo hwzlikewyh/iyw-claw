@@ -200,4 +200,3 @@ pub fn delete_chat_router_token() -> Result<(), String> {
     tokens.remove(chat_router_token_key());
     write_tokens(&tokens)
 }
-

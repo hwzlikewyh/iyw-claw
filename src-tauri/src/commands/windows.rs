@@ -1771,4 +1771,3 @@ pub async fn set_tray_locale(
     refresh_tray_menu(&app, locale)
         .map_err(|e| AppCommandError::window("Failed to refresh tray menu", e.to_string()))
 }
-

@@ -157,4 +157,3 @@ pub async fn mcp_remove_server(
     let result = mcp_commands::mcp_remove_server_core(&state.db.conn, params.server_id).await?;
     Ok(Json(result))
 }
-

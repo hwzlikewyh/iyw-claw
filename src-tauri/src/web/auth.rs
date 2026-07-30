@@ -43,4 +43,3 @@ pub async fn require_token(request: Request, next: Next, token: String) -> Respo
 
     (StatusCode::UNAUTHORIZED, "Invalid or missing token").into_response()
 }
-

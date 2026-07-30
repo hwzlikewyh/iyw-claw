@@ -268,10 +268,7 @@ pub async fn update_model(
     use sea_orm::sea_query::Expr;
 
     conversation::Entity::update_many()
-        .col_expr(
-            conversation::Column::Model,
-            Expr::value(model),
-        )
+        .col_expr(conversation::Column::Model, Expr::value(model))
         .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
         .filter(conversation::Column::Id.eq(conversation_id))
         .filter(conversation::Column::DeletedAt.is_null())
@@ -557,4 +554,3 @@ pub async fn list_children(
     fill_child_counts(conn, &mut summaries).await?;
     Ok(summaries)
 }
-

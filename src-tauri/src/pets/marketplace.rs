@@ -606,4 +606,3 @@ fn write_staging(
     }
     Ok(())
 }
-

@@ -360,4 +360,3 @@ fn to_slash(rel: &Path) -> String {
         .collect::<Vec<_>>()
         .join("/")
 }
-

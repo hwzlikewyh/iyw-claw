@@ -243,4 +243,3 @@ fn patch_file(
     let next = patch(&raw).map_err(|error| format!("{}: {error}", path.display()))?;
     write_if_changed(&path, &raw, &next)
 }
-

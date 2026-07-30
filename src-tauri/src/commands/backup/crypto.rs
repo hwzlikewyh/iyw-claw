@@ -337,4 +337,3 @@ fn corrupt_header_error() -> AppCommandError {
     AppCommandError::invalid_input("Malformed backup envelope header")
         .with_i18n(BACKUP_I18N_KEY_BAD_PASSPHRASE, Default::default())
 }
-

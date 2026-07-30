@@ -67,4 +67,3 @@ impl ChildLiveReplyLookup for ConnectionManagerLiveReplyLookup {
         guard.latest_live_reply(LIVE_REPLY_CAP)
     }
 }
-

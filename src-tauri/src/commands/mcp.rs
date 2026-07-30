@@ -4579,4 +4579,3 @@ fn resolve_smithery_install_spec_with_selection(
 
     canonicalize_spec(&selected.spec, "smithery selected option")
 }
-

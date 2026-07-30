@@ -43,4 +43,3 @@ pub(crate) fn live_tool_output(
         .map(str::to_string)
         .or_else(|| mcp_output_text(raw_output))
 }
-

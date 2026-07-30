@@ -26,4 +26,3 @@ pub(super) fn read_subdirs(dir: &Path) -> Vec<PathBuf> {
         .filter(|path| path.is_dir())
         .collect()
 }
-

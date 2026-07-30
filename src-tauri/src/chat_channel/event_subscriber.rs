@@ -427,4 +427,3 @@ fn parse_acp_event(payload: &AcpEvent, lang: Lang) -> Option<(String, RichMessag
         _ => None,
     }
 }
-

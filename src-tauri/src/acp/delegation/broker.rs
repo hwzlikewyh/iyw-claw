@@ -3073,7 +3073,6 @@ impl DelegationBroker {
             _ => unknown_report(task_id),
         }
     }
-
 }
 
 /// `ConversationDepthLookup` over the live `AppDatabase`. Used by the
@@ -3126,4 +3125,3 @@ impl ChildStatusLookup for DbChildStatusLookup {
         })
     }
 }
-

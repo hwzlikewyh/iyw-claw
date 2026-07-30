@@ -35,7 +35,6 @@ impl GrokParser {
         }
     }
 
-
     fn build_summary(&self, session_dir: &Path, session_id: &str) -> Option<ConversationSummary> {
         let parsed = parse_updates(&session_dir.join("updates.jsonl"));
         if parsed.content_events == 0 {

@@ -387,4 +387,3 @@ fn lang_code(lang: Lang) -> &'static str {
         Lang::Ar => "ar",
     }
 }
-

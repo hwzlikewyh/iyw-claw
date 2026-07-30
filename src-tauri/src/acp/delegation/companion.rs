@@ -1516,4 +1516,3 @@ pub fn render_memory_proposal_result(outcome: &Value) -> Value {
         "structuredContent": outcome.clone(),
     })
 }
-

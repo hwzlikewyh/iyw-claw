@@ -359,4 +359,3 @@ pub async fn delete_model_provider(
 ) -> Result<(), AppCommandError> {
     delete_model_provider_core(&db, id).await
 }
-

@@ -86,7 +86,8 @@ async fn init_channel_workspace(
 
     // Store the root path; daily subfolders ({root}/{date}/) are created on
     // demand — no folder row is registered here.
-    let updated_config = patch_config_with_workspace_root(&model.config_json, &root.to_string_lossy());
+    let updated_config =
+        patch_config_with_workspace_root(&model.config_json, &root.to_string_lossy());
     match chat_channel_service::update(
         &db.conn,
         model.id,
@@ -118,8 +119,8 @@ async fn init_channel_workspace(
 }
 
 fn patch_config_with_workspace_root(config_json: &str, root_path: &str) -> String {
-    let mut config: serde_json::Value = serde_json::from_str(config_json)
-        .unwrap_or_else(|_| serde_json::json!({}));
+    let mut config: serde_json::Value =
+        serde_json::from_str(config_json).unwrap_or_else(|_| serde_json::json!({}));
     if let serde_json::Value::Object(ref mut map) = config {
         map.insert(
             "channel_workspace_root".to_string(),
@@ -869,4 +870,3 @@ pub async fn weixin_check_qrcode(
 ) -> Result<WeixinQrcodeStatusPublic, AppCommandError> {
     weixin_check_qrcode_core(&db, channel_id, &qrcode).await
 }
-

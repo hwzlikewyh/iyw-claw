@@ -1349,4 +1349,3 @@ fn truncate_title(s: &str) -> String {
         format!("{truncated}...")
     }
 }
-

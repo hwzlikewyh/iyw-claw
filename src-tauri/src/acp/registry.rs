@@ -364,4 +364,3 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
         },
     }
 }
-

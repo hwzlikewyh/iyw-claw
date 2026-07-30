@@ -496,4 +496,3 @@ pub async fn pet_save_window_state(
 
     Ok(new_config)
 }
-

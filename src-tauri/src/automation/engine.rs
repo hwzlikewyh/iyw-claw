@@ -1025,4 +1025,3 @@ fn short_suffix(run_id: i32) -> String {
     // Deterministic, leftover-avoiding suffix (no RNG needed at this layer).
     format!("r{run_id}b")
 }
-

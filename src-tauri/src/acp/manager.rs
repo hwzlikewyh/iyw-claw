@@ -819,7 +819,10 @@ impl ConnectionManager {
         // the connections lock for as short as possible — do NOT await the state
         // read lock while holding the connections lock (that serialises ALL
         // connection map operations for the duration of the loop).
-        let candidates: Vec<(String, Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>)> = {
+        let candidates: Vec<(
+            String,
+            Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>,
+        )> = {
             let connections = self.connections.lock().await;
             connections
                 .iter()
@@ -2057,7 +2060,11 @@ impl ConnectionManager {
     pub async fn list_active_sessions(&self) -> Vec<crate::models::pet::PetSessionEntry> {
         // Collect (id, agent_type, state_arc) without holding connections lock
         // across state reads.
-        let candidates: Vec<(String, AgentType, Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>)> = {
+        let candidates: Vec<(
+            String,
+            AgentType,
+            Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>,
+        )> = {
             let connections = self.connections.lock().await;
             connections
                 .iter()
@@ -2476,7 +2483,10 @@ impl ConnectionManager {
     /// Used by the by-conversation snapshot endpoint and the LifecycleSubscriber.
     pub async fn find_connection_by_conversation_id(&self, conversation_id: i32) -> Option<String> {
         // Collect state arcs without holding the connections lock across awaits.
-        let candidates: Vec<(String, Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>)> = {
+        let candidates: Vec<(
+            String,
+            Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>,
+        )> = {
             let connections = self.connections.lock().await;
             connections
                 .iter()
@@ -2549,7 +2559,10 @@ impl ConnectionManager {
         agent_type: AgentType,
     ) -> Option<String> {
         // Collect matching candidates without holding connections lock across awaits.
-        let candidates: Vec<(String, Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>)> = {
+        let candidates: Vec<(
+            String,
+            Arc<tokio::sync::RwLock<crate::acp::session_state::SessionState>>,
+        )> = {
             let connections = self.connections.lock().await;
             connections
                 .iter()
@@ -2804,4 +2817,3 @@ impl SessionQuestionAccess for ConnectionManagerQuestionLookup {
             .await
     }
 }
-

@@ -155,7 +155,9 @@ fn build_subscriber(
     // same `env_level_override` precedence as `env_level_is_set`, so a level
     // applied here is exactly the one the UI reports as env-locked.
     let initial_filter = match env_level_override() {
-        Some(s) => EnvFilter::builder().parse_lossy(format!("{s},tao=error,iyw_claw_lib::logging=off")),
+        Some(s) => {
+            EnvFilter::builder().parse_lossy(format!("{s},tao=error,iyw_claw_lib::logging=off"))
+        }
         // Phase 1 has no DB yet, so no persisted per-target overrides; just the
         // default level. Phase 2 (apply_persisted_level) rebuilds with targets.
         None => build_env_filter(&LogSettings {
@@ -255,4 +257,3 @@ pub async fn apply_persisted_level(conn: &sea_orm::DatabaseConnection) {
         }
     }
 }
-

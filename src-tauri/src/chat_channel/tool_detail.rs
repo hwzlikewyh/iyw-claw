@@ -132,4 +132,3 @@ pub(crate) fn truncate_str(s: &str, max: usize) -> String {
         format!("{truncated}...")
     }
 }
-

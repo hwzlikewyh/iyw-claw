@@ -230,4 +230,3 @@ pub async fn set_delegation_settings(
         Err(AppCommandError::configuration_invalid("tauri-only command"))
     }
 }
-

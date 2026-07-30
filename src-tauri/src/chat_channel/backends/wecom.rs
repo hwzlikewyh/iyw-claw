@@ -840,4 +840,3 @@ fn parse_wecom_time(value: &str) -> Option<DateTime<Local>> {
         .ok()
         .and_then(|naive| Local.from_local_datetime(&naive).single())
 }
-

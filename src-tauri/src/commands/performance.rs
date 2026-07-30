@@ -35,7 +35,9 @@ pub struct AgentProcessInfo {
 fn identify_agent(name: &str, cmd: &str) -> Option<(&'static str, &'static str)> {
     let haystack = format!("{} {}", name, cmd).to_lowercase();
     // 按优先级匹配，避免误判
-    if haystack.contains("claude-code") || (haystack.contains("claude") && haystack.contains("code")) {
+    if haystack.contains("claude-code")
+        || (haystack.contains("claude") && haystack.contains("code"))
+    {
         return Some(("claude_code", "远山"));
     }
     if haystack.contains("codex") {
@@ -56,7 +58,10 @@ fn identify_agent(name: &str, cmd: &str) -> Option<(&'static str, &'static str)>
     if haystack.contains("hermes") {
         return Some(("hermes", "赫尔墨斯"));
     }
-    if haystack.contains("code-buddy") || haystack.contains("codebuddy") || haystack.contains("code_buddy") {
+    if haystack.contains("code-buddy")
+        || haystack.contains("codebuddy")
+        || haystack.contains("code_buddy")
+    {
         return Some(("code_buddy", "青岚"));
     }
     if haystack.contains("kimi") {
@@ -135,11 +140,13 @@ fn collect_stats() -> SystemPerformanceStats {
     }
 
     // 排序：自身进程优先，其余按内存降序
-    processes.sort_by(|a, b| match (a.agent_type.is_none(), b.agent_type.is_none()) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => b.memory_bytes.cmp(&a.memory_bytes),
-    });
+    processes.sort_by(
+        |a, b| match (a.agent_type.is_none(), b.agent_type.is_none()) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => b.memory_bytes.cmp(&a.memory_bytes),
+        },
+    );
 
     SystemPerformanceStats {
         cpu_usage,

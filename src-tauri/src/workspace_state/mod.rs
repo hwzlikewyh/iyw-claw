@@ -1594,4 +1594,3 @@ pub async fn get_workspace_snapshot_core(
 
     Ok(guard_snapshot)
 }
-

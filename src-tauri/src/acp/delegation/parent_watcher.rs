@@ -108,4 +108,3 @@ pub async fn wait_for_parent_exit(pid: u32, interval: Duration) {
         tokio::time::sleep(interval).await;
     }
 }
-

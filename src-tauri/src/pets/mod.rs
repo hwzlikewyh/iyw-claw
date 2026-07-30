@@ -441,4 +441,3 @@ pub fn delete_pet(id: &str) -> Result<(), AppCommandError> {
     }
     fs::remove_dir_all(&dir).map_err(AppCommandError::io)
 }
-

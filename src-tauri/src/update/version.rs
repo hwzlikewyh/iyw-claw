@@ -107,4 +107,3 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
         _ => trim_v_prefix(latest) != trim_v_prefix(current),
     }
 }
-

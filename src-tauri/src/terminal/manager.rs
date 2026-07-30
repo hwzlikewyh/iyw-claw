@@ -552,4 +552,3 @@ fn thread_name_prefix(terminal_id: &str) -> String {
         .map(|c| if c == '\0' { '_' } else { c })
         .collect()
 }
-

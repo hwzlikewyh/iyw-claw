@@ -38,4 +38,3 @@ enum Conversation {
     Table,
     PinnedAt,
 }
-

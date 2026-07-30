@@ -134,7 +134,6 @@ impl EventEmitter {
     pub fn metrics(&self) -> Option<Arc<EventBusMetrics>> {
         self.acp_event_bus().map(|bus| Arc::clone(bus.metrics()))
     }
-
 }
 
 /// Global side-channel for cross-client conversation list/status sync.
@@ -419,4 +418,3 @@ where
     }
     true
 }
-

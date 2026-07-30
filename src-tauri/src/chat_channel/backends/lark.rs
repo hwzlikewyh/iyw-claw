@@ -692,4 +692,3 @@ fn build_lark_card(msg: &RichMessage) -> serde_json::Value {
         "elements": elements,
     })
 }
-

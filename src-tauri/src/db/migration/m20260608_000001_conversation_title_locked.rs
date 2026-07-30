@@ -60,4 +60,3 @@ enum Conversation {
     Title,
     TitleLocked,
 }
-

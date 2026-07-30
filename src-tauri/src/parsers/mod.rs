@@ -1045,4 +1045,3 @@ pub fn normalize_path_for_matching(path: &str) -> String {
 pub fn path_eq_for_matching(left: &str, right: &str) -> bool {
     normalize_path_for_matching(left) == normalize_path_for_matching(right)
 }
-

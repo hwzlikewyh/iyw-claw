@@ -36,7 +36,6 @@ pub(super) struct WatchState {
 }
 
 impl WatchState {
-
     pub(super) fn new(session_id: String, file: PathBuf, offset: u64) -> Self {
         Self {
             session_id,

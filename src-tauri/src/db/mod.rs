@@ -6,7 +6,9 @@ pub mod service;
 use std::path::Path;
 use std::time::Duration;
 
-use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, Statement};
+use sea_orm::{
+    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, Statement,
+};
 use sea_orm_migration::MigratorTrait;
 
 use error::DbError;

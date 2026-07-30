@@ -338,4 +338,3 @@ pub async fn remove_staging_best_effort(tmp_dir: &Path, staging_name: &str) {
         let _ = tokio::fs::remove_file(tmp_dir.join(staging_name)).await;
     }
 }
-

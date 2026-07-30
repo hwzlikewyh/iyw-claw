@@ -425,4 +425,3 @@ pub async fn set_session_info_settings(
         Err(AppCommandError::configuration_invalid("tauri-only command"))
     }
 }
-

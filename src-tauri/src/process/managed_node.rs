@@ -64,4 +64,3 @@ fn valid_version(value: &str) -> bool {
             .split('.')
             .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
 }
-
