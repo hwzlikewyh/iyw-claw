@@ -27,6 +27,17 @@
 
 除非当前用户明确要求，保持 `AGENTS.md` 的默认交付策略：不运行测试、不新增或修改测试文件。可执行静态审查、`git diff --check`、配置和文档一致性检查；未运行编译或测试时必须如实说明。
 
+## 托管分发与升级保护
+
+- 桌面安装包不得内置系统 Skill、市场 Skill、Node.js、uv/uvx、Git、Agent SDK 或 Agent CLI；这些组件统一由 Fusion API 返回版本决策和短时下载票据，再从 TOS/CDN 下载。
+- 桌面端不得把 GitHub、GitLab、npm、PyPI 或其他上游地址作为托管组件的正常下载路径。上游发现、校验、镜像和重试由 Fusion API 的持久化任务中心负责；客户端只允许在明确的灾备策略下使用已编译白名单回退。
+- Skill、Agent、CLI 和基础工具必须使用不可变版本目录、校验摘要、原子激活指针与 last-known-good 回滚。发现已安装且摘要、平台和兼容范围均匹配时必须复用，不重复下载。
+- 应用更新只能替换 `app` 区域，不得覆盖或删除 `runtime`、`config`、`data`、`logs`、Skill、Agent、CLI、本地库存、用户设置和用户记忆。强制更新只能切换受管版本，不能修改用户拥有的目录。
+- Codex 和 Claude Code 每次新建会话前必须通过统一 reconciler 幂等重写受控配置并回读校验；写入失败时禁止带着未知配置启动会话。恢复旧会话不得静默混入新的记忆或策略代际。
+- 多智能体协同与实时反馈对新安装默认开启；已有明确用户设置不得被默认值覆盖，后台安全策略保留紧急关闭能力。
+
+跨仓库托管分发改造以 `docs/superpowers/specs/2026-08-01-managed-desktop-distribution-design.md` 和同名计划目录为执行入口。并行任务必须遵守任务包声明的 `scope_write`；SQL、共享 DTO、路由、bootstrap、应用总入口、根配置和 lockfile 由总控集成任务统一修改。
+
 ## 代码与产品约定
 
 - 技术架构、条件编译、目录边界、代码风格和服务端环境变量以 `AGENTS.md` 为准，不在本文件重复维护。
