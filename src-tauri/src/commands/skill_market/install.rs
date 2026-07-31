@@ -11,6 +11,29 @@ use super::client;
 use super::install_plan::{market_marker, validate_install_plan, MAX_PACKAGE_BYTES};
 use super::types::{parse_id, parse_value, SkillDownloadInfo, SkillInstallPlan};
 
+const PACKAGE_DOWNLOAD_ATTEMPTS: usize = 3;
+
+enum PackageDownloadError {
+    Retryable(AppCommandError),
+    Permanent(AppCommandError),
+}
+
+impl PackageDownloadError {
+    fn retryable(error: AppCommandError) -> Self {
+        Self::Retryable(error)
+    }
+
+    fn permanent(error: AppCommandError) -> Self {
+        Self::Permanent(error)
+    }
+
+    fn into_error(self) -> AppCommandError {
+        match self {
+            Self::Retryable(error) | Self::Permanent(error) => error,
+        }
+    }
+}
+
 pub async fn install_core(
     conn: &DatabaseConnection,
     id: String,
@@ -103,18 +126,48 @@ async fn download_package(
             "Skill package size is outside the allowed range",
         ));
     }
-    let id = parse_id(skill_id)?;
+    for attempt in 1..=PACKAGE_DOWNLOAD_ATTEMPTS {
+        match download_package_once(conn, skill_id, version, metadata).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(PackageDownloadError::Retryable(error)) if attempt < PACKAGE_DOWNLOAD_ATTEMPTS => {
+                tracing::warn!(
+                    skill_id,
+                    version,
+                    attempt,
+                    max_attempts = PACKAGE_DOWNLOAD_ATTEMPTS,
+                    error = %error,
+                    error_detail = ?error.detail,
+                    "[skill-market] package transfer was incomplete; retrying"
+                );
+            }
+            Err(error) => return Err(error.into_error()),
+        }
+    }
+    unreachable!("package download attempts always return or fail")
+}
+
+async fn download_package_once(
+    conn: &DatabaseConnection,
+    skill_id: &str,
+    version: &str,
+    metadata: &SkillDownloadInfo,
+) -> Result<Vec<u8>, PackageDownloadError> {
+    let id = parse_id(skill_id).map_err(PackageDownloadError::permanent)?;
     let response = client::request(conn, Method::POST, "/skills/download")
-        .await?
+        .await
+        .map_err(PackageDownloadError::permanent)?
         .json(&serde_json::json!({ "id": id, "version": version }))
         .timeout(client::transfer_timeout())
         .send()
         .await
         .map_err(|error| {
-            AppCommandError::network("Failed to download Skill package")
-                .with_detail(error.to_string())
+            PackageDownloadError::retryable(
+                AppCommandError::network("Failed to download Skill package")
+                    .with_detail(error.to_string()),
+            )
         })?;
-    validate_download_response(&response, metadata.package_size)?;
+    validate_download_response(&response, metadata.package_size)
+        .map_err(PackageDownloadError::permanent)?;
     read_download(response, metadata.package_size).await
 }
 
@@ -158,24 +211,29 @@ fn validate_download_response(
 async fn read_download(
     response: reqwest::Response,
     expected_size: u64,
-) -> Result<Vec<u8>, AppCommandError> {
+) -> Result<Vec<u8>, PackageDownloadError> {
     let mut bytes = Vec::with_capacity(expected_size as usize);
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
-            AppCommandError::network("Skill download was interrupted")
-                .with_detail(error.to_string())
+            PackageDownloadError::retryable(
+                AppCommandError::network("Skill download was interrupted")
+                    .with_detail(error.to_string()),
+            )
         })?;
         if bytes.len().saturating_add(chunk.len()) as u64 > expected_size {
-            return Err(AppCommandError::invalid_input(
-                "Skill package exceeds its declared size",
+            return Err(PackageDownloadError::permanent(
+                AppCommandError::invalid_input("Skill package exceeds its declared size"),
             ));
         }
         bytes.extend_from_slice(&chunk);
     }
     if bytes.len() as u64 != expected_size {
-        return Err(AppCommandError::invalid_input(
-            "Skill package is incomplete",
+        return Err(PackageDownloadError::retryable(
+            AppCommandError::network("Skill package is incomplete").with_detail(format!(
+                "expected_size={expected_size}, received_size={}",
+                bytes.len()
+            )),
         ));
     }
     Ok(bytes)
