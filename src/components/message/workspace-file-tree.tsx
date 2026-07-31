@@ -20,15 +20,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { isLocalDesktop, revealItemInDir } from "@/lib/platform"
 import type { FileTreeNode } from "@/lib/types"
 
-/** Returns the platform-appropriate "reveal in file manager" label. */
-function getRevealLabel(t: (key: string) => string): string {
-  if (typeof navigator === "undefined") return t("openInFileManager")
-  const platform = `${navigator.platform} ${navigator.userAgent}`.toLowerCase()
-  if (platform.includes("mac")) return t("openInFinder")
-  if (platform.includes("win")) return t("openInExplorer")
-  return t("openInFileManager")
-}
-
 function TreeLoadingRows() {
   return (
     <div className="w-full space-y-2.5 p-3" aria-hidden="true">
@@ -196,7 +187,15 @@ export function WorkspaceTreePane(props: WorkspaceTreePaneProps) {
   const canReveal = isLocalDesktop()
 
   // Platform-appropriate label for "reveal in file manager"
-  const revealLabel = canReveal ? getRevealLabel(t) : ""
+  const revealLabel = (() => {
+    if (!canReveal) return ""
+    if (typeof navigator === "undefined") return t("openInFileManager")
+    const platform =
+      `${navigator.platform} ${navigator.userAgent}`.toLowerCase()
+    if (platform.includes("mac")) return t("openInFinder")
+    if (platform.includes("win")) return t("openInExplorer")
+    return t("openInFileManager")
+  })()
 
   const handleReveal = useCallback((path: string) => {
     void revealItemInDir(path).catch(() => {
