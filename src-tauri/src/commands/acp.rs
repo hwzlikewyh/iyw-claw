@@ -9113,8 +9113,39 @@ pub async fn acp_list_agent_skills(
     let mut locations = Vec::new();
     let mut skills_by_key: BTreeMap<String, AgentSkillItem> = BTreeMap::new();
 
+    // Always reconcile shared market skills for this agent so that skills
+    // installed via the marketplace but not yet linked here (e.g. because the
+    // secondary-agent publish failed silently at install time) become visible
+    // in the chat attachment menu without requiring a settings-page visit.
+    // The full `reconcile_shared_market_skills` (all agents) is only needed
+    // when `include_disabled` is set (settings page); here a lightweight
+    // single-agent pass is sufficient and avoids unnecessary I/O.
+    {
+        let _guard = shared_skill_mutation_guard();
+        if let Err(e) = reconcile_shared_market_skills_for_agent_locked(agent_type) {
+            tracing::warn!(
+                agent_type = %agent_type,
+                error = %e,
+                "[skills] reconcile on list failed (non-fatal)"
+            );
+        }
+    }
     if include_disabled {
-        reconcile_shared_market_skills()?;
+        // Settings page: also reconcile for all other agents so the full
+        // shared-skill matrix stays consistent.
+        for other in skill_capable_agent_types()
+            .into_iter()
+            .filter(|t| *t != agent_type)
+        {
+            let _guard = shared_skill_mutation_guard();
+            if let Err(e) = reconcile_shared_market_skills_for_agent_locked(other) {
+                tracing::warn!(
+                    agent_type = %other,
+                    error = %e,
+                    "[skills] reconcile on list (full) failed (non-fatal)"
+                );
+            }
+        }
     }
 
     let shared_dir = shared_skills_dir();

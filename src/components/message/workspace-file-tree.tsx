@@ -10,8 +10,24 @@ import {
   FileTreeFolder,
 } from "@/components/ai-elements/file-tree"
 import type { WorkspaceTreeState } from "@/components/message/workspace-file-tree-data"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { isLocalDesktop, revealItemInDir } from "@/lib/platform"
 import type { FileTreeNode } from "@/lib/types"
+
+/** Returns the platform-appropriate "reveal in file manager" label. */
+function getRevealLabel(t: (key: string) => string): string {
+  if (typeof navigator === "undefined") return t("openInFileManager")
+  const platform = `${navigator.platform} ${navigator.userAgent}`.toLowerCase()
+  if (platform.includes("mac")) return t("openInFinder")
+  if (platform.includes("win")) return t("openInExplorer")
+  return t("openInFileManager")
+}
 
 function TreeLoadingRows() {
   return (
@@ -26,6 +42,31 @@ function TreeLoadingRows() {
   )
 }
 
+/** Wraps a tree item with a right-click context menu when `onReveal` is provided. */
+function WithRevealMenu({
+  path,
+  label,
+  onReveal,
+  children,
+}: {
+  path: string
+  label: string
+  onReveal: ((path: string) => void) | undefined
+  children: React.ReactNode
+}) {
+  if (!onReveal) return <>{children}</>
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger>{children}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => onReveal(path)}>
+          {label}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
 interface WorkspaceTreeNodesProps {
   nodes: FileTreeNode[]
   loadedPaths: Set<string>
@@ -34,36 +75,61 @@ interface WorkspaceTreeNodesProps {
   emptyLabel: string
   loadingLabel: string
   errorLabel: string
+  onReveal?: (path: string) => void
+  revealLabel: string
 }
 
 function WorkspaceTreeNodes(props: WorkspaceTreeNodesProps) {
-  const { nodes, loadedPaths, loadingPaths, pathErrors } = props
+  const {
+    nodes,
+    loadedPaths,
+    loadingPaths,
+    pathErrors,
+    onReveal,
+    revealLabel,
+  } = props
   return nodes.map((node) => {
     if (node.kind === "file") {
-      return <FileTreeFile key={node.path} path={node.path} name={node.name} />
+      return (
+        <WithRevealMenu
+          key={node.path}
+          path={node.path}
+          label={revealLabel}
+          onReveal={onReveal}
+        >
+          <FileTreeFile path={node.path} name={node.name} />
+        </WithRevealMenu>
+      )
     }
     const loading = loadingPaths.has(node.path)
     const error = pathErrors.get(node.path)
     const empty = loadedPaths.has(node.path) && node.children.length === 0
     return (
-      <FileTreeFolder key={node.path} path={node.path} name={node.name}>
-        {loading ? (
-          <div className="flex items-center gap-2 px-2 py-1.5 text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" />
-            <span>{props.loadingLabel}</span>
-          </div>
-        ) : error ? (
-          <div className="px-2 py-1.5 text-destructive" title={error}>
-            {props.errorLabel}
-          </div>
-        ) : empty ? (
-          <div className="px-2 py-1.5 text-muted-foreground">
-            {props.emptyLabel}
-          </div>
-        ) : (
-          <WorkspaceTreeNodes {...props} nodes={node.children} />
-        )}
-      </FileTreeFolder>
+      <WithRevealMenu
+        key={node.path}
+        path={node.path}
+        label={revealLabel}
+        onReveal={onReveal}
+      >
+        <FileTreeFolder path={node.path} name={node.name}>
+          {loading ? (
+            <div className="flex items-center gap-2 px-2 py-1.5 text-muted-foreground">
+              <Loader2 className="size-3 animate-spin" />
+              <span>{props.loadingLabel}</span>
+            </div>
+          ) : error ? (
+            <div className="px-2 py-1.5 text-destructive" title={error}>
+              {props.errorLabel}
+            </div>
+          ) : empty ? (
+            <div className="px-2 py-1.5 text-muted-foreground">
+              {props.emptyLabel}
+            </div>
+          ) : (
+            <WorkspaceTreeNodes {...props} nodes={node.children} />
+          )}
+        </FileTreeFolder>
+      </WithRevealMenu>
     )
   })
 }
@@ -77,10 +143,14 @@ function TreePaneContent({
   props,
   expanded,
   onExpandedChange,
+  onReveal,
+  revealLabel,
 }: {
   props: WorkspaceTreePaneProps
   expanded: Set<string>
   onExpandedChange: (next: Set<string>) => void
+  onReveal?: (path: string) => void
+  revealLabel: string
 }) {
   const t = useTranslations("Folder.chat.workspaceFiles")
   if (props.loading) return <TreeLoadingRows />
@@ -111,6 +181,8 @@ function TreePaneContent({
         emptyLabel={t("emptyFolder")}
         loadingLabel={t("loadingTree")}
         errorLabel={t("folderLoadError")}
+        onReveal={onReveal}
+        revealLabel={revealLabel}
       />
     </FileTree>
   )
@@ -120,6 +192,17 @@ export function WorkspaceTreePane(props: WorkspaceTreePaneProps) {
   const t = useTranslations("Folder.chat.workspaceFiles")
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const { loadedPaths, loadDirectory } = props
+
+  const canReveal = isLocalDesktop()
+
+  // Platform-appropriate label for "reveal in file manager"
+  const revealLabel = canReveal ? getRevealLabel(t) : ""
+
+  const handleReveal = useCallback((path: string) => {
+    void revealItemInDir(path).catch(() => {
+      // reveal failures are usually benign (path may have been deleted)
+    })
+  }, [])
 
   const handleExpandedChange = useCallback(
     (next: Set<string>) => {
@@ -143,6 +226,8 @@ export function WorkspaceTreePane(props: WorkspaceTreePaneProps) {
         props={props}
         expanded={expanded}
         onExpandedChange={handleExpandedChange}
+        onReveal={canReveal ? handleReveal : undefined}
+        revealLabel={revealLabel}
       />
     </section>
   )

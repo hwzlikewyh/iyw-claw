@@ -77,7 +77,7 @@ function formatBytes(bytes: number): string {
 
 const PROXY_EXAMPLE = "http://127.0.0.1:7890"
 const APP_LANGUAGE_VALUES = APP_LOCALES
-const SHOW_NETWORK_PROXY_SETTINGS = false
+const SHOW_NETWORK_PROXY_SETTINGS = true
 
 type LanguageSelectValue = "system" | AppLocale
 

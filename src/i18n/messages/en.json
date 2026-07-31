@@ -3145,7 +3145,10 @@
         "selectFile": "Select a file to preview",
         "previewTruncated": "Large file; showing the first 2 MB",
         "treeError": "Unable to load workspace files",
-        "previewError": "Unable to preview this file"
+        "previewError": "Unable to preview this file",
+        "openInFinder": "Show in Finder",
+        "openInExplorer": "Show in Explorer",
+        "openInFileManager": "Show in file manager"
       },
       "replyArtifacts": {
         "title": "Files changed",
