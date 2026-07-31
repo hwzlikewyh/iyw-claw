@@ -17,6 +17,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { joinFsPath } from "@/lib/path-utils"
 import { isLocalDesktop, revealItemInDir } from "@/lib/platform"
 import type { FileTreeNode } from "@/lib/types"
 
@@ -126,6 +127,7 @@ function WorkspaceTreeNodes(props: WorkspaceTreeNodesProps) {
 }
 
 interface WorkspaceTreePaneProps extends WorkspaceTreeState {
+  rootPath: string
   selectedPath?: string
   onSelect: (path: string) => void
 }
@@ -197,11 +199,15 @@ export function WorkspaceTreePane(props: WorkspaceTreePaneProps) {
     return t("openInFileManager")
   })()
 
-  const handleReveal = useCallback((path: string) => {
-    void revealItemInDir(path).catch(() => {
-      // reveal failures are usually benign (path may have been deleted)
-    })
-  }, [])
+  const handleReveal = useCallback(
+    (relativePath: string) => {
+      const path = joinFsPath(props.rootPath, relativePath)
+      void revealItemInDir(path).catch(() => {
+        // Reveal failures are usually benign (the target may have been deleted).
+      })
+    },
+    [props.rootPath]
+  )
 
   const handleExpandedChange = useCallback(
     (next: Set<string>) => {

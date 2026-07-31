@@ -144,6 +144,7 @@ function WorkspaceFilesDialogContent({ rootPath }: { rootPath: string }) {
         <div className="grid min-h-0 grid-rows-[minmax(10rem,2fr)_minmax(12rem,3fr)] md:grid-cols-[minmax(13rem,17rem)_minmax(0,1fr)] md:grid-rows-1">
           <WorkspaceTreePane
             {...tree}
+            rootPath={rootPath}
             selectedPath={selectedPath}
             onSelect={(path) => void selectFile(path)}
           />

@@ -10,11 +10,18 @@ Function IywClawRestoreLogicalInstallRoot
   ; Correct only the directory-page value; POSTINSTALL persists it after the
   ; old uninstaller has finished using its internal root\app working directory.
   ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
-  StrCmp $R8 "" iyw_guiinit_done 0
+  StrCmp $R8 "" iyw_set_default_install_root 0
   GetFullPathName $R9 "$R8\app"
   GetFullPathName $R7 "$INSTDIR"
   StrCmp $R7 $R9 0 iyw_guiinit_done
   GetFullPathName $INSTDIR "$R8"
+  Goto iyw_guiinit_done
+
+  ; Keep the displayed product name localized, but use an ASCII-only default
+  ; installation root so bundled command-line tools never inherit a Chinese
+  ; executable path. Users can still choose another directory in the installer.
+  iyw_set_default_install_root:
+    GetFullPathName $INSTDIR "$LOCALAPPDATA\iyw-claw"
 
   iyw_guiinit_done:
     ; A regular installer launch would show Tauri's reinstall choice page.

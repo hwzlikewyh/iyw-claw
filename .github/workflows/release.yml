@@ -6,8 +6,8 @@ on:
       - "v*.*.*"
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Existing release tag (for example v0.0.2)"
+      version:
+        description: "New release version without v (for example 0.0.2)"
         required: true
         type: string
 
@@ -16,16 +16,74 @@ env:
   HUSKY: 0
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
+  prepare-release:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.default_branch || github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - id: release
+        name: Prepare release version and tag
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_TAG_FROM_PUSH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            version="$INPUT_VERSION"
+            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+              echo "::error::Version '$version' must be semantic version text without a leading v."
+              exit 1
+            fi
+
+            tag="v$version"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag"; then
+              echo "::error::Release tag $tag already exists."
+              exit 1
+            fi
+
+            node scripts/set-version.mjs "$version"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+            if ! git diff --cached --quiet; then
+              git commit -m "chore(release): v$version"
+            fi
+            git tag -a "$tag" -m "Release $tag"
+            git push origin "HEAD:refs/heads/$DEFAULT_BRANCH" "refs/tags/$tag"
+          else
+            tag="$RELEASE_TAG_FROM_PUSH"
+          fi
+
+          echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+
   create-draft-release:
+    needs: prepare-release
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ needs.prepare-release.outputs.release_tag }}
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
       release_tag: ${{ steps.resolve.outputs.release_tag }}
