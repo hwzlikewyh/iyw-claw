@@ -1082,6 +1082,7 @@
       "upgrade": "Upgrade",
       "uninstall": "Uninstall",
       "uninstalling": "Uninstalling...",
+      "downloading": "Downloading...",
       "saveEnvVars": "Save environment variables",
       "saving": "Saving...",
       "saveCodexConfig": "Save Codex Config",

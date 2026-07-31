@@ -7511,7 +7511,7 @@ export function AcpAgentSettings({
                   installStream.progress > 0 && (
                     <div className="px-4 pb-3 space-y-1">
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{t("actions.downloading", "Downloading…")}</span>
+                        <span>{t("actions.downloading")}</span>
                         <span>{installStream.progress}%</span>
                       </div>
                       <Progress
