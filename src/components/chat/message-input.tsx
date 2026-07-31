@@ -495,20 +495,10 @@ export function MessageInput({
   // project skills (e.g. `{folder}/.codex/skills`). Without this, users
   // only ever saw global skills in the `$` autocomplete.
   const availableSkills = useAgentSkills(skillAgentType, defaultPath ?? null)
-  // The attachment menu surfaces only skills installed through iyw-claw's
-  // marketplace. This intentionally excludes agent-bundled system skills and
-  // the separate Expert / Office shortcut families below.
-  const marketSkillSource = useAgentSkills(
-    agentType ?? null,
-    defaultPath ?? null
-  )
-  const marketSkills = useMemo(
-    () =>
-      marketSkillSource.filter(
-        (skill) => skill.market_managed === true && !skill.read_only
-      ),
-    [marketSkillSource]
-  )
+  // The + menu exposes every skill enabled for the active agent. Source and
+  // editability do not affect invocation: selecting an item only inserts its
+  // reference badge into the composer.
+  const enabledSkills = useAgentSkills(agentType ?? null, defaultPath ?? null)
   const skillPrefix = agentType === "codex" ? "$" : "/"
   const { shortcuts } = useShortcutSettings()
   const effectiveDraftStorageKey = draftStorageKey ?? null
@@ -1664,7 +1654,7 @@ export function MessageInput({
     chain.insertReference(commandToReference(cmd)).insertContent(" ").run()
   }, [])
 
-  const handleMarketSkillSelect = useCallback(
+  const handleSkillMenuSelect = useCallback(
     (skill: AgentSkillItem) => {
       const editor = editorRef.current?.getEditor()
       if (!editor) return
@@ -3150,7 +3140,7 @@ export function MessageInput({
                       </DropdownMenuSub>
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger
-                          disabled={marketSkills.length === 0}
+                          disabled={enabledSkills.length === 0}
                         >
                           <BookOpenText className="size-4" />
                           {t("skills")}
@@ -3163,10 +3153,10 @@ export function MessageInput({
                               "min(32rem, var(--radix-dropdown-menu-content-available-height))",
                           }}
                         >
-                          {marketSkills.map((skill) => (
+                          {enabledSkills.map((skill) => (
                             <DropdownMenuItem
                               key={`${skill.scope}-${skill.id}`}
-                              onClick={() => handleMarketSkillSelect(skill)}
+                              onClick={() => handleSkillMenuSelect(skill)}
                             >
                               <BookOpenText className="size-4" />
                               <span className="min-w-0 flex-1">
