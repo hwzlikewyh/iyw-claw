@@ -1704,7 +1704,7 @@ fn restore_system_skill_backup(
 }
 
 fn system_skill_backup_error(
-    _id: &str,
+    id: &str,
     target: &Path,
     backup: &Path,
     error: io::Error,
