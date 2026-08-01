@@ -262,7 +262,7 @@ defects:
     root_cause: 受管组件仍随包携带或直连上游，未迁移为“后端决策 + TOS 短时票据 + 不可变库存”
     fix_commit: null
     worktree_fix: partial (未提交、未验证)：工作区 tauri.conf.json externalBin 仅剩 iyw-claw-mcp、resources 仅 out->bundle，installer-hooks.nsh 改为 app 区替换 + 持久区布局；但 runtime_bootstrap.rs 直连 URL、binary_cache 直连 GitHub、update/version.rs 直连 latest.json 仍存在
-    branch_fix: feat/managed-t06-bootstrap@c65425b 桌面包瘦身与托管初始化（prepare-sidecars.mjs/tauri.conf.json/runtime_bootstrap.rs/version_center installer 模块），binary_cache/update 直连上游需合并后核实，未合并未验证
+    branch_fix: feat/managed-t06-bootstrap@c65425b 桌面包瘦身与托管初始化（externalBin 仅 mcp、resources 仅 bundle；runtime_bootstrap.rs 直连 URL 已移除，改版本中心 resolve→票据→TOS 受管安装）；binary_cache.rs 仍直连 GitHub（IYW_CLAW_GITHUB_MIRROR 可选优先）、update/version.rs 仍直连 latest.json（IYW-DIST-002），未合并未验证
     regression_evidence: 待实现（干净 PC 包不含 Node/uv/Git/Agent SDK/CLI；初始化按计划下载并原子激活；摘要匹配复用）
     alias: []
 
@@ -487,4 +487,5 @@ defects:
     fix_commit: null
     regression_evidence: Audit B 交付基准脚本与阶梯测试结果
     alias: []
+
 
