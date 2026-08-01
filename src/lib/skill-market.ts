@@ -293,3 +293,375 @@ export const skillMarketInstall = (
   agentType: AgentType
 ) =>
   getTransport().call<void>("skill_market_install", { id, version, agentType })
+
+// ---------------------------------------------------------------------------
+// Skill Market v2 display model (Task 10)
+//
+// The backend contract v2 is not frozen yet (Task 01/03 blocked): audience,
+// distribution policy, artifact status, compatibility and install plans are
+// modelled here as typed display state. The UI is developed against
+// `SkillMarketSource` (see src/lib/skill-market-source.ts) which currently
+// serves typed fixtures; the transport-backed implementation lands together
+// with the frozen contract. Do not change backend fields from the UI.
+// ---------------------------------------------------------------------------
+
+export type SkillMarketAudience =
+  | "global_market"
+  | "organization"
+  | "owner_private"
+
+export type SkillMarketDistributionPolicy = "mandatory" | "optional"
+
+export type SkillMarketCompatibility = "compatible" | "incompatible" | "unknown"
+
+export type SkillMarketArtifactStatus = "ready" | "artifact_pending" | "failed"
+
+export type SkillMarketInstallState =
+  | "not_installed"
+  | "installed"
+  | "update_available"
+  | "blocked"
+  | "preparing"
+
+export type SkillMarketSort = "recommended" | "updated" | "name" | "installed"
+
+export type SkillMarketViewV2 =
+  | "market"
+  | "organization"
+  | "mine"
+  | "installed"
+  | "needs_update"
+
+export type SkillMarketInstallErrorCode =
+  | "artifact_not_ready"
+  | "client_incompatible"
+  | "audience_denied"
+  | "dependency_unavailable"
+  | "version_blocked"
+  | "plan_expired"
+  | "catalog_stale"
+  | "disk_full"
+  | "download_failed"
+  | "checksum_mismatch"
+  | "signature_invalid"
+  | "canceled"
+
+export interface SkillMarketV2Version {
+  id: string
+  version: string
+  changelog: string | null
+  status: SkillMarketArtifactStatus
+  fileCount: number
+  /** ZIP artifact bytes. Never use rawSize for integrity decisions. */
+  artifactSize: number
+  rawSize?: number
+  artifactSha256: string | null
+  dependencies: SkillDependency[]
+  releasedAt: string
+  failureCode?: string | null
+}
+
+export interface SkillMarketV2Item {
+  id: string
+  slug: string
+  displayName: string
+  summary: string
+  category: string
+  iconUrl: string | null
+  tags: string[]
+  audience: SkillMarketAudience
+  distributionPolicy: SkillMarketDistributionPolicy
+  publisher: SkillMarketPublisher
+  packageType: SkillPackageType
+  currentVersion: SkillMarketV2Version
+  compatibility: SkillMarketCompatibility
+  installState: SkillMarketInstallState
+  installedVersion: string | null
+  canManage: boolean
+  organizationName: string | null
+  updatedAt: string
+}
+
+export interface SkillMarketV2FileNode {
+  path: string
+  name: string
+  size: number
+  directory: boolean
+  sha256?: string | null
+  children?: SkillMarketV2FileNode[]
+}
+
+export interface SkillMarketV2CompatibilityDetail {
+  minClientVersion: string | null
+  osArch: string | null
+  reason: string | null
+  deadline: string | null
+}
+
+export type SkillMarketOwnershipSource = "system" | "market" | "user_dir"
+
+export interface SkillMarketV2Detail extends SkillMarketV2Item {
+  files: SkillMarketV2FileNode[]
+  ownership: {
+    source: SkillMarketOwnershipSource
+    managed: boolean
+  }
+  compatibilityDetail: SkillMarketV2CompatibilityDetail
+}
+
+export interface SkillMarketV2CatalogPage {
+  items: SkillMarketV2Item[]
+  nextCursor: string | null
+  total: number
+  catalogRevision: string
+  offline: boolean
+}
+
+export interface SkillMarketListQueryV2 {
+  view: SkillMarketViewV2
+  publisher: SkillMarketPublisher | "all"
+  distribution: SkillMarketDistributionPolicy | "all"
+  compatibility: SkillMarketCompatibility | "all"
+  category: string | null
+  q: string
+  sort: SkillMarketSort
+  cursor: string | null
+  limit: number
+}
+
+export interface SkillMarketInstallPlanItemV2 {
+  skillId: string
+  versionId: string
+  artifactId: string
+  slug: string
+  displayName: string
+  version: string
+  audience: SkillMarketAudience
+  distributionPolicy: SkillMarketDistributionPolicy
+  artifactSize: number
+  artifactSha256: string
+  signature: string | null
+  ticketEndpoint: string
+  dependencies: SkillDependency[]
+}
+
+export interface SkillMarketInstallPlanV2 {
+  planId: string
+  catalogRevision: string
+  targetSkillId: string
+  targetVersion: string
+  items: SkillMarketInstallPlanItemV2[]
+  totalBytes: number
+  dependencyCount: number
+  mandatory: boolean
+}
+
+export type SkillMarketInstallPhase =
+  | "pending"
+  | "downloading"
+  | "verifying"
+  | "extracting"
+  | "activating"
+  | "done"
+  | "failed"
+  | "canceled"
+
+export interface SkillMarketInstallArtifactProgress {
+  artifactId: string
+  displayName: string
+  version: string
+  phase: SkillMarketInstallPhase
+  bytesReceived: number
+  bytesTotal: number
+  errorCode: SkillMarketInstallErrorCode | null
+  message: string | null
+}
+
+export type SkillMarketInstallOverall =
+  | "idle"
+  | "resolving"
+  | "confirming"
+  | "running"
+  | "activating"
+  | "done"
+  | "failed"
+  | "canceled"
+
+export interface SkillMarketInstallSession {
+  status: SkillMarketInstallOverall
+  plan: SkillMarketInstallPlanV2 | null
+  items: SkillMarketInstallArtifactProgress[]
+  overallBytes: number
+  receivedBytes: number
+  errorCode: SkillMarketInstallErrorCode | null
+  errorMessage: string | null
+  startedAt: number | null
+  /** Set while an expired ticket is being refreshed in the background. */
+  refreshingTicket: boolean
+  ticketRefreshCount: number
+}
+
+export type MarketBadgeTone =
+  | "default"
+  | "primary"
+  | "success"
+  | "warning"
+  | "danger"
+  | "muted"
+
+export type MarketBadgeIcon =
+  | "globe"
+  | "building"
+  | "lock"
+  | "shield"
+  | "check"
+  | "arrowUp"
+  | "clock"
+  | "ban"
+  | "alert"
+  | "package"
+  | "wrench"
+
+export interface MarketBadgeInfo {
+  /** i18n key relative to the `SkillMarketV2` namespace. */
+  key: string
+  tone: MarketBadgeTone
+  icon?: MarketBadgeIcon
+}
+
+export function audienceBadgeInfo(
+  audience: SkillMarketAudience
+): MarketBadgeInfo {
+  switch (audience) {
+    case "global_market":
+      return { key: "audience.globalMarket", tone: "primary", icon: "globe" }
+    case "organization":
+      return { key: "audience.organization", tone: "default", icon: "building" }
+    case "owner_private":
+      return { key: "audience.ownerPrivate", tone: "muted", icon: "lock" }
+  }
+}
+
+export function distributionBadgeInfo(
+  policy: SkillMarketDistributionPolicy
+): MarketBadgeInfo {
+  return policy === "mandatory"
+    ? { key: "distribution.mandatory", tone: "warning", icon: "shield" }
+    : { key: "distribution.optional", tone: "muted" }
+}
+
+export function compatibilityBadgeInfo(
+  compatibility: SkillMarketCompatibility
+): MarketBadgeInfo {
+  switch (compatibility) {
+    case "compatible":
+      return { key: "compatibility.compatible", tone: "success", icon: "check" }
+    case "incompatible":
+      return { key: "compatibility.incompatible", tone: "danger", icon: "ban" }
+    case "unknown":
+      return { key: "compatibility.unknown", tone: "muted" }
+  }
+}
+
+export function installStateBadgeInfo(
+  state: SkillMarketInstallState
+): MarketBadgeInfo {
+  switch (state) {
+    case "installed":
+      return { key: "list.installed", tone: "success", icon: "check" }
+    case "update_available":
+      return { key: "list.updateAvailable", tone: "warning", icon: "arrowUp" }
+    case "blocked":
+      return { key: "list.blocked", tone: "danger", icon: "ban" }
+    case "preparing":
+      return { key: "list.preparing", tone: "muted", icon: "clock" }
+    case "not_installed":
+      return { key: "list.notInstalled", tone: "muted" }
+  }
+}
+
+export function artifactStatusBadgeInfo(
+  status: SkillMarketArtifactStatus
+): MarketBadgeInfo {
+  switch (status) {
+    case "ready":
+      return { key: "artifact.ready", tone: "success", icon: "check" }
+    case "artifact_pending":
+      return { key: "artifact.artifactPending", tone: "warning", icon: "clock" }
+    case "failed":
+      return { key: "artifact.failed", tone: "danger", icon: "alert" }
+  }
+}
+
+export type SkillMarketPrimaryAction =
+  | "install"
+  | "update"
+  | "reinstall"
+  | "none"
+
+export function primaryInstallAction(
+  state: SkillMarketInstallState,
+  compatibility: SkillMarketCompatibility
+): SkillMarketPrimaryAction {
+  if (compatibility !== "compatible") return "none"
+  switch (state) {
+    case "not_installed":
+    case "preparing":
+      return "install"
+    case "update_available":
+      return "update"
+    case "installed":
+      return "reinstall"
+    case "blocked":
+      return "none"
+  }
+}
+
+export type SkillMarketErrorAction =
+  | "retry"
+  | "free_space"
+  | "update_client"
+  | "contact_admin"
+  | "diagnostics"
+
+export function installErrorAction(
+  code: SkillMarketInstallErrorCode
+): SkillMarketErrorAction {
+  switch (code) {
+    case "disk_full":
+      return "free_space"
+    case "client_incompatible":
+    case "version_blocked":
+      return "update_client"
+    case "artifact_not_ready":
+    case "audience_denied":
+    case "dependency_unavailable":
+      return "contact_admin"
+    case "download_failed":
+    case "checksum_mismatch":
+    case "signature_invalid":
+    case "plan_expired":
+    case "catalog_stale":
+    case "canceled":
+      return "retry"
+  }
+}
+
+export function formatSkillBytes(bytes: number): string {
+  const safe = Math.max(0, Number(bytes) || 0)
+  if (safe < 1024) return `${safe} B`
+  const units = ["KB", "MB", "GB"]
+  let value = safe / 1024
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
+}
+
+/** Dynamic-key translator for the `SkillMarketV2` namespace (badges/selects). */
+export type SkillMarketTranslator = (
+  key: string,
+  values?: Record<string, string | number>
+) => string

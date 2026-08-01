@@ -1,7 +1,12 @@
 "use client"
 
-import { SkillsSettings } from "@/components/settings/skills-settings"
+import { Suspense } from "react"
+import { SkillMarketView } from "@/components/skills/market/view"
 
 export function SkillMarketPage() {
-  return <SkillsSettings mode="market" />
+  return (
+    <Suspense fallback={null}>
+      <SkillMarketView />
+    </Suspense>
+  )
 }
