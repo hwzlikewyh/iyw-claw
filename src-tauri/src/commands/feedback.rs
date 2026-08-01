@@ -1,9 +1,16 @@
 //! Live user-feedback settings persistence + the submit command surface.
 //!
 //! One knob survives across restarts:
-//!   * `feedback.enabled` — feature kill switch (default false). When on,
-//!     `iyw-claw-mcp` exposes the `check_user_feedback` tool so an agent can pull
-//!     mid-turn user notes; the conversation UI shows the "send a note" bar.
+//!   * `feedback.enabled` — feature switch (product default true; new installs
+//!     and keyless upgrades migrate to true and record the migration version;
+//!     existing explicit values are preserved). When on, `iyw-claw-mcp`
+//!     exposes the `check_user_feedback` tool so an agent can pull mid-turn
+//!     user notes; the conversation UI shows the "send a note" bar.
+//!
+//! Backend policy keys (`feedback.kill_switch` / `feedback.org_policy` and the
+//! `IYW_CLAW_FEATURE_KILL_SWITCH` env) override the user value; the UI reads
+//! the computed `effective` state and never presents a policy override as a
+//! user setting.
 //!
 //! On startup `apply_persisted_feedback_config` reads this key from
 //! `app_metadata` and pushes it into the shared [`FeedbackRuntimeConfig`] that

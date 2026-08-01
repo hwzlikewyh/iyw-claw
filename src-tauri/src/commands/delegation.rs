@@ -1,7 +1,9 @@
 //! Delegation settings persistence + Tauri/HTTP command surface.
 //!
 //! These knobs survive across restarts:
-//!   * `delegation.enabled` — feature kill switch (default false)
+//!   * `delegation.enabled` — feature switch (product default true; new
+//!     installs and keyless upgrades migrate to true and record the migration
+//!     version; existing explicit values are preserved)
 //!   * `delegation.depth_limit` — max chain depth a child is allowed to sit at
 //!   * `delegation.agent_defaults` — per-agent spawn overrides (JSON blob)
 //!   * `delegation.completed_cache_max_mb` — per-parent byte budget (in MB) for

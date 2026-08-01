@@ -257,4 +257,3 @@ args = ["-y", "my-tool"]
         assert_eq!(error.code(), "session_config_failed");
     }
 }
-
