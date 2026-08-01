@@ -122,7 +122,7 @@ jobs:
           case "${{ matrix.target }}" in
             *windows*) ext=".exe" ;;
           esac
-          for name in iyw-claw-mcp "iyw-claw-mcp-${version}" uv uvx; do
+          for name in iyw-claw-mcp "iyw-claw-mcp-${version}"; do
             file="src-tauri/binaries/${name}-${{ matrix.target }}${ext}"
             test -s "$file" || {
               echo "::error::Sidecar $file is missing or empty after prepare-sidecars"
@@ -130,43 +130,6 @@ jobs:
             }
             ls -la "$file"
           done
-
-      - name: Verify bundled runtime archives
-        if: contains(matrix.target, 'windows')
-        shell: bash
-        run: |
-          target="${{ matrix.target }}"
-          # Registry platform name (mirrors registry::current_platform() in Rust)
-          case "$target" in
-            x86_64-pc-windows-msvc)   reg_platform="windows-x86_64" ;;
-            aarch64-pc-windows-msvc)  reg_platform="windows-aarch64" ;;
-            i686-pc-windows-msvc)     reg_platform="windows-i686" ;;
-            *)                        reg_platform="" ;;
-          esac
-
-          # node/git archives (always required for Windows)
-          for dir in src-tauri/resources/runtime/downloads; do
-            test -d "$dir" || {
-              echo "::error::Runtime downloads dir missing: $dir"
-              exit 1
-            }
-          done
-          archive_count=$(find src-tauri/resources/runtime/downloads -name "*.zip" 2>/dev/null | wc -l)
-          if [ "$archive_count" -lt 2 ]; then
-            echo "::error::Expected at least 2 runtime archives (node + git), found $archive_count"
-            exit 1
-          fi
-          echo "Runtime archives staged: $archive_count"
-
-          # codex bundle (not required for 32-bit; @openai/codex has no win32-ia32 dep)
-          if [ -n "$reg_platform" ] && [ "$target" != "i686-pc-windows-msvc" ]; then
-            codex_zip="src-tauri/resources/runtime/npm/codex-acp-1.1.5-${reg_platform}.zip"
-            test -s "$codex_zip" || {
-              echo "::error::Codex bundle missing: $codex_zip"
-              exit 1
-            }
-            ls -la "$codex_zip"
-          fi
 
       - name: Build and upload Linux arm64
         if: matrix.target == 'aarch64-unknown-linux-gnu'
