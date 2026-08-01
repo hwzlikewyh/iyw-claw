@@ -49,6 +49,13 @@ fn enforce_provider_overlay_at_root(agent: AgentType, profile: &Path) -> Result<
     if !super::provider_overlay::uses_managed_gateway(agent) {
         return Ok(());
     }
+    // Codex / Claude Code 走统一 reconciler：受控字段幂等写入 + 回读校验 +
+    // fingerprint + 诊断；失败会阻止新会话 spawn（不得以未知配置启动）。
+    if matches!(agent, AgentType::Codex | AgentType::ClaudeCode) {
+        return super::session_config_reconciler::reconcile_before_spawn(agent, profile)
+            .map(|_| ())
+            .map_err(|error| format!("session config reconcile failed: {error}"));
+    }
     let base_url = model_gateway_base_url_for(agent);
     match agent {
         AgentType::Codex => patch_text(&profile.join("config.toml"), |raw| {

@@ -109,3 +109,15 @@ UI 展示：
 - Codex/Claude Code 所有新会话都不能绕过 reconciler。
 - 默认开启策略不会覆盖已有显式用户选择。
 - 配置失败可诊断且不会以未知配置启动。
+
+## 实施状态（2026-08-01，worktree `iyw-claw-t07` / branch `feat/managed-t07-session-config`）
+
+- 已完成：`session_config_reconciler/`（model/lock/merge/write/diagnostics）、
+  provider_overlay_files 对 Codex/Claude Code 的 reconciler gate、delegation/feedback
+  有效来源与 kill switch/org policy 合并、设置 UI 来源展示与 i18n、纯解析/merge
+  单元测试（model.rs / merge.rs / write.rs）。
+- 待 Task 13 接线：恢复会话走 `reconcile_resumed_session` 区分热更新字段；
+  对账诊断（`diagnostics_snapshot`）暴露给设置页展示最近一次对账结果；
+  `session_config_stale` 会话内 banner 已由既有事件链路覆盖。
+- 本机验证：静态调用链审查 + `git diff --check`；编译与单测由远端 CI 执行
+  （桌面仓库禁本机构建）。

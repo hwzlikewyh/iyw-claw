@@ -31,6 +31,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   type DelegationSettings,
+  type EffectiveState,
   getDelegationSettings,
   setDelegationSettings,
 } from "@/lib/api"
@@ -60,6 +61,7 @@ export function DelegationSettingsSection() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [enabled, setEnabled] = useState(false)
+  const [effective, setEffective] = useState<EffectiveState | null>(null)
   const [depth, setDepth] = useState<number>(1)
   const [cacheMb, setCacheMb] = useState<number>(DEFAULT_CACHE_MB)
   const [agentDefaults, setAgentDefaults] = useState<
@@ -73,6 +75,7 @@ export function DelegationSettingsSection() {
       .then((s) => {
         if (cancelled) return
         setEnabled(s.enabled)
+        setEffective(s.effective ?? null)
         setDepth(s.depth_limit)
         setCacheMb(s.completed_cache_max_mb)
         setAgentDefaults(s.agent_defaults ?? {})
@@ -104,6 +107,7 @@ export function DelegationSettingsSection() {
       // Mirror any server-side clamps / filter passes back into the UI so the
       // inputs reflect what was actually persisted.
       setEnabled(applied.enabled)
+      setEffective(applied.effective ?? null)
       setDepth(applied.depth_limit)
       setCacheMb(applied.completed_cache_max_mb)
       setAgentDefaults(applied.agent_defaults ?? {})
@@ -116,6 +120,13 @@ export function DelegationSettingsSection() {
       setSaving(false)
     }
   }, [enabled, depth, cacheMb, agentDefaults, t])
+
+  // 后台 kill switch 强制关闭时，开关必须禁用且如实展示来源（不能伪装成
+  // 用户设置）；组织策略生效时同样只读展示。
+  const adminLocked = effective?.kill_switch_active ?? false
+  const policyManaged =
+    effective !== null &&
+    (effective.source === "kill_switch" || effective.source === "org_policy")
 
   return (
     <section className="rounded-xl border bg-card p-4 space-y-4">
@@ -130,6 +141,18 @@ export function DelegationSettingsSection() {
       {loadError && (
         <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {t("loadFailed", { detail: loadError })}
+        </p>
+      )}
+
+      {adminLocked && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {t("adminDisabled")}
+        </p>
+      )}
+
+      {policyManaged && !adminLocked && (
+        <p className="rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          {t("managedByOrg")}
         </p>
       )}
 
@@ -156,7 +179,7 @@ export function DelegationSettingsSection() {
               id="delegation-enabled"
               checked={enabled}
               onCheckedChange={setEnabled}
-              disabled={loading}
+              disabled={loading || adminLocked}
               className="shrink-0"
             />
           </div>
@@ -177,7 +200,7 @@ export function DelegationSettingsSection() {
               max={DEPTH_MAX}
               value={depth}
               onChange={(e) => setDepth(Number(e.target.value))}
-              disabled={loading || !enabled}
+              disabled={loading || !enabled || adminLocked}
               className="w-28 shrink-0"
             />
           </div>
@@ -207,7 +230,7 @@ export function DelegationSettingsSection() {
                 // 0 (= unlimited). Explicit "0" still means unlimited.
                 setCacheMb(raw === "" ? NaN : Number(raw))
               }}
-              disabled={loading || !enabled}
+              disabled={loading || !enabled || adminLocked}
               className="w-28 shrink-0"
             />
           </div>
@@ -217,7 +240,7 @@ export function DelegationSettingsSection() {
           <DelegationAgentDefaultsPanel
             value={agentDefaults}
             onChange={setAgentDefaults}
-            disabled={loading || !enabled}
+            disabled={loading || !enabled || adminLocked}
           />
         </TabsContent>
       </Tabs>

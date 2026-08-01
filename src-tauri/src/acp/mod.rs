@@ -39,6 +39,7 @@ pub mod question;
 pub mod registry;
 pub mod runtime_context;
 mod session_config_compat;
+pub mod session_config_reconciler;
 pub mod session_info;
 pub mod session_state;
 pub mod skill_package;
