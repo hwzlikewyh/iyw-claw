@@ -132,6 +132,7 @@ pub(super) async fn install_tool_component(
         }
     };
     download_resumable(
+        &offer.artifact.id,
         &ticket.url,
         &archive,
         ticket.size,

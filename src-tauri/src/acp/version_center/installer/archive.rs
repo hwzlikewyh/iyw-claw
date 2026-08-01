@@ -6,6 +6,7 @@ use crate::app_error::AppCommandError;
 const MAX_EXTRACTED_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 10_000;
 const MAX_COMPRESSION_RATIO: u64 = 100;
+const MAX_SINGLE_FILE_BYTES: u64 = 512 * 1024 * 1024;
 
 pub fn extract_tool_zip(
     bytes: &[u8],
@@ -40,6 +41,11 @@ pub fn extract_tool_zip(
         }
         let compressed = entry.compressed_size();
         let declared = entry.size();
+        if declared > MAX_SINGLE_FILE_BYTES {
+            return Err(AppCommandError::invalid_input(
+                "Managed tool archive contains an oversized file",
+            ));
+        }
         if declared > 0 && (compressed == 0 || declared / compressed.max(1) > MAX_COMPRESSION_RATIO)
         {
             return Err(AppCommandError::invalid_input(

@@ -205,6 +205,7 @@ async fn install_offer_inner(
     let mut refresh_attempts = 0_u32;
     loop {
         match download_resumable(
+            &offer.artifact.id,
             &current_url,
             &archive,
             ticket.size,

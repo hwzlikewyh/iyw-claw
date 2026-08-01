@@ -59,6 +59,7 @@ enum AttemptError {
 
 /// 下载到 `final_path`。最终文件已完整时立即返回；否则写 `.part` 并原子改名。
 pub async fn download_resumable(
+    artifact_id: &str,
     url: &str,
     final_path: &Path,
     expected_size: i64,
@@ -76,7 +77,8 @@ pub async fn download_resumable(
 
     let part_path = part_path_for(final_path);
     let meta_path = part_meta_path(final_path);
-    let etag = read_etag(&meta_path).await;
+    let etag = read_resume_meta(&meta_path, artifact_id, url, expected_size, expected_sha256)
+        .await;
     if let Some(parent) = part_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -96,7 +98,17 @@ pub async fn download_resumable(
         {
             Ok(new_etag) => {
                 if let Some(value) = new_etag {
-                    let _ = tokio::fs::write(&meta_path, etag_meta(url, &value)).await;
+                    let _ = tokio::fs::write(
+                        &meta_path,
+                        resume_meta(
+                            artifact_id,
+                            url,
+                            expected_size,
+                            expected_sha256,
+                            &value,
+                        ),
+                    )
+                    .await;
                 }
                 return finalize_part(&part_path, final_path, expected_size, expected_sha256)
                     .await
@@ -439,15 +451,47 @@ fn part_meta_path(final_path: &Path) -> PathBuf {
     final_path.with_file_name(name)
 }
 
-fn etag_meta(url: &str, etag: &str) -> Vec<u8> {
-    serde_json::json!({ "url": url, "etag": etag }).to_string().into_bytes()
+fn resume_meta(
+    artifact_id: &str,
+    url: &str,
+    expected_size: i64,
+    expected_sha256: &str,
+    etag: &str,
+) -> Vec<u8> {
+    serde_json::json!({
+        "artifact_id": artifact_id,
+        "url": url,
+        "expected_size": expected_size,
+        "expected_sha256": expected_sha256,
+        "etag": etag,
+    })
+    .to_string()
+    .into_bytes()
 }
 
-async fn read_etag(meta_path: &Path) -> Option<String> {
+/// 读取并校验 sidecar metadata。仅当 artifact ID / URL / 大小 / 摘要全部匹配时
+/// 才返回可续传的 ETag；任何不匹配都丢弃旧 metadata，从头下载。
+async fn read_resume_meta(
+    meta_path: &Path,
+    artifact_id: &str,
+    url: &str,
+    expected_size: i64,
+    expected_sha256: &str,
+) -> Option<String> {
     let raw = tokio::fs::read_to_string(meta_path).await.ok()?;
-    serde_json::from_str::<serde_json::Value>(&raw)
-        .ok()
-        .and_then(|value| value.get("etag")?.as_str().map(ToString::to_string))
+    let value = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
+    let matches = value.get("artifact_id")?.as_str() == Some(artifact_id)
+        && value.get("url")?.as_str() == Some(url)
+        && value.get("expected_size")?.as_i64() == Some(expected_size)
+        && value
+            .get("expected_sha256")?
+            .as_str()
+            .is_some_and(|sha| sha.eq_ignore_ascii_case(expected_sha256));
+    if !matches {
+        let _ = tokio::fs::remove_file(meta_path).await;
+        return None;
+    }
+    value.get("etag")?.as_str().map(ToString::to_string)
 }
 
 fn parse_content_range(
