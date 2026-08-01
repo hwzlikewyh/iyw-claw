@@ -8,7 +8,9 @@
 
 use serde::Serialize;
 
-use crate::acp::session_config_reconciler::diagnostics::{diagnostics_snapshot, ReconcileDiagnostic};
+use crate::acp::session_config_reconciler::diagnostics::{
+    diagnostics_snapshot, ReconcileDiagnostic,
+};
 use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
 
@@ -34,6 +36,7 @@ pub fn session_config_reconcile_diagnostics_core() -> SessionConfigReconcileDiag
 
 /// Tauri command：设置页读取最近一次对账时间/结果。
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn get_session_config_reconcile_diagnostics() -> Result<SessionConfigReconcileDiagnostics, AppCommandError> {
+pub async fn get_session_config_reconcile_diagnostics(
+) -> Result<SessionConfigReconcileDiagnostics, AppCommandError> {
     Ok(session_config_reconcile_diagnostics_core())
 }
