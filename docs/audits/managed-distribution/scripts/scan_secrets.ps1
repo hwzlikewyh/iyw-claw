@@ -55,4 +55,3 @@ if ($OutFile -ne '') {
   @("# secret scan（脱敏）$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')", "命中数：$($out.Count)") + $out | Set-Content -Path $OutFile -Encoding UTF8
   Write-Host "已写入：$OutFile"
 }
-

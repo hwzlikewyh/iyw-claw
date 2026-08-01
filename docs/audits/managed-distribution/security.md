@@ -9,7 +9,7 @@
 ### 1.1 已确认
 - **IYW-SEC-001（P0）**（基线证据）：`git.rs:48` 通过 `inject_credentials` 硬编码 GitLab 凭据（值不回显）；历史 commit `3b6e21b` 同源。**复核时（工作区）**：`system_skills/git.rs` 已删除硬编码凭据，改为 `inject_credentials_for_url`/`require_origin_credentials`（DB 凭据注入，git.rs:42,91,103），工作区已移除；但未提交、未合并，历史清理与凭据轮换仍待 Task 00/13，本缺陷不视为 verified。
   - 影响面：任何能读取该文件/安装包的人获得仓库写读凭据。
-  - 本轮扫描限定：当前树命中 1 处（上述文件）；历史扫描命中同源提交；测试夹具中的 `ghp_0123456789...` 为假值，不构成缺陷。
+  - 本轮扫描限定（基线）：当前树命中 1 处（上述文件）；历史扫描命中同源提交；测试夹具中的 `ghp_0123456789...` 为假值，不构成缺陷。复核时（工作区）重新扫描：0 处真实凭据，仅 `state_test.go:100 user:pass@example.com` 测试夹具（evidence/07）。
 - **IYW-AUTH-001（P1）**：skill 可见性只有 `public|private`，`access.go:15-19` `CanRead = active && (public || IsOwner)`，市场查询仅 `visibility = public`；无法表达“同组织所有登录用户可见”。影响 list/detail/files/versions/dependencies/plan/ticket 全部读路径。
 - **IYW-SKILL-008（P0）**：下载完整性——响应字节与声明的 `object_sha256` 不是同一字节序列（动态 ZIP 无冻结对象），属于供应链完整性缺陷（详见 reliability.md）。
 
@@ -72,5 +72,4 @@ rg -o -g '*.rs' 'https?://[A-Za-z0-9._~:/?#@!$&()*+,;=%-]+' iyw-claw/src-tauri/s
 - 静态命中人工确认：`unwrap/expect` 集中点（web/mod.rs 锁、terminal/manager.rs、remote_image 边界有长度守卫）本轮已抽查，未发现用户输入直接触发 panic 的路径，但需按文件逐一确认。
 - 动态：TOS 403/404/429/5xx、慢流、截断、Range 异常、摘要错；Git/MySQL/TOS 中断；双实例租约。
 - 桌面动态证据必须来自远端 CI/测试机（当前机器禁止编译运行）。
-
 
