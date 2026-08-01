@@ -7,10 +7,11 @@ use crate::user_memory::{
     project_settings_capabilities, AgentMemoryAppend, AppendUserMemoryRequest,
     CorrectUserMemoryRequest, CorrectUserMemoryResult, UserMemoryAppendResult,
     UserMemoryCandidateDeleteRequest, UserMemoryCandidateDeleteResult,
+    UserMemoryCandidateIndexRebuildResult,
     UserMemoryCandidateListRequest, UserMemoryCandidatePage, UserMemoryCandidateResolutionResponse,
     UserMemoryCandidateResolveRequest, UserMemoryCandidateSummary, UserMemoryService,
-    UserMemorySettingsSnapshot, UserMemoryUpdateRequest, UserMemoryUpdateResult,
-    USER_MEMORY_CANDIDATE_MAX_LIMIT,
+    UserMemoryHarvestRescanResult, UserMemoryHarvestStatus, UserMemorySettingsSnapshot,
+    UserMemoryUpdateRequest, UserMemoryUpdateResult, USER_MEMORY_CANDIDATE_MAX_LIMIT,
 };
 
 pub async fn append_user_memory_direct_core(
@@ -128,6 +129,26 @@ pub async fn delete_user_memory_candidate_core(
     request: UserMemoryCandidateDeleteRequest,
 ) -> Result<UserMemoryCandidateDeleteResult, AppCommandError> {
     service.delete_candidate(request).await
+}
+
+pub async fn get_user_memory_harvest_status_core(
+    service: &UserMemoryService,
+) -> Result<UserMemoryHarvestStatus, AppCommandError> {
+    service.harvest_status().await
+}
+
+pub async fn rescan_user_memory_harvest_core(
+    service: &UserMemoryService,
+    execute: bool,
+) -> Result<UserMemoryHarvestRescanResult, AppCommandError> {
+    service.rescan_harvest(execute).await
+}
+
+pub async fn rebuild_user_memory_candidate_index_core(
+    service: &UserMemoryService,
+    execute: bool,
+) -> Result<UserMemoryCandidateIndexRebuildResult, AppCommandError> {
+    service.rebuild_candidate_index(execute).await
 }
 
 pub async fn get_user_memory_settings_core(
@@ -277,6 +298,52 @@ pub async fn delete_user_memory_candidate(
     #[cfg(not(feature = "tauri-runtime"))]
     {
         let _ = request;
+        Err(AppCommandError::configuration_invalid("tauri-only command"))
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn get_user_memory_harvest_status(
+    #[cfg(feature = "tauri-runtime")] service: tauri::State<'_, Arc<UserMemoryService>>,
+) -> Result<UserMemoryHarvestStatus, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        get_user_memory_harvest_status_core(service.inner().as_ref()).await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        Err(AppCommandError::configuration_invalid("tauri-only command"))
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn rescan_user_memory_harvest(
+    #[cfg(feature = "tauri-runtime")] service: tauri::State<'_, Arc<UserMemoryService>>,
+    execute: bool,
+) -> Result<UserMemoryHarvestRescanResult, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        rescan_user_memory_harvest_core(service.inner().as_ref(), execute).await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let _ = execute;
+        Err(AppCommandError::configuration_invalid("tauri-only command"))
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn rebuild_user_memory_candidate_index(
+    #[cfg(feature = "tauri-runtime")] service: tauri::State<'_, Arc<UserMemoryService>>,
+    execute: bool,
+) -> Result<UserMemoryCandidateIndexRebuildResult, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        rebuild_user_memory_candidate_index_core(service.inner().as_ref(), execute).await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let _ = execute;
         Err(AppCommandError::configuration_invalid("tauri-only command"))
     }
 }

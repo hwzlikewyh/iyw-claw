@@ -7,15 +7,18 @@ use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::user_memory::{
     append_user_memory_direct_core, correct_user_memory_core, delete_user_memory_candidate_core,
-    get_user_memory_settings_core, list_user_memory_candidates_core,
-    resolve_user_memory_candidate_core, update_user_memory_settings_core,
+    get_user_memory_harvest_status_core, get_user_memory_settings_core,
+    list_user_memory_candidates_core, rebuild_user_memory_candidate_index_core,
+    rescan_user_memory_harvest_core, resolve_user_memory_candidate_core,
+    update_user_memory_settings_core,
 };
 use crate::user_memory::{
     AppendUserMemoryRequest, CorrectUserMemoryRequest, CorrectUserMemoryResult,
     UserMemoryAppendResult, UserMemoryCandidateDeleteRequest, UserMemoryCandidateDeleteResult,
+    UserMemoryCandidateIndexRebuildResult,
     UserMemoryCandidateListRequest, UserMemoryCandidatePage, UserMemoryCandidateResolutionResponse,
     UserMemoryCandidateResolveRequest, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
-    UserMemoryUpdateResult,
+    UserMemoryUpdateResult, UserMemoryHarvestRescanResult, UserMemoryHarvestStatus,
 };
 
 #[derive(Deserialize)]
@@ -117,5 +120,43 @@ pub async fn delete_user_memory_candidate(
 ) -> Result<Json<UserMemoryCandidateDeleteResult>, AppCommandError> {
     Ok(Json(
         delete_user_memory_candidate_core(&state.user_memory, params.request).await?,
+    ))
+}
+
+pub async fn get_user_memory_harvest_status(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<UserMemoryHarvestStatus>, AppCommandError> {
+    Ok(Json(
+        get_user_memory_harvest_status_core(&state.user_memory).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RescanUserMemoryHarvestParams {
+    pub execute: bool,
+}
+
+pub async fn rescan_user_memory_harvest(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<RescanUserMemoryHarvestParams>,
+) -> Result<Json<UserMemoryHarvestRescanResult>, AppCommandError> {
+    Ok(Json(
+        rescan_user_memory_harvest_core(&state.user_memory, params.execute).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RebuildUserMemoryCandidateIndexParams {
+    pub execute: bool,
+}
+
+pub async fn rebuild_user_memory_candidate_index(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<RebuildUserMemoryCandidateIndexParams>,
+) -> Result<Json<UserMemoryCandidateIndexRebuildResult>, AppCommandError> {
+    Ok(Json(
+        rebuild_user_memory_candidate_index_core(&state.user_memory, params.execute).await?,
     ))
 }

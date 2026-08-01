@@ -8,8 +8,23 @@ from typing import Any
 
 
 DEFAULT_CONFIG_DIR = Path(r"C:\Users\iyw\.iyw-claw")
+IYW_ACCOUNT_TOKEN_FILENAME = "iyw-account-token.json"
 ALLOWED_FIELDS = frozenset(
-    {"version", "app_token", "access_token", "business_token", "cookies"}
+    {
+        "version",
+        "app_token",
+        "access_token",
+        "business_token",
+        "ttocr_token",
+        "ttocr_token_info",
+        # Legacy names remain readable for existing credential files.
+        "login_token",
+        "token_info",
+        "refresh_token",
+        "phone",
+        "password",
+        "cookies",
+    }
 )
 REDACTED_KEYS = frozenset(
     {
@@ -20,8 +35,35 @@ REDACTED_KEYS = frozenset(
         "cookies",
         "password",
         "phone",
+        "ticket",
     }
 )
+
+
+def load_iyw_account_access_token(path: str | Path | None = None) -> str:
+    token_path = (
+        Path(path).expanduser()
+        if path is not None
+        else Path.home() / ".iyw-claw" / IYW_ACCOUNT_TOKEN_FILENAME
+    )
+    try:
+        raw = token_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+    except OSError as exc:
+        raise ValueError(f"failed to read IYW account token file: {token_path}") from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"IYW account token file contains invalid JSON: {token_path}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"IYW account token file must contain a JSON object: {token_path}"
+        )
+    access_token = data.get("access_token")
+    return access_token.strip() if isinstance(access_token, str) else ""
 
 
 def resolve_config_dir(explicit: str | Path | None = None) -> Path:
@@ -80,12 +122,22 @@ class CredentialStore:
     def summary(self) -> dict[str, Any]:
         data = self.load()
         cookies = data.get("cookies") if isinstance(data.get("cookies"), list) else []
+        has_iyw_token = bool(
+            load_iyw_account_access_token()
+            or os.getenv("IYW_TOKEN")
+            or os.getenv("LIXIAO_TTOCR_TOKEN")
+            or data.get("ttocr_token")
+            or data.get("login_token")
+        )
         return {
             "path": str(self.path),
             "configured": self.path.exists(),
             "has_app_token": bool(data.get("app_token")),
             "has_access_token": bool(data.get("access_token")),
             "has_business_token": bool(data.get("business_token")),
+            "has_iyw_token": has_iyw_token,
+            "has_ttocr_token": has_iyw_token,
+            "has_account": bool(data.get("phone") and data.get("password")),
             "cookie_count": len(cookies),
         }
 

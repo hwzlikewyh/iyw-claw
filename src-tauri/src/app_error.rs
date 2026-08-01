@@ -96,6 +96,10 @@ pub enum AppErrorCode {
     AgentStorageNotInitialized,
     AgentStorageInvalid,
     AgentStorageRestartRequired,
+    /// The requested Skill release has no real downloadable artifact yet
+    /// (incomplete metadata / empty object digest). Install must stop here
+    /// instead of retrying the same download three times.
+    ArtifactNotReady,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
@@ -209,6 +213,10 @@ impl AppCommandError {
 
     pub fn agent_storage_restart_required(message: impl Into<String>) -> Self {
         Self::new(AppErrorCode::AgentStorageRestartRequired, message)
+    }
+
+    pub fn artifact_not_ready(message: impl Into<String>) -> Self {
+        Self::new(AppErrorCode::ArtifactNotReady, message)
     }
 
     pub fn io(err: std::io::Error) -> Self {

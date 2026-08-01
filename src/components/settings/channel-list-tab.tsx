@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react"
 import {
+  Activity,
   AlertCircle,
   Loader2,
   MessageCircle,
   Pencil,
   Play,
   Plus,
+  RefreshCw,
   Square,
   Trash2,
   Zap,
@@ -42,10 +44,14 @@ import {
   testChatChannel,
   updateChatChannel,
   getChatChannelStatus,
+  getChatChannelReadiness,
+  quickCheckChatChannel,
+  fullLoopChatChannel,
 } from "@/lib/api"
 import { subscribe } from "@/lib/platform"
 import type {
   ChatChannelInfo,
+  ChannelReadinessReport,
   ChannelStatusInfo,
   ChannelType,
 } from "@/lib/types"
@@ -58,6 +64,7 @@ export function ChannelListTab() {
   const t = useTranslations("ChatChannelSettings")
   const [channels, setChannels] = useState<ChatChannelInfo[]>([])
   const [statuses, setStatuses] = useState<ChannelStatusInfo[]>([])
+  const [readiness, setReadiness] = useState<ChannelReadinessReport[]>([])
   const [loading, setLoading] = useState(true)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<ChatChannelInfo | null>(null)
@@ -67,12 +74,14 @@ export function ChannelListTab() {
 
   const loadChannels = useCallback(async () => {
     try {
-      const [chs, sts] = await Promise.all([
+      const [chs, sts, rd] = await Promise.all([
         listChatChannels(),
         getChatChannelStatus().catch(() => []),
+        getChatChannelReadiness().catch(() => []),
       ])
       setChannels(chs)
       setStatuses(sts)
+      setReadiness(rd)
     } catch {
       toast.error(t("loadFailed"))
     } finally {
@@ -112,13 +121,22 @@ export function ChannelListTab() {
   }, [])
 
   const handleToggleEnabled = useCallback(
-    async (ch: ChatChannelInfo, connected: boolean) => {
+    async (ch: ChatChannelInfo) => {
       try {
-        const disabling = ch.enabled
-        if (disabling && connected) {
-          await disconnectChatChannel(ch.id)
+        // IYW-CHANNEL-002: the backend reconcile entry drives both directions
+        // (disable → disconnect, enable → connect); the UI only flips the
+        // desired state.
+        const updated = await updateChatChannel({
+          id: ch.id,
+          enabled: !ch.enabled,
+        })
+        if (updated.enabled && updated.runtime_status === "error") {
+          toast.error(
+            `${t("enabledNotConnected")}${updated.last_error ? "：" + updated.last_error : ""}`
+          )
+        } else if (!updated.enabled) {
+          toast.success(t("disconnectSuccess"))
         }
-        await updateChatChannel({ id: ch.id, enabled: !ch.enabled })
         await loadChannels()
       } catch {
         toast.error(t("saveFailed"))
@@ -199,6 +217,43 @@ export function ChannelListTab() {
     [t]
   )
 
+  const runDiagnostic = useCallback(
+    async (ch: ChatChannelInfo, kind: "quick" | "full") => {
+      setActionLoading(ch.id)
+      try {
+        const result =
+          kind === "quick"
+            ? await quickCheckChatChannel(ch.id)
+            : await fullLoopChatChannel(ch.id)
+        const rd = result.readiness
+        const failedStage = rd.stages.find((s) => !s.ok)
+        if (
+          kind === "full" &&
+          result.roundtrip &&
+          !result.roundtrip.verified
+        ) {
+          const detail = result.roundtrip.details.join("；")
+          toast.error(t("diagnosticFailed") + (detail ? `：${detail}` : ""))
+        } else if (failedStage) {
+          toast.error(
+            `${t("diagnosticFailed")}（${failedStage.key}）：${
+              failedStage.error ?? rd.errorMessage ?? ""
+            }`
+          )
+        } else {
+          toast.success(t("diagnosticOk"))
+        }
+        await loadChannels()
+      } catch (err: unknown) {
+        const msg = toErrorMessage(err)
+        toast.error(t("diagnosticFailed") + ": " + msg)
+      } finally {
+        setActionLoading(null)
+      }
+    },
+    [loadChannels, t]
+  )
+
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return
     try {
@@ -213,6 +268,9 @@ export function ChannelListTab() {
 
   const getChannelStatus = (id: number) =>
     statuses.find((s) => s.channel_id === id)?.status ?? "disconnected"
+
+  const getReadiness = (id: number) =>
+    readiness.find((r) => r.channelId === id)
 
   if (loading) {
     return (
@@ -248,6 +306,7 @@ export function ChannelListTab() {
           {channels.map((ch) => {
             const status = getChannelStatus(ch.id)
             const isConnected = status === "connected"
+            const rd = getReadiness(ch.id)
             const isLoading = actionLoading === ch.id
 
             return (
@@ -294,11 +353,24 @@ export function ChannelListTab() {
                               : "bg-gray-400"
                       }`}
                     />
+                    {ch.enabled && !isConnected && (
+                      <Badge variant="destructive" className="text-xs">
+                        {t("enabledNotConnected")}
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 mt-1">
                     {ch.daily_report_enabled && (
                       <span className="text-xs text-muted-foreground">
                         {t("dailyReport")}: {ch.daily_report_time || "18:00"}
+                      </span>
+                    )}
+                    {(rd?.lastError || ch.last_error) && (
+                      <span
+                        className="text-xs text-red-400 truncate max-w-[320px]"
+                        title={rd?.lastError ?? ch.last_error ?? undefined}
+                      >
+                        {t("lastError")}: {rd?.lastError ?? ch.last_error}
                       </span>
                     )}
                   </div>
@@ -307,7 +379,7 @@ export function ChannelListTab() {
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={ch.enabled}
-                    onCheckedChange={() => handleToggleEnabled(ch, isConnected)}
+                    onCheckedChange={() => handleToggleEnabled(ch)}
                   />
                   {isConnected ? (
                     <Button
@@ -346,6 +418,24 @@ export function ChannelListTab() {
                     onClick={() => handleTest(ch.id)}
                   >
                     <Zap className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    title={t("quickCheck")}
+                    disabled={isLoading || !ch.enabled}
+                    onClick={() => runDiagnostic(ch, "quick")}
+                  >
+                    <Activity className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    title={t("fullLoop")}
+                    disabled={isLoading || !ch.enabled}
+                    onClick={() => runDiagnostic(ch, "full")}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
                   </Button>
                   <Button
                     variant="ghost"

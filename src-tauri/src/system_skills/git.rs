@@ -27,27 +27,6 @@ pub struct CheckoutInfo {
     pub dirty: bool,
 }
 
-pub async fn force_reset(
-    repo: &Path,
-    conn: &DatabaseConnection,
-    data_dir: &Path,
-) -> Result<(), AppCommandError> {
-    repo_output(repo, ["reset", "--hard", "HEAD"], conn, data_dir)
-        .await
-        .map(|_| ())
-}
-
-async fn inject_system_skills_credentials(cmd: &mut Command, data_dir: &Path) {
-    let askpass = match crate::git_credential::ensure_askpass_script(data_dir) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!(target: "system_skills", "failed to create askpass script: {e}");
-            return;
-        }
-    };
-    crate::git_credential::inject_credentials(cmd, "iyw_lq", "iyw@123456789", &askpass);
-}
-
 pub fn is_newer(current: Option<&str>, latest: &Version) -> bool {
     current
         .and_then(|value| Version::parse(value.trim_start_matches('v')).ok())
@@ -60,7 +39,7 @@ pub async fn latest_stable_tag(
 ) -> Result<RemoteTag, AppCommandError> {
     let mut command = crate::process::tokio_command("git");
     command.args(["ls-remote", "--tags", "--refs", REPOSITORY_URL]);
-    inject_system_skills_credentials(&mut command, data_dir).await;
+    inject_credentials_for_url(&mut command, REPOSITORY_URL, conn, data_dir).await?;
     let output = run(command, "list system skill tags", DISCOVERY_TIMEOUT).await?;
     parse_tags(&String::from_utf8_lossy(&output.stdout))
         .into_iter()
@@ -109,7 +88,7 @@ pub async fn clone_tag(
         .args(["--depth", "1", "--branch", tag])
         .arg(REPOSITORY_URL)
         .arg(target);
-    inject_system_skills_credentials(&mut command, data_dir).await;
+    inject_credentials_for_url(&mut command, REPOSITORY_URL, conn, data_dir).await?;
     run(command, "clone system skills", TRANSFER_TIMEOUT).await?;
     write_local_excludes(target)?;
     repo_output(target, ["rev-parse", "HEAD"], conn, data_dir).await
@@ -121,6 +100,7 @@ pub async fn checkout_tag(
     conn: &DatabaseConnection,
     data_dir: &Path,
 ) -> Result<String, AppCommandError> {
+    require_origin_credentials(repo, conn, data_dir).await?;
     repo_output(
         repo,
         [
@@ -173,14 +153,59 @@ fn parse_tags(raw: &str) -> Vec<RemoteTag> {
 async fn repo_output<const N: usize>(
     repo: &Path,
     args: [&str; N],
-    _conn: &DatabaseConnection,
+    conn: &DatabaseConnection,
     data_dir: &Path,
 ) -> Result<String, AppCommandError> {
     let mut command = crate::process::tokio_command("git");
     command.arg("-C").arg(repo).args(args);
-    inject_system_skills_credentials(&mut command, data_dir).await;
+    crate::git_credential::try_inject_for_repo(
+        &mut command,
+        &repo.to_string_lossy(),
+        conn,
+        data_dir,
+    )
+    .await;
     let output = run(command, "update system skills", TRANSFER_TIMEOUT).await?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Inject trusted credentials from the configured account store (DB-backed
+/// accounts plus the active keyring/token file) into a network git command.
+/// Fails fast with a configuration error when no matching credential exists
+/// so the app never retries anonymous git operations against a private repo.
+async fn inject_credentials_for_url(
+    command: &mut Command,
+    remote_url: &str,
+    conn: &DatabaseConnection,
+    data_dir: &Path,
+) -> Result<(), AppCommandError> {
+    if crate::git_credential::try_inject_for_url(command, remote_url, conn, data_dir).await {
+        return Ok(());
+    }
+    Err(AppCommandError::configuration_missing(
+        "No trusted credentials are configured for the system skills repository",
+    ))
+}
+
+/// Resolve the repository's origin URL and verify trusted credentials exist
+/// before any fetch that would otherwise attempt an anonymous authentication.
+async fn require_origin_credentials(
+    repo: &Path,
+    conn: &DatabaseConnection,
+    data_dir: &Path,
+) -> Result<(), AppCommandError> {
+    let remote_url = crate::git_credential::get_remote_url_by_name(
+        &repo.to_string_lossy(),
+        "origin",
+    )
+    .await
+    .ok_or_else(|| {
+        AppCommandError::configuration_invalid(
+            "System skills repository has no readable origin remote",
+        )
+    })?;
+    let mut probe = crate::process::tokio_command("git");
+    inject_credentials_for_url(&mut probe, &remote_url, conn, data_dir).await
 }
 
 async fn run(

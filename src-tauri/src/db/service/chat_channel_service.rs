@@ -1,4 +1,5 @@
 use chrono::Utc;
+use sea_orm::prelude::DateTimeUtc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
     IntoActiveModel, QueryFilter, QueryOrder, Set,
@@ -6,6 +7,12 @@ use sea_orm::{
 
 use crate::db::entities::chat_channel;
 use crate::db::error::DbError;
+
+pub const RUNTIME_SAVED: &str = "saved";
+pub const RUNTIME_CONNECTING: &str = "connecting";
+pub const RUNTIME_CONNECTED: &str = "connected";
+pub const RUNTIME_ERROR: &str = "error";
+pub const RUNTIME_DISCONNECTED: &str = "disconnected";
 
 pub async fn create(
     conn: &DatabaseConnection,
@@ -26,6 +33,10 @@ pub async fn create(
         event_filter_json: Set(None),
         daily_report_enabled: Set(daily_report_enabled),
         daily_report_time: Set(daily_report_time),
+        runtime_status: Set(RUNTIME_SAVED.to_string()),
+        last_error: Set(None),
+        last_error_at: Set(None),
+        last_connected_at: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
     };
@@ -66,6 +77,39 @@ pub async fn update(
     }
     if let Some(v) = daily_report_time {
         active.daily_report_time = Set(v);
+    }
+    active.updated_at = Set(Utc::now());
+    Ok(active.update(conn).await?)
+}
+
+/// Persist the last observed runtime state. `None` keeps the existing value.
+/// Pass `status` + optional error/connected timestamps together so the caller
+/// records one coherent transition instead of interleaved partial writes.
+#[allow(clippy::too_many_arguments)]
+pub async fn update_runtime(
+    conn: &DatabaseConnection,
+    id: i32,
+    status: Option<String>,
+    last_error: Option<Option<String>>,
+    last_error_at: Option<Option<DateTimeUtc>>,
+    last_connected_at: Option<Option<DateTimeUtc>>,
+) -> Result<chat_channel::Model, DbError> {
+    let model = chat_channel::Entity::find_by_id(id)
+        .one(conn)
+        .await?
+        .ok_or_else(|| DbError::Migration(format!("chat channel not found: {id}")))?;
+    let mut active = model.into_active_model();
+    if let Some(v) = status {
+        active.runtime_status = Set(v);
+    }
+    if let Some(v) = last_error {
+        active.last_error = Set(v);
+    }
+    if let Some(v) = last_error_at {
+        active.last_error_at = Set(v);
+    }
+    if let Some(v) = last_connected_at {
+        active.last_connected_at = Set(v);
     }
     active.updated_at = Set(Utc::now());
     Ok(active.update(conn).await?)

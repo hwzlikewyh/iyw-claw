@@ -655,6 +655,7 @@
       },
       "toasts": {
         "actionFailed": "Skill 操作失败",
+        "artifactNotReady": "制品尚未就绪，当前版本暂不可安装",
         "published": "Skill 已发布",
         "metadataUpdated": "市场元数据已更新",
         "versionPublished": "新版本已发布",
@@ -3364,7 +3365,8 @@
   "fullLoop": "完整回环",
   "diagnosticOk": "诊断通过",
   "diagnosticFailed": "诊断未通过",
-  "lastError": "最近错误",  "testFailed": "连接测试失败",
+  "lastError": "最近错误",
+  "testFailed": "连接测试失败",
     "deleteSuccess": "渠道已删除。",
     "deleteFailed": "删除渠道失败。",
     "deleteConfirmTitle": "删除渠道",

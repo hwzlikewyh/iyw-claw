@@ -56,6 +56,63 @@ fn default_completed_cache_max_mb() -> u32 {
 #[derive(Clone)]
 pub struct DelegationSocketPath(pub PathBuf);
 
+/// 有效开关来源，UI 必须如实展示（默认/用户/组织策略/安全关闭）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DelegationEffectiveSource {
+    /// 后台安全 kill switch（管理员紧急关闭）。
+    KillSwitch,
+    /// 后台强制组织策略。
+    OrgPolicy,
+    /// 用户显式偏好。
+    UserPreference,
+    /// 迁移自旧持久键的一次性默认。
+    Migrated,
+    /// 产品默认值。
+    ProductDefault,
+}
+
+/// 合并后的有效开关与来源（只读计算字段，保存时忽略）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DelegationEffectiveState {
+    pub enabled: bool,
+    pub source: DelegationEffectiveSource,
+    /// 后台 kill switch 是否正在强制关闭本功能。
+    pub kill_switch_active: bool,
+}
+
+/// 一次性默认值迁移版本：新安装与无旧键升级用户都写 true 并记录该版本。
+pub const DELEGATION_MIGRATION_VERSION: &str = "1";
+pub const KEY_DELEGATION_MIGRATION_VERSION: &str = "delegation.migration_version";
+
+/// 后台策略来源键（由管理端/后端写入，UI 只读）。
+pub const KEY_DELEGATION_ORG_POLICY: &str = "delegation.org_policy";
+pub const KEY_DELEGATION_KILL_SWITCH: &str = "delegation.kill_switch";
+pub const KILL_SWITCH_ENV: &str = "IYW_CLAW_FEATURE_KILL_SWITCH";
+
+/// 读取后台 kill switch 与组织策略（`Some` 即生效，优先于用户设置）。
+async fn backend_delegation_policy(
+    conn: &DatabaseConnection,
+) -> (Option<bool>, Option<bool>) {
+    let env_kill = std::env::var(KILL_SWITCH_ENV)
+        .ok()
+        .map(|raw| raw.split(',').any(|item| item.trim() == "delegation"));
+    let kill_switch = env_kill.or_else(|| {
+        // 持久键仅在显式布尔时生效；损坏值视为未设置（不回退直连）。
+        app_metadata_service::get_value(conn, KEY_DELEGATION_KILL_SWITCH)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|raw| raw.parse::<bool>().ok())
+    });
+    let org_policy = app_metadata_service::get_value(conn, KEY_DELEGATION_ORG_POLICY)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|raw| raw.parse::<bool>().ok());
+    (kill_switch, org_policy)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DelegationSettings {
     pub enabled: bool,
@@ -71,15 +128,20 @@ pub struct DelegationSettings {
     /// unlimited), so an older client can't silently disable the valve.
     #[serde(default = "default_completed_cache_max_mb")]
     pub completed_cache_max_mb: u32,
+    /// 只读有效状态：由后台策略 + 用户设置 + 迁移合并计算，保存时忽略。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective: Option<DelegationEffectiveState>,
 }
 
 impl Default for DelegationSettings {
     fn default() -> Self {
         Self {
-            enabled: false,
+            // 产品默认：新安装默认开启多智能体协同。
+            enabled: true,
             depth_limit: 1,
             agent_defaults: BTreeMap::new(),
             completed_cache_max_mb: DEFAULT_COMPLETED_CACHE_MB,
+            effective: None,
         }
     }
 }
@@ -97,12 +159,20 @@ impl DelegationSettings {
             // No upper clamp: the cache budget is a user memory choice, not a
             // safety rail. `0` stays `0` (unlimited).
             completed_cache_max_mb: self.completed_cache_max_mb,
+            effective: self.effective,
         }
+    }
+
+    /// 有效开关（后台 kill switch / 组织策略优先，其次用户显式值）。
+    /// 无 `effective` 时回退到 `enabled`（旧客户端路径），但 kill switch
+    /// 强制关闭时仍以 kill switch 为准，用户无法绕过。
+    fn effective_enabled(&self) -> bool {
+        self.effective.map(|state| state.enabled).unwrap_or(self.enabled)
     }
 
     fn into_broker_config(self) -> DelegationConfig {
         DelegationConfig {
-            enabled: self.enabled,
+            enabled: self.effective_enabled(),
             depth_limit: self.depth_limit,
             agent_defaults: self.agent_defaults,
             // MB → bytes. `saturating_mul` guards a pathologically large MB
@@ -113,10 +183,72 @@ impl DelegationSettings {
     }
 }
 
+/// 一次性迁移：新安装与升级用户都要求 delegation 默认开启。
+/// 不存在持久键时写 true 并记录 migration version；已存在键时原样保留。
+/// 幂等，可安全地在每次读取前调用。
+pub async fn migrate_delegation_defaults(conn: &DatabaseConnection) {
+    let has_key = app_metadata_service::get_value(conn, KEY_DELEGATION_ENABLED)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+    if !has_key {
+        let _ = app_metadata_service::upsert_value(conn, KEY_DELEGATION_ENABLED, "true").await;
+        let _ = app_metadata_service::upsert_value(
+            conn,
+            KEY_DELEGATION_MIGRATION_VERSION,
+            DELEGATION_MIGRATION_VERSION,
+        )
+        .await;
+    }
+}
+
+/// 合并后台策略与用户设置，计算有效开关和来源。
+async fn effective_delegation_state(
+    conn: &DatabaseConnection,
+    settings: &DelegationSettings,
+) -> DelegationEffectiveState {
+    let (kill_switch, org_policy) = backend_delegation_policy(conn).await;
+    let migrated = app_metadata_service::get_value(conn, KEY_DELEGATION_MIGRATION_VERSION)
+        .await
+        .ok()
+        .flatten()
+        .map(|_| settings.enabled);
+    let flag = crate::acp::session_config_reconciler::merge::resolve_feature_flag(
+        kill_switch,
+        org_policy,
+        Some(settings.enabled),
+        migrated,
+        crate::acp::session_config_reconciler::merge::PRODUCT_DEFAULT_DELEGATION_ENABLED,
+    );
+    DelegationEffectiveState {
+        enabled: flag.enabled,
+        source: match flag.source {
+            crate::acp::session_config_reconciler::merge::EffectiveSource::KillSwitch => {
+                DelegationEffectiveSource::KillSwitch
+            }
+            crate::acp::session_config_reconciler::merge::EffectiveSource::OrgPolicy => {
+                DelegationEffectiveSource::OrgPolicy
+            }
+            crate::acp::session_config_reconciler::merge::EffectiveSource::UserPreference => {
+                DelegationEffectiveSource::UserPreference
+            }
+            crate::acp::session_config_reconciler::merge::EffectiveSource::Migrated => {
+                DelegationEffectiveSource::Migrated
+            }
+            crate::acp::session_config_reconciler::merge::EffectiveSource::ProductDefault => {
+                DelegationEffectiveSource::ProductDefault
+            }
+        },
+        kill_switch_active: kill_switch == Some(false),
+    }
+}
+
 /// Read all persisted keys from `app_metadata`, falling back to defaults
 /// for any missing or malformed value. Never errors hard — corrupt
 /// persistence is treated as "no preference yet."
 pub async fn load_delegation_settings(conn: &DatabaseConnection) -> DelegationSettings {
+    migrate_delegation_defaults(conn).await;
     let mut settings = DelegationSettings::default();
     if let Ok(Some(raw)) = app_metadata_service::get_value(conn, KEY_DELEGATION_ENABLED).await {
         if let Ok(v) = raw.parse::<bool>() {
@@ -146,7 +278,9 @@ pub async fn load_delegation_settings(conn: &DatabaseConnection) -> DelegationSe
             settings.agent_defaults = parsed;
         }
     }
-    settings.clamped()
+    let mut settings = settings.clamped();
+    settings.effective = Some(effective_delegation_state(conn, &settings).await);
+    settings
 }
 
 /// Pull settings from the DB and push the resulting `DelegationConfig` onto
@@ -164,6 +298,17 @@ pub async fn set_delegation_settings_core(
     broker: &DelegationBroker,
     desired: DelegationSettings,
 ) -> Result<DelegationSettings, AppCommandError> {
+    // 后台安全 kill switch 优先：强制关闭时用户显式开启不能生效。
+    let (kill_switch, _) = backend_delegation_policy(conn).await;
+    if kill_switch == Some(false) && desired.enabled {
+        let mut effective = effective_delegation_state(conn, &desired).await;
+        effective.kill_switch_active = true;
+        let mut forced = desired;
+        forced.enabled = false;
+        forced.effective = Some(effective);
+        broker.set_config(forced.clone().into_broker_config()).await;
+        return Ok(forced);
+    }
     let clamped = desired.clamped();
     app_metadata_service::upsert_value(conn, KEY_DELEGATION_ENABLED, &clamped.enabled.to_string())
         .await
@@ -194,7 +339,9 @@ pub async fn set_delegation_settings_core(
     broker
         .set_config(clamped.clone().into_broker_config())
         .await;
-    Ok(clamped)
+    let mut saved = clamped;
+    saved.effective = Some(effective_delegation_state(conn, &saved).await);
+    Ok(saved)
 }
 
 // -------- Tauri commands -----------------------------------------------------

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
-import { toErrorMessage } from "@/lib/app-error"
+import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import {
   skillMarketAddVersion,
   skillMarketDelete,
@@ -45,9 +45,15 @@ function useActionRunner(onRefresh: () => void) {
       toast.success(message)
       onRefresh()
     } catch (error) {
-      toast.error(t("toasts.actionFailed"), {
-        description: toErrorMessage(error),
-      })
+      if (extractAppCommandError(error)?.code === "artifact_not_ready") {
+        toast.error(t("toasts.artifactNotReady"), {
+          description: toErrorMessage(error),
+        })
+      } else {
+        toast.error(t("toasts.actionFailed"), {
+          description: toErrorMessage(error),
+        })
+      }
       throw error
     } finally {
       setBusyAction(null)

@@ -20,7 +20,7 @@ pub async fn load(conn: &DatabaseConnection) -> Result<StoredState, AppCommandEr
     let auto_update = read(conn, AUTO_UPDATE_KEY)
         .await?
         .and_then(|value| value.parse::<bool>().ok())
-        .unwrap_or(true);
+        .unwrap_or(false);
     Ok(StoredState {
         auto_update,
         current_version: read(conn, CURRENT_VERSION_KEY).await?,

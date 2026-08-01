@@ -14,7 +14,10 @@ use crate::acp::manager::ConnectionManager;
 use crate::acp::types::{AcpEvent, ConnectionStatus, EventEnvelope, PromptInputBlock};
 use crate::chat_channel::types::{MessageLevel, RichMessage};
 
-use crate::db::service::{app_metadata_service, conversation_service, sender_context_service};
+use crate::db::service::{
+    app_metadata_service, chat_channel_message_log_service, conversation_service,
+    sender_context_service,
+};
 
 use super::manager::ChatChannelManager;
 
@@ -22,6 +25,10 @@ const FLUSH_INTERVAL_SECS: u64 = 10;
 const BUFFER_FLUSH_THRESHOLD: usize = 500;
 const MAX_MESSAGE_LEN: usize = 2000;
 const MESSAGE_LANGUAGE_KEY: &str = "chat_message_language";
+/// Deferred kickoff prompts (blocked by an in-flight turn) are retried at
+/// most this many times, then surfaced as an explicit failure instead of
+/// retrying forever.
+const MAX_KICKOFF_RETRIES: u32 = 3;
 
 pub fn spawn_session_event_subscriber(
     bus: Arc<InternalEventBus>,
@@ -116,11 +123,33 @@ async fn handle_acp_envelope(
                         // retries the kickoff once the in-flight turn finishes,
                         // instead of silently dropping the task's initial prompt.
                         if matches!(e, crate::acp::error::AcpError::TurnInProgress) {
-                            session.pending_prompt = Some(prompt_text);
-                            tracing::warn!(
-                                "[SessionEventSub] kickoff deferred; a turn is already in \
-                                 progress, will retry on TurnComplete"
-                            );
+                            session.pending_prompt_attempts =
+                                session.pending_prompt_attempts.saturating_add(1);
+                            if session.pending_prompt_attempts >= MAX_KICKOFF_RETRIES {
+                                // Bounded retries exhausted: drop the prompt and
+                                // tell the user instead of blocking forever.
+                                session.pending_prompt = None;
+                                let target = session.target.clone();
+                                let lang = get_lang(db).await;
+                                let fail_msg = match lang {
+                                    Lang::ZhCn | Lang::ZhTw => {
+                                        "任务启动提示连续被占用，已放弃自动重试；请重新发送。"
+                                    }
+                                    _ => "The kickoff prompt was repeatedly blocked; auto-retry stopped. Please resend.",
+                                };
+                                let _ = manager
+                                    .send_to_target(
+                                        &target,
+                                        &RichMessage::error(fail_msg.to_string()),
+                                    )
+                                    .await;
+                            } else {
+                                session.pending_prompt = Some(prompt_text);
+                                tracing::warn!(
+                                    "[SessionEventSub] kickoff deferred; a turn is already in \
+                                     progress, will retry on TurnComplete"
+                                );
+                            }
                         } else {
                             tracing::error!("[SessionEventSub] failed to send pending prompt: {e}");
                         }
@@ -298,6 +327,7 @@ async fn handle_acp_envelope(
                 let channel_id = session.channel_id;
                 let target = session.target.clone();
                 let conv_id = session.conversation_id;
+                let trace_id = session.trace_id.clone();
                 let content = std::mem::take(&mut session.content_buffer);
                 session.tool_calls.clear();
                 session.last_flushed = Instant::now();
@@ -312,8 +342,45 @@ async fn handle_acp_envelope(
                 let body = format_completion(&content, lang);
 
                 if !body.trim().is_empty() {
-                    let msg = RichMessage::info(body);
-                    let _ = manager.send_to_target(&target, &msg).await;
+                    let msg = RichMessage::info(body.clone());
+                    // The outbound reply is stamped with the session trace so
+                    // the message log reconstructs the whole round trip.
+                    match manager.send_to_target(&target, &msg).await {
+                        Ok(sent_id) => {
+                            let _ = chat_channel_message_log_service::create_log_full(
+                                db,
+                                channel_id,
+                                "outbound",
+                                "agent_reply",
+                                &body,
+                                "sent",
+                                None,
+                                trace_id,
+                                Some(sent_id.0),
+                            )
+                            .await;
+                        }
+                        Err(error) => {
+                            tracing::error!(
+                                "[SessionEventSub] failed to send completion to channel={} \
+                                 conversation={}: {error}",
+                                channel_id,
+                                conv_id
+                            );
+                            let _ = chat_channel_message_log_service::create_log_full(
+                                db,
+                                channel_id,
+                                "outbound",
+                                "agent_reply",
+                                &body,
+                                "failed",
+                                Some(error.to_string()),
+                                trace_id,
+                                None,
+                            )
+                            .await;
+                        }
+                    }
                 } else if !content.trim().is_empty() {
                     tracing::info!(
                         "[SessionEventSub] assistant completion suppressed after channel \
@@ -322,6 +389,28 @@ async fn handle_acp_envelope(
                         channel_id,
                         conv_id
                     );
+                    // The agent produced output but every line was filtered as
+                    // internal process chatter — surface that to the user so
+                    // the turn doesn't look like a silent no-op.
+                    let notice = match lang {
+                        Lang::ZhCn | Lang::ZhTw => {
+                            "本回合没有可展示的内容（回复被通道过滤）。可换一种表述重试。"
+                        }
+                        _ => "This turn produced no displayable content (the reply was filtered by the channel). Try rephrasing.",
+                    };
+                    let _ = manager
+                        .send_to_target(&target, &RichMessage::info(notice.to_string()))
+                        .await;
+                } else {
+                    // A turn completed without any assistant text at all — make
+                    // it visible instead of a silent gap.
+                    let notice = match lang {
+                        Lang::ZhCn | Lang::ZhTw => "本回合没有生成内容。",
+                        _ => "This turn produced no content.",
+                    };
+                    let _ = manager
+                        .send_to_target(&target, &RichMessage::info(notice.to_string()))
+                        .await;
                 }
 
                 if stop_reason == "end_turn" {
@@ -336,7 +425,8 @@ async fn handle_acp_envelope(
                 // Retry the deferred kickoff now the turn that blocked it ended.
                 // If yet ANOTHER turn slipped in (another client raced this
                 // TurnComplete), restore the prompt for the next TurnComplete —
-                // never drop it.
+                // but only a bounded number of times; beyond that surface an
+                // explicit failure instead of retrying forever.
                 if let Some(prompt_text) = deferred_kickoff {
                     let blocks = vec![PromptInputBlock::Text {
                         text: prompt_text.clone(),
@@ -344,13 +434,38 @@ async fn handle_acp_envelope(
                     if let Err(e) = conn_mgr.send_prompt(connection_id, blocks).await {
                         if matches!(e, crate::acp::error::AcpError::TurnInProgress) {
                             let mut g = bridge.lock().await;
-                            if let Some(s) = g.get_mut(connection_id) {
-                                s.pending_prompt = Some(prompt_text);
+                            let give_up = if let Some(s) = g.get_mut(connection_id) {
+                                s.pending_prompt_attempts =
+                                    s.pending_prompt_attempts.saturating_add(1);
+                                if s.pending_prompt_attempts >= MAX_KICKOFF_RETRIES {
+                                    s.pending_prompt = None;
+                                    true
+                                } else {
+                                    s.pending_prompt = Some(prompt_text);
+                                    false
+                                }
+                            } else {
+                                true
+                            };
+                            if give_up {
+                                let fail_msg = match lang {
+                                    Lang::ZhCn | Lang::ZhTw => {
+                                        "任务启动提示连续被占用，已放弃自动重试；请重新发送。"
+                                    }
+                                    _ => "The kickoff prompt was repeatedly blocked; auto-retry stopped. Please resend.",
+                                };
+                                let _ = manager
+                                    .send_to_target(
+                                        &target,
+                                        &RichMessage::error(fail_msg.to_string()),
+                                    )
+                                    .await;
+                            } else {
+                                tracing::warn!(
+                                    "[SessionEventSub] deferred kickoff still blocked; will retry on \
+                                     next TurnComplete"
+                                );
                             }
-                            tracing::warn!(
-                                "[SessionEventSub] deferred kickoff still blocked; will retry on \
-                                 next TurnComplete"
-                            );
                         } else {
                             tracing::error!(
                                 "[SessionEventSub] failed to send deferred kickoff: {e}"
@@ -361,13 +476,17 @@ async fn handle_acp_envelope(
             }
         }
 
-        AcpEvent::Error { terminal, .. } => {
+        AcpEvent::Error {
+            message,
+            terminal,
+            ..
+        } => {
             // Non-terminal Errors (`turn_failure_error_event`,
             // `session/load` fallback, empty-prompt rejection, SetMode /
             // SetConfigOption failures) leave the ACP connection alive —
             // the next prompt on the same session will still work. Chat
-            // channels only receive real assistant content, so ACP errors are
-            // log-only here.
+            // channels only receive real assistant content, so non-terminal
+            // ACP errors stay log-only here.
             if !*terminal {
                 if let Some(channel_id) = {
                     let guard = bridge.lock().await;
@@ -389,15 +508,44 @@ async fn handle_acp_envelope(
                 let sender_id = session.sender_id.clone();
                 let target = session.target.clone();
                 let conv_id = session.conversation_id;
+                let trace_id = session.trace_id.clone();
                 drop(guard);
 
                 tracing::warn!(
                     "[SessionEventSub] terminal ACP error for bridged session \
-                     connection={} channel={} conversation={}",
+                     connection={} channel={} conversation={}: {message}",
                     connection_id,
                     channel_id,
                     conv_id
                 );
+
+                // A terminal error means the session can no longer reply —
+                // surface an explicit failure instead of a silent gap.
+                let lang = get_lang(db).await;
+                let fail_body = match lang {
+                    Lang::ZhCn | Lang::ZhTw => {
+                        format!("会话执行失败：{message}")
+                    }
+                    _ => format!("Session failed: {message}"),
+                };
+                let _ = manager
+                    .send_to_target(
+                        &target,
+                        &RichMessage::error(fail_body.clone()),
+                    )
+                    .await;
+                let _ = chat_channel_message_log_service::create_log_full(
+                    db,
+                    channel_id,
+                    "outbound",
+                    "agent_reply",
+                    &fail_body,
+                    "failed",
+                    Some(message.clone()),
+                    trace_id,
+                    None,
+                )
+                .await;
 
                 let _ = conversation_service::update_status(
                     db,

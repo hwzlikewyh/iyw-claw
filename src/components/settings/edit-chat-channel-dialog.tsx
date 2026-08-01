@@ -31,7 +31,7 @@ import {
 } from "@/lib/api"
 import type { AgentType, ChatChannelInfo } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
-import { buildChatChannelConfig } from "@/lib/chat-channel-config"
+import { buildChatChannelConfigPatch } from "@/lib/chat-channel-config"
 
 interface EditChatChannelDialogProps {
   open: boolean
@@ -96,23 +96,31 @@ export function EditChatChannelDialog({
     setLoading(true)
     setError(null)
     try {
-      const configJson = buildChatChannelConfig(channel.channel_type, {
+      const configPatchJson = buildChatChannelConfigPatch(channel.channel_type, {
         appId,
         baseUrl,
         chatId,
         defaultAgentType,
       })
 
-      await updateChatChannel({
+      const updated = await updateChatChannel({
         id: channel.id,
         name: name.trim(),
-        configJson,
+        configPatchJson,
         dailyReportEnabled,
         dailyReportTime: dailyReportEnabled ? dailyReportTime : null,
       })
 
       if (token.trim()) {
         await saveChatChannelToken(channel.id, token.trim())
+      }
+
+      // IYW-CHANNEL-002: a failed reconnect still saved the edit — surface
+      // "已保存，连接失败" instead of closing the dialog silently.
+      if (updated.runtime_status === "error" && updated.last_error) {
+        setError(`${t("savedButConnectFailed")}：${updated.last_error}`)
+        onChannelUpdated()
+        return
       }
 
       onOpenChange(false)

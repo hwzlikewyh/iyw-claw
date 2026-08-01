@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 import { UserMemoryPolicyPanel } from "./user-memory-policy-panel"
+import { UserMemoryDiagnosticsPanel } from "./user-memory-diagnostics"
 import { getUserMemorySettings, updateUserMemorySettings } from "@/lib/api"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import {
@@ -19,6 +20,7 @@ import {
   buildUserMemoryUpdateRequest,
   createUserMemoryDraft,
   getUserMemoryDocument,
+  userMemoryContainsEntryMarkers,
   userMemoryLineCount,
   USER_MEMORY_DOCUMENTS,
   type UserMemoryDocumentId,
@@ -43,6 +45,9 @@ export function UserMemorySettings() {
     null
   )
   const [draft, setDraft] = useState<UserMemoryDraft | null>(null)
+  const [markerProtected, setMarkerProtected] = useState<
+    Record<UserMemoryDocumentId, boolean>
+  >({ memory: false, profile: false, soul: false })
   const [staleRunningSessions, setStaleRunningSessions] = useState(0)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -69,6 +74,14 @@ export function UserMemorySettings() {
   )
 
   const applySettings = useCallback((next: UserMemorySettingsSnapshot) => {
+    // P0-4: marker-bearing documents must never be overwritten with
+    // sanitized text. Track protection from the RAW persisted content before
+    // sanitizing for display.
+    setMarkerProtected({
+      memory: userMemoryContainsEntryMarkers(next.documents.memory.content),
+      profile: userMemoryContainsEntryMarkers(next.documents.profile.content),
+      soul: userMemoryContainsEntryMarkers(next.documents.soul.content),
+    })
     const cleaned: UserMemorySettingsSnapshot = {
       ...next,
       documents: {
@@ -109,6 +122,18 @@ export function UserMemorySettings() {
 
   const save = useCallback(async () => {
     if (!updateRequest) return
+    // P0-4: refuse to overwrite a marker-bearing document with whole-document
+    // content (defense in depth; the editor is also locked for these docs).
+    const blocked = Object.entries(updateRequest.documents ?? {}).some(
+      ([id, patch]) =>
+        patch.content !== undefined &&
+        markerProtected[id as UserMemoryDocumentId]
+    )
+    if (blocked) {
+      setError(t("markerProtectedSaveBlocked"))
+      toast.error(t("markerProtectedSaveBlocked"))
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -126,7 +151,7 @@ export function UserMemorySettings() {
     } finally {
       setSaving(false)
     }
-  }, [applySettings, t, updateRequest])
+  }, [applySettings, markerProtected, t, updateRequest])
 
   const switchDocument = useCallback((nextId: UserMemoryDocumentId) => {
     setActiveDocumentId(nextId)
@@ -170,6 +195,24 @@ export function UserMemorySettings() {
 
   const readonly = activeSnapshot?.readonly ?? false
   const fullPath = activeSnapshot?.path ?? activeDocument.fileName
+  const markerLocked = markerProtected[activeDocumentId] ?? false
+  // P0-4: never show "active" when the backend is actually unavailable —
+  // surface the availability/companion/candidate diagnostics instead.
+  const availabilityDown =
+    !!settings.availability && !settings.availability.available
+  const companionDown =
+    !!settings.companionHealth && settings.companionHealth.status !== "ready"
+  const candidateDown =
+    !!settings.candidateDiagnostic && !settings.candidateDiagnostic.available
+  const backendHealthy = !availabilityDown && !companionDown && !candidateDown
+
+  const diagnosticDetail = availabilityDown
+    ? settings.availability?.detail
+    : companionDown
+      ? settings.companionHealth?.detail
+      : candidateDown
+        ? settings.candidateDiagnostic?.detail
+        : null
 
   return (
     <SettingsPageLayout>
@@ -179,18 +222,34 @@ export function UserMemorySettings() {
         description={t("description")}
         action={
           <div className="flex flex-wrap items-center gap-2">
-            {!settings.enabled && (
+            {availabilityDown && (
+              <Badge variant="destructive" className="text-[11px]">
+                {t("status.unavailable")}
+              </Badge>
+            )}
+            {!availabilityDown && companionDown && (
+              <Badge variant="destructive" className="text-[11px]">
+                {t("status.companionUnavailable")}
+              </Badge>
+            )}
+            {!availabilityDown && !companionDown && candidateDown && (
+              <Badge variant="destructive" className="text-[11px]">
+                {t("status.candidateUnavailable")}
+              </Badge>
+            )}
+            {backendHealthy && !settings.enabled && (
               <Badge variant="outline" className="text-[11px]">
                 {t("status.disabled")}
               </Badge>
             )}
-            {staleRunningSessions > 0 ? (
+            {backendHealthy && staleRunningSessions > 0 ? (
               <Badge variant="destructive" className="text-[11px]">
                 {t("status.newConversationRequired", {
                   count: staleRunningSessions,
                 })}
               </Badge>
             ) : (
+              backendHealthy &&
               settings.enabled && (
                 <Badge variant="outline" className="text-[11px]">
                   {t("status.active")}
@@ -228,6 +287,17 @@ export function UserMemorySettings() {
           disabled={saving}
           onChange={setDraft}
         />
+      )}
+
+      <UserMemoryDiagnosticsPanel settings={settings} busy={saving} />
+
+      {!backendHealthy && (
+        <div
+          role="alert"
+          className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400"
+        >
+          {diagnosticDetail ?? t("status.unavailable")}
+        </div>
       )}
 
       <section className="grid gap-2 sm:grid-cols-3">
@@ -274,9 +344,18 @@ export function UserMemorySettings() {
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {dirty && <span className="text-amber-500">{t("dirty")}</span>}
             {readonly && <span className="text-red-400">{t("readonly")}</span>}
+            {markerLocked && (
+              <span className="text-amber-500">{t("markerProtected")}</span>
+            )}
             <span>{t("stats", stats)}</span>
           </div>
         </div>
+
+        {markerLocked && (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-500">
+            {t("markerProtectedHint")}
+          </p>
+        )}
 
         <Textarea
           value={content}
@@ -298,7 +377,7 @@ export function UserMemorySettings() {
             )
           }}
           placeholder={t(activeDocument.placeholderKey)}
-          disabled={readonly || saving}
+          disabled={readonly || markerLocked || saving}
           className="min-h-[420px] flex-1 resize-none font-mono text-sm leading-6"
         />
       </section>

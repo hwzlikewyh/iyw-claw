@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use tokio::sync::{mpsc, Mutex};
 
@@ -17,6 +18,11 @@ struct ActiveChannel {
     name: String,
     channel_type: ChannelType,
     backend: Arc<dyn ChatChannelBackend>,
+    /// Timestamp of the last inbound message accepted by the dispatcher.
+    last_inbound_at: Option<DateTime<Utc>>,
+    /// Number of inbound messages accepted by the dispatcher (drives the
+    /// `inbound_verified` readiness stage without executing user tasks).
+    inbound_count: u64,
 }
 
 /// Inner state shared across clones.
@@ -79,6 +85,12 @@ impl ChatChannelManager {
         }
     }
 
+    /// Public wrapper so the reconcile path can push runtime status changes
+    /// (e.g. `error` after a failed reconnect) to the UI.
+    pub async fn emit_channel_status(&self, channel_id: i32, status: &str) {
+        self.emit_status_event(channel_id, status).await;
+    }
+
     pub async fn add_channel(
         &self,
         id: i32,
@@ -86,9 +98,19 @@ impl ChatChannelManager {
         channel_type: ChannelType,
         backend: Box<dyn ChatChannelBackend>,
     ) -> Result<(), ChatChannelError> {
-        let backend: Arc<dyn ChatChannelBackend> = Arc::from(backend);
+        self.upsert_channel(id, name, channel_type, Arc::from(backend))
+            .await
+    }
 
-        // Stop existing channel if present (prevents task leak on duplicate connect)
+    /// Stop any existing backend for the channel (prevents task leak on
+    /// duplicate connect), start the new one, then publish the entry.
+    pub async fn upsert_channel(
+        &self,
+        id: i32,
+        name: String,
+        channel_type: ChannelType,
+        backend: Arc<dyn ChatChannelBackend>,
+    ) -> Result<(), ChatChannelError> {
         let old = self.inner.channels.lock().await.remove(&id);
         if let Some(existing) = old {
             let _ = existing.backend.stop().await;
@@ -102,9 +124,52 @@ impl ChatChannelManager {
             name,
             channel_type,
             backend,
+            last_inbound_at: None,
+            inbound_count: 0,
         };
 
         self.inner.channels.lock().await.insert(id, channel);
+        self.emit_status_event(id, "connected").await;
+        Ok(())
+    }
+
+    /// Detach the running backend for a channel so the caller can restore it
+    /// (last-known-good) if a reconfiguration fails. The backend is stopped.
+    pub async fn take_backend(&self, id: i32) -> Option<Arc<dyn ChatChannelBackend>> {
+        let removed = self.inner.channels.lock().await.remove(&id);
+        if let Some(channel) = removed {
+            let _ = channel.backend.stop().await;
+            Some(channel.backend)
+        } else {
+            None
+        }
+    }
+
+    /// Restore a previously detached backend (used by safe-reconnect rollback).
+    pub async fn restore_backend(
+        &self,
+        id: i32,
+        name: String,
+        channel_type: ChannelType,
+        backend: Arc<dyn ChatChannelBackend>,
+    ) -> Result<(), ChatChannelError> {
+        let old = self.inner.channels.lock().await.remove(&id);
+        if let Some(existing) = old {
+            let _ = existing.backend.stop().await;
+        }
+        let command_tx = self.inner.command_tx.clone();
+        backend.start(command_tx).await?;
+        self.inner.channels.lock().await.insert(
+            id,
+            ActiveChannel {
+                id,
+                name,
+                channel_type,
+                backend,
+                last_inbound_at: None,
+                inbound_count: 0,
+            },
+        );
         self.emit_status_event(id, "connected").await;
         Ok(())
     }
@@ -167,6 +232,24 @@ impl ChatChannelManager {
         }
     }
 
+    /// Record that the dispatcher accepted an inbound message, feeding the
+    /// `inbound_verified` readiness stage.
+    pub async fn record_inbound(&self, channel_id: i32, received_at: DateTime<Utc>) {
+        let mut channels = self.inner.channels.lock().await;
+        if let Some(channel) = channels.get_mut(&channel_id) {
+            channel.last_inbound_at = Some(received_at);
+            channel.inbound_count = channel.inbound_count.saturating_add(1);
+        }
+    }
+
+    pub async fn inbound_stats(&self, channel_id: i32) -> (Option<DateTime<Utc>>, u64) {
+        let channels = self.inner.channels.lock().await;
+        match channels.get(&channel_id) {
+            Some(channel) => (channel.last_inbound_at, channel.inbound_count),
+            None => (None, 0),
+        }
+    }
+
     pub async fn get_status(&self) -> Vec<crate::models::ChannelStatusInfo> {
         let entries: Vec<(i32, String, String, Arc<dyn ChatChannelBackend>)> = {
             let channels = self.inner.channels.lock().await;
@@ -223,7 +306,7 @@ impl ChatChannelManager {
     }
 
     /// Start background tasks (event subscriber + command dispatcher) and
-    /// auto-connect all enabled channels from DB.
+    /// reconcile all enabled channels from DB.
     ///
     /// `broadcaster` continues to back the `*Status* / *Inbound*` JSON
     /// events the ChatChannel itself emits (still consumed by the WS
@@ -261,7 +344,7 @@ impl ChatChannelManager {
         // Spawn session event subscriber (ACP event routing to channels)
         let manager_for_session_events = self.clone_ref();
         super::session_event_subscriber::spawn_session_event_subscriber(
-            bus,
+            bus.clone(),
             bridge.clone(),
             manager_for_session_events,
             conn_mgr.clone_ref(),
@@ -291,9 +374,9 @@ impl ChatChannelManager {
         let manager_for_scheduler = self.clone_ref();
         super::scheduler::spawn_daily_report_scheduler(manager_for_scheduler, db_conn.clone());
 
-        // Ship the WeCom channel out of the box, then auto-connect.
+        // Ship the WeCom channel out of the box, then reconcile enabled ones.
         Self::seed_default_wecom_channel(&db_conn2).await;
-        self.auto_connect_channels(&db_conn2).await;
+        super::reconcile::reconcile_all_enabled(&self.clone_ref(), &db_conn2, "app_start").await;
     }
 
     /// Ensure a WeCom (企业微信) channel exists so users find it preconfigured
@@ -325,82 +408,6 @@ impl ChatChannelManager {
         .await
         {
             tracing::warn!("[ChatChannel] failed to seed default WeCom channel: {error}");
-        }
-    }
-
-    async fn auto_connect_channels(&self, db_conn: &DatabaseConnection) {
-        let channels = match crate::db::service::chat_channel_service::list_enabled(db_conn).await {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::error!("[ChatChannel] failed to load enabled channels: {e}");
-                return;
-            }
-        };
-
-        for ch in channels {
-            let channel_type: ChannelType =
-                match serde_json::from_value(serde_json::Value::String(ch.channel_type.clone())) {
-                    Ok(t) => t,
-                    Err(_) => {
-                        tracing::warn!(
-                            "[ChatChannel] unknown channel type '{}' for '{}' (id={}), skipping",
-                            ch.channel_type,
-                            ch.name,
-                            ch.id
-                        );
-                        continue;
-                    }
-                };
-
-            let config: serde_json::Value = match serde_json::from_str(&ch.config_json) {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::warn!(
-                        "[ChatChannel] invalid config for '{}' (id={}): {e}, skipping",
-                        ch.name,
-                        ch.id
-                    );
-                    continue;
-                }
-            };
-
-            let token = match crate::keyring_store::get_channel_token(ch.id) {
-                Some(t) => t,
-                None => {
-                    tracing::warn!(
-                        "[ChatChannel] no token found for '{}' (id={}), skipping auto-connect",
-                        ch.name,
-                        ch.id
-                    );
-                    continue;
-                }
-            };
-
-            let backend = match super::backends::create_backend(ch.id, channel_type, &config, token)
-            {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::error!(
-                        "[ChatChannel] failed to create backend for '{}' (id={}): {e}",
-                        ch.name,
-                        ch.id
-                    );
-                    continue;
-                }
-            };
-
-            if let Err(e) = self
-                .add_channel(ch.id, ch.name.clone(), channel_type, backend)
-                .await
-            {
-                tracing::error!(
-                    "[ChatChannel] failed to auto-connect '{}' (id={}): {e}",
-                    ch.name,
-                    ch.id
-                );
-            } else {
-                tracing::info!("[ChatChannel] auto-connected '{}' (id={})", ch.name, ch.id);
-            }
         }
     }
 }

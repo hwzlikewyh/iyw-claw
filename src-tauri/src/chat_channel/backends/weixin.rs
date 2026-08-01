@@ -698,19 +698,66 @@ impl ChatChannelBackend for WeixinBackend {
                                     }
 
                                     tracing::debug!("[Weixin] dispatching: {text}");
-                                    let send_result = command_tx
-                                        .send(IncomingCommand {
+                                    // Provider message id: platform id when
+                                    // available, else a deterministic composite.
+                                    let provider_message_id = msg
+                                        .get("msg_id")
+                                        .or_else(|| msg.get("message_id"))
+                                        .or_else(|| msg.get("client_msg_id"))
+                                        .and_then(|v| v.as_str())
+                                        .filter(|v| !v.is_empty())
+                                        .map(|v| v.to_string())
+                                        .unwrap_or_else(|| {
+                                            format!(
+                                                "x{}",
+                                                weixin_message_hash(
+                                                    from_user_id,
+                                                    context_token,
+                                                    text
+                                                )
+                                            )
+                                        });
+                                    let command = IncomingCommand {
+                                        channel_id,
+                                        sender_id: from_user_id.to_string(),
+                                        sender_name: None,
+                                        command_text: text.to_string(),
+                                        callback_data: None,
+                                        target: ChannelMessageTarget::channel(channel_id),
+                                        metadata: msg.clone(),
+                                        message_trace_id: super::super::dedupe::new_message_trace_id(
                                             channel_id,
-                                            sender_id: from_user_id.to_string(),
-                                            sender_name: None,
-                                            command_text: text.to_string(),
-                                            callback_data: None,
-                                            target: ChannelMessageTarget::channel(channel_id),
-                                            metadata: msg.clone(),
-                                        })
-                                        .await;
-                                    if let Err(e) = send_result {
-                                        tracing::error!("[Weixin] command_tx.send failed: {e}");
+                                        ),
+                                        provider_message_id: Some(provider_message_id),
+                                        received_at: chrono::Utc::now(),
+                                    };
+                                    // Bounded queue: never silently drop; reply
+                                    // busy so the sender retries later.
+                                    if let Err(send_error) = command_tx.try_send(command) {
+                                        match send_error {
+                                            mpsc::error::TrySendError::Full(_) => {
+                                                tracing::warn!(
+                                                    "[Weixin] dispatcher queue full; replying busy"
+                                                );
+                                                let _ = WeixinBackend::do_send(SendRequest {
+                                                    client: &client,
+                                                    base_url: &base_url,
+                                                    bot_token: &bot_token,
+                                                    wechat_uin: &wechat_uin,
+                                                    to_user_id: from_user_id,
+                                                    context_token,
+                                                    text: super::DISPATCHER_BUSY_TEXT,
+                                                    reply_context: &reply_context,
+                                                    pending_messages: &pending_messages,
+                                                })
+                                                .await;
+                                            }
+                                            mpsc::error::TrySendError::Closed(_) => {
+                                                tracing::error!(
+                                                    "[Weixin] command channel closed; dropping inbound"
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -804,4 +851,16 @@ impl ChatChannelBackend for WeixinBackend {
 
         Ok(())
     }
+}
+
+/// Deterministic composite hash for inbound messages that carry no platform
+/// message id (used as the idempotency key against duplicate deliveries).
+fn weixin_message_hash(from_user_id: &str, context_token: &str, text: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    from_user_id.hash(&mut hasher);
+    context_token.hash(&mut hasher);
+    text.hash(&mut hasher);
+    hasher.finish()
 }

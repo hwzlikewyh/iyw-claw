@@ -1,8 +1,9 @@
 use sea_orm::DatabaseConnection;
 
+use super::error::ChatChannelError;
 use super::manager::ChatChannelManager;
 use super::session_dispatch::{CommandMessageResult, CommandPostAction, SessionCommandMessage};
-use super::types::{ChannelMessageTarget, InteractiveMessage, RichMessage};
+use super::types::{ChannelMessageTarget, InteractiveMessage, RichMessage, SentMessageId};
 
 pub(super) struct DispatchResponse {
     pub message: Option<DispatchMessage>,
@@ -111,31 +112,35 @@ pub(super) async fn send_dispatch_message(
     command_text: &str,
     message: DispatchMessage,
     target: ChannelMessageTarget,
+    trace_id: Option<&str>,
 ) {
     if message.is_silent() {
         return;
     }
     tracing::info!(
-        "[ChatChannel] dispatch result: title={:?}, body_len={}",
+        "[ChatChannel] dispatch result: title={:?}, body_len={} trace={}",
         message.title(),
-        message.body_len()
+        message.body_len(),
+        trace_id.unwrap_or("")
     );
+    // Long replies are split before sending so the provider never truncates
+    // mid-turn; chunks keep the same trace id and go out in order.
     let result = match &message {
-        DispatchMessage::Rich(message) => manager.send_to_target(&target, message).await,
+        DispatchMessage::Rich(message) => send_long_message(manager, &target, message).await,
         DispatchMessage::Interactive(message) => {
             manager.send_interactive_to_target(&target, message).await
         }
     };
-    let (status, error) = match result {
-        Ok(_) => ("sent", None),
+    let (status, error, provider_message_id) = match result {
+        Ok(sent_id) => ("sent", None, Some(sent_id.0)),
         Err(error) => {
             tracing::error!(
                 "[ChatChannel] failed to send response for {command_text:?} to channel {channel_id}: {error}"
             );
-            ("failed", Some(error.to_string()))
+            ("failed", Some(error.to_string()), None)
         }
     };
-    let _ = crate::db::service::chat_channel_message_log_service::create_log(
+    let _ = crate::db::service::chat_channel_message_log_service::create_log_full(
         db,
         channel_id,
         "outbound",
@@ -143,6 +148,47 @@ pub(super) async fn send_dispatch_message(
         &message.to_plain_text(),
         status,
         error,
+        trace_id.map(|s| s.to_string()),
+        provider_message_id,
     )
     .await;
+}
+
+/// Split long text replies into provider-safe chunks (order preserved, same
+/// trace id), returning the last provider message id.
+async fn send_long_message(
+    manager: &ChatChannelManager,
+    target: &ChannelMessageTarget,
+    message: &RichMessage,
+) -> Result<SentMessageId, ChatChannelError> {
+    let text = message.to_plain_text();
+    // Providers cap message length (WeCom 2048 bytes, Weixin similar); 1500
+    // chars is a conservative safe size.
+    let chunks = split_utf8_chunks(&text, 1500);
+    let mut last_id: Option<SentMessageId> = None;
+    for chunk in chunks {
+        let mut partial = message.clone();
+        partial.body = chunk.to_string();
+        partial.fields = Vec::new();
+        let id = manager.send_to_target(target, &partial).await?;
+        last_id = Some(id);
+    }
+    last_id.ok_or_else(|| ChatChannelError::SendFailed("empty message".to_string()))
+}
+
+/// Split on char boundaries so multibyte text is never torn.
+fn split_utf8_chunks(text: &str, max_chars: usize) -> Vec<&str> {
+    let mut chunks = Vec::new();
+    let mut rest = text;
+    while rest.chars().count() > max_chars {
+        let mut cut = max_chars;
+        while !rest.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let (head, tail) = rest.split_at(cut);
+        chunks.push(head);
+        rest = tail;
+    }
+    chunks.push(rest);
+    chunks
 }

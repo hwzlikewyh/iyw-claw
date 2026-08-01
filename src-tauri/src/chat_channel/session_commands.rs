@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+OK[sfp_resume_call] x1 OK[sfp_hf_call2] x1 OK[sfp_hf_call1] x1 OK[sfp_stamp] x1 OK[sfp_sig] x1 OK[hf_resume_call] x1 OK[hf_restore_call] x1 OK[restore_register] x1 OK[restore_sig] x1 OK[resume_conv_register] x1 OK[resume_conv_sig] x1 OK[register_init] x1 OK[register_sig] x1 OK[send_linked_prompt] x1 OK[inline_session_init] x2 OK[handle_resume_sig] x1 OK[handle_task_sig] x1 OK[followup_field] x1 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
@@ -39,6 +39,8 @@ pub struct FollowupRequest<'a> {
     pub data_dir: &'a Path,
     pub lang: Lang,
     pub prefix: &'a str,
+    /// End-to-end trace id of the inbound message driving this follow-up.
+    pub trace_id: Option<&'a str>,
 }
 
 // ── /folder ──
@@ -260,6 +262,7 @@ pub async fn handle_task(
     lang: Lang,
     prefix: &str,
     data_dir: &Path,
+    trace_id: Option<&str>,
 ) -> CommandMessageResult {
     if task_description.is_empty() {
         return CommandMessageResult::current(
@@ -456,6 +459,8 @@ pub async fn handle_task(
             delegation_rendered: std::collections::HashSet::new(),
             last_flushed: Instant::now(),
             pending_prompt: None,
+            pending_prompt_attempts: 0,
+            trace_id: trace_id.map(|s| s.to_string()),
             permission_pending: None,
         };
         bridge.lock().await.register(connection_id.clone(), session);
@@ -497,6 +502,7 @@ pub async fn handle_task(
             sender_id: sender_id.to_string(),
             response_target: session_target,
             lang,
+            trace_id: trace_id.map(|s| s.to_string()),
         }),
     }
 }
@@ -608,6 +614,7 @@ pub async fn handle_resume(
     lang: Lang,
     prefix: &str,
     data_dir: &Path,
+    trace_id: Option<&str>,
 ) -> RichMessage {
     if args.is_empty() {
         return list_recent_sessions(db, lang, prefix).await;
@@ -664,6 +671,8 @@ pub async fn handle_resume(
             delegation_rendered: std::collections::HashSet::new(),
             last_flushed: Instant::now(),
             pending_prompt: None,
+            pending_prompt_attempts: 0,
+            trace_id: trace_id.map(|s| s.to_string()),
             permission_pending: None,
         };
         bridge.lock().await.register(connection_id.clone(), session);
@@ -893,6 +902,7 @@ pub async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
                 &connection_id,
                 req.text,
                 req.lang,
+                req.trace_id,
             )
             .await;
         }
@@ -915,6 +925,7 @@ pub async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
                 &connection_id,
                 req.conn_mgr,
                 req.bridge,
+                req.trace_id,
             )
             .await
             {
@@ -935,6 +946,7 @@ pub async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
                     &connection_id,
                     req.text,
                     req.lang,
+                    req.trace_id,
                 )
                 .await;
             }
@@ -960,6 +972,7 @@ pub async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
             req.bridge,
             req.data_dir,
             req.lang,
+            req.trace_id,
         )
         .await;
     }
@@ -983,7 +996,17 @@ async fn send_followup_prompt(
     connection_id: &str,
     text: &str,
     _lang: Lang,
+    trace_id: Option<&str>,
 ) -> RichMessage {
+    // Stamp the session with this follow-up's trace so the outbound reply
+    // links back to the message that triggered it.
+    if let Some(trace) = trace_id {
+        let mut guard = bridge.lock().await;
+        if let Some(session) = guard.get_mut(connection_id) {
+            session.trace_id = Some(trace.to_string());
+        }
+    }
+
     // Send prompt to agent
     let blocks = vec![PromptInputBlock::Text {
         text: text.to_string(),
@@ -1039,6 +1062,7 @@ async fn restore_bridge_session_from_live_connection(
     connection_id: &str,
     conn_mgr: &ConnectionManager,
     bridge: &Arc<Mutex<SessionBridge>>,
+    trace_id: Option<&str>,
 ) -> bool {
     let Some(state) = conn_mgr.get_state(connection_id).await else {
         return false;
@@ -1069,6 +1093,7 @@ async fn restore_bridge_session_from_live_connection(
         connection_id.to_string(),
         conv.agent_type,
         None,
+        trace_id.map(|s| s.to_string()),
     )
     .await;
     remember_sender_session(
@@ -1097,6 +1122,7 @@ async fn resume_conversation_for_followup(
     bridge: &Arc<Mutex<SessionBridge>>,
     data_dir: &Path,
     lang: Lang,
+    trace_id: Option<&str>,
 ) -> RichMessage {
     let conv = match conversation_service::get_by_id(db, conversation_id).await {
         Ok(c) => c,
@@ -1189,6 +1215,7 @@ async fn resume_conversation_for_followup(
         connection_id.clone(),
         conv.agent_type,
         pending_prompt,
+        trace_id.map(|s| s.to_string()),
     )
     .await;
     remember_sender_session(
@@ -1212,6 +1239,7 @@ async fn resume_conversation_for_followup(
             &connection_id,
             text,
             lang,
+            trace_id,
         )
         .await
     } else {
@@ -1229,6 +1257,7 @@ async fn register_active_session(
     connection_id: String,
     agent_type: AgentType,
     pending_prompt: Option<String>,
+    trace_id: Option<String>,
 ) {
     let session = ActiveSession {
         channel_id,
@@ -1243,6 +1272,8 @@ async fn register_active_session(
         delegation_rendered: std::collections::HashSet::new(),
         last_flushed: Instant::now(),
         pending_prompt,
+        pending_prompt_attempts: 0,
+        trace_id,
         permission_pending: None,
     };
     bridge.lock().await.register(connection_id, session);

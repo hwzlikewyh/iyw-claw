@@ -39,6 +39,7 @@ pub enum CommandPostAction {
         sender_id: String,
         response_target: ChannelMessageTarget,
         lang: Lang,
+        trace_id: Option<String>,
     },
 }
 
@@ -68,8 +69,9 @@ pub async fn handle_post_action(
         sender_id,
         response_target,
         lang,
+        trace_id,
     } = action;
-    if session_runtime::send_prompt_linked(
+    let send_result = session_runtime::send_prompt_linked(
         db,
         connection_manager,
         &connection_id,
@@ -77,9 +79,24 @@ pub async fn handle_post_action(
         conversation_id,
         &text,
     )
-    .await
-    .is_ok()
-    {
+    .await;
+
+    // Record the kickoff in the message log so the end-to-end trace shows the
+    // full chain even when the eventual AI reply fails later.
+    let _ = crate::db::service::chat_channel_message_log_service::create_log_full(
+        db,
+        channel_id,
+        "outbound",
+        "session_kickoff",
+        &text,
+        if send_result.is_ok() { "sent" } else { "failed" },
+        send_result.as_ref().err().map(|e| e.to_string()),
+        trace_id,
+        None,
+    )
+    .await;
+
+    if send_result.is_ok() {
         return None;
     }
     cleanup_failed_prompt(

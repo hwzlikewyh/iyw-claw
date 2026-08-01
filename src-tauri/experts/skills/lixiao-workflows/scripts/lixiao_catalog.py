@@ -112,6 +112,13 @@ SPECS: dict[str, EndpointSpec] = {
         auth="business",
         description="List enabled feature packages",
     ),
+    "search-condition-config": _spec(
+        "GET",
+        "enterprise",
+        "/api_skb/v1/companyDetail/searchConditionConfig",
+        auth="business",
+        description="Get authoritative enterprise search conditions",
+    ),
     "scene-search": _spec(
         "POST",
         "skb",
@@ -170,6 +177,14 @@ SPECS: dict[str, EndpointSpec] = {
         description="Get company contacts",
         required=("pid", "entName"),
         defaults=(("source", "scene_search.searchEcommercePlatformEnterprise_detail"),),
+    ),
+    "company-contacts-count": _spec(
+        "GET",
+        "skb",
+        "/api_skb/v1/clue/contacts_num",
+        auth="business",
+        description="Get company contact count",
+        required=("pid",),
     ),
     "company-products": _spec(
         "GET",

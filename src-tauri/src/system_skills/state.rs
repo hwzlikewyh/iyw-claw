@@ -44,7 +44,7 @@ impl Default for SystemSkillsUpdateState {
             current_commit: None,
             previous_version: None,
             latest_version: None,
-            auto_update: true,
+            auto_update: false,
             last_checked_at: None,
             dirty: false,
             error: None,

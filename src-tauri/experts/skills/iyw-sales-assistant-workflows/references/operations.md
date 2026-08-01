@@ -8,22 +8,34 @@
 | 外销 | Amazon、SHEIN | 产品、品牌、店铺更新和市场匹配信号 |
 | 内销 | 1688、天猫、京东 | 企业、产品、品牌、店铺更新和联系方式 |
 
-先按产品搜索，再根据企业名称补查。每个平台必须设置候选上限。不同平台返回同一
-统一社会信用代码时合并；没有代码时使用规范化公司全称，名称近似但证据不足时不
-自动合并。
+候选只能来自励销业务级搜索命令。禁止 Agent 使用 curl、`agent-reach`、网页搜索或
+逐个 `api` 子命令采集候选。先按产品搜索，再根据企业名称补查。每个平台必须设置候选
+上限。不同平台返回同一统一社会信用代码时合并；没有代码时使用规范化公司全称，名称
+近似但证据不足时不自动合并。
 
 ## Lixiao Sequence
 
 1. `auth ensure`。
-2. `feature-packages` 和 `permission-info`。
-3. `scene-search` 或 `scene-search-products`。
-4. `company-card`、`company-products`、`company-exhibitions`。
-5. `company-management`、`company-recruitment`、`company-ip`、`company-brand`。
-6. `company-contacts-count` 和权限允许的联系人查询。
+2. Agent 调用一次 `workflow ecommerce-search`，传平台、关键词和每平台上限。
+3. 命令内部动态读取 `searchConditionConfig`、解析平台筛选项并自动分页调用场景搜索。
+4. Agent 完成 CRM 门禁后，将合格企业 ID 一次传给 `workflow company-profile`。
+5. 档案命令内部完成详情、产品按需解锁和联系人采集。
 
-只在产品或联系人确实隐藏、额度可用且用户明确授权当前公司时传
-`--unlock-if-needed`。解锁响应成功不等于详情已经可见；检查最终 `view_available`
-和 `contacts_after_unlock`。不得遍历搜索结果批量解锁。
+```powershell
+uv run --no-project python $lixiaoCli workflow ecommerce-search `
+  --keyword 毛绒玩具 --platform 1688 --platform 天猫 --platform 京东 `
+  --limit-per-platform 100
+uv run --no-project python $lixiaoCli workflow company-profile `
+  --id <company-id-1> --id <company-id-2>
+```
+
+真实搜索每次读取最新筛选配置，动态解析平台编号、商品名称字段、匹配运算符和输入约束，
+不使用内置编号代替服务端配置。只有 `--dry-run` 在不访问网络时使用已捕获映射生成计划。
+契约缺失或平台不受支持时快速失败，不允许 Agent 反向抓包。
+
+只在产品或联系人确实隐藏且额度可用时，为当前公司直接传
+`--unlock-if-needed`；该参数即为该企业的解锁授权，无需向用户二次提问。解锁响应成功不等于
+详情已经可见；检查最终 `view_available` 和 `contacts_after_unlock`。不得遍历搜索结果批量解锁。
 
 ## Six-Month Score
 
@@ -83,32 +95,48 @@
 - `ai_image`：20。
 
 另选 10 张代表产品图和最多 3 名联系人。只统计真实存在的唯一文件路径。AI 文件要
-保留生成参数或任务来源，报告和趋势要保留内容库来源。缺项必须出现在 manifest，
+保留生成参数或任务来源，报告和趋势要保留内容库来源。缺项必须出现在销售待办与缺项 Excel，
 状态使用 `incomplete`。
+
+文件生成不向用户询问日期、销售、资料类型、数量或目录结构。日期取执行日期；销售取
+当前登录用户或上下文已明确的负责人；资料目标由市场自动选择。即使资料缺失，也创建完整
+分类目录并在销售待办与缺项 Excel 记录缺口，继续处理其他内容。
 
 ## Package Layout
 
+用户交付的 `.docx`、`.xlsx`、`.pptx` 和 PDF 必须使用 `officecli` 制作。先加载对应的
+`word`、`excel`、`pptx` 或专项规则，完成后执行结构校验、问题检查和渲染预览。表格须有
+中文列名、单位、筛选友好的结构和可读列宽；文档/PDF 须有标题、摘要、来源、数据日期、
+页码与清晰层级。客户包内不得出现 `.json`、`.md`、`.csv` 或 `.html`；客户、联系人、评分、
+来源、待办和缺项统一写入中文 `.xlsx`，销售话术写入 `.docx` 或 PDF。CLI 的 JSON 响应只在
+进程间使用，不写入最终客户目录。
+用户可见的文件名、工作表名、标题、列名、状态和说明优先全部使用中文；仅保留抓取数据原文
+中的英文公司名、产品名或来源内容。
+
 ```text
-<output-root>/
-└── <公司名>/
-    ├── manifest.json
-    ├── 01-客户档案/
-    ├── 02-产品图片/
-    ├── 03-联系人/
-    ├── 04-匹配资料/
-    ├── 05-销售话术/
-    └── 06-待办/pending-actions.json
+<用户系统桌面>/AI销售助理客户包/
+└── <YYYY-MM-DD>/
+    └── <负责销售>/
+        └── <公司名>/
+            ├── 01-客户信息/客户档案.xlsx
+            ├── 02-联系方式/优先联系人.xlsx
+            ├── 03-置顶产品图片-10张/
+            ├── 04-企业信息与评分证据/评分与来源.xlsx
+            ├── 05-销售资料/<市场目标分类>/
+            ├── 06-销售话术/销售跟进建议.docx
+            └── 07-待办/销售待办与缺项.xlsx
 ```
 
 Windows 非法字符替换为下划线。禁止覆盖同名目录。CRM 保护、已归属或待复核客户
-不写客户包。
+不写客户包。默认流程不得询问或二次确认输出目录；只有用户明确指定其他路径时才传
+`--output-root`。完成后向用户提供实际生成目录。
 
 ## Side-Effect Gates
 
 | 动作 | 默认 | 放行条件 |
 | --- | --- | --- |
-| 励销企业解锁 | 禁止 | 具体公司明确授权 |
-| 本地客户包 | dry-run | 用户确认输出目录 |
+| 励销企业解锁 | 按需执行 | 当前公司详情隐藏且传入 `--unlock-if-needed` |
+| 本地客户包 | dry-run 后执行 | 默认写入系统桌面 `AI销售助理客户包`，无需二次确认 |
 | CRM 捞取/新建 | `pending` | 捕获接口、确认、读回验证 |
 | CRM 归属分配 | `pending` | 捕获接口、确认、读回验证 |
 | 通知销售 | `pending` | 明确渠道、收件人、确认 |

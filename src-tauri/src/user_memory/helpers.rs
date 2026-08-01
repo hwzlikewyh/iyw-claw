@@ -86,7 +86,7 @@ pub(super) fn memory_entry_id(content: &str) -> String {
     format!("iyw-memory-{}", &digest[..20])
 }
 
-fn contains_potential_secret(content: &str) -> bool {
+pub(super) fn contains_potential_secret(content: &str) -> bool {
     let lower = content.to_ascii_lowercase();
     let markers = [
         "password",

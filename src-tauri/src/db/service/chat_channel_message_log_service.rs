@@ -8,6 +8,7 @@ use sea_orm::{
 use crate::db::entities::chat_channel_message_log;
 use crate::db::error::DbError;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_log(
     conn: &DatabaseConnection,
     channel_id: i32,
@@ -17,6 +18,34 @@ pub async fn create_log(
     status: &str,
     error_detail: Option<String>,
 ) -> Result<(), DbError> {
+    create_log_full(
+        conn,
+        channel_id,
+        direction,
+        message_type,
+        content_preview,
+        status,
+        error_detail,
+        None,
+        None,
+    )
+    .await
+}
+
+/// Like `create_log` but also stamps the end-to-end `trace_id` and the
+/// provider's `provider_message_id` when known.
+#[allow(clippy::too_many_arguments)]
+pub async fn create_log_full(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    direction: &str,
+    message_type: &str,
+    content_preview: &str,
+    status: &str,
+    error_detail: Option<String>,
+    trace_id: Option<String>,
+    provider_message_id: Option<String>,
+) -> Result<(), DbError> {
     let active = chat_channel_message_log::ActiveModel {
         id: NotSet,
         channel_id: Set(channel_id),
@@ -25,6 +54,8 @@ pub async fn create_log(
         content_preview: Set(truncate_preview(content_preview)),
         status: Set(status.to_string()),
         error_detail: Set(error_detail),
+        trace_id: Set(trace_id),
+        provider_message_id: Set(provider_message_id),
         created_at: Set(Utc::now()),
     };
     active.insert(conn).await?;
@@ -43,6 +74,21 @@ pub async fn list_by_channel(
         .order_by_desc(chat_channel_message_log::Column::CreatedAt)
         .paginate(conn, limit)
         .fetch_page(offset / limit)
+        .await?)
+}
+
+/// Look up outbound rows matching a trace id (used by the full-loop
+/// diagnostic to verify a probe made it all the way to an outbound reply).
+pub async fn list_by_trace(
+    conn: &DatabaseConnection,
+    trace_id: &str,
+    limit: u64,
+) -> Result<Vec<chat_channel_message_log::Model>, DbError> {
+    Ok(chat_channel_message_log::Entity::find()
+        .filter(chat_channel_message_log::Column::TraceId.eq(trace_id))
+        .order_by_asc(chat_channel_message_log::Column::CreatedAt)
+        .limit(limit)
+        .all(conn)
         .await?)
 }
 

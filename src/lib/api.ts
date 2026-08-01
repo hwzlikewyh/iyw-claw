@@ -27,6 +27,15 @@ import type {
   UserMemorySettingsSnapshot,
   UserMemoryUpdateRequest,
   UserMemoryUpdateResult,
+  UserMemoryCandidateListRequest,
+  UserMemoryCandidatePage,
+  UserMemoryCandidateResolveRequest,
+  UserMemoryCandidateResolutionResult,
+  UserMemoryCandidateDeleteRequest,
+  UserMemoryCandidateDeleteResult,
+  UserMemoryHarvestStatus,
+  UserMemoryHarvestRescanResult,
+  UserMemoryCandidateIndexRebuildResult,
 } from "./user-memory-documents"
 import type {
   AppendUserMemoryRequest,
@@ -139,6 +148,8 @@ import type {
   ChatChannelInfo,
   ChannelStatusInfo,
   ChatChannelMessageLog,
+  ChannelReadinessReport,
+  ChannelDiagnostic,
   WebhookConfig,
   ChatNaturalRouterConfig,
   ChatNaturalRouterConfigInput,
@@ -152,7 +163,6 @@ import type {
   SkillSyncReport,
   RuntimeBootstrapReport,
   BootstrapInitStatusReport,
-  BootstrapInitEvent,
 } from "./types"
 
 export async function listConversations(params?: {
@@ -2276,6 +2286,40 @@ export async function updateUserMemorySettings(
   return getTransport().call("update_user_memory_settings", { request })
 }
 
+export async function listUserMemoryCandidates(
+  request: UserMemoryCandidateListRequest
+): Promise<UserMemoryCandidatePage> {
+  return getTransport().call("list_user_memory_candidates", { request })
+}
+
+export async function resolveUserMemoryCandidate(
+  request: UserMemoryCandidateResolveRequest
+): Promise<UserMemoryCandidateResolutionResult> {
+  return getTransport().call("resolve_user_memory_candidate", { request })
+}
+
+export async function deleteUserMemoryCandidate(
+  request: UserMemoryCandidateDeleteRequest
+): Promise<UserMemoryCandidateDeleteResult> {
+  return getTransport().call("delete_user_memory_candidate", { request })
+}
+
+export async function getUserMemoryHarvestStatus(): Promise<UserMemoryHarvestStatus> {
+  return getTransport().call("get_user_memory_harvest_status")
+}
+
+export async function rescanUserMemoryHarvest(
+  execute: boolean
+): Promise<UserMemoryHarvestRescanResult> {
+  return getTransport().call("rescan_user_memory_harvest", { execute })
+}
+
+export async function rebuildUserMemoryCandidateIndex(
+  execute: boolean
+): Promise<UserMemoryCandidateIndexRebuildResult> {
+  return getTransport().call("rebuild_user_memory_candidate_index", { execute })
+}
+
 export async function listDirectoryEntries(
   path: string
 ): Promise<DirectoryEntry[]> {
@@ -3225,7 +3269,7 @@ export async function updateChatChannel(params: {
   id: number
   name?: string | null
   enabled?: boolean | null
-  configJson?: string | null
+  configPatchJson?: string | null
   eventFilterJson?: string | null
   dailyReportEnabled?: boolean | null
   dailyReportTime?: string | null
@@ -3234,7 +3278,7 @@ export async function updateChatChannel(params: {
     id: params.id,
     name: params.name ?? null,
     enabled: params.enabled ?? null,
-    configJson: params.configJson ?? null,
+    configPatchJson: params.configPatchJson ?? null,
     eventFilterJson: params.eventFilterJson ?? null,
     dailyReportEnabled: params.dailyReportEnabled ?? null,
     dailyReportTime: params.dailyReportTime ?? null,
@@ -3284,6 +3328,24 @@ export async function testChatChannel(id: number): Promise<void> {
 
 export async function getChatChannelStatus(): Promise<ChannelStatusInfo[]> {
   return getTransport().call("get_chat_channel_status")
+}
+
+export async function getChatChannelReadiness(): Promise<ChannelReadinessReport[]> {
+  return getTransport().call("get_chat_channel_readiness")
+}
+
+export async function quickCheckChatChannel(id: number): Promise<ChannelDiagnostic> {
+  return getTransport().call("quick_check_chat_channel", { id })
+}
+
+export async function fullLoopChatChannel(id: number): Promise<ChannelDiagnostic> {
+  // The full loop drives a probe through the real dispatcher → agent → outbound
+  // pipeline; allow generous time for a real agent turn.
+  return getTransport().call(
+    "full_loop_chat_channel",
+    { id },
+    { timeoutMs: 180_000 }
+  )
 }
 
 export async function listChatChannelMessages(params: {

@@ -1,4 +1,38 @@
 interface:
-  display_name: "IYW AI Sales Assistant"
-  short_description: "Research, score, and package qualified sales leads"
-  default_prompt: "Use $iyw-sales-assistant-workflows to research qualified leads, apply CRM protection rules, and create auditable customer packages."
+  display_name: "IYW AI 销售助手"
+  short_description: "收集、评分并整理合格销售线索"
+  default_prompt: >-
+    Use $iyw-sales-assistant-workflows to collect qualified leads, apply CRM protection
+    rules, and create auditable customer packages. Before collecting any batch-scope requirement,
+    immediately verify the independent Lixiao and CRM sessions.
+    Authentication comes before market, product keyword, platform, or output questions.
+    Direct HTTP access to the fixed IYW CRM origin is already authorized; never ask for
+    HTTP authorization. If either session is missing, invoke one client-native multiline
+    free-text question field in the current response to collect the account and password
+    for every missing system. Never use a Markdown credential template, offer a shared
+    account option, or open a local login window. After receiving credentials, immediately
+    use the filtered direct commands auth login --phone <account> --password <password>
+    for Lixiao and auth login --username <username> --password <password> for CRM.
+    Only after both sessions are valid, collect the batch scope and resume the original
+    task without another confirmation. Do not issue credential security warnings
+    or ask the user to reply that login is complete. Prefer account-password login. Obtain
+    the Lixiao application token automatically from the fixed UC login-entry redirect.
+    Use Lixiao as the only candidate source. Never use agent-reach, curl, browser capture,
+    or individual Lixiao api subcommands for candidate acquisition or request discovery.
+    Call workflow ecommerce-search for candidates and workflow company-profile for
+    eligible company details and guarded unlocks. Every user-facing Office deliverable
+    must be user-readable and created, validated, issue-checked, and previewed with
+    officecli and its matching loaded skill. A generated customer package must not contain
+    .json, .md, .csv, or .html files. Put structured customer, contact, scoring, source,
+    action, and gap data in Chinese .xlsx workbooks; put sales guidance in .docx or PDF.
+    Use Chinese for user-visible filenames, sheet names, headings, columns, statuses,
+    categories, actions, and descriptions whenever possible. Preserve English only when
+    it is part of the source company name, product name, or collected source content.
+    Place packages in Desktop/AI销售助理客户包/YYYY-MM-DD/salesperson/company by
+    default; do not ask the user for an output directory or a second confirmation. Derive
+    these values from context; do not ask the user which date, salesperson, material
+    categories, counts, or folder structure to use. Create all market-specific material
+    folders even when content is missing,
+    record gaps in the Office workbook, continue, and report the actual folder path.
+    Never repeat credentials in user-visible output, request files, logs, customer
+    packages, or follow-up responses.

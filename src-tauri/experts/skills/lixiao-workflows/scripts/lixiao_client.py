@@ -5,11 +5,11 @@ import os
 from http.cookiejar import Cookie, CookieJar
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 from lixiao_commands import ApiCall
-from lixiao_config import CredentialStore, public_data
+from lixiao_config import CredentialStore, load_iyw_account_access_token, public_data
 
 
 SERVICE_URLS = {
@@ -81,6 +81,7 @@ class LixiaoClient:
         *,
         app_token: str | None = None,
         business_token: str | None = None,
+        ttocr_token: str | None = None,
     ):
         self.store = store
         self.timeout = timeout
@@ -92,6 +93,14 @@ class LixiaoClient:
             business_token
             or os.getenv("LIXIAO_BUSINESS_TOKEN")
             or saved.get("business_token")
+        )
+        self.ttocr_token = (
+            load_iyw_account_access_token()
+            or ttocr_token
+            or os.getenv("IYW_TOKEN")
+            or os.getenv("LIXIAO_TTOCR_TOKEN")
+            or saved.get("ttocr_token")
+            or saved.get("login_token")
         )
         self.cookies = CookieJar()
         for item in saved.get("cookies") or []:
@@ -120,6 +129,24 @@ class LixiaoClient:
         self._save_session(call.operation, result)
         return result
 
+    def ttocr_headers(self) -> dict[str, str]:
+        if not self.ttocr_token:
+            raise AuthenticationError(
+                "IYW account token is unavailable; sign in to IYW Claw "
+                "or configure IYW_TOKEN"
+            )
+        return {"token": str(self.ttocr_token)}
+
+    def save_business_session(self, token: str) -> None:
+        if not token:
+            raise AuthenticationError("CRM business token is empty")
+        self.business_token = str(token)
+        self.store.update(
+            app_token=self.app_token,
+            business_token=self.business_token,
+            cookies=[_cookie_to_data(cookie) for cookie in self.cookies],
+        )
+
     def _url(self, call: ApiCall) -> str:
         base = SERVICE_URLS[call.endpoint.service]
         query = urlencode(call.query, doseq=True)
@@ -127,9 +154,7 @@ class LixiaoClient:
 
     def _headers(self, auth: str) -> dict[str, str]:
         if not self.app_token:
-            raise AuthenticationError(
-                "app token is not configured; run auth set-app-token"
-            )
+            self._bootstrap_app_token()
         headers = {
             "accept": "application/json, text/plain, */*",
             "content-type": "application/json;charset=UTF-8",
@@ -139,6 +164,7 @@ class LixiaoClient:
             headers.update(
                 {
                     "apptoken": str(self.app_token),
+                    "platform": "IK",
                     "origin": "https://uc.weiwenjia.com",
                     "referer": "https://uc.weiwenjia.com/",
                 }
@@ -161,6 +187,31 @@ class LixiaoClient:
             }
         )
         return headers
+
+    def _bootstrap_app_token(self) -> None:
+        request = Request(
+            f"{SERVICE_URLS['uc']}/",
+            headers={"user-agent": "Mozilla/5.0 lixiao-cli/1.0"},
+        )
+        try:
+            with self.opener.open(request, timeout=self.timeout) as response:
+                final_url = response.geturl()
+        except HTTPError as exc:
+            exc.read()
+            raise AuthenticationError("unable to obtain Lixiao app token") from exc
+        except (URLError, TimeoutError) as exc:
+            raise LixiaoError(
+                f"app token bootstrap failed: {exc}",
+                code="upstream_unavailable",
+                retryable=True,
+            ) from exc
+
+        parsed = urlsplit(final_url)
+        token = parse_qs(parsed.query).get("appToken", [""])[0]
+        if parsed.scheme != "https" or parsed.netloc != "uc.weiwenjia.com" or not token:
+            raise AuthenticationError("Lixiao app token was not returned by the login entry")
+        self.app_token = token
+        self.store.update(app_token=self.app_token)
 
     def _open(self, request: Request, service: str) -> Any:
         try:
@@ -206,10 +257,11 @@ class LixiaoClient:
 
     def _validate_uc_result(self, result: dict[str, Any]) -> None:
         if "code" in result and str(result["code"]) != "0":
-            raise LixiaoError(
-                str(result.get("message") or "login request failed"),
-                code=str(result.get("code")),
-            )
+            message = str(result.get("message") or "login request failed")
+            code = str(result.get("code"))
+            if "401" in code:
+                raise AuthenticationError(message)
+            raise LixiaoError(message, code=code)
 
     def _raise_http_error(self, status: int, message: Any = None) -> None:
         text = str(message or f"HTTP {status}")

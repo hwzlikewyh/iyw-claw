@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -52,6 +53,40 @@ impl std::fmt::Display for ChannelType {
     }
 }
 
+/// Last observed runtime state of a channel. Deliberately distinct from the
+/// database `enabled` flag, which only records the user's *intent*.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelRuntimeStatus {
+    Saved,
+    Connecting,
+    Connected,
+    Error,
+    Disconnected,
+}
+
+impl ChannelRuntimeStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ChannelRuntimeStatus::Saved => "saved",
+            ChannelRuntimeStatus::Connecting => "connecting",
+            ChannelRuntimeStatus::Connected => "connected",
+            ChannelRuntimeStatus::Error => "error",
+            ChannelRuntimeStatus::Disconnected => "disconnected",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "connecting" => ChannelRuntimeStatus::Connecting,
+            "connected" => ChannelRuntimeStatus::Connected,
+            "error" => ChannelRuntimeStatus::Error,
+            "disconnected" => ChannelRuntimeStatus::Disconnected,
+            _ => ChannelRuntimeStatus::Saved,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelConnectionStatus {
@@ -75,6 +110,16 @@ pub struct IncomingCommand {
     pub callback_data: Option<String>,
     pub target: ChannelMessageTarget,
     pub metadata: serde_json::Value,
+    /// End-to-end trace id: generated per inbound message at the backend and
+    /// propagated through dispatch, session handling and outbound logging so
+    /// one id reconstructs the whole round trip.
+    pub message_trace_id: String,
+    /// Provider-side message id when the platform exposes one (used as the
+    /// idempotency key against duplicate deliveries).
+    pub provider_message_id: Option<String>,
+    /// Wall-clock receipt time (used for queue-full busy handling and
+    /// diagnostics timestamps).
+    pub received_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -6,9 +6,11 @@ use serde::Deserialize;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::chat_channel::backends::weixin::{WeixinQrcodeInfo, WeixinQrcodeStatusPublic};
+use crate::chat_channel::diagnostics::ChannelDiagnostic;
 use crate::chat_channel::natural_router_config::{
     ChatNaturalRouterConfig, ChatNaturalRouterConfigInput,
 };
+use crate::chat_channel::readiness::ChannelReadinessReport;
 use crate::chat_channel::webhook::WebhookConfig;
 use crate::commands::chat_channel as cc_commands;
 use crate::models::chat_channel::{ChannelStatusInfo, ChatChannelInfo, ChatChannelMessageLogInfo};
@@ -34,7 +36,8 @@ pub struct UpdateChatChannelParams {
     pub id: i32,
     pub name: Option<String>,
     pub enabled: Option<bool>,
-    pub config_json: Option<String>,
+    /// Field-level config patch (merged over the current stored JSON).
+    pub config_patch_json: Option<String>,
     pub event_filter_json: Option<Option<String>>,
     pub daily_report_enabled: Option<bool>,
     pub daily_report_time: Option<Option<String>>,
@@ -84,6 +87,7 @@ pub async fn create_chat_channel(
 ) -> Result<Json<ChatChannelInfo>, AppCommandError> {
     let result = cc_commands::create_chat_channel_core(
         &state.db,
+        &state.chat_channel_manager,
         params.name,
         params.channel_type,
         params.config_json,
@@ -101,10 +105,11 @@ pub async fn update_chat_channel(
 ) -> Result<Json<ChatChannelInfo>, AppCommandError> {
     let result = cc_commands::update_chat_channel_core(
         &state.db,
+        &state.chat_channel_manager,
         params.id,
         params.name,
         params.enabled,
-        params.config_json,
+        params.config_patch_json,
         params.event_filter_json,
         params.daily_report_enabled,
         params.daily_report_time,
@@ -117,15 +122,21 @@ pub async fn delete_chat_channel(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ChannelIdParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    cc_commands::delete_chat_channel_core(&state.db, &state.chat_channel_manager, params.id)
-        .await?;
+    cc_commands::delete_chat_channel_core(&state.db, &state.chat_channel_manager, params.id).await?;
     Ok(Json(()))
 }
 
 pub async fn save_chat_channel_token(
+    Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<SaveTokenParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    cc_commands::save_chat_channel_token_core(params.channel_id, &params.token)?;
+    cc_commands::save_chat_channel_token_core(
+        &state.db,
+        &state.chat_channel_manager,
+        params.channel_id,
+        &params.token,
+    )
+    .await?;
     Ok(Json(()))
 }
 
@@ -156,7 +167,8 @@ pub async fn disconnect_chat_channel(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ChannelIdParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    cc_commands::disconnect_chat_channel_core(&state.chat_channel_manager, params.id).await?;
+    cc_commands::disconnect_chat_channel_core(&state.db, &state.chat_channel_manager, params.id)
+        .await?;
     Ok(Json(()))
 }
 
@@ -172,6 +184,34 @@ pub async fn get_chat_channel_status(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<Vec<ChannelStatusInfo>>, AppCommandError> {
     let result = cc_commands::get_chat_channel_status_core(&state.chat_channel_manager).await?;
+    Ok(Json(result))
+}
+
+pub async fn get_chat_channel_readiness(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<Vec<ChannelReadinessReport>>, AppCommandError> {
+    let result =
+        cc_commands::get_chat_channel_readiness_core(&state.db, &state.chat_channel_manager).await?;
+    Ok(Json(result))
+}
+
+pub async fn quick_check_chat_channel(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<ChannelIdParams>,
+) -> Result<Json<ChannelDiagnostic>, AppCommandError> {
+    let result =
+        cc_commands::quick_check_chat_channel_core(&state.db, &state.chat_channel_manager, params.id)
+            .await?;
+    Ok(Json(result))
+}
+
+pub async fn full_loop_chat_channel(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<ChannelIdParams>,
+) -> Result<Json<ChannelDiagnostic>, AppCommandError> {
+    let result =
+        cc_commands::full_loop_chat_channel_core(&state.db, &state.chat_channel_manager, params.id)
+            .await?;
     Ok(Json(result))
 }
 
@@ -325,9 +365,12 @@ pub async fn weixin_get_qrcode() -> Result<Json<WeixinQrcodeInfo>, AppCommandErr
 // WeCom (企业微信 / wecom-cli) auth
 // ---------------------------------------------------------------------------
 
-pub async fn wecom_get_auth_status() -> Result<Json<cc_commands::WecomAuthStatus>, AppCommandError>
-{
-    Ok(Json(cc_commands::wecom_get_auth_status_core().await?))
+pub async fn wecom_get_auth_status(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<cc_commands::WecomAuthStatus>, AppCommandError> {
+    Ok(Json(
+        cc_commands::wecom_get_auth_status_core(&state.db, &state.chat_channel_manager).await?,
+    ))
 }
 
 pub async fn wecom_start_auth() -> Result<Json<cc_commands::WecomAuthStart>, AppCommandError> {
@@ -345,7 +388,12 @@ pub async fn weixin_check_qrcode(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<WeixinCheckQrcodeParams>,
 ) -> Result<Json<WeixinQrcodeStatusPublic>, AppCommandError> {
-    let result =
-        cc_commands::weixin_check_qrcode_core(&state.db, params.channel_id, &params.qrcode).await?;
+    let result = cc_commands::weixin_check_qrcode_core(
+        &state.db,
+        &state.chat_channel_manager,
+        params.channel_id,
+        &params.qrcode,
+    )
+    .await?;
     Ok(Json(result))
 }

@@ -408,6 +408,25 @@ fn extract_host(remote_url: &str) -> Option<String> {
     None
 }
 
+/// Mask any `userinfo` segment (`username[:password]@`) from a URL used in
+/// log output, so credentials embedded in remote URLs are never written to
+/// logs (P0-1 / IYW-SEC-001). The host and path are preserved for debugging.
+fn redact_url_userinfo(url: &str) -> String {
+    let Some(scheme_end) = url.find("://") else {
+        return url.to_string();
+    };
+    let after_scheme = &url[scheme_end + 3..];
+    let Some(at_pos) = after_scheme.find('@') else {
+        return url.to_string();
+    };
+    // Only treat the segment as userinfo when `@` appears before any path
+    // separator; otherwise it is part of the path and must stay intact.
+    if after_scheme[..at_pos].contains('/') {
+        return url.to_string();
+    }
+    format!("{}://***@{}", &url[..scheme_end], &after_scheme[at_pos + 1..])
+}
+
 /// Find the best matching account for a given remote URL.
 ///
 /// Only returns an account whose server_url hostname matches the remote URL host.
@@ -524,7 +543,10 @@ pub async fn try_inject_for_repo_remote(
 
     // Only inject for HTTPS URLs (SSH uses keys, not tokens)
     if !remote_url.starts_with("https://") && !remote_url.starts_with("http://") {
-        tracing::warn!("[GIT_CRED] skipping non-HTTPS URL: {}", remote_url);
+        tracing::warn!(
+            "[GIT_CRED] skipping non-HTTPS URL: {}",
+            redact_url_userinfo(&remote_url)
+        );
         return false;
     }
 
@@ -533,11 +555,11 @@ pub async fn try_inject_for_repo_remote(
         None => {
             tracing::info!(
                 "[GIT_CRED] no matching account for remote {}. Available hosts: {}",
-                remote_url,
+                redact_url_userinfo(&remote_url),
                 settings
                     .accounts
                     .iter()
-                    .map(|a| a.server_url.as_str())
+                    .map(|a| redact_url_userinfo(&a.server_url))
                     .collect::<Vec<_>>()
                     .join(", ")
             );
@@ -563,7 +585,7 @@ pub async fn try_inject_for_repo_remote(
 
     tracing::info!(
         "[GIT_CRED] injecting credentials for {} (user: {})",
-        remote_url,
+        redact_url_userinfo(&remote_url),
         account.username
     );
     inject_credentials(cmd, &account.username, &token, &askpass);

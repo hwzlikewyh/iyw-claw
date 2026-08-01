@@ -4,6 +4,10 @@ pub mod weixin;
 
 use super::error::ChatChannelError;
 use super::traits::ChatChannelBackend;
+/// Sent back to the originating chat when the dispatcher queue is full so a
+/// message is never silently dropped (bounded queue contract).
+pub const DISPATCHER_BUSY_TEXT: &str =
+    "系统繁忙，请稍后重试（消息队列已满）\nBusy — the message queue is full, please retry in a moment.";
 use super::types::*;
 
 /// Factory function to create a backend instance from channel type, config, and token.

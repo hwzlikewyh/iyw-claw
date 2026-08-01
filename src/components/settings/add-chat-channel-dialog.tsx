@@ -23,7 +23,11 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { WecomAuthPanel } from "@/components/settings/wecom-auth-panel"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
-import { createChatChannel, saveChatChannelToken } from "@/lib/api"
+import {
+  createChatChannel,
+  listChatChannels,
+  saveChatChannelToken,
+} from "@/lib/api"
 import { buildChatChannelConfig } from "@/lib/chat-channel-config"
 import type { AgentType, ChannelType } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
@@ -117,6 +121,21 @@ export function AddChatChannelDialog({
 
       if (channelType === "lark" && token.trim()) {
         await saveChatChannelToken(channel.id, token.trim())
+      }
+
+      // IYW-CHANNEL-001/002: an enabled channel is reconciled (connected)
+      // by the backend on create. The create-time reconcile runs before the
+      // lark token is saved, so re-read the row to get the final runtime
+      // state; a failed connect still saved the channel and must be surfaced
+      // ("已保存，连接失败") instead of closing the dialog silently.
+      const refreshed = (await listChatChannels()).find(
+        (c) => c.id === channel.id
+      )
+      const status = refreshed ?? channel
+      if (status.runtime_status === "error" && status.last_error) {
+        setError(`${t("savedButConnectFailed")}：${status.last_error}`)
+        onChannelAdded()
+        return
       }
 
       handleOpenChange(false)

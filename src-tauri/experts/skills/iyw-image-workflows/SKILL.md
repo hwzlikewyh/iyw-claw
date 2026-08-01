@@ -1,14 +1,15 @@
 ---
 name: iyw-image-workflows
-description: 通过内置 Python CLI 调用已经确认的 IYW 图片接口，支持分身生图、本地图片上传并自动违规检测、网络图片违规检测、电商变款、系列延伸、多图融合、图片放大、commerce 任务查询，以及在已有权威 JSON 契约时调用指定 commerce operation。用户提到生图、分身生图、画图、修图、商品图、上传图片、检测图片、改款、变款、系列延伸、多图融合、放大、upscale 或 IYW 图片任务时使用；不得猜测接口路径、prefix、operation 或 payload。
+description: 通过内置 Python CLI 独立检索 IYW 知识库，或调用已经确认的 IYW 图片接口，支持知识查询、分身生图、本地图片上传并自动违规检测、网络图片违规检测、电商变款、系列延伸、多图融合、图片放大和 commerce 任务查询。用户提到 IYW 知识库、内部规范、品牌或 IP 手册、知识检索、生图、画图、修图、商品图、上传检测、改款、系列延伸、多图融合、放大或 IYW 图片任务时使用；知识检索可单独执行，生图前只按需调用，不得猜测接口路径、prefix、operation 或 payload。
 ---
 
 # IYW 图片工作流
 
-只使用本 Skill 内置且已经验证的 CLI。先判断请求属于分身生图、上传检测、已知
-commerce 工作流还是任务查询，再执行对应命令。
+只使用本 Skill 内置且已经验证的 CLI。先判断请求属于独立知识检索、分身生图、
+上传检测、已知 commerce 工作流还是任务查询，再执行对应命令。知识库检索是一项
+可单独使用的能力，不要求后续生图；生图也不强制先查询知识库。
 
-## 唯一生产入口
+## 图片生产入口
 
 使用 `scripts/iyw_commerce.py`。不要调用已经失效的 `iywctl`，不要使用
 `iywctl commerce`、`iywctl upload`、`iywctl task`、`list` 或 `describe`。
@@ -26,19 +27,21 @@ GPT Image 参数时，使用 `imagegen` Skill 的 `scripts/image_gen.py`；该�
 ```powershell
 $skillDir = Join-Path $env:USERPROFILE ".iyw-claw\skills\iyw-image-workflows"
 $commerceCli = Join-Path $skillDir "scripts\iyw_commerce.py"
+$knowledgeCli = Join-Path $skillDir "scripts\iyw_knowledge.py"
 uv sync --project $skillDir --python 3.13
 ```
 
-后续命令统一使用
-`uv run --project $skillDir --python 3.13 python $commerceCli`。`uv run` 会自动同步
+图片命令使用 `$commerceCli`，独立知识检索使用 `$knowledgeCli`。统一通过
+`uv run --project $skillDir --python 3.13 python <CLI>` 执行。`uv run` 会自动同步
 `pyproject.toml` 并在 Skill 目录创建 `.venv`。只有 uv 不可用时，才使用当前环境中
-已经确认可用的 Python 3.10 及以上版本运行 `$commerceCli`。
+已经确认可用的 Python 3.10 及以上版本运行对应 CLI。
 
 ## 连接与认证
 
 - API origin 默认是 `https://gateway.iyw.cn`。
 - 图片 API 在代码内固定追加 `/ai-application`；分身模型配置固定使用
-  `/platform/basic/dict/getByKeys`。两者都不接受 `--prefix`。
+  `/platform/basic/dict/getByKeys`；知识库检索固定使用
+  `/ai-agent-new/api/knowledge/search`。这些入口都不接受 `--prefix`。
 - agent 不得传入或猜测 `--prefix`，也不得使用 `/iyw-fusion-api/v1` 等路径。
 - token 优先读取当前用户目录 `.iyw-claw/iyw-account-token.json` 中的
   `access_token`；没有非空账号 token 时，再按 `--token`、`IYW_TOKEN` 的顺序解析。
@@ -47,6 +50,41 @@ uv sync --project $skillDir --python 3.13
 
 所有 IYW API 请求只发送 `token` 请求头。不要发送 `Authorization`、
 `tokenInfo`、`securityKey`，不要把任何认证值放进 JSON body。
+
+## 独立查询知识库
+
+知识库查询可单独完成用户请求，不需要创建图片任务。执行前读取
+[references/tool-contracts.md](references/tool-contracts.md) 的知识库契约：
+
+```powershell
+uv run --project $skillDir --python 3.13 python $knowledgeCli `
+  search --query "茶具设计规范" --limit 10 --dense-weight 0.5
+```
+
+`search` 固定向 `/ai-agent-new/api/knowledge/search` 提交 `category`、`query`、
+`folderId`、`fileId`、`limit` 和 `denseWeight`。`--query` 必填；可按用户要求使用
+`--category`、`--folder-id` 或 `--file-id` 限定范围。不要自行猜测文件或文件夹 ID。
+
+只把 `ok: true` 视为成功。结果按服务端顺序返回 `count` 和 `results`，每项仅保留
+正文、Markdown 正文、相关度、片段类型和文档名称等安全字段。回答独立知识查询时，
+归纳相关片段并标注文档名称；不要输出 token usage、内部 metadata、临时签名 URL
+或整份无关检索结果。
+
+## 生图前按需检索
+
+知识检索和生图是两个独立操作。不得在 `fission-generate`、`image_gen.py` 或其他
+生图脚本内部强制串联查询。由 Agent 在构造最终提示词前自主判断：
+
+- 请求依赖企业内部资料、品牌或 IP 手册、行业规范、材料工艺、结构安全、生产约束
+  或合规要求时，优先先查知识库。
+- 用户明确要求依据知识库、公司标准或既有设计规则时，必须先查询。
+- 提示词和约束已经完整、纯创意创作、只按用户图片做明确编辑，或用户明确要求跳过
+  查询时，直接生图。
+- 查询失败、没有结果或结果不相关时，默认按用户原始要求继续生图；只有用户明确要求
+  “必须依据知识库”时才停止并说明原因。
+
+只提取与当前任务直接相关的事实和约束补充提示词，不要把完整检索结果原样塞入提示词，
+也不要用知识库内容覆盖用户的明确要求。
 
 ## 上传并检测本地图片
 
@@ -202,6 +240,16 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 其 URL 必须精确为
 `https://gateway.iyw.cn/ai-application/api/microModel/v2/batch`。
 
+知识库检索 dry-run 可单独执行：
+
+```powershell
+uv run --project $skillDir --python 3.13 python $knowledgeCli `
+  search --query "茶具设计规范" --dry-run
+```
+
+其 URL 必须精确为
+`https://gateway.iyw.cn/ai-agent-new/api/knowledge/search`，且请求体不得包含 token。
+
 ## 结果与失败处理
 
 - 只把 `ok: true` 视为 CLI 成功。
@@ -212,6 +260,7 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 - 只有用户明确要求保存到本地，或后续操作必须使用本地文件时，才下载结果图片。
 - 创建请求超时或结果不确定时，只查询原 task ID，不要重建任务。
 - 仅重试 `retryable: true` 的只读请求；不要自动重试收费创建请求。
+- 知识库查询失败默认不阻塞后续生图；用户明确要求必须依据知识库时除外。
 - 对用户只返回简洁状态、task ID，并通过 `show_image` 直接展示最终图片。
 - 不得暴露模型名、模型 ID、channel、provider、platform、`commerceType`、
   `toolType`、内部统计、token 或签名信息。

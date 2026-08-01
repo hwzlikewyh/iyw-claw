@@ -11,6 +11,11 @@ pub struct Model {
     pub content_preview: String,
     pub status: String,
     pub error_detail: Option<String>,
+    /// End-to-end trace id: one value spans inbound → dispatcher → agent →
+    /// outbound so a single log filter can reconstruct the whole round trip.
+    pub trace_id: Option<String>,
+    /// Provider-side message id (outbound idempotency key / inbound dedupe).
+    pub provider_message_id: Option<String>,
     pub created_at: DateTimeUtc,
 }
 

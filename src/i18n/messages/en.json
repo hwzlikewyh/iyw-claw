@@ -655,6 +655,7 @@
       },
       "toasts": {
         "actionFailed": "The Skill operation failed",
+        "artifactNotReady": "The artifact is not ready yet; this version cannot be installed",
         "published": "Skill published",
         "metadataUpdated": "Marketplace metadata updated",
         "versionPublished": "New version published",
@@ -3364,7 +3365,8 @@
   "fullLoop": "Full loop",
   "diagnosticOk": "Diagnostic passed",
   "diagnosticFailed": "Diagnostic failed",
-  "lastError": "Last error",  "testFailed": "Connection test failed",
+  "lastError": "Last error",
+  "testFailed": "Connection test failed",
     "deleteSuccess": "Channel deleted.",
     "deleteFailed": "Failed to delete channel.",
     "deleteConfirmTitle": "Delete Channel",

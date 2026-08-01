@@ -259,4 +259,69 @@ describe("UserMemorySettings", () => {
     expect(getUserMemorySettings).toHaveBeenCalledOnce()
     expect(screen.getByDisplayValue("Keep before reload")).toBeVisible()
   })
+
+  it("locks whole-document editing for memory documents with entry markers", async () => {
+    getUserMemorySettings.mockResolvedValueOnce({
+      ...settingsSnapshot,
+      documents: {
+        ...settingsSnapshot.documents,
+        memory: {
+          ...settingsSnapshot.documents.memory,
+          content:
+            "- [2026-08-01T00:00:00Z] [codex] Durable preference <!-- iyw-memory-abcdef0123456789abcdef -->\n- [2026-08-01T00:00:00Z] [codex] Another fact <!-- iyw-memory-0123456789abcdef0123 -->",
+          etag: "memory-etag-markers",
+        },
+      },
+    })
+
+    render(<UserMemorySettings />)
+
+    expect(await screen.findByText("markerProtectedHint")).toBeVisible()
+    expect(screen.getByText("markerProtected")).toBeVisible()
+    expect(screen.getByRole("textbox")).toBeDisabled()
+  })
+
+  it("keeps the editor unlocked for documents without entry markers", async () => {
+    render(<UserMemorySettings />)
+
+    const editor = await screen.findByDisplayValue("Durable preference")
+    expect(editor).toBeEnabled()
+    expect(screen.queryByText("markerProtectedHint")).not.toBeInTheDocument()
+  })
+
+  it("surfaces availability diagnostics instead of showing active", async () => {
+    getUserMemorySettings.mockResolvedValueOnce({
+      ...settingsSnapshot,
+      availability: {
+        available: false,
+        reason: "root_unavailable",
+        detail: "Memory root unavailable",
+      },
+    })
+
+    render(<UserMemorySettings />)
+
+    expect(await screen.findByText("status.unavailable")).toBeVisible()
+    expect(screen.getByText("Memory root unavailable")).toBeVisible()
+    expect(screen.queryByText("status.active")).not.toBeInTheDocument()
+  })
+
+  it("surfaces companion health diagnostics instead of showing active", async () => {
+    getUserMemorySettings.mockResolvedValueOnce({
+      ...settingsSnapshot,
+      companionHealth: {
+        status: "missing",
+        reason: "binary_missing",
+        expectedVersion: "1.0.0",
+        advertisedTools: [],
+        detail: "Companion binary not found",
+      },
+    })
+
+    render(<UserMemorySettings />)
+
+    expect(await screen.findByText("status.companionUnavailable")).toBeVisible()
+    expect(screen.getByText("Companion binary not found")).toBeVisible()
+    expect(screen.queryByText("status.active")).not.toBeInTheDocument()
+  })
 })

@@ -89,11 +89,8 @@ async fn apply_update_locked(
         ));
     }
     if previous.as_ref().is_some_and(|checkout| checkout.dirty) {
-        tracing::info!(target: "system_skills", "dirty checkout detected, forcing reset before update");
-        if let Err(error) = git::force_reset(&repo, conn, data_dir).await {
-            tracing::warn!(target: "system_skills", "force reset failed: {error}");
-            return Ok(mark_dirty(emitter));
-        }
+        tracing::info!(target: "system_skills", "dirty checkout detected, auto update stopped");
+        return Ok(mark_dirty(emitter));
     }
     state::mutate(emitter, |value| {
         value.status = SystemSkillsUpdateLifecycle::Downloading;
@@ -249,7 +246,7 @@ fn mark_dirty(emitter: &EventEmitter) -> SystemSkillsUpdateState {
     state::mutate(emitter, |value| {
         value.status = SystemSkillsUpdateLifecycle::BlockedDirty;
         value.dirty = true;
-        value.error = Some("Tracked system skill files have local changes".to_string());
+        value.error = Some("存在本地修改，自动更新已停止".to_string());
     })
 }
 

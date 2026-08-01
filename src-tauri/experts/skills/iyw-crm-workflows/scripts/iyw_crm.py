@@ -98,6 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="prompt for a fresh username instead of reusing the saved one",
     )
+    login.add_argument("--username", help="username paired with --password")
+    login.add_argument("--password", help="password paired with --username")
     auth_actions.add_parser("ensure", help="verify the saved CRM session")
     auth_actions.add_parser("logout", help="remove the saved CRM session")
 
@@ -144,15 +146,20 @@ def _run_auth(args: argparse.Namespace, store: SessionStore) -> Any:
     client = _client(args, store)
     if args.auth_action == "ensure":
         return client.ensure_authenticated()
-    saved = store.load()
-    username = "" if args.interactive else str(saved.get("username") or "")
+    username = str(args.username or "")
+    password = str(args.password or "")
+    if bool(username) != bool(password):
+        raise ValueError("--username and --password must be provided together")
     if not username:
-        username = input("CRM username: ").strip()
-    if not username:
-        raise ValueError("CRM username must not be empty")
-    password = getpass.getpass("CRM password: ")
-    if not password:
-        raise ValueError("CRM password must not be empty")
+        saved = store.load()
+        username = "" if args.interactive else str(saved.get("username") or "")
+        if not username:
+            username = input("CRM username: ").strip()
+        if not username:
+            raise ValueError("CRM username must not be empty")
+        password = getpass.getpass("CRM password: ")
+        if not password:
+            raise ValueError("CRM password must not be empty")
     try:
         return client.login(username, password)
     finally:

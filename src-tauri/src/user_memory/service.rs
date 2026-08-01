@@ -10,6 +10,7 @@ use crate::paths::{ResolvedUserMemoryRoot, UserMemoryPathError, UserMemoryRootSo
 
 use super::fs;
 use super::helpers::{apply_policy_patch, conflict};
+use super::harvest::HarvestQueue;
 use super::transaction::document_resource;
 use super::{
     project_settings_capabilities, UserMemoryDocumentId, UserMemoryGeneration,
@@ -25,6 +26,7 @@ pub struct UserMemoryService {
     pub(super) io_lock: Arc<tokio::sync::Mutex<()>>,
     pub(super) migration_blocked_documents: Arc<RwLock<BTreeSet<UserMemoryDocumentId>>>,
     pub(super) migration_report: Arc<RwLock<Option<UserMemoryMigrationReport>>>,
+    pub(super) harvest: HarvestQueue,
 }
 
 pub(crate) struct UserMemoryBackupGuard {
@@ -59,6 +61,7 @@ impl UserMemoryService {
             io_lock: Arc::new(tokio::sync::Mutex::new(())),
             migration_blocked_documents: Arc::new(RwLock::new(BTreeSet::new())),
             migration_report: Arc::new(RwLock::new(None)),
+            harvest: HarvestQueue::default(),
         }
     }
 

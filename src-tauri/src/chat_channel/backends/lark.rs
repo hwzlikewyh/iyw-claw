@@ -135,6 +135,7 @@ const PARTIAL_MSG_TTL_SECS: u64 = 60;
 
 // ── LarkBackend ──
 
+#[derive(Clone)]
 pub struct LarkBackend {
     app_id: String,
     app_secret: String,
@@ -265,6 +266,7 @@ impl LarkBackend {
         *self.shutdown_tx.lock().await = Some(shutdown_tx);
 
         let channel_id = self.channel_id;
+        let sender = self.clone();
         let status = self.status.clone();
         let app_id = self.app_id.clone();
         let app_secret = self.app_secret.clone();
@@ -379,7 +381,7 @@ impl LarkBackend {
                                                     // Process event
                                                     if let Ok(payload_str) = std::str::from_utf8(&payload_bytes) {
                                                         if let Ok(event) = serde_json::from_str::<serde_json::Value>(payload_str) {
-                                                            handle_lark_event(&event, channel_id, &command_tx).await;
+                                                            handle_lark_event(&event, channel_id, &command_tx, &sender).await;
                                                         } else {
                                                             tracing::info!("[Lark] event payload is not valid JSON");
                                                         }
@@ -443,6 +445,7 @@ async fn handle_lark_event(
     event: &serde_json::Value,
     channel_id: i32,
     command_tx: &mpsc::Sender<IncomingCommand>,
+    sender: &LarkBackend,
 ) {
     let event_type = event
         .pointer("/header/event_type")
@@ -507,17 +510,43 @@ async fn handle_lark_event(
         tracing::info!("[Lark] incoming message from {sender_id}");
         tracing::debug!("[Lark] incoming message from {sender_id}: {clean_text}");
 
-        let _ = command_tx
-            .send(IncomingCommand {
-                channel_id,
-                sender_id,
-                sender_name: None,
-                command_text: clean_text,
-                callback_data: None,
-                target: ChannelMessageTarget::channel(channel_id),
-                metadata: event.clone(),
-            })
-            .await;
+        let provider_message_id = event
+            .pointer("/event/message/message_id")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| {
+                format!(
+                    "l{}",
+                    lark_message_hash(&sender_id, &clean_text)
+                )
+            });
+        let command = IncomingCommand {
+            channel_id,
+            sender_id,
+            sender_name: None,
+            command_text: clean_text,
+            callback_data: None,
+            target: ChannelMessageTarget::channel(channel_id),
+            metadata: event.clone(),
+            message_trace_id: super::super::dedupe::new_message_trace_id(channel_id),
+            provider_message_id: Some(provider_message_id),
+            received_at: chrono::Utc::now(),
+        };
+        // Bounded queue: never silently drop; reply busy so the sender retries.
+        if let Err(error) = command_tx.try_send(command) {
+            match error {
+                mpsc::error::TrySendError::Full(_) => {
+                    tracing::warn!("[Lark] dispatcher queue full; replying busy");
+                    let _ = sender
+                        .send_lark_message("text", super::DISPATCHER_BUSY_TEXT)
+                        .await;
+                }
+                mpsc::error::TrySendError::Closed(_) => {
+                    tracing::error!("[Lark] command channel closed; dropping inbound");
+                }
+            }
+        }
     }
 }
 
@@ -691,4 +720,15 @@ fn build_lark_card(msg: &RichMessage) -> serde_json::Value {
         },
         "elements": elements,
     })
+}
+
+/// Deterministic composite hash for Lark events without a message id
+/// (idempotency key fallback).
+fn lark_message_hash(sender_id: &str, text: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    sender_id.hash(&mut hasher);
+    text.hash(&mut hasher);
+    hasher.finish()
 }

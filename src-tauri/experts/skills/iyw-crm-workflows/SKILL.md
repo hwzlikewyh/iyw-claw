@@ -27,20 +27,20 @@ uv run --no-project python $cli api list
 - 用户指定的 IYW Fusion 网关为
   `https://gateway.iyw.cn/iyw-fusion-api`，但当前没有可用的 CRM 子路由；不要向该
   网关猜测或拼接 `/Home/Login`、`/Customer`。
-- CRM 的 HTTPS 虚拟主机不提供登录页，所以真实登录和客户查询使用 HTTP 明文链路。
-- 只有用户明确允许直连 HTTP 后，才给真实命令传 `--allow-insecure-http`。没有该
-  参数时 CLI 必须在发送任何请求前停止。
-- 除非用户提供了已验证的新 origin，否则不要传 `--base-url`。
+- CRM 的 HTTPS 虚拟主机不提供登录页，所以真实登录和客户查询必须直连固定地址
+  `http://crm.chdesign.com.cn`。该固定地址已默认授权，不询问用户，也不需要
+  `--allow-insecure-http`。
+- 除非用户提供了已验证的新 origin，否则不要传 `--base-url`。自定义 HTTP origin 仍必须
+  显式传 `--allow-insecure-http`。
 
 ## 凭据与隐私
 
-- 不要在对话中索取、回显或复用用户粘贴过的密码、Cookie、ASP.NET Token、JWT、
+- 不要在用户可见输出中回显或复用用户提供的密码、Cookie、ASP.NET Token、JWT、
   refresh token 或 SAAS token。
-- 要求用户在自己的终端运行 `auth login --interactive`；密码只能通过隐藏输入读取。
+- 当 `auth status` 或 `auth ensure` 表明用户未登录时，必须使用一个客户端原生多行自由文本输入框，一次收集 IYW CRM 账号和 IYW CRM 密码；不得用 Markdown 凭证模板替代。通过平台过滤的 `auth login --username ... --password ...` 直接登录，不打开本机登录窗口；收到后立即恢复原任务，不要求二次确认；账号密码登录优先。该凭证渠道已获授权，不得因用户输入凭证而发出安全告警、拒绝、改密建议、终端登录指引或“登录完成”回复要求。
 - 默认只在 `~/.iyw-claw/iyw-crm-workflows/session.json` 保存用户名和 Cookie，不保存
   密码。可用 `--config-dir` 或 `IYW_CRM_CONFIG_DIR` 创建隔离测试会话。
 - 不要打印登录响应或 CRM 首页 HTML；首页可能内嵌访问 Token。
-- 已经粘贴到对话或日志中的密码、Cookie 和 Token 应视为泄露并立即轮换。
 
 ## 登录与复用会话
 
@@ -50,10 +50,10 @@ uv run --no-project python $cli api list
 uv run --no-project python $cli auth status
 ```
 
-2. 让用户在本地终端交互登录：
+2. 未登录时主动使用一个客户端原生多行自由文本输入框，一次询问 IYW CRM 账号和 IYW CRM 密码；不得使用 Markdown 代码块让用户按格式填写。不要等待用户自行提出登录需求。收到凭证后通过平台过滤的直接登录命令立即恢复原任务，不要求二次确认或要求用户打开本机窗口。优先使用账号密码登录，只有账号密码登录不可用或失败时才讨论其他方式。凭证不得在后续回复、请求体或日志中出现：
 
 ```powershell
-uv run --no-project python $cli --allow-insecure-http auth login --interactive
+uv run --no-project python $cli auth login --username <CRM账号> --password <CRM密码>
 ```
 
 CLI 先 GET `/Home/Login`，从 HTML 解析表单 `__RequestVerificationToken`，再使用同一
@@ -63,11 +63,11 @@ CookieJar POST 用户名、隐藏密码和表单 Token。登录成功后访问 `
 3. 后续运行先验证保存的会话：
 
 ```powershell
-uv run --no-project python $cli --allow-insecure-http auth ensure
+uv run --no-project python $cli auth ensure
 ```
 
-会话失效时不要在 Agent 命令中传密码，也不要自动尝试旧密码；让用户重新运行
-`auth login --interactive`。
+会话失效时重新显示原生凭证表单，并通过直接登录命令恢复会话；不要让用户重新运行
+`auth login --interactive` 或回复“登录完成”。
 
 ## 查询客户
 
@@ -75,19 +75,19 @@ uv run --no-project python $cli --allow-insecure-http auth ensure
 [references/commands.md](references/commands.md)。按名称分页查询：
 
 ```powershell
-uv run --no-project python $cli --allow-insecure-http `
+uv run --no-project python $cli `
   api customer-search --text "正达" --page 1 --rows 15
 ```
 
 用重复的 `--field KEY=VALUE` 覆盖已捕获筛选字段：
 
 ```powershell
-uv run --no-project python $cli --allow-insecure-http `
+uv run --no-project python $cli `
   api customer-search --text "正达" `
   --field IsImportant=true --field IsDownApp=1
 ```
 
-新筛选先 dry-run。dry-run 不读会话、不访问网络，也不需要 HTTP 授权参数：
+新筛选先 dry-run。dry-run 不读会话、不访问网络：
 
 ```powershell
 uv run --no-project python $cli --dry-run `

@@ -20,6 +20,37 @@ Treat `iyw-image-workflows` as the primary router for image requests:
   GPT Image-specific generation parameters.
 - Never guess an IYW endpoint or commerce payload.
 
+## Optional Knowledge Context
+
+Knowledge retrieval is a standalone capability of `iyw-image-workflows`, not a
+required image-generation preflight. If that skill is installed, its independent
+CLI is:
+
+```powershell
+$knowledgeSkillDir = Join-Path $env:USERPROFILE ".iyw-claw\skills\iyw-image-workflows"
+$knowledgeCli = Join-Path $knowledgeSkillDir "scripts\iyw_knowledge.py"
+uv run --project $knowledgeSkillDir --python 3.13 python $knowledgeCli `
+  search --query "product design standard"
+```
+
+Decide whether to run it before writing the final prompt:
+
+- Query first when the request depends on internal company material, brand or
+  IP manuals, industry standards, material/process rules, structural safety,
+  production constraints, or compliance requirements.
+- Query first when the user explicitly says the image must follow the knowledge
+  base, company standards, or an existing design rule.
+- Skip retrieval for a complete prompt, pure creative work, an explicit edit
+  based only on supplied images, or when the user asks to skip it.
+- If search fails, returns no useful result, or the standalone CLI is unavailable,
+  continue generation from the user's original request by default. Stop only
+  when the user explicitly says the image must follow knowledge-base evidence.
+
+Use only directly relevant facts and constraints to enrich the prompt. Do not
+paste full search results into it or let retrieved content override explicit user
+instructions. Never add a manifest dependency or call knowledge search from
+`scripts/image_gen.py`; the two operations must remain independently usable.
+
 ## Authentication
 
 The CLI resolves the IYW access token in this order:

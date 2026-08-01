@@ -69,18 +69,36 @@ pub fn spawn_command_dispatcher(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut config = CommandConfigCache::new();
+        // Bounded inbound dedupe keyed on (channel, provider message id) so
+        // poll overlap / WS redelivery never double-fires an agent turn.
+        let mut dedupe = super::dedupe::InboundDedupe::new(4096);
 
         while let Some(cmd) = command_rx.recv().await {
+            // Idempotency gate BEFORE any side effect.
+            if let Some(provider_id) = cmd.provider_message_id.as_deref() {
+                if !dedupe.check_and_insert(cmd.channel_id, provider_id) {
+                    tracing::info!(
+                        "[ChatChannel] duplicate inbound dropped channel={} provider={}",
+                        cmd.channel_id,
+                        provider_id
+                    );
+                    continue;
+                }
+            }
+            manager.record_inbound(cmd.channel_id, cmd.received_at).await;
+
             let text = cmd.command_text.trim();
+            let trace_id = cmd.message_trace_id.clone();
             tracing::info!(
-                "[ChatChannel] received command from channel={} sender={}: {:?}",
+                "[ChatChannel] received command from channel={} sender={} trace={}: {:?}",
                 cmd.channel_id,
                 cmd.sender_id,
+                trace_id,
                 text
             );
 
-            // Log inbound command
-            let _ = chat_channel_message_log_service::create_log(
+            // Log inbound command with the end-to-end trace id.
+            let _ = chat_channel_message_log_service::create_log_full(
                 &db_conn,
                 cmd.channel_id,
                 "inbound",
@@ -88,6 +106,8 @@ pub fn spawn_command_dispatcher(
                 text,
                 "sent",
                 None,
+                Some(trace_id.clone()),
+                cmd.provider_message_id.clone(),
             )
             .await;
 
@@ -108,12 +128,21 @@ pub fn spawn_command_dispatcher(
                 &cmd.target,
                 cmd.callback_data.as_deref(),
                 config.lang,
+                &trace_id,
             )
             .await;
 
             for (message, target) in response.take_messages() {
-                send_dispatch_message(&db_conn, &manager, cmd.channel_id, text, message, target)
-                    .await;
+                send_dispatch_message(
+                    &db_conn,
+                    &manager,
+                    cmd.channel_id,
+                    text,
+                    message,
+                    target,
+                    Some(&trace_id),
+                )
+                .await;
             }
 
             if let Some(action) = response.post_action.take() {
@@ -129,6 +158,7 @@ pub fn spawn_command_dispatcher(
                             text,
                             message,
                             target,
+                            Some(&trace_id),
                         )
                         .await;
                     }
@@ -154,6 +184,7 @@ async fn dispatch_command(
     target: &ChannelMessageTarget,
     callback_data: Option<&str>,
     lang: Lang,
+    trace_id: &str,
 ) -> DispatchResponse {
     if let Some(data) = callback_data {
         return DispatchResponse::current(
@@ -183,6 +214,7 @@ async fn dispatch_command(
                         data_dir,
                         lang,
                         prefix,
+                        trace_id: Some(trace_id),
                     })
                     .await,
                     target,
@@ -202,6 +234,7 @@ async fn dispatch_command(
                 sender_name,
                 target,
                 lang,
+                trace_id,
             )
             .await;
         }
@@ -271,7 +304,7 @@ async fn dispatch_command(
         "new" | "task" | "do" => DispatchResponse::from_command_result(
             session_commands::handle_task(
                 db, args, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge, lang,
-                prefix, data_dir,
+                prefix, data_dir, Some(trace_id),
             )
             .await,
         ),
@@ -283,7 +316,7 @@ async fn dispatch_command(
         "resume" => DispatchResponse::current(
             session_commands::handle_resume(
                 db, args, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge, lang,
-                prefix, data_dir,
+                prefix, data_dir, Some(trace_id),
             )
             .await,
             target,
@@ -336,6 +369,7 @@ async fn dispatch_natural_message(
     sender_name: Option<&str>,
     target: &ChannelMessageTarget,
     lang: Lang,
+    trace_id: &str,
 ) -> DispatchResponse {
     let decision =
         natural_router::route_natural_message(db, bridge, channel_id, sender_id, text, lang).await;
@@ -360,6 +394,7 @@ async fn dispatch_natural_message(
                 data_dir,
                 lang,
                 prefix,
+                trace_id: Some(trace_id),
             })
             .await,
             target,
@@ -408,7 +443,7 @@ async fn dispatch_natural_message(
             DispatchResponse::from_command_result(
                 session_commands::handle_task(
                     db, &prompt, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge,
-                    lang, prefix, data_dir,
+                    lang, prefix, data_dir, Some(trace_id),
                 )
                 .await,
             )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import calendar
 import json
+import os
 import re
 import sys
 from datetime import datetime
@@ -19,6 +20,27 @@ ACTIVITY_TYPES = (
     "copyright_work",
 )
 PROTECTED_STARS = {4, 5, 10}
+PACKAGE_FOLDER_NAME = "AI销售助理客户包"
+
+
+def _windows_desktop_directory() -> Path | None:
+    try:
+        import winreg
+
+        key_path = (
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+        )
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+            value, _ = winreg.QueryValueEx(key, "Desktop")
+    except (ImportError, OSError):
+        return None
+    expanded = os.path.expandvars(str(value)).strip()
+    return Path(expanded) if expanded else None
+
+
+def default_output_root() -> Path:
+    desktop = _windows_desktop_directory() if sys.platform == "win32" else None
+    return (desktop or Path.home() / "Desktop") / PACKAGE_FOLDER_NAME
 
 
 def subtract_months(value: datetime, months: int) -> datetime:
@@ -154,7 +176,11 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--input", required=True, help="lead JSON path or -")
     package = subparsers.add_parser("package", help="create a customer package")
     package.add_argument("--input", required=True, help="lead JSON path or -")
-    package.add_argument("--output-root", required=True)
+    package.add_argument(
+        "--output-root",
+        default=str(default_output_root()),
+        help="defaults to the current user's Desktop/AI销售助理客户包 folder",
+    )
     package.add_argument("--dry-run", action="store_true")
     return parser
 

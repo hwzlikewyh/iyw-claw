@@ -7,7 +7,7 @@ use super::{
     UserMemoryCandidate, UserMemoryCandidateStateSnapshot, UserMemoryCandidateStatus,
     UserMemoryLearningState, UserMemoryProposalResult, UserMemoryService,
     USER_MEMORY_CANDIDATE_SCHEMA_VERSION, USER_MEMORY_MAX_CANDIDATES,
-    USER_MEMORY_MAX_OBSERVATION_DETAILS,
+    USER_MEMORY_MAX_OBSERVATION_DETAILS, USER_MEMORY_MAX_WORDING_VARIANTS,
 };
 
 impl UserMemoryService {
@@ -90,11 +90,25 @@ fn observe_candidate(
         .iter_mut()
         .find(|candidate| candidate.deduplication_digest == digest)
     {
-        return observe_existing(candidate, source);
+        return observe_existing(candidate, source, None);
+    }
+    // Controlled similarity merge: same signal, non-terminal, and the new
+    // normalized wording is a character-multiset variant of an existing
+    // candidate (e.g. "prefer dark theme" vs "prefer the dark theme").
+    // Wording differences are preserved so the user can review both forms.
+    if let Some(candidate) = state.candidates.iter_mut().find(|candidate| {
+        candidate.signal == signal
+            && !candidate.status.is_terminal()
+            && candidate_store::candidates_equivalent(&candidate.content, &content)
+    }) {
+        return observe_existing(candidate, source, Some(content));
+    }
+    if state.candidates.len() >= USER_MEMORY_MAX_CANDIDATES {
+        prune_terminal_oldest(state);
     }
     if state.candidates.len() >= USER_MEMORY_MAX_CANDIDATES {
         return Err(AppCommandError::invalid_input(
-            "User memory candidate limit reached",
+            "User memory candidate limit reached and no terminal candidates can be reclaimed",
         ));
     }
     let now = chrono::Utc::now().to_rfc3339();
@@ -112,6 +126,8 @@ fn observe_candidate(
         observation_keys: vec![observation_key],
         first_observed_at: now.clone(),
         last_observed_at: now,
+        confidence: confidence_for(1),
+        wording_variants: Vec::new(),
         resolved_at: None,
         resolved_content: None,
         confirmed_memory_entry_id: None,
@@ -129,6 +145,7 @@ fn observe_candidate(
 fn observe_existing(
     candidate: &mut UserMemoryCandidate,
     source: CandidateObservationSource,
+    wording_variant: Option<String>,
 ) -> Result<ObservationOutcome, AppCommandError> {
     let observation_key = candidate_store::observation_key(
         &candidate.deduplication_digest,
@@ -140,6 +157,14 @@ fn observe_existing(
             observation_added: false,
             candidate: candidate.clone(),
         });
+    }
+    if let Some(variant) = wording_variant {
+        if candidate.content != variant
+            && !candidate.wording_variants.contains(&variant)
+            && candidate.wording_variants.len() < USER_MEMORY_MAX_WORDING_VARIANTS
+        {
+            candidate.wording_variants.push(variant);
+        }
     }
     let now = chrono::Utc::now().to_rfc3339();
     candidate.observation_count = candidate
@@ -154,10 +179,38 @@ fn observe_existing(
         .observations
         .push(CandidateObservation::from_source(source, now.clone()));
     candidate.last_observed_at = now;
+    candidate.confidence = confidence_for(candidate.observation_count);
     candidate.status =
         UserMemoryCandidateStatus::from_observation_count(candidate.observation_count);
     Ok(ObservationOutcome {
         observation_added: true,
         candidate: candidate.clone(),
     })
+}
+
+/// Reclaim the oldest resolved (terminal) candidates so learning never stops
+/// permanently at the cap. Only candidates with a `resolved_at` timestamp are
+/// eligible; active candidates are never touched by this path.
+fn prune_terminal_oldest(state: &mut UserMemoryLearningState) {
+    let mut terminal = state
+        .candidates
+        .iter()
+        .enumerate()
+        .filter_map(|(index, candidate)| {
+            candidate
+                .resolved_at
+                .as_deref()
+                .map(|resolved_at| (index, resolved_at))
+        })
+        .collect::<Vec<_>>();
+    terminal.sort_by_key(|(_, resolved_at)| resolved_at.to_string());
+    let reclaim = state.candidates.len().saturating_sub(USER_MEMORY_MAX_CANDIDATES - 1);
+    // Remove highest indexes first so earlier indexes stay valid.
+    for (index, _) in terminal.into_iter().take(reclaim).rev() {
+        state.candidates.remove(index);
+    }
+}
+
+fn confidence_for(observation_count: u32) -> u32 {
+    observation_count.saturating_mul(20).min(100)
 }

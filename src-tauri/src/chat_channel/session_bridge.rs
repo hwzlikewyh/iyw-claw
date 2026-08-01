@@ -33,6 +33,12 @@ pub struct ActiveSession {
     pub delegation_rendered: HashSet<String>,
     pub last_flushed: Instant,
     pub pending_prompt: Option<String>,
+    /// How many times the deferred kickoff has been retried (bounded, then
+    /// surfaced as an explicit failure instead of retrying forever).
+    pub pending_prompt_attempts: u32,
+    /// End-to-end trace id of the inbound message that started this session,
+    /// propagated to outbound log rows.
+    pub trace_id: Option<String>,
     pub permission_pending: Option<PendingPermission>,
 }
 

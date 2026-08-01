@@ -345,6 +345,22 @@ async fn poll_once(
     Ok(())
 }
 
+/// Send the bounded-queue busy notice back to the originating chat so an
+/// inbound message is never silently dropped.
+async fn send_busy_to_chat(chat_type: u8, chatid: &str) {
+    if chatid.trim().is_empty() {
+        return;
+    }
+    let payload = serde_json::json!({
+        "chat_type": chat_type,
+        "chatid": chatid,
+        "msgtype": "text",
+        "text": {"content": super::DISPATCHER_BUSY_TEXT},
+    });
+    if let Err(error) = run_cli_json(&["msg", "send_message", &payload.to_string()]).await {
+        tracing::warn!("[WeCom] busy reply to {chatid} failed: {error}");
+    }
+}
 #[allow(clippy::too_many_arguments)]
 async fn poll_chat(
     channel_id: i32,
@@ -401,6 +417,18 @@ async fn poll_chat(
             provider_payload: Some(serde_json::json!({"chat_type": chat_type})),
         };
         let sender_name = fetch_user_display_name(sender).await;
+        // Provider message id: prefer the platform's own id when present,
+        // else fall back to the deterministic composite key.
+        let provider_message_id = message
+            .get("msgid")
+            .or_else(|| message.get("message_id"))
+            .or_else(|| message.get("id"))
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| {
+                format!("w{}", message_key(chat_id, sender, send_time, content))
+            });
         let command = IncomingCommand {
             channel_id,
             sender_id: sender.to_string(),
@@ -415,9 +443,24 @@ async fn poll_chat(
                 "send_time": send_time,
                 "sender_name": sender_name,
             }),
+            message_trace_id: super::super::dedupe::new_message_trace_id(channel_id),
+            provider_message_id: Some(provider_message_id),
+            received_at: chrono::Utc::now(),
         };
-        if let Err(error) = command_tx.send(command).await {
-            tracing::error!("[WeCom] command_tx.send failed: {error}");
+        // Bounded queue: never block the poll loop; on a full dispatcher queue
+        // tell the sender to retry instead of silently dropping the message.
+        if let Err(error) = command_tx.try_send(command) {
+            match error {
+                mpsc::error::TrySendError::Full(_) => {
+                    tracing::warn!(
+                        "[WeCom] dispatcher queue full for chat {chat_id}; replying busy"
+                    );
+                    send_busy_to_chat(chat_type, chat_id).await;
+                }
+                mpsc::error::TrySendError::Closed(_) => {
+                    tracing::error!("[WeCom] command channel closed; dropping inbound");
+                }
+            }
         }
     }
     Ok(())

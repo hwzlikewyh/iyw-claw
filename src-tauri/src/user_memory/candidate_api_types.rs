@@ -67,6 +67,9 @@ pub struct UserMemoryCandidateSummary {
     pub signal: UserMemoryCandidateSignal,
     pub status: UserMemoryCandidateStatus,
     pub observation_count: u32,
+    pub confidence: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wording_variants: Vec<String>,
     pub source_agents: Vec<AgentType>,
     pub first_observed_at: String,
     pub last_observed_at: String,
@@ -97,6 +100,8 @@ impl From<&UserMemoryCandidate> for UserMemoryCandidateSummary {
             signal: candidate.signal,
             status: candidate.status,
             observation_count: candidate.observation_count,
+            confidence: candidate.confidence,
+            wording_variants: candidate.wording_variants.clone(),
             source_agents,
             first_observed_at: candidate.first_observed_at.clone(),
             last_observed_at: candidate.last_observed_at.clone(),

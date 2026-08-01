@@ -99,10 +99,13 @@ fn validate_install_plan_item(
             "Skill install plan contains an invalid package identity",
         ));
     }
-    if item.download.version != item.version
-        || item.download.package_size == 0
-        || item.download.package_size > MAX_PACKAGE_BYTES
-    {
+    if item.download.version != item.version {
+        return Err(AppCommandError::configuration_invalid(
+            "Skill install plan download metadata is inconsistent",
+        ));
+    }
+    ensure_download_artifact_ready(&item.download)?;
+    if item.download.package_size > MAX_PACKAGE_BYTES {
         return Err(AppCommandError::configuration_invalid(
             "Skill install plan download metadata is inconsistent",
         ));
@@ -122,6 +125,39 @@ fn validate_install_plan_item(
         ));
     }
     validate_direct_dependencies(item, previous)
+}
+
+/// A release without a real artifact exposes placeholder metadata: the
+/// per-file upload path writes the raw file size into `packageSize` and
+/// `objectSha256` does not describe any real ZIP. Treat missing/empty
+/// digest or a zero size as "artifact not ready" instead of a network
+/// glitch so the client never repeats three identical downloads.
+fn ensure_download_artifact_ready(
+    download: &super::types::SkillDownloadInfo,
+) -> Result<(), AppCommandError> {
+    if download.package_size == 0
+        || download.object_sha256.trim().is_empty()
+        || download.content_sha256.trim().is_empty()
+    {
+        return Err(AppCommandError::artifact_not_ready(
+            "The Skill artifact is not ready yet; this version cannot be installed",
+        )
+        .with_detail(format!(
+            "artifact metadata incomplete: package_size={}, object_sha256={}, content_sha256={}",
+            download.package_size,
+            digest_presence(&download.object_sha256),
+            digest_presence(&download.content_sha256),
+        )));
+    }
+    Ok(())
+}
+
+fn digest_presence(value: &str) -> &'static str {
+    if value.trim().is_empty() {
+        "missing"
+    } else {
+        "present"
+    }
 }
 
 fn validate_direct_dependencies(

@@ -9,6 +9,7 @@ mod capability_types;
 mod context;
 mod correction;
 mod fs;
+mod harvest;
 mod helpers;
 mod journal;
 mod launch_context;
@@ -27,6 +28,11 @@ pub use candidate_types::*;
 pub use capabilities::*;
 pub use capability_types::*;
 pub use context::{strip_user_context, USER_CONTEXT_END, USER_CONTEXT_START};
+pub use harvest::{
+    MemoryHarvestRequest, UserMemoryCandidateIndexRebuildResult, UserMemoryHarvestRescanPreview,
+    UserMemoryHarvestRescanResult, UserMemoryHarvestState, UserMemoryHarvestStatus,
+    UserMemoryHarvestSubmitResult, USER_MEMORY_HARVEST_FILE, USER_MEMORY_HARVEST_SCHEMA_VERSION,
+};
 pub use service::UserMemoryService;
 pub use transaction::{
     ResourceGeneration, TransactionPhase, UserMemoryGeneration, UserMemoryTransactionJournal,

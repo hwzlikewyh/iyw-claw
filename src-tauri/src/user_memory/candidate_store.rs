@@ -11,7 +11,7 @@ use super::{
     UserMemoryCandidateStateSnapshot, UserMemoryCandidateStatus, UserMemoryLearningState,
     USER_MEMORY_CANDIDATE_FILE, USER_MEMORY_CANDIDATE_INVALID_REASON,
     USER_MEMORY_CANDIDATE_SCHEMA_VERSION, USER_MEMORY_MAX_CANDIDATES,
-    USER_MEMORY_MAX_OBSERVATION_DETAILS,
+    USER_MEMORY_MAX_OBSERVATION_DETAILS, USER_MEMORY_MAX_WORDING_VARIANTS,
 };
 
 const USER_MEMORY_MAX_CANDIDATE_STATE_CHARS: usize = 16_777_216;
@@ -73,6 +73,44 @@ pub(super) fn observation_key(candidate_digest: &str, source_id: &str, turn_nonc
     hash_parts(&[candidate_digest.as_bytes(), source_id.as_bytes(), &nonce])
 }
 
+/// Conservative wording-equivalence used for candidate merging. Returns true
+/// only when both texts are normalized, carry the same signal, the shorter is
+/// a character-multiset subset of the longer, and their lengths are close.
+/// This groups phrasings such as "prefer dark theme" and "prefer the dark
+/// theme" into one candidate while keeping contradictory variants ("dark" vs
+/// "light") separate. Original wording differences are preserved in
+/// `wording_variants`, and the merge never revives terminal candidates.
+pub(super) fn candidates_equivalent(left: &str, right: &str) -> bool {
+    if left.is_empty() || right.is_empty() {
+        return false;
+    }
+    let (shorter, longer) = if left.chars().count() <= right.chars().count() {
+        (left, right)
+    } else {
+        (right, left)
+    };
+    let shorter_chars = shorter.chars().count();
+    if shorter_chars < 4 {
+        return false;
+    }
+    let longer_chars = longer.chars().count();
+    if longer_chars as f64 / shorter_chars as f64 > 1.6 {
+        return false;
+    }
+    let mut remaining = std::collections::BTreeMap::<char, usize>::new();
+    for character in longer.chars() {
+        *remaining.entry(character).or_insert(0) += 1;
+    }
+    for character in shorter.chars() {
+        let count = remaining.entry(character).or_insert(0);
+        if *count == 0 {
+            return false;
+        }
+        *count -= 1;
+    }
+    true
+}
+
 pub(super) fn validate_state(state: &UserMemoryLearningState) -> Result<(), AppCommandError> {
     if state.schema_version != USER_MEMORY_CANDIDATE_SCHEMA_VERSION {
         return Err(invalid_state("unsupported schema version"));
@@ -102,6 +140,22 @@ fn validate_candidate(candidate: &UserMemoryCandidate) -> Result<(), AppCommandE
         || !is_valid_candidate_id(&candidate.id)
     {
         return Err(invalid_state("candidate identity is inconsistent"));
+    }
+    if candidate.confidence > 100
+        || candidate.wording_variants.len() > USER_MEMORY_MAX_WORDING_VARIANTS
+    {
+        return Err(invalid_state("candidate confidence or wording variants are invalid"));
+    }
+    for variant in &candidate.wording_variants {
+        let normalized_variant = normalize_candidate(variant)
+            .map_err(|error| invalid_state(error.to_string()))?;
+        if variant.is_empty()
+            || normalized_variant != *variant
+            || variant == &candidate.content
+            || candidate.wording_variants.iter().filter(|item| *item == variant).count() > 1
+        {
+            return Err(invalid_state("candidate wording variant is invalid"));
+        }
     }
     let retained = (candidate.observation_count as usize).min(USER_MEMORY_MAX_OBSERVATION_DETAILS);
     if candidate.observation_count == 0

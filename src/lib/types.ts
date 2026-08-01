@@ -2574,6 +2574,14 @@ export type ChannelConnectionStatus =
   | "disconnected"
   | "error"
 
+/** Desired state (`enabled`) is separate from runtime connectivity. */
+export type ChannelRuntimeStatus =
+  | "saved"
+  | "connecting"
+  | "connected"
+  | "error"
+  | "disconnected"
+
 export interface ChatChannelInfo {
   id: number
   name: string
@@ -2583,6 +2591,10 @@ export interface ChatChannelInfo {
   event_filter_json: string | null
   daily_report_enabled: boolean
   daily_report_time: string | null
+  runtime_status: ChannelRuntimeStatus
+  last_error: string | null
+  last_error_at: string | null
+  last_connected_at: string | null
   created_at: string
   updated_at: string
 }
@@ -2602,7 +2614,61 @@ export interface ChatChannelMessageLog {
   content_preview: string
   status: "sent" | "failed"
   error_detail: string | null
+  trace_id: string | null
+  provider_message_id: string | null
   created_at: string
+}
+
+/** One stage of the channel readiness state machine (camelCase wire). */
+export interface ReadinessStage {
+  key: string
+  ok: boolean
+  error: string | null
+}
+
+/** Per-channel readiness report (camelCase wire). */
+export interface ChannelReadinessReport {
+  channelId: number
+  name: string
+  channelType: ChannelType
+  enabled: boolean
+  runtimeStatus: ChannelRuntimeStatus
+  transportConnected: boolean
+  saved: boolean
+  credentialReady: boolean
+  inboundVerified: boolean
+  workspaceReady: boolean
+  agentReady: boolean
+  gatewayReady: boolean
+  roundtripReady: boolean
+  errorCode: string | null
+  errorMessage: string | null
+  lastError: string | null
+  lastErrorAt: string | null
+  lastConnectedAt: string | null
+  lastInboundAt: string | null
+  inboundCount: number
+  stages: ReadinessStage[]
+}
+
+/** Full-loop roundtrip probe result (camelCase wire). */
+export interface RoundtripResult {
+  probeTraceId: string
+  enqueued: boolean
+  outboundCount: number
+  verified: boolean
+  details: string[]
+}
+
+/** Result of a quick check or full-loop diagnostic (camelCase wire). */
+export interface ChannelDiagnostic {
+  diagnosticId: string
+  channelId: number
+  kind: "quick" | "full"
+  startedAt: string
+  finishedAt: string
+  readiness: ChannelReadinessReport
+  roundtrip: RoundtripResult | null
 }
 
 export interface ModelProviderInfo {

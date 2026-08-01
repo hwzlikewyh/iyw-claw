@@ -158,6 +158,14 @@ async fn active_binding_ref(
 }
 
 async fn send_to_session(req: FollowupRequest<'_>, reference: CommandSessionRef) -> RichMessage {
+    // Stamp the session with this follow-up's trace so the outbound reply
+    // links back to the message that triggered it.
+    if let Some(trace) = req.trace_id {
+        let mut guard = req.bridge.lock().await;
+        if let Some(session) = guard.get_mut(&reference.connection_id) {
+            session.trace_id = Some(trace.to_string());
+        }
+    }
     match session_runtime::send_prompt(req.conn_mgr, &reference.connection_id, req.text).await {
         Ok(()) | Err(crate::acp::error::AcpError::TurnInProgress) => return RichMessage::info(""),
         Err(error) => {
@@ -255,6 +263,8 @@ async fn register_session(
             delegation_rendered: Default::default(),
             last_flushed: Instant::now(),
             pending_prompt: None,
+            pending_prompt_attempts: 0,
+            trace_id: req.trace_id.map(|s| s.to_string()),
             permission_pending: None,
         },
     );

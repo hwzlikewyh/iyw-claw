@@ -8,6 +8,7 @@ pub const USER_MEMORY_CANDIDATE_SCHEMA_VERSION: u32 = 1;
 pub const USER_MEMORY_MAX_CANDIDATE_CHARS: usize = 1_000;
 pub const USER_MEMORY_MAX_CANDIDATES: usize = 500;
 pub const USER_MEMORY_MAX_OBSERVATION_DETAILS: usize = 10;
+pub const USER_MEMORY_MAX_WORDING_VARIANTS: usize = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -111,6 +112,15 @@ pub struct UserMemoryCandidate {
     pub observation_keys: Vec<String>,
     pub first_observed_at: String,
     pub last_observed_at: String,
+    /// 0..=100 confidence derived from observation count. Stored so settings
+    /// UI and downstream consumers can display it without recomputation.
+    #[serde(default)]
+    pub confidence: u32,
+    /// Alternative phrasings merged into this candidate by controlled
+    /// similarity. The canonical `content` stays the first-seen normalized
+    /// wording; variants preserve later expression differences.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wording_variants: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

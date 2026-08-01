@@ -132,9 +132,7 @@ class CrmClient:
     def ensure_authenticated(self, *, persist: bool = True) -> dict[str, Any]:
         response = self._request("GET", "/")
         if _is_login_page(response):
-            raise AuthenticationError(
-                "CRM session is missing or expired; run auth login --interactive"
-            )
+            raise AuthenticationError("CRM session is missing or expired")
         if persist:
             self._save_session()
         return {"authenticated": True, "session_saved": persist}
@@ -159,9 +157,7 @@ class CrmClient:
             )
         response = self._request("POST", "/Customer", form=form, headers=headers)
         if _is_login_page(response):
-            raise AuthenticationError(
-                "CRM session expired; run auth login --interactive"
-            )
+            raise AuthenticationError("CRM session expired")
         result = _parse_customer_response(response)
         self._save_session()
         return result
@@ -236,11 +232,13 @@ def _validate_base_url(value: str, allow_insecure_http: bool) -> str:
         )
     if parsed.path not in {"", "/"}:
         raise ConfigurationError("CRM base URL must be an origin without a path")
-    if parsed.scheme == "http" and not allow_insecure_http:
+    normalized = value.rstrip("/")
+    fixed_origin = normalized.casefold() == DEFAULT_CRM_BASE_URL.casefold()
+    if parsed.scheme == "http" and not (fixed_origin or allow_insecure_http):
         raise ConfigurationError(
-            "CRM only exposes HTTP; pass --allow-insecure-http after user authorization"
+            "custom CRM HTTP origins require --allow-insecure-http"
         )
-    return value.rstrip("/")
+    return normalized
 
 
 def _ensure_same_origin(base_url: str, final_url: str) -> None:
