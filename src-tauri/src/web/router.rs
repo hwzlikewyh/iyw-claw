@@ -1138,6 +1138,18 @@ pub fn build_router(
             post(handlers::chat_channel::get_chat_channel_status),
         )
         .route(
+            "/get_chat_channel_readiness",
+            post(handlers::chat_channel::get_chat_channel_readiness),
+        )
+        .route(
+            "/quick_check_chat_channel",
+            post(handlers::chat_channel::quick_check_chat_channel),
+        )
+        .route(
+            "/full_loop_chat_channel",
+            post(handlers::chat_channel::full_loop_chat_channel),
+        )
+        .route(
             "/list_chat_channel_messages",
             post(handlers::chat_channel::list_chat_channel_messages),
         )
