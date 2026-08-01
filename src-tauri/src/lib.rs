@@ -66,7 +66,9 @@ mod tauri_app {
         question as question_commands, quick_messages as quick_messages_commands,
         remote_image as remote_image_commands, remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands,
-        runtime_bootstrap as runtime_bootstrap_commands, session_info as session_info_commands,
+        runtime_bootstrap as runtime_bootstrap_commands,
+        session_config as session_config_commands,
+        session_info as session_info_commands,
         skill_market as skill_market_commands, system_settings,
         system_skills as system_skills_commands, terminal as terminal_commands,
         usage as usage_commands, user_memory as user_memory_commands, version_control, windows,
@@ -732,11 +734,16 @@ mod tauri_app {
                         .state::<std::sync::Arc<crate::acp::InternalEventBus>>()
                         .inner()
                         .clone();
+                    let user_memory_harvest = app
+                        .state::<std::sync::Arc<crate::user_memory::UserMemoryService>>()
+                        .inner()
+                        .clone();
                     tauri::async_runtime::spawn(crate::acp::lifecycle_subscriber_task(
                         db_conn,
                         cm,
                         bus,
                         Some(broker_for_lifecycle),
+                        Some(user_memory_harvest),
                     ));
                 }
 
@@ -1125,6 +1132,7 @@ mod tauri_app {
                 question_commands::set_question_settings,
                 session_info_commands::get_session_info_settings,
                 session_info_commands::set_session_info_settings,
+                session_config_commands::get_session_config_reconcile_diagnostics,
                 user_memory_commands::append_user_memory_direct,
                 user_memory_commands::correct_user_memory,
                 user_memory_commands::get_user_memory_settings,
@@ -1132,6 +1140,9 @@ mod tauri_app {
                 user_memory_commands::list_user_memory_candidates,
                 user_memory_commands::resolve_user_memory_candidate,
                 user_memory_commands::delete_user_memory_candidate,
+                user_memory_commands::get_user_memory_harvest_status,
+                user_memory_commands::rescan_user_memory_harvest,
+                user_memory_commands::rebuild_user_memory_candidate_index,
                 version_control::detect_git,
                 version_control::test_git_path,
                 version_control::get_git_settings,

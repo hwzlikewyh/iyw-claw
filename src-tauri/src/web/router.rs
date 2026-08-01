@@ -137,6 +137,18 @@ pub fn build_router(
             post(handlers::user_memory::delete_user_memory_candidate),
         )
         .route(
+            "/get_user_memory_harvest_status",
+            post(handlers::user_memory::get_user_memory_harvest_status),
+        )
+        .route(
+            "/rescan_user_memory_harvest",
+            post(handlers::user_memory::rescan_user_memory_harvest),
+        )
+        .route(
+            "/rebuild_user_memory_candidate_index",
+            post(handlers::user_memory::rebuild_user_memory_candidate_index),
+        )
+        .route(
             "/submit_session_feedback",
             post(handlers::feedback::submit_session_feedback),
         )
@@ -151,6 +163,10 @@ pub fn build_router(
         .route(
             "/get_session_info_settings",
             post(handlers::session_info::get_session_info_settings),
+        )
+        .route(
+            "/get_session_config_reconcile_diagnostics",
+            post(handlers::session_config::get_session_config_reconcile_diagnostics),
         )
         .route(
             "/set_session_info_settings",

@@ -15,6 +15,7 @@ import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { usePlatform } from "@/hooks/use-platform"
 import { relaunchApp } from "@/lib/updater"
 import { toErrorMessage } from "@/lib/app-error"
+import { SessionConfigDiagnosticsSection } from "@/components/settings/session-config-diagnostics"
 import { DelegationSettingsSection } from "@/components/settings/delegation-settings"
 import { SessionFeedbackSettingsSection } from "@/components/settings/session-feedback-settings"
 import { AskQuestionSettingsSection } from "@/components/settings/ask-question-settings"
@@ -187,6 +188,8 @@ export function GeneralSettings() {
       <DelegationSettingsSection />
 
       <SessionFeedbackSettingsSection />
+
+      <SessionConfigDiagnosticsSection />
 
       <AskQuestionSettingsSection />
 

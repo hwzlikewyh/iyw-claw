@@ -14,7 +14,7 @@ use crate::acp::question::PendingQuestionState;
 use crate::acp::types::{
     AcpEvent, AvailableCommandInfo, ConfigStaleKind, ConnectionStatus, EventEnvelope,
     PromptCapabilitiesInfo, SessionConfigKindInfo, SessionConfigOptionInfo, SessionModeStateInfo,
-    ToolCallImageInfo,
+    ToolCallImageInfo, UserMessageBlock,
 };
 use crate::models::agent::AgentType;
 use crate::models::message::MessageRole;
@@ -201,6 +201,18 @@ pub struct PendingUserMessage {
     pub blocks: Vec<crate::acp::types::UserMessageBlock>,
 }
 
+/// Captured by the `TurnComplete` arm of [`SessionState::apply_event`] for
+/// the memory harvest hook (Task 13): the completed turn's nonce (read before
+/// `MemoryTurnTracker::complete_turn` clears the active bit) and sanitized,
+/// bounded text references. Consumed by the lifecycle worker, then cleared.
+#[derive(Debug, Clone)]
+pub struct TurnHarvestCapture {
+    pub turn_nonce: u64,
+    pub user_input_ref: Option<String>,
+    pub assistant_input_ref: Option<String>,
+    pub stop_reason: String,
+}
+
 /// 后端权威的会话状态。每个 AgentConnection 持有一个 Arc<RwLock<SessionState>>。
 ///
 /// 字段范围：仅当前 turn 的 in-flight 数据 + 元信息 + 协商出的能力。
@@ -375,6 +387,8 @@ pub struct SessionState {
     /// cleared) so the lifecycle subscriber can surface it as the
     /// `delegation_call_id`-bound child outcome. Cleared on the next prompt.
     pub last_assistant_text: Option<String>,
+    /// Completed-turn harvest capture consumed by the lifecycle worker (Task 13).
+    pub last_completed_turn_harvest: Option<TurnHarvestCapture>,
 
     /// The in-flight user prompt for the current turn, captured from
     /// `AcpEvent::UserMessage` and cleared on `TurnComplete` (alongside
@@ -484,6 +498,7 @@ impl SessionState {
             user_context_injected: false,
             feedback_tool_available: false,
             last_assistant_text: None,
+            last_completed_turn_harvest: None,
             pending_user_message: None,
             pending_user_message_started_at: None,
             turn_in_flight: false,
@@ -722,6 +737,27 @@ impl SessionState {
                 }
             }
             AcpEvent::TurnComplete { stop_reason, .. } => {
+                // Capture the completed turn for the memory harvest hook
+                // (Task 13) BEFORE the tracker clears its active bit and the
+                // in-flight user/assistant text is dropped below.
+                self.last_completed_turn_harvest = self
+                    .memory_turn_tracker
+                    .active_nonce()
+                    .map(|turn_nonce| TurnHarvestCapture {
+                        turn_nonce,
+                        user_input_ref: self.pending_user_message.as_ref().and_then(|pending| {
+                            let mut text = String::new();
+                            for block in &pending.blocks {
+                                if let UserMessageBlock::Text { text: block_text } = block {
+                                    text.push_str(block_text);
+                                    text.push(' ');
+                                }
+                            }
+                            crate::user_memory::harvest_reference(&text)
+                        }),
+                        assistant_input_ref: None,
+                        stop_reason: stop_reason.clone(),
+                    });
                 self.memory_turn_tracker.complete_turn();
                 self.last_turn_ended_abnormally = stop_reason != "end_turn";
                 // Snapshot the just-finished turn's FINAL assistant text — what
@@ -754,6 +790,12 @@ impl SessionState {
                     } else {
                         Some(assembled)
                     };
+                }
+                if let Some(capture) = self.last_completed_turn_harvest.as_mut() {
+                    capture.assistant_input_ref = self
+                        .last_assistant_text
+                        .as_deref()
+                        .and_then(crate::user_memory::harvest_reference);
                 }
                 self.live_message = None;
                 self.active_tool_calls.clear();

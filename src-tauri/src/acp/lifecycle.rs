@@ -28,6 +28,7 @@ use crate::db::entities::conversation::ConversationStatus;
 use crate::db::error::DbError;
 use crate::db::service::conversation_service;
 use crate::models::AgentType;
+use crate::user_memory::UserMemoryService;
 use crate::web::event_bridge::{emit_with_state, EventEmitter};
 use tokio::sync::RwLock;
 
@@ -131,8 +132,9 @@ async fn handle_event_with_retry(
     manager: &ConnectionManager,
     envelope: &EventEnvelope,
     broker: Option<&Arc<DelegationBroker>>,
+    harvest_service: Option<&Arc<UserMemoryService>>,
 ) {
-    match handle_event(db_conn, manager, envelope, broker).await {
+    match handle_event(db_conn, manager, envelope, broker, harvest_service).await {
         Ok(()) => return,
         Err(e) => {
             tracing::warn!(
@@ -143,7 +145,7 @@ async fn handle_event_with_retry(
     }
     for (attempt, backoff) in HANDLE_EVENT_RETRY_BACKOFFS.iter().enumerate() {
         tokio::time::sleep(*backoff).await;
-        match handle_event(db_conn, manager, envelope, broker).await {
+        match handle_event(db_conn, manager, envelope, broker, harvest_service).await {
             Ok(()) => return,
             Err(e) => {
                 let attempt_num = attempt + 2;
@@ -169,6 +171,7 @@ pub(crate) async fn handle_event(
     manager: &ConnectionManager,
     envelope: &EventEnvelope,
     broker: Option<&Arc<DelegationBroker>>,
+    harvest_service: Option<&Arc<UserMemoryService>>,
 ) -> Result<(), DbError> {
     match &envelope.payload {
         // NOTE: parent-side `delegate_to_agent` tool_call_id capture used to
@@ -289,6 +292,34 @@ pub(crate) async fn handle_event(
                 crate::commands::usage::record_conversation_usage_core(db_conn, cid).await
             {
                 tracing::warn!("[lifecycle] failed to cache usage for conversation {cid}: {error}");
+            }
+
+            // Task 13: enqueue the completed turn into the user-memory harvest
+            // queue. Best-effort — failures only log and must never block the
+            // completion event. The capture was taken at the emit site (before
+            // `MemoryTurnTracker::complete_turn` cleared the active bit).
+            if let Some(harvest) = harvest_service {
+                let capture = {
+                    let mut snap = state_arc.write().await;
+                    snap.last_completed_turn_harvest.take()
+                };
+                if let Some(capture) = capture {
+                    let agent_type = state_arc.read().await.agent_type.clone();
+                    let request = crate::user_memory::MemoryHarvestRequest {
+                        conversation: cid.to_string(),
+                        turn_nonce: capture.turn_nonce,
+                        agent_type,
+                        stop_reason: Some(capture.stop_reason),
+                        user_input_ref: capture.user_input_ref,
+                        assistant_input_ref: capture.assistant_input_ref,
+                        submitted_at: chrono::Utc::now().to_rfc3339(),
+                    };
+                    if let Err(error) = harvest.submit_turn_harvest(request).await {
+                        tracing::warn!(
+                            "[lifecycle] user-memory harvest submit failed for conversation {cid}: {error}"
+                        );
+                    }
+                }
             }
             Ok(())
         }
@@ -745,6 +776,7 @@ async fn connection_worker_loop(
     db: DatabaseConnection,
     manager: ConnectionManager,
     broker: Option<Arc<DelegationBroker>>,
+    harvest_service: Option<Arc<UserMemoryService>>,
     mut rx: mpsc::Receiver<Arc<EventEnvelope>>,
 ) {
     // 1-entry HashMap so we can reuse `handle_terminal_event` (also keeps the
@@ -827,7 +859,14 @@ async fn connection_worker_loop(
                 terminal_dispatched = true;
             }
             _ => {
-                handle_event_with_retry(&db, &manager, envelope, broker.as_ref()).await;
+                handle_event_with_retry(
+                    &db,
+                    &manager,
+                    envelope,
+                    broker.as_ref(),
+                    harvest_service.as_ref(),
+                )
+                .await;
             }
         }
     }
@@ -857,6 +896,7 @@ pub fn lifecycle_subscriber_task(
     manager: ConnectionManager,
     bus: Arc<InternalEventBus>,
     broker: Option<Arc<DelegationBroker>>,
+    harvest_service: Option<Arc<UserMemoryService>>,
 ) -> impl Future<Output = ()> + Send + 'static {
     let mut rx = bus.subscribe();
     let metrics = Arc::clone(bus.metrics());
@@ -896,12 +936,14 @@ pub fn lifecycle_subscriber_task(
                         let db_clone = db_conn.clone();
                         let mgr_clone = manager.clone_ref();
                         let broker_clone = broker.clone();
+                        let harvest_clone = harvest_service.clone();
                         let id_clone = conn_id.clone();
                         tokio::spawn(connection_worker_loop(
                             id_clone,
                             db_clone,
                             mgr_clone,
                             broker_clone,
+                            harvest_clone,
                             worker_rx,
                         ));
                         tx

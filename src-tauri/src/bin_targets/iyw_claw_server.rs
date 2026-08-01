@@ -535,6 +535,7 @@ async fn async_main() -> ExitCode {
         state.connection_manager.clone_ref(),
         state.acp_event_bus.clone(),
         Some(state.delegation_broker.clone()),
+        Some(state.user_memory.clone()),
     ));
 
     // Spawn the idle/stall/capacity sweep: abandoned connections are reaped,

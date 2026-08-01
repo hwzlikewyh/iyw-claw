@@ -3559,6 +3559,34 @@ export async function setFeedbackSettings(
   return getTransport().call("set_feedback_settings", { settings })
 }
 
+// ─── Session config reconcile diagnostics ─────────────────────────────
+
+/** Mirror of Rust `ReconcileDiagnostic` (脱敏：无配置正文/token/key/路径)。 */
+export interface SessionConfigReconcileDiagnostic {
+  agent: AgentType
+  /** "new" 或 "resume"。 */
+  kind: "new" | "resume"
+  schema_version: number
+  controlled_fields: number
+  changed: boolean
+  fingerprint: string
+  duration_ms: number
+  error_code: string | null
+  occurred_at: string
+}
+
+/** Mirror of Rust `SessionConfigReconcileDiagnostics`。 */
+export interface SessionConfigReconcileDiagnostics {
+  codex: SessionConfigReconcileDiagnostic | null
+  claude_code: SessionConfigReconcileDiagnostic | null
+  recent: SessionConfigReconcileDiagnostic[]
+}
+
+/** 设置页读取最近一次新会话/恢复会话对账时间与结果。 */
+export async function getSessionConfigReconcileDiagnostics(): Promise<SessionConfigReconcileDiagnostics> {
+  return getTransport().call("get_session_config_reconcile_diagnostics")
+}
+
 /**
  * Submit a live-feedback note to a running connection (the `check_user_feedback`
  * steering path). Returns the stored note (it also arrives via the

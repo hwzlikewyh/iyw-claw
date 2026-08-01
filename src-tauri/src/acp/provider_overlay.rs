@@ -5,7 +5,7 @@ use crate::models::agent::AgentType;
 pub use super::provider_overlay_files::{
     enforce_active_provider_overlay, enforce_all_provider_overlays,
     enforce_existing_active_provider_overlays, enforce_existing_provider_overlays,
-    enforce_provider_overlay,
+    enforce_provider_overlay, enforce_resumed_active_provider_overlay,
 };
 
 pub(crate) use super::provider_overlay_formats::{

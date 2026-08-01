@@ -28,6 +28,7 @@ pub mod question;
 pub mod quick_messages;
 pub mod remote_image;
 pub mod runtime_bootstrap;
+pub mod session_config;
 pub mod session_info;
 pub mod skill_market;
 pub mod system_settings;

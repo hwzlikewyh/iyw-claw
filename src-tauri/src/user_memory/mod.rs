@@ -32,6 +32,7 @@ pub use harvest::{
     MemoryHarvestRequest, UserMemoryCandidateIndexRebuildResult, UserMemoryHarvestRescanPreview,
     UserMemoryHarvestRescanResult, UserMemoryHarvestState, UserMemoryHarvestStatus,
     UserMemoryHarvestSubmitResult, USER_MEMORY_HARVEST_FILE, USER_MEMORY_HARVEST_SCHEMA_VERSION,
+    harvest_reference,
 };
 pub use service::UserMemoryService;
 pub use transaction::{

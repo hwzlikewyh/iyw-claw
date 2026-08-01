@@ -31,6 +31,14 @@ pub fn enforce_active_provider_overlay(agent: AgentType) -> Result<(), String> {
     enforce_provider_overlay_at_root(agent, &active_profile_root(agent)?)
 }
 
+/// 恢复会话（resume）的 provider overlay 门：与新建会话同一 reconciler，
+/// 但走 `reconcile_resumed_session`（保持策略代际，只刷新热更新安全字段）。
+/// 由 Task 13 在 `spawn_agent_connection` 按 `session_id` 区分调用。
+pub fn enforce_resumed_active_provider_overlay(agent: AgentType) -> Result<(), String> {
+    AgentStoragePaths::active().ok_or_else(|| "Agent storage is not initialized".to_string())?;
+    enforce_provider_overlay_at_root_with_kind(agent, &active_profile_root(agent)?, true)
+}
+
 pub fn enforce_existing_active_provider_overlays() -> Result<(), String> {
     for agent in crate::acp::registry::all_acp_agents() {
         let profile = active_profile_root(agent)?;
@@ -46,13 +54,26 @@ pub fn enforce_provider_overlay(agent: AgentType, paths: &AgentStoragePaths) -> 
 }
 
 fn enforce_provider_overlay_at_root(agent: AgentType, profile: &Path) -> Result<(), String> {
+    enforce_provider_overlay_at_root_with_kind(agent, profile, false)
+}
+
+fn enforce_provider_overlay_at_root_with_kind(
+    agent: AgentType,
+    profile: &Path,
+    resumed: bool,
+) -> Result<(), String> {
     if !super::provider_overlay::uses_managed_gateway(agent) {
         return Ok(());
     }
     // Codex / Claude Code 走统一 reconciler：受控字段幂等写入 + 回读校验 +
     // fingerprint + 诊断；失败会阻止新会话 spawn（不得以未知配置启动）。
     if matches!(agent, AgentType::Codex | AgentType::ClaudeCode) {
-        return super::session_config_reconciler::reconcile_before_spawn(agent, profile)
+        let outcome = if resumed {
+            super::session_config_reconciler::reconcile_resumed_session(agent, profile)
+        } else {
+            super::session_config_reconciler::reconcile_before_spawn(agent, profile)
+        };
+        return outcome
             .map(|_| ())
             .map_err(|error| format!("session config reconcile failed: {error}"));
     }

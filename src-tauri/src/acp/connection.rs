@@ -740,7 +740,15 @@ pub async fn spawn_agent_connection(
     user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
     delegation_injection: Option<DelegationInjection>,
 ) -> Result<tokio::sync::oneshot::Receiver<()>, AcpError> {
-    crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type).map_err(|error| {
+    // 恢复会话（session_id 为 Some）走 reconcile_resumed_session：保持策略
+    // 代际，只刷新允许热更新的安全字段；新建会话走完整 reconcile。两种路径
+    // 都先经过 provider overlay 门，失败都会阻止 spawn。
+    let overlay_result = if session_id.is_some() {
+        crate::acp::provider_overlay::enforce_resumed_active_provider_overlay(agent_type)
+    } else {
+        crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
+    };
+    overlay_result.map_err(|error| {
         AcpError::protocol(format!(
             "Failed to enforce private provider configuration: {error}"
         ))
