@@ -3,14 +3,15 @@
 > Audit A 只读基线 · 2026-08-01 · 三仓 master/main 当前提交
 > iyw-claw `b46a4c4` / iyw-fusion-api `d0df3bc` / skill `ea76a4e`
 > 本文件登记仓库、入口、外部依赖与关键数据流，作为审计证据索引的目录。
+> 工作区漂移（2026-08-01 复核）：三仓存在未提交并行任务改动（T00/T01/T03/T04/T05/T06/T07/T08/T09），下文标注（工作区）的状态均未提交、未验证；fusion-api HEAD 已前进 7b1c0a8（Task 01 契约/迁移本地提交，未推送）。
 
 ## 1. 仓库与职责
 
 | 仓库 | 技术栈 | 职责 | 当前分支 |
 | --- | --- | --- | --- |
-| `iyw-claw` | Rust (Tauri 2 / Axum) + Next.js 16 静态导出 + SQLite (SeaORM) | 桌面/服务端：受信执行、本地库存、下载校验、激活、回滚、会话启动、UI | master（未创建任务分支） |
-| `iyw-fusion-api` | Go (Hertz) + MySQL 5.7 (GORM) + Redis + Apollo/Nacos + TOS | AI 协议中转、Skill 市场、App Release Center、Agent Version Center、TOS 适配器、静态管理页 | master（未创建任务分支） |
-| `skill` | 目录 + `experts.toml` + SemVer 标签 | 系统 Skill 发布源（非客户端运行目录） | main |
+| `iyw-claw` | Rust (Tauri 2 / Axum) + Next.js 16 静态导出 + SQLite (SeaORM) | 桌面/服务端：受信执行、本地库存、下载校验、激活、回滚、会话启动、UI | audit/managed-t12-health |
+| `iyw-fusion-api` | Go (Hertz) + MySQL 5.7 (GORM) + Redis + Apollo/Nacos + TOS | AI 协议中转、Skill 市场、App Release Center、Agent Version Center、TOS 适配器、静态管理页 | master（HEAD 7b1c0a8，ahead 1） |
+| `skill` | 目录 + `experts.toml` + SemVer 标签 | 系统 Skill 发布源（非客户端运行目录） | feat/managed-t04-release-source |
 
 ## 2. 入口点
 
@@ -21,7 +22,7 @@
 - HTTP 路由：`web/router.rs`（受保护路由统一 `auth::require_token`；公开端点仅语言设置、下载 ticket、office-watch proxy）
 - 命令层：`commands/*`，`_core` 函数供 Tauri/Web 共用
 - 会话/ACP：`acp/`（connection、manager、delegation、binary_cache、registry、version_center）
-- 消息渠道：`chat_channel/`（manager、command_dispatcher、backends/{wecom,lark,weixin}、webhook、readiness、config_patch）
+- 消息渠道：`chat_channel/`（manager、command_dispatcher、backends/{wecom,lark,weixin}、webhook、readiness、config_patch、reconcile、dedupe、diagnostics；reconcile/dedupe/diagnostics 为工作区新增未提交）
 - 记忆：`user_memory/`（candidate_store/lifecycle、context、launch_context、transaction）
 - 系统 Skill：`system_skills/`（git、manager、checkout、activation、manifest）
 
@@ -31,7 +32,7 @@
 - 领域：`internal/domain/{skill,agentrelease,apprelease,relay(protocol)}`
 - 应用：`internal/application/{skill,agentrelease,apprelease,relay,admin}`
 - 适配器：`internal/adapter/{httpserver,mysql,objectstorage,redis,apollo,nacos,websearch}`
-- 迁移：`scripts/mysql/000..030`（031/032/033 为未跟踪草稿，Task 01 未合并）
+- 迁移：`scripts/mysql/000..033`（031/032/033 已随 7b1c0a8 本地提交，未推送 origin）
 
 ### skill
 - 发布清单：`experts.toml`（bundle.version=0.0.11；稳定标签最高 v0.0.8）
@@ -70,8 +71,8 @@
    上传（`/skills/uploads/*` 逐文件）→ `direct_upload.go` CompleteUpload 置 ready（raw_size 入 package_size）→ 桌面 `/skills/download` 动态 Deflate ZIP → 客户端按 raw_size 校验长度 → 必失败。
 2. **系统 Skill 更新（当前有破坏性 reset 与硬编码凭据，IYW-SKILL-002 / IYW-SEC-001）**
    `latest_stable_tag`（git ls-remote，注入硬编码凭据）→ 比对版本 → `apply_update_locked`（dirty 则 `force_reset` = `git reset --hard`）→ checkout tag → activation。
-3. **消息渠道（当前断链，IYW-CHANNEL-001..006）**
-   启动 `auto_connect_channels`（每个 enabled 渠道先读 keyring token）→ backend 轮询/webhook → dispatcher → workspace → agent spawn → 回复 → 出站。创建/启用不连接；企微被 token gate 挡在 backend 前。
+3. **消息渠道（基线断链 IYW-CHANNEL-001..006；工作区已接入 reconcile）**
+   启动 `reconcile_all_enabled`（工作区）→ backend 轮询/webhook → dispatcher → workspace → agent spawn → 回复 → 出站。工作区 create/update/connect 均走 `reconcile_channel`，企微不再要求 token；回环测试与 readiness UI 仍未验证。
 4. **用户记忆（IYW-MEMORY-001..003）**
    模型主动调用 append/propose → `candidate_lifecycle` 观察/去重/确认 → `transaction` 原子替换。无 TurnComplete 采集闭环；MCP 失败时提示写死 Administrator 路径。
 5. **Fusion 中转（relay）**
@@ -85,3 +86,5 @@
 - SQL：`scripts/mysql/*`、共享 API schema/DTO
 - router/bootstrap/lib.rs/应用总入口/根配置/CI/lockfile
 - feature flag 接线、JobEnqueuer 装配、TOS client 共享适配
+
+
