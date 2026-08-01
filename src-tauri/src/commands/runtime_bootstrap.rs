@@ -134,7 +134,7 @@ pub async fn runtime_bootstrap_managed_core(
     emit(emitter, &task_id, RuntimeBootstrapEventKind::Started, None, None, "");
     let channel = crate::update::preferences::load(conn)
         .await
-        .map(|prefs| prefs.channel)
+        .map(|prefs| prefs.channel.as_str().to_string())
         .unwrap_or_else(|_| "stable".to_string());
 
     let node = ensure_managed_component(conn, data_dir, "node", &channel, &task_id, emitter).await;
@@ -279,7 +279,7 @@ pub async fn bootstrap_initialize(
     let data_dir = crate::system_skills::data_dir_from_env();
     let channel = crate::update::preferences::load(&conn)
         .await
-        .map(|prefs| prefs.channel)
+        .map(|prefs| prefs.channel.as_str().to_string())
         .unwrap_or_else(|_| "stable".to_string());
     crate::acp::version_center::installer::bootstrap_initialize(
         &conn,
