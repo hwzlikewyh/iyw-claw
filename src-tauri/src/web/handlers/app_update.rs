@@ -173,7 +173,19 @@ async fn perform_impl(state: Arc<AppState>) -> Result<AppUpdateState, AppCommand
         // while still holding the lock would let a concurrent restart claim it,
         // fail to acquire the lock, and bounce a genuinely-staged update to
         // `Error`.
-        let outcome = crate::update::install::perform_update(&state.data_dir, &progress).await;
+        let outcome = async {
+            // IR-006：更新前记录持久区摘要（服务端 in-place 路径），
+            // 与桌面 tauri-plugin-updater 路径一致。
+            if let Err(error) = crate::update::digest::record_before_update(&state.data_dir).await
+            {
+                tracing::warn!(
+                    error = %error,
+                    "[app-update] failed to record pre-update managed-root digest"
+                );
+            }
+            crate::update::install::perform_update(&state.data_dir, &progress).await
+        }
+        .await;
         publish_after_releasing(guard, || match outcome {
             Ok(o) => {
                 update_state::set_ready(

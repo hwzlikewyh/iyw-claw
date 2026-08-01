@@ -45,15 +45,15 @@ export function useBootstrapInit(taskId: string) {
     const unsub = await subscribe<BootstrapInitEvent>(
       BOOTSTRAP_INIT_EVENT,
       (event) => {
-        if (event.task_id !== taskId) return
+        if (event.taskId !== taskId) return
         setState((prev) => ({
           ...prev,
           phase: event.phase,
           component: event.component ?? prev.component,
           downloaded: event.downloaded ?? prev.downloaded,
           total: event.total ?? prev.total,
-          rateBps: event.rate_bps ?? prev.rateBps,
-          etaSecs: event.eta_secs ?? prev.etaSecs,
+          rateBps: event.rateBps ?? prev.rateBps,
+          etaSecs: event.etaSecs ?? prev.etaSecs,
           message: event.message || prev.message,
           lastError:
             event.phase === "blocked" || event.phase === "degraded"
@@ -72,10 +72,10 @@ export function useBootstrapInit(taskId: string) {
         ...prev,
         phase: report.phase,
         offline: report.offline,
-        writerBusy: report.writer_busy,
+        writerBusy: report.writerBusy,
         lastError:
           report.phase === "blocked" || report.phase === "degraded"
-            ? (report.components.find((item) => item.last_error)?.last_error ??
+            ? (report.components.find((item) => item.lastError)?.lastError ??
               prev.lastError)
             : prev.lastError,
       }))

@@ -281,6 +281,38 @@ mod tauri_app {
                     std::env::set_var("IYW_CLAW_DATA_DIR", &effective_data_dir);
                 }
 
+                // IR-006：更新后的首次启动对比持久区摘要（一次性记录）。
+                // 更新只替换 `app`，不触碰受管组件/用户数据；摘要变化意味着
+                // 升级保护被破坏，需要远端 E2E 断言与告警。
+                {
+                    let digest_data_dir = effective_data_dir.clone();
+                    tauri::async_runtime::block_on(async move {
+                        match crate::update::digest::verify_after_update(&digest_data_dir).await {
+                            Ok(Some(comparison)) if comparison.unchanged => {
+                                tracing::info!(
+                                    before = %comparison.before,
+                                    after = %comparison.after,
+                                    "[app-update] managed-root digest unchanged across update"
+                                );
+                            }
+                            Ok(Some(comparison)) => {
+                                tracing::error!(
+                                    before = %comparison.before,
+                                    after = %comparison.after,
+                                    "[app-update] managed-root digest CHANGED across update"
+                                );
+                            }
+                            Ok(None) => {}
+                            Err(error) => {
+                                tracing::warn!(
+                                    error = %error,
+                                    "[app-update] failed to verify post-update managed-root digest"
+                                );
+                            }
+                        }
+                    });
+                }
+
                 // `IYW_CLAW_HOME` overrides `IYW_CLAW_DATA_DIR` inside
                 // `paths::iyw_claw_uploads_root` / `iyw_claw_pets_root` for
                 // backwards-compatibility with the legacy `~/.iyw-claw/`

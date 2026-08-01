@@ -1993,6 +1993,24 @@ impl ConnectionManager {
         connections.values().map(|c| c.info()).collect()
     }
 
+    /// 是否存在会话存活的 Agent 连接（未断开且非错误状态）。
+    ///
+    /// IR-005：受管组件版本切换/激活前用它判断是否应延迟——会话存活时不
+    /// 切换 active pointer，而是写入 pending activations，待会话结束后
+    /// 的首次启动再消费激活。判定口径与旧 `install_tool_core` 的
+    /// "Disconnect active Agents" 门禁一致（任何未断开连接都视为活跃）。
+    pub async fn has_live_agent_sessions(&self) -> bool {
+        self.list_connections()
+            .await
+            .iter()
+            .any(|item| {
+                !matches!(
+                    item.status,
+                    ConnectionStatus::Disconnected | ConnectionStatus::Error
+                )
+            })
+    }
+
     /// Count live connections whose launch-time effective user context differs
     /// from current settings/files. Existing sessions deliberately keep their
     /// snapshot; the settings UI uses this count to request a new conversation.

@@ -78,6 +78,9 @@ impl Default for InventoryManifest {
 }
 
 /// 待激活标记（活跃会话存活时不切换 Agent，记录为 pending）。
+///
+/// `policy` / `revision` 在写入时随激活参数一起记录，消费侧离线即可完成
+/// 激活（不依赖再次 resolve 网络往返）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingActivation {
@@ -85,6 +88,10 @@ pub struct PendingActivation {
     pub component_kind: String,
     pub version: String,
     pub created_at: String,
+    #[serde(default)]
+    pub policy: Option<String>,
+    #[serde(default)]
+    pub revision: Option<u64>,
 }
 
 pub fn inventory_dir(data_dir: &Path) -> PathBuf {
@@ -242,6 +249,25 @@ pub async fn write_pending_activations(
     tokio::fs::rename(&temporary, &path)
         .await
         .map_err(AppCommandError::io)
+}
+
+/// 追加一条待激活记录（同组件同版本去重）。
+///
+/// IR-005：活跃会话存活时不切换版本，先在此记录，会话结束后的首次启动
+/// 由 `bootstrap_initialize` 消费并激活。
+pub async fn push_pending_activation(
+    data_dir: &Path,
+    pending: PendingActivation,
+) -> Result<(), AppCommandError> {
+    let mut items = read_pending_activations(data_dir).await?;
+    if !items
+        .iter()
+        .any(|item| item.component_id == pending.component_id && item.version == pending.version)
+    {
+        items.push(pending);
+        write_pending_activations(data_dir, &items).await?;
+    }
+    Ok(())
 }
 
 /// 从 manifest 条目生成组件目录路径（相对 `<root>`）。

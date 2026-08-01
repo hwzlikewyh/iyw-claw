@@ -241,6 +241,14 @@ pub async fn perform_app_update(
     let conn = db.conn.clone();
     tauri::async_runtime::spawn(async move {
         let result = async {
+            // IR-006：更新前记录持久区摘要，更新后首次启动对比并上报。
+            let data_dir = crate::system_skills::data_dir_from_env();
+            if let Err(error) = crate::update::digest::record_before_update(&data_dir).await {
+                tracing::warn!(
+                    error = %error,
+                    "[app-update] failed to record pre-update managed-root digest"
+                );
+            }
             let preferences = preferences::load(&conn).await.map_err(|e| e.to_string())?;
             release::download_and_install(
                 &app,

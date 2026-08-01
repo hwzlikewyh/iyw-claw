@@ -9,8 +9,8 @@ use super::activation::quarantine_component;
 use super::archive::{extract_tool_zip, locate_payload, probe_payload};
 use super::download::validate_ticket;
 use super::manifest::{
-    marker_matches, read_marker, upsert_entry, write_manifest, write_marker, InventoryEntry,
-    OwnershipMarker,
+    marker_matches, push_pending_activation, read_marker, upsert_entry, write_manifest,
+    write_marker, InventoryEntry, OwnershipMarker, PendingActivation,
 };
 use super::preflight::{ensure_disk_headroom, InstallEstimate};
 use super::resumable::{download_resumable, DownloadProgress};
@@ -35,6 +35,10 @@ pub struct ManagedToolInstallResult {
     pub tool_id: String,
     pub version: String,
     pub catalog_revision: u64,
+    /// IR-005：true 表示已安装但未切换 active pointer（活跃会话存活，
+    /// 激活延迟到会话结束后的首次启动）。
+    #[serde(default)]
+    pub deferred: bool,
 }
 
 /// Install a managed tool, optionally emitting download-progress events.
@@ -44,12 +48,14 @@ pub struct ManagedToolInstallResult {
 /// archive download so the UI can render a progress bar. Downloads are
 /// resumable (`.part` + Range) and reuse an already-installed matching version
 /// without downloading.
+#[allow(clippy::too_many_arguments)]
 pub async fn install_managed_tool(
     conn: &DatabaseConnection,
     data_dir: &Path,
     tool_id: &str,
     requested_version: Option<&str>,
     channel: &str,
+    defer_while_active: bool,
     task_id: Option<&str>,
     emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
@@ -79,7 +85,16 @@ pub async fn install_managed_tool(
         },
     )
     .await?;
-    install_offer(conn, data_dir, &offer, channel, task_id, emitter).await
+    install_offer(
+        conn,
+        data_dir,
+        &offer,
+        channel,
+        defer_while_active,
+        task_id,
+        emitter,
+    )
+    .await
 }
 
 async fn install_offer(
@@ -87,11 +102,22 @@ async fn install_offer(
     data_dir: &Path,
     offer: &ToolOffer,
     channel: &str,
+    defer_while_active: bool,
     task_id: Option<&str>,
     emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
     let stage = staging_dir(data_dir, &offer.tool_id)?;
-    let result = install_offer_inner(conn, data_dir, &stage, offer, channel, task_id, emitter).await;
+    let result = install_offer_inner(
+        conn,
+        data_dir,
+        &stage,
+        offer,
+        channel,
+        defer_while_active,
+        task_id,
+        emitter,
+    )
+    .await;
     if let Err(error) = tokio::fs::remove_dir_all(&stage).await {
         if error.kind() != std::io::ErrorKind::NotFound {
             tracing::warn!(
@@ -112,6 +138,7 @@ async fn install_offer_inner(
     stage: &Path,
     offer: &ToolOffer,
     channel: &str,
+    defer_while_active: bool,
     task_id: Option<&str>,
     emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
@@ -129,11 +156,11 @@ async fn install_offer_inner(
                 .ok()
                 .and_then(|value| value.get("version")?.as_str().map(ToString::to_string))
         });
-    if read_marker(&final_dir)
+    let marker_ok = read_marker(&final_dir)
         .await
-        .is_some_and(|marker| marker_matches(&marker, &expected_marker))
-        && pointer_version.as_deref() == Some(offer.version.as_str())
-    {
+        .is_some_and(|marker| marker_matches(&marker, &expected_marker));
+    let pointer_matches = pointer_version.as_deref() == Some(offer.version.as_str());
+    if marker_ok && pointer_matches {
         tracing::info!(
             tool_id = %offer.tool_id,
             version = %offer.version,
@@ -143,6 +170,34 @@ async fn install_offer_inner(
             tool_id: offer.tool_id.clone(),
             version: offer.version.clone(),
             catalog_revision: offer.revision,
+            deferred: false,
+        });
+    }
+    // IR-005：版本已安装但未激活（活跃会话存活时写入过 pending）→ 零下载，
+    // 仅确保 pending 记录存在，激活留给会话结束后的首启消费。
+    if defer_while_active && marker_ok {
+        push_pending_activation(
+            data_dir,
+            PendingActivation {
+                component_id: offer.tool_id.clone(),
+                component_kind: "runtime_tool".to_string(),
+                version: offer.version.clone(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                policy: Some(offer.effective_update_policy.clone()),
+                revision: Some(offer.revision),
+            },
+        )
+        .await?;
+        tracing::info!(
+            tool_id = %offer.tool_id,
+            version = %offer.version,
+            "[agent-version-center] managed tool already installed, activation still deferred"
+        );
+        return Ok(ManagedToolInstallResult {
+            tool_id: offer.tool_id.clone(),
+            version: offer.version.clone(),
+            catalog_revision: offer.revision,
+            deferred: true,
         });
     }
 
@@ -294,6 +349,52 @@ async fn install_offer_inner(
     .await
     .map_err(inventory_error)?;
 
+    // IR-005：会话存活时不切换该组件版本，写入 pending activations，
+    // 待会话结束后的首次启动（bootstrap_initialize）消费并激活。
+    if defer_while_active {
+        push_pending_activation(
+            data_dir,
+            PendingActivation {
+                component_id: offer.tool_id.clone(),
+                component_kind: "runtime_tool".to_string(),
+                version: offer.version.clone(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                policy: Some(confirmed.effective_update_policy.clone()),
+                revision: Some(confirmed.revision),
+            },
+        )
+        .await?;
+        {
+            let mut manifest = super::manifest::read_manifest(data_dir).await?;
+            upsert_entry(
+                &mut manifest,
+                InventoryEntry {
+                    component_id: offer.tool_id.clone(),
+                    component_kind: "runtime_tool".to_string(),
+                    version: offer.version.clone(),
+                    origin: ORIGIN_MANAGED.to_string(),
+                    artifact_id: Some(offer.artifact.id.clone()),
+                    sha256: Some(offer.artifact.sha256.clone()),
+                    path: format!("runtime/{}", offer.tool_id),
+                    active: false,
+                },
+            );
+            write_manifest(data_dir, &manifest).await?;
+        }
+        tracing::info!(
+            tool_id = %offer.tool_id,
+            version = %offer.version,
+            revision = confirmed.revision,
+            "[agent-version-center] managed tool installed, activation deferred (active session)"
+        );
+        return Ok(ManagedToolInstallResult {
+            tool_id: offer.tool_id.clone(),
+            version: offer.version.clone(),
+            catalog_revision: confirmed.revision,
+            deferred: true,
+        });
+    }
+
     let previous_pointer = read_current_pointer(data_dir, &offer.tool_id).await?;
     write_current_pointer(data_dir, &offer.tool_id, &offer.version).await?;
     if let Err(error) = inventory::activate_tool(
@@ -344,6 +445,7 @@ async fn install_offer_inner(
         tool_id: offer.tool_id.clone(),
         version: offer.version.clone(),
         catalog_revision: confirmed.revision,
+        deferred: false,
     })
 }
 

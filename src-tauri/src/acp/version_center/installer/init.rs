@@ -18,10 +18,11 @@ use std::path::Path;
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 
-use super::component::{install_tool_component, update_checkpoint};
+use super::component::{install_tool_component, update_checkpoint, update_checkpoint_deferred};
 use super::manifest::{
     active_versions, digest_managed_root, pending_activations_path, read_manifest,
-    read_pending_activations, InventoryManifest, PendingActivation,
+    read_pending_activations, upsert_entry, write_pending_activations, InventoryEntry,
+    InventoryManifest, PendingActivation,
 };
 use super::migration::{migration_receipt, run_legacy_migration};
 use super::resumable::DownloadProgress;
@@ -29,6 +30,7 @@ use super::state::{
     acquire_writer_lock, read_state, write_state, BootstrapState, InitPhase,
 };
 use crate::app_error::AppCommandError;
+use crate::models::agent::AgentType;
 use crate::web::event_bridge::{emit_event, EventEmitter};
 
 pub const BOOTSTRAP_INIT_EVENT: &str = "app://bootstrap-init";
@@ -115,6 +117,7 @@ pub async fn bootstrap_initialize(
     conn: &DatabaseConnection,
     data_dir: &Path,
     channel: &str,
+    defer_while_active: bool,
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<InitStatusReport, AppCommandError> {
@@ -135,6 +138,13 @@ pub async fn bootstrap_initialize(
     // 一次性旧目录迁移（幂等 receipt）。
     let migrated = run_legacy_migration(data_dir).await?.receipt_written;
 
+    // IR-005：会话结束后的首次启动消费 pending activations（无活跃会话时）。
+    // 消费先于 resolve：激活后的版本进入 active map，后续 resolve 命中 keep，
+    // 避免已安装版本被重复下载。
+    if !defer_while_active {
+        consume_pending_activations(conn, data_dir).await?;
+    }
+
     let mut state = read_state(data_dir).await?;
     if state.phase == InitPhase::Ready && components_all_ready(&state) {
         return bootstrap_init_status(data_dir).await;
@@ -147,6 +157,7 @@ pub async fn bootstrap_initialize(
     let mut manifest = read_manifest(data_dir).await?;
     let active = active_versions(&manifest);
 
+    let mut deferred_components: Vec<&str> = Vec::new();
     for tool_id in TOOL_COMPONENTS {
         emit_init_event(emitter, task_id, "resolving", Some(tool_id), "");
         match install_tool_component(
@@ -155,6 +166,7 @@ pub async fn bootstrap_initialize(
             &mut manifest,
             tool_id,
             channel,
+            defer_while_active,
             task_id,
             emitter,
             &mut state,
@@ -162,8 +174,13 @@ pub async fn bootstrap_initialize(
         )
         .await
         {
-            Ok(version) => {
-                update_checkpoint(&mut state, tool_id, version);
+            Ok(outcome) => {
+                if outcome.deferred {
+                    deferred_components.push(tool_id);
+                    update_checkpoint_deferred(&mut state, tool_id, outcome.version);
+                } else {
+                    update_checkpoint(&mut state, tool_id, outcome.version);
+                }
                 write_state(data_dir, &state).await?;
             }
             Err(error) => {
@@ -196,8 +213,169 @@ pub async fn bootstrap_initialize(
 
     state.set_phase(InitPhase::Ready);
     write_state(data_dir, &state).await?;
-    emit_init_event(emitter, task_id, "ready", None, "");
+    if deferred_components.is_empty() {
+        emit_init_event(emitter, task_id, "ready", None, "");
+    } else {
+        emit_init_event(
+            emitter,
+            task_id,
+            "ready",
+            None,
+            &format!(
+                "{} 已安装但激活延迟（存在活跃会话），会话结束后的首次启动将自动激活",
+                deferred_components.join(", ")
+            ),
+        );
+    }
     bootstrap_init_status(data_dir).await
+}
+
+/// IR-005：消费待激活记录（会话结束后的首次启动调用）。
+///
+/// 逐条尝试激活；成功项移除，失败项保留并告警（下次启动重试）。
+async fn consume_pending_activations(
+    conn: &DatabaseConnection,
+    data_dir: &Path,
+) -> Result<(), AppCommandError> {
+    let pending = read_pending_activations(data_dir).await?;
+    if pending.is_empty() {
+        return Ok(());
+    }
+    let mut remaining = Vec::new();
+    let mut changed = false;
+    for item in pending {
+        match activate_pending_component(conn, data_dir, &item).await {
+            Ok(()) => {
+                changed = true;
+                tracing::info!(
+                    component_id = %item.component_id,
+                    version = %item.version,
+                    "[agent-version-center] pending activation consumed"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    component_id = %item.component_id,
+                    version = %item.version,
+                    error = %error,
+                    "[agent-version-center] pending activation kept for next startup"
+                );
+                remaining.push(item);
+            }
+        }
+    }
+    if changed {
+        write_pending_activations(data_dir, &remaining).await?;
+    }
+    Ok(())
+}
+
+/// 激活单条待激活记录（按 `component_kind` 分派）。
+async fn activate_pending_component(
+    conn: &DatabaseConnection,
+    data_dir: &Path,
+    pending: &PendingActivation,
+) -> Result<(), AppCommandError> {
+    let policy = pending.policy.as_deref().unwrap_or("recommended");
+    let revision = pending.revision.unwrap_or(0);
+    match pending.component_kind.as_str() {
+        "runtime_tool" => {
+            if !super::super::capability::known_tool(&pending.component_id) {
+                return Err(AppCommandError::invalid_input(format!(
+                    "Unknown managed tool in pending activation: {}",
+                    pending.component_id
+                )));
+            }
+            super::runtime::write_current_pointer(
+                data_dir,
+                &pending.component_id,
+                &pending.version,
+            )
+            .await?;
+            super::super::inventory::activate_tool(
+                conn,
+                &pending.component_id,
+                &pending.version,
+                policy,
+                revision,
+            )
+            .await
+            .map_err(pending_inventory_error)?;
+            mark_manifest_active(data_dir, &pending.component_id, &pending.version, "runtime")
+                .await?;
+            Ok(())
+        }
+        "agent" => {
+            let agent_type: AgentType = serde_json::from_str(&pending.component_id).map_err(
+                |error| {
+                    AppCommandError::configuration_invalid(format!(
+                        "Pending agent activation has invalid agent type: {error}"
+                    ))
+                },
+            )?;
+            super::super::inventory::activate_agent(
+                conn,
+                agent_type,
+                &pending.version,
+                policy,
+                revision,
+            )
+            .await
+            .map_err(pending_inventory_error)?;
+            mark_manifest_active(data_dir, &pending.component_id, &pending.version, "agents")
+                .await?;
+            Ok(())
+        }
+        kind => Err(AppCommandError::invalid_input(format!(
+            "Unsupported pending activation component kind: {kind}"
+        ))),
+    }
+}
+
+/// 将 manifest 中已存在条目翻转为 active（保留 artifact 元数据）；
+/// 不存在时补一条最小条目。
+async fn mark_manifest_active(
+    data_dir: &Path,
+    component_id: &str,
+    version: &str,
+    directory: &str,
+) -> Result<(), AppCommandError> {
+    let mut manifest = read_manifest(data_dir).await?;
+    let path = format!("{directory}/{component_id}");
+    let existing = manifest
+        .entries
+        .iter_mut()
+        .find(|item| item.component_id == component_id && item.version == version);
+    match existing {
+        Some(item) => {
+            item.active = true;
+            item.path = path;
+        }
+        None => {
+            upsert_entry(
+                &mut manifest,
+                InventoryEntry {
+                    component_id: component_id.to_string(),
+                    component_kind: if directory == "agents" {
+                        "agent".to_string()
+                    } else {
+                        "runtime_tool".to_string()
+                    },
+                    version: version.to_string(),
+                    origin: "managed".to_string(),
+                    artifact_id: None,
+                    sha256: None,
+                    path,
+                    active: true,
+                },
+            );
+        }
+    }
+    write_manifest(data_dir, &manifest).await
+}
+
+fn pending_inventory_error(error: crate::acp::error::AcpError) -> AppCommandError {
+    AppCommandError::task_execution_failed(error.to_string())
 }
 
 pub(super) fn emit_init_event(

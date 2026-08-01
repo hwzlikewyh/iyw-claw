@@ -11,6 +11,7 @@
 //!   after `IYW_CLAW_RESTART_DELAY_MS`.
 //! - **Standalone** (no supervisor): the worker re-execs itself.
 
+pub mod digest;
 pub mod install;
 pub mod offer;
 pub mod preferences;

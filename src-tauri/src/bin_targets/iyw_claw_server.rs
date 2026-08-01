@@ -222,6 +222,32 @@ async fn async_main() -> ExitCode {
         let _ = iyw_claw_lib::update::install::take_upgrade_staged();
     }
 
+    // IR-006：更新后的首次启动对比持久区摘要（一次性记录；更新前由
+    // `digest::record_before_update` 写入）。
+    match iyw_claw_lib::update::digest::verify_after_update(&data_dir).await {
+        Ok(Some(comparison)) if comparison.unchanged => {
+            tracing::info!(
+                before = %comparison.before,
+                after = %comparison.after,
+                "[app-update] managed-root digest unchanged across update"
+            );
+        }
+        Ok(Some(comparison)) => {
+            tracing::error!(
+                before = %comparison.before,
+                after = %comparison.after,
+                "[app-update] managed-root digest CHANGED across update"
+            );
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "[app-update] failed to verify post-update managed-root digest"
+            );
+        }
+    }
+
     tracing::info!("[SERVER] iyw-claw-server v{}", app_version);
     tracing::info!("[SERVER] Data directory: {}", data_dir.display());
     tracing::info!("[SERVER] Static directory: {}", static_dir.display());

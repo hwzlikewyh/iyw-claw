@@ -58,10 +58,13 @@ pub async fn bootstrap_initialize(
             .unwrap_or_else(|_| "stable".to_string()),
     };
     let emitter = state.emitter.clone();
+    // IR-005：活跃会话存在时不切换组件版本，延迟激活由首启消费。
+    let defer_while_active = state.connection_manager.has_live_agent_sessions().await;
     let report = vc_bootstrap_initialize(
         &state.db.conn,
         &state.data_dir,
         &channel,
+        defer_while_active,
         &params.task_id,
         &emitter,
     )

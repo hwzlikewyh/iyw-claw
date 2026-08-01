@@ -154,25 +154,21 @@ pub async fn install_tool_core(
     task_id: Option<&str>,
     emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
-    let live_connections = connection_manager
-        .list_connections()
-        .await
-        .into_iter()
-        .filter(|item| {
-            !matches!(
-                item.status,
-                crate::acp::types::ConnectionStatus::Disconnected
-                    | crate::acp::types::ConnectionStatus::Error
-            )
-        })
-        .count();
-    if live_connections > 0 {
-        return Err(AppCommandError::invalid_input(
-            "Disconnect active Agents before changing managed tools",
-        ));
-    }
+    // IR-005：活跃会话存在时不切换版本，改为写入 pending activation，
+    // 由会话结束后的首次启动（bootstrap_initialize）消费并激活。
+    let defer_while_active = connection_manager.has_live_agent_sessions().await;
     let channel = normalize_channel(channel)?;
-    install_managed_tool(conn, data_dir, &tool_id, version.as_deref(), &channel, task_id, emitter).await
+    install_managed_tool(
+        conn,
+        data_dir,
+        &tool_id,
+        version.as_deref(),
+        &channel,
+        defer_while_active,
+        task_id,
+        emitter,
+    )
+    .await
 }
 
 async fn validate_agent_pin(

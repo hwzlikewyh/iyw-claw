@@ -10,14 +10,17 @@
 //!   后重试（不改变 artifact 语义）。
 //! - 每次尝试有连接 / 总超时，网络抖动指数退避 + 抖动，有界重试。
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use reqwest::redirect::Policy;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Semaphore;
 
 use crate::app_error::{AppCommandError, AppErrorCode};
 
@@ -28,6 +31,35 @@ const MAX_ATTEMPTS: u32 = 5;
 const BACKOFF_BASE_MS: u64 = 1_000;
 const PROGRESS_GRANULARITY: u64 = 128 * 1024;
 const PROGRESS_MIN_INTERVAL_MS: u64 = 500;
+
+/// IR-008：全局并发下载上限（无依赖组件下载并行，默认小并发）。
+const MAX_GLOBAL_DOWNLOADS: usize = 2;
+/// IR-008：每 host 并发上限（同一 CDN/TOS 域名避免被打爆）。
+const MAX_HOST_DOWNLOADS: usize = 1;
+
+static GLOBAL_DOWNLOAD_SEMAPHORE: LazyLock<Semaphore> =
+    LazyLock::new(|| Semaphore::new(MAX_GLOBAL_DOWNLOADS));
+
+static HOST_SEMAPHORES: LazyLock<Mutex<HashMap<String, std::sync::Arc<Semaphore>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn host_of(url: &str) -> String {
+    url.split("://")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .filter(|host| !host.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn host_semaphore(host: &str) -> std::sync::Arc<Semaphore> {
+    let mut map = HOST_SEMAPHORES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    map.entry(host.to_string())
+        .or_insert_with(|| std::sync::Arc::new(Semaphore::new(MAX_HOST_DOWNLOADS)))
+        .clone()
+}
 
 static DOWNLOAD_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
     reqwest::Client::builder()
@@ -74,6 +106,25 @@ pub async fn download_resumable(
     if final_matches(final_path, expected_size, expected_sha256).await {
         return Ok(());
     }
+
+    // IR-008：全局 + 每 host 并发限制。信号量在最终文件已存在（零下载）
+    // 之后才获取，避免 keep 路径占用并发额度；许可持有整个下载过程。
+    let _global_permit = GLOBAL_DOWNLOAD_SEMAPHORE
+        .acquire()
+        .await
+        .map_err(|error| {
+            AppCommandError::task_execution_failed(format!(
+                "Global download concurrency gate failed: {error}"
+            ))
+        })?;
+    let _host_permit = host_semaphore(&host_of(url))
+        .acquire_owned()
+        .await
+        .map_err(|error| {
+            AppCommandError::task_execution_failed(format!(
+                "Per-host download concurrency gate failed: {error}"
+            ))
+        })?;
 
     let part_path = part_path_for(final_path);
     let meta_path = part_meta_path(final_path);

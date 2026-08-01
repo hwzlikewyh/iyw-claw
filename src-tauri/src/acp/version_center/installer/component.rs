@@ -12,8 +12,8 @@ use super::archive::{extract_tool_zip, locate_payload, probe_payload};
 use super::download::validate_ticket;
 use super::init::{emit_init_event, emit_init_progress};
 use super::manifest::{
-    marker_matches, read_marker, upsert_entry, write_manifest, write_marker, InventoryManifest,
-    OwnershipMarker,
+    marker_matches, push_pending_activation, read_marker, upsert_entry, write_manifest,
+    write_marker, InventoryManifest, OwnershipMarker, PendingActivation,
 };
 use super::preflight::{ensure_disk_headroom, InstallEstimate};
 use super::resumable::{download_resumable, DownloadProgress};
@@ -26,18 +26,26 @@ use super::super::inventory::{self, ORIGIN_MANAGED};
 use crate::app_error::AppCommandError;
 use crate::web::event_bridge::EventEmitter;
 
+/// 单个组件安装结果（IR-005：`deferred` 表示活跃会话存活时延迟激活）。
+pub(super) struct ComponentOutcome {
+    pub version: String,
+    pub deferred: bool,
+}
+
 /// 安装并激活单个组件。返回激活的版本。
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn install_tool_component(
     conn: &DatabaseConnection,
     data_dir: &Path,
     manifest: &mut InventoryManifest,
     tool_id: &str,
     channel: &str,
+    defer_while_active: bool,
     task_id: &str,
     emitter: &EventEmitter,
     state: &mut BootstrapState,
     active: &BTreeMap<String, String>,
-) -> Result<String, AppCommandError> {
+) -> Result<ComponentOutcome, AppCommandError> {
     let current_version = active.get(tool_id).cloned().unwrap_or_default();
     let offer = AgentPlatformClient::resolve_tool(
         conn,
@@ -76,7 +84,39 @@ pub(super) async fn install_tool_component(
         && active.get(tool_id).is_some_and(|version| version == &offer.version);
     if already_installed {
         // 完全匹配 → keep，零下载。
-        return Ok(offer.version);
+        return Ok(ComponentOutcome {
+            version: offer.version,
+            deferred: false,
+        });
+    }
+    // IR-005：版本已安装但未激活（活跃会话存活时写入过 pending）→ 零下载，
+    // 仅确保 pending 记录存在，激活留给会话结束后的首启消费。
+    if defer_while_active
+        && read_marker(&final_dir)
+            .await
+            .is_some_and(|marker| marker_matches(&marker, &expected))
+    {
+        push_pending_activation(
+            data_dir,
+            PendingActivation {
+                component_id: tool_id.to_string(),
+                component_kind: "runtime_tool".to_string(),
+                version: offer.version.clone(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                policy: Some(offer.effective_update_policy.clone()),
+                revision: Some(offer.revision),
+            },
+        )
+        .await?;
+        tracing::info!(
+            tool_id = %tool_id,
+            version = %offer.version,
+            "[agent-version-center] bootstrap component already installed, activation still deferred"
+        );
+        return Ok(ComponentOutcome {
+            version: offer.version.clone(),
+            deferred: true,
+        });
     }
 
     let ticket = AgentPlatformClient::download_tool(
@@ -191,6 +231,47 @@ pub(super) async fn install_tool_component(
     .await
     .map_err(inventory_error)?;
 
+    // IR-005：会话存活时不切换该组件版本，写入 pending activations，
+    // 待会话结束后的首次启动（bootstrap_initialize）消费并激活。
+    if defer_while_active {
+        push_pending_activation(
+            data_dir,
+            PendingActivation {
+                component_id: tool_id.to_string(),
+                component_kind: "runtime_tool".to_string(),
+                version: offer.version.clone(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                policy: Some(offer.effective_update_policy.clone()),
+                revision: Some(offer.revision),
+            },
+        )
+        .await?;
+        upsert_entry(
+            manifest,
+            super::manifest::InventoryEntry {
+                component_id: tool_id.to_string(),
+                component_kind: "runtime_tool".to_string(),
+                version: offer.version.clone(),
+                origin: ORIGIN_MANAGED.to_string(),
+                artifact_id: Some(offer.artifact.id.clone()),
+                sha256: Some(offer.artifact.sha256.clone()),
+                path: format!("runtime/{tool_id}"),
+                active: false,
+            },
+        );
+        write_manifest(data_dir, manifest).await?;
+        tracing::info!(
+            tool_id = %tool_id,
+            version = %offer.version,
+            revision = offer.revision,
+            "[agent-version-center] bootstrap component installed, activation deferred (active session)"
+        );
+        return Ok(ComponentOutcome {
+            version: offer.version.clone(),
+            deferred: true,
+        });
+    }
+
     let previous_pointer = read_current_pointer(data_dir, tool_id).await?;
     write_current_pointer(data_dir, tool_id, &offer.version).await?;
     if let Err(error) = inventory::activate_tool(
@@ -230,7 +311,10 @@ pub(super) async fn install_tool_component(
         quarantine_component(data_dir, &final_dir).await?;
         return Err(error);
     }
-    Ok(offer.version)
+    Ok(ComponentOutcome {
+        version: offer.version,
+        deferred: false,
+    })
 }
 
 /// 更新 state 中单个组件的检查点。
@@ -246,6 +330,24 @@ pub(super) fn update_checkpoint(
     checkpoint.version = version;
     checkpoint.installed = true;
     checkpoint.active = true;
+    checkpoint.phase = InitPhase::Ready;
+    checkpoint.last_error = None;
+    state.upsert_component(checkpoint);
+}
+
+/// IR-005：组件已安装但激活被延迟（活跃会话存活）时的检查点更新。
+pub(super) fn update_checkpoint_deferred(
+    state: &mut BootstrapState,
+    tool_id: &str,
+    version: String,
+) {
+    let mut checkpoint = state
+        .component(tool_id)
+        .cloned()
+        .unwrap_or_else(|| empty_checkpoint(tool_id));
+    checkpoint.version = version;
+    checkpoint.installed = true;
+    checkpoint.active = false;
     checkpoint.phase = InitPhase::Ready;
     checkpoint.last_error = None;
     state.upsert_component(checkpoint);

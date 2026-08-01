@@ -2492,40 +2492,43 @@ export type BootstrapInitPhase =
   | "blocked"
 
 export interface BootstrapInitEvent {
-  task_id: string
+  taskId: string
   phase: BootstrapInitPhase
   component?: string | null
   downloaded?: number | null
   total?: number | null
-  rate_bps?: number | null
-  eta_secs?: number | null
+  rateBps?: number | null
+  etaSecs?: number | null
   message: string
 }
 
 export interface BootstrapComponentStatus {
-  component_id: string
-  component_kind: string
+  componentId: string
+  componentKind: string
   version: string
   installed: boolean
   active: boolean
   phase: BootstrapInitPhase
-  last_error?: string | null
+  lastError?: string | null
 }
 
 export interface PendingActivation {
-  component_id: string
-  component_kind: string
+  componentId: string
+  componentKind: string
   version: string
-  created_at: string
+  createdAt: string
+  /** IR-005：激活参数随记录保存，消费侧离线即可完成激活。 */
+  policy?: string | null
+  revision?: number | null
 }
 
 export interface BootstrapInitStatusReport {
   phase: BootstrapInitPhase
   components: BootstrapComponentStatus[]
   offline: boolean
-  writer_busy: boolean
-  pending_activations: PendingActivation[]
-  manifest_generation: number
+  writerBusy: boolean
+  pendingActivations: PendingActivation[]
+  manifestGeneration: number
   digest: string
   migrated: boolean
 }

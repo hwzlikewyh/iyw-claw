@@ -100,7 +100,14 @@ pub async fn agent_version_center_install_tool(
             crate::commands::acp::AgentInstallEvent {
                 task_id: task_id.clone(),
                 kind: crate::commands::acp::AgentInstallEventKind::Completed,
-                payload: format!("{} v{} installed", r.tool_id, r.version),
+                payload: if r.deferred {
+                    format!(
+                        "{} v{} installed, activation deferred (active session)",
+                        r.tool_id, r.version
+                    )
+                } else {
+                    format!("{} v{} installed", r.tool_id, r.version)
+                },
             },
         ),
         Err(e) => crate::web::event_bridge::emit_event(

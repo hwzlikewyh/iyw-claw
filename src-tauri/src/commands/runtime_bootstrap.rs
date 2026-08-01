@@ -23,6 +23,9 @@ use tokio::sync::Mutex;
 use crate::acp::version_center::installer::{install_managed_tool, managed_tool_executable};
 use crate::web::event_bridge::EventEmitter;
 
+#[cfg(feature = "tauri-runtime")]
+use crate::acp::manager::ConnectionManager;
+
 const RUNTIME_BOOTSTRAP_EVENT: &str = "app://runtime-bootstrap";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -127,6 +130,7 @@ pub async fn runtime_bootstrap_core(
 pub async fn runtime_bootstrap_managed_core(
     conn: &DatabaseConnection,
     data_dir: &Path,
+    defer_while_active: bool,
     task_id: String,
     emitter: &EventEmitter,
 ) -> RuntimeBootstrapReport {
@@ -137,8 +141,26 @@ pub async fn runtime_bootstrap_managed_core(
         .map(|prefs| prefs.channel.as_str().to_string())
         .unwrap_or_else(|_| "stable".to_string());
 
-    let node = ensure_managed_component(conn, data_dir, "node", &channel, &task_id, emitter).await;
-    let git = ensure_managed_component(conn, data_dir, "git", &channel, &task_id, emitter).await;
+    let node = ensure_managed_component(
+        conn,
+        data_dir,
+        "node",
+        &channel,
+        defer_while_active,
+        &task_id,
+        emitter,
+    )
+    .await;
+    let git = ensure_managed_component(
+        conn,
+        data_dir,
+        "git",
+        &channel,
+        defer_while_active,
+        &task_id,
+        emitter,
+    )
+    .await;
 
     if node.status == RuntimeComponentStatus::Installed
         || git.status == RuntimeComponentStatus::Installed
@@ -167,6 +189,7 @@ async fn ensure_managed_component(
     data_dir: &Path,
     tool_id: &str,
     channel: &str,
+    defer_while_active: bool,
     task_id: &str,
     emitter: &EventEmitter,
 ) -> RuntimeComponentReport {
@@ -176,6 +199,7 @@ async fn ensure_managed_component(
         tool_id,
         None,
         channel,
+        defer_while_active,
         Some(task_id),
         Some(emitter),
     )
@@ -242,11 +266,15 @@ pub async fn runtime_bootstrap(
     task_id: String,
     app: tauri::AppHandle,
     db: tauri::State<'_, crate::db::AppDatabase>,
+    connection_manager: tauri::State<'_, ConnectionManager>,
 ) -> Result<RuntimeBootstrapReport, String> {
     let emitter = EventEmitter::Tauri(app);
     let conn = db.conn.clone();
     let data_dir = crate::system_skills::data_dir_from_env();
-    let report = runtime_bootstrap_managed_core(&conn, &data_dir, task_id, &emitter).await;
+    let defer_while_active = connection_manager.has_live_agent_sessions().await;
+    let report =
+        runtime_bootstrap_managed_core(&conn, &data_dir, defer_while_active, task_id, &emitter)
+            .await;
     tauri::async_runtime::spawn(async move {
         crate::system_skills::startup_update_core(&conn, &data_dir, &emitter).await;
     });
@@ -273,10 +301,12 @@ pub async fn bootstrap_initialize(
     task_id: String,
     app: tauri::AppHandle,
     db: tauri::State<'_, crate::db::AppDatabase>,
+    connection_manager: tauri::State<'_, ConnectionManager>,
 ) -> Result<crate::acp::version_center::installer::InitStatusReport, String> {
     let emitter = EventEmitter::Tauri(app);
     let conn = db.conn.clone();
     let data_dir = crate::system_skills::data_dir_from_env();
+    let defer_while_active = connection_manager.has_live_agent_sessions().await;
     let channel = crate::update::preferences::load(&conn)
         .await
         .map(|prefs| prefs.channel.as_str().to_string())
@@ -285,6 +315,7 @@ pub async fn bootstrap_initialize(
         &conn,
         &data_dir,
         &channel,
+        defer_while_active,
         &task_id,
         &emitter,
     )
