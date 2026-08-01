@@ -33,10 +33,12 @@ import { createFixtureSkillMarketSource } from "@/lib/skill-market-fixtures"
 // ---------------------------------------------------------------------------
 // Skill Market data source seam (Task 10)
 //
-// The UI only talks to `SkillMarketSource`. Today the factory returns the
-// typed fixture implementation (contract v2 is not frozen yet; Task 01/03
-// blocked). Once contract_revision is frozen, Task 13 wires a transport-backed
-// implementation here without touching the UI.
+// The UI only talks to `SkillMarketSource`. The factory returns the
+// transport-backed implementation, which maps the existing v1 `skill_market_*`
+// commands onto the v2 display model. The typed fixture implementation stays
+// available for list benchmarks via `perfCount` (e.g. ?perf=500). Contract v2
+// fields the backend does not emit yet are derived conservatively (see
+// mapAudience / mapVersionV1ToV2) until T01/T03 freeze the contract.
 // ---------------------------------------------------------------------------
 
 export interface SkillMarketPublishRequestV2 {
@@ -357,8 +359,8 @@ class TransportSkillMarketSource implements SkillMarketSource {
 }
 
 /**
- * Returns the active data source. Fixtures are the default until the frozen
- * contract v2 lands; Task 13 swaps this to the transport-backed source.
+ * Returns the active data source. The transport-backed implementation is the
+ * default; pass `perfCount` to select the fixture source for list benchmarks.
  */
 export function getSkillMarketSource(
   options?: SkillMarketSourceOptions
@@ -369,4 +371,3 @@ export function getSkillMarketSource(
   }
   return new TransportSkillMarketSource()
 }
-
