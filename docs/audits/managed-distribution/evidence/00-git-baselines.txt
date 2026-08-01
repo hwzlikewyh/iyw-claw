@@ -1,0 +1,5 @@
+# 三仓 git 基线（Audit A 开始时刻）
+iyw-claw master b46a4c4 — 有未提交改动：计划文档删除 + src-tauri/experts/skills 大量修改/新增（任务外脏文件，未触碰）
+iyw-fusion-api master d0df3bc — 未提交：internal/domain/agentrelease/* 修改 + 031/032/033 迁移草稿 + docs 调研
+skill main ea76a4e — 未提交：.idea/、tests/test_lixiao_unlock_workflow.py、功能/
+说明：Audit A 只读，不改业务代码、不暂存/回退任务外脏文件；交付物仅新增于 iyw-claw/docs/audits/managed-distribution/

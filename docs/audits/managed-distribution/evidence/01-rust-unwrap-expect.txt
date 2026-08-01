@@ -1,0 +1,123 @@
+F:\projects\iyw\iyw-claw\src-tauri\src\bin_targets\iyw_claw_server.rs:168:        .expect("Failed to build tokio runtime")
+F:\projects\iyw\iyw-claw\src-tauri\src\bin_targets\iyw_claw_server.rs:191:        PathBuf::from(std::env::var("IYW_CLAW_DATA_DIR").expect("IYW_CLAW_DATA_DIR set by main()"));
+F:\projects\iyw\iyw-claw\src-tauri\src\bin_targets\iyw_claw_server.rs:242:    .expect("Failed to initialize database");
+F:\projects\iyw\iyw-claw\src-tauri\src\chat_channel\backends\lark.rs:472:            if mentions.is_none() || mentions.unwrap().is_empty() {
+F:\projects\iyw\iyw-claw\src-tauri\src\chat_channel\config_patch.rs:102:        serde_json::from_str(json).expect("patch should parse")
+F:\projects\iyw\iyw-claw\src-tauri\src\chat_channel\config_patch.rs:115:            serde_json::from_str(&apply_config_patch(current, &p).unwrap()).unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\chat_channel\config_patch.rs:128:            serde_json::from_str(&apply_config_patch(current, &p).unwrap()).unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\chat_channel\config_patch.rs:138:            serde_json::from_str(&apply_config_patch(current, &p).unwrap()).unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\chat_channel\config_patch.rs:167:            serde_json::from_str(&apply_config_patch(current, &p).unwrap()).unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\chat_channel\command_handlers.rs:51:    let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+F:\projects\iyw\iyw-claw\src-tauri\src\chat_channel\scheduler.rs:116:    let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\backup\restore.rs:337:        let root = user_memory_root.expect("user memory root checked above");
+F:\projects\iyw\iyw-claw\src-tauri\src\web\ws_attach.rs:167:                let high_water_seq = events.last().expect("non-empty checked above").seq;
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\npm_runtime.rs:359:    std::fs::create_dir_all(trash.parent().unwrap())
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\model_catalog.rs:38:    let mut set = interner().lock().expect("interner poisoned");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\model_catalog.rs:137:        let mut cached = catalog().write().expect("catalog poisoned");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\model_catalog.rs:150:    catalog().read().expect("catalog poisoned").clone()
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\memory_turn.rs:35:                .expect("memory turn nonce exhausted");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\memory_turn.rs:72:            .expect("memory commit lease exhausted");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\memory_turn.rs:82:            .expect("memory commit lease underflow");
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\acp.rs:1847:            let providers = providers.as_table_mut().expect("providers set to table");
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\acp.rs:1893:            let models = models.as_table_mut().expect("models set to table");
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\acp.rs:3466:    let root_map = root.as_mapping_mut().expect("root is a mapping");
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\acp.rs:3479:        .expect("model is a mapping");
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\acp.rs:5428:    unreachable!("u64 conflict suffixes exhausted")
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\acp.rs:7988:        CodexModelAction::NoOp => unreachable!(),
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\acp.rs:9459:    let mut skill = active.expect("active checked above");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\manager.rs:1110:                (Some(_), None) => unreachable!(
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:84:        *self.token.lock().unwrap() = token;
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:85:        *self.host.lock().unwrap() = host;
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:93:        self.handle.lock().unwrap().is_none() && self.running.load(Ordering::Acquire)
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:614:    *ws.handle.lock().unwrap() = Some(handle);
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:615:    *ws.shutdown_tx.lock().unwrap() = Some(shutdown_tx);
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:617:    *ws.token.lock().unwrap() = token.clone();
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:618:    *ws.host.lock().unwrap() = advertised_host.clone();
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:631:    let handle_opt = state.handle.lock().unwrap().take();
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:632:    let shutdown_tx = state.shutdown_tx.lock().unwrap().take();
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:662:    *state.token.lock().unwrap() = String::new();
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:663:    *state.host.lock().unwrap() = "0.0.0.0".to_string();
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:673:    let host = state.host.lock().unwrap().clone();
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:674:    let token = state.token.lock().unwrap().clone();
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:876:    *ws.handle.lock().unwrap() = Some(handle);
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:877:    *ws.shutdown_tx.lock().unwrap() = Some(shutdown_tx);
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:879:    *ws.token.lock().unwrap() = token.clone();
+F:\projects\iyw\iyw-claw\src-tauri\src\web\mod.rs:880:    *ws.host.lock().unwrap() = advertised_host.clone();
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\folders.rs:3179:                _ => unreachable!(),
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\folders.rs:3183:                _ => unreachable!(),
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\folders.rs:3190:                _ => unreachable!(),
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\folders.rs:3194:                _ => unreachable!(),
+F:\projects\iyw\iyw-claw\src-tauri\src\lib.rs:1300:            .expect("error while building tauri application")
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\openclaw.rs:22:    RE.get_or_init(|| Regex::new(r"(?s)^Sender \(untrusted metadata\):\s*```[^`]*```\s*").unwrap())
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\openclaw.rs:27:    RE.get_or_init(|| Regex::new(r"^\[.*?\]\s*").unwrap())
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\openclaw.rs:32:    RE.get_or_init(|| Regex::new(r"^\[Working directory:[^\]]*\]\s*").unwrap())
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\openclaw.rs:38:    RE.get_or_init(|| Regex::new(r"\[Working directory:\s*([^\]]+)\]").unwrap())
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\openclaw.rs:820:        Some((candidates.into_iter().next().unwrap().0, None))
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\mod.rs:356:                let open = openers.pop().expect("openers is non-empty");
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\mod.rs:435:            .expect("valid model capacity regex")
+F:\projects\iyw\iyw-claw\src-tauri\src\desktop_bootstrap.rs:121:            .unwrap_or_else(|| unreachable!("installed desktop always has a data root"));
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\office_tools.rs:267:            .expect("bootstrap attempt sender remains alive");
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\office_tools.rs:271:            .expect("completed bootstrap publishes a result");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\preflight.rs:55:    *NPM_ENV_CACHE.lock().unwrap() = None;
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\preflight.rs:93:    let cached = NPM_ENV_CACHE.lock().unwrap().clone();
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\preflight.rs:201:        *NPM_ENV_CACHE.lock().unwrap() = Some(checks.clone());
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\mcp.rs:1157:        _ => unreachable!("normalize_mcp_type returns one of stdio/http/sse/local/remote"),
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\mcp.rs:2767:    let root_map = root.as_mapping_mut().expect("root is a mapping");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\profile_import_specs.rs:213:        .expect("resolved profile entry has a parent");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\profile_import_specs.rs:216:        .expect("resolved profile entry has a name");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\delegation\companion.rs:364:    let id = req.id.expect("checked is_none");
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\codex.rs:2117:        .expect("valid agents instructions regex")
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\codex.rs:2334:    let blocked_re = Regex::new(r"@([^\s@]+)\s*\[blocked[^\]]*\]").expect("valid blocked regex");
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\codex.rs:2335:    let image_tag_re = Regex::new(r"(?i)</?image\s*/?>").expect("valid image tag regex");
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\codex.rs:2336:    let collapsed_ws_re = Regex::new(r"[ \t]{2,}").expect("valid whitespace regex");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\provider_overlay_formats.rs:385:        current = entry.as_object_mut().expect("object ensured");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\delegation\broker.rs:657:        let task = inner.running.remove(&k).expect("key just observed");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\delegation\broker.rs:2760:                        let task = inner.running.remove(&k).expect("key just observed");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\terminal_runtime.rs:504:            terminals.remove(&terminal_id).expect("terminal exists")
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\session_state.rs:1057:            .expect("live_message just initialized")
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\claude.rs:33:        .unwrap()
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\claude.rs:42:            .expect("valid model capacity regex")
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\claude.rs:61:    RE.get_or_init(|| Regex::new(r"(?s)<command-name>(.*?)</command-name>").unwrap())
+F:\projects\iyw\iyw-claw\src-tauri\src\parsers\claude.rs:67:    RE.get_or_init(|| Regex::new(r"(?s)<command-args>(.*?)</command-args>").unwrap())
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\remote_proxy.rs:156:                .expect("failed to build reqwest client for remote proxy"),
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\remote_proxy.rs:159:                .expect("failed to build reqwest workspace client for remote proxy"),
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\network.rs:86:    let host = url.host_str().unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:43:        width: u32::from_be_bytes(bytes[16..20].try_into().unwrap()),
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:44:        height: u32::from_be_bytes(bytes[20..24].try_into().unwrap()),
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:54:        width: u16::from_le_bytes(bytes[6..8].try_into().unwrap()).into(),
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:55:        height: u16::from_le_bytes(bytes[8..10].try_into().unwrap()).into(),
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:63:    let dib_size = u32::from_le_bytes(bytes[14..18].try_into().unwrap());
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:66:            u16::from_le_bytes(bytes[18..20].try_into().unwrap()).into(),
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:67:            u16::from_le_bytes(bytes[20..22].try_into().unwrap()).into(),
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:70:        let width = i32::from_le_bytes(bytes[18..22].try_into().unwrap());
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:71:        let height = i32::from_le_bytes(bytes[22..26].try_into().unwrap());
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:104:            bytes[index..index + 2].try_into().unwrap(),
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:112:                height: u16::from_be_bytes(bytes[index + 3..index + 5].try_into().unwrap()).into(),
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:113:                width: u16::from_be_bytes(bytes[index + 5..index + 7].try_into().unwrap()).into(),
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:138:            let bits = u32::from_le_bytes(bytes[21..25].try_into().unwrap());
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:142:            u16::from_le_bytes(bytes[26..28].try_into().unwrap()) as u32 & 0x3fff,
+F:\projects\iyw\iyw-claw\src-tauri\src\remote_image\image_format.rs:143:            u16::from_le_bytes(bytes[28..30].try_into().unwrap()) as u32 & 0x3fff,
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\skill_market\install.rs:146:    unreachable!("package download attempts always return or fail")
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\runtime_bootstrap.rs:729:    std::fs::create_dir_all(target.parent().expect("target has a parent"))
+F:\projects\iyw\iyw-claw\src-tauri\src\commands\skill_market\install_plan.rs:49:    let root = plan.items.last().expect("non-empty install plan");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\account_credentials_formats.rs:126:        let model = model.as_mapping_mut().expect("mapping ensured");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\account_credentials_formats.rs:137:            .expect("mapping ensured")
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\account_credentials_formats.rs:232:    target.insert(key.into(), serde_json::Value::String(token.unwrap().into()));
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\account_credentials_formats.rs:247:        current = value.as_object_mut().expect("object ensured");
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\account_credentials_formats.rs:285:    target.insert(key.into(), toml::Value::String(token.unwrap().into()));
+F:\projects\iyw\iyw-claw\src-tauri\src\terminal\manager.rs:246:            let terminals = self.terminals.lock().unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\terminal\manager.rs:319:            .unwrap()
+F:\projects\iyw\iyw-claw\src-tauri\src\terminal\manager.rs:344:        let terminals = self.terminals.lock().unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\terminal\manager.rs:356:        let terminals = self.terminals.lock().unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\terminal\manager.rs:376:            .unwrap()
+F:\projects\iyw\iyw-claw\src-tauri\src\terminal\manager.rs:384:        let mut terminals = self.terminals.lock().unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\terminal\manager.rs:429:            let mut terminals = self.terminals.lock().unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\terminal\manager.rs:459:            let mut terminals = self.terminals.lock().unwrap();
+F:\projects\iyw\iyw-claw\src-tauri\src\terminal\manager.rs:524:    if let Some(mut instance) = terminals.lock().unwrap().remove(&terminal_id) {
+F:\projects\iyw\iyw-claw\src-tauri\src\acp\registry.rs:92:        panic!(
+F:\projects\iyw\iyw-claw\src-tauri\src\user_memory\candidate_store.rs:166:    let retained_last = parse_timestamp(&candidate.observations.last().unwrap().observed_at)?;
+F:\projects\iyw\iyw-claw\src-tauri\src\user_memory\launch_context.rs:72:            if super::fs::is_document_readonly(self.resolved_root().unwrap(), id) {
+F:\projects\iyw\iyw-claw\src-tauri\src\user_memory\launch_context.rs:76:        let (candidate_diagnostic, _) = candidate_settings(self.resolved_root().unwrap());
+F:\projects\iyw\iyw-claw\src-tauri\src\web\handlers\office_watch_proxy.rs:78:        .expect("failed to build office watch proxy client")
+F:\projects\iyw\iyw-claw\src-tauri\src\user_memory\transaction.rs:114:                transaction.next.policy.as_ref().unwrap(),
+F:\projects\iyw\iyw-claw\src-tauri\src\user_memory\transaction.rs:132:                transaction.next.candidate_state.as_ref().unwrap(),

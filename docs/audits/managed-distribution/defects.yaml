@@ -1,0 +1,463 @@
+# Task 12 全项目健康、安全与性能审计 —— 唯一缺陷准数据源
+# Audit A 只读基线（2026-08-01）
+# 基线提交：iyw-claw master b46a4c4 / iyw-fusion-api master d0df3bc / skill main ea76a4e
+# 状态语义：open=已登记未修；confirmed=根因有静态证据；fixed=有修复提交；verified=满足 12-health 关闭规则
+# 所有 P0/P1 必须有 owner、复现、根因与回归证据（回归证据在 Audit B / 修复后补齐）
+defects:
+  # ============ 种子：Task 12 已知缺陷表 ============
+  - id: IYW-SKILL-001
+    severity: P0
+    status: confirmed
+    symptom: 安装逐文件上传 Skill 报 expected_size=19644 received_size=14339，重试必失败
+    owner_task: T00/T03
+    reproduction:
+      - 上传原始文件总大小写入 Version.PackageSize（direct_upload_init.go:159）
+      - 客户端 install.rs:157-196 用 package_size 比对 Content-Length 与最终字节数
+      - 服务端 download.go:109-135 StorageKey=="" 时运行时 Deflate 动态生成 ZIP，Size=-1
+    evidence:
+      - iyw-fusion-api/internal/application/skill/direct_upload_init.go:159
+      - iyw-fusion-api/internal/application/skill/download.go:109-135
+      - iyw-fusion-api/internal/application/skill/direct_upload.go:143-154
+      - iyw-claw/src-tauri/src/commands/skill_market/install.rs:157-196
+    root_cause: raw_size 被当作 artifact_size，且 ZIP 每次下载动态生成、无冻结对象，长度语义确定性不匹配
+    fix_commit: null
+    regression_evidence: 待实现（19644 raw -> 14339 ZIP 安装成功，只比较 artifact size）
+    alias: [T03-IYW-SKILL-001]
+
+  - id: IYW-SKILL-002
+    severity: P0
+    status: confirmed
+    symptom: 系统 Skill dirty 更新触发 force reset，可能破坏用户对 Skill 的本地修改
+    owner_task: T00/T04/T06
+    reproduction:
+      - manager.rs:93 检测到 checkout.dirty 即调用 git::force_reset
+      - force_reset 执行 git reset --hard HEAD（git.rs:30-35）
+    evidence:
+      - iyw-claw/src-tauri/src/system_skills/manager.rs:93-96
+      - iyw-claw/src-tauri/src/system_skills/git.rs:30-35
+    root_cause: 更新流程对 dirty 工作树执行破坏性硬重置，无“本地修改则停止更新”保护
+    fix_commit: null
+    regression_evidence: 待实现（dirty fixture 更新后文件摘要不变；无凭据时返回配置错误而非反复重试）
+    alias: []
+
+  - id: IYW-SKILL-003
+    severity: P1
+    status: confirmed
+    symptom: 系统 Skill、市场 Skill、中央目录、Agent 链接与 copy fallback 所有权边界混杂且包内嵌
+    owner_task: T03/T04/T06
+    reproduction:
+      - commands/experts.rs 通过 include_dir! 将 14 个 Skill 编入桌面二进制
+      - system_skills 仍从 GitLab 仓库 checkout（system_skills/git.rs）
+      - 市场 Skill 安装落盘路径与系统 Skill 目录无统一所有权
+    evidence:
+      - iyw-claw/src-tauri/src/commands/experts.rs:37-64
+      - iyw-claw/src-tauri/src/system_skills/git.rs:62,110
+      - iyw-claw/src-tauri/src/acp/skill_package.rs:14-17
+    root_cause: 发布源、运行时内嵌、用户目录、市场目录四类来源未统一到“后端目录 + 不可变库存”模型
+    fix_commit: null
+    regression_evidence: 待实现（干净 PC 包不含 Skill；更新后 Skill 摘要不变；市场/系统 Skill 目录边界清晰）
+    alias: []
+
+  - id: IYW-AUTH-001
+    severity: P1
+    status: confirmed
+    symptom: public/private 无法表达“同组织所有登录用户可见”；组织内 Skill 对其他成员不可见
+    owner_task: T01/T03
+    reproduction:
+      - 组织 A 用户发布 visibility=private 的 Skill，组织内另一用户 market/detail 均不可见
+      - 市场查询仅 visibility=public（skill_repository_helpers.go:14-31）
+    evidence:
+      - iyw-fusion-api/internal/domain/skill/access.go:15-19
+      - iyw-fusion-api/internal/adapter/mysql/skill_repository_helpers.go:14-31,43-44
+      - iyw-fusion-api/internal/domain/skill/model.go:36-40
+    root_cause: 可见性、发布者、强制分发混在 visibility 字段，缺 audience 与 distribution_policy 维度
+    fix_commit: null
+    regression_evidence: 待实现（同组织成员可见；跨组织/匿名/他用户 private 不可见；list/detail/files/versions/plan/ticket 权限一致）
+    alias: [T03-IYW-SKILL-003]
+
+  - id: IYW-JOB-001
+    severity: P1
+    status: confirmed
+    symptom: ticker 无持久状态、多实例租约、重试与死信；任务重启即丢失
+    owner_task: T02
+    reproduction:
+      - bootstrap/agent_release.go:75-81 与 skill_upload_cleanup.go:23-29 均为内存 ticker
+      - 无 background_jobs 持久表（031 迁移为未跟踪草稿，未合并）
+    evidence:
+      - iyw-fusion-api/internal/bootstrap/agent_release.go:75-81
+      - iyw-fusion-api/internal/bootstrap/skill_upload_cleanup.go:23-29
+      - iyw-fusion-api/scripts/mysql/031_create_persistent_job_center.sql（未跟踪）
+    root_cause: 后台任务只有进程内循环，无持久状态/租约/重试/死信闭环（Task 02 设计目标）
+    fix_commit: null
+    regression_evidence: 待实现（双实例 claim/fencing、worker crash 恢复、租约过期、重试与死信契约测试）
+    alias: []
+
+  - id: IYW-CHANNEL-001
+    severity: P0
+    status: confirmed
+    symptom: 新建 enabled 渠道保存后不连接；后台自动连接只在应用启动时执行一次
+    owner_task: T00/T08
+    reproduction:
+      - add-chat-channel-dialog 创建后未调用 connectChatChannel
+      - manager.rs auto_connect_channels 仅在启动扫描 list_enabled
+    evidence:
+      - iyw-claw/src-tauri/src/chat_channel/manager.rs:331-390
+      - iyw-claw/src/components/settings/add-chat-channel-dialog.tsx:102
+    root_cause: 创建/启用的连接动作缺失，连接生命周期只有启动一次
+    fix_commit: null
+    regression_evidence: 待实现（三类渠道最小配置后立即 connected；失败返回“已保存但连接失败”）
+    alias: [IYW-CHANNEL-001..006]
+
+  - id: IYW-CHANNEL-002
+    severity: P0
+    status: confirmed
+    symptom: 禁用->启用只更新数据库不连接；启用->禁用仅已连接时断开
+    owner_task: T00/T08
+    reproduction:
+      - toggle 路径未调用 reconcile/connect
+    evidence:
+      - iyw-claw/src-tauri/src/chat_channel/manager.rs:331-390
+    root_cause: enabled 状态变更与连接状态无统一 reconcile
+    fix_commit: null
+    regression_evidence: 待实现（disabled->enabled 调 reconcile/connect；enabled->disabled 幂等 disconnect）
+    alias: []
+
+  - id: IYW-CHANNEL-003
+    severity: P0
+    status: confirmed
+    symptom: 企微在 connect/test/auto-connect 前统一读取 keyring token，未到 backend 即失败
+    owner_task: T00/T08
+    reproduction:
+      - manager.rs:367 在 create_backend 前 get_channel_token，无 token 即 skip
+      - 企微 backend 明确不需要 channel token
+    evidence:
+      - iyw-claw/src-tauri/src/chat_channel/manager.rs:367-379
+    root_cause: token gate 放在 backend 创建之前，与企微的 wecom-cli auth 模型冲突
+    fix_commit: null
+    regression_evidence: 待实现（企微无 channel token 可连接/测试/自动连接）
+    alias: []
+
+  - id: IYW-CHANNEL-004
+    severity: P1
+    status: confirmed
+    symptom: 编辑对话框与微信 auth 重建整段 JSON，覆盖 channel_workspace_root / default_folder_id / 未知字段
+    owner_task: T00/T08
+    reproduction:
+      - edit-chat-channel-dialog.tsx 用 buildChatChannelConfig 重建 configJson
+      - config_patch.rs 的 patch 函数已存在但未接入编辑流程（仅 readiness 引用）
+    evidence:
+      - iyw-claw/src/components/settings/edit-chat-channel-dialog.tsx:59,81-96
+      - iyw-claw/src/lib/chat-channel-config.ts:11
+      - iyw-claw/src-tauri/src/chat_channel/config_patch.rs:32（未接线）
+    root_cause: UI 全量重建配置而非 merge/typed patch；后端已有 protected fields 方案未启用
+    fix_commit: null
+    regression_evidence: 待实现（编辑前后内部字段完全相同；protected 字段不可被 UI 删除）
+    alias: []
+
+  - id: IYW-CHANNEL-005
+    severity: P1
+    status: confirmed
+    symptom: “测试连接”只验证渠道 API/凭据，不验证入站、dispatcher、工作区、Agent storage、spawn、TurnComplete、出站回复
+    owner_task: T08
+    reproduction:
+      - 设计文档 2.9.6；wecom.rs:239 test_connection 仅凭据检查
+    evidence:
+      - iyw-claw/src-tauri/src/chat_channel/backends/wecom.rs:239
+    root_cause: 缺少端到端回环测试；diagnostic_id 阶段化跟踪未落地
+    fix_commit: null
+    regression_evidence: 待实现（完整回环：入站->dispatcher->workspace->resolve->spawn->prompt->TurnComplete->出站->回执）
+    alias: []
+
+  - id: IYW-CHANNEL-006
+    severity: P1
+    status: confirmed
+    symptom: 配置页无统一 readiness；部分出站发送结果被忽略，用户只见“没有回复”
+    owner_task: T08
+    reproduction:
+      - readiness.rs 已存在但未在配置页呈现；发送结果部分被 _ 丢弃
+    evidence:
+      - iyw-claw/src-tauri/src/chat_channel/readiness.rs:196-204
+    root_cause: readiness 与阶段化错误关联未接入 UI 与出站回执
+    fix_commit: null
+    regression_evidence: 待实现（配置页展示 Agent/storage/workspace/gateway readiness；出站失败关联 diagnostic_id）
+    alias: []
+
+  - id: IYW-MEMORY-001
+    severity: P1
+    status: confirmed
+    symptom: 记忆只在模型主动调用 append/propose 时更新，没有 TurnComplete 后可靠采集队列
+    owner_task: T09
+    reproduction:
+      - user_memory 有候选状态/去重/确认，但无 TurnComplete 采集任务
+      - 设计文档 2.10.1
+    evidence:
+      - iyw-claw/src-tauri/src/user_memory/candidate_lifecycle.rs:41-70
+      - iyw-claw/src-tauri/src/user_memory/candidate_api_types.rs
+    root_cause: 自动学习闭环缺失：无有界采集任务、候选上限、风险过滤与置信阈值确认
+    fix_commit: null
+    regression_evidence: 待实现（TurnComplete 生成候选；敏感推断不静默写入；状态可观测）
+    alias: []
+
+  - id: IYW-MEMORY-002
+    severity: P0
+    status: confirmed
+    symptom: MCP 路由失败时维护提示硬编码写入 C:/Users/Administrator/.iyw-claw/user-memory.md
+    owner_task: T00/T09
+    reproduction:
+      - context.rs:84 提示模型写 Administrator 用户目录
+    evidence:
+      - iyw-claw/src-tauri/src/user_memory/context.rs:84
+    root_cause: fallback 硬编码用户目录，与实际 resolved root 不一致；模型可能产生错误路径写入
+    fix_commit: null
+    regression_evidence: 待实现（非 Administrator 用户不产生错误路径写入；bridge down 返回不可用）
+    alias: []
+
+  - id: IYW-MEMORY-003
+    severity: P1
+    status: confirmed
+    symptom: 设置页 UI 载入/保存时清除 HTML 注释与 [Codex CLI]，可能移除 entry marker，破坏去重与纠正定位
+    owner_task: T00/T09
+    reproduction:
+      - user-memory-settings.tsx applySettings 对 content 做 sanitizeMemoryContent
+      - 保存路径再次 sanitize，marker（<!-- entry_id -->）可能被剥除
+    evidence:
+      - iyw-claw/src/components/settings/user-memory-settings.tsx:78,293
+      - iyw-claw/src/lib/user-memory-documents.ts:135
+    root_cause: 展示内容与持久原文未分离；marker 保留策略缺失
+    fix_commit: null
+    regression_evidence: 待实现（编辑一个条目后其他 marker 与 entry ID 不变；显示与原文分离）
+    alias: []
+
+  - id: IYW-DIST-001
+    severity: P1
+    status: confirmed
+    symptom: PC 包仍携带运行时/Skill；客户端仍直连 GitHub/npmmirror/nodejs.org 等多上游
+    owner_task: T05/T06
+    reproduction:
+      - tauri.conf.json externalBin 含 uv/uvx、resources 含 runtime
+      - binary_cache.rs:111 直连 GitHub 下载 uv；registry.rs 直连 opencode 发行版
+      - runtime_bootstrap.rs:45-48 硬编码 Node/Git 镜像与官方 URL
+      - update/version.rs:19,24 应用更新直连 GitHub latest.json
+    evidence:
+      - iyw-claw/src-tauri/tauri.conf.json（externalBin/resources）
+      - iyw-claw/src-tauri/src/acp/binary_cache.rs:111
+      - iyw-claw/src-tauri/src/acp/registry.rs
+      - iyw-claw/src-tauri/src/commands/runtime_bootstrap.rs:39-48
+      - iyw-claw/src-tauri/src/update/version.rs:19,24
+    root_cause: 受管组件仍随包携带或直连上游，未迁移为“后端决策 + TOS 短时票据 + 不可变库存”
+    fix_commit: null
+    regression_evidence: 待实现（干净 PC 包不含 Node/uv/Git/Agent SDK/CLI；初始化按计划下载并原子激活；摘要匹配复用）
+    alias: []
+
+  - id: IYW-CONFIG-001
+    severity: P1
+    status: confirmed
+    symptom: 新会话配置未形成统一回读/fingerprint gate；恢复旧会话可能混入新记忆或策略代际
+    owner_task: T07/T13
+    reproduction:
+      - acp.rs 已有 fingerprint_config/staleness 机制，但无“写入失败禁止启动”的强制 gate
+      - 设计文档 2.7 要求 reconciler 幂等重写 + 回读校验
+    evidence:
+      - iyw-claw/src-tauri/src/commands/acp.rs:6841-6914
+      - iyw-claw/src-tauri/src/acp/connection.rs:836
+    root_cause: fingerprint 基础设施存在，但统一 reconciler 与回读 gate 未闭环
+    fix_commit: null
+    regression_evidence: 待实现（每个新会话有成功 fingerprint；写入失败不带未知配置启动；恢复会话不混代际）
+    alias: []
+
+  - id: IYW-DEFAULT-001
+    severity: P2
+    status: confirmed
+    symptom: delegation/feedback 新安装默认关闭
+    owner_task: T07
+    reproduction:
+      - FeedbackSettings 使用派生 Default，enabled=false（设计文档 2.8）
+    evidence:
+      - docs/superpowers/specs/2026-08-01-managed-desktop-distribution-design.md:84-86
+    root_cause: 默认值未按“新安装开启、旧用户显式值保留”策略初始化
+    fix_commit: null
+    regression_evidence: 待实现（新安装默认开启；旧用户显式偏好保留；kill switch 可用）
+    alias: []
+
+  - id: IYW-SEC-001
+    severity: P0
+    status: confirmed
+    symptom: 系统 Skill Git 链路存在硬编码凭据
+    owner_task: T00/T04/T13
+    reproduction:
+      - system_skills/git.rs:48 inject_credentials 硬编码用户名/密码
+      - 历史提交 3b6e21b 引入；凭据值不在此台账回显
+    evidence:
+      - iyw-claw/src-tauri/src/system_skills/git.rs:48（仅报路径/类型，不回显值）
+      - iyw-claw/src-tauri/src/git_credential.rs
+    root_cause: 为简化 Git 拉取硬编码仓库凭据；需移除、轮换并从历史清理
+    fix_commit: null
+    regression_evidence: 待实现（secret scan 不再命中值；轮换证据单独保存且不含新值；日志不打印 URL userinfo）
+    alias: []
+
+  # ============ T03 台账重编号（避免与种子 ID 冲突） ============
+  - id: IYW-SKILL-008
+    severity: P0
+    status: confirmed
+    symptom: 逐文件版本下载后 objectSha256 校验失败（响应体与声明的对象摘要非同一字节序列）
+    owner_task: T00/T03
+    reproduction:
+      - StorageKey=="" 且 ObjectSHA256=="" 的版本走动态流
+      - install.rs:66-71 计算下载字节 sha256 并与 object_sha256 比较
+    evidence:
+      - iyw-fusion-api/internal/application/skill/download.go:109-135
+      - iyw-fusion-api/internal/domain/skill/model.go:104-110
+      - iyw-claw/src-tauri/src/commands/skill_market/install.rs:66-71
+    root_cause: 无冻结 ZIP artifact，ObjectSHA256 无法代表动态生成响应；需 artifact_sha256 冻结并上传 TOS
+    fix_commit: null
+    regression_evidence: 待实现（实际 ZIP object SHA 非空且与下载字节一致）
+    alias: [T03-IYW-SKILL-002]
+
+  - id: IYW-SKILL-004
+    severity: P2
+    status: confirmed
+    symptom: 用户对接文档仍以 /skills/download 流式代理为下载路径，与 TOS 直下目标冲突
+    owner_task: T03
+    reproduction:
+      - docs/skill-market-user-client-integration.md 下载章节仍描述 /skills/download + application/zip
+    evidence:
+      - iyw-fusion-api/docs/skill-market-user-client-integration.md
+    root_cause: 文档未随冻结 artifact + TOS 直下改造更新
+    fix_commit: null
+    regression_evidence: 文档审查（plan -> ticket -> TOS；artifactSize != rawSize；旧接口兼容期说明）
+    alias: [T03-IYW-SKILL-004]
+
+  - id: IYW-SKILL-005
+    severity: P2
+    status: confirmed
+    symptom: InstallPlanItem.Download 只返回 packageSize/contentSha256/objectSha256，无 artifactId/size/sha/ticket endpoint
+    owner_task: T03
+    reproduction:
+      - model.go:151-162 Download 字段；dependencies.go:173-204 构造
+      - 客户端 SkillDownloadInfo 无 artifact 字段
+    evidence:
+      - iyw-fusion-api/internal/domain/skill/model.go:151-162
+      - iyw-fusion-api/internal/application/skill/dependencies.go:173-204
+      - iyw-claw/src-tauri/src/commands/skill_market/types.rs:170-176
+    root_cause: 契约 v1 无冻结 artifact 概念，需 v2（artifactId/artifactSize/artifactSha256/ticketEndpoint/audience/distributionPolicy）
+    fix_commit: null
+    regression_evidence: 待实现（HTTP contract 测试覆盖 v2 字段与兼容错误码）
+    alias: [T03-IYW-SKILL-005]
+
+  - id: IYW-SKILL-006
+    severity: P1
+    status: confirmed
+    symptom: CompleteUpload 直接置 version ready，无冻结 artifact 即进入可安装列表
+    owner_task: T03
+    reproduction:
+      - direct_upload.go:143-154 complete 后直接 ready
+      - 版本状态枚举无 artifact_pending
+    evidence:
+      - iyw-fusion-api/internal/domain/skill/model.go:60-64
+      - iyw-fusion-api/internal/application/skill/direct_upload.go:143-154
+    root_cause: 状态机缺少 artifact 构建中间态；complete -> artifact_pending -> build -> ready/failed 未实现
+    fix_commit: null
+    regression_evidence: 待实现（同版本重复 build、双 worker、stale fencing；失败不入可安装列表）
+    alias: [T03-IYW-SKILL-006]
+
+  - id: IYW-SKILL-007
+    severity: P3
+    status: confirmed
+    symptom: content_sha256（文件树摘要）与 object_sha256（ZIP 对象摘要）职责未在契约层区分
+    owner_task: T03
+    reproduction:
+      - install.rs 同时校验 object_sha256 与 content_sha256，语义易混
+    evidence:
+      - iyw-claw/src-tauri/src/acp/skill_package.rs:150-164
+    root_cause: 契约需明确 artifact_sha256=冻结 ZIP 字节摘要；contentSha256=解压后文件树摘要，两者用途不同
+    fix_commit: null
+    regression_evidence: 待实现（0 字节/已压缩/Unicode/大量小文件/嵌套目录矩阵）
+    alias: [T03-IYW-SKILL-007]
+
+  # ============ Audit A 新发现 ============
+  - id: IYW-DIST-002
+    severity: P2
+    status: confirmed
+    symptom: 桌面应用更新清单仍直连 GitHub releases/latest/download/latest.json，未走 Version Center
+    owner_task: T06/T13
+    reproduction:
+      - update/version.rs:19,24 硬编码 GitHub latest.json 与下载前缀
+      - 更新客户端与 release.rs（gateway app-updates/v1/check）并存，路径未统一
+    evidence:
+      - iyw-claw/src-tauri/src/update/version.rs:19,24
+      - iyw-claw/src-tauri/src/update/release.rs:21,97
+    root_cause: 应用更新链路保留了 GitHub 直连默认路径，未完全收敛到后端版本决策
+    fix_commit: null
+    regression_evidence: 待实现（更新清单仅来自 Version Center/TOS 票据；GitHub 仅作显式灾备白名单）
+    alias: []
+
+  - id: IYW-SKILL-013
+    severity: P2
+    status: confirmed
+    symptom: skill 发布源 experts.toml bundle.version=0.0.11 与已发布稳定标签（最高 v0.0.8）不一致
+    owner_task: T04
+    reproduction:
+      - experts.toml version="0.0.11"；git tag 最高 v0.0.8
+    evidence:
+      - skill/experts.toml（bundle.version）
+      - git -C skill tag（v0.0.1..v0.0.8）
+    root_cause: 发布校验未强制 bundle.version 与稳定 SemVer 标签一致；存在未打标签的版本漂移
+    fix_commit: null
+    regression_evidence: 待实现（发布校验：version 与标签一致、SKILL.md 齐全、依赖无环）
+    alias: []
+
+  - id: IYW-UI-001
+    severity: P2
+    status: confirmed
+    symptom: Skill 市场列表只有分页、无虚拟滚动，大列表渲染性能不达标
+    owner_task: T10
+    reproduction:
+      - skill-market-list.tsx / data-list.tsx 仅分页，无 windowing
+    evidence:
+      - iyw-claw/src/components/skills/skill-market-data-list.tsx:56-77,187-234
+    root_cause: 设计目标要求“大 Skill 列表虚拟化”，当前按页渲染整页 item
+    fix_commit: null
+    regression_evidence: 待实现（1000+ item 滚动帧率/首屏指标；键盘焦点与 a11y 不回归）
+    alias: []
+
+  - id: IYW-SEC-003
+    severity: P3
+    status: confirmed
+    symptom: 管理端配置页把存储的上游 API key 明文回显到浏览器 DOM（type=password input value）
+    owner_task: T11
+    reproduction:
+      - channel-config.html apiKeyField 渲染 value="${esc(value ?? "")}"
+    evidence:
+      - iyw-fusion-api/docs/admin/channel-config.html:815-818
+    root_cause: 管理 UI 需要编辑既有 key，但缺少“不可再读/占位符/掩码”策略
+    fix_commit: null
+    regression_evidence: 待实现（既有 key 用占位符展示，不回显明文；保存时空值表示不修改）
+    alias: []
+
+  - id: IYW-AUTH-002
+    severity: P3
+    status: confirmed
+    symptom: /admin/* 静态页面与静态资源不经过 adminAuth，仅 /admin/api 有鉴权
+    owner_task: T11
+    reproduction:
+      - admin.go:27-44 静态页直接 h.GET；adminAuth 只挂 /admin/api
+    evidence:
+      - iyw-fusion-api/internal/adapter/httpserver/admin/admin.go:27-52,67-75
+    root_cause: 静态壳页面无需数据鉴权属低危，但缺少统一入口鉴权纵深
+    fix_commit: null
+    regression_evidence: 待实现（静态页可保留公开，但不应包含敏感信息；API 必须 admin-token）
+    alias: []
+
+  - id: IYW-PERF-001
+    severity: P2
+    status: confirmed
+    symptom: 启动/bootstrap/resolve/下载/安装/spawn/Skill 列表详情的 P50/P95/P99 无观测与基准
+    owner_task: T12(工具)/T13(接线)
+    reproduction:
+      - 三仓均无性能基准脚本与指标埋点（Audit A 扫描未见 perf/bench 目录）
+    evidence:
+      - docs/superpowers/plans/2026-08-01-managed-desktop-distribution/12-health-security-performance-audit.md（性能章节）
+    root_cause: 性能目标未落为可运行基准与观测指标
+    fix_commit: null
+    regression_evidence: Audit B 交付基准脚本与阶梯测试结果
+    alias: []
