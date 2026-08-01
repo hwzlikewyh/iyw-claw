@@ -990,6 +990,14 @@ pub fn build_router(
             post(handlers::runtime_bootstrap::runtime_bootstrap),
         )
         .route(
+            "/bootstrap_init_status",
+            post(handlers::runtime_bootstrap::bootstrap_init_status),
+        )
+        .route(
+            "/bootstrap_initialize",
+            post(handlers::runtime_bootstrap::bootstrap_initialize),
+        )
+        .route(
             "/officecli_install",
             post(handlers::office_tools::officecli_install),
         )

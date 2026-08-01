@@ -1199,6 +1199,8 @@ mod tauri_app {
                 office_tools_commands::officecli_detect,
                 office_tools_commands::officecli_bootstrap,
                 runtime_bootstrap_commands::runtime_bootstrap,
+                runtime_bootstrap_commands::bootstrap_init_status,
+                runtime_bootstrap_commands::bootstrap_initialize,
                 office_tools_commands::officecli_install,
                 office_tools_commands::officecli_uninstall,
                 office_tools_commands::officecli_list_skills,
