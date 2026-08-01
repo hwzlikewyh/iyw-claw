@@ -47,3 +47,11 @@
 - skill main@ba3ca56（ahead 4）：发布校验与清单流水线（verify_manifest.py 强制 version/tag/size/sha256 一致、package_release.py 确定性源码包）=> IYW-SKILL-013 branch_fix
 - 共享主工作树 iyw-claw 已被并行 agent 使用（feat/managed-t06-bootstrap）；审计交付物已从主工作树清理，仅存于 audit/managed-t12-health 分支
 - 结论：Task 02-11 实现均已进入各自分支但尚未集成（Task 13 未接线）；Audit B 前置条件（合并后回归）仍未满足
+
+
+## 复核时点四（2026-08-01 并行任务继续提交）
+- iyw-claw feat/managed-t10-skill-ui@3778b16：重构 Skill 市场 UI（market/* 组件 + virtua Virtualizer 虚拟滚动）=> IYW-UI-001 branch_fix
+- iyw-claw feat/managed-t07-session-config@cd61e42/5204d96/87083be（worktree iyw-claw-t07）：新会话配置对账 reconciler + delegation/feedback 默认策略 => IYW-CONFIG-001、IYW-DEFAULT-001 branch_fix
+- iyw-claw feat/managed-t06-bootstrap@3724184：下载 resume meta 绑定 expected_size/sha256 + MAX_SINGLE_FILE_BYTES=512MiB => IYW-DIST-001 补充
+- fusion-api 仍为 feat/managed-t02-job-center@8d48ed9（T01 contract 提交并入该分支祖先）；skill main@e811dbb（T04 已合并）
+- T08（渠道）/T09（记忆）尚未提交分支（工作区未提交实现仍在）；无集成基线（Task 13 未接线）

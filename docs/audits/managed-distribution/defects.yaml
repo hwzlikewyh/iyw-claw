@@ -263,6 +263,7 @@ defects:
     fix_commit: null
     worktree_fix: partial (未提交、未验证)：工作区 tauri.conf.json externalBin 仅剩 iyw-claw-mcp、resources 仅 out->bundle，installer-hooks.nsh 改为 app 区替换 + 持久区布局；但 runtime_bootstrap.rs 直连 URL、binary_cache 直连 GitHub、update/version.rs 直连 latest.json 仍存在
     branch_fix: feat/managed-t06-bootstrap@c65425b 桌面包瘦身与托管初始化（externalBin 仅 mcp、resources 仅 bundle；runtime_bootstrap.rs 直连 URL 已移除，改版本中心 resolve→票据→TOS 受管安装）；binary_cache.rs 仍直连 GitHub（IYW_CLAW_GITHUB_MIRROR 可选优先）、update/version.rs 仍直连 latest.json（IYW-DIST-002），未合并未验证
+    branch_fix2: feat/managed-t06-bootstrap@3724184 下载 resume meta 绑定 expected_size/sha256 + MAX_SINGLE_FILE_BYTES=512MiB；未合并未验证
     regression_evidence: 待实现（干净 PC 包不含 Node/uv/Git/Agent SDK/CLI；初始化按计划下载并原子激活；摘要匹配复用）
     alias: []
 
@@ -280,6 +281,7 @@ defects:
     root_cause: fingerprint 基础设施存在，但统一 reconciler 与回读 gate 未闭环
     fix_commit: null
     worktree_fix: present (未提交、未验证)：工作区新增 acp/session_config_reconciler/（幂等重写+回读校验实现），接线与强制 gate 未验证
+    branch_fix: feat/managed-t07-session-config@cd61e42 新会话配置对账 reconciler（session_config_reconciler），5204d96 移除 gate 后死代码；未合并未验证
     regression_evidence: 待实现（每个新会话有成功 fingerprint；写入失败不带未知配置启动；恢复会话不混代际）
     alias: []
 
@@ -294,6 +296,7 @@ defects:
       - docs/superpowers/specs/2026-08-01-managed-desktop-distribution-design.md:84-86
     root_cause: 默认值未按“新安装开启、旧用户显式值保留”策略初始化
     fix_commit: null
+    branch_fix: feat/managed-t07-session-config@cd61e42/87083be 更新 delegation/feedback 默认值与后台策略来源；未合并未验证
     regression_evidence: 待实现（新安装默认开启；旧用户显式偏好保留；kill switch 可用）
     alias: []
 
@@ -443,6 +446,7 @@ defects:
       - iyw-claw/src/components/skills/skill-market-data-list.tsx:56-77,187-234
     root_cause: 设计目标要求“大 Skill 列表虚拟化”，当前按页渲染整页 item
     fix_commit: null
+    branch_fix: feat/managed-t10-skill-ui@3778b16 重构市场 UI，market/list.tsx 使用 virtua Virtualizer（scrollToIndex），实现大列表虚拟滚动；未合并未验证
     regression_evidence: 待实现（1000+ item 滚动帧率/首屏指标；键盘焦点与 a11y 不回归）
     alias: []
 
