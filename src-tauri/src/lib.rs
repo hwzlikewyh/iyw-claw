@@ -1100,6 +1100,8 @@ mod tauri_app {
                 skill_market_commands::skill_market_update_metadata,
                 skill_market_commands::skill_market_delete,
                 skill_market_commands::skill_market_install,
+                skill_market_commands::skill_market_uninstall,
+                skill_market_commands::skill_market_rebuild_artifact,
                 iyw_account_commands::iyw_account_get_wechat_qrcode,
                 iyw_account_commands::iyw_account_poll_wechat_login,
                 iyw_account_commands::iyw_account_login_with_password,

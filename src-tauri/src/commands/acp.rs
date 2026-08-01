@@ -4883,6 +4883,47 @@ pub(crate) fn install_market_skills(
     Ok(installed)
 }
 
+/// 卸载指定 market skill（按 `skill_id` 匹配本地 market marker）。
+/// 若该 skill 仍被其他已启用的 expert 包依赖则拒绝卸载；未找到任何
+/// 安装记录时视为已卸载（幂等）。返回移除的目录数。
+pub(crate) fn uninstall_market_skill_by_id(skill_id: i64) -> Result<usize, AcpError> {
+    let root = shared_skills_dir();
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => {
+            return Err(AcpError::protocol(format!(
+                "failed to inspect market Skill installs: {error}"
+            )))
+        }
+    };
+    let mut removed = 0usize;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            AcpError::protocol(format!(
+                "failed to inspect market Skill installs: {error}"
+            ))
+        })?;
+        let source = entry.path();
+        let Some(marker) = read_market_skill_marker(&source) else {
+            continue;
+        };
+        if marker.skill_id != skill_id {
+            continue;
+        }
+        ensure_market_dependency_not_in_use(&marker.slug)?;
+        remove_skill_entry(&source).map_err(|error| {
+            AcpError::protocol(format!(
+                "failed to uninstall market Skill '{}' at {}: {error}",
+                marker.slug,
+                source.display()
+            ))
+        })?;
+        removed += 1;
+    }
+    Ok(removed)
+}
+
 fn prepare_market_skill_installs(
     agent_type: AgentType,
     installs: Vec<MarketSkillInstall>,

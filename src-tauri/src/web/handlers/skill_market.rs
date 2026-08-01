@@ -52,6 +52,13 @@ pub struct InstallParams {
     agent_type: AgentType,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RebuildParams {
+    id: String,
+    version: String,
+}
+
 pub async fn list(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ListParams>,
@@ -127,4 +134,21 @@ pub async fn install(
     skill_market::install_core(&state.db.conn, params.id, params.version, params.agent_type)
         .await?;
     Ok(Json(()))
+}
+
+pub async fn uninstall(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<IDParams>,
+) -> Result<Json<()>, AppCommandError> {
+    skill_market::uninstall_core(&state.db.conn, params.id).await?;
+    Ok(Json(()))
+}
+
+pub async fn rebuild_artifact(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<RebuildParams>,
+) -> Result<Json<SkillMarketVersion>, AppCommandError> {
+    Ok(Json(
+        skill_market::rebuild_artifact_core(&state.db.conn, params.id, params.version).await?,
+    ))
 }

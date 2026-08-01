@@ -917,6 +917,14 @@ pub fn build_router(
             "/skill_market_install",
             post(handlers::skill_market::install),
         )
+        .route(
+            "/skill_market_uninstall",
+            post(handlers::skill_market::uninstall),
+        )
+        .route(
+            "/skill_market_rebuild_artifact",
+            post(handlers::skill_market::rebuild_artifact),
+        )
         // ─── Experts ───
         .route("/experts_list", post(handlers::experts::experts_list))
         .route(

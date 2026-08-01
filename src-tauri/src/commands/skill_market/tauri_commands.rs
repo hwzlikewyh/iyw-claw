@@ -78,3 +78,20 @@ pub async fn skill_market_install(
 ) -> Result<(), AppCommandError> {
     install::install_core(&db.conn, id, version, agent_type).await
 }
+
+#[tauri::command]
+pub async fn skill_market_uninstall(
+    id: String,
+    db: State<'_, AppDatabase>,
+) -> Result<(), AppCommandError> {
+    uninstall_core(&db.conn, id).await
+}
+
+#[tauri::command]
+pub async fn skill_market_rebuild_artifact(
+    id: String,
+    version: String,
+    db: State<'_, AppDatabase>,
+) -> Result<SkillMarketVersion, AppCommandError> {
+    rebuild_artifact_core(&db.conn, id, version).await
+}

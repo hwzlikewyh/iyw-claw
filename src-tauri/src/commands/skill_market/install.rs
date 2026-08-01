@@ -85,6 +85,40 @@ pub async fn install_core(
     Ok(())
 }
 
+/// 重新校验指定版本的制品包：拉取安装计划并下载根包做完整性校验，
+/// 不落盘、不执行本地安装。供 `skill_market_rebuild_artifact` 使用；
+/// 服务端制品仍在构建或已损坏时以明确错误返回。
+pub(crate) async fn revalidate_artifact_core(
+    conn: &DatabaseConnection,
+    id: &str,
+    version: &str,
+) -> Result<(), AppCommandError> {
+    let requested_id = parse_id(id)?;
+    let requested_version = semver::Version::parse(version.trim())
+        .map_err(|error| {
+            AppCommandError::invalid_input("Invalid Skill version").with_detail(error.to_string())
+        })?
+        .to_string();
+    let plan = request_install_plan(conn, requested_id, &requested_version).await?;
+    validate_install_plan(&plan, requested_id, &requested_version)?;
+    let root = plan.items.last().expect("validated non-empty install plan");
+    let package_bytes =
+        download_package(conn, &root.skill_id, &root.version, &root.download).await?;
+    let object_hash = crate::acp::skill_package::hash_bytes(&package_bytes);
+    if !object_hash.eq_ignore_ascii_case(&root.download.object_sha256) {
+        return Err(AppCommandError::invalid_input(format!(
+            "Rebuilt Skill artifact integrity check failed for {}@{}",
+            root.slug, root.version
+        )));
+    }
+    tracing::info!(
+        skill_id = %id,
+        version = %requested_version,
+        "[skill-market] artifact re-validation passed"
+    );
+    Ok(())
+}
+
 fn map_local_install_error(error: crate::acp::error::AcpError) -> AppCommandError {
     let detail = error.to_string();
     let lowered = detail.to_ascii_lowercase();

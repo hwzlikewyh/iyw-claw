@@ -3,7 +3,7 @@ mod install;
 mod install_plan;
 mod types;
 
-pub use install::install_core;
+pub use install::{install_core, revalidate_artifact_core};
 
 pub const MAX_SKILL_MARKET_REQUEST_BYTES: usize = 36 * 1024 * 1024;
 
@@ -197,6 +197,62 @@ pub async fn delete_core(conn: &DatabaseConnection, id: String) -> Result<(), Ap
     })?;
     tracing::info!(skill_id = %id, "[skill-market] Skill deleted");
     Ok(())
+}
+
+/// 卸载本地已安装的 market skill（按 `skill_id` 匹配本地 market marker）。
+/// 未找到安装记录时幂等成功；被其他已启用 expert 包依赖时拒绝。
+pub async fn uninstall_core(
+    conn: &DatabaseConnection,
+    id: String,
+) -> Result<(), AppCommandError> {
+    let skill_id = parse_id(&id)?;
+    let removed =
+        crate::commands::acp::uninstall_market_skill_by_id(skill_id).map_err(|error| {
+            tracing::error!(
+                skill_id = %skill_id,
+                error = %error,
+                "[skill-market] local uninstall failed"
+            );
+            AppCommandError::io_error("Failed to uninstall Skill")
+                .with_detail(error.to_string())
+        })?;
+    if removed == 0 {
+        tracing::info!(
+            skill_id = %skill_id,
+            "[skill-market] no local install found for uninstall (idempotent)"
+        );
+    } else {
+        tracing::info!(
+            skill_id = %skill_id,
+            removed,
+            "[skill-market] Skill uninstalled"
+        );
+    }
+    Ok(())
+}
+
+/// 重新校验指定版本的制品包并返回最新版本行。服务端制品不可用时
+/// 以明确错误返回，供 UI "重建制品" 按钮使用。
+pub async fn rebuild_artifact_core(
+    conn: &DatabaseConnection,
+    id: String,
+    version: String,
+) -> Result<SkillMarketVersion, AppCommandError> {
+    revalidate_artifact_core(conn, &id, &version).await?;
+    let requested_version = semver::Version::parse(version.trim())
+        .map_err(|error| {
+            AppCommandError::invalid_input("Invalid Skill version").with_detail(error.to_string())
+        })?
+        .to_string();
+    let versions = versions_core(conn, id.clone()).await?;
+    versions
+        .into_iter()
+        .find(|value| value.version == requested_version)
+        .ok_or_else(|| {
+            AppCommandError::not_found(format!(
+                "Skill {id} version {requested_version} no longer exists"
+            ))
+        })
 }
 
 async fn refresh_detail_or_minimal(
