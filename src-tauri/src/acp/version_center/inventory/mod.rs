@@ -3,7 +3,7 @@ mod tools;
 
 use crate::models::agent::AgentType;
 
-pub use agents::{activate_agent, list_agent_installations, record_agent_ready, set_agent_pin};
+pub use agents::{activate_agent, list_agent_installations, set_agent_pin};
 pub use tools::{
     activate_tool, list_tool_installations, list_tool_settings, record_tool_ready, set_tool_pin,
 };

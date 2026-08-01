@@ -138,7 +138,7 @@ pub async fn get_user_memory_harvest_status_core(
 }
 
 pub async fn rescan_user_memory_harvest_core(
-    service: &UserMemoryService,
+    service: Arc<UserMemoryService>,
     execute: bool,
 ) -> Result<UserMemoryHarvestRescanResult, AppCommandError> {
     service.rescan_harvest(execute).await
@@ -323,7 +323,7 @@ pub async fn rescan_user_memory_harvest(
 ) -> Result<UserMemoryHarvestRescanResult, AppCommandError> {
     #[cfg(feature = "tauri-runtime")]
     {
-        rescan_user_memory_harvest_core(service.inner().as_ref(), execute).await
+        rescan_user_memory_harvest_core(Arc::clone(service.inner()), execute).await
     }
     #[cfg(not(feature = "tauri-runtime"))]
     {

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::manifest::{
-    upsert_entry, write_marker, write_manifest, InventoryEntry, InventoryManifest,
+    upsert_entry, write_marker, write_manifest, InventoryEntry,
     OwnershipMarker,
 };
 use crate::acp::version_center::capability;

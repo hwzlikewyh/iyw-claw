@@ -142,7 +142,7 @@ pub async fn rescan_user_memory_harvest(
     Json(params): Json<RescanUserMemoryHarvestParams>,
 ) -> Result<Json<UserMemoryHarvestRescanResult>, AppCommandError> {
     Ok(Json(
-        rescan_user_memory_harvest_core(&state.user_memory, params.execute).await?,
+        rescan_user_memory_harvest_core(Arc::clone(&state.user_memory), params.execute).await?,
     ))
 }
 
