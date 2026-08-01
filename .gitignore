@@ -63,3 +63,7 @@ src-tauri/resources/runtime/npm/
 
 # pnpm local store (pnpm 11+)
 .pnpm-store/
+
+# Python skill script bytecode (generated at runtime, never committed).
+__pycache__/
+*.pyc
