@@ -38,3 +38,12 @@
 - 复核确认（工作区未提交）：commands/experts.rs include_dir! 16 个（IYW-SKILL-003 未修）；install.rs 仍 package_size/object_sha256 校验（IYW-SKILL-001/008 未修）；update/version.rs:19,24 仍直连 GitHub（IYW-DIST-002 未修）；context.rs:84 Administrator 仍在（IYW-MEMORY-002 未修）；user-memory-settings.tsx:29,78 sanitize 仍在（IYW-MEMORY-003 未修）；skill-market-data-list.tsx 无虚拟滚动（IYW-UI-001 未修）。
 - 新增证据：evidence/06-static-audit-notes.md（NSIS/阻塞IO/跨await锁/忽略Result/SQL/重试超时/行号对照）；evidence/07-secret-scan-recheck.txt（复核扫描：0 处真实凭据，1 处测试夹具假值）。
 - 新增脚本：scripts/check_defects_references.ps1、scan_secrets.ps1、audit_b_recheck.ps1（Audit B 复用，纯 PowerShell，无新增依赖）。
+
+
+## 复核时点三（2026-08-01 并行任务已各自提交实现分支）
+- iyw-fusion-api 当前分支 feat/managed-t02-job-center@8d48ed9：租约式持久化任务中心实现（domain jobcenter lease/retry/status/progress/metrics + MySQL repository + bootstrap 装配函数）；未接入 bootstrap.go（Task 13 接线），进程内 ticker（agent_release.go:73-81、skill_upload_cleanup.go:20-29）仍在 => IYW-JOB-001 branch_fix
+- iyw-fusion-api contract 系列提交（7b1c0a8/fdead55/0b6ad7d/36cec1d）冻结 audience/artifact/组件绑定枚举与 031-033 迁移 => IYW-AUTH-001/IYW-SKILL-005/006/008 branch_note
+- iyw-claw feat/managed-t06-bootstrap@c65425b：桌面包瘦身与托管初始化（prepare-sidecars.mjs 大幅精简、tauri.conf.json、runtime_bootstrap.rs 重写、version_center/installer 模块化）=> IYW-DIST-001 branch_fix
+- skill main@ba3ca56（ahead 4）：发布校验与清单流水线（verify_manifest.py 强制 version/tag/size/sha256 一致、package_release.py 确定性源码包）=> IYW-SKILL-013 branch_fix
+- 共享主工作树 iyw-claw 已被并行 agent 使用（feat/managed-t06-bootstrap）；审计交付物已从主工作树清理，仅存于 audit/managed-t12-health 分支
+- 结论：Task 02-11 实现均已进入各自分支但尚未集成（Task 13 未接线）；Audit B 前置条件（合并后回归）仍未满足

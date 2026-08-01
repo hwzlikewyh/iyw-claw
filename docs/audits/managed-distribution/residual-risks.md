@@ -19,13 +19,13 @@
 | 风险 | ID | owner | 目标版本 | 状态 |
 | --- | --- | --- | --- | --- |
 | 组织可见性无法表达（audience） | IYW-AUTH-001 | T01/T03 | Wave 0/1 | confirmed |
-| ticker 无持久状态/租约/重试/死信 | IYW-JOB-001 | T02 | Wave 1 | confirmed；031 已随 7b1c0a8 提交，jobcenter 实现未合并 |
+| ticker 无持久状态/租约/重试/死信 | IYW-JOB-001 | T02 | Wave 1 | confirmed；T02 分支 8d48ed9 已实现租约式 jobcenter（未接线/未合并） |
 | 版本无 artifact 中间态即可安装 | IYW-SKILL-006 | T03 | Wave 1 | confirmed |
 | 渠道配置覆盖 protected 字段 | IYW-CHANNEL-004 | T00/T08 | Wave H/2 | confirmed；工作区已接入 config patch，待回归 |
 | 渠道无回环测试/无 readiness 呈现 | IYW-CHANNEL-005/006 | T08 | Wave 2 | confirmed；工作区有 credential_ready/reconcile outcome 部分实现 |
 | 记忆无 TurnComplete 采集闭环 | IYW-MEMORY-001 | T09 | Wave 2 | confirmed；工作区新增 harvest.rs，未验证 |
 | UI 保存可能清除 entry marker | IYW-MEMORY-003 | T00/T09 | Wave H/2 | confirmed |
-| 桌面包携带运行时/Skill、直连上游 | IYW-DIST-001 | T05/T06 | Wave 1/2 | confirmed；工作区包已瘦身（部分），直连上游仍在 |
+| 桌面包携带运行时/Skill、直连上游 | IYW-DIST-001 | T05/T06 | Wave 1/2 | confirmed；T06 分支 c65425b 已提交包瘦身与托管初始化（未合并）；直连上游需核实 |
 | 新会话配置无统一回读/fingerprint gate | IYW-CONFIG-001 | T07/T13 | Wave 2 | confirmed；工作区新增 session_config_reconciler，未验证 |
 
 ## 3. P2（有 owner/版本）
@@ -36,7 +36,7 @@
 | 文档仍以 /skills/download 流式代理为例 | IYW-SKILL-004 | T03 | Wave 1 |
 | InstallPlanItem v1 无 artifact 字段 | IYW-SKILL-005 | T03 | Wave 1 |
 | 应用更新直连 GitHub latest.json | IYW-DIST-002 | T06/T13 | Wave 2/4 |
-| skill 发布源 version 与标签不一致 | IYW-SKILL-013 | T04 | Wave 1 |
+| skill 发布源 version 与标签不一致 | IYW-SKILL-013 | T04 | Wave 1 | confirmed；T04 已提交发布校验流水线（ba3ca56，未合并） |
 | 大列表无虚拟滚动 | IYW-UI-001 | T10 | Wave 3 |
 | 性能无基准与观测 | IYW-PERF-001 | T12(工具)/T13(接线) | Audit B / Wave 4 |
 
