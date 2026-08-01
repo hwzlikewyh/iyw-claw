@@ -286,9 +286,9 @@ pub async fn runtime_bootstrap(
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn bootstrap_init_status(
-) -> Result<crate::acp::version_center::installer::InitStatusReport, String> {
+) -> Result<crate::acp::version_center::InitStatusReport, String> {
     let data_dir = crate::system_skills::data_dir_from_env();
-    crate::acp::version_center::installer::bootstrap_init_status(&data_dir)
+    crate::acp::version_center::bootstrap_init_status(&data_dir)
         .await
         .map_err(|error| error.message)
 }
@@ -302,7 +302,7 @@ pub async fn bootstrap_initialize(
     app: tauri::AppHandle,
     db: tauri::State<'_, crate::db::AppDatabase>,
     connection_manager: tauri::State<'_, ConnectionManager>,
-) -> Result<crate::acp::version_center::installer::InitStatusReport, String> {
+) -> Result<crate::acp::version_center::InitStatusReport, String> {
     let emitter = EventEmitter::Tauri(app);
     let conn = db.conn.clone();
     let data_dir = crate::system_skills::data_dir_from_env();
@@ -311,7 +311,7 @@ pub async fn bootstrap_initialize(
         .await
         .map(|prefs| prefs.channel.as_str().to_string())
         .unwrap_or_else(|_| "stable".to_string());
-    crate::acp::version_center::installer::bootstrap_initialize(
+    crate::acp::version_center::bootstrap_initialize(
         &conn,
         &data_dir,
         &channel,
