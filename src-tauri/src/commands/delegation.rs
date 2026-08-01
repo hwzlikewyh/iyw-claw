@@ -99,14 +99,13 @@ async fn backend_delegation_policy(
     let env_kill = std::env::var(KILL_SWITCH_ENV)
         .ok()
         .map(|raw| raw.split(',').any(|item| item.trim() == "delegation"));
-    let kill_switch = env_kill.or_else(|| {
-        // 持久键仅在显式布尔时生效；损坏值视为未设置（不回退直连）。
-        app_metadata_service::get_value(conn, KEY_DELEGATION_KILL_SWITCH)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|raw| raw.parse::<bool>().ok())
-    });
+    let db_kill = app_metadata_service::get_value(conn, KEY_DELEGATION_KILL_SWITCH)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|raw| raw.parse::<bool>().ok());
+    // 持久键仅在显式布尔时生效；损坏值视为未设置（不回退直连）。
+    let kill_switch = env_kill.or(db_kill);
     let org_policy = app_metadata_service::get_value(conn, KEY_DELEGATION_ORG_POLICY)
         .await
         .ok()

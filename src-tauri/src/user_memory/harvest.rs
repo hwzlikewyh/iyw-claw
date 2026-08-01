@@ -262,7 +262,7 @@ impl UserMemoryService {
     /// Re-queue unprocessed or recoverable records. Returns a preview first;
     /// callers confirm before `execute = true` takes effect.
     pub async fn rescan_harvest(
-        &self,
+        self: &Arc<Self>,
         execute: bool,
     ) -> Result<UserMemoryHarvestRescanResult, AppCommandError> {
         let root = self.harvest_root()?;
@@ -343,10 +343,10 @@ impl UserMemoryService {
     fn ensure_harvest_worker(self: &Arc<Self>) {
         let _ = self.harvest.inner.worker_spawned.get_or_init(|| {
             let weak: Weak<Self> = Arc::downgrade(self);
-            let wake = self.harvest.inner.wake.clone();
+            let inner = Arc::clone(&self.harvest.inner);
             tokio::spawn(async move {
                 loop {
-                    wake.notified().await;
+                    inner.wake.notified().await;
                     let Some(service) = weak.upgrade() else {
                         break;
                     };
@@ -542,6 +542,36 @@ fn validate_harvest_request(request: &MemoryHarvestRequest) -> Result<(), AppCom
         }
     }
     Ok(())
+}
+
+/// Build a sanitized, bounded reference for the harvest hook (Task 13):
+/// collapses whitespace/control characters into single spaces, trims, and
+/// truncates to `USER_MEMORY_MAX_CANDIDATE_CHARS * 4` chars so the request
+/// always passes `validate_harvest_request`. Returns `None` when nothing
+/// meaningful remains (empty / whitespace-only input).
+pub fn harvest_reference(input: &str) -> Option<String> {
+    let cap = USER_MEMORY_MAX_CANDIDATE_CHARS * 4;
+    let mut cleaned = String::new();
+    let mut chars = 0usize;
+    let mut pending_space = false;
+    for ch in input.chars() {
+        if chars >= cap {
+            break;
+        }
+        if ch.is_whitespace() || ch.is_control() {
+            pending_space = true;
+            continue;
+        }
+        if pending_space && !cleaned.is_empty() {
+            cleaned.push(' ');
+            chars += 1;
+            pending_space = false;
+        }
+        cleaned.push(ch);
+        chars += 1;
+    }
+    let cleaned = cleaned.trim().to_string();
+    (!cleaned.is_empty()).then_some(cleaned)
 }
 
 fn abnormal_stop_reason(reason: Option<&str>) -> bool {

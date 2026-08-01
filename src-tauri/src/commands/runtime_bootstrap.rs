@@ -20,7 +20,7 @@ use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use tokio::sync::Mutex;
 
-use crate::acp::version_center::installer::{install_managed_tool, managed_tool_executable};
+use crate::acp::version_center::{install_managed_tool, managed_tool_executable};
 use crate::web::event_bridge::EventEmitter;
 
 #[cfg(feature = "tauri-runtime")]

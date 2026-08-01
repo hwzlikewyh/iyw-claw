@@ -68,7 +68,7 @@ pub const BACKUP_I18N_KEY_CANCELLED: &str = "backup.error.cancelled";
 /// A restore is already staged and awaiting restart; only one at a time.
 pub const BACKUP_I18N_KEY_ALREADY_PENDING: &str = "backup.restore.error.alreadyPending";
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AppErrorCode {
     InvalidInput,

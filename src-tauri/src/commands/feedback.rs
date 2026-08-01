@@ -64,13 +64,12 @@ async fn backend_feedback_policy(conn: &DatabaseConnection) -> (Option<bool>, Op
     let env_kill = std::env::var(KILL_SWITCH_ENV)
         .ok()
         .map(|raw| raw.split(',').any(|item| item.trim() == "feedback"));
-    let kill_switch = env_kill.or_else(|| {
-        app_metadata_service::get_value(conn, KEY_FEEDBACK_KILL_SWITCH)
-            .await
-            .ok()
-            .flatten()
-            .and_then(|raw| raw.parse::<bool>().ok())
-    });
+    let db_kill = app_metadata_service::get_value(conn, KEY_FEEDBACK_KILL_SWITCH)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|raw| raw.parse::<bool>().ok());
+    let kill_switch = env_kill.or(db_kill);
     let org_policy = app_metadata_service::get_value(conn, KEY_FEEDBACK_ORG_POLICY)
         .await
         .ok()

@@ -106,6 +106,9 @@ fn enforce_provider_overlay_at_root(agent: AgentType, profile: &Path) -> Result<
         AgentType::Grok => patch_text(&profile.join("config.toml"), |raw| {
             patch_grok_toml(raw, &base_url)
         }),
+        AgentType::Codex | AgentType::ClaudeCode => {
+            unreachable!("Codex and ClaudeCode are handled by session_config_reconciler above")
+        }
     }
 }
 

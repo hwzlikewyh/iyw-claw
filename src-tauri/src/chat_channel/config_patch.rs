@@ -78,14 +78,16 @@ pub fn parse_config_object(current_json: &str) -> Result<serde_json::Map<String,
     }
 }
 
-fn set_or_clear(
+fn set_or_clear<T: serde::Serialize>(
     map: &mut serde_json::Map<String, serde_json::Value>,
     key: &str,
-    patch: Option<&Option<serde_json::Value>>,
+    patch: Option<&Option<T>>,
 ) {
     match patch {
         Some(Some(value)) => {
-            map.insert(key.to_string(), value.clone());
+            if let Ok(json_val) = serde_json::to_value(value) {
+                map.insert(key.to_string(), json_val);
+            }
         }
         Some(None) => {
             map.remove(key);

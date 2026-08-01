@@ -65,7 +65,7 @@ pub fn available_bytes_on(path: &Path) -> Option<u64> {
         if !absolute.starts_with(mount) {
             continue;
         }
-        let depth = mount.components().count();
+        let depth = mount.components().count() as u64;
         if best.as_ref().map_or(true, |(_, best_depth)| depth > *best_depth) {
             best = Some((disk, depth));
         }

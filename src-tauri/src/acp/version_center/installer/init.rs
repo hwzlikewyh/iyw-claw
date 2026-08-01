@@ -21,8 +21,8 @@ use serde::Serialize;
 use super::component::{install_tool_component, update_checkpoint, update_checkpoint_deferred};
 use super::manifest::{
     active_versions, digest_managed_root, pending_activations_path, read_manifest,
-    read_pending_activations, upsert_entry, write_pending_activations, InventoryEntry,
-    InventoryManifest, PendingActivation,
+    read_pending_activations, upsert_entry, write_manifest, write_pending_activations,
+    InventoryEntry, InventoryManifest, PendingActivation,
 };
 use super::migration::{migration_receipt, run_legacy_migration};
 use super::resumable::DownloadProgress;
@@ -88,7 +88,7 @@ pub async fn bootstrap_init_status(data_dir: &Path) -> Result<InitStatusReport, 
     let pending = read_pending_activations(data_dir).await?;
     let migrated = migration_receipt(data_dir).await?.is_some();
     Ok(InitStatusReport {
-        phase: phase_label(state.phase),
+        phase: phase_label(state.phase).to_string(),
         components: state
             .components
             .into_iter()
@@ -98,7 +98,7 @@ pub async fn bootstrap_init_status(data_dir: &Path) -> Result<InitStatusReport, 
                 version: checkpoint.version,
                 installed: checkpoint.installed,
                 active: checkpoint.active,
-                phase: phase_label(checkpoint.phase),
+                phase: phase_label(checkpoint.phase).to_string(),
                 last_error: checkpoint.last_error,
             })
             .collect(),

@@ -21,7 +21,8 @@ fn status_for_app_error_code(code: AppErrorCode) -> StatusCode {
         | AppErrorCode::NotAGitRepository
         | AppErrorCode::AuthenticationFailed
         | AppErrorCode::AgentStorageNotInitialized
-        | AppErrorCode::AgentStorageInvalid => StatusCode::UNPROCESSABLE_ENTITY,
+        | AppErrorCode::AgentStorageInvalid
+        | AppErrorCode::ArtifactNotReady => StatusCode::UNPROCESSABLE_ENTITY,
         AppErrorCode::NetworkError
         | AppErrorCode::DatabaseError
         | AppErrorCode::IoError

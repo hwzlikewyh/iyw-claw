@@ -249,8 +249,7 @@ async fn lock_is_stale(path: &Path) -> Result<bool, AppCommandError> {
     };
     let pid = serde_json::from_str::<serde_json::Value>(&raw)
         .ok()
-        .and_then(|value| value.get("pid"))
-        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| value.get("pid").and_then(serde_json::Value::as_u64))
         .unwrap_or_default();
     if pid == 0 {
         return Ok(false);

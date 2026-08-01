@@ -48,7 +48,7 @@ impl ReconcileOutcome {
         }
     }
 
-    fn failed(channel_id: i32, desired_enabled: bool, runtime_status: &str, error: String) -> Self {
+    pub(crate) fn failed(channel_id: i32, desired_enabled: bool, runtime_status: &str, error: String) -> Self {
         Self {
             channel_id,
             desired_enabled,
@@ -66,7 +66,7 @@ pub async fn credential_ready(
     db: &DatabaseConnection,
     model: &chat_channel::Model,
 ) -> Result<(), String> {
-    let channel_type = parse_channel_type(model)?;
+    let channel_type = parse_channel_type(model).map_err(|e| e.to_string())?;
     match channel_type {
         ChannelType::Wecom => {
             if !backends::wecom::cli_installed() {

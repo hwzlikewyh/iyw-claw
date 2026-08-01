@@ -2,7 +2,7 @@ use chrono::Utc;
 use sea_orm::prelude::DateTimeUtc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
-    QueryFilter, QueryOrder, Set,
+    QueryFilter, QueryOrder, QuerySelect, Set,
 };
 
 use crate::db::entities::chat_channel_message_log;
