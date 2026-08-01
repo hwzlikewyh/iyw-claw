@@ -63,7 +63,7 @@ impl ReconcileOutcome {
 /// (QR-scan auth) and must NOT be gated on a channel token
 /// (IYW-CHANNEL-003); Lark/Weixin use the keyring token.
 pub async fn credential_ready(
-    db: &DatabaseConnection,
+    _db: &DatabaseConnection,
     model: &chat_channel::Model,
 ) -> Result<(), String> {
     let channel_type = parse_channel_type(model).map_err(|e| e.to_string())?;
@@ -98,7 +98,7 @@ pub async fn credential_ready(
 /// `qr_completed`, `app_start`, `manual`.
 #[allow(clippy::too_many_arguments)]
 pub async fn reconcile_channel(
-    db: &DatabaseConnection,
+    _db: &DatabaseConnection,
     manager: &ChatChannelManager,
     id: i32,
     desired_enabled: bool,
@@ -227,7 +227,7 @@ pub async fn reconcile_channel(
 /// Build + start the backend for an enabled channel, performing a safe
 /// reconnect: on failure the previously running backend is restored.
 async fn reconcile_connect(
-    db: &DatabaseConnection,
+    _db: &DatabaseConnection,
     manager: &ChatChannelManager,
     model: &chat_channel::Model,
 ) -> Result<(), ChatChannelError> {
@@ -297,7 +297,7 @@ async fn reconcile_connect(
 /// Reconcile every enabled channel at app start.
 pub async fn reconcile_all_enabled(
     manager: &ChatChannelManager,
-    db: &DatabaseConnection,
+    _db: &DatabaseConnection,
     reason: ReconcileReason,
 ) {
     let channels = match chat_channel_service::list_enabled(db).await {

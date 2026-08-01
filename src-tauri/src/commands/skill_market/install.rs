@@ -88,7 +88,7 @@ pub async fn install_core(
 /// 重新校验指定版本的制品包：拉取安装计划并下载根包做完整性校验，
 /// 不落盘、不执行本地安装。供 `skill_market_rebuild_artifact` 使用；
 /// 服务端制品仍在构建或已损坏时以明确错误返回。
-pub(crate) async fn revalidate_artifact_core(
+pub async fn revalidate_artifact_core(
     conn: &DatabaseConnection,
     id: &str,
     version: &str,

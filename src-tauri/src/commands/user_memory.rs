@@ -1,6 +1,4 @@
-#[cfg(feature = "tauri-runtime")]
 use std::sync::Arc;
-
 use crate::acp::manager::ConnectionManager;
 use crate::app_error::AppCommandError;
 use crate::user_memory::{

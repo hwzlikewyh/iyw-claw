@@ -136,7 +136,7 @@ pub async fn bootstrap_initialize(
     };
 
     // 一次性旧目录迁移（幂等 receipt）。
-    let migrated = run_legacy_migration(data_dir).await?.receipt_written;
+    let _migrated = run_legacy_migration(data_dir).await?.receipt_written;
 
     // IR-005：会话结束后的首次启动消费 pending activations（无活跃会话时）。
     // 消费先于 resolve：激活后的版本进入 active map，后续 resolve 命中 keep，

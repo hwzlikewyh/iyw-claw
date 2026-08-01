@@ -43,7 +43,7 @@ pub(super) async fn install_tool_component(
     defer_while_active: bool,
     task_id: &str,
     emitter: &EventEmitter,
-    state: &mut BootstrapState,
+    _state: &mut BootstrapState,
     active: &BTreeMap<String, String>,
 ) -> Result<ComponentOutcome, AppCommandError> {
     let current_version = active.get(tool_id).cloned().unwrap_or_default();
@@ -319,7 +319,7 @@ pub(super) async fn install_tool_component(
 
 /// 更新 state 中单个组件的检查点。
 pub(super) fn update_checkpoint(
-    state: &mut BootstrapState,
+    _state: &mut BootstrapState,
     tool_id: &str,
     version: String,
 ) {
@@ -337,7 +337,7 @@ pub(super) fn update_checkpoint(
 
 /// IR-005：组件已安装但激活被延迟（活跃会话存活）时的检查点更新。
 pub(super) fn update_checkpoint_deferred(
-    state: &mut BootstrapState,
+    _state: &mut BootstrapState,
     tool_id: &str,
     version: String,
 ) {

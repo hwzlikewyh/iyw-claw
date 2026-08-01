@@ -202,7 +202,7 @@ pub async fn delete_core(conn: &DatabaseConnection, id: String) -> Result<(), Ap
 /// 卸载本地已安装的 market skill（按 `skill_id` 匹配本地 market marker）。
 /// 未找到安装记录时幂等成功；被其他已启用 expert 包依赖时拒绝。
 pub async fn uninstall_core(
-    conn: &DatabaseConnection,
+    _conn: &DatabaseConnection,
     id: String,
 ) -> Result<(), AppCommandError> {
     let skill_id = parse_id(&id)?;
