@@ -5,8 +5,8 @@ use crate::acp::agent_storage::AgentStoragePaths;
 use crate::models::agent::AgentType;
 
 use super::provider_overlay::{
-    model_gateway_base_url_for, patch_codex_toml, patch_grok_toml, patch_hermes_yaml,
-    patch_json_config, patch_kimi_toml, patch_pi_models_json,
+    model_gateway_base_url_for, patch_grok_toml, patch_hermes_yaml, patch_json_config,
+    patch_kimi_toml, patch_pi_models_json,
 };
 
 pub fn enforce_all_provider_overlays(paths: &AgentStoragePaths) -> Result<(), String> {
@@ -58,9 +58,6 @@ fn enforce_provider_overlay_at_root(agent: AgentType, profile: &Path) -> Result<
     }
     let base_url = model_gateway_base_url_for(agent);
     match agent {
-        AgentType::Codex => patch_text(&profile.join("config.toml"), |raw| {
-            patch_codex_toml(raw, &base_url)
-        }),
         AgentType::KimiCode => patch_text(&profile.join("config.toml"), |raw| {
             patch_kimi_toml(raw, &base_url)
         }),
@@ -101,7 +98,7 @@ fn enforce_provider_overlay_at_root(agent: AgentType, profile: &Path) -> Result<
         AgentType::OpenClaw => patch_json(&profile.join("openclaw.json"), |value| {
             patch_json_config(agent, value, &base_url)
         }),
-        AgentType::ClaudeCode | AgentType::CodeBuddy => {
+        AgentType::CodeBuddy => {
             patch_json(&profile.join("settings.json"), |value| {
                 patch_json_config(agent, value, &base_url)
             })

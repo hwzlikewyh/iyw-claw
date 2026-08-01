@@ -1,9 +1,16 @@
 //! Live user-feedback settings persistence + the submit command surface.
 //!
 //! One knob survives across restarts:
-//!   * `feedback.enabled` — feature kill switch (default false). When on,
-//!     `iyw-claw-mcp` exposes the `check_user_feedback` tool so an agent can pull
-//!     mid-turn user notes; the conversation UI shows the "send a note" bar.
+//!   * `feedback.enabled` — feature switch (product default true; new installs
+//!     and keyless upgrades migrate to true and record the migration version;
+//!     existing explicit values are preserved). When on, `iyw-claw-mcp`
+//!     exposes the `check_user_feedback` tool so an agent can pull mid-turn
+//!     user notes; the conversation UI shows the "send a note" bar.
+//!
+//! Backend policy keys (`feedback.kill_switch` / `feedback.org_policy` and the
+//! `IYW_CLAW_FEATURE_KILL_SWITCH` env) override the user value; the UI reads
+//! the computed `effective` state and never presents a policy override as a
+//! user setting.
 //!
 //! On startup `apply_persisted_feedback_config` reads this key from
 //! `app_metadata` and pushes it into the shared [`FeedbackRuntimeConfig`] that
@@ -201,17 +208,17 @@ pub async fn set_feedback_settings_core(
     emitter: &EventEmitter,
     desired: FeedbackSettings,
 ) -> Result<FeedbackSettings, AppCommandError> {
-    // 后台安全 kill switch 优先：强制关闭时用户显式开启不能生效。
-    let (kill_switch, _) = backend_feedback_policy(conn).await;
-    if kill_switch == Some(false) && desired.enabled {
-        let mut forced = FeedbackSettings {
-            enabled: false,
-            effective: Some(FeedbackEffectiveState {
-                enabled: false,
-                source: FeedbackEffectiveSource::KillSwitch,
-                kill_switch_active: true,
-            }),
-        };
+    // 后台策略优先：kill switch 或组织策略强制关闭时，用户显式开启不能生效
+    // （保存仍落盘用户偏好，但运行配置与 UI 展示以有效状态为准）。
+    let (kill_switch, org_policy) = backend_feedback_policy(conn).await;
+    let policy_blocks = kill_switch == Some(false) || org_policy == Some(false);
+    if policy_blocks && desired.enabled {
+        // 有效状态按真实来源计算：kill switch 强制关闭展示"管理员关闭"，
+        // 组织策略强制关闭展示"由组织管理"。用户偏好仍落盘，运行配置以
+        // 有效状态为准。
+        let mut forced = desired;
+        forced.enabled = false;
+        forced.effective = Some(effective_feedback_state(conn, &forced).await);
         app_metadata_service::upsert_value(conn, KEY_FEEDBACK_ENABLED, "false")
             .await
             .map_err(AppCommandError::from)?;

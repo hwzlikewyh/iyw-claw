@@ -141,3 +141,119 @@ fn verify_json(
         error_code: None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+    use crate::acp::session_config_reconciler::model::{claude_code_spec, codex_spec};
+
+    #[test]
+    fn codex_reconcile_creates_missing_file_and_preserves_user_fields() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let profile = dir.path();
+        let spec = codex_spec();
+        let outcome = reconcile_managed_files(AgentType::Codex, profile, &spec)
+            .expect("reconcile should succeed");
+        assert_eq!(outcome.changed, true);
+        assert_eq!(outcome.error_code, None);
+        assert_eq!(outcome.controlled_fields, spec.fields.len());
+        assert!(!outcome.fingerprint.is_empty());
+
+        // 幂等：再次对账无变化，但 fingerprint 稳定且不重复写入。
+        let second = reconcile_managed_files(AgentType::Codex, profile, &spec)
+            .expect("second reconcile should succeed");
+        assert_eq!(second.changed, false);
+        assert_eq!(second.fingerprint, outcome.fingerprint);
+
+        // 用户自定义字段（如 MCP 服务）必须完整保留。
+        let path = profile.join("config.toml");
+        let raw = fs::read_to_string(&path).expect("read config.toml");
+        assert!(raw.contains("model_provider"));
+        assert!(raw.contains("iyw-claw"));
+    }
+
+    #[test]
+    fn codex_reconcile_preserves_user_mcp_tables() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let profile = dir.path();
+        let path = profile.join("config.toml");
+        fs::write(
+            &path,
+            r#"
+model = "gpt-5"
+
+[mcp_servers.my-custom-server]
+command = "npx"
+args = ["-y", "my-tool"]
+"#,
+        )
+        .expect("seed config.toml");
+        let spec = codex_spec();
+        let outcome = reconcile_managed_files(AgentType::Codex, profile, &spec)
+            .expect("reconcile should succeed");
+        assert_eq!(outcome.error_code, None);
+        let raw = fs::read_to_string(&path).expect("read back config.toml");
+        assert!(raw.contains("my-custom-server"), "user MCP must survive");
+        assert!(raw.contains("npx"));
+    }
+
+    #[test]
+    fn claude_reconcile_creates_missing_file_and_writes_env_fields() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let profile = dir.path();
+        let spec = claude_code_spec();
+        let outcome = reconcile_managed_files(AgentType::ClaudeCode, profile, &spec)
+            .expect("reconcile should succeed");
+        assert_eq!(outcome.changed, true);
+        assert_eq!(outcome.error_code, None);
+        assert_eq!(outcome.controlled_fields, spec.fields.len());
+
+        let path = profile.join("settings.json");
+        let raw = fs::read_to_string(&path).expect("read settings.json");
+        assert!(raw.contains("ANTHROPIC_BASE_URL"));
+        assert!(raw.contains("ANTHROPIC_MODEL"));
+    }
+
+    #[test]
+    fn claude_reconcile_preserves_user_json_fields() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let profile = dir.path();
+        let path = profile.join("settings.json");
+        fs::write(
+            &path,
+            r#"{"permissions":{"allow":["Bash"]},"customKey":"keep-me"}"#,
+        )
+        .expect("seed settings.json");
+        let spec = claude_code_spec();
+        reconcile_managed_files(AgentType::ClaudeCode, profile, &spec)
+            .expect("reconcile should succeed");
+        let raw = fs::read_to_string(&path).expect("read back settings.json");
+        assert!(raw.contains("customKey"), "user JSON fields must survive");
+        assert!(raw.contains("Bash"));
+    }
+
+    #[test]
+    fn corrupted_json_is_rejected_without_overwrite() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let profile = dir.path();
+        let path = profile.join("settings.json");
+        fs::write(&path, "{ not valid json").expect("seed corrupt file");
+        let spec = claude_code_spec();
+        let error = reconcile_managed_files(AgentType::ClaudeCode, profile, &spec)
+            .expect_err("corrupt file must fail reconcile");
+        assert_eq!(error.code(), "session_config_parse_failed");
+        let raw = fs::read_to_string(&path).expect("file must survive untouched");
+        assert_eq!(raw, "{ not valid json");
+    }
+
+    #[test]
+    fn unsupported_agent_fails() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let spec = codex_spec();
+        let error = reconcile_managed_files(AgentType::Gemini, dir.path(), &spec)
+            .expect_err("unsupported agent must fail");
+        assert_eq!(error.code(), "session_config_failed");
+    }
+}

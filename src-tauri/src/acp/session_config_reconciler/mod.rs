@@ -73,11 +73,7 @@ pub fn reconcile_before_spawn(
     agent: AgentType,
     profile_root: &Path,
 ) -> Result<ReconcileOutcome, ReconcileError> {
-    let spec = session_config_spec_for(agent)?;
-    let _guard = lock::acquire_session_lock(agent, profile_root)?;
-    let outcome = write::reconcile_managed_files(agent, profile_root, &spec)?;
-    diagnostics::record_success(agent, SessionKind::New, &spec, &outcome);
-    Ok(outcome)
+    reconcile_with_diagnostics(agent, profile_root, SessionKind::New)
 }
 
 /// 恢复会话对账：保持原策略代际，只刷新允许热更新的安全字段。
@@ -85,9 +81,62 @@ pub fn reconcile_resumed_session(
     agent: AgentType,
     profile_root: &Path,
 ) -> Result<ReconcileOutcome, ReconcileError> {
-    let spec = session_config_spec_for(agent)?;
-    let _guard = lock::acquire_session_lock(agent, profile_root)?;
-    let outcome = write::reconcile_managed_files(agent, profile_root, &spec)?;
-    diagnostics::record_success(agent, SessionKind::Resume, &spec, &outcome);
+    reconcile_with_diagnostics(agent, profile_root, SessionKind::Resume)
+}
+
+/// 执行对账并记录诊断：成功记录 fingerprint，失败记录稳定错误码。
+/// 任一必要字段失败必须阻止 spawn（不得以未知配置启动），同时写入诊断，
+/// 供 UI 展示"最近一次对账结果"并给出错误码。
+fn reconcile_with_diagnostics(
+    agent: AgentType,
+    profile_root: &Path,
+    kind: SessionKind,
+) -> Result<ReconcileOutcome, ReconcileError> {
+    let started = std::time::Instant::now();
+    let spec = match session_config_spec_for(agent) {
+        Ok(spec) => spec,
+        Err(message) => {
+            diagnostics::record_failure(
+                agent,
+                kind,
+                &ProviderConfigSpec {
+                    agent,
+                    schema_version: 0,
+                    fields: &[],
+                },
+                "session_config_failed",
+                started.elapsed().as_millis() as u64,
+            );
+            return Err(ReconcileError::Failed(message));
+        }
+    };
+    let guard = match lock::acquire_session_lock(agent, profile_root) {
+        Ok(guard) => guard,
+        Err(error) => {
+            diagnostics::record_failure(
+                agent,
+                kind,
+                &spec,
+                error.code(),
+                started.elapsed().as_millis() as u64,
+            );
+            return Err(error);
+        }
+    };
+    let outcome = match write::reconcile_managed_files(agent, profile_root, &spec) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            diagnostics::record_failure(
+                agent,
+                kind,
+                &spec,
+                error.code(),
+                started.elapsed().as_millis() as u64,
+            );
+            return Err(error);
+        }
+    };
+    drop(guard);
+    diagnostics::record_success(agent, kind, &spec, &outcome);
     Ok(outcome)
 }

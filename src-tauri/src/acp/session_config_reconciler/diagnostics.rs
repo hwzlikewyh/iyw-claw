@@ -124,3 +124,36 @@ pub fn clear() {
         .expect("session config diagnostics mutex poisoned");
     store.clear();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::acp::session_config_reconciler::model::codex_spec;
+
+    #[test]
+    fn records_success_and_failure_and_returns_latest() {
+        clear();
+        let spec = codex_spec();
+        let outcome = crate::acp::session_config_reconciler::ReconcileOutcome {
+            fingerprint: "abc123".to_string(),
+            changed: true,
+            controlled_fields: spec.fields.len(),
+            duration_ms: 5,
+            error_code: None,
+        };
+        record_success(AgentType::Codex, SessionKind::New, &spec, &outcome);
+        record_failure(AgentType::Codex, SessionKind::Resume, &spec, "session_config_write_failed", 7);
+
+        let latest = last_diagnostic_for(AgentType::Codex).expect("latest diagnostic");
+        assert_eq!(latest.error_code.as_deref(), Some("session_config_write_failed"));
+        assert_eq!(latest.kind, SessionKind::Resume);
+        assert!(latest.fingerprint.is_empty());
+
+        let snapshot = diagnostics_snapshot();
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot[0].error_code.as_deref(), Some("session_config_write_failed"));
+        assert_eq!(snapshot[1].error_code, None);
+        assert_eq!(snapshot[1].fingerprint, "abc123");
+        clear();
+    }
+}

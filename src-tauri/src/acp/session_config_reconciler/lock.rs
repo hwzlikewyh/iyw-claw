@@ -14,7 +14,20 @@ use super::ReconcileError;
 
 const LOCK_FILE_NAME: &str = ".iyw-claw.session-config.lock";
 const LOCK_ATTEMPT_COUNT: u32 = 50;
+#[cfg(not(test))]
 const LOCK_RETRY_DELAY_MS: u64 = 200;
+
+/// 测试模式下缩短重试等待，避免互斥用例在 CI 上拖 10 秒。
+fn retry_delay() -> Duration {
+    #[cfg(test)]
+    {
+        Duration::from_millis(5)
+    }
+    #[cfg(not(test))]
+    {
+        Duration::from_millis(LOCK_RETRY_DELAY_MS)
+    }
+}
 
 /// 持有的会话配置锁；Drop 时释放。
 #[derive(Debug)]
@@ -39,7 +52,7 @@ pub fn acquire_session_lock(
     fs::create_dir_all(profile_root)
         .map_err(|error| ReconcileError::Failed(format!("create profile dir: {error}")))?;
     let lock_path = profile_root.join(LOCK_FILE_NAME);
-    let deadline = Instant::now() + Duration::from_millis(LOCK_RETRY_DELAY_MS * u64::from(LOCK_ATTEMPT_COUNT));
+    let deadline = Instant::now() + retry_delay() * LOCK_ATTEMPT_COUNT;
     let mut attempt: u32 = 0;
     loop {
         match fs::OpenOptions::new()
@@ -60,7 +73,7 @@ pub fn acquire_session_lock(
                     )));
                 }
                 attempt += 1;
-                std::thread::sleep(Duration::from_millis(LOCK_RETRY_DELAY_MS));
+                std::thread::sleep(retry_delay());
             }
             Err(error) => {
                 return Err(ReconcileError::Failed(format!(
@@ -69,5 +82,34 @@ pub fn acquire_session_lock(
                 )));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn second_acquire_blocks_while_lock_held() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let agent = AgentType::Codex;
+        let first = acquire_session_lock(agent, dir.path()).expect("first lock");
+        let error = acquire_session_lock(agent, dir.path()).expect_err("second lock must fail");
+        assert_eq!(error.code(), "session_config_lock_timeout");
+        drop(first);
+        // 释放后可再次获取。
+        let retry = acquire_session_lock(agent, dir.path()).expect("lock after release");
+        drop(retry);
+    }
+
+    #[test]
+    fn drop_releases_lock_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let agent = AgentType::ClaudeCode;
+        let guard = acquire_session_lock(agent, dir.path()).expect("lock");
+        let path = guard.path.clone();
+        assert!(path.exists());
+        drop(guard);
+        assert!(!path.exists());
     }
 }

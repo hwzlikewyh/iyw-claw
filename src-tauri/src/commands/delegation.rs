@@ -1,7 +1,9 @@
 //! Delegation settings persistence + Tauri/HTTP command surface.
 //!
 //! These knobs survive across restarts:
-//!   * `delegation.enabled` — feature kill switch (default false)
+//!   * `delegation.enabled` — feature switch (product default true; new
+//!     installs and keyless upgrades migrate to true and record the migration
+//!     version; existing explicit values are preserved)
 //!   * `delegation.depth_limit` — max chain depth a child is allowed to sit at
 //!   * `delegation.agent_defaults` — per-agent spawn overrides (JSON blob)
 //!   * `delegation.completed_cache_max_mb` — per-parent byte budget (in MB) for
@@ -298,11 +300,14 @@ pub async fn set_delegation_settings_core(
     broker: &DelegationBroker,
     desired: DelegationSettings,
 ) -> Result<DelegationSettings, AppCommandError> {
-    // 后台安全 kill switch 优先：强制关闭时用户显式开启不能生效。
-    let (kill_switch, _) = backend_delegation_policy(conn).await;
-    if kill_switch == Some(false) && desired.enabled {
-        let mut effective = effective_delegation_state(conn, &desired).await;
-        effective.kill_switch_active = true;
+    // 后台策略优先：kill switch 或组织策略强制关闭时，用户显式开启不能生效
+    // （保存仍落盘用户偏好，但运行配置与 UI 展示以有效状态为准）。
+    let (kill_switch, org_policy) = backend_delegation_policy(conn).await;
+    let policy_blocks = kill_switch == Some(false) || org_policy == Some(false);
+    if policy_blocks && desired.enabled {
+        // 有效状态按真实来源计算：kill switch 强制关闭展示"管理员关闭"，
+        // 组织策略强制关闭展示"由组织管理"。
+        let effective = effective_delegation_state(conn, &desired).await;
         let mut forced = desired;
         forced.enabled = false;
         forced.effective = Some(effective);

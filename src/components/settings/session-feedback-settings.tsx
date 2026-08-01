@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
   type FeedbackSettings,
+  type EffectiveState,
   getFeedbackSettings,
   setFeedbackSettings,
 } from "@/lib/api"
@@ -31,6 +32,7 @@ export function SessionFeedbackSettingsSection() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [enabled, setEnabled] = useState(false)
+  const [effective, setEffective] = useState<EffectiveState | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -39,6 +41,7 @@ export function SessionFeedbackSettingsSection() {
       .then((s) => {
         if (cancelled) return
         setEnabled(s.enabled)
+        setEffective(s.effective ?? null)
         setLoadError(null)
       })
       .catch((err: unknown) => {
@@ -60,9 +63,10 @@ export function SessionFeedbackSettingsSection() {
     try {
       const applied = await setFeedbackSettings(payload)
       setEnabled(applied.enabled)
+      setEffective(applied.effective ?? null)
       // Refresh the module-cached flag so open conversations show/hide the
       // feedback bar without a full reload.
-      primeFeedbackEnabled(applied.enabled)
+      primeFeedbackEnabled(applied.effective?.enabled ?? applied.enabled)
       toast.success(t("saved"))
     } catch (err: unknown) {
       toast.error(t("saveFailed"), { description: toErrorMessage(err) })
@@ -70,6 +74,13 @@ export function SessionFeedbackSettingsSection() {
       setSaving(false)
     }
   }, [enabled, t])
+
+  // 后台 kill switch 强制关闭时，开关必须禁用且如实展示来源；组织策略生效
+  // 时同样只读展示，不能伪装成用户设置。
+  const adminLocked = effective?.kill_switch_active ?? false
+  const policyManaged =
+    effective !== null &&
+    (effective.source === "kill_switch" || effective.source === "org_policy")
 
   return (
     <section className="rounded-xl border bg-card p-4 space-y-4">
@@ -90,6 +101,18 @@ export function SessionFeedbackSettingsSection() {
         </p>
       )}
 
+      {adminLocked && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {t("adminDisabled")}
+        </p>
+      )}
+
+      {policyManaged && !adminLocked && (
+        <p className="rounded-md border border-muted bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          {t("managedByOrg")}
+        </p>
+      )}
+
       <div className="flex items-center justify-between gap-3">
         <div className="space-y-1 min-w-0">
           <label htmlFor="feedback-enabled" className="text-sm font-medium">
@@ -101,7 +124,7 @@ export function SessionFeedbackSettingsSection() {
           id="feedback-enabled"
           checked={enabled}
           onCheckedChange={setEnabled}
-          disabled={loading}
+          disabled={loading || adminLocked}
           className="shrink-0"
         />
       </div>

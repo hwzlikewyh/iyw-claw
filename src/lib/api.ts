@@ -3496,6 +3496,27 @@ export async function deleteModelProvider(id: number): Promise<void> {
 
 // ─── Delegation settings ───────────────────────────────────────────────
 
+/** Which surface the effective value of a feature flag came from (mirror of
+ *  Rust `DelegationEffectiveSource` / `FeedbackEffectiveSource`). */
+export type EffectiveSource =
+  | "kill_switch"
+  | "org_policy"
+  | "user_preference"
+  | "migrated"
+  | "product_default"
+
+/** Read-only effective state computed from backend policy + user settings
+ *  (mirror of Rust `*EffectiveState`). Present in `get_*` responses; ignored
+ *  on save. */
+export interface EffectiveState {
+  enabled: boolean
+  source: EffectiveSource
+  /** True when a backend emergency kill switch is force-disabling the feature.
+   *  The UI must show "disabled by administrator" and not mimic a user
+   *  setting. */
+  kill_switch_active: boolean
+}
+
 export interface DelegationSettings {
   enabled: boolean
   depth_limit: number
@@ -3505,6 +3526,8 @@ export interface DelegationSettings {
   /** Optional per-agent overrides applied when iyw-claw-mcp spawns a subagent.
    * Keyed by `agent_type`. Missing entries mean "use agent defaults." */
   agent_defaults?: Partial<Record<AgentType, AgentDelegationDefaults>>
+  /** Read-only effective state (kill switch / org policy / user / default). */
+  effective?: EffectiveState | null
 }
 
 export async function getDelegationSettings(): Promise<DelegationSettings> {
@@ -3522,6 +3545,8 @@ export async function setDelegationSettings(
 /** Mirror of Rust `FeedbackSettings`. */
 export interface FeedbackSettings {
   enabled: boolean
+  /** Read-only effective state (kill switch / org policy / user / default). */
+  effective?: EffectiveState | null
 }
 
 export async function getFeedbackSettings(): Promise<FeedbackSettings> {

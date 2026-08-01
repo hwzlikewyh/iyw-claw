@@ -147,3 +147,110 @@ pub fn extract_toml_controlled_fields(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_is_order_independent() {
+        let first = fingerprint_controlled_fields(&[
+            ("model", "gpt-5"),
+            ("model_provider", "iyw-claw"),
+            ("env.ANTHROPIC_BASE_URL", "https://example.test"),
+        ]);
+        let shuffled = fingerprint_controlled_fields(&[
+            ("env.ANTHROPIC_BASE_URL", "https://example.test"),
+            ("model_provider", "iyw-claw"),
+            ("model", "gpt-5"),
+        ]);
+        assert_eq!(first, shuffled);
+    }
+
+    #[test]
+    fn fingerprint_normalizes_whitespace() {
+        let trimmed = fingerprint_controlled_fields(&[("model", "gpt-5")]);
+        let padded = fingerprint_controlled_fields(&[("model", "  gpt-5  ")]);
+        assert_eq!(trimmed, padded);
+    }
+
+    #[test]
+    fn fingerprint_differs_when_value_changes() {
+        let a = fingerprint_controlled_fields(&[("model", "gpt-5")]);
+        let b = fingerprint_controlled_fields(&[("model", "gpt-5.1")]);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn codex_spec_declares_managed_gateway_fields() {
+        let spec = codex_spec();
+        assert_eq!(spec.schema_version, SESSION_CONFIG_SCHEMA_VERSION);
+        let paths: Vec<&str> = spec.fields.iter().map(|field| field.path).collect();
+        assert!(paths.contains(&"model_provider"));
+        assert!(paths.contains(&"model"));
+        assert!(paths.contains(&"model_providers.iyw-claw.base_url"));
+        assert!(paths.contains(&"model_providers.iyw-claw.wire_api"));
+        assert!(paths.contains(&"model_providers.iyw-claw.requires_openai_auth"));
+        assert!(spec.fields.iter().all(|field| field.required));
+    }
+
+    #[test]
+    fn claude_code_spec_declares_managed_env_fields() {
+        let spec = claude_code_spec();
+        let paths: Vec<&str> = spec.fields.iter().map(|field| field.path).collect();
+        assert!(paths.contains(&"env.ANTHROPIC_BASE_URL"));
+        assert!(paths.contains(&"env.ANTHROPIC_MODEL"));
+        assert!(paths.contains(&"env.ANTHROPIC_MAX_RETRIES"));
+        assert!(paths.contains(&"env.ANTHROPIC_DEFAULT_OPUS_MODEL"));
+        assert!(spec.fields.iter().all(|field| field.required));
+    }
+
+    #[test]
+    fn extract_json_fields_reads_nested_env_paths() {
+        let spec = claude_code_spec();
+        let value = serde_json::json!({
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://gateway.example/v1",
+                "ANTHROPIC_MODEL": "gpt-5",
+                "ANTHROPIC_MAX_RETRIES": "10",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5"
+            }
+        });
+        let fields = extract_json_controlled_fields(&value, &spec);
+        assert_eq!(fields.len(), spec.fields.len());
+        assert!(fields.iter().any(|(path, value)| {
+            *path == "env.ANTHROPIC_BASE_URL" && value == "https://gateway.example/v1"
+        }));
+    }
+
+    #[test]
+    fn extract_toml_fields_reads_nested_provider_paths() {
+        let spec = codex_spec();
+        let value: toml::Value = toml::from_str(
+            r#"
+model_provider = "iyw-claw"
+model = "gpt-5"
+
+[model_providers.iyw-claw]
+base_url = "https://gateway.example/v1"
+wire_api = "responses"
+requires_openai_auth = true
+"#,
+        )
+        .expect("valid TOML");
+        let fields = extract_toml_controlled_fields(&value, &spec);
+        assert_eq!(fields.len(), spec.fields.len());
+        assert!(fields.iter().any(|(path, value)| {
+            *path == "model_providers.iyw-claw.base_url" && value == "https://gateway.example/v1"
+        }));
+        assert!(fields
+            .iter()
+            .any(|(path, value)| *path == "model_providers.iyw-claw.requires_openai_auth"
+                && value == "true"));
+    }
+
+    #[test]
+    fn unsupported_agent_has_no_spec() {
+        assert!(session_config_spec_for(AgentType::Gemini).is_err());
+    }
+}

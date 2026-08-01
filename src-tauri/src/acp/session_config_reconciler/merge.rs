@@ -72,3 +72,80 @@ pub fn resolve_feature_flag(
 /// 产品默认值：新安装 delegation / feedback 均默认开启。
 pub const PRODUCT_DEFAULT_DELEGATION_ENABLED: bool = true;
 pub const PRODUCT_DEFAULT_FEEDBACK_ENABLED: bool = true;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kill_switch_wins_over_everything() {
+        let flag = resolve_feature_flag(
+            Some(false),
+            Some(true),
+            Some(true),
+            Some(true),
+            true,
+        );
+        assert_eq!(
+            flag,
+            EffectiveFlag {
+                enabled: false,
+                source: EffectiveSource::KillSwitch,
+            }
+        );
+    }
+
+    #[test]
+    fn org_policy_beats_user_and_default() {
+        let flag = resolve_feature_flag(None, Some(true), Some(false), None, false);
+        assert_eq!(
+            flag,
+            EffectiveFlag {
+                enabled: true,
+                source: EffectiveSource::OrgPolicy,
+            }
+        );
+    }
+
+    #[test]
+    fn user_preference_wins_over_migrated_and_default() {
+        let flag = resolve_feature_flag(None, None, Some(false), Some(true), true);
+        assert_eq!(
+            flag,
+            EffectiveFlag {
+                enabled: false,
+                source: EffectiveSource::UserPreference,
+            }
+        );
+    }
+
+    #[test]
+    fn migrated_beats_product_default() {
+        let flag = resolve_feature_flag(None, None, None, Some(true), false);
+        assert_eq!(
+            flag,
+            EffectiveFlag {
+                enabled: true,
+                source: EffectiveSource::Migrated,
+            }
+        );
+    }
+
+    #[test]
+    fn product_default_is_last_resort() {
+        let flag = resolve_feature_flag(None, None, None, None, true);
+        assert_eq!(
+            flag,
+            EffectiveFlag {
+                enabled: true,
+                source: EffectiveSource::ProductDefault,
+            }
+        );
+    }
+
+    #[test]
+    fn new_install_defaults_are_on() {
+        assert!(PRODUCT_DEFAULT_DELEGATION_ENABLED);
+        assert!(PRODUCT_DEFAULT_FEEDBACK_ENABLED);
+    }
+}

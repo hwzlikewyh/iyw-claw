@@ -58,7 +58,7 @@ function ensureLoaded(): Promise<boolean> {
   if (inflight) return inflight
   const startGeneration = saveGeneration
   inflight = getFeedbackSettings()
-    .then((s) => s.enabled)
+    .then((s) => s.effective?.enabled ?? s.enabled)
     .catch(() => false)
     .then((value) => {
       // A save/broadcast during the fetch is authoritative — don't clobber it.
@@ -82,7 +82,7 @@ function ensureCrossWindowSync(): void {
   if (crossWindowWired) return
   crossWindowWired = true
   void subscribe<FeedbackSettings>(FEEDBACK_SETTINGS_CHANGED_EVENT, (s) => {
-    applyEnabled(s.enabled)
+    applyEnabled(s.effective?.enabled ?? s.enabled)
   }).catch(() => {
     // Wiring failed (e.g. transport not ready yet) — clear the guard so a later
     // mount retries instead of silently never subscribing.
@@ -91,7 +91,7 @@ function ensureCrossWindowSync(): void {
   // Returns null on desktop IPC (no disconnect window) → harmless no-op there.
   onTransportReconnect(() => {
     void getFeedbackSettings()
-      .then((s) => applyEnabled(s.enabled))
+      .then((s) => applyEnabled(s.effective?.enabled ?? s.enabled))
       .catch(() => {})
   })
 }
