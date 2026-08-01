@@ -1,14 +1,15 @@
 # 安全审计报告（security.md）
 
-> Audit A 只读基线 · 2026-08-01 · 三仓提交：iyw-claw b46a4c4 / iyw-fusion-api d0df3bc / skill ea76a4e
+> Audit A 只读基线 · 2026-08-01 · 基线提交：iyw-claw b46a4c4 / iyw-fusion-api d0df3bc / skill ea76a4e
+> 工作区漂移（2026-08-01 复核）：fusion-api HEAD 已前进 7b1c0a8（Task 01 契约/迁移本地提交）；iyw-claw 工作区已删除 git.rs 硬编码凭据（未合并、未验证），下文相关条目标注（基线/工作区）。
 > 结论先行：Audit A 确认 1 个 P0 凭据缺陷（IYW-SEC-001）与 2 个供应链/访问控制 P1（IYW-AUTH-001、IYW-SKILL-008 归属完整性）；本轮新增低危管理页暴露与 key 回显建议（IYW-AUTH-002、IYW-SEC-003）。secret 命中值一律不回显，只报路径与类型。
 
 ## 1. Secret / 凭据
 
 ### 1.1 已确认
-- **IYW-SEC-001（P0）**：`iyw-claw/src-tauri/src/system_skills/git.rs:48` 通过 `crate::git_credential::inject_credentials(cmd, "iyw_lq", "<MASKED>", &askpass)` 硬编码 GitLab 凭据；`system_skills/mod.rs:15` 固定 `REPOSITORY_URL`。凭据在源码与历史（commit `3b6e21b`）中均存在，必须移除、轮换并从历史清理。
+- **IYW-SEC-001（P0）**（基线证据）：`git.rs:48` 通过 `inject_credentials` 硬编码 GitLab 凭据（值不回显）；历史 commit `3b6e21b` 同源。**复核时（工作区）**：`system_skills/git.rs` 已删除硬编码凭据，改为 `inject_credentials_for_url`/`require_origin_credentials`（DB 凭据注入，git.rs:42,91,103），工作区已移除；但未提交、未合并，历史清理与凭据轮换仍待 Task 00/13，本缺陷不视为 verified。
   - 影响面：任何能读取该文件/安装包的人获得仓库写读凭据。
-  - 本轮扫描限定：当前树命中 1 处（上述文件）；历史扫描命中同源提交；测试夹具中的 `ghp_0123456789...` 为假值，不构成缺陷。
+  - 本轮扫描限定（基线）：当前树命中 1 处（上述文件）；历史扫描命中同源提交；测试夹具中的 `ghp_0123456789...` 为假值，不构成缺陷。复核时（工作区）重新扫描：0 处真实凭据，仅 `state_test.go:100 user:pass@example.com` 测试夹具（evidence/07）。
 - **IYW-AUTH-001（P1）**：skill 可见性只有 `public|private`，`access.go:15-19` `CanRead = active && (public || IsOwner)`，市场查询仅 `visibility = public`；无法表达“同组织所有登录用户可见”。影响 list/detail/files/versions/dependencies/plan/ticket 全部读路径。
 - **IYW-SKILL-008（P0）**：下载完整性——响应字节与声明的 `object_sha256` 不是同一字节序列（动态 ZIP 无冻结对象），属于供应链完整性缺陷（详见 reliability.md）。
 
@@ -37,7 +38,7 @@
 ## 3. 制品供应链（Skill / Agent / App）
 
 ### 3.1 桌面直连上游（IYW-DIST-001，P1）
-- `binary_cache.rs:111` 直连 `github.com/astral-sh/uv/releases/download`；`registry.rs` 直连 opencode 发行版；`runtime_bootstrap.rs:45-48` 硬编码 Node/Git 镜像与官方 URL；`tauri.conf.json` 仍把 `uv/uvx` 与 `resources/runtime` 打入安装包。
+- **基线**：`binary_cache.rs:111` 直连 `github.com/astral-sh/uv/releases/download`；`registry.rs` 直连 opencode 发行版；`runtime_bootstrap.rs:45-48` 硬编码 Node/Git 镜像与官方 URL；`tauri.conf.json` 把 `uv/uvx` 与 `resources/runtime` 打入安装包。**复核时（工作区）**：`tauri.conf.json` 已瘦身（externalBin 仅 `iyw-claw-mcp`，resources 仅 `out->bundle`），installer-hooks.nsh 改为 app 区替换+持久区布局；但 `runtime_bootstrap.rs` 直连 URL、`binary_cache.rs` 直连 GitHub 主路径、`update/version.rs:19,24` 直连 latest.json 仍存在（部分修复，未验证）。
 - 风险：无统一摘要/签名 gate，镜像源被替换或上游被劫持时无 quarantine。
 - 缓解：`runtime_bootstrap.rs` 有 pinned SHA-256 与 15s/600s 超时；`binary_cache.rs` 有 sha256 校验。
 
@@ -71,3 +72,4 @@ rg -o -g '*.rs' 'https?://[A-Za-z0-9._~:/?#@!$&()*+,;=%-]+' iyw-claw/src-tauri/s
 - 静态命中人工确认：`unwrap/expect` 集中点（web/mod.rs 锁、terminal/manager.rs、remote_image 边界有长度守卫）本轮已抽查，未发现用户输入直接触发 panic 的路径，但需按文件逐一确认。
 - 动态：TOS 403/404/429/5xx、慢流、截断、Range 异常、摘要错；Git/MySQL/TOS 中断；双实例租约。
 - 桌面动态证据必须来自远端 CI/测试机（当前机器禁止编译运行）。
+
