@@ -1,0 +1,49 @@
+task: T06-desktop-bootstrap-upgrade-protection
+repo: iyw-claw
+branch: feat/managed-t06-bootstrap
+status: implementation-complete-static-review-only
+date: 2026-08-01
+
+summary: >
+  桌面包瘦身、统一初始化状态机、断点续传下载器、本地库存与更新保护已完成实现；
+  本机仅做静态审查（桌面端禁止编译/打包），未执行 cargo/tauri 构建，不能声称编译通过。
+
+scope_write:
+  - src-tauri/scripts/prepare-sidecars.mjs
+  - src-tauri/tauri.conf.json
+  - src-tauri/windows/installer-hooks.nsh
+  - src-tauri/src/commands/runtime_bootstrap.rs
+  - src-tauri/src/acp/binary_cache.rs
+  - src-tauri/src/acp/version_center/installer/
+  - src-tauri/src/acp/version_center/mod.rs
+  - src/hooks/use-bootstrap-init.ts
+  - src/components/bootstrap/bootstrap-init-status.tsx
+  - src/lib/api.ts (仅 bootstrapInitStatus/bootstrapInitialize 两个 hunk)
+  - src/lib/types.ts (仅 BootstrapInit 类型段)
+
+deliverables:
+  - 安装包瘦身：externalBin 移除 uv/uvx，resources/runtime 移除；prepare-sidecars.mjs 仅构建 iyw-claw-mcp。
+  - 初始化状态机：not_started -> resolving -> downloading -> verifying -> staging -> activating -> health_check -> ready / degraded / retryable / blocked。
+  - 单实例写入锁：inventory/.bootstrap-writer.lock，陈旧锁按年龄 + pid 存活探测接管。
+  - 原子 checkpoint：bootstrap-state.json 临时文件 + rename。
+  - 断点续传：.part + ETag meta，Range/If-Range、206 校验、416 重建、401/403 票据刷新(≤2次)、指数退避。
+  - 磁盘预检：sysinfo 磁盘可用空间，不足时报错。
+  - Ownership marker + inventory manifest + digest_managed_root 升级保护摘要。
+  - 激活：原子指针切换、health 失败回滚 LKG + quarantine。
+  - 旧目录一次性迁移：legacy marker、幂等 receipt。
+  - 更新保护：NSIS 更新仅替换 app 区（canonicalize 证明）；卸载默认保留用户数据，/PURGE 才彻底删除。
+  - 前端：use-bootstrap-init hook + BootstrapInitStatus 展示组件（文案内联，不新增 i18n key）。
+
+known_risks:
+  - file: src-tauri/src/acp/version_center/installer/resumable.rs
+    issue: 文件 518 行、tools.rs 421 行，超过 AGENTS.md 300 行上限
+    mitigation: binary_cache.rs 原 969 行属既有存量超限；建议 Task 13 收尾时拆分
+  - file: src/components/bootstrap/bootstrap-init-status.tsx
+    issue: 阶段/组件文案内联中文，未走 next-intl（避免与并行任务抢 i18n 文件）
+    mitigation: Task 13 接线时可迁移到 messages 目录
+  - compile: 未执行 cargo check/test/clippy（桌面端禁止），仅静态审查
+  - contract: Task 01 未合并、contract 未冻结，bootstrap plan 接入点按现有 /agent-platforms/v1/* 契约实现
+
+blockers:
+  - Task 01 contract 冻结后需复核 ResolveToolRequest/DownloadRequest 字段
+  - 远端 CI 需执行 06-desktop-bootstrap-upgrade-protection.md 验证清单（本机不可执行）

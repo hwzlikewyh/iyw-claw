@@ -29,14 +29,11 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../out": "resources/bundle/",
-      "resources/runtime": "resources/runtime/"
+      "../out": "resources/bundle/"
     },
     "externalBin": [
       "binaries/iyw-claw-mcp",
-      "binaries/iyw-claw-mcp-0.1.42",
-      "binaries/uv",
-      "binaries/uvx"
+      "binaries/iyw-claw-mcp-0.1.42"
     ],
     "windows": {
       "webviewInstallMode": {
@@ -44,7 +41,9 @@
         "silent": true
       },
       "nsis": {
-        "languages": ["SimpChinese"],
+        "languages": [
+          "SimpChinese"
+        ],
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
         "installerHooks": "./windows/installer-hooks.nsh"

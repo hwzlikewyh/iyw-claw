@@ -14,8 +14,6 @@ use crate::models::agent::AgentType;
 /// resolution) and would otherwise collide on the rename target.
 static TRASH_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// Pinned `uv` toolchain version iyw-claw downloads for Python ACP agents.
-const UV_TOOL_VERSION: &str = "0.8.10";
 
 /// Locate an iyw-claw-managed uv tool binary (`uv` or `uvx`) below the private
 /// Agent storage root. Missing or incompatible files are never resolved from
@@ -34,6 +32,9 @@ pub fn find_cached_uv_tool(paths: &AgentStoragePaths, tool: &str) -> Option<Path
     (path.is_file() && is_binary_file_compatible(&path)).then_some(path)
 }
 
+/// Legacy bundled-tool location next to the executable. Sidecars are no longer
+/// bundled by `prepare-sidecars.mjs`; kept so callers keep compiling and can
+/// detect the (now absent) legacy bundle deterministically.
 pub fn bundled_uv_tool_paths(executable: &Path) -> Option<(PathBuf, PathBuf)> {
     let directory = executable.parent()?;
     let (uv, uvx) = if cfg!(windows) {
@@ -44,47 +45,53 @@ pub fn bundled_uv_tool_paths(executable: &Path) -> Option<(PathBuf, PathBuf)> {
     Some((directory.join(uv), directory.join(uvx)))
 }
 
+/// Seed bundled uv tools from the legacy installer bundle. Bundling was
+/// removed in the managed distribution work, so this is a no-op stub that
+/// reports "nothing seeded" and lets callers fall through to the managed
+/// runtime path.
 pub fn seed_bundled_uv_tools(
-    paths: &AgentStoragePaths,
-    executable: &Path,
+    _paths: &AgentStoragePaths,
+    _executable: &Path,
 ) -> Result<bool, AcpError> {
-    let Some((bundled_uv, bundled_uvx)) = bundled_uv_tool_paths(executable) else {
-        return Ok(false);
-    };
-    if !bundled_uv.is_file() || !bundled_uvx.is_file() {
-        return Ok(false);
-    }
-    if !is_binary_file_compatible(&bundled_uv) || !is_binary_file_compatible(&bundled_uvx) {
-        return Ok(false);
-    }
-    if find_cached_uv_tool(paths, "uv").is_some() && find_cached_uv_tool(paths, "uvx").is_some() {
-        return Ok(false);
-    }
-    let staging = paths
-        .staging_dir()
-        .join(format!("uv-bundled-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&staging)
-        .map_err(|error| AcpError::DownloadFailed(error.to_string()))?;
-    let names = if cfg!(windows) {
-        [(bundled_uv, "uv.exe"), (bundled_uvx, "uvx.exe")]
-    } else {
-        [(bundled_uv, "uv"), (bundled_uvx, "uvx")]
-    };
-    for (source, name) in names {
-        let target = staging.join(name);
-        std::fs::copy(source, &target)
-            .map_err(|error| AcpError::DownloadFailed(error.to_string()))?;
-        set_executable_permissions(&target)?;
-    }
-    activate_staged_directory(paths, &staging, &uv_tool_dir_for(paths), "uv-runtime")?;
-    Ok(true)
+    Ok(false)
 }
 
+/// Resolve the active uv tool directory. The managed version center writes an
+/// immutable `<version>/<platform>` layout plus `runtime/uv/current.json`;
+/// when the pointer is missing (legacy install), fall back to the highest
+/// installed version.
 pub fn uv_tool_dir_for(paths: &AgentStoragePaths) -> PathBuf {
-    paths
-        .uv_runtime_dir()
-        .join(UV_TOOL_VERSION)
+    let uv_root = paths.uv_runtime_dir();
+    if let Some(active) = active_uv_version_dir(&uv_root) {
+        return active;
+    }
+    latest_version_dir(&uv_root)
+        .unwrap_or_else(|| uv_root.join("tools"))
         .join(registry::current_platform())
+}
+
+fn active_uv_version_dir(uv_root: &Path) -> Option<PathBuf> {
+    let raw = std::fs::read_to_string(uv_root.join("current.json")).ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
+    let version = value.get("version")?.as_str()?;
+    Some(uv_root.join(version).join(registry::current_platform()))
+}
+
+fn latest_version_dir(root: &Path) -> Option<PathBuf> {
+    let mut best: Option<(semver::Version, PathBuf)> = None;
+    for entry in std::fs::read_dir(root).ok()?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(version) = semver::Version::parse(&name) else {
+            continue;
+        };
+        let replace = best.as_ref().map_or(true, |(best_version, _)| {
+            version > *best_version
+        });
+        if replace {
+            best = Some((version, entry.path()));
+        }
+    }
+    best.map(|(_, path)| path)
 }
 
 pub fn uv_runtime_env(paths: &AgentStoragePaths) -> BTreeMap<&'static str, PathBuf> {
@@ -95,107 +102,29 @@ pub fn uv_runtime_env(paths: &AgentStoragePaths) -> BTreeMap<&'static str, PathB
     ])
 }
 
-/// Build the astral-sh/uv release archive URL for the current platform.
-fn uv_archive_url() -> Option<String> {
-    let (target, ext) = match registry::current_platform() {
-        "darwin-aarch64" => ("aarch64-apple-darwin", "tar.gz"),
-        "darwin-x86_64" => ("x86_64-apple-darwin", "tar.gz"),
-        "linux-aarch64" => ("aarch64-unknown-linux-gnu", "tar.gz"),
-        "linux-x86_64" => ("x86_64-unknown-linux-gnu", "tar.gz"),
-        "windows-aarch64" => ("aarch64-pc-windows-msvc", "zip"),
-        "windows-i686" => ("i686-pc-windows-msvc", "zip"),
-        "windows-x86_64" => ("x86_64-pc-windows-msvc", "zip"),
-        _ => return None,
-    };
-    Some(format!(
-        "https://github.com/astral-sh/uv/releases/download/{UV_TOOL_VERSION}/uv-{target}.{ext}"
-    ))
-}
-
 /// Download + cache the `uv` toolchain (`uv` + `uvx`) below private Agent storage.
 /// Idempotent: returns the cached `uvx` path immediately if already present.
+/// Ensure the managed `uv` toolchain is installed.
+///
+/// uv is a managed component: it is installed by the unified bootstrap /
+/// version center (resolve → short-lived ticket → TOS/CDN download → verify →
+/// activate) and never downloaded from GitHub or other upstreams by the
+/// client. Idempotent: returns the cached `uvx` path immediately if present,
+/// otherwise reports a dependency-missing error so the caller can surface the
+/// "complete desktop initialization" action.
 pub async fn ensure_uv_tool(
     paths: &AgentStoragePaths,
     on_progress: impl Fn(&str),
 ) -> Result<PathBuf, AcpError> {
     if let Some(uvx) = find_cached_uv_tool(paths, "uvx") {
-        on_progress("uv already cached, skipping download");
+        on_progress("uv already installed, skipping download");
         return Ok(uvx);
     }
-
-    let url = uv_archive_url().ok_or_else(|| {
-        AcpError::PlatformNotSupported(format!(
-            "uv is not available for platform {}",
-            registry::current_platform()
-        ))
-    })?;
-
-    let operation_id = uuid::Uuid::new_v4();
-    let staging_dir = paths.staging_dir().join(format!("uv-{operation_id}"));
-    let archive_path = paths
-        .downloads_dir()
-        .join(format!("uv-{UV_TOOL_VERSION}-{operation_id}.archive"));
-    std::fs::create_dir_all(paths.downloads_dir())
-        .map_err(|e| AcpError::DownloadFailed(format!("failed to create downloads dir: {e}")))?;
-    std::fs::create_dir_all(&staging_dir)
-        .map_err(|e| AcpError::DownloadFailed(format!("failed to create uv staging dir: {e}")))?;
-
-    let (uv_name, uvx_name) = if cfg!(windows) {
-        ("uv.exe", "uvx.exe")
-    } else {
-        ("uv", "uvx")
-    };
-
-    let result: Result<PathBuf, AcpError> = async {
-        on_progress(&format!("Downloading uv {UV_TOOL_VERSION}..."));
-        download_file_with_progress(&url, &archive_path, &on_progress).await?;
-
-        let extract_dir = staging_dir.join("extracted");
-        std::fs::create_dir_all(&extract_dir)
-            .map_err(|e| AcpError::DownloadFailed(format!("failed to create extract dir: {e}")))?;
-
-        on_progress("Extracting uv...");
-        if url.ends_with(".tar.gz") {
-            extract_tar_gz(&archive_path, &extract_dir)?;
-        } else if url.ends_with(".zip") {
-            extract_zip(&archive_path, &extract_dir)?;
-        } else {
-            return Err(AcpError::DownloadFailed(format!(
-                "unsupported uv archive format: {url}"
-            )));
-        }
-
-        // The uv archive ships both `uv` and `uvx`; cache both so the resolver
-        // and any direct `uv` invocation find them.
-        for name in [uv_name, uvx_name] {
-            let extracted = find_binary_recursive(&extract_dir, name).ok_or_else(|| {
-                AcpError::DownloadFailed(format!("'{name}' not found in uv archive"))
-            })?;
-            let staged_path = staging_dir.join(name);
-            std::fs::copy(&extracted, &staged_path)
-                .map_err(|e| AcpError::DownloadFailed(format!("failed to copy {name}: {e}")))?;
-            if !is_binary_file_compatible(&staged_path) {
-                return Err(AcpError::DownloadFailed(format!(
-                    "downloaded {name} format is invalid for current platform"
-                )));
-            }
-            set_executable_permissions(&staged_path)?;
-        }
-        std::fs::remove_dir_all(&extract_dir).map_err(|e| {
-            AcpError::DownloadFailed(format!("failed to finalize uv staging dir: {e}"))
-        })?;
-        activate_staged_directory(paths, &staging_dir, &uv_tool_dir_for(paths), "uv-runtime")?;
-        on_progress("uv installed successfully");
-        find_cached_uv_tool(paths, "uvx")
-            .ok_or_else(|| AcpError::DownloadFailed("uvx missing after install".into()))
-    }
-    .await;
-
-    let _ = std::fs::remove_file(&archive_path);
-    let _ = std::fs::remove_dir_all(&staging_dir);
-    result
+    on_progress("managed uv runtime is missing; run desktop initialization");
+    Err(AcpError::SdkNotInstalled(
+        "managed uv runtime is not installed; complete desktop initialization first".to_string(),
+    ))
 }
-
 /// Marker recording that a `Uvx` agent's package has been pre-fetched into
 /// uvx's cache (written by the prepare step). The file content is the prepared
 /// version string. Lets the connect/status paths report readiness without
@@ -840,93 +769,6 @@ fn set_executable_permissions(path: &Path) -> Result<(), AcpError> {
     }
 }
 
-// ─── Bundled codex-acp npm prefix ───────────────────────────────────────
-
-/// Pinned codex-acp version that was bundled by `prepare-sidecars.mjs`.
-/// Must match the `CODEX_ACP_VERSION` constant in that script and the
-/// `version` field in `registry::get_agent_meta(AgentType::Codex)`.
-pub(crate) const BUNDLED_CODEX_ACP_VERSION: &str = "1.1.5";
-
-/// Path to the bundled codex-acp npm prefix zip inside the installer bundle.
-///
-/// `prepare-sidecars.mjs` builds a private npm prefix for codex-acp and
-/// zips it into `src-tauri/resources/runtime/npm/` at build time.  Tauri
-/// copies that directory alongside the exe so we can find it here.
-fn bundled_codex_zip(executable: &Path) -> Option<std::path::PathBuf> {
-    let dir = executable.parent()?;
-    let name = format!(
-        "codex-acp-{BUNDLED_CODEX_ACP_VERSION}-{}.zip",
-        registry::current_platform()
-    );
-    let candidate = dir.join("resources").join("runtime").join("npm").join(name);
-    candidate.is_file().then_some(candidate)
-}
-
-/// Seed the bundled codex-acp npm prefix into private Agent storage so the
-/// startup gate can skip the network-dependent `npm install` entirely.
-///
-/// Returns `Ok(true)` when the prefix was seeded, `Ok(false)` when it was
-/// already present or no bundle was found, and `Err(...)` on a fatal error.
-pub fn seed_bundled_codex_acp(
-    paths: &AgentStoragePaths,
-    executable: &Path,
-) -> Result<bool, AcpError> {
-    use crate::acp::npm_runtime;
-
-    let Some(zip) = bundled_codex_zip(executable) else {
-        return Ok(false);
-    };
-
-    // Fast-exit: if the command shim already exists for the bundled version
-    // there's nothing to do (network install or a prior seed beat us here).
-    if npm_runtime::resolve_private_npm_command(
-        paths,
-        AgentType::Codex,
-        BUNDLED_CODEX_ACP_VERSION,
-        "codex-acp",
-    )
-    .is_some()
-    {
-        return Ok(false);
-    }
-
-    let staging = paths
-        .staging_dir()
-        .join(format!("codex-acp-bundled-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&staging)
-        .map_err(|e| AcpError::DownloadFailed(format!("create codex staging dir failed: {e}")))?;
-
-    let result = (|| {
-        extract_zip(&zip, &staging)?;
-
-        // The bundled zip was created on the build platform; verify the cmd
-        // shim or shell script is present before activating.
-        let cmd_name = if cfg!(windows) {
-            "codex-acp.cmd"
-        } else {
-            "codex-acp"
-        };
-        if !staging.join(cmd_name).is_file() {
-            return Err(AcpError::DownloadFailed(format!(
-                "bundled codex-acp zip is missing {cmd_name}"
-            )));
-        }
-
-        npm_runtime::activate_private_npm_runtime(
-            paths,
-            AgentType::Codex,
-            BUNDLED_CODEX_ACP_VERSION,
-            &staging,
-            &["codex-acp"],
-        )?;
-        Ok(true)
-    })();
-
-    // Best-effort staging cleanup.
-    let _ = std::fs::remove_dir_all(&staging);
-    result
-}
-
 pub(crate) fn is_binary_file_compatible(path: &Path) -> bool {
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
@@ -966,4 +808,20 @@ pub(crate) fn is_binary_file_compatible(path: &Path) -> bool {
     {
         true
     }
+}
+
+// ─── Bundled codex-acp npm prefix (legacy) ───────────────────────────────
+
+/// Pinned codex-acp version that used to be bundled by `prepare-sidecars.mjs`.
+/// Must stay in sync with `registry::get_agent_meta(AgentType::Codex)`.
+pub(crate) const BUNDLED_CODEX_ACP_VERSION: &str = "1.1.5";
+
+/// Seed the bundled codex-acp npm prefix into private Agent storage. Bundling
+/// was removed in the managed distribution work, so this is a no-op stub that
+/// reports "nothing seeded"; the caller falls back to the managed runtime.
+pub fn seed_bundled_codex_acp(
+    _paths: &AgentStoragePaths,
+    _executable: &Path,
+) -> Result<bool, AcpError> {
+    Ok(false)
 }

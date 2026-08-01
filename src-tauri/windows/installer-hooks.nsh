@@ -65,11 +65,15 @@ Function IywClawResolveInstallRoot
     FileClose $R0
     Delete "$IywClawRoot\.iyw-claw-install-probe"
 
+    ; 持久区布局：app 是唯一会被应用更新替换的区域；runtime/agents/skills/
+    ; inventory/staging 为受管内容（由版本中心初始化与激活）；config/data/logs
+    ; 为现有持久区。更新永不清理这些目录。
     CreateDirectory "$IywClawRoot\app"
     CreateDirectory "$IywClawRoot\runtime"
-    CreateDirectory "$IywClawRoot\runtime\downloads"
-    CreateDirectory "$IywClawRoot\runtime\staging"
-    CreateDirectory "$IywClawRoot\runtime\trash"
+    CreateDirectory "$IywClawRoot\agents"
+    CreateDirectory "$IywClawRoot\skills"
+    CreateDirectory "$IywClawRoot\inventory"
+    CreateDirectory "$IywClawRoot\staging"
     CreateDirectory "$IywClawRoot\config"
     CreateDirectory "$IywClawRoot\data"
     CreateDirectory "$IywClawRoot\logs"
@@ -97,10 +101,17 @@ FunctionEnd
 
   ${If} $UpdateMode = 1
     DetailPrint "正在替换 iyw-claw 应用文件..."
-    RMDir /r "$IywClawRoot\app"
-    CreateDirectory "$IywClawRoot\app"
-    StrCpy $INSTDIR "$IywClawRoot\app"
+    ; 更新只替换 app 区。任何删除路径必须先 canonicalize 并证明目标就是
+    ; $IywClawRoot\app，绝不触碰 runtime/agents/skills/inventory/config/data/logs。
+    StrCmp $IywClawRoot "" iyw_skip_app_replace 0
+    GetFullPathName $R0 "$IywClawRoot\app"
+    GetFullPathName $R1 "$INSTDIR"
+    StrCmp $R0 $R1 0 iyw_skip_app_replace
+    RMDir /r "$R0"
+    CreateDirectory "$R0"
+    StrCpy $INSTDIR "$R0"
     SetOutPath "$INSTDIR"
+  iyw_skip_app_replace:
   ${EndIf}
 !macroend
 
@@ -111,12 +122,11 @@ FunctionEnd
   WriteRegStr SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "" "$IywClawRoot"
 
   ${If} $UpdateMode = 1
-    DetailPrint "已保留现有运行环境、配置、数据和日志。"
+    DetailPrint "已保留运行环境、受管组件、配置、数据和日志。"
   ${Else}
-    ; Node.js、Git 和 codex-acp 已由安装包内置：应用首次启动时从安装目录的
-    ; resources/runtime/ 直接解压到运行目录（无需网络），已存在的运行环境直接复用。
-    ; uv/uvx 同样内置为 externalBin sidecar，由 seed_bundled_uv_tools 自动激活。
-    DetailPrint "基础运行环境随安装包附带，将在应用首次启动时自动解压。"
+    ; Node.js、Git、uv、Skill 与 Agent CLI 不再随安装包附带：首次启动时由
+    ; 桌面初始化流程按后端版本中心计划下载并原子激活。
+    DetailPrint "首次启动将按托管分发计划初始化运行环境，不会占用安装包体积。"
   ${EndIf}
 !macroend
 
@@ -132,6 +142,20 @@ FunctionEnd
 
   ReadRegStr $IywClawRoot SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
   StrCmp $IywClawRoot "" iyw_uninstall_done 0
+  GetFullPathName $IywClawRoot "$IywClawRoot"
+
+  ; “彻底删除”是独立确认动作（应用卸载对话框传入 /PURGE）：移除全部受管内容
+  ; 与用户数据。默认卸载保留用户数据（config/data/skills/user），仅清理可重建
+  ; 的受管运行时与日志。
+  ${If} $CmdLine == *"/PURGE"*
+    GetFullPathName $R8 "$IywClawRoot"
+    StrCmp $R8 "" iyw_uninstall_done 0
+    DetailPrint "彻底删除模式：正在移除全部安装内容..."
+    RMDir /r "$R8"
+    DeleteRegKey SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}"
+    Goto iyw_uninstall_done
+  ${EndIf}
+
   GetFullPathName $R8 "$IywClawRoot\app"
   GetFullPathName $R9 "$INSTDIR"
   StrCmp $R8 $R9 iyw_remove_managed_dirs 0
@@ -143,11 +167,12 @@ FunctionEnd
     SetOutPath "$INSTDIR"
 
   iyw_remove_managed_dirs:
-    DetailPrint "正在删除可重建的私有运行环境..."
+    DetailPrint "正在删除可重建的受管运行环境..."
     RMDir /r "$IywClawRoot\runtime"
+    RMDir /r "$IywClawRoot\staging"
     RMDir /r "$IywClawRoot\logs"
     DeleteRegKey SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}"
-    DetailPrint "用户配置和本地数据已保留。"
+    DetailPrint "用户配置、本地数据、Skill 与受管库存已保留。"
 
   iyw_uninstall_done:
 !macroend

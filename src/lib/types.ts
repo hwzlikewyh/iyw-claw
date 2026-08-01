@@ -2475,6 +2475,60 @@ export interface RuntimeBootstrapReport {
   git: RuntimeComponentReport
 }
 
+// ─── Managed bootstrap plan / initialization status ───
+// 与 Rust `version_center::installer::init` 的 wire 格式保持一致。
+
+export type BootstrapInitPhase =
+  | "not_started"
+  | "resolving"
+  | "downloading"
+  | "verifying"
+  | "staging"
+  | "activating"
+  | "health_check"
+  | "ready"
+  | "degraded"
+  | "retryable"
+  | "blocked"
+
+export interface BootstrapInitEvent {
+  task_id: string
+  phase: BootstrapInitPhase
+  component?: string | null
+  downloaded?: number | null
+  total?: number | null
+  rate_bps?: number | null
+  eta_secs?: number | null
+  message: string
+}
+
+export interface BootstrapComponentStatus {
+  component_id: string
+  component_kind: string
+  version: string
+  installed: boolean
+  active: boolean
+  phase: BootstrapInitPhase
+  last_error?: string | null
+}
+
+export interface PendingActivation {
+  component_id: string
+  component_kind: string
+  version: string
+  created_at: string
+}
+
+export interface BootstrapInitStatusReport {
+  phase: BootstrapInitPhase
+  components: BootstrapComponentStatus[]
+  offline: boolean
+  writer_busy: boolean
+  pending_activations: PendingActivation[]
+  manifest_generation: number
+  digest: string
+  migrated: boolean
+}
 // ─── Chat Channels ───
 
 export type ChannelType = "lark" | "wecom" | "weixin"

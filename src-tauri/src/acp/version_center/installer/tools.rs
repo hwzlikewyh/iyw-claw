@@ -5,8 +5,15 @@ use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use tokio::sync::Mutex;
 
+use super::activation::quarantine_component;
 use super::archive::{extract_tool_zip, locate_payload, probe_payload};
-use super::download::{download_archive, validate_ticket};
+use super::download::validate_ticket;
+use super::manifest::{
+    marker_matches, read_marker, upsert_entry, write_manifest, write_marker, InventoryEntry,
+    OwnershipMarker,
+};
+use super::preflight::{ensure_disk_headroom, InstallEstimate};
+use super::resumable::{download_resumable, DownloadProgress};
 use super::runtime::{
     read_current_pointer, restore_current_pointer, runtime_dir, staging_dir, write_current_pointer,
 };
@@ -15,7 +22,7 @@ use crate::acp::version_center::capability::{self, RUNTIME};
 use crate::acp::version_center::client::AgentPlatformClient;
 use crate::acp::version_center::inventory::{self, ReadyToolInstallation, ORIGIN_MANAGED};
 use crate::acp::version_center::types::{DownloadRequest, ResolveToolRequest, ToolOffer};
-use crate::app_error::AppCommandError;
+use crate::app_error::{AppCommandError, AppErrorCode};
 
 fn install_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -34,7 +41,9 @@ pub struct ManagedToolInstallResult {
 ///
 /// `task_id` and `emitter` must both be `Some` or both `None`. When provided,
 /// `app://agent-install` events with kind `progress` are emitted during the
-/// archive download so the UI can render a progress bar.
+/// archive download so the UI can render a progress bar. Downloads are
+/// resumable (`.part` + Range) and reuse an already-installed matching version
+/// without downloading.
 pub async fn install_managed_tool(
     conn: &DatabaseConnection,
     data_dir: &Path,
@@ -96,6 +105,7 @@ async fn install_offer(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn install_offer_inner(
     conn: &DatabaseConnection,
     data_dir: &Path,
@@ -108,6 +118,34 @@ async fn install_offer_inner(
     tokio::fs::create_dir_all(stage)
         .await
         .map_err(AppCommandError::io)?;
+    let final_dir = runtime_dir(data_dir, &offer.tool_id, &offer.version)?;
+    let expected_marker = managed_marker(offer);
+
+    // keep 快速路径：同版本已安装且 marker 完全匹配 + active pointer 一致 → 零下载。
+    let pointer_version = read_current_pointer(data_dir, &offer.tool_id)
+        .await?
+        .and_then(|bytes| {
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .and_then(|value| value.get("version")?.as_str().map(ToString::to_string))
+        });
+    if read_marker(&final_dir)
+        .await
+        .is_some_and(|marker| marker_matches(&marker, &expected_marker))
+        && pointer_version.as_deref() == Some(offer.version.as_str())
+    {
+        tracing::info!(
+            tool_id = %offer.tool_id,
+            version = %offer.version,
+            "[agent-version-center] managed tool already installed, keeping"
+        );
+        return Ok(ManagedToolInstallResult {
+            tool_id: offer.tool_id.clone(),
+            version: offer.version.clone(),
+            catalog_revision: offer.revision,
+        });
+    }
+
     let ticket = AgentPlatformClient::download_tool(
         conn,
         DownloadRequest {
@@ -133,15 +171,26 @@ async fn install_offer_inner(
     )?;
     let archive = stage.join("artifact.zip");
 
-    // Build a progress callback that emits app://agent-install progress events.
-    let progress_cb: Option<Box<dyn Fn(u64, u64) + Send + Sync>> =
+    // 磁盘预检：归档 + 展开 + staging + 保留旧版本余量。
+    ensure_disk_headroom(
+        data_dir,
+        &InstallEstimate {
+            archive_bytes: ticket.size.max(0) as u64,
+            expanded_bytes: (ticket.size.max(0) as u64).saturating_mul(6),
+            retention_bytes: 64 * 1024 * 1024,
+        },
+    )
+    .map_err(|message| AppCommandError::invalid_input(message))?;
+
+    // 进度回调：app://agent-install 百分比事件。
+    let progress_cb: Option<Box<dyn Fn(DownloadProgress) + Send + Sync>> =
         match (task_id, emitter) {
             (Some(tid), Some(em)) => {
                 let tid = tid.to_string();
                 let em = em.clone();
-                Some(Box::new(move |downloaded: u64, total: u64| {
-                    let pct = if total > 0 {
-                        ((downloaded as f64 / total as f64) * 100.0) as u8
+                Some(Box::new(move |progress: DownloadProgress| {
+                    let pct = if progress.total > 0 {
+                        ((progress.downloaded as f64 / progress.total as f64) * 100.0) as u8
                     } else {
                         0
                     };
@@ -151,14 +200,53 @@ async fn install_offer_inner(
             _ => None,
         };
 
-    download_archive(
-        &ticket.url,
-        &archive,
-        ticket.size,
-        &ticket.sha256,
-        progress_cb.as_deref(),
-    )
-    .await?;
+    // 可续传下载；票据过期（401/403）刷新票据重试，最多 2 次。
+    let mut current_url = ticket.url.clone();
+    let mut refresh_attempts = 0_u32;
+    loop {
+        match download_resumable(
+            &current_url,
+            &archive,
+            ticket.size,
+            &ticket.sha256,
+            progress_cb.as_deref(),
+        )
+        .await
+        {
+            Ok(()) => break,
+            Err(error)
+                if error.code == AppErrorCode::AuthenticationFailed && refresh_attempts < 2 =>
+            {
+                refresh_attempts += 1;
+                let refreshed = AgentPlatformClient::download_tool(
+                    conn,
+                    DownloadRequest {
+                        registry_id: None,
+                        tool_id: Some(&offer.tool_id),
+                        version_id: &offer.version_id,
+                        artifact_id: &offer.artifact.id,
+                        catalog_revision: offer.revision,
+                        client_version: env!("CARGO_PKG_VERSION"),
+                        runtime: RUNTIME,
+                        target: capability::current_target(),
+                        arch: capability::current_arch(),
+                        channel,
+                    },
+                )
+                .await?;
+                validate_ticket(
+                    offer,
+                    &refreshed.url,
+                    refreshed.size,
+                    &refreshed.sha256,
+                    &refreshed.signature,
+                )?;
+                current_url = refreshed.url.clone();
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
     let bytes = tokio::fs::read(&archive)
         .await
         .map_err(AppCommandError::io)?;
@@ -174,11 +262,9 @@ async fn install_offer_inner(
     probe_payload(&payload, &offer.tool_id, &offer.version).await?;
     let confirmed = confirm_offer(conn, offer, channel).await?;
 
-    let final_dir = runtime_dir(data_dir, &offer.tool_id, &offer.version)?;
     if final_dir.exists() {
-        return Err(AppCommandError::invalid_input(
-            "Managed tool version is already installed; switch to it instead",
-        ));
+        // 同版本目录已存在但 marker 不匹配 → 隔离后重建，绝不直接覆盖。
+        quarantine_component(data_dir, &final_dir).await?;
     }
     let parent = final_dir.parent().ok_or_else(|| {
         AppCommandError::configuration_invalid("Managed tool runtime path is invalid")
@@ -189,6 +275,7 @@ async fn install_offer_inner(
     tokio::fs::rename(&payload, &final_dir)
         .await
         .map_err(AppCommandError::io)?;
+    write_marker(&final_dir, &expected_marker).await?;
 
     inventory::record_tool_ready(
         conn,
@@ -218,7 +305,33 @@ async fn install_offer_inner(
     .await
     {
         restore_current_pointer(data_dir, &offer.tool_id, previous_pointer).await?;
+        quarantine_component(data_dir, &final_dir).await?;
         return Err(inventory_error(error));
+    }
+
+    {
+        let mut manifest = super::manifest::read_manifest(data_dir).await?;
+        upsert_entry(
+            &mut manifest,
+            InventoryEntry {
+                component_id: offer.tool_id.clone(),
+                component_kind: "runtime_tool".to_string(),
+                version: offer.version.clone(),
+                origin: ORIGIN_MANAGED.to_string(),
+                artifact_id: Some(offer.artifact.id.clone()),
+                sha256: Some(offer.artifact.sha256.clone()),
+                path: format!("runtime/{}", offer.tool_id),
+                active: true,
+            },
+        );
+        write_manifest(data_dir, &manifest).await?;
+    }
+    // health check：从客户端 allowlist 探针验证激活后的版本可执行。
+    if let Err(error) = probe_payload(&final_dir, &offer.tool_id, &offer.version).await {
+        // 回滚 LKG 并隔离失败版本，保留诊断。
+        restore_current_pointer(data_dir, &offer.tool_id, previous_pointer).await?;
+        quarantine_component(data_dir, &final_dir).await?;
+        return Err(error);
     }
     tracing::info!(
         tool_id = %offer.tool_id,
@@ -231,6 +344,21 @@ async fn install_offer_inner(
         version: offer.version.clone(),
         catalog_revision: confirmed.revision,
     })
+}
+
+fn managed_marker(offer: &ToolOffer) -> OwnershipMarker {
+    OwnershipMarker {
+        schema: 1,
+        component_id: offer.tool_id.clone(),
+        component_kind: "runtime_tool".to_string(),
+        version: offer.version.clone(),
+        artifact_id: Some(offer.artifact.id.clone()),
+        sha256: Some(offer.artifact.sha256.clone()),
+        target: capability::current_target().to_string(),
+        arch: capability::current_arch().to_string(),
+        installed_at: chrono::Utc::now().to_rfc3339(),
+        origin: ORIGIN_MANAGED.to_string(),
+    }
 }
 
 async fn confirm_offer(

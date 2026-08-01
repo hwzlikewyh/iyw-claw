@@ -151,6 +151,8 @@ import type {
   OfficecliSkill,
   SkillSyncReport,
   RuntimeBootstrapReport,
+  BootstrapInitStatusReport,
+  BootstrapInitEvent,
 } from "./types"
 
 export async function listConversations(params?: {
@@ -1068,6 +1070,20 @@ export async function runtimeBootstrap(
   )
 }
 
+export async function bootstrapInitStatus(): Promise<BootstrapInitStatusReport> {
+  return getTransport().call("bootstrap_init_status", {})
+}
+
+export async function bootstrapInitialize(params: {
+  channel?: string
+  taskId: string
+}): Promise<BootstrapInitStatusReport> {
+  return getTransport().call(
+    "bootstrap_initialize",
+    { channel: params.channel ?? "stable", taskId: params.taskId },
+    { timeoutMs: 1_800_000 }
+  )
+}
 export async function officecliInstall(taskId: string): Promise<OfficecliInfo> {
   // The vendor installer downloads + extracts a multi-MB binary; allow well
   // beyond the default 60s web-call timeout so slow networks don't surface a
