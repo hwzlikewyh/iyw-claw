@@ -97,30 +97,45 @@ pub async fn probe_payload(
     tool_id: &str,
     version: &str,
 ) -> Result<(), AppCommandError> {
-    let commands: Vec<PathBuf> = match tool_id {
-        "git" => vec![root.join("cmd").join("git.exe")],
-        "node" => vec![root.join("node.exe"), root.join("npm.cmd")],
-        "uv" => vec![root.join("uv.exe"), root.join("uvx.exe")],
+    // Only the tool's own executable reports the managed version. Bundled companions
+    // (npm, uvx) carry independent version numbers, so they are probed for successful
+    // execution only -- matching them against the tool version always fails.
+    let (versioned, companions): (Vec<PathBuf>, Vec<PathBuf>) = match tool_id {
+        "git" => (vec![root.join("cmd").join("git.exe")], Vec::new()),
+        "node" => (vec![root.join("node.exe")], vec![root.join("npm.cmd")]),
+        "uv" => (vec![root.join("uv.exe")], vec![root.join("uvx.exe")]),
         _ => return Err(AppCommandError::invalid_input("Unknown managed tool")),
     };
     let version_core = version.split('+').next().unwrap_or(version);
-    for command in commands {
-        let output = crate::process::tokio_command(&command)
-            .arg("--version")
-            .output()
-            .await
-            .map_err(|error| {
-                AppCommandError::task_execution_failed("Managed tool probe failed")
-                    .with_detail(error.to_string())
-            })?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        if !output.status.success() || !text.contains(version_core) {
+    for command in versioned {
+        let text = probe_version_output(&command).await?;
+        if !text.contains(version_core) {
             return Err(AppCommandError::invalid_input(
                 "Managed tool probe returned an unexpected version",
             ));
         }
     }
+    for command in companions {
+        probe_version_output(&command).await?;
+    }
     Ok(())
+}
+
+async fn probe_version_output(command: &Path) -> Result<String, AppCommandError> {
+    let output = crate::process::tokio_command(command)
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|error| {
+            AppCommandError::task_execution_failed("Managed tool probe failed")
+                .with_detail(error.to_string())
+        })?;
+    if !output.status.success() {
+        return Err(AppCommandError::invalid_input(
+            "Managed tool probe returned an unexpected version",
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn has_unsafe_link_mode(mode: Option<u32>) -> bool {

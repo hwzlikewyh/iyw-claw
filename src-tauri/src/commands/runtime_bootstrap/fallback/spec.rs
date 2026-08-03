@@ -22,11 +22,14 @@ pub(super) struct ComponentSpec {
     pub(super) official_url: String,
 }
 
-const NODE_VERSION_X64: &str = "24.0.0";
+// Keep these aligned with the mirrored artifacts in iyw_fusion_api_component_artifacts.
+// A pinned fallback that points at a version the mirror does not carry defeats the
+// purpose of the fallback: it downloads a runtime the managed catalog can never match.
+const NODE_VERSION_X64: &str = "24.18.1";
 const NODE_VERSION_X86: &str = "22.23.1";
-const GIT_VERSION: &str = "2.55.0+windows.2";
-const GIT_ASSET_VERSION: &str = "2.55.0.2";
-const GIT_RELEASE_TAG: &str = "v2.55.0.windows.2";
+const GIT_VERSION: &str = "2.55.0+windows.3";
+const GIT_ASSET_VERSION: &str = "2.55.0.3";
+const GIT_RELEASE_TAG: &str = "v2.55.0.windows.3";
 
 const NODE_MIRROR_BASE: &str = "https://registry.npmmirror.com/-/binary/node";
 const NODE_OFFICIAL_BASE: &str = "https://nodejs.org/dist";
