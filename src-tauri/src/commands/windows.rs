@@ -34,6 +34,12 @@ fn traffic_light_position() -> tauri::LogicalPosition<f64> {
 
 const ZOOM_LEVEL_DB_KEY: &str = "appearance_zoom_level";
 
+#[tauri::command]
+pub fn open_devtools(window: tauri::WebviewWindow) {
+    tracing::info!(window_label = window.label(), "[DevTools] opening developer tools");
+    window.open_devtools();
+}
+
 /// Load saved zoom level from DB and initialize CURRENT_ZOOM.
 /// Called once at startup before any window is created.
 pub async fn load_saved_zoom(conn: &DatabaseConnection) {

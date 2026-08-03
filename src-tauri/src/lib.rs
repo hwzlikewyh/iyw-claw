@@ -1055,6 +1055,7 @@ mod tauri_app {
                 folders::create_file_tree_entry,
                 folders::git_log,
                 folders::git_commit_branches,
+                windows::open_devtools,
                 windows::open_folder_window,
                 windows::open_commit_window,
                 windows::open_settings_window,
