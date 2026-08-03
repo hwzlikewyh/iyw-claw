@@ -61,6 +61,7 @@ pub enum UpdatePolicy {
 }
 
 impl UpdatePolicy {
+    #[cfg(feature = "tauri-runtime")]
     fn as_str(self) -> &'static str {
         match self {
             Self::Optional => "optional",

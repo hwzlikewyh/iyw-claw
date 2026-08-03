@@ -118,7 +118,9 @@ pub async fn read_manifest(data_dir: &Path) -> Result<InventoryManifest, AppComm
             AppCommandError::configuration_invalid("Inventory manifest is corrupted")
                 .with_detail(error.to_string())
         }),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(InventoryManifest::default()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(InventoryManifest::default())
+        }
         Err(error) => Err(AppCommandError::io(error)),
     }
 }
@@ -129,9 +131,9 @@ pub async fn write_manifest(
     manifest: &InventoryManifest,
 ) -> Result<(), AppCommandError> {
     let path = manifest_path(data_dir);
-    let parent = path.parent().ok_or_else(|| {
-        AppCommandError::configuration_invalid("Inventory path is invalid")
-    })?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| AppCommandError::configuration_invalid("Inventory path is invalid"))?;
     tokio::fs::create_dir_all(parent)
         .await
         .map_err(AppCommandError::io)?;
@@ -203,9 +205,7 @@ pub async fn digest_managed_root(data_dir: &Path) -> Result<String, AppCommandEr
         if !entry.active {
             continue;
         }
-        let pointer = data_dir
-            .join(&entry.path)
-            .join("current.json");
+        let pointer = data_dir.join(&entry.path).join("current.json");
         if let Ok(raw) = tokio::fs::read(&pointer).await {
             hasher.update(&pointer.to_string_lossy().as_bytes());
             hasher.update(&raw);
@@ -269,11 +269,6 @@ pub async fn push_pending_activation(
         write_pending_activations(data_dir, &items).await?;
     }
     Ok(())
-}
-
-/// 从 manifest 条目生成组件目录路径（相对 `<root>`）。
-pub fn entry_directory(entry: &InventoryEntry) -> PathBuf {
-    PathBuf::from(&entry.path)
 }
 
 /// 更新 manifest 中的单个条目并递增 generation。

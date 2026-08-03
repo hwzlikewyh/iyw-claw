@@ -6,8 +6,7 @@ use sea_orm::{
 
 use crate::acp::error::AcpError;
 use crate::acp::version_center::inventory::{
-    database_error, serialize_agent_type, AgentInstallation, ReadyAgentInstallation, STATUS_ACTIVE,
-    STATUS_READY,
+    database_error, serialize_agent_type, AgentInstallation, STATUS_ACTIVE, STATUS_READY,
 };
 use crate::db::entities::{agent_installation, agent_setting};
 use crate::models::agent::AgentType;
@@ -22,25 +21,6 @@ pub async fn list_agent_installations(
         .all(conn)
         .await
         .map_err(database_error)
-}
-
-pub async fn record_agent_ready(
-    conn: &DatabaseConnection,
-    input: ReadyAgentInstallation<'_>,
-) -> Result<(), AcpError> {
-    let agent_type = serialize_agent_type(input.agent_type)?;
-    let existing = agent_installation::Entity::find()
-        .filter(agent_installation::Column::AgentType.eq(agent_type.clone()))
-        .filter(agent_installation::Column::Version.eq(input.version))
-        .filter(agent_installation::Column::Platform.eq(input.platform))
-        .one(conn)
-        .await
-        .map_err(database_error)?;
-    let now = Utc::now();
-    match existing {
-        Some(model) => update_ready(model, input, now, conn).await,
-        None => insert_ready(agent_type, input, now, conn).await,
-    }
 }
 
 pub async fn activate_agent(
@@ -74,58 +54,6 @@ pub async fn set_agent_pin(
     active.pinned_version = Set(version);
     active.updated_at = Set(Utc::now());
     active.update(conn).await.map_err(database_error)?;
-    Ok(())
-}
-
-async fn update_ready(
-    model: AgentInstallation,
-    input: ReadyAgentInstallation<'_>,
-    now: chrono::DateTime<Utc>,
-    conn: &DatabaseConnection,
-) -> Result<(), AcpError> {
-    let mut active = model.into_active_model();
-    active.status = Set(STATUS_READY.to_string());
-    active.delivery_kind = Set(input.delivery_kind.to_string());
-    active.artifact_id = Set(input.artifact_id.map(ToString::to_string));
-    active.source_key = Set(input.source_key.map(ToString::to_string));
-    active.expected_sha256 = Set(input.expected_sha256.map(ToString::to_string));
-    active.verified = Set(true);
-    active.failure_code = Set(None);
-    active.verified_at = Set(Some(now));
-    active.updated_at = Set(now);
-    active.update(conn).await.map_err(database_error)?;
-    Ok(())
-}
-
-async fn insert_ready(
-    agent_type: String,
-    input: ReadyAgentInstallation<'_>,
-    now: chrono::DateTime<Utc>,
-    conn: &DatabaseConnection,
-) -> Result<(), AcpError> {
-    agent_installation::ActiveModel {
-        id: sea_orm::ActiveValue::NotSet,
-        agent_type: Set(agent_type),
-        registry_id: Set(input.registry_id.to_string()),
-        version: Set(input.version.to_string()),
-        platform: Set(input.platform.to_string()),
-        status: Set(STATUS_READY.to_string()),
-        delivery_kind: Set(input.delivery_kind.to_string()),
-        artifact_id: Set(input.artifact_id.map(ToString::to_string)),
-        source_key: Set(input.source_key.map(ToString::to_string)),
-        expected_sha256: Set(input.expected_sha256.map(ToString::to_string)),
-        verified: Set(true),
-        failure_code: Set(None),
-        installed_at: Set(Some(now)),
-        verified_at: Set(Some(now)),
-        activated_at: Set(None),
-        last_successful_launch_at: Set(None),
-        created_at: Set(now),
-        updated_at: Set(now),
-    }
-    .insert(conn)
-    .await
-    .map_err(database_error)?;
     Ok(())
 }
 

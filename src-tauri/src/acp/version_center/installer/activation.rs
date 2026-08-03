@@ -6,7 +6,6 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::acp::version_center::installer::runtime::restore_current_pointer;
 use crate::app_error::AppCommandError;
 
 /// quarantine 根目录：可清理临时区，不参与 active 解析。
@@ -42,7 +41,11 @@ pub async fn quarantine_component(
         .unwrap_or_else(|| "component".to_string());
     let target = target_root.join(format!(
         "{name}-{}",
-        uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0")
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("0")
     ));
     let absolute_target = target.canonicalize().unwrap_or(target.clone());
     if !absolute_target.starts_with(target_root) {
@@ -50,34 +53,8 @@ pub async fn quarantine_component(
             "Quarantine target is outside the quarantine root",
         ));
     }
-    tokio::fs::rename(&source, &target)
-        .await
-        .map_err(|error| AppCommandError::io(error).with_detail(source.to_string_lossy().into_owned()))?;
+    tokio::fs::rename(&source, &target).await.map_err(|error| {
+        AppCommandError::io(error).with_detail(source.to_string_lossy().into_owned())
+    })?;
     Ok(target)
-}
-
-/// 恢复旧 active pointer（LKG）。`previous` 为 `None` 时删除 pointer。
-pub async fn restore_lkg_pointer(
-    data_dir: &Path,
-    tool_id: &str,
-    previous: Option<Vec<u8>>,
-) -> Result<(), AppCommandError> {
-    restore_current_pointer(data_dir, tool_id, previous).await
-}
-
-/// 组件目录是否可安全进入 quarantine（目录存在且位于受管根下）。
-pub async fn quarantine_candidate(data_dir: &Path, component_dir: &Path) -> bool {
-    if !tokio::fs::metadata(component_dir)
-        .await
-        .is_ok_and(|metadata| metadata.is_dir())
-    {
-        return false;
-    }
-    let Ok(managed_root) = data_dir.canonicalize() else {
-        return false;
-    };
-    let Ok(source) = component_dir.canonicalize() else {
-        return false;
-    };
-    source.starts_with(&managed_root)
 }

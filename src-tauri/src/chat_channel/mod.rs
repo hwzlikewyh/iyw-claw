@@ -1,9 +1,9 @@
 pub mod backends;
 pub mod command_dispatcher;
-pub mod dedupe;
 pub mod command_handlers;
 mod command_response;
 pub mod config_patch;
+pub mod dedupe;
 pub mod diagnostics;
 pub mod error;
 pub mod event_subscriber;
@@ -25,6 +25,7 @@ mod session_picker;
 mod session_runtime;
 mod session_topic;
 mod session_topic_messages;
+#[allow(dead_code)]
 pub mod tool_detail;
 pub mod traits;
 pub mod types;

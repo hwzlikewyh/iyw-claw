@@ -56,8 +56,6 @@ pub struct RuntimeBootstrapReport {
 #[serde(rename_all = "snake_case")]
 enum RuntimeBootstrapEventKind {
     Started,
-    Log,
-    Progress,
     Completed,
     Failed,
 }
@@ -103,7 +101,14 @@ pub async fn runtime_bootstrap_core(
     emitter: &EventEmitter,
 ) -> RuntimeBootstrapReport {
     let _guard = bootstrap_lock().lock().await;
-    emit(emitter, &task_id, RuntimeBootstrapEventKind::Started, None, None, "");
+    emit(
+        emitter,
+        &task_id,
+        RuntimeBootstrapEventKind::Started,
+        None,
+        None,
+        "",
+    );
     let report = RuntimeBootstrapReport {
         node: probe_component("node", "node.exe"),
         git: probe_component("git", "cmd/git.exe"),
@@ -135,7 +140,14 @@ pub async fn runtime_bootstrap_managed_core(
     emitter: &EventEmitter,
 ) -> RuntimeBootstrapReport {
     let _guard = bootstrap_lock().lock().await;
-    emit(emitter, &task_id, RuntimeBootstrapEventKind::Started, None, None, "");
+    emit(
+        emitter,
+        &task_id,
+        RuntimeBootstrapEventKind::Started,
+        None,
+        None,
+        "",
+    );
     let channel = crate::update::preferences::load(conn)
         .await
         .map(|prefs| prefs.channel.as_str().to_string())
@@ -285,8 +297,8 @@ pub async fn runtime_bootstrap(
 /// 调用；web handler 等价路由由 Task 13 接线。
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn bootstrap_init_status(
-) -> Result<crate::acp::version_center::InitStatusReport, String> {
+pub async fn bootstrap_init_status() -> Result<crate::acp::version_center::InitStatusReport, String>
+{
     let data_dir = crate::system_skills::data_dir_from_env();
     crate::acp::version_center::bootstrap_init_status(&data_dir)
         .await

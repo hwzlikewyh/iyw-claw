@@ -7,6 +7,9 @@ use std::time::Instant;
 
 use sea_orm::DatabaseConnection;
 
+use super::super::inventory::{self, ORIGIN_MANAGED};
+use super::super::types::{DownloadRequest, ResolveToolRequest};
+use super::super::{capability, client::AgentPlatformClient};
 use super::activation::quarantine_component;
 use super::archive::{extract_tool_zip, locate_payload, probe_payload};
 use super::download::validate_ticket;
@@ -20,9 +23,6 @@ use super::resumable::{download_resumable, DownloadProgress};
 use super::runtime::{read_current_pointer, runtime_dir, staging_dir, write_current_pointer};
 use super::signature::verify_tool_signature;
 use super::state::{BootstrapState, InitPhase};
-use super::super::types::{DownloadRequest, ResolveToolRequest};
-use super::super::{capability, client::AgentPlatformClient};
-use super::super::inventory::{self, ORIGIN_MANAGED};
 use crate::app_error::AppCommandError;
 use crate::web::event_bridge::EventEmitter;
 
@@ -43,7 +43,6 @@ pub(super) async fn install_tool_component(
     defer_while_active: bool,
     task_id: &str,
     emitter: &EventEmitter,
-    state: &mut BootstrapState,
     active: &BTreeMap<String, String>,
 ) -> Result<ComponentOutcome, AppCommandError> {
     let current_version = active.get(tool_id).cloned().unwrap_or_default();
@@ -81,7 +80,9 @@ pub(super) async fn install_tool_component(
     let already_installed = read_marker(&final_dir)
         .await
         .is_some_and(|marker| marker_matches(&marker, &expected))
-        && active.get(tool_id).is_some_and(|version| version == &offer.version);
+        && active
+            .get(tool_id)
+            .is_some_and(|version| version == &offer.version);
     if already_installed {
         // 完全匹配 → keep，零下载。
         return Ok(ComponentOutcome {
@@ -318,11 +319,7 @@ pub(super) async fn install_tool_component(
 }
 
 /// 更新 state 中单个组件的检查点。
-pub(super) fn update_checkpoint(
-    state: &mut BootstrapState,
-    tool_id: &str,
-    version: String,
-) {
+pub(super) fn update_checkpoint(state: &mut BootstrapState, tool_id: &str, version: String) {
     let mut checkpoint = state
         .component(tool_id)
         .cloned()

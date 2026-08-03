@@ -8,6 +8,7 @@ use crate::update::preferences;
 #[cfg(feature = "tauri-runtime")]
 use crate::update::release::CheckReason;
 
+#[cfg(feature = "tauri-runtime")]
 const CHECK_INTERVAL_SECS: i64 = 6 * 60 * 60;
 #[cfg(feature = "tauri-runtime")]
 static SCHEDULER_WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();

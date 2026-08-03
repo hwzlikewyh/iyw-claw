@@ -20,15 +20,13 @@ use serde::Serialize;
 
 use super::component::{install_tool_component, update_checkpoint, update_checkpoint_deferred};
 use super::manifest::{
-    active_versions, digest_managed_root, pending_activations_path, read_manifest,
-    read_pending_activations, upsert_entry, write_manifest, write_pending_activations,
-    InventoryEntry, InventoryManifest, PendingActivation,
+    active_versions, digest_managed_root, read_manifest, read_pending_activations, upsert_entry,
+    write_manifest, write_pending_activations, InventoryEntry, InventoryManifest,
+    PendingActivation,
 };
 use super::migration::{migration_receipt, run_legacy_migration};
 use super::resumable::DownloadProgress;
-use super::state::{
-    acquire_writer_lock, read_state, write_state, BootstrapState, InitPhase,
-};
+use super::state::{acquire_writer_lock, read_state, write_state, BootstrapState, InitPhase};
 use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
 use crate::web::event_bridge::{emit_event, EventEmitter};
@@ -169,7 +167,6 @@ pub async fn bootstrap_initialize(
             defer_while_active,
             task_id,
             emitter,
-            &mut state,
             &active,
         )
         .await
@@ -306,13 +303,12 @@ async fn activate_pending_component(
             Ok(())
         }
         "agent" => {
-            let agent_type: AgentType = serde_json::from_str(&pending.component_id).map_err(
-                |error| {
+            let agent_type: AgentType =
+                serde_json::from_str(&pending.component_id).map_err(|error| {
                     AppCommandError::configuration_invalid(format!(
                         "Pending agent activation has invalid agent type: {error}"
                     ))
-                },
-            )?;
+                })?;
             super::super::inventory::activate_agent(
                 conn,
                 agent_type,
@@ -449,9 +445,4 @@ fn phase_label(phase: InitPhase) -> &'static str {
         InitPhase::Retryable => "retryable",
         InitPhase::Blocked => "blocked",
     }
-}
-
-/// 待激活文件路径导出（供活跃会话场景记录 pending activation）。
-pub fn pending_activations_file(data_dir: &Path) -> std::path::PathBuf {
-    pending_activations_path(data_dir)
 }

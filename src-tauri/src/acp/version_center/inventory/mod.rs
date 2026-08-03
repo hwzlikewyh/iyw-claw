@@ -12,24 +12,9 @@ pub type AgentInstallation = crate::db::entities::agent_installation::Model;
 pub type ManagedToolInstallation = crate::db::entities::managed_tool_installation::Model;
 pub type ManagedToolSetting = crate::db::entities::managed_tool_setting::Model;
 
-pub const STATUS_STAGING: &str = "staging";
 pub const STATUS_READY: &str = "ready";
 pub const STATUS_ACTIVE: &str = "active";
-pub const STATUS_FAILED: &str = "failed";
 pub const ORIGIN_MANAGED: &str = "managed";
-pub const ORIGIN_SYSTEM: &str = "system";
-
-#[derive(Debug, Clone)]
-pub struct ReadyAgentInstallation<'a> {
-    pub agent_type: AgentType,
-    pub registry_id: &'a str,
-    pub version: &'a str,
-    pub platform: &'a str,
-    pub delivery_kind: &'a str,
-    pub artifact_id: Option<&'a str>,
-    pub source_key: Option<&'a str>,
-    pub expected_sha256: Option<&'a str>,
-}
 
 #[derive(Debug, Clone)]
 pub struct ReadyToolInstallation<'a> {

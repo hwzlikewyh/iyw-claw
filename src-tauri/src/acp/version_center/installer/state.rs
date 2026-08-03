@@ -14,7 +14,7 @@
 //! 操作，其余窗口订阅进度事件。
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
@@ -41,15 +41,6 @@ pub enum InitPhase {
     Degraded,
     Retryable,
     Blocked,
-}
-
-impl InitPhase {
-    pub fn is_terminal(self) -> bool {
-        matches!(
-            self,
-            InitPhase::Ready | InitPhase::Degraded | InitPhase::Retryable | InitPhase::Blocked
-        )
-    }
 }
 
 /// 单个受管组件的检查点。
@@ -143,10 +134,7 @@ pub async fn read_state(data_dir: &Path) -> Result<BootstrapState, AppCommandErr
 }
 
 /// 原子写入初始化检查点（临时文件 + rename）。
-pub async fn write_state(
-    data_dir: &Path,
-    state: &BootstrapState,
-) -> Result<(), AppCommandError> {
+pub async fn write_state(data_dir: &Path, state: &BootstrapState) -> Result<(), AppCommandError> {
     let path = state_path(data_dir);
     let parent = path.parent().ok_or_else(|| {
         AppCommandError::configuration_invalid("Bootstrap inventory path is invalid")
@@ -266,11 +254,4 @@ fn pid_alive(pid: u32) -> bool {
 
 fn now_rfc3339() -> String {
     chrono::Utc::now().to_rfc3339()
-}
-
-pub fn unix_now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
 }
