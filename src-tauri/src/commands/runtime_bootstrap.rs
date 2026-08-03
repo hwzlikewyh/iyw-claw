@@ -1,8 +1,8 @@
 //! 首次启动运行时的兼容入口（Node / Git）。
 //!
-//! 受管分发后，Node、Git、uv 等运行时由后端版本中心决策、短时票据 + TOS/CDN
-//! 下载、本地校验后原子激活，安装包不再内置任何运行时字节，客户端也不再直连
-//! Node 官方 / GitHub / npmmirror 等上游作为正常路径。
+//! 受管分发后，Node、Git、uv 等运行时优先由后端版本中心决策、短时票据 +
+//! TOS/CDN 下载、本地校验后原子激活。若后端尚无对应发布数据，Node / Git
+//! 可使用编译内固定版本、固定 SHA-256 的备案源完成首次启动。
 //!
 //! 本模块保留旧 `runtime_bootstrap` / `runtime_bootstrap_core` 表面以便现有
 //! 调用方继续编译：
@@ -17,78 +17,20 @@
 use std::path::Path;
 
 use sea_orm::DatabaseConnection;
-use serde::Serialize;
 use tokio::sync::Mutex;
 
-use crate::acp::version_center::{install_managed_tool, managed_tool_executable};
+use crate::acp::version_center::managed_tool_executable;
 use crate::web::event_bridge::EventEmitter;
 
 #[cfg(feature = "tauri-runtime")]
 use crate::acp::manager::ConnectionManager;
 
-const RUNTIME_BOOTSTRAP_EVENT: &str = "app://runtime-bootstrap";
+mod fallback;
+mod managed;
+mod types;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RuntimeComponentStatus {
-    /// Already usable (managed runtime or system PATH).
-    Ready,
-    /// Installed by this bootstrap run.
-    Installed,
-    /// Not applicable on this platform; nothing was attempted.
-    Skipped,
-    Failed,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct RuntimeComponentReport {
-    pub status: RuntimeComponentStatus,
-    pub detail: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct RuntimeBootstrapReport {
-    pub node: RuntimeComponentReport,
-    pub git: RuntimeComponentReport,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum RuntimeBootstrapEventKind {
-    Started,
-    Completed,
-    Failed,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct RuntimeBootstrapEvent {
-    task_id: String,
-    kind: RuntimeBootstrapEventKind,
-    component: Option<String>,
-    percent: Option<u8>,
-    payload: String,
-}
-
-fn emit(
-    emitter: &EventEmitter,
-    task_id: &str,
-    kind: RuntimeBootstrapEventKind,
-    component: Option<String>,
-    percent: Option<u8>,
-    payload: impl Into<String>,
-) {
-    crate::web::event_bridge::emit_event(
-        emitter,
-        RUNTIME_BOOTSTRAP_EVENT,
-        RuntimeBootstrapEvent {
-            task_id: task_id.to_string(),
-            kind,
-            component,
-            percent,
-            payload: payload.into(),
-        },
-    );
-}
+use types::{emit, RuntimeBootstrapEventKind};
+pub use types::{RuntimeBootstrapReport, RuntimeComponentReport, RuntimeComponentStatus};
 
 fn bootstrap_lock() -> &'static Mutex<()> {
     static LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
@@ -153,7 +95,7 @@ pub async fn runtime_bootstrap_managed_core(
         .map(|prefs| prefs.channel.as_str().to_string())
         .unwrap_or_else(|_| "stable".to_string());
 
-    let node = ensure_managed_component(
+    let node = managed::ensure_component(
         conn,
         data_dir,
         "node",
@@ -163,7 +105,7 @@ pub async fn runtime_bootstrap_managed_core(
         emitter,
     )
     .await;
-    let git = ensure_managed_component(
+    let git = managed::ensure_component(
         conn,
         data_dir,
         "git",
@@ -194,48 +136,6 @@ pub async fn runtime_bootstrap_managed_core(
         "",
     );
     RuntimeBootstrapReport { node, git }
-}
-
-async fn ensure_managed_component(
-    conn: &DatabaseConnection,
-    data_dir: &Path,
-    tool_id: &str,
-    channel: &str,
-    defer_while_active: bool,
-    task_id: &str,
-    emitter: &EventEmitter,
-) -> RuntimeComponentReport {
-    match install_managed_tool(
-        conn,
-        data_dir,
-        tool_id,
-        None,
-        channel,
-        defer_while_active,
-        Some(task_id),
-        Some(emitter),
-    )
-    .await
-    {
-        Ok(result) => {
-            emit(
-                emitter,
-                task_id,
-                RuntimeBootstrapEventKind::Completed,
-                Some(tool_id.to_string()),
-                Some(100),
-                format!("{tool_id} {} installed", result.version),
-            );
-            RuntimeComponentReport {
-                status: RuntimeComponentStatus::Installed,
-                detail: Some(format!("{tool_id} {}", result.version)),
-            }
-        }
-        Err(error) => RuntimeComponentReport {
-            status: RuntimeComponentStatus::Failed,
-            detail: Some(error.message),
-        },
-    }
 }
 
 /// 非 Windows（或未知架构）只做 PATH 探测。

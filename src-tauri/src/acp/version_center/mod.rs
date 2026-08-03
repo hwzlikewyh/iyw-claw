@@ -18,6 +18,9 @@ pub use installer::{
     bootstrap_init_status, bootstrap_initialize, digest_managed_root, install_managed_tool,
     managed_tool_executable, InitStatusReport, ManagedToolInstallResult,
 };
+pub(crate) use installer::{
+    extract_tool_zip, locate_payload, probe_payload, runtime_dir, write_current_pointer,
+};
 pub use inventory::{
     list_agent_installations, list_tool_installations, list_tool_settings, set_agent_pin,
     set_tool_pin, AgentInstallation, ManagedToolInstallation, ManagedToolSetting,

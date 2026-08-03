@@ -69,6 +69,11 @@ pub async fn install_managed_tool(
         .and_then(|item| item.active_version.as_deref())
         .unwrap_or_default();
     let pinned_version = setting.and_then(|item| item.pinned_version.as_deref());
+    let reason = if requested_version.is_some() {
+        "manual"
+    } else {
+        "automatic"
+    };
     let offer = AgentPlatformClient::resolve_tool(
         conn,
         ResolveToolRequest {
@@ -81,7 +86,7 @@ pub async fn install_managed_tool(
             target: capability::current_target(),
             arch: capability::current_arch(),
             channel,
-            reason: "manual",
+            reason,
         },
     )
     .await?;
@@ -238,22 +243,22 @@ async fn install_offer_inner(
     .map_err(|message| AppCommandError::invalid_input(message))?;
 
     // 进度回调：app://agent-install 百分比事件。
-    let progress_cb: Option<Box<dyn Fn(DownloadProgress) + Send + Sync>> =
-        match (task_id, emitter) {
-            (Some(tid), Some(em)) => {
-                let tid = tid.to_string();
-                let em = em.clone();
-                Some(Box::new(move |progress: DownloadProgress| {
-                    let pct = if progress.total > 0 {
-                        ((progress.downloaded as f64 / progress.total as f64) * 100.0) as u8
-                    } else {
-                        0
-                    };
-                    crate::commands::acp::emit_managed_tool_progress(&em, &tid, pct);
-                }))
-            }
-            _ => None,
-        };
+    let progress_cb: Option<Box<dyn Fn(DownloadProgress) + Send + Sync>> = match (task_id, emitter)
+    {
+        (Some(tid), Some(em)) => {
+            let tid = tid.to_string();
+            let em = em.clone();
+            Some(Box::new(move |progress: DownloadProgress| {
+                let pct = if progress.total > 0 {
+                    ((progress.downloaded as f64 / progress.total as f64) * 100.0) as u8
+                } else {
+                    0
+                };
+                crate::commands::acp::emit_managed_tool_progress(&em, &tid, pct);
+            }))
+        }
+        _ => None,
+    };
 
     // 可续传下载；票据过期（401/403）刷新票据重试，最多 2 次。
     let mut current_url = ticket.url.clone();

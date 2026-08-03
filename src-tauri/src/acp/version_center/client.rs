@@ -1,7 +1,4 @@
-use std::sync::LazyLock;
-use std::time::Duration;
-
-use reqwest::{redirect::Policy, Method, RequestBuilder, Url};
+use reqwest::{Method, RequestBuilder};
 use sea_orm::DatabaseConnection;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
@@ -15,25 +12,10 @@ use crate::app_error::AppCommandError;
 use crate::commands::iyw_account::iyw_account_access_token_core;
 use crate::update::preferences;
 
-const BASE_URL_ENV: &str = "IYW_CLAW_AGENT_PLATFORM_BASE_URL";
-const FUSION_BASE_URL_ENV: &str = "IYW_CLAW_FUSION_API_BASE_URL";
-const INSTALLATION_HEADER: &str = "X-IYW-Installation-ID";
-
-#[cfg(debug_assertions)]
-const DEFAULT_BASE_URL: &str = "http://127.0.0.1:6001";
-#[cfg(all(not(debug_assertions), feature = "test-gateway"))]
-const DEFAULT_BASE_URL: &str = "http://192.168.1.86:3201/ai-application";
-#[cfg(all(not(debug_assertions), not(feature = "test-gateway")))]
-const DEFAULT_BASE_URL: &str = "https://gateway.iyw.cn/iyw-fusion-api";
-
-static HTTP_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
-        .redirect(Policy::none())
-        .build()
-        .map_err(|error| error.to_string())
-});
+mod config;
+mod error;
+use config::{endpoint, http_client, INSTALLATION_HEADER};
+use error::envelope_error;
 
 #[derive(Debug)]
 pub enum CatalogFetch {
@@ -177,7 +159,11 @@ impl AgentPlatformClient {
             "[AgentPlatform] {} {} installation_id={}",
             method,
             url,
-            if installation_id.is_empty() { "<empty>" } else { &installation_id }
+            if installation_id.is_empty() {
+                "<empty>"
+            } else {
+                &installation_id
+            }
         );
         if installation_id.is_empty() {
             tracing::warn!("[AgentPlatform] installation_id is empty — server may reject request");
@@ -199,49 +185,6 @@ fn catalog_query(channel: &str) -> [(&'static str, String); 5] {
     ]
 }
 
-fn http_client() -> Result<reqwest::Client, AppCommandError> {
-    HTTP_CLIENT.as_ref().cloned().map_err(|error| {
-        AppCommandError::configuration_invalid("Failed to initialize Agent platform client")
-            .with_detail(error)
-    })
-}
-
-fn endpoint(path: &str) -> Result<Url, AppCommandError> {
-    let base = configured_base_url();
-    let parsed = Url::parse(&format!("{base}/")).map_err(|error| {
-        AppCommandError::configuration_invalid("Invalid Agent platform base URL")
-            .with_detail(error.to_string())
-    })?;
-    let insecure_dev_allowed = cfg!(debug_assertions) || cfg!(feature = "test-gateway");
-    let valid = parsed.host_str().is_some()
-        && parsed.username().is_empty()
-        && parsed.password().is_none()
-        && parsed.query().is_none()
-        && parsed.fragment().is_none()
-        && (parsed.scheme() == "https" || (insecure_dev_allowed && parsed.scheme() == "http"));
-    if !valid {
-        return Err(AppCommandError::configuration_invalid(
-            "Agent platform base URL must be an HTTPS origin",
-        ));
-    }
-    parsed.join(path.trim_start_matches('/')).map_err(|error| {
-        AppCommandError::configuration_invalid("Invalid Agent platform endpoint")
-            .with_detail(error.to_string())
-    })
-}
-
-fn configured_base_url() -> String {
-    for key in [BASE_URL_ENV, FUSION_BASE_URL_ENV] {
-        if let Ok(value) = std::env::var(key) {
-            let value = value.trim().trim_end_matches('/');
-            if !value.is_empty() {
-                return value.to_string();
-            }
-        }
-    }
-    DEFAULT_BASE_URL.to_string()
-}
-
 async fn decode_response<T: DeserializeOwned>(
     response: reqwest::Response,
 ) -> Result<T, AppCommandError> {
@@ -251,7 +194,11 @@ async fn decode_response<T: DeserializeOwned>(
         tracing::warn!(
             "[AgentPlatform] HTTP {} — body: {}",
             status,
-            if body.len() > 512 { &body[..512] } else { &body }
+            if body.len() > 512 {
+                &body[..512]
+            } else {
+                &body
+            }
         );
         return Err(
             AppCommandError::network("Agent platform gateway rejected the request")
@@ -266,7 +213,11 @@ async fn decode_response<T: DeserializeOwned>(
         tracing::warn!(
             "[AgentPlatform] failed to parse response envelope: {} — body: {}",
             error,
-            String::from_utf8_lossy(if bytes.len() > 512 { &bytes[..512] } else { &bytes })
+            String::from_utf8_lossy(if bytes.len() > 512 {
+                &bytes[..512]
+            } else {
+                &bytes
+            })
         );
         AppCommandError::configuration_invalid("Invalid Agent platform response data")
             .with_detail(error.to_string())
@@ -278,7 +229,7 @@ async fn decode_response<T: DeserializeOwned>(
             envelope.message,
             envelope.data
         );
-        return Err(AppCommandError::invalid_input(envelope.message));
+        return Err(envelope_error(envelope));
     }
     serde_json::from_value(envelope.data).map_err(|error| {
         AppCommandError::configuration_invalid("Invalid Agent platform response data")
