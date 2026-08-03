@@ -94,6 +94,14 @@ pub async fn clone_tag(
     repo_output(target, ["rev-parse", "HEAD"], conn, data_dir).await
 }
 
+/// Check out `tag`, overwriting local state unconditionally.
+///
+/// A system skill checkout is a managed mirror of the upstream repository, not a
+/// working copy anyone is expected to edit. Treating local edits as a conflict to
+/// resolve only ever strands the user on a stale version, so an update discards
+/// them: `--force` on fetch lets a moved tag overwrite its local ref, and the
+/// reset/clean pair drops tracked edits and stray untracked files before the
+/// checkout. Excludes are written first so `.venv` and friends survive the clean.
 pub async fn checkout_tag(
     repo: &Path,
     tag: &str,
@@ -101,10 +109,12 @@ pub async fn checkout_tag(
     data_dir: &Path,
 ) -> Result<String, AppCommandError> {
     require_origin_credentials(repo, conn, data_dir).await?;
+    write_local_excludes(repo)?;
     repo_output(
         repo,
         [
             "fetch",
+            "--force",
             "--depth",
             "1",
             "origin",
@@ -114,9 +124,15 @@ pub async fn checkout_tag(
         data_dir,
     )
     .await?;
+    discard_local_changes(repo, conn, data_dir).await;
     repo_output(
         repo,
-        ["checkout", "--detach", &format!("refs/tags/{tag}")],
+        [
+            "checkout",
+            "--detach",
+            "--force",
+            &format!("refs/tags/{tag}"),
+        ],
         conn,
         data_dir,
     )
@@ -125,15 +141,44 @@ pub async fn checkout_tag(
     repo_output(repo, ["rev-parse", "HEAD"], conn, data_dir).await
 }
 
+/// Drop tracked modifications and untracked files so the next checkout cannot
+/// fail on "local changes would be overwritten". Failures are logged rather than
+/// propagated: the forced checkout that follows is the operation that matters,
+/// and it reports its own error if the tree is still unusable.
+async fn discard_local_changes(repo: &Path, conn: &DatabaseConnection, data_dir: &Path) {
+    for args in [["reset", "--hard"], ["clean", "-fd"]] {
+        if let Err(error) = repo_output(repo, args, conn, data_dir).await {
+            tracing::warn!(
+                target: "system_skills",
+                operation = ?args,
+                "failed to discard local system skill changes: {error}"
+            );
+        }
+    }
+}
+
+/// Check out `commit`, overwriting local state unconditionally.
+///
+/// Used by rollback and by the restore path after a failed validation. Both run
+/// against a tree that may carry local edits, so they need the same forced
+/// semantics as [`checkout_tag`] -- otherwise a dirty mirror could not be
+/// rolled back at all.
 pub async fn checkout_commit(
     repo: &Path,
     commit: &str,
     conn: &DatabaseConnection,
     data_dir: &Path,
 ) -> Result<(), AppCommandError> {
-    repo_output(repo, ["checkout", "--detach", commit], conn, data_dir)
-        .await
-        .map(|_| ())
+    write_local_excludes(repo)?;
+    discard_local_changes(repo, conn, data_dir).await;
+    repo_output(
+        repo,
+        ["checkout", "--detach", "--force", commit],
+        conn,
+        data_dir,
+    )
+    .await
+    .map(|_| ())
 }
 
 fn parse_tags(raw: &str) -> Vec<RemoteTag> {
@@ -194,16 +239,14 @@ async fn require_origin_credentials(
     conn: &DatabaseConnection,
     data_dir: &Path,
 ) -> Result<(), AppCommandError> {
-    let remote_url = crate::git_credential::get_remote_url_by_name(
-        &repo.to_string_lossy(),
-        "origin",
-    )
-    .await
-    .ok_or_else(|| {
-        AppCommandError::configuration_invalid(
-            "System skills repository has no readable origin remote",
-        )
-    })?;
+    let remote_url =
+        crate::git_credential::get_remote_url_by_name(&repo.to_string_lossy(), "origin")
+            .await
+            .ok_or_else(|| {
+                AppCommandError::configuration_invalid(
+                    "System skills repository has no readable origin remote",
+                )
+            })?;
     let mut probe = crate::process::tokio_command("git");
     inject_credentials_for_url(&mut probe, &remote_url, conn, data_dir).await
 }

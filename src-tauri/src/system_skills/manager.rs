@@ -89,8 +89,10 @@ async fn apply_update_locked(
         ));
     }
     if previous.as_ref().is_some_and(|checkout| checkout.dirty) {
-        tracing::info!(target: "system_skills", "dirty checkout detected, auto update stopped");
-        return Ok(mark_dirty(emitter));
+        tracing::info!(
+            target: "system_skills",
+            "dirty checkout detected, local changes will be overwritten"
+        );
     }
     state::mutate(emitter, |value| {
         value.status = SystemSkillsUpdateLifecycle::Downloading;
@@ -143,7 +145,10 @@ async fn rollback_locked(
     let repo = super::repository_dir();
     let current = git::inspect_checkout(&repo, conn, data_dir).await?;
     if current.dirty {
-        return Ok(mark_dirty(emitter));
+        tracing::info!(
+            target: "system_skills",
+            "dirty checkout detected, rollback will overwrite local changes"
+        );
     }
     state::mutate(emitter, |value| {
         value.status = SystemSkillsUpdateLifecycle::Applying;
@@ -240,14 +245,6 @@ async fn checkout_if_present(
         return Ok(None);
     }
     git::inspect_checkout(repo, conn, data_dir).await.map(Some)
-}
-
-fn mark_dirty(emitter: &EventEmitter) -> SystemSkillsUpdateState {
-    state::mutate(emitter, |value| {
-        value.status = SystemSkillsUpdateLifecycle::BlockedDirty;
-        value.dirty = true;
-        value.error = Some("存在本地修改，自动更新已停止".to_string());
-    })
 }
 
 fn record_error(emitter: &EventEmitter, error: &AppCommandError) -> AppCommandError {
