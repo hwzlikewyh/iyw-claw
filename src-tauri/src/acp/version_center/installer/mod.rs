@@ -12,7 +12,7 @@ mod signature;
 mod state;
 mod tools;
 
-pub(crate) use archive::{extract_tool_zip, locate_payload, probe_payload};
+pub(crate) use archive::{extract_tool_zip, locate_payload};
 pub use init::{bootstrap_init_status, bootstrap_initialize, InitStatusReport};
 pub use manifest::digest_managed_root;
 pub use runtime::managed_tool_executable;

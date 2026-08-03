@@ -36,10 +36,9 @@ pub(super) async fn ensure_component(
     .await
     {
         Ok(result) => installed_report(tool_id, &result.version, task_id, emitter),
-        Err(error) if allows_fallback(&error) => {
+        Err(error) => {
             install_fallback(data_dir, tool_id, task_id, emitter, &error).await
         }
-        Err(error) => failed_managed_report(tool_id, error),
     }
 }
 
@@ -72,18 +71,6 @@ fn installed_report(
     }
 }
 
-fn allows_fallback(error: &AppCommandError) -> bool {
-    matches!(
-        error.detail.as_deref(),
-        Some(
-            "AGENT_TOOL_NOT_FOUND"
-                | "AGENT_TOOL_VERSION_NOT_FOUND"
-                | "AGENT_TOOL_ARTIFACT_NOT_READY"
-                | "AGENT_VERSION_NOT_PUBLISHED"
-        )
-    )
-}
-
 async fn install_fallback(
     data_dir: &Path,
     tool_id: &str,
@@ -93,8 +80,9 @@ async fn install_fallback(
 ) -> RuntimeComponentReport {
     tracing::warn!(
         tool_id,
+        managed_message = %managed_error.message,
         fallback_reason = ?managed_error.detail,
-        "[runtime-bootstrap] managed catalog unavailable; using pinned fallback"
+        "[runtime-bootstrap] managed runtime unavailable; using pinned fallback"
     );
     match fallback::install(data_dir, tool_id, task_id, emitter).await {
         Ok(result) => RuntimeComponentReport {
@@ -105,19 +93,5 @@ async fn install_fallback(
             status: RuntimeComponentStatus::Failed,
             detail: Some(error),
         },
-    }
-}
-
-fn failed_managed_report(tool_id: &str, error: AppCommandError) -> RuntimeComponentReport {
-    tracing::error!(
-        tool_id,
-        error_code = ?error.code,
-        detail = ?error.detail,
-        message = %error.message,
-        "[runtime-bootstrap] managed runtime install failed without fallback"
-    );
-    RuntimeComponentReport {
-        status: RuntimeComponentStatus::Failed,
-        detail: Some(error.message),
     }
 }

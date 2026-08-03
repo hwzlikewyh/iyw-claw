@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use crate::acp::version_center::{
-    extract_tool_zip, locate_payload, probe_payload, runtime_dir, write_current_pointer,
+    extract_tool_zip, locate_payload, runtime_dir, write_current_pointer,
 };
 use crate::app_error::AppCommandError;
 use crate::web::event_bridge::EventEmitter;
 
-use super::download::download_verified;
+use super::download::download_archive;
 use super::spec::ComponentSpec;
 use super::{emit_event, RuntimeBootstrapEventKind};
 
@@ -49,7 +49,7 @@ async fn install_inner(
         .await
         .map_err(|error| format!("failed to create {}: {error}", downloads.display()))?;
     let archive = downloads.join(&spec.asset);
-    download_verified(spec, &archive, task_id, emitter).await?;
+    download_archive(spec, &archive, task_id, emitter).await?;
     emit_event(
         emitter,
         task_id,
@@ -59,9 +59,6 @@ async fn install_inner(
         format!("extracting {}", spec.asset),
     );
     let payload = extract_payload(&archive, staging, spec).await?;
-    probe_payload(&payload, spec.kind.tool_id(), spec.version)
-        .await
-        .map_err(command_error)?;
     activate_payload(data_dir, &payload, final_dir, spec).await?;
     Ok(final_dir.to_path_buf())
 }
@@ -71,11 +68,7 @@ async fn reuse_existing(
     final_dir: &Path,
     spec: &ComponentSpec,
 ) -> Result<bool, String> {
-    if !final_dir.is_dir()
-        || probe_payload(final_dir, spec.kind.tool_id(), spec.version)
-            .await
-            .is_err()
-    {
+    if !final_dir.is_dir() || locate_payload(final_dir, spec.kind.tool_id()).is_err() {
         return Ok(false);
     }
     write_current_pointer(data_dir, spec.kind.tool_id(), spec.version)
