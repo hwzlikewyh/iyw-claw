@@ -679,7 +679,10 @@ fn managed_npm_http_error(context: &str, status: reqwest::StatusCode) -> Managed
     let error = AcpError::DownloadFailed(format!("{context}: HTTP {status}"));
     if matches!(
         status,
-        reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::TOO_MANY_REQUESTS
+        reqwest::StatusCode::NOT_FOUND
+            | reqwest::StatusCode::GONE
+            | reqwest::StatusCode::REQUEST_TIMEOUT
+            | reqwest::StatusCode::TOO_MANY_REQUESTS
     ) || status.is_server_error()
     {
         ManagedNpmSourceError::Unavailable(error)
@@ -930,6 +933,9 @@ fn managed_npm_install_error(error: AcpError) -> ManagedNpmSourceError {
                     )
                 })
             })
+        }
+        AcpError::DownloadFailed(message) => {
+            message.starts_with("npm skipped the platform binary '")
         }
         _ => false,
     };

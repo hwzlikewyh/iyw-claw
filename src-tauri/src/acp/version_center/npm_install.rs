@@ -154,7 +154,23 @@ fn managed_integrity(value: &str) -> Result<String, AcpError> {
 }
 
 fn version_center_error(error: crate::app_error::AppCommandError) -> ManagedNpmInstallError {
-    let unavailable = error.code == AppErrorCode::NetworkError;
+    let unavailable = error.code == AppErrorCode::NetworkError
+        || (error.code == AppErrorCode::InvalidInput
+            && matches!(
+                error.detail.as_deref(),
+                Some(
+                    "AGENT_NOT_FOUND"
+                        | "AGENT_POLICY_MISSING"
+                        | "AGENT_VERSION_NOT_FOUND"
+                        | "AGENT_DISTRIBUTION_NOT_FOUND"
+                        | "AGENT_DISTRIBUTION_INCOMPLETE"
+                        | "AGENT_ARTIFACT_NOT_FOUND"
+                        | "AGENT_ARTIFACT_NOT_READY"
+                        | "AGENT_STORAGE_UNAVAILABLE"
+                        | "AGENT_DOWNLOAD_UNAVAILABLE"
+                        | "AGENT_RATE_LIMITED"
+                )
+            ));
     let detail = error
         .detail
         .map(|detail| format!("{}: {detail}", error.message))
