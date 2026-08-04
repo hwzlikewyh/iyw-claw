@@ -26,6 +26,7 @@ use crate::acp::types::{
 };
 #[cfg(feature = "tauri-runtime")]
 use crate::acp::types::{ConnectionInfo, ForkResultInfo, PromptInputBlock};
+use crate::acp::version_center::resolve_npm_agent_install;
 use crate::commands::experts::{
     central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, ExpertLinkState,
 };
@@ -567,6 +568,37 @@ async fn run_npm_streaming(
     Ok((status.success(), collected_stderr))
 }
 
+async fn verify_managed_npm_integrity(
+    package_spec: &str,
+    registry_url: &str,
+    expected: &str,
+) -> Result<(), AcpError> {
+    let output = crate::process::tokio_command("npm")
+        .arg("view")
+        .arg(package_spec)
+        .arg("dist.integrity")
+        .arg("--json")
+        .arg(format!("--registry={registry_url}"))
+        .output()
+        .await
+        .map_err(|error| AcpError::protocol(format!("verify managed npm integrity failed: {error}")))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(AcpError::protocol(format!(
+            "managed npm integrity lookup failed: {}",
+            detail.trim()
+        )));
+    }
+    let actual = serde_json::from_slice::<String>(&output.stdout)
+        .map_err(|error| AcpError::protocol(format!("invalid npm integrity response: {error}")))?;
+    if actual.trim() != expected {
+        return Err(AcpError::protocol(
+            "managed npm package integrity does not match the version center",
+        ));
+    }
+    Ok(())
+}
+
 /// How many times a managed npm install is attempted before giving up. See the
 /// retry comment in [`install_private_npm_package`].
 const NPM_INSTALL_ATTEMPTS: u32 = 3;
@@ -612,6 +644,7 @@ async fn install_private_npm_package(
     agent_type: AgentType,
     version: &str,
     packages: &[&str],
+    registry_url: Option<&str>,
     required_commands: &[&str],
     task_id: &str,
     emitter: &EventEmitter,
@@ -656,7 +689,12 @@ async fn install_private_npm_package(
     tokio::fs::create_dir_all(paths.npm_cache_dir())
         .await
         .map_err(|e| AcpError::protocol(format!("create private npm cache failed: {e}")))?;
-    let args = npm_runtime::private_npm_install_args(&staging, &paths.npm_cache_dir(), packages)?;
+    let args = npm_runtime::private_npm_install_args_with_registry(
+        &staging,
+        &paths.npm_cache_dir(),
+        packages,
+        registry_url,
+    )?;
     let package_display = packages.join(" ");
 
     emit_agent_install_event(
@@ -8730,7 +8768,22 @@ pub(crate) async fn acp_prepare_npx_agent_core(
         } => {
             // `version_override` of None/empty keeps the registry-pinned spec;
             // a custom version installs `<name>@<version>` instead.
-            let install_spec = build_npm_install_spec(package, version_override.as_deref())?;
+            let legacy_install_spec =
+                build_npm_install_spec(package, version_override.as_deref())?;
+            let legacy_resolved = version_from_package_spec(&legacy_install_spec)
+                .or_else(|| {
+                    registry_version
+                        .as_deref()
+                        .and_then(normalize_version_candidate)
+                })
+                .or_else(|| normalize_version_candidate(version))
+                .ok_or_else(|| {
+                    AcpError::protocol("failed to determine private npm runtime version")
+                })?;
+            let mut install_spec = legacy_install_spec.clone();
+            let mut resolved = legacy_resolved.clone();
+            let mut registry_url = None;
+            let mut registry_integrity = None;
 
             let default = agent_setting_service::AgentDefaultInput {
                 agent_type,
@@ -8750,38 +8803,102 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 );
             }
 
+            if agent_type == AgentType::Codex {
+                match resolve_npm_agent_install(&db.conn, agent_type, &resolved).await {
+                    Ok(managed) => {
+                        emit_agent_install_event(
+                            emitter,
+                            &task_id,
+                            AgentInstallEventKind::Log,
+                            format!(
+                                "Codex source resolved by version center ({})",
+                                managed.registry
+                            ),
+                        );
+                        install_spec = managed.install_spec;
+                        resolved = managed.version;
+                        registry_url = Some(managed.registry);
+                        registry_integrity = Some(managed.integrity);
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            agent_type = ?agent_type,
+                            requested_version = %resolved,
+                            error = %error,
+                            "[agent-version-center] Codex npm resolve failed; using legacy source"
+                        );
+                        emit_agent_install_event(
+                            emitter,
+                            &task_id,
+                            AgentInstallEventKind::Log,
+                            format!(
+                                "Version center unavailable ({error}); using the legacy npm source"
+                            ),
+                        );
+                    }
+                }
+            }
             emit_agent_install_event(
                 emitter,
                 &task_id,
                 AgentInstallEventKind::Log,
                 format!("Installing {} ({install_spec})", meta.name),
             );
-            let resolved = version_from_package_spec(&install_spec)
-                .or_else(|| {
-                    registry_version
-                        .as_deref()
-                        .and_then(normalize_version_candidate)
-                })
-                .or_else(|| normalize_version_candidate(version))
-                .ok_or_else(|| {
-                    AcpError::protocol("failed to determine private npm runtime version")
-                })?;
             let mut packages = vec![install_spec.as_str()];
             let mut required_commands = vec![cmd];
             if agent_type == AgentType::Pi {
                 packages.push(PI_CODING_AGENT_PACKAGE);
                 required_commands.push("pi");
             }
-            install_private_npm_package(
-                &paths,
-                agent_type,
-                &resolved,
-                &packages,
-                &required_commands,
-                &task_id,
-                emitter,
-            )
-            .await?;
+            let install_result = async {
+                if let (Some(registry), Some(integrity)) =
+                    (registry_url.as_deref(), registry_integrity.as_deref())
+                {
+                    verify_managed_npm_integrity(&install_spec, registry, integrity).await?;
+                }
+                install_private_npm_package(
+                    &paths,
+                    agent_type,
+                    &resolved,
+                    &packages,
+                    registry_url.as_deref(),
+                    &required_commands,
+                    &task_id,
+                    emitter,
+                )
+                .await
+            }
+            .await;
+            drop(packages);
+            drop(required_commands);
+            if let Err(error) = install_result {
+                if registry_url.is_none() {
+                    return Err(error);
+                }
+                tracing::warn!(
+                    agent_type = ?agent_type,
+                    managed_error = %error,
+                    "[agent-version-center] managed npm install failed; using legacy source"
+                );
+                emit_agent_install_event(
+                    emitter,
+                    &task_id,
+                    AgentInstallEventKind::Log,
+                    format!("Managed npm source failed ({error}); using the legacy npm source"),
+                );
+                install_private_npm_package(
+                    &paths,
+                    agent_type,
+                    &legacy_resolved,
+                    &[legacy_install_spec.as_str()],
+                    None,
+                    &[cmd],
+                    &task_id,
+                    emitter,
+                )
+                .await?;
+                resolved = legacy_resolved;
+            }
 
             agent_setting_service::set_installed_version(
                 &db.conn,
@@ -8995,6 +9112,7 @@ pub(crate) async fn acp_install_pi_binary_core(
                 AgentType::Pi,
                 version,
                 &[package, PI_CODING_AGENT_PACKAGE],
+                None,
                 &[cmd, "pi"],
                 &task_id,
                 emitter,

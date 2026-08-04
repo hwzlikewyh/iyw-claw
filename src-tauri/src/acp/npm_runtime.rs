@@ -87,7 +87,19 @@ pub fn private_npm_install_args(
     cache: &Path,
     packages: &[&str],
 ) -> Result<Vec<OsString>, AcpError> {
-    let registry = configured_npm_registry()?;
+    private_npm_install_args_with_registry(prefix, cache, packages, None)
+}
+
+pub fn private_npm_install_args_with_registry(
+    prefix: &Path,
+    cache: &Path,
+    packages: &[&str],
+    registry: Option<&str>,
+) -> Result<Vec<OsString>, AcpError> {
+    let registry = match registry {
+        Some(registry) => npm_registry(Some(registry))?,
+        None => configured_npm_registry()?,
+    };
     let mut args = vec![
         OsString::from("install"),
         OsString::from("--global"),

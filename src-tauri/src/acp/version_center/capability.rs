@@ -149,13 +149,24 @@ fn validate_npm_components(
     package: &str,
     components: &[crate::acp::version_center::types::DeliveryComponent],
 ) -> Result<(), String> {
-    let package_name = package.split('@').next().unwrap_or_default();
+    let package_name = npm_package_name(package);
     let matches = components
         .iter()
         .any(|component| component.package_name == package_name);
     (matches && !components.is_empty())
         .then_some(())
         .ok_or_else(|| "npm component is outside the compiled allowlist".to_string())
+}
+
+fn npm_package_name(spec: &str) -> &str {
+    let spec = spec.trim();
+    let version_separator = if spec.starts_with('@') {
+        spec.find('/')
+            .and_then(|slash| spec[slash + 1..].find('@').map(|index| slash + 1 + index))
+    } else {
+        spec.find('@')
+    };
+    version_separator.map_or(spec, |index| &spec[..index])
 }
 
 fn validate_uvx_components(

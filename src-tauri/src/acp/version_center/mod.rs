@@ -8,6 +8,7 @@ mod catalog;
 mod client;
 mod installer;
 mod inventory;
+mod npm_install;
 mod types;
 
 pub use capability::{known_tool, TOOL_IDS};
@@ -25,4 +26,5 @@ pub use inventory::{
     list_agent_installations, list_tool_installations, list_tool_settings, set_agent_pin,
     set_tool_pin, AgentInstallation, ManagedToolInstallation, ManagedToolSetting,
 };
+pub(crate) use npm_install::resolve_npm_agent_install;
 pub use types::{AgentOffer, CatalogSnapshot, DownloadTicket, ToolOffer, VersionHistory};
