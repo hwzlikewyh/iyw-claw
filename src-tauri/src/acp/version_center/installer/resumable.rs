@@ -11,6 +11,7 @@
 //! - 每次尝试有连接 / 总超时，网络抖动指数退避 + 抖动，有界重试。
 
 use std::collections::HashMap;
+use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::sync::Mutex;
@@ -19,7 +20,7 @@ use std::time::{Duration, Instant};
 use futures_util::StreamExt;
 use reqwest::redirect::Policy;
 use sha2::{Digest, Sha256};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Semaphore;
 
 use crate::app_error::{AppCommandError, AppErrorCode};
@@ -31,6 +32,7 @@ const MAX_ATTEMPTS: u32 = 5;
 const BACKOFF_BASE_MS: u64 = 1_000;
 const PROGRESS_GRANULARITY: u64 = 128 * 1024;
 const PROGRESS_MIN_INTERVAL_MS: u64 = 500;
+const HASH_BUFFER_BYTES: usize = 64 * 1024;
 
 /// IR-008：全局并发下载上限（无依赖组件下载并行，默认小并发）。
 const MAX_GLOBAL_DOWNLOADS: usize = 2;
@@ -109,10 +111,7 @@ pub async fn download_resumable(
 
     // IR-008：全局 + 每 host 并发限制。信号量在最终文件已存在（零下载）
     // 之后才获取，避免 keep 路径占用并发额度；许可持有整个下载过程。
-    let _global_permit = GLOBAL_DOWNLOAD_SEMAPHORE
-        .acquire()
-        .await
-        .map_err(|error| {
+    let _global_permit = GLOBAL_DOWNLOAD_SEMAPHORE.acquire().await.map_err(|error| {
             AppCommandError::task_execution_failed(format!(
                 "Global download concurrency gate failed: {error}"
             ))
@@ -128,8 +127,7 @@ pub async fn download_resumable(
 
     let part_path = part_path_for(final_path);
     let meta_path = part_meta_path(final_path);
-    let etag = read_resume_meta(&meta_path, artifact_id, url, expected_size, expected_sha256)
-        .await;
+    let etag = read_resume_meta(&meta_path, artifact_id, url, expected_size, expected_sha256).await;
     if let Some(parent) = part_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -151,13 +149,7 @@ pub async fn download_resumable(
                 if let Some(value) = new_etag {
                     let _ = tokio::fs::write(
                         &meta_path,
-                        resume_meta(
-                            artifact_id,
-                            url,
-                            expected_size,
-                            expected_sha256,
-                            &value,
-                        ),
+                        resume_meta(artifact_id, url, expected_size, expected_sha256, &value),
                     )
                     .await;
                 }
@@ -227,10 +219,7 @@ async fn attempt_once(
     loop {
         let mut request = client.get(url);
         if resume_from > 0 {
-            request = request.header(
-                reqwest::header::RANGE,
-                format!("bytes={resume_from}-"),
-            );
+            request = request.header(reqwest::header::RANGE, format!("bytes={resume_from}-"));
             if let Some(value) = etag_state.as_deref().filter(|value| !value.is_empty()) {
                 request = request.header(reqwest::header::IF_RANGE, value);
             }
@@ -275,15 +264,21 @@ async fn attempt_once(
             continue;
         }
         if !status.is_success() {
-            return Err(AttemptError::Fatal(AppCommandError::network(
-                "Managed artifact download was rejected",
-            )
-            .with_detail(status.to_string())));
+            return Err(AttemptError::Fatal(
+                AppCommandError::network("Managed artifact download was rejected")
+                    .with_detail(status.to_string()),
+            ));
         }
 
         let (truncate, server_resume) = if status == reqwest::StatusCode::PARTIAL_CONTENT {
-            let (start, total) = parse_content_range(response.headers())?;
-            if start != resume_from || total != expected_size as u64 {
+            let (start, end, total) = parse_content_range(response.headers())?;
+            let expected_total = expected_size as u64;
+            if start != resume_from || end != expected_total - 1 || total != expected_total {
+                if restart {
+                    return Err(AttemptError::Fatal(AppCommandError::invalid_input(
+                        "Managed artifact Content-Range does not match the requested range",
+                    )));
+                }
                 // 断点与服务器不一致或制品大小变化：重建 part 从头下载。
                 truncate_part(part_path).await;
                 resume_from = 0;
@@ -307,15 +302,11 @@ async fn attempt_once(
             on_progress,
         )
         .await?;
-        let _ = restart;
         return Ok(new_etag);
     }
 }
 
-async fn head_content_length(
-    client: &reqwest::Client,
-    url: &str,
-) -> Result<u64, AttemptError> {
+async fn head_content_length(client: &reqwest::Client, url: &str) -> Result<u64, AttemptError> {
     let head = client
         .head(url)
         .send()
@@ -342,14 +333,7 @@ async fn stream_to_part(
     expected_sha256: &str,
     on_progress: Option<&(dyn Fn(DownloadProgress) + Send + Sync)>,
 ) -> Result<(), AttemptError> {
-    let mut output = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(truncate)
-        .open(part_path)
-        .await
-        .map_err(|error| AttemptError::Transient(error.to_string()))?;
-    let mut hasher = Sha256::new();
+    let (mut output, mut hasher) = prepare_part_output(part_path, truncate, server_resume).await?;
     let mut stream = response.bytes_stream();
     let mut total = server_resume;
     let started = Instant::now();
@@ -365,10 +349,7 @@ async fn stream_to_part(
             )));
         }
         hasher.update(&chunk);
-        output
-            .write_all(&chunk)
-            .await
-            .map_err(|error| AttemptError::Transient(error.to_string()))?;
+        output.write_all(&chunk).await.map_err(io_attempt_error)?;
         if let Some(cb) = on_progress {
             let interval = last_reported_at.elapsed().as_millis() as u64;
             if total.saturating_sub(last_reported_bytes) >= PROGRESS_GRANULARITY
@@ -391,14 +372,8 @@ async fn stream_to_part(
             started.elapsed().as_secs_f64(),
         ));
     }
-    output
-        .flush()
-        .await
-        .map_err(|error| AttemptError::Transient(error.to_string()))?;
-    output
-        .sync_all()
-        .await
-        .map_err(|error| AttemptError::Transient(error.to_string()))?;
+    output.flush().await.map_err(io_attempt_error)?;
+    output.sync_all().await.map_err(io_attempt_error)?;
     if total != expected_size as u64
         || !format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected_sha256)
     {
@@ -407,6 +382,57 @@ async fn stream_to_part(
         )));
     }
     Ok(())
+}
+
+async fn prepare_part_output(
+    part_path: &Path,
+    truncate: bool,
+    server_resume: u64,
+) -> Result<(tokio::fs::File, Sha256), AttemptError> {
+    let mut output = tokio::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(truncate)
+        .open(part_path)
+        .await
+        .map_err(io_attempt_error)?;
+    let mut hasher = Sha256::new();
+    if server_resume == 0 {
+        return Ok((output, hasher));
+    }
+
+    let actual_size = output.metadata().await.map_err(io_attempt_error)?.len();
+    if actual_size != server_resume {
+        return Err(AttemptError::Fatal(AppCommandError::io_error(
+            "Partial artifact changed while resuming",
+        )));
+    }
+
+    output
+        .seek(SeekFrom::Start(0))
+        .await
+        .map_err(io_attempt_error)?;
+    let mut remaining = server_resume;
+    let mut buffer = [0_u8; HASH_BUFFER_BYTES];
+    while remaining > 0 {
+        let read_size = remaining.min(HASH_BUFFER_BYTES as u64) as usize;
+        output
+            .read_exact(&mut buffer[..read_size])
+            .await
+            .map_err(io_attempt_error)?;
+        hasher.update(&buffer[..read_size]);
+        remaining -= read_size as u64;
+    }
+    output
+        .seek(SeekFrom::Start(server_resume))
+        .await
+        .map_err(io_attempt_error)?;
+    Ok((output, hasher))
+}
+
+fn io_attempt_error(error: std::io::Error) -> AttemptError {
+    AttemptError::Fatal(AppCommandError::io(error))
 }
 
 async fn finalize_part(
@@ -547,7 +573,7 @@ async fn read_resume_meta(
 
 fn parse_content_range(
     headers: &reqwest::header::HeaderMap,
-) -> Result<(u64, u64), AttemptError> {
+) -> Result<(u64, u64, u64), AttemptError> {
     let value = headers
         .get(reqwest::header::CONTENT_RANGE)
         .and_then(|value| value.to_str().ok())
@@ -557,9 +583,7 @@ fn parse_content_range(
             ))
         })?;
     // 格式：bytes <start>-<end>/<total>
-    let rest = value
-        .strip_prefix("bytes ")
-        .ok_or_else(|| {
+    let rest = value.strip_prefix("bytes ").ok_or_else(|| {
             AttemptError::Fatal(AppCommandError::invalid_input(
                 "Managed artifact Content-Range is malformed",
             ))
@@ -574,7 +598,7 @@ fn parse_content_range(
             "Managed artifact Content-Range total is invalid",
         ))
     })?;
-    let (start, _end) = range.split_once('-').ok_or_else(|| {
+    let (start, end) = range.split_once('-').ok_or_else(|| {
         AttemptError::Fatal(AppCommandError::invalid_input(
             "Managed artifact Content-Range range is malformed",
         ))
@@ -584,7 +608,12 @@ fn parse_content_range(
             "Managed artifact Content-Range start is invalid",
         ))
     })?;
-    Ok((start, total))
+    let end = end.parse::<u64>().map_err(|_| {
+        AttemptError::Fatal(AppCommandError::invalid_input(
+            "Managed artifact Content-Range end is invalid",
+        ))
+    })?;
+    Ok((start, end, total))
 }
 
 fn progress_event(downloaded: u64, total: u64, elapsed_secs: f64) -> DownloadProgress {
