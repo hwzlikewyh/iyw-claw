@@ -568,46 +568,408 @@ async fn run_npm_streaming(
     Ok((status.success(), collected_stderr))
 }
 
-enum ManagedNpmIntegrityError {
+const MAX_MANAGED_NPM_METADATA_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_MANAGED_NPM_TARBALL_BYTES: u64 = 512 * 1024 * 1024;
+
+enum ManagedNpmSourceError {
     Unavailable(AcpError),
-    Invalid(AcpError),
+    Rejected(AcpError),
 }
 
-async fn verify_managed_npm_integrity(
-    package_spec: &str,
-    registry_url: &str,
-    expected: &str,
-) -> Result<(), ManagedNpmIntegrityError> {
-    let output = crate::process::tokio_command("npm")
-        .arg("view")
-        .arg(package_spec)
-        .arg("dist.integrity")
-        .arg("--json")
-        .arg(format!("--registry={registry_url}"))
-        .output()
-        .await
-        .map_err(|error| {
-            ManagedNpmIntegrityError::Unavailable(AcpError::protocol(format!(
-                "verify managed npm integrity failed: {error}"
-            )))
-        })?;
-    if !output.status.success() {
-        let detail = String::from_utf8_lossy(&output.stderr);
-        return Err(ManagedNpmIntegrityError::Unavailable(AcpError::protocol(
-            format!("managed npm integrity lookup failed: {}", detail.trim()),
-        )));
+#[derive(Deserialize)]
+struct ManagedNpmMetadata {
+    name: String,
+    version: String,
+    dist: ManagedNpmDist,
+}
+
+#[derive(Deserialize)]
+struct ManagedNpmDist {
+    tarball: String,
+    integrity: String,
+}
+
+struct ManagedNpmTarball {
+    _temp_dir: tempfile::TempDir,
+    path: PathBuf,
+}
+
+enum ManagedNpmHasher {
+    Sha256(sha2::Sha256),
+    Sha384(sha2::Sha384),
+    Sha512(sha2::Sha512),
+}
+
+impl ManagedNpmHasher {
+    fn from_integrity(integrity: &str) -> Result<(Self, Vec<u8>), ManagedNpmSourceError> {
+        use base64::Engine as _;
+
+        let (algorithm, encoded) = integrity
+            .split_once('-')
+            .ok_or_else(|| managed_npm_rejected("managed npm integrity contract is invalid"))?;
+        let expected = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|_| managed_npm_rejected("managed npm integrity digest is invalid"))?;
+        let hasher = match algorithm {
+            "sha256" => Self::Sha256(sha2::Sha256::default()),
+            "sha384" => Self::Sha384(sha2::Sha384::default()),
+            "sha512" => Self::Sha512(sha2::Sha512::default()),
+            _ => return Err(managed_npm_rejected("managed npm integrity is unsupported")),
+        };
+        Ok((hasher, expected))
     }
-    let actual = serde_json::from_slice::<String>(&output.stdout).map_err(|error| {
-        ManagedNpmIntegrityError::Invalid(AcpError::protocol(format!(
-            "invalid npm integrity response: {error}"
-        )))
+
+    fn update(&mut self, bytes: &[u8]) {
+        use sha2::Digest as _;
+
+        match self {
+            Self::Sha256(hasher) => hasher.update(bytes),
+            Self::Sha384(hasher) => hasher.update(bytes),
+            Self::Sha512(hasher) => hasher.update(bytes),
+        }
+    }
+
+    fn finish(self) -> Vec<u8> {
+        use sha2::Digest as _;
+
+        match self {
+            Self::Sha256(hasher) => hasher.finalize().to_vec(),
+            Self::Sha384(hasher) => hasher.finalize().to_vec(),
+            Self::Sha512(hasher) => hasher.finalize().to_vec(),
+        }
+    }
+}
+
+fn managed_npm_rejected(message: impl Into<String>) -> ManagedNpmSourceError {
+    ManagedNpmSourceError::Rejected(AcpError::DownloadFailed(message.into()))
+}
+
+fn managed_npm_network_unavailable(error: &reqwest::Error) -> bool {
+    if error.is_connect() || error.is_timeout() {
+        return true;
+    }
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        if let Some(error) = cause.downcast_ref::<io::Error>() {
+            return matches!(
+                error.kind(),
+                io::ErrorKind::ConnectionRefused
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::ConnectionAborted
+                    | io::ErrorKind::NotConnected
+                    | io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::TimedOut
+            );
+        }
+        source = cause.source();
+    }
+    false
+}
+
+fn managed_npm_reqwest_error(context: &str, error: reqwest::Error) -> ManagedNpmSourceError {
+    let message = format!("{context}: {error}");
+    if managed_npm_network_unavailable(&error) {
+        ManagedNpmSourceError::Unavailable(AcpError::DownloadFailed(message))
+    } else {
+        managed_npm_rejected(message)
+    }
+}
+
+fn managed_npm_http_error(context: &str, status: reqwest::StatusCode) -> ManagedNpmSourceError {
+    let error = AcpError::DownloadFailed(format!("{context}: HTTP {status}"));
+    if matches!(
+        status,
+        reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::TOO_MANY_REQUESTS
+    ) || status.is_server_error()
+    {
+        ManagedNpmSourceError::Unavailable(error)
+    } else {
+        ManagedNpmSourceError::Rejected(error)
+    }
+}
+
+fn managed_npm_metadata_url(
+    registry_url: &str,
+    package_name: &str,
+    version: &str,
+) -> Result<reqwest::Url, ManagedNpmSourceError> {
+    let mut url = reqwest::Url::parse(registry_url)
+        .map_err(|error| managed_npm_rejected(format!("invalid managed npm registry: {error}")))?;
+    let mut segments = url
+        .path_segments_mut()
+        .map_err(|_| managed_npm_rejected("managed npm registry cannot be a base URL"))?;
+    segments.pop_if_empty().push(package_name).push(version);
+    drop(segments);
+    Ok(url)
+}
+
+fn validate_managed_tarball_url(
+    registry_url: &str,
+    tarball_url: &str,
+) -> Result<reqwest::Url, ManagedNpmSourceError> {
+    let registry = reqwest::Url::parse(registry_url)
+        .map_err(|error| managed_npm_rejected(format!("invalid managed npm registry: {error}")))?;
+    let tarball = reqwest::Url::parse(tarball_url).map_err(|error| {
+        managed_npm_rejected(format!("invalid managed npm tarball URL: {error}"))
     })?;
-    if actual.trim() != expected {
-        return Err(ManagedNpmIntegrityError::Invalid(AcpError::protocol(
-            "managed npm package integrity does not match the version center",
-        )));
+    let same_origin = registry.scheme() == tarball.scheme()
+        && registry.host_str() == tarball.host_str()
+        && registry.port_or_known_default() == tarball.port_or_known_default();
+    let safe = same_origin
+        && tarball.username().is_empty()
+        && tarball.password().is_none()
+        && tarball.query().is_none()
+        && tarball.fragment().is_none();
+    if !safe {
+        return Err(managed_npm_rejected(
+            "managed npm registry returned an unsafe tarball URL",
+        ));
+    }
+    Ok(tarball)
+}
+
+fn managed_npm_client() -> Result<reqwest::Client, ManagedNpmSourceError> {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(15 * 60))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| managed_npm_rejected(format!("initialize npm client failed: {error}")))
+}
+
+async fn fetch_managed_npm_metadata(
+    client: &reqwest::Client,
+    package_name: &str,
+    version: &str,
+    registry_url: &str,
+    expected_integrity: &str,
+) -> Result<ManagedNpmDist, ManagedNpmSourceError> {
+    let metadata_url = managed_npm_metadata_url(registry_url, package_name, version)?;
+    let response = client
+        .get(metadata_url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(|error| managed_npm_reqwest_error("managed npm metadata request failed", error))?;
+    if !response.status().is_success() {
+        return Err(managed_npm_http_error(
+            "managed npm metadata request failed",
+            response.status(),
+        ));
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_MANAGED_NPM_METADATA_BYTES)
+    {
+        return Err(managed_npm_rejected("managed npm metadata is too large"));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| managed_npm_reqwest_error("read managed npm metadata failed", error))?;
+    if bytes.len() as u64 > MAX_MANAGED_NPM_METADATA_BYTES {
+        return Err(managed_npm_rejected("managed npm metadata is too large"));
+    }
+    let metadata: ManagedNpmMetadata = serde_json::from_slice(&bytes)
+        .map_err(|error| managed_npm_rejected(format!("invalid managed npm metadata: {error}")))?;
+    if metadata.name != package_name || metadata.version != version {
+        return Err(managed_npm_rejected(
+            "managed npm metadata version mismatch",
+        ));
+    }
+    if metadata.dist.integrity.trim() != expected_integrity {
+        return Err(managed_npm_rejected(
+            "managed npm metadata integrity does not match the version center",
+        ));
+    }
+    Ok(metadata.dist)
+}
+
+async fn request_managed_npm_tarball(
+    client: &reqwest::Client,
+    registry_url: &str,
+    tarball_url: &str,
+) -> Result<reqwest::Response, ManagedNpmSourceError> {
+    let tarball_url = validate_managed_tarball_url(registry_url, tarball_url)?;
+    let response =
+        client.get(tarball_url).send().await.map_err(|error| {
+            managed_npm_reqwest_error("managed npm tarball request failed", error)
+        })?;
+    if !response.status().is_success() {
+        return Err(managed_npm_http_error(
+            "managed npm tarball request failed",
+            response.status(),
+        ));
+    }
+    Ok(response)
+}
+
+async fn write_managed_npm_tarball(
+    mut file: tokio::fs::File,
+    response: reqwest::Response,
+    expected_integrity: &str,
+) -> Result<(), ManagedNpmSourceError> {
+    use futures_util::StreamExt as _;
+    use tokio::io::AsyncWriteExt as _;
+
+    let content_length = response.content_length();
+    if content_length.is_some_and(|length| length > MAX_MANAGED_NPM_TARBALL_BYTES) {
+        return Err(managed_npm_rejected("managed npm tarball is too large"));
+    }
+    let (mut hasher, expected_digest) = ManagedNpmHasher::from_integrity(expected_integrity)?;
+    let mut stream = response.bytes_stream();
+    let mut downloaded = 0_u64;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk
+            .map_err(|error| managed_npm_reqwest_error("download npm tarball failed", error))?;
+        downloaded = downloaded
+            .checked_add(chunk.len() as u64)
+            .ok_or_else(|| managed_npm_rejected("managed npm tarball size overflow"))?;
+        if downloaded > MAX_MANAGED_NPM_TARBALL_BYTES {
+            return Err(managed_npm_rejected("managed npm tarball is too large"));
+        }
+        file.write_all(&chunk)
+            .await
+            .map_err(|error| managed_npm_rejected(format!("write npm tarball failed: {error}")))?;
+        hasher.update(&chunk);
+    }
+    file.flush()
+        .await
+        .map_err(|error| managed_npm_rejected(format!("persist npm tarball failed: {error}")))?;
+    file.sync_all()
+        .await
+        .map_err(|error| managed_npm_rejected(format!("persist npm tarball failed: {error}")))?;
+    if content_length.is_some_and(|length| length != downloaded) {
+        return Err(managed_npm_rejected("managed npm tarball length mismatch"));
+    }
+    if hasher.finish() != expected_digest {
+        return Err(managed_npm_rejected(
+            "managed npm tarball integrity does not match the version center",
+        ));
     }
     Ok(())
+}
+
+async fn persist_managed_npm_tarball(
+    paths: &AgentStoragePaths,
+    response: reqwest::Response,
+    expected_integrity: &str,
+) -> Result<ManagedNpmTarball, ManagedNpmSourceError> {
+    tokio::fs::create_dir_all(paths.staging_dir())
+        .await
+        .map_err(|error| {
+            managed_npm_rejected(format!("create npm staging root failed: {error}"))
+        })?;
+    let temp_dir = tempfile::Builder::new()
+        .prefix("managed-npm-")
+        .tempdir_in(paths.staging_dir())
+        .map_err(|error| {
+            managed_npm_rejected(format!("create npm tarball staging failed: {error}"))
+        })?;
+    let path = temp_dir.path().join("package.tgz");
+    let file = tokio::fs::File::create(&path)
+        .await
+        .map_err(|error| managed_npm_rejected(format!("create npm tarball failed: {error}")))?;
+    write_managed_npm_tarball(file, response, expected_integrity).await?;
+    Ok(ManagedNpmTarball {
+        _temp_dir: temp_dir,
+        path,
+    })
+}
+
+async fn fetch_managed_npm_tarball(
+    paths: &AgentStoragePaths,
+    package_name: &str,
+    version: &str,
+    registry_url: &str,
+    expected_integrity: &str,
+) -> Result<ManagedNpmTarball, ManagedNpmSourceError> {
+    let client = managed_npm_client()?;
+    let dist = fetch_managed_npm_metadata(
+        &client,
+        package_name,
+        version,
+        registry_url,
+        expected_integrity,
+    )
+    .await?;
+    let response = request_managed_npm_tarball(&client, registry_url, &dist.tarball).await?;
+    persist_managed_npm_tarball(paths, response, expected_integrity).await
+}
+
+fn managed_npm_install_error(error: AcpError) -> ManagedNpmSourceError {
+    let explicitly_unavailable = match &error {
+        AcpError::Protocol(message) if message.contains("private npm install failed:") => {
+            let message = message.to_ascii_lowercase();
+            [
+                "enetunreach",
+                "ehostunreach",
+                "econnrefused",
+                "econnreset",
+                "etimedout",
+                "eai_again",
+                "enotfound",
+                "code e408",
+                "code e429",
+                "code e500",
+                "code e502",
+                "code e503",
+                "code e504",
+            ]
+            .iter()
+            .any(|token| message.contains(token))
+        }
+        _ => false,
+    };
+    if explicitly_unavailable {
+        ManagedNpmSourceError::Unavailable(error)
+    } else {
+        ManagedNpmSourceError::Rejected(error)
+    }
+}
+
+async fn install_managed_npm_package(
+    paths: &AgentStoragePaths,
+    agent_type: AgentType,
+    package_name: &str,
+    version: &str,
+    registry_url: &str,
+    integrity: &str,
+    required_commands: &[&str],
+    task_id: &str,
+    emitter: &EventEmitter,
+) -> Result<PathBuf, ManagedNpmSourceError> {
+    emit_agent_install_event(
+        emitter,
+        task_id,
+        AgentInstallEventKind::Log,
+        format!("Downloading exact managed npm archive for {package_name}@{version}"),
+    );
+    let tarball =
+        fetch_managed_npm_tarball(paths, package_name, version, registry_url, integrity).await?;
+    emit_agent_install_event(
+        emitter,
+        task_id,
+        AgentInstallEventKind::Log,
+        "Managed npm archive integrity verified",
+    );
+    let package_path = tarball
+        .path
+        .to_str()
+        .ok_or_else(|| managed_npm_rejected("managed npm tarball path is not valid Unicode"))?;
+    install_private_npm_package(
+        paths,
+        agent_type,
+        version,
+        &[package_path],
+        Some(package_name),
+        Some(registry_url),
+        required_commands,
+        task_id,
+        emitter,
+    )
+    .await
+    .map_err(managed_npm_install_error)
 }
 
 /// How many times a managed npm install is attempted before giving up. See the
@@ -627,7 +989,7 @@ const NPM_INSTALL_ATTEMPTS: u32 = 3;
 async fn run_private_npm_install_attempt(
     staging: &Path,
     args: &[OsString],
-    packages: &[&str],
+    package_name: &str,
     version: &str,
     task_id: &str,
     emitter: &EventEmitter,
@@ -641,12 +1003,7 @@ async fn run_private_npm_install_attempt(
             format!("private npm install failed: {detail}")
         }));
     }
-    let package_name = packages
-        .first()
-        .map(|package| package_name_from_spec(package))
-        .filter(|name| !name.is_empty())
-        .ok_or_else(|| AcpError::protocol("private npm package name is empty"))?;
-    verify_private_npm_package_version(staging, &package_name, version).await?;
+    verify_private_npm_package_version(staging, package_name, version).await?;
     npm_runtime::verify_host_platform_optional_deps(staging)
 }
 
@@ -655,6 +1012,7 @@ async fn install_private_npm_package(
     agent_type: AgentType,
     version: &str,
     packages: &[&str],
+    expected_package_name: Option<&str>,
     registry_url: Option<&str>,
     required_commands: &[&str],
     task_id: &str,
@@ -665,7 +1023,10 @@ async fn install_private_npm_package(
     // multi-hundred-MB network download on the first launch of a freshly
     // installed desktop app. Non-fatal: if the seed fails we fall through to
     // the regular npm install.
-    if agent_type == AgentType::Codex && version == binary_cache::BUNDLED_CODEX_ACP_VERSION {
+    if expected_package_name.is_none()
+        && agent_type == AgentType::Codex
+        && version == binary_cache::BUNDLED_CODEX_ACP_VERSION
+    {
         if let Ok(exe) = std::env::current_exe() {
             match binary_cache::seed_bundled_codex_acp(paths, &exe) {
                 Ok(true) => {
@@ -706,6 +1067,15 @@ async fn install_private_npm_package(
         packages,
         registry_url,
     )?;
+    let package_name = expected_package_name
+        .map(str::to_string)
+        .or_else(|| {
+            packages
+                .first()
+                .map(|package| package_name_from_spec(package))
+        })
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| AcpError::protocol("private npm package name is empty"))?;
     let package_display = packages.join(" ");
 
     emit_agent_install_event(
@@ -730,7 +1100,7 @@ async fn install_private_npm_package(
             let outcome = run_private_npm_install_attempt(
                 &staging,
                 &args,
-                packages,
+                &package_name,
                 version,
                 task_id,
                 emitter,
@@ -8792,8 +9162,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 })?;
             let mut install_spec = legacy_install_spec.clone();
             let mut resolved = legacy_resolved.clone();
-            let mut registry_url = None;
-            let mut registry_integrity = None;
+            let mut managed_install = None;
 
             let default = agent_setting_service::AgentDefaultInput {
                 agent_type,
@@ -8825,12 +9194,16 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                                 managed.registry
                             ),
                         );
-                        install_spec = managed.install_spec;
-                        resolved = managed.version;
-                        registry_url = Some(managed.registry);
-                        registry_integrity = Some(managed.integrity);
+                        install_spec = managed.install_spec.clone();
+                        resolved = managed.version.clone();
+                        managed_install = Some(managed);
                     }
                     Err(error) => {
+                        let unavailable = error.is_unavailable();
+                        let error = error.into_error();
+                        if !unavailable {
+                            return Err(error);
+                        }
                         tracing::warn!(
                             agent_type = ?agent_type,
                             requested_version = %resolved,
@@ -8860,66 +9233,64 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 packages.push(PI_CODING_AGENT_PACKAGE);
                 required_commands.push("pi");
             }
-            let install_result: Result<PathBuf, (AcpError, bool)> = async {
-                if let (Some(registry), Some(integrity)) =
-                    (registry_url.as_deref(), registry_integrity.as_deref())
-                {
-                    match verify_managed_npm_integrity(&install_spec, registry, integrity).await {
-                        Ok(()) => {}
-                        Err(ManagedNpmIntegrityError::Unavailable(error)) => {
-                            return Err((error, true));
-                        }
-                        Err(ManagedNpmIntegrityError::Invalid(error)) => {
-                            return Err((error, false));
-                        }
+            if let Some(managed) = managed_install.as_ref() {
+                let install_result = install_managed_npm_package(
+                    &paths,
+                    agent_type,
+                    &managed.package_name,
+                    &managed.version,
+                    &managed.registry,
+                    &managed.integrity,
+                    &required_commands,
+                    &task_id,
+                    emitter,
+                )
+                .await;
+                match install_result {
+                    Ok(_) => {}
+                    Err(ManagedNpmSourceError::Rejected(error)) => return Err(error),
+                    Err(ManagedNpmSourceError::Unavailable(error)) => {
+                        tracing::warn!(
+                            agent_type = ?agent_type,
+                            managed_error = %error,
+                            "[agent-version-center] managed npm source unavailable; using legacy source"
+                        );
+                        emit_agent_install_event(
+                            emitter,
+                            &task_id,
+                            AgentInstallEventKind::Log,
+                            format!(
+                                "Managed npm source unavailable ({error}); using the legacy npm source"
+                            ),
+                        );
+                        install_private_npm_package(
+                            &paths,
+                            agent_type,
+                            &legacy_resolved,
+                            &[legacy_install_spec.as_str()],
+                            None,
+                            None,
+                            &[cmd],
+                            &task_id,
+                            emitter,
+                        )
+                        .await?;
+                        resolved = legacy_resolved;
                     }
                 }
+            } else {
                 install_private_npm_package(
                     &paths,
                     agent_type,
                     &resolved,
                     &packages,
-                    registry_url.as_deref(),
+                    None,
+                    None,
                     &required_commands,
                     &task_id,
                     emitter,
                 )
-                .await
-                .map_err(|error| (error, true))
-            }
-            .await;
-            drop(packages);
-            drop(required_commands);
-            if let Err((error, fallback_allowed)) = install_result {
-                if !fallback_allowed {
-                    return Err(error);
-                }
-                if registry_url.is_none() {
-                    return Err(error);
-                }
-                tracing::warn!(
-                    agent_type = ?agent_type,
-                    managed_error = %error,
-                    "[agent-version-center] managed npm install failed; using legacy source"
-                );
-                emit_agent_install_event(
-                    emitter,
-                    &task_id,
-                    AgentInstallEventKind::Log,
-                    format!("Managed npm source failed ({error}); using the legacy npm source"),
-                );
-                install_private_npm_package(
-                    &paths,
-                    agent_type,
-                    &legacy_resolved,
-                    &[legacy_install_spec.as_str()],
-                    None,
-                    &[cmd],
-                    &task_id,
-                    emitter,
-                )
                 .await?;
-                resolved = legacy_resolved;
             }
 
             agent_setting_service::set_installed_version(
@@ -9134,6 +9505,7 @@ pub(crate) async fn acp_install_pi_binary_core(
                 AgentType::Pi,
                 version,
                 &[package, PI_CODING_AGENT_PACKAGE],
+                None,
                 None,
                 &[cmd, "pi"],
                 &task_id,
