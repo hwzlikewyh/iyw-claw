@@ -30,9 +30,15 @@ pub(super) struct ComponentSpec {
 // purpose of the fallback: it downloads a runtime the managed catalog can never match.
 const NODE_VERSION_X64: &str = "24.18.1";
 const NODE_VERSION_X86: &str = "22.23.1";
+const NODE_SHA256_X64: &str = "ec56b84a7551893ab2324ebdfdc4ab974a63b4781162600b68a1293cc3e53765";
+const NODE_SHA256_ARM64: &str = "ffbc7d3e1baf6804f7431ff94f19b9a885a650568c93ea4ccb1bb0038f6af825";
+const NODE_SHA256_X86: &str = "e298b368aad86c571447a3650db3ce19063373ffd39d6d73d014a5d9ad31dc62";
 const GIT_VERSION: &str = "2.55.0+windows.3";
 const GIT_ASSET_VERSION: &str = "2.55.0.3";
 const GIT_RELEASE_TAG: &str = "v2.55.0.windows.3";
+const GIT_SHA256_X64: &str = "f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05";
+const GIT_SHA256_ARM64: &str = "f7748965d5068e81ad93ca1923650db6742d6e22332b1ae7567a841c59f6bde5";
+const GIT_SHA256_X86: &str = "352380d06caa45e569a3b3967b6d1d6c605d564c29f37ef059b59e657a522ef4";
 const UV_VERSION: &str = "0.12.1";
 const UV_SHA256_X64: &str = "8fcb0cb46e1229065e344758980924e569bef5882ef45f46fada8fb24e06b74a";
 const UV_SHA256_ARM64: &str = "9bc7c18e616230fa2dc6fb24bc3afde18a95c2b5c9433de747e9502c66041568";
@@ -62,44 +68,48 @@ pub(super) fn for_tool(tool_id: &str) -> Result<ComponentSpec, String> {
 fn specs_for_current_arch() -> Option<(ComponentSpec, ComponentSpec, ComponentSpec)> {
     match std::env::consts::ARCH {
         "x86_64" => Some((
-            node_spec(NODE_VERSION_X64, "win-x64"),
-            git_spec("64-bit"),
+            node_spec(NODE_VERSION_X64, "win-x64", NODE_SHA256_X64),
+            git_spec("64-bit", GIT_SHA256_X64),
             uv_spec("x86_64", UV_SHA256_X64),
         )),
         "aarch64" => Some((
-            node_spec(NODE_VERSION_X64, "win-arm64"),
-            git_spec("arm64"),
+            node_spec(NODE_VERSION_X64, "win-arm64", NODE_SHA256_ARM64),
+            git_spec("arm64", GIT_SHA256_ARM64),
             uv_spec("aarch64", UV_SHA256_ARM64),
         )),
         "x86" => Some((
-            node_spec(NODE_VERSION_X86, "win-x86"),
-            git_spec("32-bit"),
+            node_spec(NODE_VERSION_X86, "win-x86", NODE_SHA256_X86),
+            git_spec("32-bit", GIT_SHA256_X86),
             uv_spec("i686", UV_SHA256_X86),
         )),
         _ => None,
     }
 }
 
-fn node_spec(version: &'static str, platform: &'static str) -> ComponentSpec {
+fn node_spec(
+    version: &'static str,
+    platform: &'static str,
+    expected_sha256: &'static str,
+) -> ComponentSpec {
     let asset = format!("node-v{version}-{platform}.zip");
     ComponentSpec {
         kind: ComponentKind::Node,
         version,
         mirror_url: format!("{NODE_MIRROR_BASE}/v{version}/{asset}"),
         official_url: format!("{NODE_OFFICIAL_BASE}/v{version}/{asset}"),
-        expected_sha256: None,
+        expected_sha256: Some(expected_sha256),
         asset,
     }
 }
 
-fn git_spec(asset_arch: &str) -> ComponentSpec {
+fn git_spec(asset_arch: &str, expected_sha256: &'static str) -> ComponentSpec {
     let asset = format!("MinGit-{GIT_ASSET_VERSION}-{asset_arch}.zip");
     ComponentSpec {
         kind: ComponentKind::Git,
         version: GIT_VERSION,
         mirror_url: format!("{GIT_MIRROR_BASE}/{GIT_RELEASE_TAG}/{asset}"),
         official_url: format!("{GIT_OFFICIAL_BASE}/{GIT_RELEASE_TAG}/{asset}"),
-        expected_sha256: None,
+        expected_sha256: Some(expected_sha256),
         asset,
     }
 }

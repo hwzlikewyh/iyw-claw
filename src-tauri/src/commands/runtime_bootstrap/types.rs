@@ -10,6 +10,7 @@ pub enum RuntimeComponentStatus {
     Ready,
     Installed,
     Skipped,
+    Deferred,
     Failed,
 }
 
