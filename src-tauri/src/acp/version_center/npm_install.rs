@@ -7,20 +7,39 @@ use super::types::{AgentOffer, ResolveAgentRequest};
 use crate::acp::error::AcpError;
 use crate::acp::npm_runtime;
 use crate::acp::registry;
+use crate::app_error::AppErrorCode;
 use crate::models::agent::AgentType;
 
 pub(crate) struct ManagedNpmInstall {
+    pub(crate) package_name: String,
     pub(crate) install_spec: String,
     pub(crate) version: String,
     pub(crate) registry: String,
     pub(crate) integrity: String,
 }
 
+pub(crate) enum ManagedNpmInstallError {
+    Unavailable(AcpError),
+    Rejected(AcpError),
+}
+
+impl ManagedNpmInstallError {
+    pub(crate) fn is_unavailable(&self) -> bool {
+        matches!(self, Self::Unavailable(_))
+    }
+
+    pub(crate) fn into_error(self) -> AcpError {
+        match self {
+            Self::Unavailable(error) | Self::Rejected(error) => error,
+        }
+    }
+}
+
 pub(crate) async fn resolve_npm_agent_install(
     conn: &DatabaseConnection,
     agent_type: AgentType,
     requested_version: &str,
-) -> Result<ManagedNpmInstall, AcpError> {
+) -> Result<ManagedNpmInstall, ManagedNpmInstallError> {
     let preferences = crate::update::preferences::load(conn)
         .await
         .map_err(version_center_error)?;
@@ -41,7 +60,7 @@ pub(crate) async fn resolve_npm_agent_install(
     )
     .await
     .map_err(version_center_error)?;
-    install_from_offer(agent_type, offer)
+    install_from_offer(agent_type, offer).map_err(ManagedNpmInstallError::Rejected)
 }
 
 fn install_from_offer(
@@ -68,8 +87,10 @@ fn install_from_offer(
         .ok_or_else(|| contract_error("version center omitted npm origin"))?;
     let registry = managed_registry(&origin.base_url)?;
     let integrity = managed_integrity(&component.registry_integrity)?;
+    let install_spec = format!("{package_name}@{version}");
     Ok(ManagedNpmInstall {
-        install_spec: format!("{package_name}@{version}"),
+        package_name,
+        install_spec,
         version,
         registry,
         integrity,
@@ -118,18 +139,32 @@ fn managed_integrity(value: &str) -> Result<String, AcpError> {
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(digest)
         .map_err(|_| contract_error("version center npm integrity is invalid"))?;
-    if decoded.is_empty() {
-        return Err(contract_error("version center npm integrity is empty"));
+    let expected_len = match algorithm {
+        "sha256" => 32,
+        "sha384" => 48,
+        "sha512" => 64,
+        _ => unreachable!(),
+    };
+    if decoded.len() != expected_len {
+        return Err(contract_error(
+            "version center npm integrity digest length is invalid",
+        ));
     }
     Ok(value.to_string())
 }
 
-fn version_center_error(error: crate::app_error::AppCommandError) -> AcpError {
+fn version_center_error(error: crate::app_error::AppCommandError) -> ManagedNpmInstallError {
+    let unavailable = error.code == AppErrorCode::NetworkError;
     let detail = error
         .detail
         .map(|detail| format!("{}: {detail}", error.message))
         .unwrap_or(error.message);
-    AcpError::DownloadFailed(detail)
+    let error = AcpError::DownloadFailed(detail);
+    if unavailable {
+        ManagedNpmInstallError::Unavailable(error)
+    } else {
+        ManagedNpmInstallError::Rejected(error)
+    }
 }
 
 fn contract_error(message: impl Into<String>) -> AcpError {
