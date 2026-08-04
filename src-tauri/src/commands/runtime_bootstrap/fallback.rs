@@ -1,8 +1,10 @@
 mod download;
+mod download_support;
 mod install;
 mod spec;
 
 use std::path::Path;
+use std::time::Instant;
 
 use crate::web::event_bridge::EventEmitter;
 
@@ -18,7 +20,28 @@ pub(super) async fn install(
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<InstallResult, String> {
-    let spec = spec::for_tool(tool_id)?;
+    let started = Instant::now();
+    let spec = match spec::for_tool(tool_id) {
+        Ok(spec) => spec,
+        Err(error) => {
+            tracing::error!(
+                task_id,
+                tool_id,
+                phase = "spec",
+                outcome = "failed",
+                duration_ms = started.elapsed().as_millis() as u64,
+                "pinned fallback specification unavailable"
+            );
+            return Err(error);
+        }
+    };
+    tracing::info!(
+        task_id,
+        tool_id,
+        version = spec.version,
+        phase = "begin",
+        "pinned fallback installation started"
+    );
     emit_event(
         emitter,
         task_id,
@@ -31,9 +54,11 @@ pub(super) async fn install(
     match result {
         Ok(path) => {
             tracing::info!(
+                task_id,
                 tool_id,
                 version = spec.version,
-                path = %path.display(),
+                outcome = "installed",
+                duration_ms = started.elapsed().as_millis() as u64,
                 "[runtime-bootstrap] pinned fallback installed"
             );
             emit_event(
@@ -50,9 +75,12 @@ pub(super) async fn install(
         }
         Err(error) => {
             tracing::error!(
+                task_id,
                 tool_id,
                 version = spec.version,
-                error,
+                outcome = "failed",
+                error_detail_present = true,
+                duration_ms = started.elapsed().as_millis() as u64,
                 "[runtime-bootstrap] pinned fallback failed"
             );
             emit_event(

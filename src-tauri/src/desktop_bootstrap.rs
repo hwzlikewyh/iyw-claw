@@ -120,7 +120,9 @@ pub fn apply_pre_runtime_environment() -> DesktopBootstrap {
             .as_deref()
             .unwrap_or_else(|| unreachable!("installed desktop always has a data root"));
         std::env::set_var(HOME_DIR_ENV, data_root);
-        std::env::set_var(LOG_DIR_ENV, root.join("logs"));
+        if std::env::var_os(LOG_DIR_ENV).is_none_or(|value| value.is_empty()) {
+            std::env::set_var(LOG_DIR_ENV, root.join("logs"));
+        }
         std::env::set_var(INSTALL_ROOT_ENV, root);
     }
 

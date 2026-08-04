@@ -1,12 +1,11 @@
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use futures_util::StreamExt;
-use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
 use crate::web::event_bridge::EventEmitter;
 
+use super::download_support::{source_host, stream_to_file, verify_archive};
 use super::spec::ComponentSpec;
 use super::{emit_event, RuntimeBootstrapEventKind};
 
@@ -20,41 +19,118 @@ pub(super) async fn download_archive(
     emitter: &EventEmitter,
 ) -> Result<(), String> {
     if destination.is_file() {
-        if verify_archive(destination, spec).await? {
-            emit_event(
-                emitter,
-                task_id,
-                RuntimeBootstrapEventKind::Log,
-                spec,
-                None,
-                format!("using cached {}", spec.asset),
-            );
-            return Ok(());
+        match verify_archive(destination, spec).await {
+            Ok(true) => {
+                let bytes = tokio::fs::metadata(destination)
+                    .await
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
+                tracing::info!(
+                    task_id,
+                    tool_id = spec.kind.tool_id(),
+                    version = spec.version,
+                    cache = "hit",
+                    bytes,
+                    "[runtime-bootstrap] fallback archive cache hit"
+                );
+                emit_event(
+                    emitter,
+                    task_id,
+                    RuntimeBootstrapEventKind::Log,
+                    spec,
+                    None,
+                    format!("using cached {}", spec.asset),
+                );
+                return Ok(());
+            }
+            Ok(false) => {
+                tracing::warn!(
+                    task_id,
+                    tool_id = spec.kind.tool_id(),
+                    version = spec.version,
+                    cache = "corrupt",
+                    "[runtime-bootstrap] fallback archive cache rejected"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    task_id,
+                    tool_id = spec.kind.tool_id(),
+                    version = spec.version,
+                    cache = "verify_failed",
+                    error_detail_present = true,
+                    "[runtime-bootstrap] fallback archive cache verification failed"
+                );
+                return Err(error);
+            }
         }
-        tokio::fs::remove_file(destination)
-            .await
-            .map_err(|error| format!("failed to remove corrupt cache: {error}"))?;
+        if let Err(error) = tokio::fs::remove_file(destination).await {
+            tracing::error!(
+                task_id,
+                tool_id = spec.kind.tool_id(),
+                version = spec.version,
+                cache = "remove_failed",
+                "[runtime-bootstrap] failed to remove corrupt fallback cache"
+            );
+            return Err(format!("failed to remove corrupt cache: {error}"));
+        }
     }
     let client = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .redirect(reqwest::redirect::Policy::limited(5))
         .build()
-        .map_err(|error| format!("failed to build fallback HTTP client: {error}"))?;
+        .map_err(|error| {
+            tracing::error!(
+                task_id,
+                tool_id = spec.kind.tool_id(),
+                phase = "http_client",
+                "[runtime-bootstrap] fallback HTTP client unavailable"
+            );
+            format!("failed to build fallback HTTP client: {error}")
+        })?;
     let mut last_error = String::new();
     for (label, url) in [
         ("mirror", &spec.mirror_url),
         ("official", &spec.official_url),
     ] {
         announce_source(spec, task_id, emitter, label);
-        match download_once(&client, url, destination, spec, task_id, emitter).await {
-            Ok(()) => return Ok(()),
-            Err(error) => {
-                last_error = format!("{label}: {error}");
-                tracing::warn!(
+        let source_started = Instant::now();
+        let host = source_host(url);
+        tracing::info!(
+            task_id,
+            tool_id = spec.kind.tool_id(),
+            version = spec.version,
+            source = label,
+            source_host = %host,
+            phase = "begin",
+            "[runtime-bootstrap] fallback source download started"
+        );
+        match download_once(&client, url, destination, spec, task_id, emitter, label).await {
+            Ok(bytes) => {
+                tracing::info!(
+                    task_id,
                     tool_id = spec.kind.tool_id(),
                     version = spec.version,
                     source = label,
-                    error,
+                    source_host = %host,
+                    outcome = "downloaded",
+                    bytes,
+                    duration_ms = source_started.elapsed().as_millis() as u64,
+                    "[runtime-bootstrap] fallback source download finished"
+                );
+                return Ok(());
+            }
+            Err(error) => {
+                last_error = format!("{label}: {error}");
+                tracing::warn!(
+                    task_id,
+                    tool_id = spec.kind.tool_id(),
+                    version = spec.version,
+                    source = label,
+                    source_host = %host,
+                    outcome = "failed",
+                    error_detail_present = true,
+                    duration_ms = source_started.elapsed().as_millis() as u64,
                     "[runtime-bootstrap] fallback source failed"
                 );
             }
@@ -84,86 +160,114 @@ async fn download_once(
     spec: &ComponentSpec,
     task_id: &str,
     emitter: &EventEmitter,
-) -> Result<(), String> {
-    let response = client
-        .get(url)
-        .timeout(DOWNLOAD_TIMEOUT)
-        .send()
-        .await
-        .map_err(|error| format!("request failed: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()));
-    }
-    let total = response.content_length();
-    let partial = destination.with_extension("part");
-    let mut file = tokio::fs::File::create(&partial)
-        .await
-        .map_err(|error| format!("failed to create {}: {error}", partial.display()))?;
-    stream_to_file(response, &mut file, total, spec, task_id, emitter).await?;
-    file.flush()
-        .await
-        .map_err(|error| format!("failed to flush download: {error}"))?;
-    drop(file);
-    if !verify_archive(&partial, spec).await? {
-        let _ = tokio::fs::remove_file(&partial).await;
-        return Err("downloaded archive SHA-256 does not match the pinned digest".to_string());
-    }
-    tokio::fs::rename(&partial, destination)
-        .await
-        .map_err(|error| format!("failed to finalize download: {error}"))
-}
-
-async fn verify_archive(path: &Path, spec: &ComponentSpec) -> Result<bool, String> {
-    let Some(expected) = spec.expected_sha256 else {
-        return Ok(true);
+    source: &str,
+) -> Result<u64, String> {
+    let host = source_host(url);
+    let response = match client.get(url).timeout(DOWNLOAD_TIMEOUT).send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(
+                task_id,
+                tool_id = spec.kind.tool_id(),
+                version = spec.version,
+                source,
+                source_host = %host,
+                phase = "http_request",
+                timeout = error.is_timeout(),
+                connect = error.is_connect(),
+                "[runtime-bootstrap] fallback HTTP request failed"
+            );
+            return Err(format!("request failed: {error}"));
+        }
     };
-    let bytes = tokio::fs::read(path)
-        .await
-        .map_err(|error| format!("failed to verify {}: {error}", path.display()))?;
-    Ok(format!("{:x}", Sha256::digest(bytes)).eq_ignore_ascii_case(expected))
-}
-
-async fn stream_to_file(
-    response: reqwest::Response,
-    file: &mut tokio::fs::File,
-    total: Option<u64>,
-    spec: &ComponentSpec,
-    task_id: &str,
-    emitter: &EventEmitter,
-) -> Result<(), String> {
-    let mut stream = response.bytes_stream();
-    let mut downloaded = 0_u64;
-    let mut last_percent = None;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| format!("download interrupted: {error}"))?;
-        file.write_all(&chunk)
-            .await
-            .map_err(|error| format!("failed to write download: {error}"))?;
-        downloaded += chunk.len() as u64;
-        last_percent = emit_progress(total, downloaded, last_percent, spec, task_id, emitter);
+    let status = response.status();
+    let total = response.content_length();
+    tracing::info!(
+        task_id,
+        tool_id = spec.kind.tool_id(),
+        version = spec.version,
+        source,
+        source_host = %host,
+        http_status = %status,
+        content_length = ?total,
+        "[runtime-bootstrap] fallback HTTP response received"
+    );
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
     }
-    Ok(())
-}
-
-fn emit_progress(
-    total: Option<u64>,
-    downloaded: u64,
-    last_percent: Option<u8>,
-    spec: &ComponentSpec,
-    task_id: &str,
-    emitter: &EventEmitter,
-) -> Option<u8> {
-    let total = total.filter(|value| *value > 0)?;
-    let percent = ((downloaded.min(total) * 100) / total) as u8;
-    if last_percent != Some(percent) {
-        emit_event(
-            emitter,
+    let partial = destination.with_extension("part");
+    let mut file = tokio::fs::File::create(&partial).await.map_err(|error| {
+        tracing::warn!(
             task_id,
-            RuntimeBootstrapEventKind::Progress,
-            spec,
-            Some(percent),
-            String::new(),
+            tool_id = spec.kind.tool_id(),
+            source,
+            phase = "create_partial",
+            "[runtime-bootstrap] fallback partial file creation failed"
         );
+        format!("failed to create {}: {error}", partial.display())
+    })?;
+    let downloaded = match stream_to_file(response, &mut file, total, spec, task_id, emitter).await
+    {
+        Ok(downloaded) => downloaded,
+        Err(error) => {
+            tracing::warn!(
+                task_id,
+                tool_id = spec.kind.tool_id(),
+                source,
+                phase = "stream",
+                "[runtime-bootstrap] fallback download stream failed"
+            );
+            return Err(error);
+        }
+    };
+    if let Err(error) = file.flush().await {
+        tracing::warn!(
+            task_id,
+            tool_id = spec.kind.tool_id(),
+            source,
+            phase = "flush",
+            downloaded_bytes = downloaded,
+            "[runtime-bootstrap] fallback download flush failed"
+        );
+        return Err(format!("failed to flush download: {error}"));
     }
-    Some(percent)
+    drop(file);
+    match verify_archive(&partial, spec).await {
+        Ok(true) => {}
+        Ok(false) => {
+            tracing::warn!(
+                task_id,
+                tool_id = spec.kind.tool_id(),
+                source,
+                phase = "integrity",
+                downloaded_bytes = downloaded,
+                "[runtime-bootstrap] fallback archive integrity check failed"
+            );
+            let _ = tokio::fs::remove_file(&partial).await;
+            return Err("downloaded archive SHA-256 does not match the pinned digest".to_string());
+        }
+        Err(error) => {
+            tracing::warn!(
+                task_id,
+                tool_id = spec.kind.tool_id(),
+                source,
+                phase = "integrity",
+                error_detail_present = true,
+                "[runtime-bootstrap] fallback archive integrity check unavailable"
+            );
+            return Err(error);
+        }
+    }
+    if let Err(error) = tokio::fs::rename(&partial, destination).await {
+        tracing::warn!(
+            task_id,
+            tool_id = spec.kind.tool_id(),
+            source,
+            phase = "finalize",
+            downloaded_bytes = downloaded,
+            "[runtime-bootstrap] fallback archive finalization failed"
+        );
+        return Err(format!("failed to finalize download: {error}"));
+    }
+    Ok(downloaded)
 }

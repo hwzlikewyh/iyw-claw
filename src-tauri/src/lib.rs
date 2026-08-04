@@ -66,11 +66,9 @@ mod tauri_app {
         question as question_commands, quick_messages as quick_messages_commands,
         remote_image as remote_image_commands, remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands,
-        runtime_bootstrap as runtime_bootstrap_commands,
-        session_config as session_config_commands,
-        session_info as session_info_commands,
-        skill_market as skill_market_commands, system_settings,
-        system_skills as system_skills_commands, terminal as terminal_commands,
+        runtime_bootstrap as runtime_bootstrap_commands, session_config as session_config_commands,
+        session_info as session_info_commands, skill_market as skill_market_commands,
+        system_settings, system_skills as system_skills_commands, terminal as terminal_commands,
         usage as usage_commands, user_memory as user_memory_commands, version_control, windows,
         workspace_state as workspace_state_commands,
     };
@@ -148,25 +146,54 @@ mod tauri_app {
 
     #[cfg_attr(mobile, tauri::mobile_entry_point)]
     pub fn run() {
+        crate::logging::emergency::install_panic_hook();
+
         // Resolve the installed product root before logging so the first
         // startup diagnostics land beside app/runtime/config/data.
+        let environment_stage =
+            crate::logging::emergency::StartupStage::new("pre-runtime-environment");
         let desktop_bootstrap = crate::desktop_bootstrap::apply_pre_runtime_environment();
+        environment_stage.complete();
 
         // Install the logging subscriber first so it captures everything from
         // here on. The file appender's logs dir is resolved from env (no DB
         // needed); hold the guard for the whole process so buffered file lines
         // flush on a graceful exit.
+        let logging_stage = crate::logging::emergency::StartupStage::new("logging-init");
         let _log_guard = crate::logging::init::init_desktop();
+        logging_stage.complete();
+        tracing::info!(
+            target: "iyw_claw_startup",
+            event = "process_context",
+            app_version = env!("CARGO_PKG_VERSION"),
+            pid = std::process::id(),
+            os = std::env::consts::OS,
+            arch = std::env::consts::ARCH,
+            log_dir = %crate::paths::iyw_claw_logs_root().display(),
+            emergency_log = ?crate::logging::emergency::emergency_path(),
+            "desktop process diagnostics initialized"
+        );
 
         // Apply the WebView2 rendering override before *any* tokio worker
         // exists or any plugin reads the env. See doc comment above.
         #[cfg(target_os = "windows")]
-        apply_webview2_rendering_override();
-
-        if let Err(err) = fix_path_env::fix() {
-            tracing::error!("[PATH] fix_path_env failed: {err}");
+        {
+            let stage = crate::logging::emergency::StartupStage::new("webview-rendering-override");
+            apply_webview2_rendering_override();
+            stage.complete();
         }
+
+        let path_stage = crate::logging::emergency::StartupStage::new("path-environment");
+        match fix_path_env::fix() {
+            Ok(()) => path_stage.complete(),
+            Err(err) => {
+                tracing::error!(error = %err, "[PATH] fix_path_env failed");
+                path_stage.fail(&err);
+            }
+        }
+        let tools_stage = crate::logging::emergency::StartupStage::new("managed-tools-path");
         process::ensure_managed_tools_in_path();
+        tools_stage.complete();
 
         let builder = tauri::Builder::default();
 
@@ -180,10 +207,16 @@ mod tauri_app {
         // they still share other `app.iywclaw` data-dir artifacts with release.
         #[cfg(not(debug_assertions))]
         let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tracing::info!(
+                target: "iyw_claw_startup",
+                main_window_present = app.get_webview_window("main").is_some(),
+                "second desktop launch forwarded to running instance"
+            );
             windows::show_main_window(app);
         }));
 
-        builder
+        let build_stage = crate::logging::emergency::StartupStage::new("tauri-build");
+        let app = builder
             // Persist every window flag EXCEPT decorations. Decorations are a
             // per-platform decision made by `apply_platform_window_style`
             // (undecorated on Windows/Linux so the app draws its own chrome),
@@ -239,7 +272,11 @@ mod tauri_app {
             // same download progress; lets the upgrade UI survive navigation.
             .manage(crate::update::new_update_state_handle())
             .setup(move |app| {
-                let app_data_dir = app.path().app_data_dir()?;
+                let setup_stage = crate::logging::emergency::StartupStage::new("tauri-setup");
+                let app_data_dir =
+                    crate::logging::emergency::run_stage("resolve-app-data-dir", || {
+                        app.path().app_data_dir()
+                    })?;
 
                 // Unify the data root across every consumer:
                 //   * SQLite database (initialised below)
@@ -343,14 +380,17 @@ mod tauri_app {
                     .as_ref()
                     .ok()
                     .map(|resolved| resolved.path.as_path());
-                let database = tauri::async_runtime::block_on(
-                    db::init_database_with_user_memory_root(
-                        &effective_data_dir,
-                        app_version,
-                        user_memory_restore_root,
-                    ),
-                )
-                .map_err(|e| e.to_string())?;
+                let database =
+                    crate::logging::emergency::run_stage("database-initialize", || {
+                        tauri::async_runtime::block_on(
+                            db::init_database_with_user_memory_root(
+                                &effective_data_dir,
+                                app_version,
+                                user_memory_restore_root,
+                            ),
+                        )
+                    })
+                    .map_err(|e| e.to_string())?;
 
                 // Eagerly generate and persist installation_id on first launch
                 // so every subsequent network call has a non-empty
@@ -366,12 +406,14 @@ mod tauri_app {
                         desktop_bootstrap.selected_root(),
                         &effective_data_dir,
                     );
-                tauri::async_runtime::block_on(
-                    crate::desktop_bootstrap::ensure_initial_agent_storage(
-                        &database.conn,
-                        &initial_agent_root,
-                    ),
-                )
+                crate::logging::emergency::run_stage("agent-storage-initialize", || {
+                    tauri::async_runtime::block_on(
+                        crate::desktop_bootstrap::ensure_initial_agent_storage(
+                            &database.conn,
+                            &initial_agent_root,
+                        ),
+                    )
+                })
                 .map_err(|error| error.to_string())?;
 
                 match tauri::async_runtime::block_on(crate::acp::agent_storage::load_config(
@@ -833,17 +875,32 @@ mod tauri_app {
                 // Workspace state (open folders, opened tabs, active tab) is
                 // restored by the frontend via `list_open_folder_details` /
                 // `list_opened_tabs` inside the main window.
-                if app.get_webview_window("main").is_none() {
-                    let url = tauri::WebviewUrl::App("workspace".into());
-                    let builder = tauri::WebviewWindowBuilder::new(app, "main", url)
-                        .title("iyw-claw")
-                        .inner_size(1260.0, 860.0)
-                        .min_inner_size(400.0, 600.0);
-                    if let Ok(w) = windows::apply_platform_window_style(builder).build() {
-                        windows::post_window_setup(&w);
+                crate::logging::emergency::run_stage("main-window-create", || {
+                    if app.get_webview_window("main").is_none() {
+                        let url = tauri::WebviewUrl::App("workspace".into());
+                        let builder = tauri::WebviewWindowBuilder::new(app, "main", url)
+                            .title("iyw-claw")
+                            .inner_size(1260.0, 860.0)
+                            .min_inner_size(400.0, 600.0);
+                        let window = windows::apply_platform_window_style(builder).build()?;
+                        windows::post_window_setup(&window);
                     }
-                }
+                    Ok::<(), tauri::Error>(())
+                })?;
 
+                crate::logging::emergency::write_event(
+                    "startup_ready",
+                    "ok",
+                    "runtime",
+                    None,
+                );
+                tracing::info!(
+                    target: "iyw_claw_startup",
+                    event = "startup_ready",
+                    "desktop startup completed"
+                );
+                setup_stage.complete();
+                crate::logging::emergency::set_process_stage("runtime");
                 Ok(())
             })
             .on_menu_event(|app, event| {
@@ -1347,36 +1404,48 @@ mod tauri_app {
                 web::update_web_service_config,
                 web::probe_web_service_port,
             ])
-            .build(tauri::generate_context!())
-            .expect("error while building tauri application")
-            .run(|app, event| match event {
-                tauri::RunEvent::ExitRequested { .. } => {
-                    APP_QUITTING.store(true, Ordering::Relaxed);
-                    if let Some(ws) = app.try_state::<web::WebServerState>() {
-                        tauri::async_runtime::block_on(web::do_stop_web_server(&ws));
-                    }
-                    if let Some(tm) = app.try_state::<TerminalManager>() {
-                        tm.kill_all();
-                    }
-                    crate::office_watch::stop_all_office_watches();
-                    if let Some(cm) = app.try_state::<ConnectionManager>() {
-                        tauri::async_runtime::block_on(cm.disconnect_all());
-                    }
+            .build(tauri::generate_context!());
+        let app = match app {
+            Ok(app) => {
+                build_stage.complete();
+                app
+            }
+            Err(error) => {
+                build_stage.fail(&error);
+                panic!("error while building tauri application: {error}");
+            }
+        };
+        crate::logging::emergency::write_event("event_loop", "begin", "runtime", None);
+        app.run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { .. } => {
+                crate::logging::emergency::write_event("exit_requested", "begin", "shutdown", None);
+                APP_QUITTING.store(true, Ordering::Relaxed);
+                if let Some(ws) = app.try_state::<web::WebServerState>() {
+                    tauri::async_runtime::block_on(web::do_stop_web_server(&ws));
                 }
-                #[cfg(target_os = "macos")]
-                tauri::RunEvent::Reopen { .. } => {
-                    // Dock-icon click: bring the workspace forward
-                    // unconditionally. `has_visible_windows` is true
-                    // whenever any aux window (settings, commit…)
-                    // is alive, so gating on it would suppress recovery
-                    // even though `main` itself is hidden.
-                    // `show_main_window` is idempotent — already-visible
-                    // windows just get re-focused, which is what dock
-                    // activation should do anyway.
-                    windows::show_main_window(app);
+                if let Some(tm) = app.try_state::<TerminalManager>() {
+                    tm.kill_all();
                 }
-                _ => {}
-            });
+                crate::office_watch::stop_all_office_watches();
+                if let Some(cm) = app.try_state::<ConnectionManager>() {
+                    tauri::async_runtime::block_on(cm.disconnect_all());
+                }
+            }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => {
+                // Dock-icon click: bring the workspace forward
+                // unconditionally. `has_visible_windows` is true
+                // whenever any aux window (settings, commit…)
+                // is alive, so gating on it would suppress recovery
+                // even though `main` itself is hidden.
+                // `show_main_window` is idempotent — already-visible
+                // windows just get re-focused, which is what dock
+                // activation should do anyway.
+                windows::show_main_window(app);
+            }
+            _ => {}
+        });
+        crate::logging::emergency::write_event("process_exit", "ok", "shutdown", None);
     }
 }
 
