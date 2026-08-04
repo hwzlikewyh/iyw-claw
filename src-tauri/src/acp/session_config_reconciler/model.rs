@@ -53,11 +53,31 @@ pub fn codex_spec() -> ProviderConfigSpec {
         agent: AgentType::Codex,
         schema_version: SESSION_CONFIG_SCHEMA_VERSION,
         fields: &[
-            ManagedFieldSpec { path: "model_provider", kind: ManagedFieldKind::Gateway, required: true },
-            ManagedFieldSpec { path: "model", kind: ManagedFieldKind::Model, required: true },
-            ManagedFieldSpec { path: "model_providers.iyw-claw.base_url", kind: ManagedFieldKind::Gateway, required: true },
-            ManagedFieldSpec { path: "model_providers.iyw-claw.wire_api", kind: ManagedFieldKind::Gateway, required: true },
-            ManagedFieldSpec { path: "model_providers.iyw-claw.requires_openai_auth", kind: ManagedFieldKind::Gateway, required: true },
+            ManagedFieldSpec {
+                path: "model_provider",
+                kind: ManagedFieldKind::Gateway,
+                required: true,
+            },
+            ManagedFieldSpec {
+                path: "model",
+                kind: ManagedFieldKind::Model,
+                required: true,
+            },
+            ManagedFieldSpec {
+                path: "model_providers.iyw-claw.base_url",
+                kind: ManagedFieldKind::Gateway,
+                required: true,
+            },
+            ManagedFieldSpec {
+                path: "model_providers.iyw-claw.wire_api",
+                kind: ManagedFieldKind::Gateway,
+                required: true,
+            },
+            ManagedFieldSpec {
+                path: "model_providers.iyw-claw.requires_openai_auth",
+                kind: ManagedFieldKind::Gateway,
+                required: true,
+            },
         ],
     }
 }
@@ -68,10 +88,26 @@ pub fn claude_code_spec() -> ProviderConfigSpec {
         agent: AgentType::ClaudeCode,
         schema_version: SESSION_CONFIG_SCHEMA_VERSION,
         fields: &[
-            ManagedFieldSpec { path: "env.ANTHROPIC_BASE_URL", kind: ManagedFieldKind::Gateway, required: true },
-            ManagedFieldSpec { path: "env.ANTHROPIC_MODEL", kind: ManagedFieldKind::Model, required: true },
-            ManagedFieldSpec { path: "env.ANTHROPIC_MAX_RETRIES", kind: ManagedFieldKind::Gateway, required: true },
-            ManagedFieldSpec { path: "env.ANTHROPIC_DEFAULT_OPUS_MODEL", kind: ManagedFieldKind::Model, required: true },
+            ManagedFieldSpec {
+                path: "env.ANTHROPIC_BASE_URL",
+                kind: ManagedFieldKind::Gateway,
+                required: true,
+            },
+            ManagedFieldSpec {
+                path: "env.ANTHROPIC_MODEL",
+                kind: ManagedFieldKind::Model,
+                required: true,
+            },
+            ManagedFieldSpec {
+                path: "env.ANTHROPIC_MAX_RETRIES",
+                kind: ManagedFieldKind::Gateway,
+                required: true,
+            },
+            ManagedFieldSpec {
+                path: "env.ANTHROPIC_DEFAULT_OPUS_MODEL",
+                kind: ManagedFieldKind::Model,
+                required: true,
+            },
         ],
     }
 }
@@ -155,29 +191,29 @@ mod tests {
     #[test]
     fn fingerprint_is_order_independent() {
         let first = fingerprint_controlled_fields(&[
-            ("model", "gpt-5"),
-            ("model_provider", "iyw-claw"),
-            ("env.ANTHROPIC_BASE_URL", "https://example.test"),
+            ("model", "gpt-5".to_string()),
+            ("model_provider", "iyw-claw".to_string()),
+            ("env.ANTHROPIC_BASE_URL", "https://example.test".to_string()),
         ]);
         let shuffled = fingerprint_controlled_fields(&[
-            ("env.ANTHROPIC_BASE_URL", "https://example.test"),
-            ("model_provider", "iyw-claw"),
-            ("model", "gpt-5"),
+            ("env.ANTHROPIC_BASE_URL", "https://example.test".to_string()),
+            ("model_provider", "iyw-claw".to_string()),
+            ("model", "gpt-5".to_string()),
         ]);
         assert_eq!(first, shuffled);
     }
 
     #[test]
     fn fingerprint_normalizes_whitespace() {
-        let trimmed = fingerprint_controlled_fields(&[("model", "gpt-5")]);
-        let padded = fingerprint_controlled_fields(&[("model", "  gpt-5  ")]);
+        let trimmed = fingerprint_controlled_fields(&[("model", "gpt-5".to_string())]);
+        let padded = fingerprint_controlled_fields(&[("model", "  gpt-5  ".to_string())]);
         assert_eq!(trimmed, padded);
     }
 
     #[test]
     fn fingerprint_differs_when_value_changes() {
-        let a = fingerprint_controlled_fields(&[("model", "gpt-5")]);
-        let b = fingerprint_controlled_fields(&[("model", "gpt-5.1")]);
+        let a = fingerprint_controlled_fields(&[("model", "gpt-5".to_string())]);
+        let b = fingerprint_controlled_fields(&[("model", "gpt-5.1".to_string())]);
         assert_ne!(a, b);
     }
 
@@ -243,10 +279,9 @@ requires_openai_auth = true
         assert!(fields.iter().any(|(path, value)| {
             *path == "model_providers.iyw-claw.base_url" && value == "https://gateway.example/v1"
         }));
-        assert!(fields
-            .iter()
-            .any(|(path, value)| *path == "model_providers.iyw-claw.requires_openai_auth"
-                && value == "true"));
+        assert!(fields.iter().any(|(path, value)| *path
+            == "model_providers.iyw-claw.requires_openai_auth"
+            && value == "true"));
     }
 
     #[test]

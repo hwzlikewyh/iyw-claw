@@ -4338,7 +4338,14 @@
     "installingTitle": "Preparing the core",
     "installingDescription": "The runtime is being prepared for first launch. Please wait.",
     "errorTitle": "Core preparation failed",
-    "errorDescription": "Check your network connection and try again.",
+    "errorDescription": "Review the failure below and try again.",
+    "errorStep": "Failed step: {step}",
+    "steps": {
+      "runtime": "Preparing the Node.js / Git runtime",
+      "registry": "Reading the Agent registry",
+      "detect": "Detecting the locally installed version",
+      "install": "Installing the Codex core"
+    },
     "retry": "Retry"
   },
   "SidebarAccount": {

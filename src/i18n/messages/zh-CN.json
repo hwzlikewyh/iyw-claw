@@ -4338,7 +4338,14 @@
     "installingTitle": "正在准备内核中",
     "installingDescription": "首次启动需要准备运行环境，请稍候。",
     "errorTitle": "内核准备失败",
-    "errorDescription": "请检查网络连接后重试。",
+    "errorDescription": "请查看下面的失败原因后重试。",
+    "errorStep": "失败步骤：{step}",
+    "steps": {
+      "runtime": "准备 Node.js / Git 运行环境",
+      "registry": "读取 Agent 注册表",
+      "detect": "检测本地已安装版本",
+      "install": "安装 Codex 内核"
+    },
     "retry": "重试"
   },
   "SidebarAccount": {

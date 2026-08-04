@@ -38,12 +38,23 @@ type CodexBootstrapState =
 
 type RuntimePercents = Partial<Record<"node" | "git", number>>
 
+// The bootstrap steps, in order. Kept on screen with the failure so a report
+// says which one broke instead of only that something did.
+type BootstrapStep = "runtime" | "registry" | "detect" | "install"
+
 export function StartupCodexGate({ children }: { children: ReactNode }) {
   const t = useTranslations("StartupCodex")
   const { status } = useIywAccount()
   const { refresh: refreshAgents } = useAcpAgents()
   const [state, setState] = useState<CodexBootstrapState>("idle")
   const [runtimePercents, setRuntimePercents] = useState<RuntimePercents>({})
+  // Why the run failed. Without this the dialog blamed the network for every
+  // failure, including bugs that had nothing to do with it, and a user report
+  // carried no information at all.
+  const [failure, setFailure] = useState<{
+    step: BootstrapStep
+    detail: string
+  } | null>(null)
   const runningRef = useRef(false)
   const taskIdRef = useRef(randomUUID())
   const runtimeTaskIdRef = useRef(randomUUID())
@@ -102,23 +113,37 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     runningRef.current = true
     setState("checking")
     setRuntimePercents({})
+    setFailure(null)
     void bootstrapOfficeCli()
+    // Which step is in flight, so the catch below can name it. Four different
+    // backend calls funnel into one `catch`; without this the dialog cannot say
+    // which of them broke.
+    let step: BootstrapStep = "runtime"
     try {
       // Node/Git must exist before the Codex npx install below can run.
       const runtimeReport = await runtimeBootstrap(runtimeTaskIdRef.current)
-      const failures = [runtimeReport.node, runtimeReport.git].filter(
-        (component) => component.status === "failed"
-      )
+      const failures = (
+        [
+          ["node", runtimeReport.node],
+          ["git", runtimeReport.git],
+        ] as const
+      ).filter(([, component]) => component.status === "failed")
       if (failures.length > 0) {
         throw new Error(
-          failures.map((component) => component.detail ?? "").join("\n")
+          failures
+            .map(
+              ([name, component]) => `${name}: ${component.detail ?? "failed"}`
+            )
+            .join("\n")
         )
       }
 
       setState("checking")
+      step = "registry"
       const agents = await acpListAgents()
       const codex = agents.find((agent) => agent.agent_type === "codex")
       if (!codex) throw new Error("Codex is missing from the Agent registry")
+      step = "detect"
       const installed = await acpDetectAgentLocalVersion("codex")
       if (installed) {
         await refreshAgents()
@@ -126,6 +151,7 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
         return
       }
       setState("installing")
+      step = "install"
       await acpPrepareNpxAgent(
         "codex",
         codex.registry_version,
@@ -134,7 +160,10 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
       )
       await refreshAgents()
       setState("ready")
-    } catch {
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      console.error(`[StartupCodexGate] ${step} step failed:`, error)
+      setFailure({ step, detail })
       setState("error")
     } finally {
       runningRef.current = false
@@ -202,7 +231,17 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
             />
           ) : null}
           {state === "error" ? (
-            <div className="grid gap-4 text-center">
+            <div className="grid gap-4">
+              {failure ? (
+                <div className="grid gap-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t("errorStep", { step: t(`steps.${failure.step}`) })}
+                  </p>
+                  <pre className="max-h-40 overflow-auto rounded-md bg-muted p-2 text-left text-xs break-all whitespace-pre-wrap">
+                    {failure.detail}
+                  </pre>
+                </div>
+              ) : null}
               <Button
                 size="sm"
                 className="mx-auto"

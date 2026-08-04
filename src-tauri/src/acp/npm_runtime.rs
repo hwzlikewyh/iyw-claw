@@ -159,6 +159,36 @@ fn npm_package_dir(prefix: &Path, package: &str) -> PathBuf {
     dir
 }
 
+/// Whether `package` is resolvable from `start` under Node's algorithm: every
+/// `node_modules` on the walk up from the declaring package to `prefix`.
+///
+/// Checking only "nested inside the declaring package" and "hoisted to the
+/// prefix" is not enough. npm hoists a transitive platform package to the
+/// *nearest shared* `node_modules`, which for a bundled agent is an
+/// intermediate level: `@openai/codex` declares `@openai/codex-win32-x64`, but
+/// npm places it at
+/// `<prefix>/node_modules/@agentclientprotocol/codex-acp/node_modules/@openai/codex-win32-x64`
+/// — a sibling of the declaring package, neither nested under it nor at the
+/// prefix root. Node finds it there; a two-location check does not, and the
+/// audit then rejects a perfectly good install on every machine.
+fn npm_dependency_resolves(prefix: &Path, start: &Path, package: &str) -> bool {
+    let mut current = Some(start);
+    while let Some(dir) = current {
+        if npm_package_dir(dir, package).join("package.json").is_file() {
+            return true;
+        }
+        if dir == prefix {
+            break;
+        }
+        current = dir.parent();
+    }
+    // `start` is normally under `prefix`; check the prefix regardless so an
+    // unexpected layout cannot turn into a false negative.
+    npm_package_dir(prefix, package)
+        .join("package.json")
+        .is_file()
+}
+
 /// Every `package.json` under `<prefix>/node_modules` that declares
 /// `optionalDependencies`, walking nested `node_modules` because npm nests a
 /// dependency's own platform packages (codex-acp bundles `@openai/codex`, whose
@@ -218,11 +248,10 @@ pub fn verify_host_platform_optional_deps(prefix: &Path) -> Result<(), AcpError>
             continue;
         };
         for dependency in host_platform_optional_deps(&manifest, &host_token) {
-            // npm may satisfy it nested under the declaring package or hoisted
-            // to the install prefix; Node's resolution accepts either.
-            let nested = npm_package_dir(package_dir.as_path(), &dependency);
-            let hoisted = npm_package_dir(prefix, &dependency);
-            if nested.join("package.json").is_file() || hoisted.join("package.json").is_file() {
+            // npm may satisfy it nested under the declaring package, hoisted to
+            // the install prefix, or at any intermediate `node_modules` in
+            // between; Node's resolution accepts all of them.
+            if npm_dependency_resolves(prefix, package_dir.as_path(), &dependency) {
                 continue;
             }
             return Err(AcpError::DownloadFailed(format!(
@@ -403,4 +432,122 @@ fn is_command_candidate(path: &Path) -> bool {
             .metadata()
             .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
             .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Create `<parent>/node_modules/<package>/package.json` and return the
+    /// package directory, mirroring how npm lays a package down.
+    fn place_package(parent: &Path, package: &str, manifest: &str) -> PathBuf {
+        let dir = npm_package_dir(parent, package);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("package.json"), manifest).unwrap();
+        dir
+    }
+
+    /// A manifest declaring the host platform binary as an optional dependency,
+    /// the way `@openai/codex` does.
+    fn declares_platform_binary(host_token: &str) -> String {
+        format!(
+            r#"{{"name":"@openai/codex","version":"0.144.6",
+                 "optionalDependencies":{{"@openai/codex-{host_token}":"0.144.6"}}}}"#
+        )
+    }
+
+    const PLATFORM_MANIFEST: &str = r#"{"name":"platform-binary","version":"0.144.6"}"#;
+    const ACP_MANIFEST: &str = r#"{"name":"@agentclientprotocol/codex-acp","version":"1.1.5"}"#;
+
+    /// The layout `npm install --global --prefix=<staging>
+    /// @agentclientprotocol/codex-acp` actually produces on Windows: the
+    /// platform binary is hoisted to codex-acp's `node_modules`, making it a
+    /// *sibling* of the `@openai/codex` that declares it — neither nested
+    /// inside the declaring package nor at the prefix root.
+    ///
+    /// Regression test for the audit rejecting every successful install, which
+    /// surfaced in the UI as 内核准备失败 on every machine.
+    #[test]
+    fn accepts_platform_binary_hoisted_to_an_intermediate_node_modules() {
+        let Some(token) = host_npm_platform_token() else {
+            return;
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let prefix = temp.path();
+
+        let acp = place_package(prefix, "@agentclientprotocol/codex-acp", ACP_MANIFEST);
+        place_package(&acp, "@openai/codex", &declares_platform_binary(&token));
+        place_package(&acp, &format!("@openai/codex-{token}"), PLATFORM_MANIFEST);
+
+        verify_host_platform_optional_deps(prefix).unwrap();
+    }
+
+    #[test]
+    fn accepts_platform_binary_nested_under_the_declaring_package() {
+        let Some(token) = host_npm_platform_token() else {
+            return;
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let prefix = temp.path();
+
+        let acp = place_package(prefix, "@agentclientprotocol/codex-acp", ACP_MANIFEST);
+        let codex = place_package(&acp, "@openai/codex", &declares_platform_binary(&token));
+        place_package(&codex, &format!("@openai/codex-{token}"), PLATFORM_MANIFEST);
+
+        verify_host_platform_optional_deps(prefix).unwrap();
+    }
+
+    #[test]
+    fn accepts_platform_binary_hoisted_to_the_prefix_root() {
+        let Some(token) = host_npm_platform_token() else {
+            return;
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let prefix = temp.path();
+
+        let acp = place_package(prefix, "@agentclientprotocol/codex-acp", ACP_MANIFEST);
+        place_package(&acp, "@openai/codex", &declares_platform_binary(&token));
+        place_package(prefix, &format!("@openai/codex-{token}"), PLATFORM_MANIFEST);
+
+        verify_host_platform_optional_deps(prefix).unwrap();
+    }
+
+    /// The failure the audit exists to catch: npm exited 0 but skipped the
+    /// platform binary, so it is on none of the resolution paths.
+    #[test]
+    fn rejects_a_genuinely_missing_platform_binary() {
+        let Some(token) = host_npm_platform_token() else {
+            return;
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let prefix = temp.path();
+
+        let acp = place_package(prefix, "@agentclientprotocol/codex-acp", ACP_MANIFEST);
+        place_package(&acp, "@openai/codex", &declares_platform_binary(&token));
+
+        let error = verify_host_platform_optional_deps(prefix).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("@openai/codex-{token}")),
+            "error should name the missing binary, got: {error}"
+        );
+    }
+
+    /// A package whose optional dependencies target *other* platforms must not
+    /// be audited against this host.
+    #[test]
+    fn ignores_optional_dependencies_for_other_platforms() {
+        let temp = tempfile::tempdir().unwrap();
+        let prefix = temp.path();
+
+        place_package(
+            prefix,
+            "@openai/codex",
+            r#"{"name":"@openai/codex","version":"0.144.6",
+                "optionalDependencies":{"@openai/codex-sunos-sparc":"0.144.6"}}"#,
+        );
+
+        verify_host_platform_optional_deps(prefix).unwrap();
+    }
 }
