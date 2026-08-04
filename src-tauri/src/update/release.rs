@@ -85,6 +85,21 @@ pub struct AppUpdateInfo {
     pub sha256: Option<String>,
 }
 
+#[cfg(feature = "tauri-runtime")]
+pub struct DesktopUpdateRequest<'a> {
+    pub app: &'a tauri::AppHandle,
+    pub preferences: &'a UpdatePreferences,
+    pub access_token: &'a str,
+}
+
+#[cfg(feature = "tauri-runtime")]
+pub struct DesktopInstallRequest<'a> {
+    pub update: DesktopUpdateRequest<'a>,
+    pub expected: &'a crate::update::offer::Identity,
+    pub handle: AppUpdateStateHandle,
+    pub emitter: EventEmitter,
+}
+
 pub fn configured_base_url() -> String {
     std::env::var(UPDATE_BASE_URL_ENV)
         .ok()
@@ -104,20 +119,26 @@ pub fn endpoint(preferences: &UpdatePreferences, reason: CheckReason) -> String 
 
 #[cfg(feature = "tauri-runtime")]
 pub fn desktop_updater(
-    app: &tauri::AppHandle,
-    preferences: &UpdatePreferences,
+    request: &DesktopUpdateRequest<'_>,
     reason: CheckReason,
 ) -> Result<Updater, AppCommandError> {
-    let endpoint = endpoint(preferences, reason)
+    let endpoint = endpoint(request.preferences, reason)
         .parse::<tauri::Url>()
         .map_err(|error| {
             AppCommandError::configuration_invalid("Invalid update endpoint")
                 .with_detail(error.to_string())
         })?;
-    app.updater_builder()
+    request
+        .app
+        .updater_builder()
         .endpoints(vec![endpoint])
         .map_err(updater_error)?
-        .header("X-IYW-Installation-ID", &preferences.installation_id)
+        .header(
+            "X-IYW-Installation-ID",
+            &request.preferences.installation_id,
+        )
+        .map_err(updater_error)?
+        .header("token", request.access_token)
         .map_err(updater_error)?
         .timeout(Duration::from_secs(20))
         .build()
@@ -126,54 +147,51 @@ pub fn desktop_updater(
 
 #[cfg(feature = "tauri-runtime")]
 pub async fn check_desktop_update(
-    app: &tauri::AppHandle,
-    preferences: &UpdatePreferences,
+    request: &DesktopUpdateRequest<'_>,
     reason: CheckReason,
 ) -> Result<Option<AppUpdateInfo>, AppCommandError> {
-    let Some(update) = desktop_updater(app, preferences, reason)?
+    let Some(update) = desktop_updater(request, reason)?
         .check()
         .await
         .map_err(updater_error)?
     else {
         return Ok(None);
     };
-    let extensions = validated_extensions(&update, preferences)?;
-    Ok(Some(update_info(&update, &extensions, preferences.channel)))
+    let extensions = validated_extensions(&update, request.preferences)?;
+    Ok(Some(update_info(
+        &update,
+        &extensions,
+        request.preferences.channel,
+    )))
 }
 
 /// Re-check, download, and install the update while reporting shared progress.
 /// Windows NSIS exits from `Installing`; other platforms stage a restart.
 #[cfg(feature = "tauri-runtime")]
-pub async fn download_and_install(
-    app: &tauri::AppHandle,
-    preferences: &UpdatePreferences,
-    expected: &crate::update::offer::Identity,
-    handle: AppUpdateStateHandle,
-    emitter: EventEmitter,
-) -> Result<(), String> {
-    if preferences.channel.as_str() != expected.channel {
+pub async fn download_and_install(request: DesktopInstallRequest<'_>) -> Result<(), String> {
+    if request.update.preferences.channel.as_str() != request.expected.channel {
         return Err("The selected update channel changed before installation".to_string());
     }
-    let update = desktop_updater(app, preferences, CheckReason::Manual)
+    let update = desktop_updater(&request.update, CheckReason::Manual)
         .map_err(|error| error.to_string())?
         .check()
         .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "No update available".to_string())?;
-    let extensions =
-        validated_extensions(&update, preferences).map_err(|error| error.to_string())?;
-    crate::update::offer::validate_checked_update(&update, &extensions, expected)?;
+    let extensions = validated_extensions(&update, request.update.preferences)
+        .map_err(|error| error.to_string())?;
+    crate::update::offer::validate_checked_update(&update, &extensions, request.expected)?;
     let version = update.version.clone();
-    update_state::set_download_target(&handle, &emitter, version.clone());
+    update_state::set_download_target(&request.handle, &request.emitter, version.clone());
     let progress = std::sync::Arc::new(update_state::ProgressEmitter::new(
-        handle.clone(),
-        emitter.clone(),
+        request.handle.clone(),
+        request.emitter.clone(),
     ));
     install_update(InstallContext {
         update,
         version,
-        handle,
-        emitter,
+        handle: request.handle,
+        emitter: request.emitter,
         progress,
     })
     .await

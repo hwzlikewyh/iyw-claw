@@ -54,6 +54,9 @@ pub(crate) async fn check_desktop_update_core(
     let preferences = preferences::load(conn).await?;
     let checked_channel = preferences.channel;
     let emitter = EventEmitter::Tauri(app.clone());
+    let access_token = crate::commands::iyw_account::iyw_account_access_token_core(conn)
+        .await?
+        .ok_or_else(|| AppCommandError::authentication_failed("Sign in to check for updates"))?;
     let (started, _) = update_state::try_begin_check(state, &emitter);
     if !started {
         return Err(AppCommandError::already_exists(
@@ -61,7 +64,12 @@ pub(crate) async fn check_desktop_update_core(
         ));
     }
 
-    let result = release::check_desktop_update(app, &preferences, reason).await;
+    let request = release::DesktopUpdateRequest {
+        app,
+        preferences: &preferences,
+        access_token: access_token.expose(),
+    };
+    let result = release::check_desktop_update(&request, reason).await;
     let update = match result {
         Ok(update) => update,
         Err(error) => {
@@ -250,13 +258,20 @@ pub async fn perform_app_update(
                 );
             }
             let preferences = preferences::load(&conn).await.map_err(|e| e.to_string())?;
-            release::download_and_install(
-                &app,
-                &preferences,
-                &offer,
-                handle.clone(),
-                emitter.clone(),
-            )
+            let access_token = crate::commands::iyw_account::iyw_account_access_token_core(&conn)
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| "Sign in to download the update".to_string())?;
+            release::download_and_install(release::DesktopInstallRequest {
+                update: release::DesktopUpdateRequest {
+                    app: &app,
+                    preferences: &preferences,
+                    access_token: access_token.expose(),
+                },
+                expected: &offer,
+                handle: handle.clone(),
+                emitter: emitter.clone(),
+            })
             .await
         }
         .await;
