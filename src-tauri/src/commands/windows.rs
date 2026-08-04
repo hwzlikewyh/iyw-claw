@@ -36,7 +36,10 @@ const ZOOM_LEVEL_DB_KEY: &str = "appearance_zoom_level";
 
 #[tauri::command]
 pub fn open_devtools(window: tauri::WebviewWindow) {
-    tracing::info!(window_label = window.label(), "[DevTools] opening developer tools");
+    tracing::info!(
+        window_label = window.label(),
+        "[DevTools] opening developer tools"
+    );
     window.open_devtools();
 }
 
@@ -250,7 +253,13 @@ where
 
 #[cfg(target_os = "windows")]
 fn ensure_windows_undecorated(window: &tauri::WebviewWindow) {
-    let _ = window.set_decorations(false);
+    if let Err(error) = window.set_decorations(false) {
+        tracing::warn!(
+            window_label = window.label(),
+            error = %error,
+            "[window] failed to apply undecorated style"
+        );
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -1626,10 +1635,23 @@ pub fn can_hide_to_tray() -> bool {
 ///   * macOS dock-icon reopen
 #[cfg(feature = "tauri-runtime")]
 pub fn show_main_window(app: &AppHandle) {
-    if let Some(main) = app.get_webview_window("main") {
-        let _ = main.unminimize();
-        let _ = main.show();
-        let _ = main.set_focus();
+    let Some(main) = app.get_webview_window("main") else {
+        tracing::error!("[window] cannot show main workspace because the window is missing");
+        return;
+    };
+    for (operation, result) in [
+        ("unminimize", main.unminimize()),
+        ("show", main.show()),
+        ("focus", main.set_focus()),
+    ] {
+        if let Err(error) = result {
+            tracing::warn!(
+                window_label = main.label(),
+                operation,
+                error = %error,
+                "[window] failed to restore main workspace"
+            );
+        }
     }
 }
 

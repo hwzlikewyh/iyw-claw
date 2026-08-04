@@ -112,10 +112,10 @@ pub async fn download_resumable(
     // IR-008：全局 + 每 host 并发限制。信号量在最终文件已存在（零下载）
     // 之后才获取，避免 keep 路径占用并发额度；许可持有整个下载过程。
     let _global_permit = GLOBAL_DOWNLOAD_SEMAPHORE.acquire().await.map_err(|error| {
-            AppCommandError::task_execution_failed(format!(
-                "Global download concurrency gate failed: {error}"
-            ))
-        })?;
+        AppCommandError::task_execution_failed(format!(
+            "Global download concurrency gate failed: {error}"
+        ))
+    })?;
     let _host_permit = host_semaphore(&host_of(url))
         .acquire_owned()
         .await
@@ -414,7 +414,9 @@ async fn prepare_part_output(
         .await
         .map_err(io_attempt_error)?;
     let mut remaining = server_resume;
-    let mut buffer = [0_u8; HASH_BUFFER_BYTES];
+    // 缓冲区会跨 `.await` 留在多层 future 中，必须放到堆上，避免撑爆
+    // Tauri 的 Windows 主线程栈。
+    let mut buffer = vec![0_u8; HASH_BUFFER_BYTES];
     while remaining > 0 {
         let read_size = remaining.min(HASH_BUFFER_BYTES as u64) as usize;
         output
@@ -584,10 +586,10 @@ fn parse_content_range(
         })?;
     // 格式：bytes <start>-<end>/<total>
     let rest = value.strip_prefix("bytes ").ok_or_else(|| {
-            AttemptError::Fatal(AppCommandError::invalid_input(
-                "Managed artifact Content-Range is malformed",
-            ))
-        })?;
+        AttemptError::Fatal(AppCommandError::invalid_input(
+            "Managed artifact Content-Range is malformed",
+        ))
+    })?;
     let (range, total) = rest.rsplit_once('/').ok_or_else(|| {
         AttemptError::Fatal(AppCommandError::invalid_input(
             "Managed artifact Content-Range is malformed",

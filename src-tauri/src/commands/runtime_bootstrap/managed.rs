@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::Instant;
 
 use sea_orm::DatabaseConnection;
 
@@ -11,6 +12,46 @@ use super::types::{
     emit, RuntimeBootstrapEventKind, RuntimeComponentReport, RuntimeComponentStatus,
 };
 
+pub(super) async fn load_channel(conn: &DatabaseConnection, task_id: &str) -> String {
+    crate::update::preferences::load(conn)
+        .await
+        .map(|prefs| prefs.channel.as_str().to_string())
+        .unwrap_or_else(|error| {
+            tracing::warn!(
+                task_id,
+                error_code = ?error.code,
+                fallback_channel = "stable",
+                "failed to load runtime channel; using stable"
+            );
+            "stable".to_string()
+        })
+}
+
+pub(super) fn probe_component(tool_id: &str) -> RuntimeComponentReport {
+    if let Some(path) = managed_tool_executable(tool_id) {
+        return RuntimeComponentReport {
+            status: RuntimeComponentStatus::Ready,
+            detail: Some(path.to_string_lossy().into_owned()),
+        };
+    }
+    RuntimeComponentReport {
+        status: RuntimeComponentStatus::Failed,
+        detail: Some(format!(
+            "受管 {tool_id} 尚未安装：请先完成桌面初始化（托管分发）"
+        )),
+    }
+}
+
+#[tracing::instrument(
+    name = "runtime_bootstrap_component",
+    skip_all,
+    fields(
+        task_id = %task_id,
+        tool_id = %tool_id,
+        channel = %channel,
+        defer_while_active = defer_while_active
+    )
+)]
 pub(super) async fn ensure_component(
     conn: &DatabaseConnection,
     data_dir: &Path,
@@ -20,36 +61,70 @@ pub(super) async fn ensure_component(
     task_id: &str,
     emitter: &EventEmitter,
 ) -> RuntimeComponentReport {
-    if !cfg!(windows) {
-        return RuntimeComponentReport {
+    let started = Instant::now();
+    tracing::info!(phase = "begin", "runtime component bootstrap started");
+    let report = if !cfg!(windows) {
+        tracing::info!(outcome = "skipped", reason = "windows_only");
+        RuntimeComponentReport {
             status: RuntimeComponentStatus::Skipped,
             detail: Some("managed runtime bootstrap is currently Windows-only".to_string()),
-        };
-    }
-    if let Some(report) = ready_component(tool_id) {
-        return report;
-    }
-    match install_managed_tool(
-        conn,
-        data_dir,
-        tool_id,
-        None,
-        channel,
-        defer_while_active,
-        Some(task_id),
-        Some(emitter),
-    )
-    .await
-    {
-        Ok(result) if result.deferred => {
-            deferred_report(tool_id, &result.version, task_id, emitter)
         }
-        Ok(result) => installed_report(tool_id, &result.version, task_id, emitter),
-        Err(error) if fallback_allowed(&error) => {
-            install_fallback(data_dir, tool_id, task_id, emitter, &error).await
+    } else if let Some(report) = ready_component(tool_id) {
+        tracing::info!(outcome = "ready", decision = "already_installed");
+        report
+    } else {
+        match install_managed_tool(
+            conn,
+            data_dir,
+            tool_id,
+            None,
+            channel,
+            defer_while_active,
+            Some(task_id),
+            Some(emitter),
+        )
+        .await
+        {
+            Ok(result) if result.deferred => {
+                tracing::info!(
+                    outcome = "deferred",
+                    decision = "managed_install",
+                    version = %result.version
+                );
+                deferred_report(tool_id, &result.version, task_id, emitter)
+            }
+            Ok(result) => {
+                tracing::info!(
+                    outcome = "installed",
+                    decision = "managed_install",
+                    version = %result.version
+                );
+                installed_report(tool_id, &result.version, task_id, emitter)
+            }
+            Err(error) => {
+                let allowed = fallback_allowed(&error);
+                tracing::warn!(
+                    decision = "managed_install_failed",
+                    managed_error_code = ?error.code,
+                    managed_detail_present = error.detail.is_some(),
+                    fallback_allowed = allowed,
+                    "managed runtime install decision"
+                );
+                if allowed {
+                    install_fallback(data_dir, tool_id, task_id, emitter, &error).await
+                } else {
+                    managed_failure(tool_id, task_id, emitter, error)
+                }
+            }
         }
-        Err(error) => managed_failure(tool_id, task_id, emitter, error),
-    }
+    };
+    tracing::info!(
+        phase = "end",
+        outcome = ?report.status,
+        duration_ms = started.elapsed().as_millis() as u64,
+        "runtime component bootstrap finished"
+    );
+    report
 }
 
 fn fallback_allowed(error: &AppCommandError) -> bool {
@@ -80,11 +155,18 @@ fn managed_failure(
     emitter: &EventEmitter,
     error: AppCommandError,
 ) -> RuntimeComponentReport {
+    tracing::error!(
+        tool_id,
+        task_id,
+        error_code = ?error.code,
+        detail_present = error.detail.is_some(),
+        error_message = %error.message,
+        "[runtime-bootstrap] managed runtime failed"
+    );
     let detail = error
         .detail
         .map(|value| format!("{}: {value}", error.message))
         .unwrap_or(error.message);
-    tracing::error!(tool_id, error = %detail, "[runtime-bootstrap] managed runtime failed");
     emit(
         emitter,
         task_id,
@@ -156,20 +238,45 @@ async fn install_fallback(
     emitter: &EventEmitter,
     managed_error: &AppCommandError,
 ) -> RuntimeComponentReport {
+    let started = Instant::now();
     tracing::warn!(
         tool_id,
-        managed_message = %managed_error.message,
-        fallback_reason = ?managed_error.detail,
+        task_id,
+        managed_error_code = ?managed_error.code,
+        managed_detail_present = managed_error.detail.is_some(),
         "[runtime-bootstrap] managed runtime unavailable; using pinned fallback"
     );
-    match fallback::install(data_dir, tool_id, task_id, emitter).await {
-        Ok(result) => RuntimeComponentReport {
-            status: RuntimeComponentStatus::Installed,
-            detail: Some(format!("{tool_id} {} (fallback)", result.version)),
-        },
-        Err(error) => RuntimeComponentReport {
-            status: RuntimeComponentStatus::Failed,
-            detail: Some(error),
-        },
-    }
+    let report = match fallback::install(data_dir, tool_id, task_id, emitter).await {
+        Ok(result) => {
+            tracing::info!(
+                tool_id,
+                task_id,
+                outcome = "installed",
+                source = "pinned_fallback",
+                version = result.version,
+                duration_ms = started.elapsed().as_millis() as u64,
+                "runtime fallback finished"
+            );
+            RuntimeComponentReport {
+                status: RuntimeComponentStatus::Installed,
+                detail: Some(format!("{tool_id} {} (fallback)", result.version)),
+            }
+        }
+        Err(error) => {
+            tracing::error!(
+                tool_id,
+                task_id,
+                outcome = "failed",
+                source = "pinned_fallback",
+                error_detail_present = true,
+                duration_ms = started.elapsed().as_millis() as u64,
+                "runtime fallback failed"
+            );
+            RuntimeComponentReport {
+                status: RuntimeComponentStatus::Failed,
+                detail: Some(error),
+            }
+        }
+    };
+    report
 }

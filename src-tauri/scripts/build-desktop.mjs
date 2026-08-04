@@ -10,7 +10,9 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const REPO_ROOT = resolve(dirname(SCRIPT_PATH), "..", "..")
 
 export function brandedInstallerName(fileName) {
-  const match = /^iyw-claw_([^_]+)_([^-]+)-setup\.exe$/i.exec(fileName)
+  const match = /^(?:iyw-claw|原助理)_([^_]+)_([^-]+)-setup\.exe$/i.exec(
+    fileName
+  )
   if (!match) throw new Error(`unrecognized NSIS installer name: ${fileName}`)
   return `原助手-v${match[1]}-${match[2]}-setup.exe`
 }
@@ -32,7 +34,10 @@ export function stageBrandedInstallerArtifacts(repoRoot = REPO_ROOT) {
   }
   const installers = readdirSync(outputDir).filter(
     (fileName) =>
-      fileName.startsWith(`iyw-claw_${packageJson.version}_`) &&
+      [
+        `iyw-claw_${packageJson.version}_`,
+        `原助理_${packageJson.version}_`,
+      ].some((prefix) => fileName.startsWith(prefix)) &&
       fileName.endsWith("-setup.exe")
   )
   if (installers.length === 0) {

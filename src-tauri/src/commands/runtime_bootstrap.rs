@@ -14,11 +14,11 @@
 //! 进度仍通过 `app://runtime-bootstrap` 事件上报（与旧 UI 兼容）。
 
 use std::path::Path;
+use std::time::Instant;
 
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 
-use crate::acp::version_center::managed_tool_executable;
 use crate::web::event_bridge::EventEmitter;
 
 #[cfg(feature = "tauri-runtime")]
@@ -37,11 +37,23 @@ fn bootstrap_lock() -> &'static Mutex<()> {
 }
 
 /// 兼容入口：只做受管库存探测，不再执行上游下载。
+#[tracing::instrument(
+    name = "runtime_bootstrap_core",
+    skip(emitter),
+    fields(
+        task_id = %task_id,
+        tool_id = "all",
+        channel = "n/a",
+        defer_while_active = false
+    )
+)]
 pub async fn runtime_bootstrap_core(
     task_id: String,
     emitter: &EventEmitter,
 ) -> RuntimeBootstrapReport {
+    let started = Instant::now();
     let _guard = bootstrap_lock().lock().await;
+    tracing::info!(phase = "begin", "runtime bootstrap inventory probe started");
     emit(
         emitter,
         &task_id,
@@ -51,9 +63,9 @@ pub async fn runtime_bootstrap_core(
         "",
     );
     let report = RuntimeBootstrapReport {
-        node: probe_component("node"),
-        git: probe_component("git"),
-        uv: probe_component("uv"),
+        node: managed::probe_component("node"),
+        git: managed::probe_component("git"),
+        uv: managed::probe_component("uv"),
     };
     let failed = report.node.status == RuntimeComponentStatus::Failed
         || report.git.status == RuntimeComponentStatus::Failed
@@ -70,11 +82,30 @@ pub async fn runtime_bootstrap_core(
         None,
         "",
     );
+    tracing::info!(
+        phase = "end",
+        outcome = if failed { "failed" } else { "completed" },
+        node_status = ?report.node.status,
+        git_status = ?report.git.status,
+        uv_status = ?report.uv.status,
+        duration_ms = started.elapsed().as_millis() as u64,
+        "runtime bootstrap inventory probe finished"
+    );
     report
 }
 
 /// 受管安装入口：经由版本中心安装 Node / Git / uv（resolve → 票据 → TOS 下载 →
 /// 校验 → 原子激活）。
+#[tracing::instrument(
+    name = "runtime_bootstrap_managed_core",
+    skip_all,
+    fields(
+        task_id = %task_id,
+        tool_id = "all",
+        channel = tracing::field::Empty,
+        defer_while_active = defer_while_active
+    )
+)]
 pub async fn runtime_bootstrap_managed_core(
     conn: &DatabaseConnection,
     data_dir: &Path,
@@ -82,7 +113,9 @@ pub async fn runtime_bootstrap_managed_core(
     task_id: String,
     emitter: &EventEmitter,
 ) -> RuntimeBootstrapReport {
+    let started = Instant::now();
     let _guard = bootstrap_lock().lock().await;
+    tracing::info!(phase = "begin", "managed runtime bootstrap started");
     emit(
         emitter,
         &task_id,
@@ -91,10 +124,8 @@ pub async fn runtime_bootstrap_managed_core(
         None,
         "",
     );
-    let channel = crate::update::preferences::load(conn)
-        .await
-        .map(|prefs| prefs.channel.as_str().to_string())
-        .unwrap_or_else(|_| "stable".to_string());
+    let channel = managed::load_channel(conn, &task_id).await;
+    tracing::Span::current().record("channel", tracing::field::display(&channel));
 
     let node = managed::ensure_component(
         conn,
@@ -148,23 +179,17 @@ pub async fn runtime_bootstrap_managed_core(
         None,
         "",
     );
+    tracing::info!(
+        phase = "end",
+        outcome = if failed { "failed" } else { "completed" },
+        channel = %channel,
+        node_status = ?node.status,
+        git_status = ?git.status,
+        uv_status = ?uv.status,
+        duration_ms = started.elapsed().as_millis() as u64,
+        "managed runtime bootstrap finished"
+    );
     RuntimeBootstrapReport { node, git, uv }
-}
-
-/// 探测受管运行时是否已就绪。
-fn probe_component(tool_id: &str) -> RuntimeComponentReport {
-    if let Some(path) = managed_tool_executable(tool_id) {
-        return RuntimeComponentReport {
-            status: RuntimeComponentStatus::Ready,
-            detail: Some(path.to_string_lossy().into_owned()),
-        };
-    }
-    RuntimeComponentReport {
-        status: RuntimeComponentStatus::Failed,
-        detail: Some(format!(
-            "受管 {tool_id} 尚未安装：请先完成桌面初始化（托管分发）"
-        )),
-    }
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -175,13 +200,40 @@ pub async fn runtime_bootstrap(
     db: tauri::State<'_, crate::db::AppDatabase>,
     connection_manager: tauri::State<'_, ConnectionManager>,
 ) -> Result<RuntimeBootstrapReport, String> {
+    let started = Instant::now();
+    tracing::info!(
+        task_id = %task_id,
+        phase = "command_enter",
+        "runtime bootstrap command entered"
+    );
     let emitter = EventEmitter::Tauri(app);
     let conn = db.conn.clone();
     let data_dir = crate::system_skills::data_dir_from_env();
     let defer_while_active = connection_manager.has_live_agent_sessions().await;
-    let report =
-        runtime_bootstrap_managed_core(&conn, &data_dir, defer_while_active, task_id, &emitter)
-            .await;
+    tracing::info!(
+        task_id = %task_id,
+        phase = "session_probe_complete",
+        defer_while_active,
+        data_dir = %data_dir.display(),
+        "runtime bootstrap prerequisites resolved"
+    );
+    let report = Box::pin(runtime_bootstrap_managed_core(
+        &conn,
+        &data_dir,
+        defer_while_active,
+        task_id.clone(),
+        &emitter,
+    ))
+    .await;
+    tracing::info!(
+        task_id = %task_id,
+        phase = "managed_bootstrap_complete",
+        node_status = ?report.node.status,
+        git_status = ?report.git.status,
+        uv_status = ?report.uv.status,
+        duration_ms = started.elapsed().as_millis() as u64,
+        "runtime bootstrap command completed"
+    );
     tauri::async_runtime::spawn(async move {
         crate::system_skills::startup_update_core(&conn, &data_dir, &emitter).await;
     });
@@ -213,10 +265,7 @@ pub async fn bootstrap_initialize(
     let conn = db.conn.clone();
     let data_dir = crate::system_skills::data_dir_from_env();
     let defer_while_active = connection_manager.has_live_agent_sessions().await;
-    let channel = crate::update::preferences::load(&conn)
-        .await
-        .map(|prefs| prefs.channel.as_str().to_string())
-        .unwrap_or_else(|_| "stable".to_string());
+    let channel = managed::load_channel(&conn, &task_id).await;
     crate::acp::version_center::bootstrap_initialize(
         &conn,
         &data_dir,
