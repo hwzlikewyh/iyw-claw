@@ -53,11 +53,11 @@ pub(super) async fn ensure_component(
 }
 
 fn fallback_allowed(error: &AppCommandError) -> bool {
-    if matches!(
-        error.code,
-        AppErrorCode::NetworkError | AppErrorCode::AuthenticationFailed
-    ) {
+    if error.code == AppErrorCode::NetworkError {
         return true;
+    }
+    if error.code != AppErrorCode::InvalidInput {
+        return false;
     }
     matches!(
         error.detail.as_deref(),
