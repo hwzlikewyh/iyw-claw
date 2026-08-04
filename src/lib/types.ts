@@ -2473,6 +2473,7 @@ export interface RuntimeComponentReport {
 export interface RuntimeBootstrapReport {
   node: RuntimeComponentReport
   git: RuntimeComponentReport
+  uv: RuntimeComponentReport
 }
 
 // ─── Managed bootstrap plan / initialization status ───

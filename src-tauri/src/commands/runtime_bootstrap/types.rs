@@ -23,6 +23,7 @@ pub struct RuntimeComponentReport {
 pub struct RuntimeBootstrapReport {
     pub node: RuntimeComponentReport,
     pub git: RuntimeComponentReport,
+    pub uv: RuntimeComponentReport,
 }
 
 #[derive(Debug, Clone, Serialize)]

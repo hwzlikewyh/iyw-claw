@@ -2,6 +2,9 @@ use super::Envelope;
 use crate::app_error::AppCommandError;
 
 pub(super) fn envelope_error(envelope: Envelope) -> AppCommandError {
+    if matches!(envelope.code, 401 | 403) {
+        return AppCommandError::authentication_failed(envelope.message);
+    }
     let error_code = envelope
         .data
         .get("errorCode")

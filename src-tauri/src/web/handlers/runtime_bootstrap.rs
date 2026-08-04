@@ -29,7 +29,15 @@ pub async fn runtime_bootstrap(
     Json(params): Json<RuntimeBootstrapParams>,
 ) -> Json<rb::RuntimeBootstrapReport> {
     let emitter = state.emitter.clone();
-    let report = rb::runtime_bootstrap_core(params.task_id, &emitter).await;
+    let defer_while_active = state.connection_manager.has_live_agent_sessions().await;
+    let report = rb::runtime_bootstrap_managed_core(
+        &state.db.conn,
+        &state.data_dir,
+        defer_while_active,
+        params.task_id,
+        &emitter,
+    )
+    .await;
     let conn = state.db.conn.clone();
     let data_dir = state.data_dir.clone();
     tokio::spawn(async move {

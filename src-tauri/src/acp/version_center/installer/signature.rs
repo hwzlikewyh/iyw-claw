@@ -4,10 +4,15 @@ use minisign_verify::{PublicKey, Signature};
 use crate::app_error::AppCommandError;
 
 // This is a build-time value, intentionally independent from the application
-// updater and Agent artifact keys. A build without the release key fails closed.
+// updater and Agent artifact keys. Signed artifacts still fail closed when the
+// release key is unavailable; unsigned artifacts rely on size and SHA-256.
 const TOOLCHAIN_RELEASE_PUBLIC_KEY: Option<&str> = option_env!("IYW_TOOLCHAIN_RELEASE_PUBLIC_KEY");
 
 pub fn verify_tool_signature(bytes: &[u8], signature_text: &str) -> Result<(), AppCommandError> {
+    if signature_text.trim().is_empty() {
+        tracing::warn!("[managed-install] unsigned artifact accepted with SHA-256 verification");
+        return Ok(());
+    }
     let public_key = parse_public_key(required_public_key()?)?;
     let signature = Signature::decode(signature_text.trim()).map_err(|error| {
         AppCommandError::invalid_input("Managed tool signature is invalid")
@@ -50,4 +55,15 @@ fn unwrap_base64(value: &str) -> Result<String, String> {
         .decode(value.trim())
         .map_err(|error| error.to_string())?;
     String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::verify_tool_signature;
+
+    #[test]
+    fn accepts_empty_signature() {
+        verify_tool_signature(b"artifact", "")
+            .expect("unsigned artifacts should rely on SHA-256 verification");
+    }
 }
