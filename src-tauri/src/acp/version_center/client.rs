@@ -200,15 +200,9 @@ async fn decode_response<T: DeserializeOwned>(
                 &body
             }
         );
-        return Err(
-            AppCommandError::network("Agent platform gateway rejected the request")
-                .with_detail(status.to_string()),
-        );
+        return Err(http_status_error(status));
     }
-    let bytes = response.bytes().await.map_err(|error| {
-        AppCommandError::configuration_invalid("Invalid Agent platform response")
-            .with_detail(error.to_string())
-    })?;
+    let bytes = response.bytes().await.map_err(network_error)?;
     let envelope = serde_json::from_slice::<Envelope>(&bytes).map_err(|error| {
         tracing::warn!(
             "[AgentPlatform] failed to parse response envelope: {} — body: {}",
@@ -238,7 +232,32 @@ async fn decode_response<T: DeserializeOwned>(
 }
 
 fn network_error(error: reqwest::Error) -> AppCommandError {
-    AppCommandError::network("Agent platform request failed").with_detail(error.to_string())
+    let detail = error.to_string();
+    if error.is_connect() || error.is_timeout() {
+        return AppCommandError::network("Agent platform request failed").with_detail(detail);
+    }
+    AppCommandError::configuration_invalid("Agent platform request failed").with_detail(detail)
+}
+
+fn http_status_error(status: reqwest::StatusCode) -> AppCommandError {
+    let error = match status {
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
+            AppCommandError::authentication_failed("Agent platform rejected authentication")
+        }
+        reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::TOO_MANY_REQUESTS => {
+            AppCommandError::network("Agent platform is temporarily unavailable")
+        }
+        _ if status.is_server_error() => {
+            AppCommandError::network("Agent platform is temporarily unavailable")
+        }
+        _ if status.is_client_error() => {
+            AppCommandError::invalid_input("Agent platform rejected the request")
+        }
+        _ => AppCommandError::configuration_invalid(
+            "Agent platform returned an unexpected HTTP status",
+        ),
+    };
+    error.with_detail(status.to_string())
 }
 
 fn rejected_offer(error: String) -> AppCommandError {
