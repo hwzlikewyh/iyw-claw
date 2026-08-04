@@ -486,7 +486,9 @@ async fn confirm_offer(
             target: capability::current_target(),
             arch: capability::current_arch(),
             channel,
-            reason: "recovery",
+            // 这是指定同版本的二次授权，不是不安全版本恢复。后端要求 recovery
+            // 请求必须携带一个确实不安全的当前版本。
+            reason: "manual",
         },
     )
     .await?;

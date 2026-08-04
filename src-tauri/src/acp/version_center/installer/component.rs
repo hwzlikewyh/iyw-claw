@@ -58,7 +58,8 @@ pub(super) async fn install_tool_component(
             target: capability::current_target(),
             arch: capability::current_arch(),
             channel,
-            reason: "bootstrap",
+            // 初始化没有指定版本，按后端契约走正常的推荐版本选择流程。
+            reason: "automatic",
         },
     )
     .await?;
