@@ -15,17 +15,32 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ChatChannelConfigPatch {
+    #[serde(deserialize_with = "deserialize_double_option")]
     pub base_url: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
     pub app_id: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
     pub chat_id: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
     pub default_chatid: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
     pub default_chat_type: Option<Option<u8>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
     pub default_agent_type: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
     pub poll_interval_secs: Option<Option<u64>>,
     /// Explicit deletion of additional (unknown) keys. Must not target
     /// protected/internal fields.
     #[serde(default)]
     pub delete_fields: Vec<String>,
+}
+
+fn deserialize_double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// Internal fields the UI must never touch.
