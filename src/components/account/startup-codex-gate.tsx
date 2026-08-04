@@ -129,7 +129,9 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
           ["git", runtimeReport.git],
           ["uv", runtimeReport.uv],
         ] as const
-      ).filter(([, component]) => component.status === "failed")
+      ).filter(([, component]) =>
+        ["failed", "deferred"].includes(component.status)
+      )
       if (failures.length > 0) {
         throw new Error(
           failures

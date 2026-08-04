@@ -568,11 +568,16 @@ async fn run_npm_streaming(
     Ok((status.success(), collected_stderr))
 }
 
+enum ManagedNpmIntegrityError {
+    Unavailable(AcpError),
+    Invalid(AcpError),
+}
+
 async fn verify_managed_npm_integrity(
     package_spec: &str,
     registry_url: &str,
     expected: &str,
-) -> Result<(), AcpError> {
+) -> Result<(), ManagedNpmIntegrityError> {
     let output = crate::process::tokio_command("npm")
         .arg("view")
         .arg(package_spec)
@@ -581,20 +586,26 @@ async fn verify_managed_npm_integrity(
         .arg(format!("--registry={registry_url}"))
         .output()
         .await
-        .map_err(|error| AcpError::protocol(format!("verify managed npm integrity failed: {error}")))?;
+        .map_err(|error| {
+            ManagedNpmIntegrityError::Unavailable(AcpError::protocol(format!(
+                "verify managed npm integrity failed: {error}"
+            )))
+        })?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr);
-        return Err(AcpError::protocol(format!(
-            "managed npm integrity lookup failed: {}",
-            detail.trim()
+        return Err(ManagedNpmIntegrityError::Unavailable(AcpError::protocol(
+            format!("managed npm integrity lookup failed: {}", detail.trim()),
         )));
     }
-    let actual = serde_json::from_slice::<String>(&output.stdout)
-        .map_err(|error| AcpError::protocol(format!("invalid npm integrity response: {error}")))?;
+    let actual = serde_json::from_slice::<String>(&output.stdout).map_err(|error| {
+        ManagedNpmIntegrityError::Invalid(AcpError::protocol(format!(
+            "invalid npm integrity response: {error}"
+        )))
+    })?;
     if actual.trim() != expected {
-        return Err(AcpError::protocol(
+        return Err(ManagedNpmIntegrityError::Invalid(AcpError::protocol(
             "managed npm package integrity does not match the version center",
-        ));
+        )));
     }
     Ok(())
 }
@@ -8768,8 +8779,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
         } => {
             // `version_override` of None/empty keeps the registry-pinned spec;
             // a custom version installs `<name>@<version>` instead.
-            let legacy_install_spec =
-                build_npm_install_spec(package, version_override.as_deref())?;
+            let legacy_install_spec = build_npm_install_spec(package, version_override.as_deref())?;
             let legacy_resolved = version_from_package_spec(&legacy_install_spec)
                 .or_else(|| {
                     registry_version
@@ -8850,11 +8860,19 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 packages.push(PI_CODING_AGENT_PACKAGE);
                 required_commands.push("pi");
             }
-            let install_result = async {
+            let install_result: Result<PathBuf, (AcpError, bool)> = async {
                 if let (Some(registry), Some(integrity)) =
                     (registry_url.as_deref(), registry_integrity.as_deref())
                 {
-                    verify_managed_npm_integrity(&install_spec, registry, integrity).await?;
+                    match verify_managed_npm_integrity(&install_spec, registry, integrity).await {
+                        Ok(()) => {}
+                        Err(ManagedNpmIntegrityError::Unavailable(error)) => {
+                            return Err((error, true));
+                        }
+                        Err(ManagedNpmIntegrityError::Invalid(error)) => {
+                            return Err((error, false));
+                        }
+                    }
                 }
                 install_private_npm_package(
                     &paths,
@@ -8867,11 +8885,15 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                     emitter,
                 )
                 .await
+                .map_err(|error| (error, true))
             }
             .await;
             drop(packages);
             drop(required_commands);
-            if let Err(error) = install_result {
+            if let Err((error, fallback_allowed)) = install_result {
+                if !fallback_allowed {
+                    return Err(error);
+                }
                 if registry_url.is_none() {
                     return Err(error);
                 }

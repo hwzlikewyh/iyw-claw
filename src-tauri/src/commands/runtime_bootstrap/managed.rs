@@ -138,13 +138,13 @@ fn deferred_report(
     emit(
         emitter,
         task_id,
-        RuntimeBootstrapEventKind::Failed,
+        RuntimeBootstrapEventKind::Log,
         Some(tool_id.to_string()),
         None,
         &detail,
     );
     RuntimeComponentReport {
-        status: RuntimeComponentStatus::Failed,
+        status: RuntimeComponentStatus::Deferred,
         detail: Some(detail),
     }
 }

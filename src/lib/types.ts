@@ -2440,7 +2440,7 @@ export interface OfficecliInstallEvent {
   payload: string
 }
 
-// ─── Managed runtime bootstrap (Node.js / Git) ───
+// ─── Managed runtime bootstrap (Node.js / Git / uv) ───
 
 export type RuntimeBootstrapEventKind =
   | "started"
@@ -2449,7 +2449,7 @@ export type RuntimeBootstrapEventKind =
   | "completed"
   | "failed"
 
-export type RuntimeBootstrapComponent = "node" | "git"
+export type RuntimeBootstrapComponent = "node" | "git" | "uv"
 
 export interface RuntimeBootstrapEvent {
   task_id: string
@@ -2463,6 +2463,7 @@ export type RuntimeComponentStatus =
   | "ready"
   | "installed"
   | "skipped"
+  | "deferred"
   | "failed"
 
 export interface RuntimeComponentReport {
