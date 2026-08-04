@@ -14,11 +14,13 @@ use crate::models::agent::AgentType;
 /// resolution) and would otherwise collide on the rename target.
 static TRASH_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-
 /// Locate an iyw-claw-managed uv tool binary (`uv` or `uvx`) below the private
 /// Agent storage root. Missing or incompatible files are never resolved from
 /// the process PATH by this module.
 pub fn managed_uv_tool_path(paths: &AgentStoragePaths, tool: &str) -> PathBuf {
+    if let Some(path) = crate::acp::version_center::managed_tool_executable(tool) {
+        return path;
+    }
     let exe = if cfg!(windows) {
         format!("{tool}.exe")
     } else {
@@ -65,16 +67,33 @@ pub fn uv_tool_dir_for(paths: &AgentStoragePaths) -> PathBuf {
     if let Some(active) = active_uv_version_dir(&uv_root) {
         return active;
     }
-    latest_version_dir(&uv_root)
-        .unwrap_or_else(|| uv_root.join("tools"))
-        .join(registry::current_platform())
+    if let Some(latest) = latest_version_dir(&uv_root) {
+        let managed = latest.join(managed_runtime_platform());
+        return if managed.is_dir() {
+            managed
+        } else {
+            latest.join(registry::current_platform())
+        };
+    }
+    uv_root.join("tools").join(registry::current_platform())
 }
 
 fn active_uv_version_dir(uv_root: &Path) -> Option<PathBuf> {
     let raw = std::fs::read_to_string(uv_root.join("current.json")).ok()?;
     let value = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
     let version = value.get("version")?.as_str()?;
-    Some(uv_root.join(version).join(registry::current_platform()))
+    semver::Version::parse(version).ok()?;
+    let platform = value.get("platform")?.as_str()?;
+    (platform == managed_runtime_platform()).then(|| uv_root.join(version).join(platform))
+}
+
+fn managed_runtime_platform() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "win-x64",
+        "aarch64" => "win-arm64",
+        "x86" => "win-x86",
+        _ => "unknown",
+    }
 }
 
 fn latest_version_dir(root: &Path) -> Option<PathBuf> {
@@ -84,9 +103,9 @@ fn latest_version_dir(root: &Path) -> Option<PathBuf> {
         let Ok(version) = semver::Version::parse(&name) else {
             continue;
         };
-        let replace = best.as_ref().map_or(true, |(best_version, _)| {
-            version > *best_version
-        });
+        let replace = best
+            .as_ref()
+            .map_or(true, |(best_version, _)| version > *best_version);
         if replace {
             best = Some((version, entry.path()));
         }

@@ -178,13 +178,7 @@ pub fn ensure_managed_tools_in_path() {
 }
 
 fn ensure_git_in_path() {
-    let root = std::env::var_os(crate::desktop_bootstrap::INSTALL_ROOT_ENV)
-        .or_else(|| std::env::var_os(crate::acp::agent_storage::STORAGE_ROOT_ENV))
-        .or_else(|| std::env::var_os("IYW_CLAW_DATA_DIR"));
-    let Some(root) = root else {
-        return;
-    };
-    let Some(bin_dir) = managed_git::managed_git_bin_dir(PathBuf::from(root).as_path()) else {
+    let Some(bin_dir) = managed_git::managed_git_bin_dir() else {
         return;
     };
     prepend_to_path(&bin_dir);
