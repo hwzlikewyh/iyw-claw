@@ -900,24 +900,36 @@ async fn fetch_managed_npm_tarball(
 fn managed_npm_install_error(error: AcpError) -> ManagedNpmSourceError {
     let explicitly_unavailable = match &error {
         AcpError::Protocol(message) if message.contains("private npm install failed:") => {
-            let message = message.to_ascii_lowercase();
-            [
-                "enetunreach",
-                "ehostunreach",
-                "econnrefused",
-                "econnreset",
-                "etimedout",
-                "eai_again",
-                "enotfound",
-                "code e408",
-                "code e429",
-                "code e500",
-                "code e502",
-                "code e503",
-                "code e504",
-            ]
-            .iter()
-            .any(|token| message.contains(token))
+            let message = message
+                .strip_prefix("private npm install failed:")
+                .unwrap_or(message)
+                .to_ascii_lowercase();
+            message.lines().any(|line| {
+                let line = line.trim();
+                let code = line
+                    .strip_prefix("npm error code ")
+                    .or_else(|| line.strip_prefix("npm err! code "));
+                code.is_some_and(|code| {
+                    matches!(
+                        code.split_whitespace().next(),
+                        Some(
+                            "enetunreach"
+                                | "ehostunreach"
+                                | "econnrefused"
+                                | "econnreset"
+                                | "etimedout"
+                                | "eai_again"
+                                | "enotfound"
+                                | "e408"
+                                | "e429"
+                                | "e500"
+                                | "e502"
+                                | "e503"
+                                | "e504"
+                        )
+                    )
+                })
+            })
         }
         _ => false,
     };
