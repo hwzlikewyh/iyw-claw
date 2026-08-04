@@ -1,7 +1,7 @@
-//! 首次启动运行时的兼容入口（Node / Git）。
+//! 首次启动运行时的兼容入口（Node / Git / uv）。
 //!
 //! 受管分发后，Node、Git、uv 等运行时优先由后端版本中心决策、短时票据 +
-//! TOS/CDN 下载、本地校验后原子激活。若后端尚无对应发布数据，Node / Git
+//! TOS/CDN 下载、本地校验后原子激活。若后端尚无对应发布数据，Node / Git / uv
 //! 可使用编译内固定版本、固定 SHA-256 的备案源完成首次启动。
 //!
 //! 本模块保留旧 `runtime_bootstrap` / `runtime_bootstrap_core` 表面以便现有
@@ -9,8 +9,7 @@
 //!
 //! - `runtime_bootstrap_core` 只做受管库存探测，缺失时给出可操作的失败信息
 //!   （真正的初始化由 `bootstrap_initialize` 驱动，见 version_center installer）。
-//! - `runtime_bootstrap_managed_core` 是受管安装入口（需要数据库连接），由
-//!   Task 13 接线到新的 web handler / tauri command。
+//! - `runtime_bootstrap_managed_core` 是 web handler / Tauri command 共用的受管安装入口。
 //!
 //! 进度仍通过 `app://runtime-bootstrap` 事件上报（与旧 UI 兼容）。
 
@@ -52,11 +51,13 @@ pub async fn runtime_bootstrap_core(
         "",
     );
     let report = RuntimeBootstrapReport {
-        node: probe_component("node", "node.exe"),
-        git: probe_component("git", "cmd/git.exe"),
+        node: probe_component("node"),
+        git: probe_component("git"),
+        uv: probe_component("uv"),
     };
     let failed = report.node.status == RuntimeComponentStatus::Failed
-        || report.git.status == RuntimeComponentStatus::Failed;
+        || report.git.status == RuntimeComponentStatus::Failed
+        || report.uv.status == RuntimeComponentStatus::Failed;
     emit(
         emitter,
         &task_id,
@@ -72,8 +73,8 @@ pub async fn runtime_bootstrap_core(
     report
 }
 
-/// 受管安装入口：经由版本中心安装 Node / Git（resolve → 票据 → TOS 下载 →
-/// 校验 → 原子激活）。Task 13 应将其接线到 web handler / tauri command。
+/// 受管安装入口：经由版本中心安装 Node / Git / uv（resolve → 票据 → TOS 下载 →
+/// 校验 → 原子激活）。
 pub async fn runtime_bootstrap_managed_core(
     conn: &DatabaseConnection,
     data_dir: &Path,
@@ -115,14 +116,26 @@ pub async fn runtime_bootstrap_managed_core(
         emitter,
     )
     .await;
+    let uv = managed::ensure_component(
+        conn,
+        data_dir,
+        "uv",
+        &channel,
+        defer_while_active,
+        &task_id,
+        emitter,
+    )
+    .await;
 
     if node.status == RuntimeComponentStatus::Installed
         || git.status == RuntimeComponentStatus::Installed
+        || uv.status == RuntimeComponentStatus::Installed
     {
         crate::process::ensure_managed_tools_in_path();
     }
     let failed = node.status == RuntimeComponentStatus::Failed
-        || git.status == RuntimeComponentStatus::Failed;
+        || git.status == RuntimeComponentStatus::Failed
+        || uv.status == RuntimeComponentStatus::Failed;
     emit(
         emitter,
         &task_id,
@@ -135,35 +148,17 @@ pub async fn runtime_bootstrap_managed_core(
         None,
         "",
     );
-    RuntimeBootstrapReport { node, git }
-}
-
-/// 非 Windows（或未知架构）只做 PATH 探测。
-fn probe_only_report(binary: &str) -> RuntimeComponentReport {
-    match which::which(binary) {
-        Ok(path) => RuntimeComponentReport {
-            status: RuntimeComponentStatus::Ready,
-            detail: Some(path.to_string_lossy().into_owned()),
-        },
-        Err(_) => RuntimeComponentReport {
-            status: RuntimeComponentStatus::Skipped,
-            detail: Some(format!("{binary} not found in PATH")),
-        },
-    }
+    RuntimeBootstrapReport { node, git, uv }
 }
 
 /// 探测受管运行时是否已就绪。
-fn probe_component(tool_id: &str, relative: &str) -> RuntimeComponentReport {
-    if !cfg!(windows) {
-        return probe_only_report(tool_id);
-    }
+fn probe_component(tool_id: &str) -> RuntimeComponentReport {
     if let Some(path) = managed_tool_executable(tool_id) {
         return RuntimeComponentReport {
             status: RuntimeComponentStatus::Ready,
             detail: Some(path.to_string_lossy().into_owned()),
         };
     }
-    let _ = relative;
     RuntimeComponentReport {
         status: RuntimeComponentStatus::Failed,
         detail: Some(format!(
@@ -193,8 +188,7 @@ pub async fn runtime_bootstrap(
     Ok(report)
 }
 
-/// 受管初始化状态查询（只读，不取写入锁）。供新前端 `bootstrapInitStatus`
-/// 调用；web handler 等价路由由 Task 13 接线。
+/// 受管初始化状态查询（只读，不取写入锁）。供前端 `bootstrapInitStatus` 调用。
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn bootstrap_init_status() -> Result<crate::acp::version_center::InitStatusReport, String>
@@ -206,7 +200,7 @@ pub async fn bootstrap_init_status() -> Result<crate::acp::version_center::InitS
 }
 
 /// 统一初始化 / 修复入口：resolve → 票据 → 下载 → 校验 → 激活 → health check。
-/// 供新前端 `bootstrapInitialize` 调用；web handler 等价路由由 Task 13 接线。
+/// 供前端 `bootstrapInitialize` 调用。
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn bootstrap_initialize(

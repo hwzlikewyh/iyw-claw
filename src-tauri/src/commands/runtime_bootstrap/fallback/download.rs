@@ -2,6 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures_util::StreamExt;
+use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
 use crate::web::event_bridge::EventEmitter;
@@ -19,15 +20,20 @@ pub(super) async fn download_archive(
     emitter: &EventEmitter,
 ) -> Result<(), String> {
     if destination.is_file() {
-        emit_event(
-            emitter,
-            task_id,
-            RuntimeBootstrapEventKind::Log,
-            spec,
-            None,
-            format!("using cached {}", spec.asset),
-        );
-        return Ok(());
+        if verify_archive(destination, spec).await? {
+            emit_event(
+                emitter,
+                task_id,
+                RuntimeBootstrapEventKind::Log,
+                spec,
+                None,
+                format!("using cached {}", spec.asset),
+            );
+            return Ok(());
+        }
+        tokio::fs::remove_file(destination)
+            .await
+            .map_err(|error| format!("failed to remove corrupt cache: {error}"))?;
     }
     let client = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
@@ -98,9 +104,23 @@ async fn download_once(
         .await
         .map_err(|error| format!("failed to flush download: {error}"))?;
     drop(file);
+    if !verify_archive(&partial, spec).await? {
+        let _ = tokio::fs::remove_file(&partial).await;
+        return Err("downloaded archive SHA-256 does not match the pinned digest".to_string());
+    }
     tokio::fs::rename(&partial, destination)
         .await
         .map_err(|error| format!("failed to finalize download: {error}"))
+}
+
+async fn verify_archive(path: &Path, spec: &ComponentSpec) -> Result<bool, String> {
+    let Some(expected) = spec.expected_sha256 else {
+        return Ok(true);
+    };
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|error| format!("failed to verify {}: {error}", path.display()))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)).eq_ignore_ascii_case(expected))
 }
 
 async fn stream_to_file(

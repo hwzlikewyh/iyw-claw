@@ -36,7 +36,7 @@ type CodexBootstrapState =
   | "ready"
   | "error"
 
-type RuntimePercents = Partial<Record<"node" | "git", number>>
+type RuntimePercents = Partial<Record<"node" | "git" | "uv", number>>
 
 // The bootstrap steps, in order. Kept on screen with the failure so a report
 // says which one broke instead of only that something did.
@@ -121,11 +121,13 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     let step: BootstrapStep = "runtime"
     try {
       // Node/Git must exist before the Codex npx install below can run.
+      setState("runtime")
       const runtimeReport = await runtimeBootstrap(runtimeTaskIdRef.current)
       const failures = (
         [
           ["node", runtimeReport.node],
           ["git", runtimeReport.git],
+          ["uv", runtimeReport.uv],
         ] as const
       ).filter(([, component]) => component.status === "failed")
       if (failures.length > 0) {

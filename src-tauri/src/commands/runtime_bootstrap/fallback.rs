@@ -25,7 +25,7 @@ pub(super) async fn install(
         RuntimeBootstrapEventKind::Log,
         &spec,
         None,
-        format!("managed catalog empty; using pinned {}", spec.version),
+        format!("managed runtime unavailable; using pinned {}", spec.version),
     );
     let result = install::install_component(data_dir, &spec, task_id, emitter).await;
     match result {
