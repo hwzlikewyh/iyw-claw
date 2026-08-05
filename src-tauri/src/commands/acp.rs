@@ -80,7 +80,12 @@ pub(crate) struct AgentInstallEvent {
 }
 
 pub(crate) fn emit_managed_tool_progress(emitter: &EventEmitter, task_id: &str, percent: u8) {
-    emit_agent_install_event(emitter, task_id, AgentInstallEventKind::Progress, percent.to_string());
+    emit_agent_install_event(
+        emitter,
+        task_id,
+        AgentInstallEventKind::Progress,
+        percent.to_string(),
+    );
 }
 
 fn emit_agent_install_event(
@@ -5337,9 +5342,7 @@ pub(crate) fn uninstall_market_skill_by_id(skill_id: i64) -> Result<usize, AcpEr
     let mut removed = 0usize;
     for entry in entries {
         let entry = entry.map_err(|error| {
-            AcpError::protocol(format!(
-                "failed to inspect market Skill installs: {error}"
-            ))
+            AcpError::protocol(format!("failed to inspect market Skill installs: {error}"))
         })?;
         let source = entry.path();
         let Some(marker) = read_market_skill_marker(&source) else {
