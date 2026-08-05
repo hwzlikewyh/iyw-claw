@@ -93,9 +93,7 @@ pub const KEY_DELEGATION_KILL_SWITCH: &str = "delegation.kill_switch";
 pub const KILL_SWITCH_ENV: &str = "IYW_CLAW_FEATURE_KILL_SWITCH";
 
 /// 读取后台 kill switch 与组织策略（`Some` 即生效，优先于用户设置）。
-async fn backend_delegation_policy(
-    conn: &DatabaseConnection,
-) -> (Option<bool>, Option<bool>) {
+async fn backend_delegation_policy(conn: &DatabaseConnection) -> (Option<bool>, Option<bool>) {
     let env_kill = std::env::var(KILL_SWITCH_ENV)
         .ok()
         .map(|raw| raw.split(',').any(|item| item.trim() == "delegation"));
@@ -168,7 +166,9 @@ impl DelegationSettings {
     /// 无 `effective` 时回退到 `enabled`（旧客户端路径），但 kill switch
     /// 强制关闭时仍以 kill switch 为准，用户无法绕过。
     fn effective_enabled(&self) -> bool {
-        self.effective.map(|state| state.enabled).unwrap_or(self.enabled)
+        self.effective
+            .map(|state| state.enabled)
+            .unwrap_or(self.enabled)
     }
 
     fn into_broker_config(self) -> DelegationConfig {

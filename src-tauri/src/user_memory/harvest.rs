@@ -93,10 +93,7 @@ pub struct MemoryHarvestRequest {
 
 impl MemoryHarvestRequest {
     pub(crate) fn dedup_key(&self) -> String {
-        hash_parts(&[
-            self.conversation.as_bytes(),
-            &self.turn_nonce.to_le_bytes(),
-        ])
+        hash_parts(&[self.conversation.as_bytes(), &self.turn_nonce.to_le_bytes()])
     }
 }
 
@@ -216,9 +213,11 @@ impl UserMemoryService {
             let root = self.harvest_root()?;
             let mut checkpoint = self.harvest_checkpoint().await?;
             let key = request.dedup_key();
-            if checkpoint.records.iter().any(|record| {
-                record.request.dedup_key() == key && !record.state.is_terminal()
-            }) {
+            if checkpoint
+                .records
+                .iter()
+                .any(|record| record.request.dedup_key() == key && !record.state.is_terminal())
+            {
                 return Ok(UserMemoryHarvestSubmitResult {
                     enqueued: false,
                     duplicate: true,
@@ -395,7 +394,8 @@ impl UserMemoryService {
                 return Ok(());
             }
             checkpoint.records[index].state = UserMemoryHarvestState::Extracting;
-            checkpoint.records[index].attempts = checkpoint.records[index].attempts.saturating_add(1);
+            checkpoint.records[index].attempts =
+                checkpoint.records[index].attempts.saturating_add(1);
             write_checkpoint(&root, &checkpoint)?;
         }
 
@@ -427,13 +427,12 @@ impl UserMemoryService {
             }
             Err(error) => {
                 let kind = harvest_failure_kind(&error);
-                checkpoint.records[index].state = if checkpoint.records[index].attempts
-                    >= USER_MEMORY_HARVEST_MAX_RETRIES
-                {
-                    UserMemoryHarvestState::Dead
-                } else {
-                    UserMemoryHarvestState::Failed
-                };
+                checkpoint.records[index].state =
+                    if checkpoint.records[index].attempts >= USER_MEMORY_HARVEST_MAX_RETRIES {
+                        UserMemoryHarvestState::Dead
+                    } else {
+                        UserMemoryHarvestState::Failed
+                    };
                 checkpoint.records[index].failure_kind = Some(kind);
                 checkpoint.records[index].failure_detail =
                     Some(error.detail.unwrap_or(error.message));
@@ -451,9 +450,7 @@ impl UserMemoryService {
         request: &MemoryHarvestRequest,
     ) -> Result<ExtractionOutcome, AppCommandError> {
         if abnormal_stop_reason(request.stop_reason.as_deref()) {
-            return Ok(ExtractionOutcome::Noop(
-                "abnormal stop reason".to_string(),
-            ));
+            return Ok(ExtractionOutcome::Noop("abnormal stop reason".to_string()));
         }
         let Some(user_input) = request.user_input_ref.as_deref() else {
             return Ok(ExtractionOutcome::Noop("missing user input".to_string()));
@@ -581,8 +578,14 @@ fn abnormal_stop_reason(reason: Option<&str>) -> bool {
     let reason = reason.trim().to_ascii_lowercase();
     matches!(
         reason.as_str(),
-        "cancelled" | "cancel" | "error" | "failed" | "failure" | "rate_limit_exceeded"
-            | "interrupted" | "timeout"
+        "cancelled"
+            | "cancel"
+            | "error"
+            | "failed"
+            | "failure"
+            | "rate_limit_exceeded"
+            | "interrupted"
+            | "timeout"
     ) || reason.is_empty()
 }
 
@@ -610,10 +613,25 @@ fn candidate_sentences(input: &str) -> Vec<String> {
 fn durable_signal(sentence: &str) -> Option<UserMemoryCandidateSignal> {
     let lower = sentence.to_ascii_lowercase();
     const CORRECTION: &[&str] = &[
-        "不要", "别再", "不要再", "不再", "never", "do not", "don't", "stop",
+        "不要",
+        "别再",
+        "不要再",
+        "不再",
+        "never",
+        "do not",
+        "don't",
+        "stop",
     ];
     const PREFERENCE: &[&str] = &[
-        "喜欢", "偏好", "希望以后", "以后", "总是", "每次", "prefer", "always", "usually",
+        "喜欢",
+        "偏好",
+        "希望以后",
+        "以后",
+        "总是",
+        "每次",
+        "prefer",
+        "always",
+        "usually",
     ];
     const FACT: &[&str] = &["记住", "记得", "remember", "我是", "我的"];
     if CORRECTION.iter().any(|marker| sentence.contains(marker)) {

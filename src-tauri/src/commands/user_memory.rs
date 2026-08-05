@@ -1,16 +1,16 @@
-use std::sync::Arc;
 use crate::acp::manager::ConnectionManager;
 use crate::app_error::AppCommandError;
 use crate::user_memory::{
     project_settings_capabilities, AgentMemoryAppend, AppendUserMemoryRequest,
     CorrectUserMemoryRequest, CorrectUserMemoryResult, UserMemoryAppendResult,
     UserMemoryCandidateDeleteRequest, UserMemoryCandidateDeleteResult,
-    UserMemoryCandidateIndexRebuildResult,
-    UserMemoryCandidateListRequest, UserMemoryCandidatePage, UserMemoryCandidateResolutionResponse,
-    UserMemoryCandidateResolveRequest, UserMemoryCandidateSummary, UserMemoryService,
-    UserMemoryHarvestRescanResult, UserMemoryHarvestStatus, UserMemorySettingsSnapshot,
-    UserMemoryUpdateRequest, UserMemoryUpdateResult, USER_MEMORY_CANDIDATE_MAX_LIMIT,
+    UserMemoryCandidateIndexRebuildResult, UserMemoryCandidateListRequest, UserMemoryCandidatePage,
+    UserMemoryCandidateResolutionResponse, UserMemoryCandidateResolveRequest,
+    UserMemoryCandidateSummary, UserMemoryHarvestRescanResult, UserMemoryHarvestStatus,
+    UserMemoryService, UserMemorySettingsSnapshot, UserMemoryUpdateRequest, UserMemoryUpdateResult,
+    USER_MEMORY_CANDIDATE_MAX_LIMIT,
 };
+use std::sync::Arc;
 
 pub async fn append_user_memory_direct_core(
     service: &UserMemoryService,

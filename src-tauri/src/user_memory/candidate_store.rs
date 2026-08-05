@@ -144,15 +144,22 @@ fn validate_candidate(candidate: &UserMemoryCandidate) -> Result<(), AppCommandE
     if candidate.confidence > 100
         || candidate.wording_variants.len() > USER_MEMORY_MAX_WORDING_VARIANTS
     {
-        return Err(invalid_state("candidate confidence or wording variants are invalid"));
+        return Err(invalid_state(
+            "candidate confidence or wording variants are invalid",
+        ));
     }
     for variant in &candidate.wording_variants {
-        let normalized_variant = normalize_candidate(variant)
-            .map_err(|error| invalid_state(error.to_string()))?;
+        let normalized_variant =
+            normalize_candidate(variant).map_err(|error| invalid_state(error.to_string()))?;
         if variant.is_empty()
             || normalized_variant != *variant
             || variant == &candidate.content
-            || candidate.wording_variants.iter().filter(|item| *item == variant).count() > 1
+            || candidate
+                .wording_variants
+                .iter()
+                .filter(|item| *item == variant)
+                .count()
+                > 1
         {
             return Err(invalid_state("candidate wording variant is invalid"));
         }

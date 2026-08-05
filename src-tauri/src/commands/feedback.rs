@@ -157,7 +157,9 @@ impl Default for FeedbackSettings {
 impl FeedbackSettings {
     /// 有效开关（kill switch / 组织策略优先，其次用户显式值）。
     fn effective_enabled(&self) -> bool {
-        self.effective.map(|state| state.enabled).unwrap_or(self.enabled)
+        self.effective
+            .map(|state| state.enabled)
+            .unwrap_or(self.enabled)
     }
 
     fn into_runtime_config(self) -> FeedbackConfig {

@@ -142,16 +142,28 @@ mod tests {
             error_code: None,
         };
         record_success(AgentType::Codex, SessionKind::New, &spec, &outcome);
-        record_failure(AgentType::Codex, SessionKind::Resume, &spec, "session_config_write_failed", 7);
+        record_failure(
+            AgentType::Codex,
+            SessionKind::Resume,
+            &spec,
+            "session_config_write_failed",
+            7,
+        );
 
         let latest = last_diagnostic_for(AgentType::Codex).expect("latest diagnostic");
-        assert_eq!(latest.error_code.as_deref(), Some("session_config_write_failed"));
+        assert_eq!(
+            latest.error_code.as_deref(),
+            Some("session_config_write_failed")
+        );
         assert_eq!(latest.kind, SessionKind::Resume);
         assert!(latest.fingerprint.is_empty());
 
         let snapshot = diagnostics_snapshot();
         assert_eq!(snapshot.len(), 2);
-        assert_eq!(snapshot[0].error_code.as_deref(), Some("session_config_write_failed"));
+        assert_eq!(
+            snapshot[0].error_code.as_deref(),
+            Some("session_config_write_failed")
+        );
         assert_eq!(snapshot[1].error_code, None);
         assert_eq!(snapshot[1].fingerprint, "abc123");
         clear();

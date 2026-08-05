@@ -75,7 +75,9 @@ async fn run_diagnostic(
     let model = chat_channel_service::get_by_id(db, channel_id)
         .await
         .map_err(AppCommandError::from)?
-        .ok_or_else(|| AppCommandError::not_found(format!("Chat channel {channel_id} not found")))?;
+        .ok_or_else(|| {
+            AppCommandError::not_found(format!("Chat channel {channel_id} not found"))
+        })?;
 
     let readiness = evaluate_readiness(db, manager, &model).await;
 
@@ -143,7 +145,9 @@ async fn run_roundtrip(
                 .iter()
                 .any(|r| r.direction == "outbound" && r.status == "sent");
             if verified {
-                details.push(format!("已收到 {outbound_count} 条带 trace 的出站消息，回环验证成功"));
+                details.push(format!(
+                    "已收到 {outbound_count} 条带 trace 的出站消息，回环验证成功"
+                ));
                 break;
             }
             if outbound_count > 0 {

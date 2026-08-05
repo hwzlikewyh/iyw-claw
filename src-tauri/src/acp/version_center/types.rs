@@ -261,9 +261,8 @@ mod tests {
 
     #[test]
     fn catalog_accepts_missing_lists() {
-        let snapshot: CatalogSnapshot =
-            serde_json::from_str(r#"{"schemaVersion":1,"revision":3}"#)
-                .expect("absent lists should decode as empty");
+        let snapshot: CatalogSnapshot = serde_json::from_str(r#"{"schemaVersion":1,"revision":3}"#)
+            .expect("absent lists should decode as empty");
         assert!(snapshot.platforms.is_empty());
         assert!(snapshot.tools.is_empty());
     }
@@ -285,8 +284,8 @@ mod tests {
 
     #[test]
     fn history_accepts_null_items() {
-        let history: VersionHistory = serde_json::from_str(r#"{"items":null}"#)
-            .expect("null items should decode as empty");
+        let history: VersionHistory =
+            serde_json::from_str(r#"{"items":null}"#).expect("null items should decode as empty");
         assert!(history.items.is_empty());
     }
 }

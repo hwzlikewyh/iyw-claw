@@ -89,7 +89,11 @@ pub async fn handle_post_action(
         "outbound",
         "session_kickoff",
         &text,
-        if send_result.is_ok() { "sent" } else { "failed" },
+        if send_result.is_ok() {
+            "sent"
+        } else {
+            "failed"
+        },
         send_result.as_ref().err().map(|e| e.to_string()),
         trace_id,
         None,

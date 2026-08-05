@@ -426,9 +426,7 @@ async fn poll_chat(
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
             .map(|v| v.to_string())
-            .unwrap_or_else(|| {
-                format!("w{}", message_key(chat_id, sender, send_time, content))
-            });
+            .unwrap_or_else(|| format!("w{}", message_key(chat_id, sender, send_time, content)));
         let command = IncomingCommand {
             channel_id,
             sender_id: sender.to_string(),

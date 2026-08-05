@@ -119,11 +119,9 @@ fn enforce_provider_overlay_at_root_with_kind(
         AgentType::OpenClaw => patch_json(&profile.join("openclaw.json"), |value| {
             patch_json_config(agent, value, &base_url)
         }),
-        AgentType::CodeBuddy => {
-            patch_json(&profile.join("settings.json"), |value| {
-                patch_json_config(agent, value, &base_url)
-            })
-        }
+        AgentType::CodeBuddy => patch_json(&profile.join("settings.json"), |value| {
+            patch_json_config(agent, value, &base_url)
+        }),
         AgentType::Grok => patch_text(&profile.join("config.toml"), |raw| {
             patch_grok_toml(raw, &base_url)
         }),

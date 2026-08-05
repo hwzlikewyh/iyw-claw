@@ -74,9 +74,21 @@ pub fn apply_config_patch(
     set_or_clear(&mut map, "app_id", patch.app_id.as_ref());
     set_or_clear(&mut map, "chat_id", patch.chat_id.as_ref());
     set_or_clear(&mut map, "default_chatid", patch.default_chatid.as_ref());
-    set_or_clear(&mut map, "default_chat_type", patch.default_chat_type.as_ref());
-    set_or_clear(&mut map, "default_agent_type", patch.default_agent_type.as_ref());
-    set_or_clear(&mut map, "poll_interval_secs", patch.poll_interval_secs.as_ref());
+    set_or_clear(
+        &mut map,
+        "default_chat_type",
+        patch.default_chat_type.as_ref(),
+    );
+    set_or_clear(
+        &mut map,
+        "default_agent_type",
+        patch.default_agent_type.as_ref(),
+    );
+    set_or_clear(
+        &mut map,
+        "poll_interval_secs",
+        patch.poll_interval_secs.as_ref(),
+    );
 
     serde_json::to_string(&serde_json::Value::Object(map))
         .map_err(|e| format!("failed to serialize patched config: {e}"))
@@ -84,7 +96,9 @@ pub fn apply_config_patch(
 
 /// Parse stored config JSON into an object map, failing loudly instead of
 /// overwriting corrupt state with `{}` (IYW-CHANNEL-004 / -005).
-pub fn parse_config_object(current_json: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+pub fn parse_config_object(
+    current_json: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
     let value: serde_json::Value = serde_json::from_str(current_json)
         .map_err(|e| format!("stored config is not valid JSON: {e}"))?;
     match value {

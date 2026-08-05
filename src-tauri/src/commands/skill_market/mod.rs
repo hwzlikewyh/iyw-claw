@@ -201,10 +201,7 @@ pub async fn delete_core(conn: &DatabaseConnection, id: String) -> Result<(), Ap
 
 /// 卸载本地已安装的 market skill（按 `skill_id` 匹配本地 market marker）。
 /// 未找到安装记录时幂等成功；被其他已启用 expert 包依赖时拒绝。
-pub async fn uninstall_core(
-    _conn: &DatabaseConnection,
-    id: String,
-) -> Result<(), AppCommandError> {
+pub async fn uninstall_core(_conn: &DatabaseConnection, id: String) -> Result<(), AppCommandError> {
     let skill_id = parse_id(&id)?;
     let removed =
         crate::commands::acp::uninstall_market_skill_by_id(skill_id).map_err(|error| {
@@ -213,8 +210,7 @@ pub async fn uninstall_core(
                 error = %error,
                 "[skill-market] local uninstall failed"
             );
-            AppCommandError::io_error("Failed to uninstall Skill")
-                .with_detail(error.to_string())
+            AppCommandError::io_error("Failed to uninstall Skill").with_detail(error.to_string())
         })?;
     if removed == 0 {
         tracing::info!(

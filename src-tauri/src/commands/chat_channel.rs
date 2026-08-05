@@ -307,9 +307,8 @@ pub async fn test_chat_channel_core(db: &AppDatabase, id: i32) -> Result<(), App
         }
     };
 
-    let backend =
-        crate::chat_channel::backends::create_backend(id, channel_type, &config, token)
-            .map_err(AppCommandError::from)?;
+    let backend = crate::chat_channel::backends::create_backend(id, channel_type, &config, token)
+        .map_err(AppCommandError::from)?;
 
     backend
         .test_connection()
@@ -332,7 +331,9 @@ pub async fn save_chat_channel_token_core(
     let model = chat_channel_service::get_by_id(&db.conn, channel_id)
         .await
         .map_err(AppCommandError::from)?
-        .ok_or_else(|| AppCommandError::not_found(format!("Chat channel {channel_id} not found")))?;
+        .ok_or_else(|| {
+            AppCommandError::not_found(format!("Chat channel {channel_id} not found"))
+        })?;
     if model.enabled {
         let _ = reconcile_channel_or_log(db, manager, channel_id, true, "credential").await;
     }
@@ -432,7 +433,10 @@ async fn reconcile_channel_or_log(
 
 fn outcome_error(outcome: &ReconcileOutcome) -> crate::chat_channel::error::ChatChannelError {
     crate::chat_channel::error::ChatChannelError::ConnectionFailed(
-        outcome.error.clone().unwrap_or_else(|| "连接失败".to_string()),
+        outcome
+            .error
+            .clone()
+            .unwrap_or_else(|| "连接失败".to_string()),
     )
 }
 
@@ -732,7 +736,8 @@ pub async fn wecom_get_auth_status_core(
         {
             for ch in channels {
                 if ch.channel_type == "wecom" {
-                    let _ = reconcile_channel_or_log(db, manager, ch.id, true, "qr_completed").await;
+                    let _ =
+                        reconcile_channel_or_log(db, manager, ch.id, true, "qr_completed").await;
                 }
             }
         }

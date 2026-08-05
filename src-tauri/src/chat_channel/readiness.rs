@@ -132,9 +132,13 @@ pub async fn evaluate_readiness(
     push("gateway", gateway.0, gateway.1.clone());
 
     // roundtrip: all stages above green
-    let roundtrip_ready =
-        saved && credential.0 && transport_connected && inbound_verified && workspace.0 && agent.0
-            && gateway.0;
+    let roundtrip_ready = saved
+        && credential.0
+        && transport_connected
+        && inbound_verified
+        && workspace.0
+        && agent.0
+        && gateway.0;
     push(
         "roundtrip",
         roundtrip_ready,
@@ -289,10 +293,7 @@ async fn check_gateway(
 ) -> (bool, Option<String>) {
     match crate::commands::iyw_account::iyw_account_access_token_core(db).await {
         Ok(Some(_)) => (true, None),
-        Ok(None) => (
-            false,
-            Some("未登录 iyw 账号，模型网关不可用".to_string()),
-        ),
+        Ok(None) => (false, Some("未登录 iyw 账号，模型网关不可用".to_string())),
         Err(error) => (false, Some(format!("模型网关配置不可用：{error}"))),
     }
 }

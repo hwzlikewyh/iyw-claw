@@ -9,7 +9,9 @@ use std::path::Path;
 
 use crate::models::agent::AgentType;
 
-use super::model::{ProviderConfigSpec, extract_json_controlled_fields, extract_toml_controlled_fields};
+use super::model::{
+    extract_json_controlled_fields, extract_toml_controlled_fields, ProviderConfigSpec,
+};
 use super::{ReconcileError, ReconcileOutcome};
 
 /// 执行指定 agent 的受控配置文件对账。
@@ -61,18 +63,13 @@ fn reconcile_claude_code(
     let value = if raw.trim().is_empty() {
         serde_json::json!({})
     } else {
-        serde_json::from_str(&raw).map_err(|error| {
-            ReconcileError::ParseFailed(format!("{}: {error}", path.display()))
-        })?
+        serde_json::from_str(&raw)
+            .map_err(|error| ReconcileError::ParseFailed(format!("{}: {error}", path.display())))?
     };
-    let base_url =
-        crate::acp::provider_overlay::model_gateway_base_url_for(AgentType::ClaudeCode);
-    let next_value = crate::acp::provider_overlay::patch_json_config(
-        AgentType::ClaudeCode,
-        value,
-        &base_url,
-    )
-    .map_err(ReconcileError::ParseFailed)?;
+    let base_url = crate::acp::provider_overlay::model_gateway_base_url_for(AgentType::ClaudeCode);
+    let next_value =
+        crate::acp::provider_overlay::patch_json_config(AgentType::ClaudeCode, value, &base_url)
+            .map_err(ReconcileError::ParseFailed)?;
     let serialized = serde_json::to_string_pretty(&next_value)
         .map_err(|error| ReconcileError::ParseFailed(error.to_string()))?;
     let next = serialized + "\n";

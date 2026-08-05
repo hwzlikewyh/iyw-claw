@@ -204,7 +204,10 @@ fn prune_terminal_oldest(state: &mut UserMemoryLearningState) {
         })
         .collect::<Vec<_>>();
     terminal.sort_by_key(|(_, resolved_at)| resolved_at.clone());
-    let reclaim = state.candidates.len().saturating_sub(USER_MEMORY_MAX_CANDIDATES - 1);
+    let reclaim = state
+        .candidates
+        .len()
+        .saturating_sub(USER_MEMORY_MAX_CANDIDATES - 1);
     // Remove highest indexes first so earlier indexes stay valid.
     for (index, _) in terminal.into_iter().take(reclaim).rev() {
         state.candidates.remove(index);

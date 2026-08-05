@@ -4,8 +4,8 @@ use axum::{Extension, Json};
 use serde::Deserialize;
 
 use crate::acp::version_center::{
-    bootstrap_init_status as vc_bootstrap_init_status, bootstrap_initialize as vc_bootstrap_initialize,
-    InitStatusReport,
+    bootstrap_init_status as vc_bootstrap_init_status,
+    bootstrap_initialize as vc_bootstrap_initialize, InitStatusReport,
 };
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;

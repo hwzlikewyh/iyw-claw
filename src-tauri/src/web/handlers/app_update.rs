@@ -176,8 +176,7 @@ async fn perform_impl(state: Arc<AppState>) -> Result<AppUpdateState, AppCommand
         let outcome = async {
             // IR-006：更新前记录持久区摘要（服务端 in-place 路径），
             // 与桌面 tauri-plugin-updater 路径一致。
-            if let Err(error) = crate::update::digest::record_before_update(&state.data_dir).await
-            {
+            if let Err(error) = crate::update::digest::record_before_update(&state.data_dir).await {
                 tracing::warn!(
                     error = %error,
                     "[app-update] failed to record pre-update managed-root digest"

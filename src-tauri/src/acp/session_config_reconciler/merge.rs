@@ -79,13 +79,7 @@ mod tests {
 
     #[test]
     fn kill_switch_wins_over_everything() {
-        let flag = resolve_feature_flag(
-            Some(false),
-            Some(true),
-            Some(true),
-            Some(true),
-            true,
-        );
+        let flag = resolve_feature_flag(Some(false), Some(true), Some(true), Some(true), true);
         assert_eq!(
             flag,
             EffectiveFlag {

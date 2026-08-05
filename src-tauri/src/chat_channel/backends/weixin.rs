@@ -725,9 +725,8 @@ impl ChatChannelBackend for WeixinBackend {
                                         callback_data: None,
                                         target: ChannelMessageTarget::channel(channel_id),
                                         metadata: msg.clone(),
-                                        message_trace_id: super::super::dedupe::new_message_trace_id(
-                                            channel_id,
-                                        ),
+                                        message_trace_id:
+                                            super::super::dedupe::new_message_trace_id(channel_id),
                                         provider_message_id: Some(provider_message_id),
                                         received_at: chrono::Utc::now(),
                                     };

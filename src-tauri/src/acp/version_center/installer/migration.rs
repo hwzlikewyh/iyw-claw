@@ -13,8 +13,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::manifest::{
-    upsert_entry, write_marker, write_manifest, InventoryEntry,
-    OwnershipMarker,
+    upsert_entry, write_manifest, write_marker, InventoryEntry, OwnershipMarker,
 };
 use crate::acp::version_center::capability;
 use crate::app_error::AppCommandError;
@@ -65,12 +64,10 @@ pub async fn migration_receipt(
     data_dir: &Path,
 ) -> Result<Option<LegacyMigrationReceipt>, AppCommandError> {
     match tokio::fs::read_to_string(receipt_path(data_dir)).await {
-        Ok(raw) => serde_json::from_str(&raw)
-            .map(Some)
-            .map_err(|error| {
-                AppCommandError::configuration_invalid("Migration receipt is corrupted")
-                    .with_detail(error.to_string())
-            }),
+        Ok(raw) => serde_json::from_str(&raw).map(Some).map_err(|error| {
+            AppCommandError::configuration_invalid("Migration receipt is corrupted")
+                .with_detail(error.to_string())
+        }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(AppCommandError::io(error)),
     }
@@ -208,8 +205,7 @@ async fn legacy_platform_dir(version_dir: &Path, tool: &str) -> Option<PathBuf> 
     }
     // 兼容无平台子目录的旧布局（直接版本目录）。
     let _ = tool;
-    if version_dir.join("node.exe").is_file() || version_dir.join("cmd").join("git.exe").is_file()
-    {
+    if version_dir.join("node.exe").is_file() || version_dir.join("cmd").join("git.exe").is_file() {
         return Some(version_dir.to_path_buf());
     }
     None

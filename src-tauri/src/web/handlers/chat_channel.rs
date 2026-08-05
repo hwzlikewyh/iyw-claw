@@ -122,7 +122,8 @@ pub async fn delete_chat_channel(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ChannelIdParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    cc_commands::delete_chat_channel_core(&state.db, &state.chat_channel_manager, params.id).await?;
+    cc_commands::delete_chat_channel_core(&state.db, &state.chat_channel_manager, params.id)
+        .await?;
     Ok(Json(()))
 }
 
@@ -191,7 +192,8 @@ pub async fn get_chat_channel_readiness(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<Vec<ChannelReadinessReport>>, AppCommandError> {
     let result =
-        cc_commands::get_chat_channel_readiness_core(&state.db, &state.chat_channel_manager).await?;
+        cc_commands::get_chat_channel_readiness_core(&state.db, &state.chat_channel_manager)
+            .await?;
     Ok(Json(result))
 }
 
@@ -199,9 +201,12 @@ pub async fn quick_check_chat_channel(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ChannelIdParams>,
 ) -> Result<Json<ChannelDiagnostic>, AppCommandError> {
-    let result =
-        cc_commands::quick_check_chat_channel_core(&state.db, &state.chat_channel_manager, params.id)
-            .await?;
+    let result = cc_commands::quick_check_chat_channel_core(
+        &state.db,
+        &state.chat_channel_manager,
+        params.id,
+    )
+    .await?;
     Ok(Json(result))
 }
 

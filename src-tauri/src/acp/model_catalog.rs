@@ -74,14 +74,21 @@ fn load_persisted() -> Option<Vec<&'static str>> {
     let raw = match std::fs::read_to_string(&path) {
         Ok(raw) => raw,
         Err(error) => {
-            tracing::debug!("[ModelCatalog] no persisted catalog at {}: {}", path.display(), error);
+            tracing::debug!(
+                "[ModelCatalog] no persisted catalog at {}: {}",
+                path.display(),
+                error
+            );
             return None;
         }
     };
     let ids: Vec<String> = match serde_json::from_str(&raw) {
         Ok(ids) => ids,
         Err(error) => {
-            tracing::warn!("[ModelCatalog] failed to parse persisted catalog: {}", error);
+            tracing::warn!(
+                "[ModelCatalog] failed to parse persisted catalog: {}",
+                error
+            );
             return None;
         }
     };
@@ -95,7 +102,11 @@ fn load_persisted() -> Option<Vec<&'static str>> {
         tracing::warn!("[ModelCatalog] persisted catalog is empty, will use seed");
         return None;
     }
-    tracing::info!("[ModelCatalog] loaded {} models from disk: {:?}", ids.len(), ids);
+    tracing::info!(
+        "[ModelCatalog] loaded {} models from disk: {:?}",
+        ids.len(),
+        ids
+    );
     Some(ids)
 }
 

@@ -424,7 +424,11 @@ fn redact_url_userinfo(url: &str) -> String {
     if after_scheme[..at_pos].contains('/') {
         return url.to_string();
     }
-    format!("{}://***@{}", &url[..scheme_end], &after_scheme[at_pos + 1..])
+    format!(
+        "{}://***@{}",
+        &url[..scheme_end],
+        &after_scheme[at_pos + 1..]
+    )
 }
 
 /// Find the best matching account for a given remote URL.

@@ -9,8 +9,8 @@ use crate::app_error::AppCommandError;
 use crate::paths::{ResolvedUserMemoryRoot, UserMemoryPathError, UserMemoryRootSource};
 
 use super::fs;
-use super::helpers::{apply_policy_patch, conflict};
 use super::harvest::HarvestQueue;
+use super::helpers::{apply_policy_patch, conflict};
 use super::transaction::document_resource;
 use super::{
     project_settings_capabilities, UserMemoryDocumentId, UserMemoryGeneration,

@@ -48,7 +48,12 @@ impl ReconcileOutcome {
         }
     }
 
-    pub(crate) fn failed(channel_id: i32, desired_enabled: bool, runtime_status: &str, error: String) -> Self {
+    pub(crate) fn failed(
+        channel_id: i32,
+        desired_enabled: bool,
+        runtime_status: &str,
+        error: String,
+    ) -> Self {
         Self {
             channel_id,
             desired_enabled,
@@ -66,7 +71,6 @@ pub async fn credential_ready(
     _db: &DatabaseConnection,
     model: &chat_channel::Model,
 ) -> Result<(), String> {
-
     let channel_type = parse_channel_type(model).map_err(|e| e.to_string())?;
     match channel_type {
         ChannelType::Wecom => {
@@ -276,12 +280,7 @@ async fn reconcile_connect(
             // new config/credential failed to build or start.
             if let Some(previous_backend) = previous {
                 let restore = manager
-                    .restore_backend(
-                        model.id,
-                        model.name.clone(),
-                        channel_type,
-                        previous_backend,
-                    )
+                    .restore_backend(model.id, model.name.clone(), channel_type, previous_backend)
                     .await;
                 if let Err(restore_error) = restore {
                     tracing::error!(
@@ -317,9 +316,6 @@ pub async fn reconcile_all_enabled(
 
 fn parse_channel_type(model: &chat_channel::Model) -> Result<ChannelType, ChatChannelError> {
     serde_json::from_value(serde_json::Value::String(model.channel_type.clone())).map_err(|_| {
-        ChatChannelError::ConfigurationInvalid(format!(
-            "未知渠道类型：{}",
-            model.channel_type
-        ))
+        ChatChannelError::ConfigurationInvalid(format!("未知渠道类型：{}", model.channel_type))
     })
 }

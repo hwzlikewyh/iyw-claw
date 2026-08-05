@@ -477,9 +477,7 @@ async fn handle_acp_envelope(
         }
 
         AcpEvent::Error {
-            message,
-            terminal,
-            ..
+            message, terminal, ..
         } => {
             // Non-terminal Errors (`turn_failure_error_event`,
             // `session/load` fallback, empty-prompt rejection, SetMode /
@@ -529,10 +527,7 @@ async fn handle_acp_envelope(
                     _ => format!("Session failed: {message}"),
                 };
                 let _ = manager
-                    .send_to_target(
-                        &target,
-                        &RichMessage::error(fail_body.clone()),
-                    )
+                    .send_to_target(&target, &RichMessage::error(fail_body.clone()))
                     .await;
                 let _ = chat_channel_message_log_service::create_log_full(
                     db,

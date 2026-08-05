@@ -15,10 +15,10 @@ use crate::commands::user_memory::{
 use crate::user_memory::{
     AppendUserMemoryRequest, CorrectUserMemoryRequest, CorrectUserMemoryResult,
     UserMemoryAppendResult, UserMemoryCandidateDeleteRequest, UserMemoryCandidateDeleteResult,
-    UserMemoryCandidateIndexRebuildResult,
-    UserMemoryCandidateListRequest, UserMemoryCandidatePage, UserMemoryCandidateResolutionResponse,
-    UserMemoryCandidateResolveRequest, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
-    UserMemoryUpdateResult, UserMemoryHarvestRescanResult, UserMemoryHarvestStatus,
+    UserMemoryCandidateIndexRebuildResult, UserMemoryCandidateListRequest, UserMemoryCandidatePage,
+    UserMemoryCandidateResolutionResponse, UserMemoryCandidateResolveRequest,
+    UserMemoryHarvestRescanResult, UserMemoryHarvestStatus, UserMemorySettingsSnapshot,
+    UserMemoryUpdateRequest, UserMemoryUpdateResult,
 };
 
 #[derive(Deserialize)]

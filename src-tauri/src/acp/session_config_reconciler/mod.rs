@@ -17,8 +17,8 @@ use crate::models::agent::AgentType;
 
 pub use diagnostics::{ReconcileDiagnostic, SessionKind};
 pub use model::{
-    fingerprint_controlled_fields, ManagedFieldKind, ProviderConfigSpec, claude_code_spec,
-    codex_spec, session_config_spec_for, SESSION_CONFIG_SCHEMA_VERSION,
+    claude_code_spec, codex_spec, fingerprint_controlled_fields, session_config_spec_for,
+    ManagedFieldKind, ProviderConfigSpec, SESSION_CONFIG_SCHEMA_VERSION,
 };
 
 /// 对账结果。

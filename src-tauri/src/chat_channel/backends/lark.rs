@@ -515,12 +515,7 @@ async fn handle_lark_event(
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
             .map(|v| v.to_string())
-            .unwrap_or_else(|| {
-                format!(
-                    "l{}",
-                    lark_message_hash(&sender_id, &clean_text)
-                )
-            });
+            .unwrap_or_else(|| format!("l{}", lark_message_hash(&sender_id, &clean_text)));
         let command = IncomingCommand {
             channel_id,
             sender_id,

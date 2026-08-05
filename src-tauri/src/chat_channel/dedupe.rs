@@ -54,11 +54,7 @@ impl InboundDedupe {
 /// Generate an end-to-end trace id for one inbound message. Backends call
 /// this once per message; the same id is stamped on every downstream log row.
 pub fn new_message_trace_id(channel_id: i32) -> String {
-    format!(
-        "msg-{}-{}",
-        channel_id,
-        uuid::Uuid::new_v4().simple()
-    )
+    format!("msg-{}-{}", channel_id, uuid::Uuid::new_v4().simple())
 }
 
 #[cfg(test)]

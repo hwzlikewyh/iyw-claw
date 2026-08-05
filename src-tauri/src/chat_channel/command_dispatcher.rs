@@ -85,7 +85,9 @@ pub fn spawn_command_dispatcher(
                     continue;
                 }
             }
-            manager.record_inbound(cmd.channel_id, cmd.received_at).await;
+            manager
+                .record_inbound(cmd.channel_id, cmd.received_at)
+                .await;
 
             let text = cmd.command_text.trim();
             let trace_id = cmd.message_trace_id.clone();
@@ -303,8 +305,19 @@ async fn dispatch_command(
         }
         "new" | "task" | "do" => DispatchResponse::from_command_result(
             session_commands::handle_task(
-                db, args, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge, lang,
-                prefix, data_dir, Some(trace_id),
+                db,
+                args,
+                channel_id,
+                sender_id,
+                target,
+                manager,
+                conn_mgr,
+                emitter,
+                bridge,
+                lang,
+                prefix,
+                data_dir,
+                Some(trace_id),
             )
             .await,
         ),
@@ -315,8 +328,19 @@ async fn dispatch_command(
         ),
         "resume" => DispatchResponse::current(
             session_commands::handle_resume(
-                db, args, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge, lang,
-                prefix, data_dir, Some(trace_id),
+                db,
+                args,
+                channel_id,
+                sender_id,
+                target,
+                manager,
+                conn_mgr,
+                emitter,
+                bridge,
+                lang,
+                prefix,
+                data_dir,
+                Some(trace_id),
             )
             .await,
             target,
@@ -442,8 +466,19 @@ async fn dispatch_natural_message(
             let prompt = build_task_prompt(memory.as_deref(), sender_name, &task);
             DispatchResponse::from_command_result(
                 session_commands::handle_task(
-                    db, &prompt, channel_id, sender_id, target, manager, conn_mgr, emitter, bridge,
-                    lang, prefix, data_dir, Some(trace_id),
+                    db,
+                    &prompt,
+                    channel_id,
+                    sender_id,
+                    target,
+                    manager,
+                    conn_mgr,
+                    emitter,
+                    bridge,
+                    lang,
+                    prefix,
+                    data_dir,
+                    Some(trace_id),
                 )
                 .await,
             )

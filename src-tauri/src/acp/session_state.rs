@@ -740,24 +740,26 @@ impl SessionState {
                 // Capture the completed turn for the memory harvest hook
                 // (Task 13) BEFORE the tracker clears its active bit and the
                 // in-flight user/assistant text is dropped below.
-                self.last_completed_turn_harvest = self
-                    .memory_turn_tracker
-                    .active_nonce()
-                    .map(|turn_nonce| TurnHarvestCapture {
-                        turn_nonce,
-                        user_input_ref: self.pending_user_message.as_ref().and_then(|pending| {
-                            let mut text = String::new();
-                            for block in &pending.blocks {
-                                if let UserMessageBlock::Text { text: block_text } = block {
-                                    text.push_str(block_text);
-                                    text.push(' ');
-                                }
-                            }
-                            crate::user_memory::harvest_reference(&text)
-                        }),
-                        assistant_input_ref: None,
-                        stop_reason: stop_reason.clone(),
-                    });
+                self.last_completed_turn_harvest =
+                    self.memory_turn_tracker
+                        .active_nonce()
+                        .map(|turn_nonce| TurnHarvestCapture {
+                            turn_nonce,
+                            user_input_ref: self.pending_user_message.as_ref().and_then(
+                                |pending| {
+                                    let mut text = String::new();
+                                    for block in &pending.blocks {
+                                        if let UserMessageBlock::Text { text: block_text } = block {
+                                            text.push_str(block_text);
+                                            text.push(' ');
+                                        }
+                                    }
+                                    crate::user_memory::harvest_reference(&text)
+                                },
+                            ),
+                            assistant_input_ref: None,
+                            stop_reason: stop_reason.clone(),
+                        });
                 self.memory_turn_tracker.complete_turn();
                 self.last_turn_ended_abnormally = stop_reason != "end_turn";
                 // Snapshot the just-finished turn's FINAL assistant text — what
