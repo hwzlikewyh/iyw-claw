@@ -39,11 +39,13 @@ export function ScheduleLabel({ cron }: { cron: string }) {
       return <>{t("schedDaily", { time: time(d.hour, d.minute) })}</>
     case "weekdays":
       return <>{t("schedWeekdays", { time: time(d.hour, d.minute) })}</>
+    case "weekends":
+      return <>{t("schedWeekends", { time: time(d.hour, d.minute) })}</>
     case "weekly":
       return (
         <>
           {t("schedWeekly", {
-            day: t(DOW_KEYS[d.dow]),
+            day: d.dows.map((dow) => t(DOW_KEYS[dow])).join(t("daySeparator")),
             time: time(d.hour, d.minute),
           })}
         </>
@@ -53,6 +55,6 @@ export function ScheduleLabel({ cron }: { cron: string }) {
         <>{t("schedMonthly", { day: d.dom, time: time(d.hour, d.minute) })}</>
       )
     case "raw":
-      return <span className="font-mono">{d.cron}</span>
+      return <>{t("schedLegacy")}</>
   }
 }

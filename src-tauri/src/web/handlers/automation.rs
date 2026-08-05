@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::automation as core;
-use crate::models::{AutomationDraft, AutomationInfo, AutomationRunInfo};
+use crate::models::{AutomationDraft, AutomationInfo, AutomationRunInfo, AutomationTemplateInfo};
 
 fn default_run_limit() -> u64 {
     100
@@ -76,6 +76,15 @@ pub async fn automation_list(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<Vec<AutomationInfo>>, AppCommandError> {
     let result = core::automation_list_core(&state.db)
+        .await
+        .map_err(AppCommandError::from)?;
+    Ok(Json(result))
+}
+
+pub async fn automation_template_list(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<Vec<AutomationTemplateInfo>>, AppCommandError> {
+    let result = core::automation_template_list_core(&state.db)
         .await
         .map_err(AppCommandError::from)?;
     Ok(Json(result))

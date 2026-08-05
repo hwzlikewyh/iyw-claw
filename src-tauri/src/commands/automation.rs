@@ -6,10 +6,11 @@
 
 use chrono::{DateTime, Utc};
 
+use crate::app_error::AppCommandError;
 use crate::db::error::DbError;
 use crate::db::service::automation_service;
 use crate::db::AppDatabase;
-use crate::models::{AutomationDraft, AutomationInfo, AutomationRunInfo};
+use crate::models::{AutomationDraft, AutomationInfo, AutomationRunInfo, AutomationTemplateInfo};
 use crate::web::event_bridge::{
     emit_event, AutomationChange, EventEmitter, AUTOMATION_CHANGED_EVENT,
 };
@@ -18,6 +19,24 @@ use crate::web::event_bridge::{
 
 pub async fn automation_list_core(db: &AppDatabase) -> Result<Vec<AutomationInfo>, DbError> {
     automation_service::list(&db.conn).await
+}
+
+pub async fn automation_template_list_core(
+    db: &AppDatabase,
+) -> Result<Vec<AutomationTemplateInfo>, AppCommandError> {
+    let templates = crate::commands::skill_market::list_automation_templates(&db.conn).await?;
+    Ok(templates
+        .into_iter()
+        .map(|template| AutomationTemplateInfo {
+            id: template.id,
+            template_key: template.template_key,
+            title_key: template.title_key,
+            description_key: template.description_key,
+            prompt: template.prompt,
+            trigger_kind: template.trigger_kind,
+            cron: template.cron,
+        })
+        .collect())
 }
 
 pub async fn automation_get_core(db: &AppDatabase, id: i32) -> Result<AutomationInfo, DbError> {
@@ -120,6 +139,14 @@ pub async fn automation_get(
     id: i32,
 ) -> Result<AutomationInfo, DbError> {
     automation_get_core(&db, id).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn automation_template_list(
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<Vec<AutomationTemplateInfo>, AppCommandError> {
+    automation_template_list_core(&db).await
 }
 
 #[cfg(feature = "tauri-runtime")]

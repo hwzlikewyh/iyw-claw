@@ -28,6 +28,7 @@ type Freq =
   | "hourly"
   | "daily"
   | "weekdays"
+  | "weekends"
   | "weekly"
   | "monthly"
   | "custom"
@@ -37,6 +38,7 @@ const FREQS: Freq[] = [
   "hourly",
   "daily",
   "weekdays",
+  "weekends",
   "weekly",
   "monthly",
   "custom",
@@ -58,6 +60,7 @@ const FREQ_LABEL_KEY = {
   hourly: "cronFreqHourly",
   daily: "cronFreqDaily",
   weekdays: "cronFreqWeekdays",
+  weekends: "cronFreqWeekends",
   weekly: "cronFreqWeekly",
   monthly: "cronFreqMonthly",
   custom: "cronFreqCustom",
@@ -102,6 +105,8 @@ function buildCron(
       return `${s.minute} ${s.hour} * * *`
     case "weekdays":
       return `${s.minute} ${s.hour} * * 1-5`
+    case "weekends":
+      return `${s.minute} ${s.hour} * * 0,6`
     case "weekly":
       return `${s.minute} ${s.hour} * * ${s.dow}`
     case "monthly":
@@ -179,7 +184,7 @@ function CronBuilderBody({
   const [n, setN] = useState(init.kind === "everyMinutes" ? init.n : 30)
   const [minute, setMinute] = useState(initialMinute(init, cron))
   const [hour, setHour] = useState("hour" in init ? init.hour : 9)
-  const [dow, setDow] = useState(init.kind === "weekly" ? init.dow : 1)
+  const [dow, setDow] = useState(init.kind === "weekly" ? init.dows[0] : 1)
   const [dom, setDom] = useState(init.kind === "monthly" ? init.dom : 1)
   const [raw, setRaw] = useState(init.kind === "raw" ? init.cron : cron)
 

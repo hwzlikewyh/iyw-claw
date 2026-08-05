@@ -1,4 +1,4 @@
-mod client;
+pub(crate) mod client;
 mod install;
 mod install_plan;
 mod types;
@@ -17,6 +17,25 @@ pub use types::{
     SkillMarketListParams, SkillMarketListResult, SkillMarketMetadataRequest,
     SkillMarketPublishRequest, SkillMarketVersion, SkillPackageType,
 };
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutomationTemplateRemote {
+    pub id: String,
+    pub template_key: String,
+    pub title_key: String,
+    pub description_key: String,
+    pub prompt: String,
+    pub trigger_kind: String,
+    pub cron: String,
+}
+
+pub async fn list_automation_templates(
+    conn: &DatabaseConnection,
+) -> Result<Vec<AutomationTemplateRemote>, AppCommandError> {
+    let builder = client::request(conn, Method::GET, "/automation/templates").await?;
+    parse_value(client::send(builder).await?, Some("items"))
+}
 
 pub async fn list_core(
     conn: &DatabaseConnection,

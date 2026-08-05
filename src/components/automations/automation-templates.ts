@@ -11,6 +11,7 @@ import {
 import type {
   AgentType,
   AutomationDraft,
+  AutomationTemplateInfo,
   AutomationTriggerKind,
 } from "@/lib/types"
 
@@ -50,6 +51,60 @@ export interface AutomationTemplate {
    *  trigger to "schedule" in the editor keeps a sensible default. */
   cron: string
 }
+
+const TEMPLATE_PRESENTATION: Record<
+  string,
+  { icon: LucideIcon; accent: string }
+> = {
+  "product-detail-design-review": {
+    icon: ScanSearch,
+    accent: "text-blue-500 bg-blue-500/10",
+  },
+  "campaign-landing-page": {
+    icon: Package,
+    accent: "text-amber-500 bg-amber-500/10",
+  },
+  "checkout-experience-audit": {
+    icon: FlaskConical,
+    accent: "text-emerald-500 bg-emerald-500/10",
+  },
+  "design-system-sweep": {
+    icon: ListChecks,
+    accent: "text-violet-500 bg-violet-500/10",
+  },
+  "storefront-home-redesign": {
+    icon: Wrench,
+    accent: "text-orange-500 bg-orange-500/10",
+  },
+  "product-selling-points": {
+    icon: Tag,
+    accent: "text-sky-500 bg-sky-500/10",
+  },
+  "competitor-commerce-analysis": {
+    icon: ShieldCheck,
+    accent: "text-rose-500 bg-rose-500/10",
+  },
+}
+
+const TEMPLATE_TITLE_KEYS = new Set<TemplateTitleKey>([
+  "tplCodeReviewTitle",
+  "tplDependencyUpdatesTitle",
+  "tplTestCoverageTitle",
+  "tplTodoSweepTitle",
+  "tplCiTriageTitle",
+  "tplReleaseNotesTitle",
+  "tplSecurityAuditTitle",
+])
+
+const TEMPLATE_DESC_KEYS = new Set<TemplateDescKey>([
+  "tplCodeReviewDesc",
+  "tplDependencyUpdatesDesc",
+  "tplTestCoverageDesc",
+  "tplTodoSweepDesc",
+  "tplCiTriageDesc",
+  "tplReleaseNotesDesc",
+  "tplSecurityAuditDesc",
+])
 
 export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
   {
@@ -93,7 +148,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     descKey: "tplTodoSweepDesc",
     prompt:
       "Review the interface for design-system consistency. Check typography scale, spacing, button hierarchy, form controls, cards, color usage, empty states, and repeated ecommerce components. Produce a prioritized list of consistency fixes; do not change any files.",
-    trigger_kind: "manual",
+    trigger_kind: "schedule",
     cron: "0 9 * * 1",
   },
   {
@@ -104,8 +159,8 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     descKey: "tplCiTriageDesc",
     prompt:
       "Propose a storefront homepage redesign for an ecommerce site. Define the content hierarchy from top to bottom, including brand promise, category navigation, featured products, promotional modules, social proof, and retention entry points. Keep the recommendations practical for implementation.",
-    trigger_kind: "manual",
-    cron: "0 * * * *",
+    trigger_kind: "schedule",
+    cron: "0 9 * * *",
   },
   {
     id: "product-selling-points",
@@ -115,7 +170,7 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     descKey: "tplReleaseNotesDesc",
     prompt:
       "Improve ecommerce product selling points and page copy. Review the current title, subtitle, benefit bullets, feature explanations, FAQ, and CTA microcopy. Rewrite the key sections in a clearer, conversion-focused style and explain the rationale for each change.",
-    trigger_kind: "manual",
+    trigger_kind: "schedule",
     cron: "0 9 * * 1",
   },
   {
@@ -130,6 +185,26 @@ export const AUTOMATION_TEMPLATES: AutomationTemplate[] = [
     cron: "0 9 * * 1",
   },
 ]
+
+export function templateFromApi(
+  item: AutomationTemplateInfo
+): AutomationTemplate | null {
+  const presentation = TEMPLATE_PRESENTATION[item.template_key]
+  if (!presentation) return null
+  if (!TEMPLATE_TITLE_KEYS.has(item.title_key as TemplateTitleKey)) return null
+  if (!TEMPLATE_DESC_KEYS.has(item.description_key as TemplateDescKey))
+    return null
+  return {
+    id: item.id,
+    icon: presentation.icon,
+    accent: presentation.accent,
+    titleKey: item.title_key as TemplateTitleKey,
+    descKey: item.description_key as TemplateDescKey,
+    prompt: item.prompt,
+    trigger_kind: item.trigger_kind,
+    cron: item.cron,
+  }
+}
 
 function detectTimezone(): string {
   try {

@@ -1281,6 +1281,10 @@ pub fn build_router(
             post(handlers::automation::automation_list),
         )
         .route(
+            "/automation_template_list",
+            post(handlers::automation::automation_template_list),
+        )
+        .route(
             "/automation_get",
             post(handlers::automation::automation_get),
         )

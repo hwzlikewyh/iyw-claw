@@ -2,10 +2,7 @@
 
 import { Plus } from "lucide-react"
 import { useTranslations } from "next-intl"
-import {
-  AUTOMATION_TEMPLATES,
-  type AutomationTemplate,
-} from "./automation-templates"
+import type { AutomationTemplate } from "./automation-templates"
 import { ScheduleLabel } from "./schedule-label"
 import { cn } from "@/lib/utils"
 
@@ -16,8 +13,10 @@ import { cn } from "@/lib/utils"
  */
 export function TemplateGallery({
   onPick,
+  templates,
 }: {
   onPick: (template: AutomationTemplate | null) => void
+  templates: AutomationTemplate[]
 }) {
   const t = useTranslations("Automations")
 
@@ -38,7 +37,7 @@ export function TemplateGallery({
         <span className="text-xs text-muted-foreground">{t("blankDesc")}</span>
       </button>
 
-      {AUTOMATION_TEMPLATES.map((tpl) => {
+      {templates.map((tpl) => {
         const Icon = tpl.icon
         return (
           <button

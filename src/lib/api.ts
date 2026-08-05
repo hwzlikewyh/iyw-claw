@@ -52,6 +52,7 @@ import type {
   Automation,
   AutomationRun,
   AutomationDraft,
+  AutomationTemplateInfo,
   ConversationSummary,
   ConversationDetail,
   DbConversationDetail,
@@ -2198,6 +2199,12 @@ export async function quickMessagesReorder(ids: number[]): Promise<void> {
 
 export async function automationList(): Promise<Automation[]> {
   return getTransport().call("automation_list")
+}
+
+export async function automationTemplateList(): Promise<
+  AutomationTemplateInfo[]
+> {
+  return getTransport().call("automation_template_list")
 }
 
 export async function automationGet(id: number): Promise<Automation> {

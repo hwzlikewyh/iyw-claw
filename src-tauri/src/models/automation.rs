@@ -4,6 +4,17 @@ use serde::{Deserialize, Serialize};
 pub use crate::db::entities::automation::{IsolationMode, TriggerKind};
 pub use crate::db::entities::automation_run::AutomationRunStatus;
 
+#[derive(Debug, Clone, Serialize)]
+pub struct AutomationTemplateInfo {
+    pub id: String,
+    pub template_key: String,
+    pub title_key: String,
+    pub description_key: String,
+    pub prompt: String,
+    pub trigger_kind: String,
+    pub cron: String,
+}
+
 /// A saved, schedulable, replayable composer launch. Wire form mirrors
 /// `src/lib/types.ts` (`Automation`).
 #[derive(Debug, Clone, Serialize)]
