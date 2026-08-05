@@ -238,14 +238,13 @@
     "systemSkillsTitle": "System Skills Update",
     "systemSkillsCurrentVersion": "Current skills version",
     "systemSkillsLatestVersion": "Latest skills version",
-    "systemSkillsAutoUpdate": "Update automatically at startup",
-    "systemSkillsAutoUpdateHint": "Check and install the latest stable release after the app starts.",
+    "systemSkillsAutoUpdateNotice": "The latest stable release is checked and installed automatically at startup. Local changes are force-overwritten.",
     "systemSkillsCheck": "Check skills",
     "systemSkillsInstall": "Install skills update",
     "systemSkillsRollback": "Roll back skills",
     "systemSkillsCredentials": "Configure Git credentials",
     "systemSkillsLastChecked": "Last checked: {time}",
-    "systemSkillsDirty": "Tracked system skill files have local changes. Resolve them before updating.",
+    "systemSkillsDirty": "System skills have local changes. They will be force-overwritten on the next update.",
     "systemSkillsActionFailed": "System skills update failed: {message}",
     "systemSkillsStatus": {
       "idle": "System skills have not been checked yet",
@@ -255,7 +254,6 @@
       "validating": "Validating the skills manifest...",
       "applying": "Applying system skills...",
       "up_to_date": "System skills are up to date",
-      "blocked_dirty": "Local changes are blocking the update",
       "error": "The system skills update failed"
     },
     "updateErrors": {

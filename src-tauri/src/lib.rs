@@ -1279,7 +1279,6 @@ mod tauri_app {
                 system_skills_commands::system_skills_update_state,
                 system_skills_commands::system_skills_check_update,
                 system_skills_commands::system_skills_apply_update,
-                system_skills_commands::system_skills_set_auto_update,
                 system_skills_commands::system_skills_rollback,
                 experts_commands::experts_list,
                 experts_commands::experts_get_install_status,

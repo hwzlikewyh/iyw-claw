@@ -44,17 +44,6 @@ pub async fn system_skills_apply_update(
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn system_skills_set_auto_update(
-    enabled: bool,
-    db: tauri::State<'_, AppDatabase>,
-    app: tauri::AppHandle,
-) -> Result<SystemSkillsUpdateState, AppCommandError> {
-    let (_, emitter) = context(app);
-    system_skills::set_auto_update_core(&db.conn, enabled, &emitter).await
-}
-
-#[cfg(feature = "tauri-runtime")]
-#[tauri::command]
 pub async fn system_skills_rollback(
     db: tauri::State<'_, AppDatabase>,
     app: tauri::AppHandle,

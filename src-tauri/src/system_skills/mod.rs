@@ -7,8 +7,7 @@ pub mod state;
 mod storage;
 
 pub use manager::{
-    apply_update_core, check_update_core, rollback_core, set_auto_update_core, snapshot_core,
-    startup_update_core,
+    apply_update_core, check_update_core, rollback_core, snapshot_core, startup_update_core,
 };
 pub use state::{SystemSkillsUpdateState, SYSTEM_SKILLS_UPDATE_EVENT};
 

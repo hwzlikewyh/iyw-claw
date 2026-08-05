@@ -16,7 +16,6 @@ pub enum SystemSkillsUpdateLifecycle {
     Validating,
     Applying,
     UpToDate,
-    BlockedDirty,
     Error,
 }
 
@@ -29,7 +28,6 @@ pub struct SystemSkillsUpdateState {
     pub current_commit: Option<String>,
     pub previous_version: Option<String>,
     pub latest_version: Option<String>,
-    pub auto_update: bool,
     pub last_checked_at: Option<String>,
     pub dirty: bool,
     pub error: Option<String>,
@@ -44,7 +42,6 @@ impl Default for SystemSkillsUpdateState {
             current_commit: None,
             previous_version: None,
             latest_version: None,
-            auto_update: false,
             last_checked_at: None,
             dirty: false,
             error: None,

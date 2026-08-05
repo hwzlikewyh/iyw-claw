@@ -20,7 +20,7 @@
 | 管理页鉴权 | 读 admin/admin.go | `/admin/api` 有 adminAuth；`/admin/*` 静态页无鉴权（P3，IYW-AUTH-002） | security.md §2.1 |
 | 渠道断链 | 读 manager.rs / reconcile.rs / chat_channel.rs / edit-chat-channel-dialog.tsx | 基线确认 IYW-CHANNEL-001..006；复核时工作区已接入 reconcile（create/update/connect）、企微去 token gate、编辑走 config patch；回环与 readiness UI 未验证 | reliability.md §3；defects.yaml worktree_fix |
 | 记忆断链 | 读 context.rs / user-memory-settings.tsx / harvest.rs | 基线确认 IYW-MEMORY-001..003；复核时工作区新增 harvest.rs（MEMORY-001 部分实现）；context.rs:84 Administrator 仍存在（未修） | reliability.md §4；defects.yaml |
-| 系统 Skill | 读 git.rs / manager.rs | 基线确认 IYW-SEC-001、IYW-SKILL-002；复核时工作区已修（git.rs 去硬编码、manager.rs dirty 改 BlockedDirty） | defects.yaml；evidence/06 §8 |
+| 系统 Skill | 读 git.rs / manager.rs | 基线确认 IYW-SEC-001、IYW-SKILL-002；git.rs 已去硬编码；manager.rs dirty 分支按 2026-08-05 决策保持 force_reset（BlockedDirty 已移除） | defects.yaml；evidence/06 §8 |
 | skill 发布源 | 读 experts.toml + `git tag` | bundle.version=0.0.11 vs 标签最高 v0.0.8（IYW-SKILL-013） | defects.yaml |
 
 | NSIS 安装/更新覆盖 | 读 windows/installer-hooks.nsh + update/install.rs | 工作区版本：app 区替换 + canonicalize 校验、默认卸载保留用户数据、/PURGE 独立确认；update 走原子 rename+fsync+备份 | evidence/06 §1-2（正向） |

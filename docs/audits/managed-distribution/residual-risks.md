@@ -10,7 +10,7 @@
 | 硬编码 Git 凭据在源码与历史中 | IYW-SEC-001 | T00/T04/T13 | 立即（Wave H） | confirmed；工作区已删除硬编码（DB 凭据注入），待轮换+历史清理+回归 |
 | Skill 下载长度语义确定性错误（raw size vs ZIP） | IYW-SKILL-001 | T00/T03 | Wave 0/1 | confirmed，待 artifact 契约 |
 | 动态 ZIP 摘要与响应字节不一致 | IYW-SKILL-008 | T00/T03 | Wave 0/1 | confirmed，待冻结 artifact_sha256 |
-| 系统 Skill dirty 更新破坏性 reset | IYW-SKILL-002 | T00/T04/T06 | Wave H | confirmed；工作区已改 BlockedDirty gate，待回归 |
+| 系统 Skill dirty 更新破坏性 reset | IYW-SKILL-002 | T00/T04/T06 | Wave H | confirmed；2026-08-05 产品决策接受强制覆盖，BlockedDirty 门禁已移除，待回归 |
 | 记忆 fallback 硬编码 Administrator 路径 | IYW-MEMORY-002 | T00/T09 | Wave H | confirmed（工作区 context.rs:84 仍未修） |
 | 渠道新建/启用不连接、企微 token gate | IYW-CHANNEL-001/002/003 | T00/T08 | Wave H | confirmed；工作区已接入 reconcile、企微去 token gate，待回归 |
 

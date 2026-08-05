@@ -6,7 +6,7 @@
 
 ## iyw-claw（当前分支 audit/managed-t12-health；另有 feat/managed-t07-session-config、fix/managed-t09-memory）
 - system_skills/git.rs：已删除硬编码凭据（inject_system_skills_credentials），改为 inject_credentials_for_url/require_origin_credentials（DB 凭据）=> IYW-SEC-001 工作区已修
-- system_skills/manager.rs：dirty checkout 由 force_reset 改为“auto update stopped”+mark_dirty => IYW-SKILL-002 工作区已修
+- system_skills/manager.rs：2026-08-01 复核时曾由 force_reset 改为“auto update stopped”+mark_dirty；2026-08-05 产品决策改回强制覆盖（dirty 仅记日志后继续 force_reset），BlockedDirty 状态与启动自动更新开关均已移除 => IYW-SKILL-002 转为 decision accepted（详见 defects.yaml）
 - chat_channel/：新增 config_patch.rs、dedupe.rs、diagnostics.rs、readiness.rs、reconcile.rs、db 迁移 m20260801_000001_chat_channel_reliability.rs；manager.rs 改为 reconcile_all_enabled => IYW-CHANNEL-001..006 工作区已修
 - src/lib/chat-channel-config.ts：新增 buildChatChannelConfigPatch（保留 workspace_root/未知字段）=> IYW-CHANNEL-004 前端已修
 - user_memory/harvest.rs：新增（TurnComplete 采集）=> IYW-MEMORY-001 工作区部分实现

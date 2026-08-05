@@ -878,10 +878,6 @@ pub fn build_router(
             post(handlers::system_skills::apply_update),
         )
         .route(
-            "/system_skills_set_auto_update",
-            post(handlers::system_skills::set_auto_update),
-        )
-        .route(
             "/system_skills_rollback",
             post(handlers::system_skills::rollback),
         )

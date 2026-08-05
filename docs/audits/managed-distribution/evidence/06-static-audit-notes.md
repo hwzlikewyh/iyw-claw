@@ -80,7 +80,7 @@
 | 位置 | 基线（b46a4c4） | 工作区（未提交） |
 | --- | --- | --- |
 | system_skills/git.rs 硬编码凭据 | :48 存在 | 已移除，改 inject_credentials_for_url/require_origin_credentials |
-| system_skills/manager.rs dirty 分支 | :93 force_reset | :91-93 auto update stopped + mark_dirty（BlockedDirty） |
+| system_skills/manager.rs dirty 分支 | :93 force_reset | :91-96 tracing::info 后照常 force_reset（2026-08-05 决策，BlockedDirty 已移除） |
 | chat_channel/manager.rs | :331-390 启动扫描 + token gate | :379 reconcile_all_enabled；wecom 不再要求 token |
 | commands/chat_channel.rs | 无 reconcile | create/update/connect 均走 reconcile_channel |
 | src/lib/chat-channel-config.ts | buildChatChannelConfig | + buildChatChannelConfigPatch（:47）已接入编辑对话框 |

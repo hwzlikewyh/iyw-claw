@@ -5,34 +5,20 @@ use crate::db::service::app_metadata_service;
 
 use super::git::CheckoutInfo;
 
-const AUTO_UPDATE_KEY: &str = "system_skills.auto_update.v1";
 const CURRENT_VERSION_KEY: &str = "system_skills.current_version.v1";
 const CURRENT_COMMIT_KEY: &str = "system_skills.current_commit.v1";
 const PREVIOUS_VERSION_KEY: &str = "system_skills.previous_version.v1";
 
 pub struct StoredState {
-    pub auto_update: bool,
     pub current_version: Option<String>,
     pub previous_version: Option<String>,
 }
 
 pub async fn load(conn: &DatabaseConnection) -> Result<StoredState, AppCommandError> {
-    let auto_update = read(conn, AUTO_UPDATE_KEY)
-        .await?
-        .and_then(|value| value.parse::<bool>().ok())
-        .unwrap_or(false);
     Ok(StoredState {
-        auto_update,
         current_version: read(conn, CURRENT_VERSION_KEY).await?,
         previous_version: read(conn, PREVIOUS_VERSION_KEY).await?,
     })
-}
-
-pub async fn set_auto_update(
-    conn: &DatabaseConnection,
-    enabled: bool,
-) -> Result<(), AppCommandError> {
-    write(conn, AUTO_UPDATE_KEY, &enabled.to_string()).await
 }
 
 pub async fn previous_version(conn: &DatabaseConnection) -> Result<String, AppCommandError> {

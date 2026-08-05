@@ -114,15 +114,6 @@ async fn apply_update_locked(
     .await
 }
 
-pub async fn set_auto_update_core(
-    conn: &DatabaseConnection,
-    enabled: bool,
-    emitter: &EventEmitter,
-) -> Result<SystemSkillsUpdateState, AppCommandError> {
-    storage::set_auto_update(conn, enabled).await?;
-    Ok(state::mutate(emitter, |value| value.auto_update = enabled))
-}
-
 pub async fn rollback_core(
     conn: &DatabaseConnection,
     data_dir: &Path,
@@ -174,15 +165,8 @@ pub async fn startup_update_core(
     data_dir: &Path,
     emitter: &EventEmitter,
 ) {
-    let snapshot = match snapshot_core(conn, data_dir, emitter).await {
-        Ok(snapshot) => snapshot,
-        Err(error) => {
-            tracing::warn!(target: "system_skills", "startup state load failed: {error}");
-            return;
-        }
-    };
-    if !snapshot.auto_update {
-        tracing::debug!(target: "system_skills", "startup update skipped: disabled");
+    if let Err(error) = snapshot_core(conn, data_dir, emitter).await {
+        tracing::warn!(target: "system_skills", "startup state load failed: {error}");
         return;
     }
     let checked = match check_update_core(conn, data_dir, emitter).await {
@@ -221,7 +205,6 @@ async fn hydrate(
     let checkout = checkout_if_present(&super::repository_dir(), conn, data_dir).await?;
     let embedded_version = format!("v{}", manifest::embedded_version()?);
     state::mutate(emitter, |value| {
-        value.auto_update = stored.auto_update;
         if let Some(checkout) = checkout.as_ref() {
             value.current_version = checkout.version.clone().or(stored.current_version);
             value.current_commit = Some(checkout.commit.clone());

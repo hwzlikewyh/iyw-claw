@@ -5,13 +5,11 @@ import { CheckCircle2, Loader2, PackageCheck, RefreshCw } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import { toErrorMessage } from "@/lib/app-error"
 import {
   applySystemSkillsUpdate,
   checkSystemSkillsUpdate,
   getSystemSkillsUpdateState,
-  setSystemSkillsAutoUpdate,
   subscribeSystemSkillsUpdate,
   type SystemSkillsUpdateState,
   type SystemSkillsUpdateStatus,
@@ -120,24 +118,9 @@ export function SystemSkillsUpdateSettings() {
             {versionLabel(state?.latestVersion ?? null)}
           </span>
         </div>
-        <div className="flex items-center justify-between gap-3">
-          <label htmlFor="system-skills-auto-update" className="min-w-0">
-            <span className="block font-medium">
-              {t("systemSkillsAutoUpdate")}
-            </span>
-            <span className="block text-[11px] leading-5 text-muted-foreground">
-              {t("systemSkillsAutoUpdateHint")}
-            </span>
-          </label>
-          <Switch
-            id="system-skills-auto-update"
-            checked={state?.autoUpdate ?? true}
-            disabled={loading || busy}
-            onCheckedChange={(enabled) =>
-              void run(() => setSystemSkillsAutoUpdate(enabled))
-            }
-          />
-        </div>
+        <p className="text-[11px] leading-5 text-muted-foreground">
+          {t("systemSkillsAutoUpdateNotice")}
+        </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -170,11 +153,15 @@ export function SystemSkillsUpdateSettings() {
           : ""}
       </p>
 
-      {(state?.error || state?.dirty) && (
+      {state?.dirty && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-500">
+          {t("systemSkillsDirty")}
+        </div>
+      )}
+
+      {state?.error && (
         <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
-          {state.dirty
-            ? t("systemSkillsDirty")
-            : t("systemSkillsActionFailed", { message: state.error ?? "" })}
+          {t("systemSkillsActionFailed", { message: state.error })}
         </div>
       )}
     </section>

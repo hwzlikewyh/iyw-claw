@@ -238,14 +238,13 @@
     "systemSkillsTitle": "系统技能更新",
     "systemSkillsCurrentVersion": "当前技能版本",
     "systemSkillsLatestVersion": "最新技能版本",
-    "systemSkillsAutoUpdate": "启动时自动更新",
-    "systemSkillsAutoUpdateHint": "应用启动后自动检查并安装最新稳定版本。",
+    "systemSkillsAutoUpdateNotice": "启动时会自动检查并安装最新稳定版本，本地修改会被强制覆盖。",
     "systemSkillsCheck": "检查技能更新",
     "systemSkillsInstall": "安装技能更新",
     "systemSkillsRollback": "回滚技能",
     "systemSkillsCredentials": "配置 Git 凭据",
     "systemSkillsLastChecked": "上次检查：{time}",
-    "systemSkillsDirty": "系统技能的受跟踪文件有本地修改，请先处理这些修改后再更新。",
+    "systemSkillsDirty": "检测到系统技能有本地修改，下次更新时会被强制覆盖。",
     "systemSkillsActionFailed": "系统技能更新失败：{message}",
     "systemSkillsStatus": {
       "idle": "尚未检查系统技能更新",
@@ -255,7 +254,6 @@
       "validating": "正在校验技能清单...",
       "applying": "正在应用系统技能...",
       "up_to_date": "系统技能已是最新版本",
-      "blocked_dirty": "本地修改阻止了系统技能更新",
       "error": "系统技能更新发生错误"
     },
     "updateErrors": {

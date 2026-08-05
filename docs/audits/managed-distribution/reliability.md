@@ -14,10 +14,10 @@
 - 现象：即使去掉长度校验，`objectSha256` 校验仍失败——动态 ZIP 响应与空/错摘要不是同一字节序列（`install.rs:66-71`）。
 - 关闭前置：冻结 `artifact_sha256`（真实 ZIP 字节摘要），客户端按 artifact 摘要校验；不得拿 content digest 冒充 object digest（IYW-SKILL-007 语义区分）。
 
-### IYW-SKILL-002（P0，confirmed；工作区已修）
+### IYW-SKILL-002（P0，confirmed；已按产品决策接受）
 - 现象（基线）：`manager.rs:93` 检测到 dirty checkout 后 `git::force_reset`（`git.rs:30-35` = `reset --hard HEAD`），破坏用户修改。
-- 复核时（工作区）：`manager.rs:91-93` 改为 “dirty checkout detected, auto update stopped” + `mark_dirty`（`BlockedDirty`，:245-248），不再 force_reset。
-- 关闭前置：回归验证 dirty fixture 更新后文件摘要不变、无凭据时返回配置错误而非反复重试；未合并前不视为 verified。
+- 2026-08-05 决策：系统 Skill 以远端为唯一事实来源，dirty checkout 一律强制覆盖。`BlockedDirty` 门禁与启动自动更新开关已移除；dirty 分支只记录 `tracing::info` 后照常 `force_reset`，启动更新恒定执行。
+- 关闭前置：回归验证 dirty fixture 更新后远端内容覆盖成功、UI 常驻提示可见、无凭据时返回配置错误而非反复重试；未合并前不视为 verified。
 ## 2. 后端并发与持久化（P1）
 
 ### IYW-JOB-001（P1，confirmed）

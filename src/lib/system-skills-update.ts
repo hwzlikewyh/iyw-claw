@@ -8,7 +8,6 @@ export type SystemSkillsUpdateStatus =
   | "validating"
   | "applying"
   | "up_to_date"
-  | "blocked_dirty"
   | "error"
 
 export interface SystemSkillsUpdateState {
@@ -18,7 +17,6 @@ export interface SystemSkillsUpdateState {
   currentCommit: string | null
   previousVersion: string | null
   latestVersion: string | null
-  autoUpdate: boolean
   lastCheckedAt: string | null
   dirty: boolean
   error: string | null
@@ -45,13 +43,6 @@ export function applySystemSkillsUpdate() {
     "system_skills_apply_update",
     {},
     { timeoutMs: TRANSFER_TIMEOUT_MS }
-  )
-}
-
-export function setSystemSkillsAutoUpdate(enabled: boolean) {
-  return getTransport().call<SystemSkillsUpdateState>(
-    "system_skills_set_auto_update",
-    { enabled }
   )
 }
 
