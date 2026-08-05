@@ -139,7 +139,6 @@ fn fallback_allowed(error: &AppCommandError) -> bool {
         Some(
             "AGENT_TOOL_NOT_FOUND"
                 | "AGENT_TOOL_POLICY_MISSING"
-                | "AGENT_TOOL_DISABLED"
                 | "AGENT_TOOL_VERSION_NOT_FOUND"
                 | "AGENT_TOOL_ARTIFACT_NOT_READY"
                 | "AGENT_STORAGE_UNAVAILABLE"

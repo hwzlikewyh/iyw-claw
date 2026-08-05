@@ -80,12 +80,7 @@ pub(crate) struct AgentInstallEvent {
 }
 
 pub(crate) fn emit_managed_tool_progress(emitter: &EventEmitter, task_id: &str, percent: u8) {
-    emit_agent_install_event(
-        emitter,
-        task_id,
-        AgentInstallEventKind::Progress,
-        percent.to_string(),
-    );
+    emit_agent_install_event(emitter, task_id, AgentInstallEventKind::Progress, percent.to_string());
 }
 
 fn emit_agent_install_event(
@@ -684,7 +679,10 @@ fn managed_npm_http_error(context: &str, status: reqwest::StatusCode) -> Managed
     let error = AcpError::DownloadFailed(format!("{context}: HTTP {status}"));
     if matches!(
         status,
-        reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::TOO_MANY_REQUESTS
+        reqwest::StatusCode::NOT_FOUND
+            | reqwest::StatusCode::GONE
+            | reqwest::StatusCode::REQUEST_TIMEOUT
+            | reqwest::StatusCode::TOO_MANY_REQUESTS
     ) || status.is_server_error()
     {
         ManagedNpmSourceError::Unavailable(error)
@@ -935,6 +933,9 @@ fn managed_npm_install_error(error: AcpError) -> ManagedNpmSourceError {
                     )
                 })
             })
+        }
+        AcpError::DownloadFailed(message) => {
+            message.starts_with("npm skipped the platform binary '")
         }
         _ => false,
     };
@@ -5336,7 +5337,9 @@ pub(crate) fn uninstall_market_skill_by_id(skill_id: i64) -> Result<usize, AcpEr
     let mut removed = 0usize;
     for entry in entries {
         let entry = entry.map_err(|error| {
-            AcpError::protocol(format!("failed to inspect market Skill installs: {error}"))
+            AcpError::protocol(format!(
+                "failed to inspect market Skill installs: {error}"
+            ))
         })?;
         let source = entry.path();
         let Some(marker) = read_market_skill_marker(&source) else {
