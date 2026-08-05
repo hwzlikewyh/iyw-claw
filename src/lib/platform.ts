@@ -92,6 +92,13 @@ export async function openPath(path: string): Promise<void> {
   }
 }
 
+/** Open the native Windows "Open with" application picker. */
+export async function openPathWithPicker(path: string): Promise<void> {
+  if (isDesktop() && getActiveRemoteConnectionId() === null) {
+    await getTransport().call("open_path_with_picker", { path })
+  }
+}
+
 /**
  * Reveal a file/directory in the system file manager (desktop only).
  * No-op in web mode.

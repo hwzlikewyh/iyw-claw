@@ -33,6 +33,7 @@ pub mod session_info;
 pub mod skill_market;
 pub mod system_settings;
 pub mod system_skills;
+pub mod task_artifacts;
 pub mod terminal;
 mod upload_jail;
 pub mod usage;

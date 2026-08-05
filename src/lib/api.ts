@@ -3663,6 +3663,31 @@ export async function setSessionInfoSettings(
   return getTransport().call("set_session_info_settings", { settings })
 }
 
+export type TaskArtifactStatus = "available" | "missing" | "inaccessible"
+
+export interface TaskArtifactInfo {
+  id: number
+  conversationId: number
+  folderId: number
+  conversationTitle: string | null
+  agentType: AgentType
+  path: string
+  displayName: string
+  createdAt: string
+  lastCheckedAt: string
+  status: TaskArtifactStatus
+}
+
+export async function listTaskArtifacts(filters: {
+  conversationId?: number | null
+  folderId?: number | null
+}): Promise<TaskArtifactInfo[]> {
+  return getTransport().call("list_task_artifacts", {
+    conversationId: filters.conversationId ?? null,
+    folderId: filters.folderId ?? null,
+  })
+}
+
 /** Live probe — opens a transient ACP connection to `agent_type`, reads what
  * it advertises (modes / config_options), and tears down. Used by the
  * delegation-settings UI so the option set on screen matches exactly what

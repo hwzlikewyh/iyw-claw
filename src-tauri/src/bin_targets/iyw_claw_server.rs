@@ -444,6 +444,14 @@ async fn async_main() -> ExitCode {
                 )),
             ),
             state.user_memory.clone(),
+            Arc::new(
+                iyw_claw_lib::commands::task_artifacts::DbTaskArtifactAccess::new(
+                    Arc::new(iyw_claw_lib::db::AppDatabase {
+                        conn: state.db.conn.clone(),
+                    }),
+                    state.emitter.clone(),
+                ),
+            ),
         );
         let socket = delegation_socket_path.clone();
         tokio::spawn(async move {

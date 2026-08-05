@@ -17,3 +17,4 @@ pub use super::managed_tool_setting::Entity as ManagedToolSetting;
 pub use super::model_provider::Entity as ModelProvider;
 pub use super::opened_tab::Entity as OpenedTab;
 pub use super::quick_message::Entity as QuickMessage;
+pub use super::task_artifact::Entity as TaskArtifact;

@@ -44,13 +44,14 @@ use serde_json::{json, Value};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::acp::delegation::transport::{
-    client_ask_round_trip, client_cancel, client_cancel_task_round_trip, client_commit_feedback,
-    client_companion_ready_round_trip, client_feedback_round_trip, client_memory_append_round_trip,
-    client_memory_proposal_round_trip, client_round_trip, client_session_round_trip,
-    client_status_round_trip, BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
-    BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest, BrokerFeedbackRequest,
-    BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerRequest, BrokerResponse,
-    BrokerSessionRequest, BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
+    client_artifacts_round_trip, client_ask_round_trip, client_cancel,
+    client_cancel_task_round_trip, client_commit_feedback, client_companion_ready_round_trip,
+    client_feedback_round_trip, client_memory_append_round_trip, client_memory_proposal_round_trip,
+    client_round_trip, client_session_round_trip, client_status_round_trip, BrokerArtifactsRequest,
+    BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
+    BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerMemoryAppendRequest,
+    BrokerMemoryProposalRequest, BrokerRequest, BrokerResponse, BrokerSessionRequest,
+    BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -164,6 +165,7 @@ pub struct CompanionFeatures {
     pub images: bool,
     pub memory: bool,
     pub memory_proposal: bool,
+    pub artifacts: bool,
 }
 
 impl CompanionFeatures {
@@ -182,6 +184,7 @@ impl CompanionFeatures {
                 images: false,
                 memory: false,
                 memory_proposal: false,
+                artifacts: false,
             };
         };
         let mut f = Self {
@@ -192,6 +195,7 @@ impl CompanionFeatures {
             images: false,
             memory: false,
             memory_proposal: false,
+            artifacts: false,
         };
         for tok in s.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             match tok {
@@ -202,6 +206,7 @@ impl CompanionFeatures {
                 "images" => f.images = true,
                 "memory" => f.memory = true,
                 "memory-proposal" => f.memory_proposal = true,
+                "artifacts" => f.artifacts = true,
                 _ => {}
             }
         }
@@ -217,6 +222,7 @@ impl CompanionFeatures {
             "show_image" => self.images,
             "append_user_memory" => self.memory,
             "propose_user_memory" => self.memory_proposal,
+            "present_task_files" => self.artifacts,
             "delegate_to_agent" | "get_delegation_status" | "cancel_delegation" => self.delegation,
             _ => false,
         }
@@ -486,6 +492,19 @@ async fn build_tools_call_spawn(
     }
     match name.as_str() {
         "show_image" => register_and_spawn_local(inflight, id, arguments, ctx.working_dir).await,
+        "present_task_files" => {
+            let files = match parse_artifact_files(&arguments) {
+                Ok(files) => files,
+                Err(message) => return LineAction::Respond(err(id, -32602, message)),
+            };
+            let req = BrokerArtifactsRequest {
+                token: ctx.token.clone(),
+                files,
+            };
+            let round_trip =
+                Box::pin(async move { client_artifacts_round_trip(&socket, &req).await });
+            register_and_spawn(inflight, id, None, round_trip, render_artifacts_result).await
+        }
         "append_user_memory" => {
             let content = match arguments.get("content").and_then(Value::as_str) {
                 Some(content) if !content.trim().is_empty() => content.to_string(),
@@ -1062,6 +1081,61 @@ fn normalize_status_task_ids(arguments: &Value) -> Result<Vec<String>, String> {
         }
     }
     Ok(out)
+}
+
+fn parse_artifact_files(arguments: &Value) -> Result<Vec<String>, String> {
+    const MAX_FILES: usize = 100;
+    const MAX_PATH_CHARS: usize = 4096;
+    let files = arguments
+        .get("files")
+        .and_then(Value::as_array)
+        .ok_or("present_task_files requires a non-empty files array")?;
+    if files.is_empty() {
+        return Err("present_task_files requires a non-empty files array".into());
+    }
+    if files.len() > MAX_FILES {
+        return Err(format!(
+            "present_task_files accepts at most {MAX_FILES} files"
+        ));
+    }
+    let mut normalized = Vec::with_capacity(files.len());
+    for value in files {
+        let path = value
+            .as_str()
+            .ok_or("present_task_files files must be strings")?
+            .trim();
+        if path.is_empty() {
+            return Err("present_task_files file paths must not be empty".into());
+        }
+        if path.chars().count() > MAX_PATH_CHARS {
+            return Err(format!(
+                "present_task_files file paths must be at most {MAX_PATH_CHARS} characters"
+            ));
+        }
+        normalized.push(path.to_string());
+    }
+    Ok(normalized)
+}
+
+pub fn render_artifacts_result(outcome: &Value) -> Value {
+    let error = outcome.get("error").and_then(Value::as_str);
+    let accepted = outcome
+        .get("accepted")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let rejected = outcome
+        .get("rejected")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let text = error.map_or_else(
+        || format!("Registered {accepted} task artifact(s); rejected {rejected}."),
+        |code| format!("Task artifact registration failed: {code}."),
+    );
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": error.is_some(),
+        "structuredContent": outcome.clone(),
+    })
 }
 
 /// Render the `get_delegation_status` round-trip outcome (always a

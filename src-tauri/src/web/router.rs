@@ -165,6 +165,10 @@ pub fn build_router(
             post(handlers::session_info::get_session_info_settings),
         )
         .route(
+            "/list_task_artifacts",
+            post(handlers::task_artifacts::list_task_artifacts),
+        )
+        .route(
             "/get_session_config_reconcile_diagnostics",
             post(handlers::session_config::get_session_config_reconcile_diagnostics),
         )

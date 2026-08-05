@@ -69,7 +69,8 @@ mod tauri_app {
         remote_workspace as remote_workspace_commands,
         runtime_bootstrap as runtime_bootstrap_commands, session_config as session_config_commands,
         session_info as session_info_commands, skill_market as skill_market_commands,
-        system_settings, system_skills as system_skills_commands, terminal as terminal_commands,
+        system_settings, system_skills as system_skills_commands,
+        task_artifacts as task_artifact_commands, terminal as terminal_commands,
         usage as usage_commands, user_memory as user_memory_commands, version_control, windows,
         workspace_state as workspace_state_commands,
     };
@@ -755,6 +756,14 @@ mod tauri_app {
                             ),
                         ),
                         user_memory,
+                        std::sync::Arc::new(
+                            crate::commands::task_artifacts::DbTaskArtifactAccess::new(
+                                std::sync::Arc::new(db::AppDatabase {
+                                    conn: db_conn.clone(),
+                                }),
+                                crate::web::event_bridge::EventEmitter::Tauri(app.handle().clone()),
+                            ),
+                        ),
                     );
                     tauri::async_runtime::spawn(async move {
                         if let Err(e) = listener.run(socket_path).await {
@@ -1193,6 +1202,8 @@ mod tauri_app {
                 question_commands::set_question_settings,
                 session_info_commands::get_session_info_settings,
                 session_info_commands::set_session_info_settings,
+                task_artifact_commands::list_task_artifacts,
+                task_artifact_commands::open_path_with_picker,
                 session_config_commands::get_session_config_reconcile_diagnostics,
                 user_memory_commands::append_user_memory_direct,
                 user_memory_commands::correct_user_memory,

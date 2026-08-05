@@ -18,11 +18,11 @@ use tokio::sync::{watch, RwLock};
 
 use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::transport::{
-    read_frame, write_frame, BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest,
-    BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest, BrokerFeedbackRequest,
-    BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerMemoryProposalResult,
-    BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
-    COMPANION_PROTOCOL_VERSION,
+    read_frame, write_frame, BrokerArtifactsRequest, BrokerAskRequest, BrokerCancelRequest,
+    BrokerCancelTaskRequest, BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest,
+    BrokerFeedbackRequest, BrokerMemoryAppendRequest, BrokerMemoryProposalRequest,
+    BrokerMemoryProposalResult, BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest,
+    BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
@@ -53,6 +53,16 @@ const MAX_COMPANION_TOOLS: usize = 64;
 #[async_trait]
 pub trait ParentSessionLookup: Send + Sync {
     async fn current_conversation_id(&self, parent_connection_id: &str) -> Option<i32>;
+}
+
+#[async_trait]
+pub trait TaskArtifactAccess: Send + Sync {
+    async fn register_task_artifacts(
+        &self,
+        conversation_id: i32,
+        working_dir: &Path,
+        files: Vec<String>,
+    ) -> Value;
 }
 
 /// Per-launch token entry. Bound at MCP injection time and revoked on parent
@@ -482,6 +492,7 @@ pub struct DelegationListener {
     pub session_info: Arc<dyn SessionInfoAccess>,
     /// Backend-owned memory store shared with Settings and prompt snapshots.
     pub user_memory: Arc<UserMemoryService>,
+    pub artifacts: Arc<dyn TaskArtifactAccess>,
 }
 
 impl DelegationListener {
@@ -517,6 +528,7 @@ impl DelegationListener {
         questions: Arc<dyn SessionQuestionAccess>,
         session_info: Arc<dyn SessionInfoAccess>,
         user_memory: Arc<UserMemoryService>,
+        artifacts: Arc<dyn TaskArtifactAccess>,
     ) -> Arc<Self> {
         Arc::new(Self {
             broker,
@@ -526,6 +538,7 @@ impl DelegationListener {
             questions,
             session_info,
             user_memory,
+            artifacts,
         })
     }
 
@@ -728,6 +741,9 @@ impl DelegationListener {
             BrokerMessage::MemoryProposal(req) => {
                 memory_proposal_response(self.process_memory_proposal(req).await)?
             }
+            BrokerMessage::Artifacts(req) => BrokerResponse {
+                outcome: self.process_artifacts(req).await,
+            },
             BrokerMessage::CompanionReady(req) => {
                 self.tokens.record_companion_ready(req).await;
                 BrokerResponse {
@@ -937,6 +953,34 @@ impl DelegationListener {
             observation_count: result.candidate.observation_count,
             confirmation_recommended: result.confirmation_recommended,
         })
+    }
+
+    async fn process_artifacts(&self, req: BrokerArtifactsRequest) -> Value {
+        let Some(entry) = self.tokens.lookup(&req.token).await else {
+            return serde_json::json!({
+                "accepted": [],
+                "rejected": req.files.into_iter().map(|path| serde_json::json!({
+                    "path": path,
+                    "reason": "invalid_session"
+                })).collect::<Vec<_>>()
+            });
+        };
+        let Some(conversation_id) = self
+            .parent_lookup
+            .current_conversation_id(&entry.parent_connection_id)
+            .await
+        else {
+            return serde_json::json!({
+                "accepted": [],
+                "rejected": req.files.into_iter().map(|path| serde_json::json!({
+                    "path": path,
+                    "reason": "session_not_ready"
+                })).collect::<Vec<_>>()
+            });
+        };
+        self.artifacts
+            .register_task_artifacts(conversation_id, &entry.working_dir, req.files)
+            .await
     }
     async fn process(&self, req: BrokerRequest) -> DelegationTaskReport {
         // 1. Token + parent_connection_id consistency check. Treat both as

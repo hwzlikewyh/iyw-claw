@@ -112,7 +112,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images,memory,memory-proposal] [--working-dir <path>]"
+                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images,memory,memory-proposal,artifacts] [--working-dir <path>]"
                 );
                 std::process::exit(0);
             }

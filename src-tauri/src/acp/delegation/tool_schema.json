@@ -1,5 +1,27 @@
 [
   {
+    "name": "present_task_files",
+    "description": "Proactively call this after creating task deliverables and before the final response. Register the produced files so iyw-claw can show them in the workspace Artifacts panel. Accepts workspace-relative or absolute file paths.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["files"],
+      "properties": {
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "description": "Files produced by this task. Relative paths resolve from the current working directory; absolute paths are accepted."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "delegate_to_agent",
     "description": "Hand off a self-contained sub-task to a separate local AI agent that runs in its own session. ASYNCHRONOUS: returns a task_id right away and the sub-agent keeps working in the background — this call never blocks. So you can fan out several delegations at once and keep working, then collect the results with get_delegation_status by passing the task_ids array (one id to poll a single task, or many at once to poll the whole fan-out in one call) — or stop one early with cancel_delegation(task_id). The sub-agent CANNOT see this conversation, your open files, or earlier turns — it starts cold, so `task` must carry everything it needs. Best for independent, parallelizable work you can describe up front; not for steps that need your ongoing back-and-forth.",
     "inputSchema": {

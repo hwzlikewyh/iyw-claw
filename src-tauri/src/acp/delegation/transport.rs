@@ -208,6 +208,15 @@ pub struct BrokerMemoryProposalRequest {
     pub signal: crate::user_memory::UserMemoryCandidateSignal,
 }
 
+/// Register files produced by the current task. The listener resolves the
+/// conversation from the authenticated companion token and owns validation
+/// and persistence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrokerArtifactsRequest {
+    pub token: String,
+    pub files: Vec<String>,
+}
+
 /// Bounded Agent-facing report; internal candidate identifiers, provenance,
 /// revision, timestamps, and paths stay host-only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -249,6 +258,7 @@ pub enum BrokerMessage {
     SessionInfo(BrokerSessionRequest),
     MemoryAppend(BrokerMemoryAppendRequest),
     MemoryProposal(BrokerMemoryProposalRequest),
+    Artifacts(BrokerArtifactsRequest),
     CompanionReady(BrokerCompanionReadyRequest),
 }
 
@@ -427,6 +437,14 @@ pub async fn client_memory_proposal_round_trip(
         "proposal",
     )
     .await
+}
+
+/// Register task output files and read back per-file accepted/rejected results.
+pub async fn client_artifacts_round_trip(
+    socket_path: &str,
+    req: &BrokerArtifactsRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::Artifacts(req.clone())).await
 }
 
 /// Memory writes are content/turn-idempotent in `UserMemoryService`, so an

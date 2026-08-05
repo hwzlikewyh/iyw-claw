@@ -1829,12 +1829,36 @@
     },
     "auxPanel": {
       "tabs": {
+        "label": "Right panel",
         "files": "Files",
+        "artifacts": "Artifacts",
         "changes": "Changes",
         "commits": "Commits"
       },
       "noFolderTitle": "No folder open",
       "noFolderHint": "Open a folder to see its contents here"
+    },
+    "taskArtifacts": {
+      "current": "Current session",
+      "all": "All artifacts",
+      "refresh": "Refresh artifacts",
+      "loading": "Loading artifacts...",
+      "loadFailed": "Artifacts could not be loaded",
+      "retry": "Retry",
+      "empty": "No task artifacts yet",
+      "untitled": "Untitled session",
+      "view": "View artifact",
+      "copyPath": "Copy path",
+      "pathCopied": "Path copied",
+      "openDefault": "Open with default app",
+      "openWith": "Choose application...",
+      "reveal": "Show in file manager",
+      "openWorkspace": "Open in workspace",
+      "moreActions": "More file actions",
+      "fileUnavailable": "This artifact file is no longer available.",
+      "previewOutsideWorkspace": "Only artifacts inside the active workspace can be previewed.",
+      "previewFailed": "This file could not be previewed.",
+      "actionFailed": "The file action failed."
     },
     "windowControls": {
       "minimizeWindow": "Minimize window",

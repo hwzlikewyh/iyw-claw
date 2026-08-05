@@ -1490,7 +1490,8 @@ pub struct DelegationInjection {
     pub questions: Arc<dyn crate::acp::question::SessionQuestionAccess>,
 }
 
-/// The `--features` value for a companion launch. Image display is always on;
+/// The `--features` value for a companion launch. Image display and task
+/// artifact registration are always on;
 /// the remaining tool groups follow their settings flags.
 ///
 /// Pulled out as a pure function so the feature set is unit-testable without a
@@ -1502,7 +1503,7 @@ fn companion_features_arg(
     sessions_enabled: bool,
     memory_enabled: bool,
 ) -> String {
-    let mut features: Vec<&str> = vec!["images"];
+    let mut features: Vec<&str> = vec!["images", "artifacts"];
     if delegation_enabled {
         features.push("delegation");
     }

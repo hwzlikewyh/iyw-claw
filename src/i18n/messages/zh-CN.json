@@ -1829,12 +1829,36 @@
     },
     "auxPanel": {
       "tabs": {
+        "label": "右侧面板",
         "files": "文件",
+        "artifacts": "成果",
         "changes": "变更",
         "commits": "提交"
       },
       "noFolderTitle": "暂无打开的文件夹",
       "noFolderHint": "打开一个文件夹后在这里查看"
+    },
+    "taskArtifacts": {
+      "current": "当前会话",
+      "all": "全部成果",
+      "refresh": "刷新成果",
+      "loading": "正在加载成果...",
+      "loadFailed": "无法加载任务成果",
+      "retry": "重试",
+      "empty": "暂无任务成果",
+      "untitled": "未命名会话",
+      "view": "查看成果",
+      "copyPath": "复制路径",
+      "pathCopied": "路径已复制",
+      "openDefault": "使用默认应用打开",
+      "openWith": "选择打开方式...",
+      "reveal": "在文件管理器中显示",
+      "openWorkspace": "在工作区中打开",
+      "moreActions": "更多文件操作",
+      "fileUnavailable": "该成果文件已不可用。",
+      "previewOutsideWorkspace": "仅支持预览当前工作区内的成果文件。",
+      "previewFailed": "无法预览该文件。",
+      "actionFailed": "文件操作失败。"
     },
     "windowControls": {
       "minimizeWindow": "最小化窗口",

@@ -159,6 +159,7 @@ pub const QUESTION_SETTINGS_CHANGED_EVENT: &str = "question-settings://changed";
 /// runs in a separate window, so other views learn the flag flipped only via this
 /// backend broadcast. Payload: `SessionInfoSettings` (`{ "enabled": bool }`).
 pub const SESSION_INFO_SETTINGS_CHANGED_EVENT: &str = "session-info-settings://changed";
+pub const TASK_ARTIFACT_CHANGED_EVENT: &str = "task-artifact://changed";
 
 /// Payload for the global [`CONVERSATION_CHANGED_EVENT`] side-channel. Drives
 /// cross-client sidebar sync (membership + status) independent of the
