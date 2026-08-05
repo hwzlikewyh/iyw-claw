@@ -115,7 +115,7 @@ export interface UserMemoryCandidateSummary {
   status: UserMemoryCandidateStatus
   observationCount: number
   confidence: number
-  wordingVariants: string[]
+  wordingVariants?: string[]
   sourceAgents: AgentType[]
   firstObservedAt: string
   lastObservedAt: string

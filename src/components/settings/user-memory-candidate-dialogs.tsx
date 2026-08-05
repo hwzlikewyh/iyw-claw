@@ -46,15 +46,16 @@ export function CandidateRow({
 }) {
   const t = useTranslations("UserMemorySettings")
   const active = !TERMINAL_STATUSES.includes(candidate.status)
+  const wordingVariantCount = candidate.wordingVariants?.length ?? 0
   return (
     <li className="rounded-md border bg-background/50 p-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="break-words leading-5">{candidate.content}</p>
-          {candidate.wordingVariants.length > 0 && (
+          {wordingVariantCount > 0 && (
             <p className="mt-0.5 text-[10px] text-muted-foreground">
               {t("diagnostics.candidates.variants", {
-                count: candidate.wordingVariants.length,
+                count: wordingVariantCount,
               })}
             </p>
           )}
