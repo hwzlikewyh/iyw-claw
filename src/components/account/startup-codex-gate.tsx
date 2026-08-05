@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { OverlayWindowControls } from "@/components/layout/overlay-window-controls"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
 import {
@@ -202,6 +203,10 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   return (
     <>
       {workspaceReady ? children : null}
+      {/* The workspace title bar is not mounted yet, so this dialog would
+          otherwise leave the window with no way to be minimized or closed —
+          including when the bootstrap fails and only the retry button is left. */}
+      <OverlayWindowControls visible={blocked} />
       <Dialog open={blocked} onOpenChange={() => {}}>
         <DialogContent
           className="max-w-md rounded-lg"

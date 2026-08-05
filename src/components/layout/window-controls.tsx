@@ -15,7 +15,21 @@ async function getTauriWindow() {
  *  Linux resize grips can carve this region out of the top edge. */
 export const WINDOW_CONTROLS_WIDTH = 138
 
-export function WindowControls() {
+/**
+ * Visual tone of the glyphs.
+ *
+ * `default` sits on the title bar and follows `--foreground`. `overlay` sits on
+ * top of a modal dialog scrim — `bg-black/80`, which is dark in BOTH themes — so
+ * it pins the glyphs to white; the near-black default would be invisible there
+ * in light theme.
+ */
+export type WindowControlsTone = "default" | "overlay"
+
+export function WindowControls({
+  tone = "default",
+}: {
+  tone?: WindowControlsTone
+}) {
   const t = useTranslations("Folder.windowControls")
   const { isWindows, isLinux } = usePlatform()
   const showControls = isWindows || isLinux
@@ -75,6 +89,9 @@ export function WindowControls() {
 
   if (!showControls || !isDesktop()) return null
 
+  const buttonClass =
+    tone === "overlay" ? overlayButtonClass : defaultButtonClass
+
   return (
     <div className="flex h-8 items-stretch [-webkit-app-region:no-drag]">
       <button
@@ -123,8 +140,21 @@ export function WindowControls() {
   )
 }
 
-const buttonClass =
-  "flex h-8 w-[46px] items-center justify-center text-foreground/85 transition-colors duration-75 hover:bg-foreground/10 active:bg-foreground/15"
+const baseButtonClass =
+  "flex h-8 w-[46px] items-center justify-center transition-colors duration-75"
+
+const defaultButtonClass = cn(
+  baseButtonClass,
+  "text-foreground/85 hover:bg-foreground/10 active:bg-foreground/15"
+)
+
+// Fixed white/light-alpha instead of theme tokens: the scrim underneath is
+// bg-black/80 in both themes, so `--foreground` would go near-black (invisible)
+// in light theme.
+const overlayButtonClass = cn(
+  baseButtonClass,
+  "text-white/90 hover:bg-white/15 active:bg-white/25"
+)
 
 function MinimizeIcon() {
   return (

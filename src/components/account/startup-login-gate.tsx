@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { OverlayWindowControls } from "@/components/layout/overlay-window-controls"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 
 export function StartupLoginGate({ children }: { children: ReactNode }) {
@@ -34,6 +35,10 @@ export function StartupLoginGate({ children }: { children: ReactNode }) {
       <div ref={workspaceRef} inert={blocked ? true : undefined}>
         {children}
       </div>
+      {/* The workspace title bar sits inside the inert subtree above, so without
+          this the window has no way to be minimized or closed while login is
+          pending. */}
+      <OverlayWindowControls visible={blocked} />
       <Dialog open={blocked} onOpenChange={() => {}}>
         <DialogContent
           className="max-w-lg overflow-hidden rounded-lg p-0"
