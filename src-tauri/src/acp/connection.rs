@@ -1419,21 +1419,11 @@ pub struct DelegationInjection {
     pub questions: Arc<dyn crate::acp::question::SessionQuestionAccess>,
 }
 
-/// Append the built-in `iyw-claw-mcp` MCP entry when its binary is present.
-/// Image display is always exposed; other tool groups follow their settings.
-/// Returns the per-launch token, or `None` when the binary is missing.
-///
-/// When the binary is missing we log a single-line warning and skip
-/// injection rather than register the token + emit a phantom McpServerStdio
-/// pointing at a non-existent path. Phantom injection would have made every
-/// new ACP session ship a guaranteed-to-fail MCP server entry: stricter
-/// agents (Claude Code) refuse the whole session; lax agents lose the
-/// companion tools silently. Skipping leaves the agent functional without the
-/// built-in companion features when iyw-claw-mcp didn't make it into the install.
 /// The `--features` value for a companion launch. Image display is always on;
 /// the remaining tool groups follow their settings flags.
-/// Pulled out as a pure function so the inject/skip decision is unit-testable
-/// without a real binary on disk or a live broker.
+///
+/// Pulled out as a pure function so the feature set is unit-testable without a
+/// real binary on disk or a live broker.
 fn companion_features_arg(
     delegation_enabled: bool,
     feedback_enabled: bool,
@@ -1574,6 +1564,21 @@ async fn finalize_user_memory_launch(
     .await;
 }
 
+/// Append the built-in `iyw-claw-mcp` MCP entry when its binary is present.
+/// Image display is always exposed; other tool groups follow their settings.
+/// Returns the per-launch token, or `None` when the binary is missing.
+///
+/// When the binary is missing we log a single-line warning and skip
+/// injection rather than register the token + emit a phantom McpServerStdio
+/// pointing at a non-existent path. Phantom injection would have made every
+/// new ACP session ship a guaranteed-to-fail MCP server entry: stricter
+/// agents (Claude Code) refuse the whole session; lax agents lose the
+/// companion tools silently. Skipping leaves the agent functional without the
+/// built-in companion features when iyw-claw-mcp didn't make it into the install.
+///
+/// The server is registered under the name `iyw-claw-mcp` (hyphens), so an
+/// agent that namespaces MCP tools sees `mcp__iyw-claw-mcp__show_image`. Skill
+/// docs that reference the bare `show_image` must tolerate both forms.
 async fn inject_iyw_claw_mcp(
     servers: &mut Vec<McpServer>,
     injection: &DelegationInjection,
@@ -5570,5 +5575,69 @@ fn session_update_kind(update: &SessionUpdate) -> &'static str {
         SessionUpdate::SessionInfoUpdate(_) => "session_info_update",
         SessionUpdate::UsageUpdate(_) => "usage_update",
         _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::acp::delegation::companion::CompanionFeatures;
+
+    /// `show_image` is the one companion tool with no settings toggle, so
+    /// `companion_features_arg` hard-codes `images`. Assert it survives with
+    /// every optional group off: if a refactor ever makes `images`
+    /// conditional, `show_image` drops out of `tools/list` and every image
+    /// skill silently loses inline rendering with no error to trace.
+    #[test]
+    fn images_stays_on_with_every_optional_group_off() {
+        assert_eq!(
+            companion_features_arg(false, false, false, false, false),
+            "images"
+        );
+    }
+
+    /// Round-trip the emitted string through the companion's own parser. A
+    /// token typo on either side (`image` vs `images`) would leave the
+    /// `--features` arg looking plausible while `allows_tool("show_image")`
+    /// silently returns false.
+    #[test]
+    fn emitted_features_parse_back_into_show_image_access() {
+        for flag in [false, true] {
+            let features = companion_features_arg(flag, flag, flag, flag, flag);
+            let parsed = CompanionFeatures::parse(Some(&features));
+            assert!(parsed.images, "images lost in round-trip for {features:?}");
+            assert!(
+                parsed.allows_tool("show_image"),
+                "show_image gated off for {features:?}"
+            );
+        }
+    }
+
+    /// Each settings-gated group reaches the tool it owns, in both
+    /// directions. `memory-proposal` is appended by the caller rather than
+    /// this function, so it stays out of scope here.
+    #[test]
+    fn optional_groups_track_their_tools() {
+        let gated = [
+            "delegate_to_agent",
+            "check_user_feedback",
+            "ask_user_question",
+            "get_session_info",
+            "append_user_memory",
+        ];
+
+        let all = CompanionFeatures::parse(Some(&companion_features_arg(
+            true, true, true, true, true,
+        )));
+        for tool in gated {
+            assert!(all.allows_tool(tool), "{tool} missing when all flags on");
+        }
+
+        let none = CompanionFeatures::parse(Some(&companion_features_arg(
+            false, false, false, false, false,
+        )));
+        for tool in gated {
+            assert!(!none.allows_tool(tool), "{tool} exposed when all flags off");
+        }
     }
 }

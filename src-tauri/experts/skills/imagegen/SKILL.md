@@ -110,7 +110,11 @@ Read [references/cli.md](references/cli.md) for flags and
    Dry-run does not require a token or access the network.
 4. Run the live CLI. Do not automatically retry a request that may incur cost.
 5. Treat only a zero exit code plus an existing output file as success.
-6. Call `show_image` once for every final image, in requested/server order:
+6. Display every final image. Resolve the tool name once from the tools
+   actually available to you — match any name whose suffix is `show_image`.
+   The server is registered as `iyw-claw-mcp`, so under MCP namespacing the
+   name is `mcp__iyw-claw-mcp__show_image`; some runtimes expose it bare as
+   `show_image`. Call it once per final image, in requested/server order:
 
 ```json
 {
@@ -122,6 +126,12 @@ Read [references/cli.md](references/cli.md) for flags and
 
 `show_image` also accepts a final HTTPS URL. Use it instead of returning only a
 Markdown link so iyw-claw renders the image as a native conversation image.
+
+If no such tool is in your list, skip display: return each absolute path or
+final HTTPS URL and state that inline rendering was unavailable. A
+name-not-found error means the tool is absent, not misspelled — renaming never
+fixes it, so take this fallback on the first failure, not the second. Never
+guess a name variant and never claim an image was displayed.
 
 ## Output Rules
 
@@ -148,5 +158,7 @@ cannot preserve complex edges.
 - Missing Python dependency: use `uv run --with openai --with pillow`.
 - Network or API error: report the non-secret error and keep any valid prior
   output.
-- Missing `show_image`: return the saved absolute path or final HTTPS URL and
-  state that inline rendering was unavailable; never claim it was displayed.
+- No display tool resolved (no available tool name ends in `show_image`):
+  return the saved absolute path or final HTTPS URL and state that inline
+  rendering was unavailable. Never retry under a different name and never claim
+  it was displayed.
