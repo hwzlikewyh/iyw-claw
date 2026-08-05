@@ -1065,6 +1065,16 @@ export interface AutomationDraft {
   config: AutomationConfig
 }
 
+export interface AutomationTemplateInfo {
+  id: string
+  template_key: string
+  title_key: string
+  description_key: string
+  prompt: string
+  trigger_kind: AutomationTriggerKind
+  cron: string
+}
+
 export interface PlanEntryInfo {
   content: string
   priority: string

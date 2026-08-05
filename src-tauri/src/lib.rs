@@ -1329,6 +1329,7 @@ mod tauri_app {
                 quick_messages_commands::quick_messages_delete,
                 quick_messages_commands::quick_messages_reorder,
                 automation_commands::automation_list,
+                automation_commands::automation_template_list,
                 automation_commands::automation_get,
                 automation_commands::automation_runs,
                 automation_commands::automation_create,

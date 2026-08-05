@@ -36,8 +36,11 @@ import { useAutomationsView } from "@/contexts/automations-view-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useTabActions } from "@/contexts/tab-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { automationTemplateList } from "@/lib/api"
 import { AutomationEditor } from "./automation-editor"
 import {
+  AUTOMATION_TEMPLATES,
+  templateFromApi,
   templateToDraft,
   type AutomationTemplate,
 } from "./automation-templates"
@@ -218,6 +221,25 @@ export function AutomationsPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [mode, setMode] = useState<"detail" | "gallery" | "editor">("detail")
   const [editing, setEditing] = useState<EditingState | null>(null)
+  const [templates, setTemplates] =
+    useState<AutomationTemplate[]>(AUTOMATION_TEMPLATES)
+
+  useEffect(() => {
+    let active = true
+    void automationTemplateList()
+      .then((items) => {
+        const next = items
+          .map(templateFromApi)
+          .filter(Boolean) as AutomationTemplate[]
+        if (active && next.length > 0) setTemplates(next)
+      })
+      .catch(() => {
+        // Older servers may not expose the template endpoint yet; keep local seeds.
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   // Clear the unseen-failure badges while the page is open — on entry and again
   // whenever a new failure arrives live (the failed run is already on screen, so
@@ -365,7 +387,7 @@ export function AutomationsPage() {
             </Button>
           </div>
         )}
-        <TemplateGallery onPick={pickTemplate} />
+        <TemplateGallery onPick={pickTemplate} templates={templates} />
       </div>
     </ScrollArea>
   )
@@ -925,12 +947,7 @@ function AutomationDetail({
               label={t("trigger")}
             >
               {isSchedule && automation.cron ? (
-                <span className="flex flex-col gap-0.5">
-                  <ScheduleLabel cron={automation.cron} />
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {automation.cron}
-                  </span>
-                </span>
+                <ScheduleLabel cron={automation.cron} />
               ) : (
                 t("manual")
               )}
@@ -961,12 +978,6 @@ function AutomationDetail({
                 {automation.isolation === "worktree_per_run"
                   ? t("isolationWorktree")
                   : t("isolationShared")}
-                {automation.isolation === "shared_in_root" &&
-                automation.branch ? (
-                  <span className="ml-1 font-mono text-xs text-muted-foreground">
-                    {automation.branch}
-                  </span>
-                ) : null}
               </span>
             </StatCard>
             {isSchedule ? (

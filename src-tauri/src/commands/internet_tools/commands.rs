@@ -177,6 +177,7 @@ pub async fn internet_tools_opencli_doctor() -> Result<OpencliDoctorResult, Stri
     command
         .arg("doctor")
         .envs(private_tool_environment_for(&paths));
+    apply_managed_node_path(&mut command);
     let output = run_tool_output(command, "OpenCLI doctor", Duration::from_secs(60)).await?;
     Ok(OpencliDoctorResult {
         ok: output.status.success(),

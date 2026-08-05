@@ -9,7 +9,7 @@ use tokio::time::timeout;
 
 use crate::app_error::AppCommandError;
 
-use super::REPOSITORY_URL;
+use super::{BUILTIN_PASSWORD, BUILTIN_USERNAME, REPOSITORY_URL};
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(20);
 const TRANSFER_TIMEOUT: Duration = Duration::from_secs(180);
@@ -39,7 +39,7 @@ pub async fn latest_stable_tag(
 ) -> Result<RemoteTag, AppCommandError> {
     let mut command = crate::process::tokio_command("git");
     command.args(["ls-remote", "--tags", "--refs", REPOSITORY_URL]);
-    inject_credentials_for_url(&mut command, REPOSITORY_URL, conn, data_dir).await?;
+    inject_credentials_for_url(&mut command, REPOSITORY_URL, conn, data_dir).await;
     let output = run(command, "list system skill tags", DISCOVERY_TIMEOUT).await?;
     parse_tags(&String::from_utf8_lossy(&output.stdout))
         .into_iter()
@@ -88,7 +88,7 @@ pub async fn clone_tag(
         .args(["--depth", "1", "--branch", tag])
         .arg(REPOSITORY_URL)
         .arg(target);
-    inject_credentials_for_url(&mut command, REPOSITORY_URL, conn, data_dir).await?;
+    inject_credentials_for_url(&mut command, REPOSITORY_URL, conn, data_dir).await;
     run(command, "clone system skills", TRANSFER_TIMEOUT).await?;
     write_local_excludes(target)?;
     repo_output(target, ["rev-parse", "HEAD"], conn, data_dir).await
@@ -108,7 +108,7 @@ pub async fn checkout_tag(
     conn: &DatabaseConnection,
     data_dir: &Path,
 ) -> Result<String, AppCommandError> {
-    require_origin_credentials(repo, conn, data_dir).await?;
+    require_origin_remote(repo).await?;
     write_local_excludes(repo)?;
     repo_output(
         repo,
@@ -203,52 +203,83 @@ async fn repo_output<const N: usize>(
 ) -> Result<String, AppCommandError> {
     let mut command = crate::process::tokio_command("git");
     command.arg("-C").arg(repo).args(args);
-    crate::git_credential::try_inject_for_repo(
+    if !crate::git_credential::try_inject_for_repo(
         &mut command,
         &repo.to_string_lossy(),
         conn,
         data_dir,
     )
-    .await;
+    .await
+    {
+        inject_builtin_credentials(&mut command, data_dir);
+    }
     let output = run(command, "update system skills", TRANSFER_TIMEOUT).await?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// Inject trusted credentials from the configured account store (DB-backed
-/// accounts plus the active keyring/token file) into a network git command.
-/// Fails fast with a configuration error when no matching credential exists
-/// so the app never retries anonymous git operations against a private repo.
+/// Inject credentials for a network git command against the system skills
+/// repository: a configured account matching the remote host when one exists,
+/// otherwise the built-in account.
+///
+/// A configured account always wins so a deployment can rotate away from the
+/// built-in credential without shipping a new build.
 async fn inject_credentials_for_url(
     command: &mut Command,
     remote_url: &str,
     conn: &DatabaseConnection,
     data_dir: &Path,
-) -> Result<(), AppCommandError> {
+) {
     if crate::git_credential::try_inject_for_url(command, remote_url, conn, data_dir).await {
-        return Ok(());
+        return;
     }
-    Err(AppCommandError::configuration_missing(
-        "No trusted credentials are configured for the system skills repository",
-    ))
+    inject_builtin_credentials(command, data_dir);
 }
 
-/// Resolve the repository's origin URL and verify trusted credentials exist
-/// before any fetch that would otherwise attempt an anonymous authentication.
-async fn require_origin_credentials(
-    repo: &Path,
-    conn: &DatabaseConnection,
-    data_dir: &Path,
-) -> Result<(), AppCommandError> {
-    let remote_url =
-        crate::git_credential::get_remote_url_by_name(&repo.to_string_lossy(), "origin")
-            .await
-            .ok_or_else(|| {
-                AppCommandError::configuration_invalid(
-                    "System skills repository has no readable origin remote",
-                )
-            })?;
-    let mut probe = crate::process::tokio_command("git");
-    inject_credentials_for_url(&mut probe, &remote_url, conn, data_dir).await
+/// Fall back to the credential compiled into the binary.
+///
+/// The askpass indirection is what makes this usable at all: the secret travels
+/// to git through a child-process environment variable, so it stays out of the
+/// command line (visible in the process list) and out of `.git/config`. It is
+/// still recoverable from the shipped binary, which is why
+/// [`BUILTIN_PASSWORD`](super::BUILTIN_PASSWORD) must stay read-only on the
+/// system skills repository.
+///
+/// A failure here is logged rather than propagated: git then runs without
+/// credentials and reports its own authentication error, which is more
+/// actionable than a message about a missing askpass script.
+fn inject_builtin_credentials(command: &mut Command, data_dir: &Path) {
+    match crate::git_credential::ensure_askpass_script(data_dir) {
+        Ok(askpass) => {
+            tracing::debug!(
+                target: "system_skills",
+                username = BUILTIN_USERNAME,
+                "no configured account matched; using built-in system skills credentials"
+            );
+            crate::git_credential::inject_credentials(
+                command,
+                BUILTIN_USERNAME,
+                BUILTIN_PASSWORD,
+                &askpass,
+            );
+        }
+        Err(error) => tracing::warn!(
+            target: "system_skills",
+            "failed to prepare the askpass script for built-in credentials: {error}"
+        ),
+    }
+}
+
+/// Verify the checkout still has a readable origin remote before a fetch, so a
+/// corrupted mirror fails with that cause rather than an authentication error.
+async fn require_origin_remote(repo: &Path) -> Result<(), AppCommandError> {
+    crate::git_credential::get_remote_url_by_name(&repo.to_string_lossy(), "origin")
+        .await
+        .map(|_| ())
+        .ok_or_else(|| {
+            AppCommandError::configuration_invalid(
+                "System skills repository has no readable origin remote",
+            )
+        })
 }
 
 async fn run(

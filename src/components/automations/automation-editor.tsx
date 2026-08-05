@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { ArrowLeft, Folder, Globe, Wand2 } from "lucide-react"
+import { ArrowLeft, Folder } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { AgentSelector } from "@/components/chat/agent-selector"
@@ -21,15 +21,14 @@ import {
   effectiveSelections,
   snapshotLabels,
 } from "./agent-config-section"
-import { AutomationBranchPicker } from "./automation-branch-picker"
+import { automaticAgentMode } from "./automatic-agent-mode"
 import {
   ComposerInvocationsPopup,
   useComposerInvocations,
 } from "./composer-invocations"
-import { CronBuilderDialog } from "./cron-builder-dialog"
+import { SchedulePicker } from "./schedule-picker"
 import { useAgentOptions } from "./use-agent-options"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -37,14 +36,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { cn } from "@/lib/utils"
 import { automationComputeNextRun } from "@/lib/api"
 import { AGENT_LABELS } from "@/lib/types"
 import type {
   AgentType,
   Automation,
   AutomationDraft,
-  AutomationTriggerKind,
   PromptInputBlock,
 } from "@/lib/types"
 
@@ -59,12 +56,6 @@ interface AutomationEditorProps {
    *  back to the picker. */
   onBackToTemplates?: () => void
 }
-
-const CRON_PRESETS = [
-  { key: "presetHourly" as const, cron: "0 * * * *" },
-  { key: "presetDaily" as const, cron: "0 9 * * *" },
-  { key: "presetWeekdays" as const, cron: "0 9 * * 1-5" },
-]
 
 function detectTimezone(): string {
   try {
@@ -96,29 +87,16 @@ export function AutomationEditor({
   const [folderId, setFolderId] = useState<number | null>(
     automation?.root_folder_id ?? folders[0]?.id ?? null
   )
-  const [trigger, setTrigger] = useState<AutomationTriggerKind>(
-    automation?.trigger_kind ?? "schedule"
-  )
   const [cron, setCron] = useState(automation?.cron ?? "0 9 * * 1-5")
   // Detected from this device once and shown read-only (Codex-style — no manual
   // override). Still feeds the next-run preview and the cron builder.
   const [timezone] = useState(automation?.timezone ?? detectTimezone())
-  const [modeId, setModeId] = useState<string | null>(
-    automation?.config?.mode_id ?? null
-  )
   const [configValues, setConfigValues] = useState<Record<string, string>>(
     automation?.config?.config_values ?? {}
-  )
-  const [branch, setBranch] = useState(automation?.branch ?? "")
-  // Whether `branch` was picked from the remote group — persisted so the engine
-  // can resolve a remote-only branch unambiguously (see is_remote_branch).
-  const [isRemoteBranch, setIsRemoteBranch] = useState(
-    automation?.is_remote_branch ?? false
   )
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [nextRun, setNextRun] = useState<string | null>(null)
-  const [cronBuilderOpen, setCronBuilderOpen] = useState(false)
 
   const editorRef = useRef<RichComposerHandle>(null)
   // True once the user explicitly picks an agent. A system fallback (saved agent
@@ -178,7 +156,7 @@ export function AutomationEditor({
   // Authoritative "next run" preview — same backend evaluator the scheduler
   // uses, so the previewed time can never diverge from the actual fire.
   useEffect(() => {
-    if (trigger !== "schedule" || !cron.trim()) {
+    if (!cron.trim()) {
       setNextRun(null)
       return
     }
@@ -196,7 +174,7 @@ export function AutomationEditor({
       cancelled = true
       clearTimeout(handle)
     }
-  }, [cron, timezone, trigger])
+  }, [cron, timezone])
 
   // Backfill the default folder once the workspace folders finish hydrating — a
   // new (or template-seeded) automation opened before they load would otherwise
@@ -221,7 +199,7 @@ export function AutomationEditor({
     const displayText = (editorRef.current?.getText() ?? prompt).trim()
     if (!name.trim()) return setError(t("errorName"))
     if (!displayText) return setError(t("errorPrompt"))
-    if (trigger === "schedule" && !cron.trim()) return setError(t("errorCron"))
+    if (!cron.trim()) return setError(t("errorCron"))
     if (folderId == null) return setError(t("errorFolder"))
     // The Save button is disabled while the selected folder path resolves; this
     // is a race-safety net for a submit triggered during that transition.
@@ -237,9 +215,9 @@ export function AutomationEditor({
       // shows. An untouched selector displays the catalog's current value (no
       // "inherit" here), so persist it instead of a future default.
       const snapshot = await agentOptions.ensure()
-      const { mode_id, config_values } = effectiveSelections(
+      const { config_values } = effectiveSelections(
         snapshot,
-        modeId,
+        null,
         configValues
       )
       // Capture friendly labels for the chosen agent/folder/mode/options so the
@@ -259,10 +237,12 @@ export function AutomationEditor({
       const persistedAgentType = fellBackToSubstitute
         ? automation.agent_type
         : agentType
+      const automaticMode = automaticAgentMode(persistedAgentType)
       const label_snapshot = {
         agent_label: AGENT_LABELS[agentType] ?? agentType,
         ...(folderName ? { folder_label: folderName } : {}),
-        ...snapshotLabels(snapshot, mode_id, config_values),
+        ...snapshotLabels(snapshot, automaticMode?.id ?? null, config_values),
+        ...(automaticMode ? { mode_label: automaticMode.name } : {}),
       }
 
       const draft: AutomationDraft = {
@@ -270,21 +250,21 @@ export function AutomationEditor({
         // Enable/disable lives on the detail header + row menu now; preserve an
         // existing automation's state and default new ones to enabled.
         enabled: automation?.enabled ?? true,
-        trigger_kind: trigger,
-        cron: trigger === "schedule" ? cron.trim() : null,
+        trigger_kind: "schedule",
+        cron: cron.trim(),
         timezone,
         agent_type: persistedAgentType,
         root_folder_id: folderId,
         isolation: "shared_in_root",
-        branch: branch.trim() || null,
-        is_remote_branch: branch.trim() ? isRemoteBranch : false,
+        branch: null,
+        is_remote_branch: false,
         config: fellBackToSubstitute
           ? {
               // Preserve the original agent's saved config verbatim; only the
               // user-editable prompt is refreshed.
               prompt_blocks: blocks,
               display_text: displayText,
-              mode_id: automation.config?.mode_id ?? null,
+              mode_id: automaticMode?.id ?? null,
               config_values: automation.config?.config_values ?? {},
               label_snapshot:
                 automation.config?.label_snapshot ?? label_snapshot,
@@ -292,7 +272,7 @@ export function AutomationEditor({
           : {
               prompt_blocks: blocks,
               display_text: displayText,
-              mode_id,
+              mode_id: automaticMode?.id ?? null,
               config_values,
               label_snapshot,
             },
@@ -335,7 +315,6 @@ export function AutomationEditor({
             // Switching agents changes the option universe — reset overrides.
             userChoseAgentRef.current = true
             setAgentType(a)
-            setModeId(null)
             setConfigValues({})
           }}
           // A system substitution (saved agent unavailable) updates the type but
@@ -382,10 +361,11 @@ export function AutomationEditor({
             loading={agentOptions.loading}
             error={agentOptions.error}
             onReload={agentOptions.reload}
-            modeId={modeId}
+            modeId={automaticAgentMode(agentType)?.id ?? null}
             configValues={configValues}
             layout="inline"
-            onModeChange={setModeId}
+            hideMode
+            onModeChange={() => undefined}
             onConfigChange={(optionId, valueId) =>
               setConfigValues((prev) => {
                 const next = { ...prev }
@@ -398,7 +378,7 @@ export function AutomationEditor({
         </div>
       </div>
 
-      {/* Target — where the run happens: workspace folder and optional branch. */}
+      {/* Target — automated runs always use the selected workspace folder. */}
       <div className="flex flex-col gap-2">
         <h3 className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
           {t("sectionTarget")}
@@ -406,15 +386,7 @@ export function AutomationEditor({
         <div className="flex flex-wrap items-center gap-2">
           <Select
             value={folderId != null ? String(folderId) : undefined}
-            // A branch belongs to a specific repo, so switching folders must drop
-            // the previous folder's branch (else it'd be saved against the new
-            // one). Done in this user-action handler, not a folderId effect, so
-            // the initial hydrate/backfill never wipes a seeded branch on edit.
-            onValueChange={(v) => {
-              setFolderId(Number(v))
-              setBranch("")
-              setIsRemoteBranch(false)
-            }}
+            onValueChange={(v) => setFolderId(Number(v))}
           >
             <SelectTrigger size="sm" className="h-7 gap-1.5 text-xs">
               <Folder
@@ -431,20 +403,6 @@ export function AutomationEditor({
               ))}
             </SelectContent>
           </Select>
-
-          <AutomationBranchPicker
-            folderPath={folderPath}
-            value={branch}
-            onChange={(b, isRemote) => {
-              setBranch(b)
-              setIsRemoteBranch(isRemote)
-            }}
-            placeholder={t("branchPlaceholder")}
-            disabled={folderId == null}
-            // Shared-folder runs can't track a remote-only branch; the backend
-            // rejects that combination, so don't offer it here.
-            allowRemote={false}
-          />
         </div>
         {/* Running in the folder shares the user's working tree (and any
             concurrent run); surface that trade-off near the target controls. */}
@@ -453,102 +411,18 @@ export function AutomationEditor({
         </p>
       </div>
 
-      {/* Trigger — manual vs scheduled, with the schedule details folded in. */}
+      {/* Cron remains the persisted format; users edit a structured cadence. */}
       <div className="flex flex-col gap-2">
         <h3 className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
           {t("trigger")}
         </h3>
-        <div
-          role="group"
-          aria-label={t("trigger")}
-          className="inline-flex w-fit rounded-lg border border-border bg-card/40 p-0.5"
-        >
-          {(
-            [
-              { value: "schedule", label: t("triggerSchedule") },
-              { value: "manual", label: t("triggerManual") },
-            ] as Array<{ value: AutomationTriggerKind; label: string }>
-          ).map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              aria-pressed={trigger === opt.value}
-              onClick={() => setTrigger(opt.value)}
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                trigger === opt.value
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-
-        {trigger === "schedule" ? (
-          <div className="flex flex-col gap-2 rounded-lg border border-border bg-card/40 p-3">
-            <div className="flex flex-wrap gap-1.5">
-              {CRON_PRESETS.map((p) => (
-                <Button
-                  key={p.key}
-                  type="button"
-                  size="sm"
-                  variant={cron === p.cron ? "default" : "outline"}
-                  onClick={() => setCron(p.cron)}
-                >
-                  {t(p.key)}
-                </Button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Input
-                value={cron}
-                onChange={(e) => setCron(e.target.value)}
-                placeholder={t("cronPlaceholder")}
-                aria-label={t("cron")}
-                className="flex-1 font-mono"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setCronBuilderOpen(true)}
-                aria-label={t("cronOpenBuilder")}
-                title={t("cronOpenBuilder")}
-              >
-                <Wand2 className="size-4" aria-hidden="true" />
-              </Button>
-            </div>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span>
-                {t("nextRun")}:{" "}
-                {nextRun ? new Date(nextRun).toLocaleString() : "—"}
-              </span>
-              <span className="text-muted-foreground/40" aria-hidden="true">
-                ·
-              </span>
-              {/* Timezone is auto-detected from this device and shown read-only;
-                  it still drives the next-run preview and the cron builder. */}
-              <span
-                className="inline-flex items-center gap-1"
-                title={t("timezone")}
-              >
-                <Globe className="size-3 shrink-0" aria-hidden="true" />
-                <span className="font-mono">{timezone}</span>
-              </span>
-            </div>
-          </div>
-        ) : null}
+        <SchedulePicker
+          initialCron={cron}
+          timezone={timezone}
+          nextRun={nextRun}
+          onChange={setCron}
+        />
       </div>
-
-      <CronBuilderDialog
-        open={cronBuilderOpen}
-        onOpenChange={setCronBuilderOpen}
-        cron={cron}
-        timezone={timezone}
-        onApply={setCron}
-      />
 
       {error ? (
         <p className="text-sm text-destructive" role="alert">

@@ -764,7 +764,21 @@ pub async fn spawn_agent_connection(
     } else {
         crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
     };
+    // This gate runs before `session_state` exists, so there is no channel to
+    // emit `AcpEvent::Error` on — the frontend only sees `spawn_agent` reject.
+    // Log at ERROR with the resolved storage root: when the root is
+    // unresolvable or read-only, every agent fails here identically and the
+    // only other trace is a `spawning connection` line with no handshake
+    // after it.
     overlay_result.map_err(|error| {
+        tracing::error!(
+            "[ACP] provider overlay gate rejected spawn connection_id={} agent={:?} \
+             resumed={} storage_root={:?} error={error}",
+            connection_id,
+            agent_type,
+            session_id.is_some(),
+            crate::acp::agent_storage::AgentStoragePaths::active().map(|s| s.root().clone()),
+        );
         AcpError::protocol(format!(
             "Failed to enforce private provider configuration: {error}"
         ))
@@ -822,7 +836,50 @@ pub async fn spawn_agent_connection(
     // agree. Computed here because `working_dir` is moved into run_connection
     // below.
     let launch_cwd = resolve_working_dir(working_dir.as_deref());
-    let agent = build_agent(agent_type, &runtime_env, &launch_cwd).await?;
+    // `build_agent` resolves agent storage, the managed version env key, and the
+    // private npm command. Every one of those failures returns before the
+    // `tokio::spawn` block below, which is the *only* site that emits
+    // `AcpEvent::Error`. Without this arm the frontend is left on the
+    // `Connecting` status emitted above and falls back to a generic toast, and
+    // nothing at all reaches the log. Emit + log here so the failure is
+    // attributable to a concrete path.
+    let agent = match build_agent(agent_type, &runtime_env, &launch_cwd).await {
+        Ok(agent) => agent,
+        Err(error) => {
+            tracing::error!(
+                "[ACP] build_agent failed connection_id={} agent={:?} cwd={} \
+                 code={:?} storage_root={:?} error={error}",
+                connection_id,
+                agent_type,
+                launch_cwd.display(),
+                error.code(),
+                crate::acp::agent_storage::AgentStoragePaths::active().map(|s| s.root().clone()),
+            );
+            let code = error.code().map(String::from);
+            emit_with_state(
+                &session_state,
+                &emitter,
+                AcpEvent::Error {
+                    message: error.to_string(),
+                    agent_type: agent_type.to_string(),
+                    code,
+                    // Terminal: the connection was never inserted into the map
+                    // and no `run_connection` task will follow this.
+                    terminal: true,
+                },
+            )
+            .await;
+            emit_with_state(
+                &session_state,
+                &emitter,
+                AcpEvent::StatusChanged {
+                    status: ConnectionStatus::Error,
+                },
+            )
+            .await;
+            return Err(error);
+        }
+    };
 
     // Forward only the iyw-claw git credential helper keys into the terminal
     // runtime — not the agent's API tokens or model provider credentials.
@@ -908,6 +965,20 @@ pub async fn spawn_agent_connection(
 
         if let Err(e) = result {
             let code = e.code().map(String::from);
+            // The frontend gets an `AcpEvent::Error` from here, but until this
+            // log existed the backend recorded nothing: a failure inside
+            // `connect_with` (the OS-level process spawn) left only the
+            // `spawning connection` line with no `Sending Initialize` after
+            // it, because the connect closure that logs Initialize never runs
+            // when the spawn itself fails. Log the code and message so a
+            // process that dies before the handshake is attributable.
+            tracing::error!(
+                "[ACP] connection terminated with error connection_id={} agent={:?} \
+                 code={:?} error={e}",
+                conn_id,
+                agent_type,
+                code.as_deref(),
+            );
             emit_with_state(
                 &state_clone,
                 &emitter_clone,

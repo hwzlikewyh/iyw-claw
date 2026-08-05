@@ -170,8 +170,11 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
   const activeVersion = selectedVersionInfo ?? detail.currentVersion
   const action = primaryInstallAction(detail.installState, detail.compatibility)
   const artifactReady = activeVersion.status === "ready"
+  // `unknown` compatibility stays installable (optimistic release): the server
+  // rejects with `client_incompatible` if it really is, and `installErrorAction`
+  // maps that to the update-client recovery path.
   const primaryDisabled =
-    action === "none" || !artifactReady || detail.compatibility !== "compatible"
+    action === "none" || !artifactReady || detail.compatibility === "incompatible"
   const primaryKey =
     action === "none"
       ? "none"

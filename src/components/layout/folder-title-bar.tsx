@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import packageJson from "../../../package.json"
 
-const APP_BRAND_WITH_VERSION = `原助手 v${packageJson.version}`
+const APP_BRAND_WITH_VERSION = `原助理 v${packageJson.version}`
 
 export function FolderTitleBar() {
   const tTitleBar = useTranslations("Folder.folderTitleBar")

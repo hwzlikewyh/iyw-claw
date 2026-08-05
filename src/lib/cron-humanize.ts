@@ -16,7 +16,8 @@ export type CronDescriptor =
   | { kind: "hourly" }
   | { kind: "daily"; hour: number; minute: number }
   | { kind: "weekdays"; hour: number; minute: number }
-  | { kind: "weekly"; dow: number; hour: number; minute: number }
+  | { kind: "weekends"; hour: number; minute: number }
+  | { kind: "weekly"; dows: number[]; hour: number; minute: number }
   | { kind: "monthly"; dom: number; hour: number; minute: number }
   | { kind: "raw"; cron: string }
 
@@ -56,13 +57,17 @@ export function describeCron(cron: string): CronDescriptor {
   if (mon !== "*") return raw
 
   if (dom === "*" && dow === "1-5") return { kind: "weekdays", hour, minute }
+  if (dom === "*" && (dow === "0,6" || dow === "6,0")) {
+    return { kind: "weekends", hour, minute }
+  }
   if (dom === "*" && dow === "*") return { kind: "daily", hour, minute }
 
-  // Weekly on a single weekday (cron allows 0 or 7 for Sunday — normalize to 0).
+  // Weekly on one or more weekdays (cron allows 0 or 7 for Sunday).
   if (dom === "*") {
-    const d = intField(dow)
-    if (d != null && d >= 0 && d <= 7) {
-      return { kind: "weekly", dow: d === 7 ? 0 : d, hour, minute }
+    const dows = dow.split(",").map(intField)
+    if (dows.length > 0 && dows.every((day) => day != null && day <= 7)) {
+      const normalized = [...new Set(dows.map((day) => (day === 7 ? 0 : day!)))]
+      return { kind: "weekly", dows: normalized, hour, minute }
     }
     return raw
   }

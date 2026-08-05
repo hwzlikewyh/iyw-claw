@@ -32,6 +32,7 @@ interface AgentConfigSectionProps {
   configValues: Record<string, string>
   onModeChange: (modeId: string | null) => void
   onConfigChange: (optionId: string, valueId: string | null) => void
+  hideMode?: boolean
   /** "stacked" (default) renders the labeled card used in standalone forms;
    *  "inline" renders compact label-less select chips that sit in the
    *  composer-style editor's bottom bar. */
@@ -52,6 +53,7 @@ export function AgentConfigSection({
   configValues,
   onModeChange,
   onConfigChange,
+  hideMode = false,
   layout = "stacked",
 }: AgentConfigSectionProps) {
   const t = useTranslations("Automations")
@@ -77,7 +79,8 @@ export function AgentConfigSection({
   }
   if (!snapshot) return null
 
-  const hasModes = !!snapshot.modes && snapshot.modes.available_modes.length > 0
+  const hasModes =
+    !hideMode && !!snapshot.modes && snapshot.modes.available_modes.length > 0
   const hasOptions = snapshot.config_options.length > 0
   if (!hasModes && !hasOptions) {
     // Inline lives in the composer bottom bar — stay silent rather than print a
