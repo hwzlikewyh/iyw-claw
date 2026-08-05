@@ -30,9 +30,11 @@ import {
 } from "streamdown"
 import remarkBreaks from "remark-breaks"
 import { markdownLinkComponents } from "./markdown-link"
+import { localPathCodeBlockComponents } from "./local-path-code-block"
 import { rehypeCommandBadges } from "./rehype-command-badges"
 import { rehypePluginsAllowingIywClaw } from "./rehype-allow-iyw-claw"
 import { remarkRewriteFileUriLinks } from "./remark-file-uri-links"
+import { remarkLocalPathLinks } from "./remark-local-path-links"
 import { useStreamdownPlugins } from "./streamdown-plugins"
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -448,6 +450,7 @@ export function normalizeMathDelimiters(text: string): string {
 const remarkPlugins = [
   ...Object.values(defaultRemarkPlugins),
   remarkRewriteFileUriLinks,
+  remarkLocalPathLinks,
 ]
 
 // User messages opt in to this set so single newlines render as <br>.
@@ -493,7 +496,11 @@ function MessageResponseImpl({
       {...props}
       // Merge after spreading props so a caller can still override other
       // elements, but the link icon + safety routing on `a` always wins.
-      components={{ ...props.components, ...markdownLinkComponents }}
+      components={{
+        ...props.components,
+        ...localPathCodeBlockComponents,
+        ...markdownLinkComponents,
+      }}
     >
       {normalized}
     </Streamdown>

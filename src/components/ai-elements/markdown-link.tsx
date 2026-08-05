@@ -9,7 +9,9 @@ import { ReferenceBadge } from "@/components/chat/composer/badges/reference-badg
 import { parseIywClawReferenceUri } from "@/components/chat/composer/reference-uri"
 import type { ReferenceAttrs } from "@/components/chat/composer/types"
 import { classifyResourceKind, type ResourceKind } from "@/lib/resource-kind"
+import { parseLocalPathUri } from "@/lib/local-path-links"
 import { cn } from "@/lib/utils"
+import { LocalPathActions } from "./local-path-actions"
 import { useStreamdownLinkSafety } from "./link-safety"
 import { isImageUrl, MarkdownImageLink } from "./markdown-image-link"
 
@@ -91,6 +93,18 @@ export function MarkdownLink({
       >
         {children}
       </a>
+    )
+  }
+
+  const localPath = isIncomplete ? null : parseLocalPathUri(href)
+  if (localPath) {
+    return (
+      <LocalPathActions
+        path={localPath.path}
+        presentation={localPath.presentation}
+      >
+        {children}
+      </LocalPathActions>
     )
   }
 

@@ -2844,8 +2844,12 @@
         "errorCannotOpen": "无法打开本地文件",
         "errorNoWorkspace": "当前没有活跃的工作区文件夹。",
         "errorFailedOpen": "打开本地文件失败",
+        "errorFailedReveal": "无法在文件管理器中显示",
         "errorFailedLink": "打开链接失败",
-        "errorUnsupportedLinkProtocol": "不支持该链接协议。"
+        "errorUnsupportedLinkProtocol": "不支持该链接协议。",
+        "errorDesktopOnly": "本地文件操作仅适用于本机桌面应用。",
+        "openDefault": "使用默认应用打开",
+        "reveal": "在文件管理器中显示"
       },
       "messageList": {
         "attachedResources": "附加资源",

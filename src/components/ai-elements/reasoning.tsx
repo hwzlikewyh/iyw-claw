@@ -21,12 +21,19 @@ import {
   useRef,
   useState,
 } from "react"
-import { Streamdown, defaultRemarkPlugins } from "streamdown"
+import {
+  Streamdown,
+  defaultRehypePlugins,
+  defaultRemarkPlugins,
+} from "streamdown"
 
 import { Shimmer } from "./shimmer"
 import { markdownLinkComponents } from "./markdown-link"
+import { localPathCodeBlockComponents } from "./local-path-code-block"
+import { rehypePluginsAllowingIywClaw } from "./rehype-allow-iyw-claw"
 import { normalizeMathDelimiters } from "./message"
 import { remarkRewriteFileUriLinks } from "./remark-file-uri-links"
+import { remarkLocalPathLinks } from "./remark-local-path-links"
 import { useStreamdownPlugins } from "./streamdown-plugins"
 
 interface ReasoningContextValue {
@@ -241,7 +248,9 @@ export type ReasoningContentProps = ComponentProps<
 const remarkPlugins = [
   ...Object.values(defaultRemarkPlugins),
   remarkRewriteFileUriLinks,
+  remarkLocalPathLinks,
 ]
+const rehypePlugins = rehypePluginsAllowingIywClaw(defaultRehypePlugins)
 
 export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => {
@@ -263,9 +272,13 @@ export const ReasoningContent = memo(
         <Streamdown
           plugins={plugins}
           remarkPlugins={remarkPlugins}
+          rehypePlugins={rehypePlugins}
           {...props}
           // Enforce the link icon + safety override after spreading props.
-          components={markdownLinkComponents}
+          components={{
+            ...localPathCodeBlockComponents,
+            ...markdownLinkComponents,
+          }}
         >
           {normalized}
         </Streamdown>

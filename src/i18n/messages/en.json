@@ -2844,8 +2844,12 @@
         "errorCannotOpen": "Cannot open local file",
         "errorNoWorkspace": "No workspace folder is currently active.",
         "errorFailedOpen": "Failed to open local file",
+        "errorFailedReveal": "Failed to show local file",
         "errorFailedLink": "Failed to open link",
-        "errorUnsupportedLinkProtocol": "This link protocol is not supported."
+        "errorUnsupportedLinkProtocol": "This link protocol is not supported.",
+        "errorDesktopOnly": "Local file actions are only available in the local desktop app.",
+        "openDefault": "Open with default app",
+        "reveal": "Show in file manager"
       },
       "messageList": {
         "attachedResources": "Attached resources",

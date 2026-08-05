@@ -1368,6 +1368,7 @@ mod tauri_app {
                 notification::send_notification,
                 file_io::save_binary_file,
                 file_io::save_text_file,
+                file_io::open_local_path,
                 remote_image_commands::fetch_remote_image,
                 backup::backup_create,
                 backup::backup_inspect,

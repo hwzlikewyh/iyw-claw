@@ -1,6 +1,38 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use std::path::Path;
 
 use crate::app_error::AppCommandError;
+
+/// Open an existing absolute path with its system-default application.
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn open_local_path(path: String) -> Result<(), AppCommandError> {
+    let normalized = path.trim();
+    if normalized.is_empty() || normalized.contains('\0') {
+        return Err(AppCommandError::invalid_input("Invalid local path"));
+    }
+    let target = Path::new(normalized);
+    if !target.is_absolute() {
+        return Err(AppCommandError::invalid_input(
+            "Local path must be absolute",
+        ));
+    }
+    let metadata = std::fs::metadata(target).map_err(|error| {
+        AppCommandError::invalid_input("Local path is unavailable").with_detail(error.to_string())
+    })?;
+    tauri_plugin_opener::open_path(target, None::<&str>).map_err(|error| {
+        AppCommandError::external_command("Could not open the local path", error.to_string())
+    })?;
+    tracing::info!(
+        target_kind = if metadata.is_dir() {
+            "directory"
+        } else {
+            "file"
+        },
+        "[local-path] opened with default application"
+    );
+    Ok(())
+}
 
 /// Write a base64-encoded binary blob to a user-chosen path on disk.
 ///

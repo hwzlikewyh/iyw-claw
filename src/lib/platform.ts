@@ -92,6 +92,14 @@ export async function openPath(path: string): Promise<void> {
   }
 }
 
+/** Open an existing absolute path with its system-default application. */
+export async function openLocalPath(path: string): Promise<void> {
+  if (!isLocalDesktop()) {
+    throw new Error("Local path opening is only available on local desktop")
+  }
+  await getTransport().call("open_local_path", { path })
+}
+
 /** Open the native Windows "Open with" application picker. */
 export async function openPathWithPicker(path: string): Promise<void> {
   if (isDesktop() && getActiveRemoteConnectionId() === null) {
