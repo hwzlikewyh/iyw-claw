@@ -1,5 +1,7 @@
+use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -19,6 +21,15 @@ use skills::*;
 
 const BOOTSTRAP_MARKER: &str = ".internet-tools-bootstrap.v1";
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Oldest Node major the packaged internet tools run on.
+///
+/// mcporter's CLI uses logical-assignment syntax (`??=`, Node 15+) and both it
+/// and opencli ship ESM entrypoints that assume a modern loader. On an older
+/// Node the failure surfaces as a bare `SyntaxError` from
+/// `internal/modules/esm/translators.js` that names neither Node nor its
+/// version, so the floor is checked up front instead.
+const MIN_NODE_MAJOR: u32 = 18;
 
 fn bootstrap_marker_content() -> String {
     format!("agent-reach={AGENT_REACH_VERSION}\nopencli={OPENCLI_VERSION}\n")
@@ -90,6 +101,94 @@ fn agent_reach_command_path(paths: &AgentStoragePaths) -> PathBuf {
     uv_tool_bin_dir(paths).join(name)
 }
 
+/// Directories holding the managed Node runtime, if it is installed.
+fn managed_node_dirs() -> Vec<PathBuf> {
+    ["node", "npm"]
+        .into_iter()
+        .filter_map(crate::acp::version_center::managed_tool_executable)
+        .filter_map(|path| path.parent().map(Path::to_path_buf))
+        .collect()
+}
+
+fn path_dedup_key(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    if cfg!(windows) {
+        value.to_ascii_lowercase()
+    } else {
+        value.into_owned()
+    }
+}
+
+/// Pin the managed Node runtime ahead of the ambient PATH for a child process.
+///
+/// Why: `opencli.cmd` and `mcporter.cmd` are npm shims that resolve `node` from
+/// PATH at run time, so they bind to whatever Node the process PATH happens to
+/// expose. `process::ensure_node_in_path` only prepends the managed runtime at
+/// startup — when the runtime bootstrap installs Node *after* that (or fails
+/// outright), the already-computed PATH still points at a stale system Node and
+/// the shims silently inherit it. Re-resolving per spawn keeps the two orders
+/// from mattering.
+fn apply_managed_node_path(command: &mut tokio::process::Command) {
+    let mut directories = managed_node_dirs();
+    if directories.is_empty() {
+        return;
+    }
+    let existing = std::env::var_os("PATH").unwrap_or_default();
+    directories.extend(std::env::split_paths(&existing));
+    let mut seen = BTreeSet::new();
+    directories.retain(|path| seen.insert(path_dedup_key(path)));
+    if let Ok(joined) = std::env::join_paths(directories) {
+        command.env("PATH", joined);
+    }
+}
+
+/// The `npm` to install with: the managed runtime when present, otherwise the
+/// ambient one. Resolved per call rather than via bare `"npm"` so an install
+/// that runs after the bootstrap activated Node still picks it up.
+fn npm_program() -> OsString {
+    crate::acp::version_center::managed_tool_executable("npm")
+        .map(OsString::from)
+        .unwrap_or_else(|| OsString::from("npm"))
+}
+
+/// Fail with an actionable message when no Node new enough to run the packaged
+/// tools is reachable, instead of letting the shims die on a bare `SyntaxError`.
+async fn ensure_node_supported() -> Result<(), String> {
+    let program = crate::acp::version_center::managed_tool_executable("node")
+        .map(OsString::from)
+        .unwrap_or_else(|| OsString::from("node"));
+    let mut command = crate::process::tokio_command(&program);
+    command.arg("--version");
+    apply_managed_node_path(&mut command);
+    let output = run_tool_output(command, "Node version check", Duration::from_secs(20))
+        .await
+        .map_err(|error| {
+            format!("Node.js is required by the internet tools but could not be run: {error}")
+        })?;
+    if !output.status.success() {
+        return Err(format!(
+            "Node.js is required by the internet tools but could not be run: {}",
+            output_text(&output)
+        ));
+    }
+    let raw = output_text(&output);
+    let version = parse_version(&raw)
+        .ok_or_else(|| format!("Could not parse the Node.js version from {raw:?}"))?;
+    let major = version
+        .split('.')
+        .next()
+        .and_then(|part| part.parse::<u32>().ok())
+        .ok_or_else(|| format!("Could not parse the Node.js version from {raw:?}"))?;
+    if major >= MIN_NODE_MAJOR {
+        return Ok(());
+    }
+    Err(format!(
+        "Node.js {version} is too old for the internet tools (need {MIN_NODE_MAJOR} or newer). \
+         The managed Node runtime is missing, so a system Node was used instead — \
+         finish desktop runtime initialization, or upgrade the system Node."
+    ))
+}
+
 async fn install_agent_reach(paths: &AgentStoragePaths) -> Result<(), String> {
     if let Ok(executable) = std::env::current_exe() {
         binary_cache::seed_bundled_uv_tools(paths, &executable)
@@ -150,10 +249,11 @@ async fn install_agent_reach(paths: &AgentStoragePaths) -> Result<(), String> {
 }
 
 async fn install_opencli(paths: &AgentStoragePaths) -> Result<(), String> {
+    ensure_node_supported().await?;
     let prefix = opencli_prefix(paths);
     fs::create_dir_all(&prefix).map_err(|error| error.to_string())?;
     fs::create_dir_all(paths.npm_cache_dir()).map_err(|error| error.to_string())?;
-    let mut command = crate::process::tokio_command("npm");
+    let mut command = crate::process::tokio_command(npm_program());
     command.args(["install", "--global", "--include=optional", "--prefix"]);
     command
         .arg(&prefix)
@@ -164,6 +264,7 @@ async fn install_opencli(paths: &AgentStoragePaths) -> Result<(), String> {
         .arg(npm_runtime::npm_registry_arg().map_err(|error| error.to_string())?)
         .arg(opencli_package_spec())
         .arg(mcporter_package_spec());
+    apply_managed_node_path(&mut command);
     run_install_command(command, "OpenCLI and mcporter").await?;
     configure_exa(paths).await
 }
@@ -180,6 +281,7 @@ async fn configure_exa(paths: &AgentStoragePaths) -> Result<(), String> {
         "exa",
         "https://mcp.exa.ai/mcp",
     ]);
+    apply_managed_node_path(&mut command);
     run_install_command(command, "Exa configuration").await
 }
 
@@ -292,6 +394,7 @@ async fn detect_tool(paths: &AgentStoragePaths, tool: InternetToolId) -> Interne
     command
         .arg("--version")
         .envs(private_tool_environment_for(paths));
+    apply_managed_node_path(&mut command);
     let output = run_tool_output(command, "tool version check", Duration::from_secs(20)).await;
     let (version, runtime_error) = match output {
         Ok(output) if output.status.success() => (parse_version(&output_text(&output)), None),
