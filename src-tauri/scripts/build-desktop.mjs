@@ -14,7 +14,7 @@ export function brandedInstallerName(fileName) {
     fileName
   )
   if (!match) throw new Error(`unrecognized NSIS installer name: ${fileName}`)
-  return `原助手-v${match[1]}-${match[2]}-setup.exe`
+  return `原助理-v${match[1]}-${match[2]}-setup.exe`
 }
 
 export function stageBrandedInstallerArtifacts(repoRoot = REPO_ROOT) {
@@ -58,6 +58,7 @@ export function stageBrandedInstallerArtifacts(repoRoot = REPO_ROOT) {
 
 export function parseBuildOptions(argv) {
   const options = {
+    authenticode: false,
     bundleOnly: false,
     jobs: null,
     noSign: false,
@@ -67,6 +68,11 @@ export function parseBuildOptions(argv) {
   for (const arg of argv) {
     if (arg === "--bundle-only") {
       options.bundleOnly = true
+    } else if (arg === "--authenticode") {
+      // Authenticode (the Windows trust chain) is unrelated to --no-sign,
+      // which only controls the updater's minisign signature. The two are
+      // independent and may be combined.
+      options.authenticode = true
     } else if (arg === "--no-sign") {
       options.noSign = true
     } else if (arg === "--reuse-assets") {
@@ -86,7 +92,11 @@ export function parseBuildOptions(argv) {
   return options
 }
 
-export function createBuildPlan(tauriCli, options) {
+/**
+ * @param signingConfigPath absolute path to the generated Authenticode overlay
+ *        (see prepare-signing-config.mjs), or null for an unsigned build.
+ */
+export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
   const env = { ...process.env }
   if (options.jobs) {
     env.CARGO_BUILD_JOBS = String(options.jobs)
@@ -95,6 +105,9 @@ export function createBuildPlan(tauriCli, options) {
   const bundle = {
     label: "NSIS bundle",
     args: [tauriCli, "bundle", "--bundles", "nsis"],
+  }
+  if (signingConfigPath) {
+    bundle.args.push("--config", signingConfigPath)
   }
   if (options.noSign) {
     bundle.args.push("--no-sign")
@@ -110,6 +123,11 @@ export function createBuildPlan(tauriCli, options) {
   const buildArgs = [tauriCli, "build"]
   if (options.reuseAssets) {
     buildArgs.push("--config", '{"build":{"beforeBuildCommand":null}}')
+  }
+  // Later --config wins on conflict, and this one only sets bundle.windows
+  // keys, so it composes with the --reuse-assets overlay above.
+  if (signingConfigPath) {
+    buildArgs.push("--config", signingConfigPath)
   }
   if (options.verbose) {
     buildArgs.push("-vv")
@@ -147,6 +165,34 @@ function runStep(step, env) {
   }
 }
 
+/**
+ * Write the Authenticode overlay and return its path.
+ *
+ * Signing is driven entirely by the bundler through `signCommand`; this script
+ * deliberately does NOT sign the installer afterwards. Tauri computes the
+ * updater's minisign `.sig` over the finished installer bytes, so embedding an
+ * Authenticode signature after that point would invalidate it and every client
+ * would reject the update.
+ */
+function prepareSigningOverlay() {
+  const result = spawnSync(
+    process.execPath,
+    [join(REPO_ROOT, "src-tauri", "scripts", "prepare-signing-config.mjs")],
+    { cwd: REPO_ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }
+  )
+  if (result.error) {
+    throw result.error
+  }
+  if (result.status !== 0) {
+    throw new Error("Authenticode signing configuration is incomplete")
+  }
+  const overlay = result.stdout.trim()
+  if (!overlay) {
+    throw new Error("prepare-signing-config.mjs printed no overlay path")
+  }
+  return overlay
+}
+
 function main() {
   const options = parseBuildOptions(process.argv.slice(2))
   if (options.reuseAssets) {
@@ -161,7 +207,13 @@ function main() {
     "cli",
     "tauri.js"
   )
-  const plan = createBuildPlan(tauriCli, options)
+  const signingConfigPath = options.authenticode
+    ? prepareSigningOverlay()
+    : null
+  if (signingConfigPath) {
+    console.log(`[desktop-build] Authenticode overlay: ${signingConfigPath}`)
+  }
+  const plan = createBuildPlan(tauriCli, options, signingConfigPath)
   for (const step of plan.steps) {
     runStep(step, plan.env)
   }

@@ -12,6 +12,8 @@
     "tauri:build:local": "tauri build --debug",
     "tauri:build:test": "tauri build --features test-gateway",
     "tauri:build:prod": "node src-tauri/scripts/build-desktop.mjs",
+    "tauri:build:signed": "node src-tauri/scripts/build-desktop.mjs --authenticode",
+    "sign:verify": "node src-tauri/scripts/verify-signatures.mjs",
     "tauri:build:fast": "node src-tauri/scripts/build-desktop.mjs --reuse-assets --no-sign",
     "tauri:build:low-cpu": "node src-tauri/scripts/build-desktop.mjs --jobs=4",
     "tauri:build:low-cpu-local": "node src-tauri/scripts/build-desktop.mjs --jobs=4 --no-sign",

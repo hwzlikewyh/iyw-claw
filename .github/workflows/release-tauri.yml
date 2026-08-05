@@ -110,6 +110,80 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # Must run BEFORE sidecar staging: prepare-sidecars.mjs signs the freshly
+      # built sidecar in place, and every staged copy inherits that signature.
+      # Exports via $GITHUB_ENV so the staging and build steps below inherit the
+      # configuration without repeating it.
+      - name: Configure Windows Authenticode signing
+        if: contains(matrix.target, 'windows')
+        id: signing
+        shell: bash
+        env:
+          # Empty when the secret/variable is not set. Every read below uses a
+          # `:-` default so `set -u` does not abort on an unconfigured repo.
+          SIGN_PFX_BASE64: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
+          SIGN_AZURE_METADATA: ${{ secrets.WINDOWS_SIGN_AZURE_METADATA }}
+          SIGN_AZURE_DLIB: ${{ secrets.WINDOWS_SIGN_AZURE_DLIB }}
+          SIGN_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGN_TIMESTAMP_URL }}
+        run: |
+          set -euo pipefail
+
+          # Written to $GITHUB_ENV rather than passed inline to the build step:
+          # one source of truth, and every later step (staging, build, verify)
+          # inherits the same configuration automatically.
+          if [ -n "${SIGN_AZURE_METADATA:-}" ]; then
+            # Azure Artifact Signing (formerly Trusted Signing): the private key
+            # stays in Microsoft's HSM, so there is no .pfx to handle here.
+            if [ -z "${SIGN_AZURE_DLIB:-}" ]; then
+              echo "::error::WINDOWS_SIGN_AZURE_METADATA is set but WINDOWS_SIGN_AZURE_DLIB is not. Install the Trusted Signing client in an earlier step and point WINDOWS_SIGN_AZURE_DLIB at Azure.CodeSigning.Dlib.dll."
+              exit 1
+            fi
+            metadata="${RUNNER_TEMP}/azure-signing-metadata.json"
+            printf '%s' "${SIGN_AZURE_METADATA}" > "${metadata}"
+            {
+              echo "IYW_CLAW_SIGN_MODE=azure"
+              echo "IYW_CLAW_SIGN_AZURE_DLIB=${SIGN_AZURE_DLIB}"
+              echo "IYW_CLAW_SIGN_AZURE_METADATA=${metadata}"
+            } >> "$GITHUB_ENV"
+            mode=azure
+
+          elif [ -n "${SIGN_PFX_BASE64:-}" ]; then
+            pfx="${RUNNER_TEMP}/windows-signing.pfx"
+            printf '%s' "${SIGN_PFX_BASE64}" | base64 --decode > "${pfx}"
+            {
+              echo "IYW_CLAW_SIGN_MODE=pfx"
+              echo "IYW_CLAW_SIGN_PFX=${pfx}"
+              echo "IYW_CLAW_SIGN_PFX_PASSWORD=${SIGN_PFX_PASSWORD:-}"
+            } >> "$GITHUB_ENV"
+            mode=pfx
+
+          else
+            echo "::warning::No Windows code-signing certificate is configured, so this build ships UNSIGNED. Unsigned installers trip SmartScreen and are flagged by antivirus heuristics. Set WINDOWS_SIGN_PFX_BASE64 (+ WINDOWS_SIGN_PFX_PASSWORD) or WINDOWS_SIGN_AZURE_METADATA/_DLIB to enable signing."
+            # `config_arg` must still be defined: the build step interpolates it
+            # into `args`, where an unset output would render as the literal
+            # empty string only by luck of expression evaluation.
+            {
+              echo "mode=none"
+              echo "config_arg="
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "${SIGN_TIMESTAMP_URL:-}" ]; then
+            echo "IYW_CLAW_SIGN_TIMESTAMP_URL=${SIGN_TIMESTAMP_URL}" >> "$GITHUB_ENV"
+          fi
+
+          # The overlay embeds an absolute path to sign-windows.mjs, so it has to
+          # be generated on the runner rather than committed. It reads
+          # IYW_CLAW_SIGN_MODE, which only lands in the environment for the *next*
+          # step — pass it explicitly for this one invocation.
+          config="$(IYW_CLAW_SIGN_MODE="${mode}" node src-tauri/scripts/prepare-signing-config.mjs)"
+          {
+            echo "mode=${mode}"
+            echo "config_arg=--config ${config}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Stage iyw-claw-mcp sidecar
         shell: bash
         run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
@@ -158,6 +232,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Authenticode config (IYW_CLAW_SIGN_*) arrives via $GITHUB_ENV from the
+          # "Configure Windows Authenticode signing" step. Note this is unrelated
+          # to TAURI_SIGNING_PRIVATE_KEY above, which is the updater's minisign
+          # key — different mechanism, different trust chain.
         with:
           releaseId: ${{ inputs.release_id }}
           tagName: ${{ inputs.release_tag }}
@@ -165,12 +243,38 @@ jobs:
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
           tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles nsis
+          # steps.signing.outputs.config_arg is either empty (unsigned) or
+          # `--config <abs path to generated overlay>`.
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles nsis ${{ steps.signing.outputs.config_arg }}
           # latest.json is generated by the publish-release job in release.yml
           # from the actual release assets (tauri-action's name matching breaks
           # on the non-ASCII productName).
           includeUpdaterJson: false
           retryAttempts: 2
+
+      # Signing silently covering only some artifacts is the failure mode worth
+      # catching: one unsigned .exe in the installer re-opens the antivirus
+      # problem the certificate was bought to close. Strict once signing is
+      # configured; advisory until then.
+      - name: Verify Authenticode signatures
+        if: contains(matrix.target, 'windows')
+        shell: bash
+        run: |
+          if [ "${{ steps.signing.outputs.mode }}" = "none" ]; then
+            node src-tauri/scripts/verify-signatures.mjs --warn
+          else
+            node src-tauri/scripts/verify-signatures.mjs
+          fi
+
+      # Runs even on failure: the decrypted .pfx holds the private key and must
+      # not outlive the job on a self-hosted runner. Paths must stay in sync with
+      # the "Configure Windows Authenticode signing" step above.
+      - name: Remove signing material
+        if: always() && contains(matrix.target, 'windows')
+        shell: bash
+        run: |
+          rm -f "${RUNNER_TEMP}/windows-signing.pfx"
+          rm -f "${RUNNER_TEMP}/azure-signing-metadata.json"
 
       - name: Build and upload Linux x64
         if: matrix.target == 'x86_64-unknown-linux-gnu'

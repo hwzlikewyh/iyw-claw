@@ -39,6 +39,8 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 
+import { resolveSignMode, signFiles } from "./sign-windows.mjs"
+
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SRC_TAURI = resolve(SCRIPT_DIR, "..")
 const BINARIES_DIR = join(SRC_TAURI, "binaries")
@@ -172,6 +174,19 @@ async function main() {
   const built = build.built
   if (!existsSync(built)) {
     die(`expected ${built} after cargo build, but it does not exist`)
+  }
+
+  // Authenticode-sign the freshly built sidecar before it is copied anywhere.
+  // Signing the single Cargo output means every staged copy below (binaries/
+  // for externalBin plus the bundle compatibility aliases) inherits the
+  // signature, so there is no way for one layout to ship unsigned.
+  //
+  // This has to happen here rather than in build-desktop.mjs: on the default
+  // build path this script runs inside `tauri build`'s beforeBuildCommand, so
+  // the outer script has no point between staging and bundling to hook.
+  if (isWindows && resolveSignMode(process.env) !== "none") {
+    log(`Authenticode-signing ${built}`)
+    signFiles([built])
   }
 
   for (const bundleName of [BIN_NAME, `${BIN_NAME}-${APP_VERSION}`]) {
