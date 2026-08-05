@@ -14,6 +14,7 @@ import { ClipboardFallbackInit } from "@/components/clipboard-fallback-init"
 import { WebConnectionGuard } from "@/components/connection/web-connection-guard"
 import { WindowResizeGrips } from "@/components/layout/window-resize-grips"
 import { DevtoolsShortcut } from "@/components/devtools-shortcut"
+import { TauriContextMenuPolicy } from "@/components/tauri-context-menu-policy"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
 export const viewport: Viewport = {
@@ -76,6 +77,7 @@ export default async function RootLayout({
                 <WebConnectionGuard />
                 <WindowResizeGrips />
                 <DevtoolsShortcut />
+                <TauriContextMenuPolicy />
                 {/* Global tooltip context: ui/tooltip's Tooltip is a bare Radix Root,
                     so every usage needs a Provider ancestor. Nested providers in
                     subtrees still override delayDuration locally. */}

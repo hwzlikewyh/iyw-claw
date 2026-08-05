@@ -84,6 +84,7 @@ export function TerminalTabBar() {
               {editingId === tab.id ? (
                 <input
                   ref={inputRef}
+                  data-native-context-menu
                   className="bg-transparent outline-none border border-primary/50 rounded px-0.5 w-20 text-xs"
                   value={editValue}
                   onChange={(e) => setEditValue(e.target.value)}

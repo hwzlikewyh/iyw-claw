@@ -18,6 +18,13 @@ fn link_windows_test_manifest() {
         name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
         processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'";
     println!("cargo:rustc-link-arg={dependency}");
+
+    // The packaged desktop entry must request elevation on every launch. This
+    // applies only to the Tauri binary; server and MCP targets do not enable
+    // the `tauri-runtime` feature that runs this build-script branch.
+    println!(
+        "cargo:rustc-link-arg-bin=iyw-claw=/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
+    );
 }
 
 /// Tauri's bundler validates that every `bundle.externalBin` path resolves

@@ -342,6 +342,84 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
 // remark-math only supports `$` delimiters. Convert LaTeX-style
 // `\[...\]` / `\(...\)` to `$$...$$` / `$...$` so they are recognized.
 // Code blocks and inline code are preserved to avoid false positives.
+// KaTeX accepts these text accents in math mode but warns; wrapping only the
+// accent and its argument in `\text{...}` keeps the warning scoped to math.
+const TEXT_MODE_ACCENT_COMMANDS = [
+  "\\'",
+  "\\`",
+  "\\^",
+  "\\~",
+  "\\=",
+  "\\u",
+  "\\.",
+  '\\"',
+  "\\c",
+  "\\r",
+  "\\H",
+  "\\v",
+  "\\textcircled",
+] as const
+
+function readBalancedGroup(text: string, start: number): number | null {
+  if (text[start] !== "{") return null
+
+  let depth = 0
+  for (let index = start; index < text.length; index += 1) {
+    if (text[index] === "\\") {
+      index += 1
+      continue
+    }
+    if (text[index] === "{") depth += 1
+    if (text[index] === "}" && --depth === 0) return index + 1
+  }
+  return null
+}
+
+function readPrimitiveArgument(text: string, start: number): number | null {
+  if (start >= text.length || /\s/.test(text[start])) return null
+  if (text[start] === "{") return readBalancedGroup(text, start)
+  if (text[start] !== "\\") return start + 1
+
+  let end = start + 1
+  while (end < text.length && /[A-Za-z]/.test(text[end])) end += 1
+  return end === start + 1 ? end + 1 : end
+}
+
+function normalizeMathTextAccents(math: string): string {
+  let normalized = ""
+  let index = 0
+
+  while (index < math.length) {
+    if (math.startsWith("\\text{", index)) {
+      const groupEnd = readBalancedGroup(math, index + "\\text".length)
+      if (groupEnd !== null) {
+        normalized += math.slice(index, groupEnd)
+        index = groupEnd
+        continue
+      }
+    }
+
+    const command = TEXT_MODE_ACCENT_COMMANDS.find((candidate) => {
+      if (!math.startsWith(candidate, index)) return false
+      const next = math[index + candidate.length]
+      return !next || !/[A-Za-z]/.test(candidate[1]) || !/[A-Za-z]/.test(next)
+    })
+    if (command && (index === 0 || math[index - 1] !== "\\")) {
+      const argumentEnd = readPrimitiveArgument(math, index + command.length)
+      if (argumentEnd !== null) {
+        normalized += `\\text{${math.slice(index, argumentEnd)}}`
+        index = argumentEnd
+        continue
+      }
+    }
+
+    normalized += math[index]
+    index += 1
+  }
+
+  return normalized
+}
+
 export function normalizeMathDelimiters(text: string): string {
   const saved: string[] = []
   const placeholder = (m: string) => {
@@ -353,8 +431,14 @@ export function normalizeMathDelimiters(text: string): string {
     placeholder
   )
   const normalized = masked
-    .replace(/\\\[([\s\S]*?)\\\]/g, (_m, inner: string) => `$$${inner}$$`)
-    .replace(/\\\(([\s\S]*?)\\\)/g, (_m, inner: string) => `$${inner}$`)
+    .replace(
+      /\\\[([\s\S]*?)\\\]/g,
+      (_m, inner: string) => `$$${normalizeMathTextAccents(inner)}$$`
+    )
+    .replace(
+      /\\\(([\s\S]*?)\\\)/g,
+      (_m, inner: string) => `$${normalizeMathTextAccents(inner)}$`
+    )
   return normalized.replace(
     /\0CBLK(\d+)\0/g,
     (_m, i: string) => saved[Number(i)]

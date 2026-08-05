@@ -1585,6 +1585,43 @@ fn load_codex_model_catalog_ids() -> Vec<String> {
     managed_codex_model_ids()
 }
 
+const CODEX_DEFAULT_BASE_INSTRUCTIONS: &str =
+    "你是爱原物原助理。你和用户共享一个工作区，请持续协作，直到用户的目标真正完成。";
+
+#[cfg(target_os = "windows")]
+const CODEX_WINDOWS_BASE_INSTRUCTIONS: &str = concat!(
+    r###"你是爱原物原助理。你和用户共享一个工作区，请持续协作，直到用户的目标真正完成。
+
+Windows shell rules (PowerShell 7):
+- 使用固定可执行文件 `C:\Program Files\PowerShell\7\pwsh.exe`，参数使用 `-NoProfile -Command`；不要使用 `cmd.exe` 或 Windows PowerShell 5.1 (`powershell.exe`)。
+- 使用 PowerShell 原生命令和语法，不要假设 Bash/POSIX 语法。禁止 Bash 风格的 `\"` 转义。
+- 当外层 PowerShell 调用 `-Command` 时，优先用单引号包住整个脚本，使 `$p`、`$i`、`$lines` 等变量只在内层脚本展开；无法使用外层单引号时，用反引号转义 `$`。避免多层引号，复杂命令拆成多个简单命令。
+- `rg` 的 pattern 含 `|`、`(`、`)` 或反斜杠时，使用单引号包住 pattern，避免 `|` 被解析为 PowerShell 管道；不要用反斜杠拼接 PowerShell 引号。
+- 用户和项目指令优先于这些默认规则，必须遵循更高优先级的约束。
+
+带行号读取模板（外层也是 PowerShell 时，`-Command` 脚本用单引号保护）：
+`& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command '$p="models\file.py"; $lines=Get-Content -Path $p; for($i=1;$i -le 80;$i++){ "{0,4}: {1}" -f $i,$lines[$i-1] }'`
+
+rg 模板（普通 pattern）：
+`& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command 'rg -n "simple_text" models configs docs'`
+
+rg 模板（pattern 含 `|`、括号或反斜杠；用相邻单引号表示内层单引号）：
+`& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command 'rg -n ''audible|Audible|sound_prob|pred_sound_prob'' models configs docs'`
+"###
+);
+
+#[cfg(not(target_os = "windows"))]
+const CODEX_WINDOWS_BASE_INSTRUCTIONS: &str = CODEX_DEFAULT_BASE_INSTRUCTIONS;
+
+// 当前 catalog/session 元数据没有指令代际字段；待共享 contract 提供字段后再接入，暂不自造 schema。
+fn base_instructions_for(agent_type: AgentType) -> &'static str {
+    if cfg!(target_os = "windows") && agent_type == AgentType::Codex {
+        CODEX_WINDOWS_BASE_INSTRUCTIONS
+    } else {
+        CODEX_DEFAULT_BASE_INSTRUCTIONS
+    }
+}
+
 fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value {
     serde_json::json!({
         "slug": model,
@@ -1601,7 +1638,7 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
         "visibility": "list",
         "supported_in_api": true,
         "priority": priority,
-        "base_instructions": "你是爱原物原助理。你和用户共享一个工作区，请持续协作，直到用户的目标真正完成。",
+        "base_instructions": base_instructions_for(AgentType::Codex),
         "include_skills_usage_instructions": true,
         "supports_reasoning_summaries": true,
         "support_verbosity": false,
