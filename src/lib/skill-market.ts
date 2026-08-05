@@ -599,11 +599,17 @@ export type SkillMarketPrimaryAction =
   | "reinstall"
   | "none"
 
+/**
+ * Resolves the primary button action. `unknown` compatibility is released
+ * optimistically: the backend has the final say and answers with a
+ * `client_incompatible` install error, which `installErrorAction` maps to
+ * `update_client`. Only a definite `incompatible` blocks the button up front.
+ */
 export function primaryInstallAction(
   state: SkillMarketInstallState,
   compatibility: SkillMarketCompatibility
 ): SkillMarketPrimaryAction {
-  if (compatibility !== "compatible") return "none"
+  if (compatibility === "incompatible") return "none"
   switch (state) {
     case "not_installed":
     case "preparing":

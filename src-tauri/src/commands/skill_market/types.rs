@@ -75,6 +75,24 @@ pub struct SkillMarketFile {
     pub mime_type: Option<String>,
 }
 
+/// Client-side install constraints for one active distribution policy.
+///
+/// The gateway does not resolve a compatible/incompatible verdict because it is
+/// never told this build's version or os/arch. It returns the bounds and the
+/// frontend compares them locally. An empty string means "unbounded".
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillCompatibilityConstraint {
+    #[serde(default)]
+    pub min_client_version: String,
+    #[serde(default)]
+    pub max_client_version: String,
+    #[serde(default)]
+    pub target: String,
+    #[serde(default)]
+    pub arch: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillMarketItem {
@@ -90,6 +108,16 @@ pub struct SkillMarketItem {
     pub tags: Vec<String>,
     pub visibility: String,
     pub publisher_type: String,
+    // Contract v2 fields. The gateway emits these (see internal/domain/skill
+    // model.go); every one is `#[serde(default)]` so a pre-v2 gateway response
+    // still deserializes. Without them declared here serde silently dropped the
+    // values on the way through, and the frontend adapter fell back forever.
+    #[serde(default)]
+    pub audience: Option<String>,
+    #[serde(default)]
+    pub distribution_policy: Option<String>,
+    #[serde(default)]
+    pub compatibility: Vec<SkillCompatibilityConstraint>,
     pub current_version: SkillMarketVersion,
     #[serde(default)]
     pub owned_by_me: bool,
