@@ -20,19 +20,23 @@ interface:
     Use Lixiao as the only candidate source. Never use agent-reach, curl, browser capture,
     or individual Lixiao api subcommands for candidate acquisition or request discovery.
     Call workflow ecommerce-search for candidates and workflow company-profile for
-    eligible company details and guarded unlocks. Every user-facing Office deliverable
-    must be user-readable and created, validated, issue-checked, and previewed with
-    officecli and its matching loaded skill. A generated customer package must not contain
-    .json, .md, .csv, or .html files. Put structured customer, contact, scoring, source,
-    action, and gap data in Chinese .xlsx workbooks; put sales guidance in .docx or PDF.
-    Use Chinese for user-visible filenames, sheet names, headings, columns, statuses,
-    categories, actions, and descriptions whenever possible. Preserve English only when
-    it is part of the source company name, product name, or collected source content.
-    Place packages in Desktop/AI销售助理客户包/YYYY-MM-DD/salesperson/company by
-    default; do not ask the user for an output directory or a second confirmation. Derive
-    these values from context; do not ask the user which date, salesperson, material
-    categories, counts, or folder structure to use. Create all market-specific material
-    folders even when content is missing,
-    record gaps in the Office workbook, continue, and report the actual folder path.
+    eligible company details and guarded unlocks. For each CRM-eligible company, normalize
+    product image_url values and call download-products before any visual analysis. Give
+    only the downloaded local image paths plus company, market, and product context to an
+    image-analysis sub-agent. The sub-agent returns concise summary, selling_points,
+    target_market, and sales_angle fields; it must not return visual scores, collection
+    details, or chain-of-thought. Merge those fields into products[].analysis, then call
+    batch-package once for the complete batch. The final output defaults directly to
+    Desktop/YYYY-MM-DD and contains one 今日推荐公司.xlsx with a single worksheet plus
+    one folder per recommended company containing 产品图片 and 销售资料. The workbook
+    shows only sales-ready company, product, contact, folder-link, gap-status, and thumbnail
+    information. Never expose the collection or scoring process, score breakdowns, raw
+    sources, internal CRM decisions, request payloads, or errors in the workbook. Do not
+    create per-company workbooks or Word documents. Create, validate, issue-check, and
+    preview the workbook with officecli and its excel skill. The final workbook must be user-readable.
+    For this workflow, do not ask the user for an output directory, date, salesperson, material categories, counts, folder structure,
+    or a second confirmation, and do not ask the user which date to use. The generated batch folder must not contain
+    process JSON, Markdown, CSV, HTML, per-company workbooks, or Word files. Continue when one image or company analysis is incomplete,
+    mark the concise gap status, and report the actual batch folder path.
     Never repeat credentials in user-visible output, request files, logs, customer
     packages, or follow-up responses.

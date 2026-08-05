@@ -7,8 +7,17 @@ import json
 import re
 import sys
 import time
-from typing import Any
+from typing import Any, Callable
 
+from lixiao_advanced import (
+    DEFAULT_PAGE_SIZE,
+    build_advanced_search_body,
+    build_channel_search_body,
+    build_tender_search_body,
+    empty_condition,
+    response_items as advanced_response_items,
+    validate_limits as validate_advanced_limits,
+)
 from lixiao_client import AuthenticationError, LixiaoClient, LixiaoError
 from lixiao_commands import (
     SPECS,
@@ -28,6 +37,7 @@ DEFAULT_AGREEMENT = json.dumps(
     {"version": "2023-12-25 18:05", "service_version": "2022-09-15 03:30"},
     ensure_ascii=False,
 )
+DEFAULT_SEARCH_LIMIT = 100
 
 
 def _flag_name(name: str) -> str:
@@ -131,6 +141,39 @@ def _add_workflow_parsers(subparsers: Any) -> None:
     )
     profile.add_argument("--id", action="append", required=True)
     profile.add_argument("--contact-source")
+    _add_advanced_search_workflow_parsers(actions)
+
+
+def _add_advanced_search_workflow_parsers(actions: Any) -> None:
+    conditions = actions.add_parser(
+        "search-conditions", help="list advanced enterprise search conditions"
+    )
+    conditions.add_argument("--group-name", default="enterprise")
+    conditions.add_argument("--category", default="common.searchExhibitionNew.default")
+    conditions.add_argument("--module", action="append")
+    advanced = actions.add_parser(
+        "advanced-search", help="search enterprises with captured advanced filters"
+    )
+    _add_paginated_search_args(advanced, condition_required=True, keyword=False)
+    tender = actions.add_parser("tender-search", help="search tender projects")
+    _add_paginated_search_args(tender, condition_required=False, keyword=True)
+    channel = actions.add_parser("channel-search", help="search sales channels")
+    _add_paginated_search_args(channel, condition_required=False, keyword=True)
+    templates = actions.add_parser("search-templates", help="list saved search templates")
+    templates.add_argument("--template-type", type=int, default=0)
+    templates.add_argument("--page-size", type=int, default=20)
+    templates.add_argument("--page-num", type=int, default=1)
+    templates.add_argument("--search-name", default="")
+
+
+def _add_paginated_search_args(
+    command: Any, *, condition_required: bool, keyword: bool
+) -> None:
+    command.add_argument("--condition", required=condition_required)
+    if keyword:
+        command.add_argument("--keyword")
+    command.add_argument("--limit", type=int, default=DEFAULT_SEARCH_LIMIT)
+    command.add_argument("--page-size", type=int, default=DEFAULT_PAGE_SIZE)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -579,11 +622,138 @@ def _run_company_profiles(args: argparse.Namespace, client: LixiaoClient) -> Any
     }
 
 
+def _workflow_condition(args: argparse.Namespace) -> dict[str, Any]:
+    value = getattr(args, "condition", None)
+    return empty_condition() if value is None else parse_json_input(value)
+
+
+def _advanced_candidate_key(item: dict[str, Any]) -> tuple[str, str, str, str]:
+    return tuple(str(item.get(key) or "") for key in ("id", "uncid", "name", "title"))
+
+
+def _run_paginated_search(
+    args: argparse.Namespace,
+    client: LixiaoClient,
+    operation: str,
+    body_builder: Callable[[dict[str, Any], int, int], dict[str, Any]],
+) -> dict[str, Any]:
+    validate_advanced_limits(args.limit, args.page_size)
+    condition = _workflow_condition(args)
+    if args.dry_run:
+        body = body_builder(condition, 1, args.page_size)
+        planned = _execute_operation(
+            client, operation, body=body, dry_run=True
+        )
+        return {
+            "operation": operation,
+            "limit": args.limit,
+            "count": 0,
+            "planned_request": planned,
+        }
+    candidates: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    reported_total = None
+    page = 1
+    while True:
+        response = _execute_operation(
+            client, operation, body=body_builder(condition, page, args.page_size)
+        )
+        items, reported_total = advanced_response_items(response)
+        for item in items:
+            key = _advanced_candidate_key(item)
+            if key not in seen and len(candidates) < args.limit:
+                seen.add(key)
+                candidates.append(item)
+        if len(items) < args.page_size or len(candidates) >= args.limit:
+            break
+        if reported_total is None:
+            raise CommandError("Lixiao search response has no total for pagination")
+        if page * args.page_size >= reported_total:
+            break
+        page += 1
+    return {
+        "operation": operation,
+        "limit": args.limit,
+        "count": len(candidates),
+        "reported_total": reported_total,
+        "candidates": candidates,
+    }
+
+
+def _run_advanced_search(args: argparse.Namespace, client: LixiaoClient) -> dict[str, Any]:
+    return _run_paginated_search(
+        args,
+        client,
+        "advanced-search",
+        lambda condition, page, page_size: build_advanced_search_body(
+            condition, page=page, page_size=page_size
+        ),
+    )
+
+
+def _run_tender_search(args: argparse.Namespace, client: LixiaoClient) -> dict[str, Any]:
+    return _run_paginated_search(
+        args,
+        client,
+        "tender-project-search",
+        lambda condition, page, page_size: build_tender_search_body(
+            condition, args.keyword, page=page, page_size=page_size
+        ),
+    )
+
+
+def _run_channel_search(args: argparse.Namespace, client: LixiaoClient) -> dict[str, Any]:
+    return _run_paginated_search(
+        args,
+        client,
+        "channel-search",
+        lambda condition, page, page_size: build_channel_search_body(
+            condition, args.keyword, page=page, page_size=page_size
+        ),
+    )
+
+
+def _run_search_conditions(args: argparse.Namespace, client: LixiaoClient) -> Any:
+    query: dict[str, Any] = {
+        "groupName": args.group_name,
+        "category": args.category,
+    }
+    if args.module:
+        query["moduleName"] = json.dumps(
+            list(dict.fromkeys(args.module)), separators=(",", ":")
+        )
+    return _execute_operation(
+        client, "advanced-search-conditions", query, dry_run=args.dry_run
+    )
+
+
+def _run_search_templates(args: argparse.Namespace, client: LixiaoClient) -> Any:
+    if args.page_size <= 0 or args.page_num <= 0:
+        raise CommandError("template page size and page number must be positive")
+    query = {
+        "type": str(args.template_type),
+        "pageSize": str(args.page_size),
+        "pageNum": str(args.page_num),
+        "searchName": args.search_name,
+    }
+    return _execute_operation(client, "search-templates", query, dry_run=args.dry_run)
+
+
 def _run_workflow(args: argparse.Namespace, client: LixiaoClient) -> Any:
     if args.workflow_action == "ecommerce-search":
         return _run_ecommerce_search(args, client)
     if args.workflow_action == "company-profile":
         return _run_company_profiles(args, client)
+    if args.workflow_action == "advanced-search":
+        return _run_advanced_search(args, client)
+    if args.workflow_action == "tender-search":
+        return _run_tender_search(args, client)
+    if args.workflow_action == "channel-search":
+        return _run_channel_search(args, client)
+    if args.workflow_action == "search-conditions":
+        return _run_search_conditions(args, client)
+    if args.workflow_action == "search-templates":
+        return _run_search_templates(args, client)
     raise CommandError(f"unsupported workflow action: {args.workflow_action}")
 
 
@@ -705,7 +875,9 @@ def _run_auth(
 
 def run(args: argparse.Namespace) -> Any:
     store = CredentialStore(resolve_config_dir(args.config_dir))
-    client = LixiaoClient(store, timeout=args.timeout)
+    client = LixiaoClient(
+        store, timeout=args.timeout, load_credentials=not args.dry_run
+    )
     if args.command == "auth":
         return _run_auth(args, store, client)
     if args.command == "workflow":

@@ -4,7 +4,6 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-
 MATERIAL_TARGETS = {
     "export": {
         "exhibition_report": 3,
@@ -58,6 +57,20 @@ def allocate_package_directory(
     index = 2
     while candidate.exists():
         candidate = sales_root / f"{stem}-{index}"
+        index += 1
+    return candidate
+
+
+def allocate_batch_directory(root: Path, now: datetime) -> Path:
+    date_name = now.strftime("%Y-%m-%d")
+    initial = root / date_name
+    if not initial.exists():
+        return initial
+    stem = f"{date_name}-{now:%H%M%S}"
+    candidate = root / stem
+    index = 2
+    while candidate.exists():
+        candidate = root / f"{stem}-{index}"
         index += 1
     return candidate
 

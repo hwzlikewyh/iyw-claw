@@ -22,10 +22,14 @@ from iyw_sales_office_layout import (
     FONT,
     HEADER,
     SheetSpec,
+)
+from iyw_sales_office_layout import (
     display as _display,
+)
+from iyw_sales_office_layout import (
     sheet_commands as _sheet_commands,
 )
-
+from iyw_sales_office_preview import OfficePreviewError, fallback_screenshot
 
 OFFICE_DELIVERABLES = (
     "01-客户信息/客户档案.xlsx",
@@ -36,6 +40,7 @@ OFFICE_DELIVERABLES = (
 )
 class OfficeCliError(OSError):
     pass
+
 
 
 def _date_display(value: object, fallback: datetime) -> str:
@@ -78,13 +83,26 @@ def _verify(path: Path) -> None:
     _run(["validate", str(path)])
     _run(["view", str(path), "issues"])
     preview = path.with_name(f".{path.stem}-preview.png")
+    preview_available = True
     args = ["view", str(path), "screenshot"]
     if path.suffix.casefold() == ".docx":
         args.extend(["--grid", "auto"])
     args.extend(["-o", str(preview)])
     try:
-        _run(args)
-        if not preview.is_file() or preview.stat().st_size == 0:
+        try:
+            _run(args)
+        except OfficeCliError as error:
+            if "No headless browser available" not in str(error):
+                raise
+            try:
+                fallback_screenshot(path, preview, _run)
+            except OfficePreviewError as fallback_error:
+                if "浏览器" not in str(fallback_error):
+                    raise
+                preview_available = False
+        if preview_available and (
+            not preview.is_file() or preview.stat().st_size == 0
+        ):
             raise OfficeCliError(f"officecli 未生成 {path.name} 的预览图")
     finally:
         _run(["close", str(path)])

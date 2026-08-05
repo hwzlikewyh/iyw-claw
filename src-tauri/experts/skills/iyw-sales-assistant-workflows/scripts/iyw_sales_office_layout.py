@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 FONT = "Microsoft YaHei"
 ACCENT = "1F4E78"
 HEADER = "D9EAF7"

@@ -20,8 +20,9 @@ uv run --no-project python $cli --help
 ```
 
 读取 [references/data-contract.md](references/data-contract.md) 构造客户 JSON。选择平台、
-评分证据或资料目标时读取 [references/operations.md](references/operations.md)。CLI 只
-读本地 JSON 和素材文件，不访问网络、不解锁励销企业、不写 CRM、不发送通知。
+评分证据或资料目标时读取 [references/operations.md](references/operations.md)。只有
+`download-products` 访问产品图片 HTTPS 地址；评估和打包命令只读本地 JSON 与素材，
+不解锁励销企业、不写 CRM、不发送通知。
 
 ## 1. 验证会话与登录
 
@@ -58,9 +59,9 @@ uv run --no-project python $cli --help
 - 平台和每个平台最大候选数；没有上限时先询问，不运行无界批次。
 - 负责销售自动取当前登录用户；上下文已经明确其他销售时直接使用，不单独询问。
 
-不要询问客户包输出目录。生成文件默认放在当前用户系统桌面的
-`AI销售助理客户包` 文件夹中；只有用户明确指定其他路径时才覆盖该默认值。
-生成日期由 CLI 取本次执行日期，不询问用户。
+不要询问客户包输出目录。批次默认直接放在当前用户系统桌面的执行日期目录中，
+例如 `桌面/2026-08-03`；只有用户明确指定其他路径时才覆盖。生成日期由 CLI 取得，
+不询问用户。
 
 外销平台包括阿里国际站、中国制造网、环球资源、Amazon、SHEIN。内销平台包括
 1688、天猫、京东。
@@ -91,7 +92,7 @@ uv run --no-project python $lixiaoCli workflow company-profile `
 
 该命令内部完成企业卡片、产品、展会、经营、招聘、知识产权、品牌和联系人采集。
 
-目标是 10 张真实可用的代表产品图、最多 3 名优先联系人，以及店铺、参展、招聘、
+目标是取得最多 10 个真实产品图片 HTTPS 地址、最多 3 名优先联系人，以及店铺、参展、招聘、
 版权和品牌证据。产品详情隐藏时，对当前候选直接执行
 `company-products --unlock-if-needed`；该参数即为本企业解锁授权，无需向用户二次提问，且禁止
 批量解锁。
@@ -117,7 +118,30 @@ uv run --no-project python $cli evaluate --input .\lead.json
 
 只有 `eligible_unowned` 和 `eligible_new` 继续制作客户包。
 
-## 5. 核验联系人和招聘
+## 5. 下载并分析产品图片
+
+产品图片必须先下载为真实本地文件，再交给子代理分析；仅有 URL、空文件或下载失败记录
+不能进入推荐表的图片数量。只为通过 CRM 门禁的公司下载，最多 10 张：
+
+```powershell
+uv run --no-project python $cli download-products `
+  --input .\eligible-lead.json `
+  --output-dir <系统临时目录>/<run-id>/<公司名>/产品图片 `
+  --limit 10
+```
+
+命令只接受 HTTPS，校验图片格式和 25 MB 大小上限，返回带 `local_path` 的 `products`、
+已保存路径和逐张错误。用返回的 `products` 替换公司记录中的同名字段；不得把签名 URL、
+请求头或下载错误详情写进最终客户目录。
+
+每家公司下载完成后，将公司名、市场、产品关键词和所有真实 `local_path` 交给一个图片分析
+子代理。不同公司可以并行分析，但同一公司的结果由主代理统一归并。子代理必须实际读取图片，
+只返回销售可用的短结论：`analysis.summary`、`analysis.selling_points`、
+`analysis.target_market`、`analysis.sales_angle`。不要返回图片评分、采集过程、推理过程或
+大段描述。主代理检查结论与公司对应后写入 `products[].analysis`；分析失败时保留已下载
+图片并标记“分析待补”，继续处理其他公司。
+
+## 6. 核验联系人和招聘
 
 按决策相关性、来源可信度和新鲜度选择最多 3 名联系人。使用授权企业数据、企业
 官网、公开店铺或企业公开页交叉核验电话、邮箱和公开账号，并记录来源与采集时间。
@@ -128,7 +152,7 @@ uv run --no-project python $cli evaluate --input .\lead.json
 BOSS 直聘等合规公开页面；它只能用于此类公开证据补充，不能用于候选搜索或励销接口
 发现。不绕过登录、验证码、反自动化或访问限制。
 
-## 6. 匹配销售资料
+## 7. 匹配销售资料
 
 根据客户产品和市场准备真实文件：
 
@@ -141,43 +165,40 @@ BOSS 直聘等合规公开页面；它只能用于此类公开证据补充，不
 
 不要询问用户需要哪些销售资料、数量、日期或文件夹结构。根据 `run.market` 自动采用上方
 内销/外销目标，并结合公司、产品关键词、最新证据和负责销售直接创建内容；资料暂缺时继续
-创建既定分类目录，在销售待办与缺项 Excel 标记缺项，不因缺项停下来提问。
+创建既定分类目录，并在最终汇总表状态列标记缺项，不因缺项停下来提问。
 
-## 7. 创建客户包
+## 8. 创建批次交付
 
-所有面向用户的文档、表格、演示稿和 PDF 必须清晰可读，并统一使用 `officecli` 创建、
-修改、导出和检查。开始制作前先按文件类型执行 `officecli load_skill word`、
-`officecli load_skill excel`、`officecli load_skill pptx` 或更匹配的专项规则；不手写 Office
-OpenXML，不用脚本库制作 Office 文件。客户包内禁止生成 `.json`、`.md`、`.csv` 或 `.html`；
-结构化结果统一整理为 `.xlsx`，叙述性结果统一整理为 `.docx` 或由其导出的 PDF。PDF 应从
-`officecli` 管理的源文档导出。成品至少应有明确标题、中文列名/章节、单位、来源、数据日期、
-缺失项标识和便于销售直接使用的摘要，不向用户暴露内部字段名或未经整理的接口响应。
-文件名、工作表名、标题、列名、状态、资料类别、待办事项和说明尽量全部使用中文；只有平台
-抓取的公司名、产品名、来源正文等原始数据本身为英文时才保留英文。
-
-交付前必须运行 `officecli validate`、`officecli view ... issues`，并通过
-`officecli view ... screenshot` 或 PDF 预览检查分页、列宽、截断、空白页、乱码和内容重叠。
-客户信息、联系人、评分、来源、待办和缺项都必须进入直观的中文 Office 文件，不落机器审计
-JSON；CLI 的标准 JSON 响应只用于进程间传递，不能写进客户包。
-
-CLI 默认解析当前用户的系统桌面路径，不要向用户询问或二次确认输出目录。先检查计划，
-不写目录：
+将所有公司记录放进同一个批次输入：`{"records": [<公司记录>, ...]}`。只允许
+`eligible_unowned` 和 `eligible_new` 进入推荐表和公司目录。先 dry-run 检查计划：
 
 ```powershell
-uv run --no-project python $cli package --input .\lead.json --dry-run
+uv run --no-project python $cli batch-package --input .\batch.json --dry-run
 ```
 
-检查计划有效后直接去掉 `--dry-run`，无需再询问用户。CLI 会按
-`桌面/AI销售助理客户包/YYYY-MM-DD/负责销售/公司名` 自动建目录，清理 Windows 非法
-文件名，并按市场创建销售需要的资料分类；同名公司目录已存在时创建时间后缀目录，不覆盖
-旧资料。只有用户明确要求其他目录时才传 `--output-root`。每个合格客户输出客户档案 Excel、
-联系人 Excel、评分与来源 Excel、销售待办与缺项 Excel、销售跟进建议 Word、产品图和销售资料。
-完成后在回复中给出实际桌面文件夹路径。
+计划有效后直接去掉 `--dry-run`，无需再次询问。默认只生成一个日期目录：
 
-检查返回 JSON 的 `status`、评分、CRM 决策、产品/联系人/资料实际数量和缺项。任何
-未达到 PDF 目标数量的客户包状态必须是 `incomplete`，不得声称资料齐全。
+```text
+桌面/<YYYY-MM-DD>/今日推荐公司.xlsx
+桌面/<YYYY-MM-DD>/<公司名>/产品图片/
+桌面/<YYYY-MM-DD>/<公司名>/销售资料/
+```
 
-## 8. 处理待办与汇总
+日期目录已存在时使用 `YYYY-MM-DD-HHMMSS`，不覆盖旧批次。公司名会清理 Windows 非法
+字符。同一批次最终只有一个 `今日推荐公司.xlsx`，而且只有一个工作表“今日推荐公司”。每家
+公司一行，展示公司、平台/店铺、主推产品、产品分析、适合市场、销售切入点、联系人、目录
+链接、状态和最多 3 张代表缩略图；全部原图与销售资料保存在对应公司目录。
+
+最终 Excel 必须简单、清晰可读、便于销售扫描。不得展示采集过程、评分过程、评分拆分、原始来源、
+内部 CRM 决策、请求响应或错误堆栈；这些信息只用于筛选和进程间传递。批次目录内禁止生成
+`.json`、`.md`、`.csv`、`.html`、逐家公司 Excel 或 Word。CLI 的 JSON 响应不能写入批次目录。
+
+汇总表统一使用 `officecli` 创建并检查。执行 `officecli load_skill excel`，然后运行
+`officecli validate`、`officecli view ... issues` 和 `officecli view ... screenshot`；本机没有
+headless 浏览器时使用 `officecli view ... html` 做渲染检查。检查列宽、截断、乱码、空白行和
+图片重叠。完成后只向用户报告实际日期目录、推荐公司数量和缺项概况。
+
+## 9. 处理待办与汇总
 
 当前只为以下动作生成 `pending` 待办：
 

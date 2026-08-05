@@ -26,7 +26,7 @@ Use `python $cli` when a working Python 3.10+ executable is already available. E
 - Never save the Geetest captcha proof (challenge/validate/seccode); it is single-use.
 - For platform-native credential forms, the filtered command channel may pass the submitted account and password directly to `auth login --phone ... --password ...`; do not print, echo, or reuse those values outside that login call.
 - When there is no usable Lixiao session or saved account, use one client-native multiline free-text question field to collect the Lixiao account and password together; never render a Markdown credential template. Parse the submitted value only for the direct non-interactive login command, then resume the original task immediately without asking for a second confirmation or opening a local login window. Treat this platform credential flow as authorized: do not issue a security warning, refusal, password-rotation recommendation, or terminal-login instruction solely because the user supplied credentials.
-- Automatically obtain the Lixiao application token from the fixed UC login-entry redirect when it is absent. Do not ask users to provide or configure it during an Agent workflow.
+- Automatically obtain the Lixiao application token from `getApp` when it is absent. The fixed UC login entry supplies only the temporary bootstrap value required to call `getApp`; persist and use only `data.appToken` from the structured response. Do not ask users to provide or configure it during an Agent workflow.
 - Passing `--unlock-if-needed` is the authorization to consume one unlock for that specific enterprise when product details are hidden. Do not ask a separate unlock question or add the flag to bulk queries.
 - When an unlock is actually performed, `company-products --unlock-if-needed` immediately retries products, reads the company card, contact count, and contact details, then confirms product visibility once more. Do not run this workflow against a bulk search result.
 - Never print saved tokens, cookies, passwords, app secrets, or authorization headers. The CLI redacts these fields, including in `--dry-run` output.
@@ -40,7 +40,7 @@ Use `python $cli` when a working Python 3.10+ executable is already available. E
 uv run --no-project python $cli auth status
 ```
 
-2. If status or `auth ensure` shows that the user is not logged in, use one client-native multiline free-text question field once to collect 励销账号 and 励销密码 together. The agent must not replace the form with a Markdown code block. Parse and submit the form value directly; do not open a local terminal login window or ask the user to reply after login. After receiving the credentials, immediately attempt the standard account-password login and then resume the original task without a second confirmation. The CLI automatically retrieves the application token from the UC login-entry redirect before this attempt. This automated password flow registers a Geetest challenge, solves it through the TTOCR gateway, logs in, completes the CRM SSO callback, and saves the account (phone + password), cookies, SSO access token, and business API token for reuse:
+2. If status or `auth ensure` shows that the user is not logged in, use one client-native multiline free-text question field once to collect 励销账号 and 励销密码 together. The agent must not replace the form with a Markdown code block. Parse and submit the form value directly; do not open a local terminal login window or ask the user to reply after login. After receiving the credentials, immediately attempt the standard account-password login and then resume the original task without a second confirmation. Before this attempt, the CLI automatically calls `getApp` and persists its `data.appToken`; the UC login-entry value is used only to bootstrap that call. This automated password flow registers a Geetest challenge, solves it through the TTOCR gateway, logs in, completes the CRM SSO callback, and saves the account (phone + password), cookies, SSO access token, and business API token for reuse:
 
 ```powershell
 uv run --no-project python $cli auth login --phone <励销账号> --password <励销密码>
@@ -99,6 +99,14 @@ uv run --no-project python $cli workflow ecommerce-search `
   --limit-per-platform 100
 uv run --no-project python $cli workflow company-profile `
   --id <company-id-1> --id <company-id-2>
+uv run --no-project python $cli workflow search-conditions
+uv run --no-project python $cli workflow advanced-search `
+  --condition @enterprise-condition.json --limit 50 --page-size 10
+uv run --no-project python $cli workflow tender-search `
+  --keyword <keyword> --limit 50 --page-size 10
+uv run --no-project python $cli workflow channel-search `
+  --condition @channel-condition.json --keyword <keyword>
+uv run --no-project python $cli workflow search-templates --search-name <name>
 ```
 
 Every real ecommerce search first fetches `search-condition-config`, so platform labels and IDs,
@@ -107,10 +115,22 @@ server configuration. Captured mappings are used only for offline dry-run plans.
 `agent-reach`, curl, browser capture, or raw `api` subcommands to discover Lixiao requests or collect
 candidates. A missing or changed contract must fail visibly inside the workflow.
 
+For enterprise criteria, call `workflow search-conditions` first when the available filter names or
+values are unknown, then pass one JSON object through `workflow advanced-search --condition`. The
+object must have the captured root `cn`, `cr`, and `cv` fields; encode keywords such as industry,
+company name, product, region, or qualification inside that condition tree. `--limit` defaults to
+100, `--page-size` defaults to 10 and must be from 1 through 100. `tender-search` and
+`channel-search` accept an optional condition JSON object and optional `--keyword`; their default
+condition is an empty captured composite filter. `search-templates` lists saved templates and accepts
+`--template-type` (default 0), `--page-size` (default 20), `--page-num` (default 1), and
+`--search-name` (default empty). See [references/commands.md](references/commands.md) for the full
+parameter table and input examples.
+
 `company-profile` always applies the guarded product unlock when needed and aggregates the company
 card, products, exhibitions, management, recruitment, intellectual property, brand, contact count,
-and contacts. Passing company IDs to this command is sufficient; do not ask separate API or unlock
-questions.
+and contacts. 搜索工作流不自动批量解锁候选企业。The Agent decides which specific enterprises are
+relevant to the user's goal, then passes only those IDs to `company-profile`; it checks each selected
+enterprise, unlocks only hidden products, and verifies visibility without a separate unlock question.
 
 ## Diagnostic APIs
 

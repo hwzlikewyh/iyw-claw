@@ -9,6 +9,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from iyw_sales_batch import build_batch_package as _build_batch_package
+from iyw_sales_images import download_product_images
 from iyw_sales_package import build_package as _build_package
 from iyw_sales_validation import ValidationError, parse_datetime, validate_record
 
@@ -41,6 +43,11 @@ def _windows_desktop_directory() -> Path | None:
 def default_output_root() -> Path:
     desktop = _windows_desktop_directory() if sys.platform == "win32" else None
     return (desktop or Path.home() / "Desktop") / PACKAGE_FOLDER_NAME
+
+
+def default_batch_output_root() -> Path:
+    desktop = _windows_desktop_directory() if sys.platform == "win32" else None
+    return desktop or Path.home() / "Desktop"
 
 
 def subtract_months(value: datetime, months: int) -> datetime:
@@ -169,11 +176,30 @@ def build_package(
     )
 
 
+def build_batch_package(
+    records: object,
+    output_root: str | Path,
+    *,
+    dry_run: bool = False,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    return _build_batch_package(
+        records, output_root, evaluate_record, dry_run=dry_run, now=now
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evaluate and package IYW sales leads")
     subparsers = parser.add_subparsers(dest="command", required=True)
     evaluate = subparsers.add_parser("evaluate", help="score and apply CRM gates")
     evaluate.add_argument("--input", required=True, help="lead JSON path or -")
+    download = subparsers.add_parser(
+        "download-products", help="download product images for local analysis"
+    )
+    download.add_argument("--input", required=True, help="lead JSON path or -")
+    download.add_argument("--output-dir", required=True)
+    download.add_argument("--limit", type=int, default=10)
+    download.add_argument("--force", action="store_true")
     package = subparsers.add_parser("package", help="create a customer package")
     package.add_argument("--input", required=True, help="lead JSON path or -")
     package.add_argument(
@@ -182,6 +208,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="defaults to the current user's Desktop/AI销售助理客户包 folder",
     )
     package.add_argument("--dry-run", action="store_true")
+    batch = subparsers.add_parser(
+        "batch-package", help="create one workbook for a batch of recommended companies"
+    )
+    batch.add_argument("--input", required=True, help="batch JSON path or -")
+    batch.add_argument(
+        "--output-root",
+        default=str(default_batch_output_root()),
+        help="defaults to the current user's Desktop folder",
+    )
+    batch.add_argument("--dry-run", action="store_true")
     return parser
 
 
@@ -197,6 +233,26 @@ def _execute(args: argparse.Namespace) -> dict[str, object]:
     record = _read_input(args.input)
     if args.command == "evaluate":
         return evaluate_record(record)
+    if args.command == "download-products":
+        validated = validate_record(record)
+        result = download_product_images(
+            validated.get("products", []),
+            args.output_dir,
+            limit=args.limit,
+            force=args.force,
+        )
+        return {
+            "company": validated["company"]["name"],
+            **result,
+            "network": True,
+            "crm_write": False,
+        }
+    if args.command == "batch-package":
+        if not isinstance(record, dict) or set(record) - {"records", "run"}:
+            raise ValidationError("batch input must contain only records and optional run")
+        return build_batch_package(
+            record.get("records"), args.output_root, dry_run=args.dry_run
+        )
     return build_package(
         record, args.output_root, dry_run=args.dry_run
     )

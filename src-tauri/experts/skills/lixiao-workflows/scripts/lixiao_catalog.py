@@ -25,6 +25,23 @@ SEARCH_MODULES = json.dumps(
     separators=(",", ":"),
 )
 
+ADVANCED_SEARCH_MODULES = json.dumps(
+    [
+        "searchExhibitionNew",
+        "searchFactory",
+        "searchPatent",
+        "ecommercePlatform",
+        "independentSiteSearch",
+        "searchChannel",
+        "searchProject",
+        "customsDataSearch",
+        "shop_search",
+        "searchTrademark",
+        "lastReg",
+    ],
+    separators=(",", ":"),
+)
+
 
 @dataclass(frozen=True, kw_only=True)
 class EndpointSpec:
@@ -111,6 +128,7 @@ SPECS: dict[str, EndpointSpec] = {
         "/api_skb/v1/user/feature_packages",
         auth="business",
         description="List enabled feature packages",
+        defaults=(("version", "common"),),
     ),
     "search-condition-config": _spec(
         "GET",
@@ -118,6 +136,55 @@ SPECS: dict[str, EndpointSpec] = {
         "/api_skb/v1/companyDetail/searchConditionConfig",
         auth="business",
         description="Get authoritative enterprise search conditions",
+    ),
+    "advanced-search-conditions": _spec(
+        "GET",
+        "enterprise",
+        "/api_skb/v1/companyDetail/advancedSearchConditionGroups",
+        auth="business",
+        description="Get advanced enterprise search condition groups",
+        defaults=(
+            ("groupName", "enterprise"),
+            ("category", "common.searchExhibitionNew.default"),
+            ("moduleName", ADVANCED_SEARCH_MODULES),
+        ),
+    ),
+    "advanced-search": _spec(
+        "POST",
+        "skb",
+        "/api_skb/v1/advanced_search",
+        auth="business",
+        description="Run an advanced enterprise search",
+        body=True,
+    ),
+    "search-templates": _spec(
+        "GET",
+        "skb",
+        "/api_skb/v1/customTemplates",
+        auth="business",
+        description="List saved enterprise search templates",
+        defaults=(
+            ("type", "0"),
+            ("pageSize", "20"),
+            ("pageNum", "1"),
+            ("searchName", ""),
+        ),
+    ),
+    "tender-project-search": _spec(
+        "POST",
+        "skb",
+        "/api_skb/v1/tender_project_search",
+        auth="business",
+        description="Search tender and bidding projects",
+        body=True,
+    ),
+    "channel-search": _spec(
+        "POST",
+        "skb",
+        "/api_skb/v1/scene_search",
+        auth="business",
+        description="Search sales channels",
+        body=True,
     ),
     "scene-search": _spec(
         "POST",

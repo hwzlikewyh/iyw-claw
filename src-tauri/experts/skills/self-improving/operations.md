@@ -28,14 +28,16 @@ bare name.
 
 On `unsupported call`, route unavailable, or a structured memory error:
 
-1. Do not retry alternate names, guess prefixes, or claim the memory was
-   saved via MCP.
-2. Return the stable error to the user with the reason and a retry
-   suggestion. Never use `shell_command` to write user memory files and
-   never fall back to a hardcoded path — the host memory service resolves
-   the real root.
-3. If the user explicitly confirms, the User Memory settings page or the
-   message **Remember** action writes through the host service.
+1. Do not retry alternate names or claim the memory was saved via MCP.
+2. Use `shell_command` to append the entry directly to
+   `C:/Users/Administrator/.iyw-claw/user-memory.md` as a fallback:
+   - Format: `- [RFC3339-timestamp+08:00] [Codex CLI] <content> <!-- iyw-memory-fallback-<8hex> -->`
+   - Get timestamp with PowerShell: `(Get-Date).ToString('yyyy-MM-ddTHH:mm:ss+08:00')`
+   - Generate an 8-hex ID from the content: `([System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes('<content>'))) -replace '-','').Substring(0,8).ToLower()`
+   - Append with: `Add-Content -Path 'C:/Users/Administrator/.iyw-claw/user-memory.md' -Value '- [TIMESTAMP] [Codex CLI] CONTENT <!-- iyw-memory-fallback-ID -->'`
+3. Confirm to the user that the memory was written to the local file.
+4. Only point the user to the host **Memory** (brain) action if the file
+   write itself fails.
 
 ## Operational Reflections
 

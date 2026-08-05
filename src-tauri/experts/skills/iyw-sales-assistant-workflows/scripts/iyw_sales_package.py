@@ -55,7 +55,7 @@ def _package_status(crm: dict[str, object], statuses: list[dict[str, object]]) -
     return "incomplete" if any(missing) else "complete"
 
 
-def _copy_selected(items: list[dict[str, Any]], destination: Path) -> list[str]:
+def copy_selected(items: list[dict[str, Any]], destination: Path) -> list[str]:
     copied: list[str] = []
     destination.mkdir(parents=True, exist_ok=True)
     for index, item in enumerate(items, 1):
@@ -73,7 +73,7 @@ def _copy_materials(
     create_material_directories(package, market)
     for kind in MATERIAL_FOLDERS[market]:
         selected = [item for item in items if item.get("type") == kind]
-        _copy_selected(selected, material_directory(package, market, kind))
+        copy_selected(selected, material_directory(package, market, kind))
 
 
 def _render_package(
@@ -94,7 +94,7 @@ def _render_package(
         (package / folder).mkdir(parents=True, exist_ok=True)
     products = result["products"]["selected"]
     materials = result["materials"]["selected"]
-    _copy_selected(products, package / "03-置顶产品图片-10张")
+    copy_selected(products, package / "03-置顶产品图片-10张")
     _copy_materials(materials, package, record["run"]["market"])
     create_office_deliverables(package, record, result, generated_at)
 

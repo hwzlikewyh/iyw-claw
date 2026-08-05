@@ -42,6 +42,11 @@ After password login, the CLI visits the CRM callback with the returned `ticket`
 | --- | --- |
 | `workflow ecommerce-search --keyword K --platform P... --limit-per-platform N` | Fetch current search conditions, resolve platform IDs, construct captured requests, paginate, deduplicate, and return candidates by platform. |
 | `workflow company-profile --id ID...` | Aggregate company details, guarded product unlock, and contacts for one or more eligible companies. |
+| `workflow search-conditions [--group-name G] [--category C] [--module M...]` | Return captured advanced enterprise filter groups. |
+| `workflow advanced-search --condition JSON [--limit N] [--page-size N]` | Search enterprises with an explicit advanced condition tree. |
+| `workflow tender-search [--condition JSON] [--keyword K] [--limit N] [--page-size N]` | Search captured tender-project data. |
+| `workflow channel-search [--condition JSON] [--keyword K] [--limit N] [--page-size N]` | Search captured sales-channel data. |
+| `workflow search-templates [--template-type N] [--page-size N] [--page-num N] [--search-name N]` | List saved advanced-search templates. |
 
 Agents use these commands instead of composing low-level API calls. A real ecommerce search refreshes
 `searchConditionConfig` on every run and derives the current platform ID, product-name field,
@@ -49,11 +54,45 @@ relation operator, and input constraints; offline `--dry-run` uses captured defa
 planned request. API contract failures are returned directly and must not trigger curl, browser
 capture, `agent-reach`, or guessed endpoints.
 
+### Advanced Search Parameters
+
+All `--condition` values must be a JSON object with the root fields `cn`, `cr`, and `cv`. Use inline
+JSON, `@file.json`, or `-` for standard input. Advanced enterprise search requires `--condition`;
+tender and channel search default to `{"cn":"composite","cr":"MUST","cv":[]}` when it is omitted.
+
+| Parameter | Commands | Required | Default and limits |
+| --- | --- | --- | --- |
+| `--condition JSON` | `advanced-search`, `tender-search`, `channel-search` | Only `advanced-search` | JSON object. The `cv` list contains the captured filter nodes; advanced-search has no top-level keyword parameter. |
+| `--keyword K` | `tender-search`, `channel-search` | No | Omitted sends `null` for tender search and an empty string for channel search. |
+| `--limit N` | `advanced-search`, `tender-search`, `channel-search` | No | `100`; positive maximum number of deduplicated candidates returned. |
+| `--page-size N` | `advanced-search`, `tender-search`, `channel-search` | No | `10`; integer from 1 through 100. |
+| `--group-name G` | `search-conditions` | No | `enterprise`. |
+| `--category C` | `search-conditions` | No | `common.searchExhibitionNew.default`. |
+| `--module M` | `search-conditions` | No | Repeatable; omitted uses the captured module list. Passed as a JSON array. |
+| `--template-type N` | `search-templates` | No | `0`. |
+| `--page-size N` | `search-templates` | No | `20`; must be positive. |
+| `--page-num N` | `search-templates` | No | `1`; must be positive. |
+| `--search-name N` | `search-templates` | No | Empty string; filters saved template names. |
+
+Examples:
+
+```powershell
+uv run --no-project python $cli workflow search-conditions --module searchPatent
+uv run --no-project python $cli workflow advanced-search --condition @enterprise-condition.json --limit 50 --page-size 10
+uv run --no-project python $cli workflow tender-search --keyword "钢材" --limit 20
+uv run --no-project python $cli workflow channel-search --condition @channel-condition.json --keyword "经销商"
+uv run --no-project python $cli workflow search-templates --page-num 2 --search-name "华东制造"
+```
+
+Search workflows only return candidates and never unlock the result list. After the Agent selects a
+specific enterprise for the user's objective, use `workflow company-profile --id ID`; it checks
+product visibility, unlocks hidden products only when needed, then retries and verifies the result.
+
 ## Password Login Debugging
 
 Run each stage separately to identify the failing interface. Keep tokens out of command arguments and shell history.
 
-1. Check non-secret configuration flags. `has_iyw_token` must be `true` before automated login. A missing `has_app_token` is obtained automatically from the UC login-entry redirect:
+1. Check non-secret configuration flags. `has_iyw_token` must be `true` before automated login. A missing `has_app_token` is obtained automatically from `getApp`; the UC login-entry value only bootstraps that request:
 
 ```powershell
 uv run --no-project python $cli auth status
@@ -114,6 +153,11 @@ Generate a new Geetest challenge before every retry. The proof is single-use and
 | `app-session` | GET | authenticated cookies | Get SSO app data. |
 | `feature-packages` | GET | business token | List enabled packages. |
 | `search-condition-config` | GET | business token | Get the latest authoritative search fields and platform values. |
+| `advanced-search-conditions` | GET | business token | Get captured advanced enterprise search condition groups. |
+| `advanced-search` | POST | `--body` | Run the captured advanced enterprise search. |
+| `search-templates` | GET | business token | List saved advanced-search templates. |
+| `tender-project-search` | POST | `--body` | Search captured tender-project data. |
+| `channel-search` | POST | `--body` | Search the captured sales-channel scene. |
 | `scene-search` | POST | `--body` | Run the captured general scene search. |
 | `company-card` | GET | `--id` | Get the company business card. |
 | `company-exhibitions` | GET | `--id` | Get exhibition information. |
