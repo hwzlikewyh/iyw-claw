@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "原助理",
   "mainBinaryName": "iyw-claw",
-  "version": "0.1.59",
+  "version": "0.1.60",
   "identifier": "app.iywclaw",
   "build": {
     "beforeDevCommand": "pnpm tauri:before-dev",
@@ -33,7 +33,7 @@
     },
     "externalBin": [
       "binaries/iyw-claw-mcp",
-      "binaries/iyw-claw-mcp-0.1.59"
+      "binaries/iyw-claw-mcp-0.1.60"
     ],
     "windows": {
       "webviewInstallMode": {
