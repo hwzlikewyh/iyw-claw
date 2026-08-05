@@ -1,4 +1,4 @@
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 
 use crate::app_error::AppCommandError;
 
@@ -116,7 +116,7 @@ pub struct SkillMarketItem {
     pub audience: Option<String>,
     #[serde(default)]
     pub distribution_policy: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub compatibility: Vec<SkillCompatibilityConstraint>,
     pub current_version: SkillMarketVersion,
     #[serde(default)]
@@ -267,6 +267,14 @@ pub fn parse_value<T: DeserializeOwned>(
         AppCommandError::configuration_invalid("Invalid Skill market response")
             .with_detail(error.to_string())
     })
+}
+
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 fn deserialize_id<'de, D>(deserializer: D) -> Result<String, D::Error>
