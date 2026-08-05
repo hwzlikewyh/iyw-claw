@@ -1,5 +1,5 @@
 mod image_format;
-mod network;
+pub(crate) mod network;
 
 use tokio::sync::Semaphore;
 

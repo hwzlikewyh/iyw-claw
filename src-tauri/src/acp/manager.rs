@@ -1018,6 +1018,7 @@ impl ConnectionManager {
         delegation: Option<crate::acp::delegation::spawner::DelegationLink>,
         client_message_id: Option<String>,
     ) -> Result<Option<i32>, AcpError> {
+        log_prompt_image_summary(conn_id, client_message_id.as_deref(), &blocks);
         // Reject an empty prompt up front, BEFORE any side effects: linking /
         // creating the conversation row, flipping it to InProgress, or emitting
         // events. An empty prompt is never accepted, so it must not mutate
@@ -2593,6 +2594,44 @@ impl ConnectionManager {
         }
         None
     }
+}
+
+fn log_prompt_image_summary(
+    connection_id: &str,
+    client_message_id: Option<&str>,
+    blocks: &[PromptInputBlock],
+) {
+    let images: Vec<(&str, usize)> = blocks
+        .iter()
+        .filter_map(|block| match block {
+            PromptInputBlock::Image {
+                data, mime_type, ..
+            } => Some((mime_type.as_str(), data.len())),
+            _ => None,
+        })
+        .collect();
+    if images.is_empty() {
+        return;
+    }
+    let mime_types = images
+        .iter()
+        .map(|(mime, _)| *mime)
+        .collect::<Vec<_>>()
+        .join(",");
+    let base64_lengths = images
+        .iter()
+        .map(|(_, length)| length.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    tracing::info!(
+        target: "acp.image",
+        connection_id,
+        client_message_id = client_message_id.unwrap_or(""),
+        image_count = images.len(),
+        mime_types,
+        base64_lengths,
+        "ACP image prompt accepted"
+    );
 }
 
 /// Production impl of `ConnectionSpawner` used by `DelegationBroker`.

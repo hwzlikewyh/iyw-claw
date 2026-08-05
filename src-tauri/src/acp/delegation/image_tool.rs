@@ -1,13 +1,10 @@
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 pub const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
-const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_BASE64_LEN: usize = MAX_IMAGE_BYTES.div_ceil(3) * 4;
 const SIZE_ERROR: &str = "image exceeds the 10 MiB limit";
 #[derive(Debug, Deserialize)]
@@ -164,35 +161,9 @@ async fn load_file(path: PathBuf) -> Result<LoadedSource, String> {
 }
 
 async fn load_url(source: &str) -> Result<LoadedSource, String> {
-    let client = reqwest::Client::builder()
-        .timeout(HTTP_TIMEOUT)
-        .build()
-        .map_err(|error| format!("cannot create HTTP client: {error}"))?;
-    let response = client
-        .get(source)
-        .send()
+    let fetched = crate::remote_image::network::download(source, MAX_IMAGE_BYTES)
         .await
-        .map_err(|error| format!("cannot download image: {error}"))?
-        .error_for_status()
         .map_err(|error| format!("cannot download image: {error}"))?;
-    if response
-        .content_length()
-        .is_some_and(|size| size > MAX_IMAGE_BYTES as u64)
-    {
-        return Err(SIZE_ERROR.into());
-    }
-    let declared_mime = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(normalize_mime)
-        .map(str::to_string);
-    let mut bytes = Vec::new();
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        bytes.extend_from_slice(&chunk.map_err(|error| format!("cannot download image: {error}"))?);
-        ensure_size(bytes.len())?;
-    }
     let parsed =
         reqwest::Url::parse(source).map_err(|error| format!("invalid image URL: {error}"))?;
     let name = parsed
@@ -201,8 +172,8 @@ async fn load_url(source: &str) -> Result<LoadedSource, String> {
         .filter(|name| !name.is_empty())
         .map(|name| urlencoding::decode(name).unwrap_or_default().into_owned());
     Ok(LoadedSource {
-        bytes,
-        declared_mime,
+        bytes: fetched.bytes,
+        declared_mime: None,
         source_kind: Some("url"),
         source: Some(source.into()),
         name,

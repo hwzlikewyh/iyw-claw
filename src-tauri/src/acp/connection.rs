@@ -54,6 +54,37 @@ use crate::web::event_bridge::{emit_with_state, EventEmitter};
 
 const DEFAULT_COMMAND_COLOR_ENV: [(&str, &str); 1] = [("CLICOLOR_FORCE", "1")];
 
+fn log_stdio_debug_line(agent_name: &str, direction: &str, line: &str) {
+    let (method, id_kind) = match serde_json::from_str::<serde_json::Value>(line) {
+        Ok(serde_json::Value::Object(object)) => {
+            let method = object
+                .get("method")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| value.len() <= 128)
+                .unwrap_or("<none>")
+                .to_string();
+            let id_kind = match object.get("id") {
+                Some(serde_json::Value::String(_)) => "string",
+                Some(serde_json::Value::Number(_)) => "number",
+                Some(serde_json::Value::Null) => "null",
+                Some(_) => "other",
+                None => "absent",
+            };
+            (method, id_kind.to_string())
+        }
+        _ => ("<non-json>".to_string(), "unknown".to_string()),
+    };
+    tracing::debug!(
+        target: "acp.stdio",
+        agent = agent_name,
+        direction,
+        bytes = line.len(),
+        method,
+        id_kind,
+        "ACP JSON-RPC debug frame"
+    );
+}
+
 fn merge_agent_env(
     env: &[(&'static str, &'static str)],
     runtime_env: &BTreeMap<String, String>,
@@ -617,22 +648,7 @@ async fn build_agent(
                         if !enabled {
                             return;
                         }
-                        const MAX: usize = 256;
-                        if line.len() > MAX {
-                            let head = line
-                                .char_indices()
-                                .take_while(|(i, _)| *i < MAX)
-                                .last()
-                                .map(|(i, c)| i + c.len_utf8())
-                                .unwrap_or(MAX);
-                            tracing::debug!(
-                                "[ACP][{agent_name}][{tag}] {}... <truncated {} bytes>",
-                                &line[..head],
-                                line.len() - head
-                            );
-                        } else {
-                            tracing::debug!("[ACP][{agent_name}][{tag}] {line}");
-                        }
+                        log_stdio_debug_line(&agent_name, tag, line);
                     },
                 ),
             )
@@ -5531,8 +5547,28 @@ async fn emit_conversation_update(
             }
         }
         other => {
-            // Log unhandled update types for debugging
-            tracing::info!("[ACP] Unhandled SessionUpdate: {:?}", other);
+            tracing::info!(
+                target: "acp.session",
+                update_kind = session_update_kind(&other),
+                "Unhandled ACP SessionUpdate"
+            );
         }
+    }
+}
+
+fn session_update_kind(update: &SessionUpdate) -> &'static str {
+    match update {
+        SessionUpdate::UserMessageChunk(_) => "user_message_chunk",
+        SessionUpdate::AgentMessageChunk(_) => "agent_message_chunk",
+        SessionUpdate::AgentThoughtChunk(_) => "agent_thought_chunk",
+        SessionUpdate::ToolCall(_) => "tool_call",
+        SessionUpdate::ToolCallUpdate(_) => "tool_call_update",
+        SessionUpdate::Plan(_) => "plan",
+        SessionUpdate::AvailableCommandsUpdate(_) => "available_commands_update",
+        SessionUpdate::CurrentModeUpdate(_) => "current_mode_update",
+        SessionUpdate::ConfigOptionUpdate(_) => "config_option_update",
+        SessionUpdate::SessionInfoUpdate(_) => "session_info_update",
+        SessionUpdate::UsageUpdate(_) => "usage_update",
+        _ => "unknown",
     }
 }

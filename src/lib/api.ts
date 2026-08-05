@@ -2538,6 +2538,19 @@ export async function uploadLocalPathToRemote(
   })
 }
 
+/** Read a local desktop path as base64 without going through the active remote
+ * workspace transport. This is used when an image must remain an ACP image
+ * block instead of becoming a server-side file resource. */
+export async function readLocalFileBase64(
+  path: string,
+  maxBytes?: number
+): Promise<string> {
+  return getShellTransport().call("read_file_base64", {
+    path,
+    maxBytes: maxBytes ?? null,
+  })
+}
+
 // ─── Workspace file upload / download ───
 //
 // Issue #179: in server mode the user has no native file dialog, so the
@@ -3330,15 +3343,21 @@ export async function getChatChannelStatus(): Promise<ChannelStatusInfo[]> {
   return getTransport().call("get_chat_channel_status")
 }
 
-export async function getChatChannelReadiness(): Promise<ChannelReadinessReport[]> {
+export async function getChatChannelReadiness(): Promise<
+  ChannelReadinessReport[]
+> {
   return getTransport().call("get_chat_channel_readiness")
 }
 
-export async function quickCheckChatChannel(id: number): Promise<ChannelDiagnostic> {
+export async function quickCheckChatChannel(
+  id: number
+): Promise<ChannelDiagnostic> {
   return getTransport().call("quick_check_chat_channel", { id })
 }
 
-export async function fullLoopChatChannel(id: number): Promise<ChannelDiagnostic> {
+export async function fullLoopChatChannel(
+  id: number
+): Promise<ChannelDiagnostic> {
   // The full loop drives a probe through the real dispatcher → agent → outbound
   // pipeline; allow generous time for a real agent turn.
   return getTransport().call(

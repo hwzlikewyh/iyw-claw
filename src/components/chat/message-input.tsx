@@ -73,6 +73,7 @@ import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabActions } from "@/contexts/tab-context"
 import {
   quickMessagesList,
+  readLocalFileBase64,
   stageLocalChatAttachment,
   uploadAttachment,
   uploadLocalPathToRemote,
@@ -86,7 +87,7 @@ import {
 } from "@/lib/api"
 import { extractAppCommandError } from "@/lib/app-error"
 import { openFileDialog } from "@/lib/platform"
-import { getActiveRemoteConnectionId } from "@/lib/transport"
+import { getActiveRemoteConnectionId, getTransport } from "@/lib/transport"
 import { ServerFileBrowserDialog } from "@/components/shared/server-file-browser-dialog"
 import { toast } from "sonner"
 import { preparePickedAttachmentPaths } from "./chat-attachment-staging"
@@ -287,6 +288,14 @@ const MIME_BY_EXT: Record<string, string> = {
   svg: "image/svg+xml",
 }
 
+const IMAGE_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
+const SUPPORTED_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+])
+
 function fileNameFromPath(path: string): string {
   return path.split(/[/\\]/).pop() || path
 }
@@ -294,6 +303,49 @@ function fileNameFromPath(path: string): string {
 function mimeTypeFromPath(path: string): string | null {
   const ext = path.split(".").pop()?.toLowerCase() ?? ""
   return MIME_BY_EXT[ext] ?? null
+}
+
+function imageMimeTypeForFile(file: File): string | null {
+  const declared = file.type.trim().toLowerCase()
+  if (declared.startsWith("image/")) {
+    return SUPPORTED_IMAGE_MIME_TYPES.has(declared) ? declared : null
+  }
+  const byName = mimeTypeFromPath(file.name)
+  return byName && SUPPORTED_IMAGE_MIME_TYPES.has(byName) ? byName : null
+}
+
+function isImageCandidateFile(file: File): boolean {
+  const declared = file.type.trim().toLowerCase()
+  const byName = mimeTypeFromPath(file.name)
+  return declared.startsWith("image/") || byName?.startsWith("image/") === true
+}
+
+function imageMimeTypeFromPath(path: string): string | null {
+  const mime = mimeTypeFromPath(path)
+  return mime && SUPPORTED_IMAGE_MIME_TYPES.has(mime) ? mime : null
+}
+
+function isImageCandidatePath(path: string): boolean {
+  return mimeTypeFromPath(path)?.startsWith("image/") ?? false
+}
+
+function bytesFromBase64(data: string): number {
+  const padding = (data.match(/=+$/) ?? [""])[0].length
+  return Math.max(0, Math.floor((data.length * 3) / 4) - padding)
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return file.arrayBuffer().then((bytes) => {
+    const view = new Uint8Array(bytes)
+    let binary = ""
+    const chunkSize = 0x8000
+    for (let offset = 0; offset < view.length; offset += chunkSize) {
+      binary += String.fromCharCode(
+        ...view.subarray(offset, offset + chunkSize)
+      )
+    }
+    return btoa(binary)
+  })
 }
 
 function hasDragFiles(dataTransfer: DataTransfer | null): boolean {
@@ -1208,6 +1260,107 @@ export function MessageInput({
     [appendResourceLinks]
   )
 
+  const appendImageAttachment = useCallback(
+    (data: string, name: string, mimeType: string, uri: string | null) => {
+      const size = bytesFromBase64(data)
+      if (size === 0) throw new Error("Image data is empty")
+      if (size > IMAGE_ATTACHMENT_MAX_BYTES) {
+        throw new Error(
+          `Image exceeds the ${IMAGE_ATTACHMENT_MAX_BYTES / (1024 * 1024)}MB attachment limit`
+        )
+      }
+      setAttachments((current) => [
+        ...current,
+        {
+          id: randomUUID(),
+          type: "image",
+          data,
+          uri,
+          name: name || "image",
+          mimeType,
+        },
+      ])
+    },
+    []
+  )
+
+  const appendImageFile = useCallback(
+    async (file: File): Promise<boolean> => {
+      if (!isImageCandidateFile(file)) return false
+      const mimeType = imageMimeTypeForFile(file)
+      if (!mimeType) {
+        toast.error(tAttach("attachImageUnsupported", { name: file.name }))
+        return true
+      }
+      if (file.size > IMAGE_ATTACHMENT_MAX_BYTES) {
+        toast.error(
+          tAttach("attachImageTooLarge", {
+            name: file.name,
+            limit: IMAGE_ATTACHMENT_MAX_BYTES / (1024 * 1024),
+          })
+        )
+        return true
+      }
+      try {
+        const data = await fileToBase64(file)
+        appendImageAttachment(data, file.name, mimeType, null)
+      } catch (error) {
+        console.error("[MessageInput] image file read failed", {
+          name: file.name,
+          mimeType,
+          size: file.size,
+          error,
+        })
+        toast.error(tAttach("attachImageReadFailed", { name: file.name }))
+        // Keep the legacy upload path available when reading the image bytes
+        // fails. The image-specific path is only considered consumed after
+        // the ACP block was actually created.
+        return false
+      }
+      return true
+    },
+    [appendImageAttachment, tAttach]
+  )
+
+  const appendImagePath = useCallback(
+    async (path: string, source: "local" | "workspace" = "local") => {
+      if (!isImageCandidatePath(path)) return false
+      const mimeType = imageMimeTypeFromPath(path)
+      if (!mimeType) {
+        toast.error(
+          tAttach("attachImageUnsupported", { name: fileNameFromPath(path) })
+        )
+        return true
+      }
+      try {
+        const data = await (source === "workspace"
+          ? getTransport().call<string>("read_file_base64", {
+              path,
+              maxBytes: IMAGE_ATTACHMENT_MAX_BYTES,
+            })
+          : readLocalFileBase64(path, IMAGE_ATTACHMENT_MAX_BYTES))
+        if (bytesFromBase64(data) > IMAGE_ATTACHMENT_MAX_BYTES) {
+          throw new Error("Decoded image exceeds the attachment limit")
+        }
+        appendImageAttachment(data, fileNameFromPath(path), mimeType, null)
+      } catch (error) {
+        console.error("[MessageInput] image path read failed", {
+          name: fileNameFromPath(path),
+          mimeType,
+          error,
+        })
+        toast.error(
+          tAttach("attachImageReadFailed", { name: fileNameFromPath(path) })
+        )
+        // Let callers use the existing path/resource fallback when the
+        // managed read endpoint cannot provide the image bytes.
+        return false
+      }
+      return true
+    },
+    [appendImageAttachment, tAttach]
+  )
+
   // Attach a single file as a ranged badge (`foo.ts:10-25`), used by the file
   // editor's "add selection to chat". The line span is encoded into both the
   // label and the uri fragment (`file://…#L10-25`), so distinct selections of
@@ -1332,9 +1485,9 @@ export function MessageInput({
     ]
   )
 
-  // Every attachment reaches the agent as a path. Native paths are optionally
-  // copied into a managed Chat directory; path-less browser/clipboard Files are
-  // staged first. No file bytes are embedded in the ACP prompt.
+  // Images are converted to ACP image blocks at this boundary. Ordinary files
+  // retain the existing path/upload behavior so agents can inspect them with
+  // their normal file tools.
   const appendFilesAsResources = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return
@@ -1343,8 +1496,13 @@ export function MessageInput({
 
       for (const file of files) {
         const path = getFilePath(file)
-        if (path && showNativePaperclip) localPaths.push(path)
-        else uploadCandidates.push(file)
+        if (path && showNativePaperclip) {
+          if (await appendImagePath(path)) continue
+          localPaths.push(path)
+          continue
+        }
+        if (await appendImageFile(file)) continue
+        uploadCandidates.push(file)
       }
 
       if (localPaths.length > 0) {
@@ -1361,6 +1519,8 @@ export function MessageInput({
     },
     [
       appendResourceAttachments,
+      appendImageFile,
+      appendImagePath,
       defaultPath,
       showNativePaperclip,
       stageAttachmentsInWorkingDir,
@@ -1793,12 +1953,17 @@ export function MessageInput({
       picked = (Array.isArray(selected) ? selected : [selected]).filter(
         (item): item is string => !!item
       )
-      const prepared = await preparePickedAttachmentPaths(picked, {
+      const ordinary: string[] = []
+      for (const path of picked) {
+        if (await appendImagePath(path)) continue
+        ordinary.push(path)
+      }
+      const prepared = await preparePickedAttachmentPaths(ordinary, {
         stageInChatDirectory: stageAttachmentsInWorkingDir,
         chatDirectory: defaultPath,
         stage: stageLocalChatAttachment,
       })
-      appendResourceAttachments(prepared)
+      if (prepared.length > 0) appendResourceAttachments(prepared)
     } catch (error) {
       console.error("[MessageInput] pick files failed:", error)
       toast.error(
@@ -1809,6 +1974,7 @@ export function MessageInput({
     }
   }, [
     appendResourceAttachments,
+    appendImagePath,
     defaultPath,
     disabled,
     stageAttachmentsInWorkingDir,
@@ -1829,17 +1995,24 @@ export function MessageInput({
     input.multiple = true
     input.onchange = async () => {
       const all = input.files ? Array.from(input.files) : []
-      await uploadAndAppendFiles(all)
+      await appendFilesFromInput(all)
     }
     input.click()
-  }, [disabled, uploadAndAppendFiles])
+  }, [appendFilesFromInput, disabled])
 
   const handleServerFilesSelected = useCallback(
-    (paths: string[]) => {
+    async (paths: string[]) => {
       if (paths.length === 0) return
-      appendResourceAttachments(paths)
+      const ordinary: string[] = []
+      for (const path of paths) {
+        // The server picker returns paths on the active workspace host. Use
+        // the active transport (web or remote desktop), not the local shell.
+        if (await appendImagePath(path, "workspace")) continue
+        ordinary.push(path)
+      }
+      if (ordinary.length > 0) appendResourceAttachments(ordinary)
     },
-    [appendResourceAttachments]
+    [appendImagePath, appendResourceAttachments]
   )
 
   const loadQuickMessages = useCallback(async () => {
@@ -2016,7 +2189,11 @@ export function MessageInput({
       if (range) {
         appendFileRangeAttachment(path, range, { atCaret: true })
       } else {
-        appendResourceAttachments([path], { atCaret: true })
+        const source =
+          getActiveRemoteConnectionId() === null ? "local" : "workspace"
+        void appendImagePath(path, source).then((isImage) => {
+          if (!isImage) appendResourceAttachments([path], { atCaret: true })
+        })
       }
     }
 
@@ -2024,37 +2201,41 @@ export function MessageInput({
     return () => {
       window.removeEventListener(ATTACH_FILE_TO_SESSION_EVENT, handleAttachFile)
     }
-  }, [appendResourceAttachments, appendFileRangeAttachment, attachmentTabId])
+  }, [
+    appendResourceAttachments,
+    appendFileRangeAttachment,
+    appendImagePath,
+    attachmentTabId,
+  ])
 
   useEffect(() => {
     if (!attachmentTabId) return
     const handleAttachImage = (event: Event) => {
       const detail = (event as CustomEvent<AttachImageToSessionDetail>).detail
       if (!detail || detail.tabId !== attachmentTabId) return
-      if (!detail.data || !detail.mimeType.startsWith("image/")) {
+      if (
+        !detail.data ||
+        !SUPPORTED_IMAGE_MIME_TYPES.has(detail.mimeType.toLowerCase())
+      ) {
         console.warn("[MessageInput] ignored invalid image attachment event")
         return
       }
-      setAttachments((current) => {
-        console.info("[MessageInput] image added from viewer", {
-          tabId: attachmentTabId,
+      try {
+        appendImageAttachment(
+          detail.data,
+          detail.name || "image.png",
+          detail.mimeType.toLowerCase(),
+          null
+        )
+      } catch (error) {
+        console.error("[MessageInput] viewer image rejected", {
           name: detail.name,
           mimeType: detail.mimeType,
           base64Length: detail.data.length,
-          attachmentCount: current.length + 1,
+          error,
         })
-        return [
-          ...current,
-          {
-            id: randomUUID(),
-            type: "image",
-            data: detail.data,
-            uri: null,
-            name: detail.name || "image.png",
-            mimeType: detail.mimeType,
-          },
-        ]
-      })
+        toast.error(tAttach("attachImageReadFailed", { name: detail.name }))
+      }
       editorRef.current?.focus()
     }
     window.addEventListener(ATTACH_IMAGE_TO_SESSION_EVENT, handleAttachImage)
@@ -2064,7 +2245,7 @@ export function MessageInput({
         handleAttachImage
       )
     }
-  }, [attachmentTabId])
+  }, [appendImageAttachment, attachmentTabId, tAttach])
 
   useEffect(() => {
     if (!attachmentTabId) return
@@ -2131,7 +2312,16 @@ export function MessageInput({
           // Remote workspace: local OS paths are unreachable from the
           // remote agent, so stream the bytes through the upload proxy and
           // attach the resulting server-side paths instead.
-          void uploadPathsToRemoteRef.current(payload.paths).catch((error) => {
+          void (async () => {
+            const ordinary: string[] = []
+            for (const path of payload.paths) {
+              if (await appendImagePath(path)) continue
+              ordinary.push(path)
+            }
+            if (ordinary.length > 0) {
+              await uploadPathsToRemoteRef.current(ordinary)
+            }
+          })().catch((error) => {
             console.error(
               "[MessageInput] remote drag-drop upload failed:",
               error
@@ -2139,7 +2329,16 @@ export function MessageInput({
           })
           return
         }
-        void appendPathsFromDropRef.current(payload.paths).catch((error) => {
+        void (async () => {
+          const ordinary: string[] = []
+          for (const path of payload.paths) {
+            if (await appendImagePath(path)) continue
+            ordinary.push(path)
+          }
+          if (ordinary.length > 0) {
+            await appendPathsFromDropRef.current(ordinary)
+          }
+        })().catch((error) => {
           console.error("[MessageInput] drag drop paths failed:", error)
         })
         return
@@ -2213,7 +2412,7 @@ export function MessageInput({
       cancelled = true
       cleanupListeners()
     }
-  }, [setDragActiveIfChanged])
+  }, [appendImagePath, setDragActiveIfChanged])
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => prev.filter((item) => item.id !== id))
@@ -2271,6 +2470,22 @@ export function MessageInput({
         return true
       })
     }
+    const invalidImage = attachments.find(
+      (attachment): attachment is ImageInputAttachment =>
+        attachment.type === "image" &&
+        (!SUPPORTED_IMAGE_MIME_TYPES.has(attachment.mimeType.toLowerCase()) ||
+          bytesFromBase64(attachment.data) === 0 ||
+          bytesFromBase64(attachment.data) > IMAGE_ATTACHMENT_MAX_BYTES)
+    )
+    if (invalidImage) {
+      console.error("[MessageInput] send blocked invalid image attachment", {
+        name: invalidImage.name,
+        mimeType: invalidImage.mimeType,
+        base64Length: invalidImage.data.length,
+      })
+      toast.error(tAttach("attachImageReadFailed", { name: invalidImage.name }))
+      return null
+    }
     if (blocks.length === 0 && attachments.length === 0) return null
 
     // `attachments` holds only images now — files live inline as badges above.
@@ -2288,8 +2503,14 @@ export function MessageInput({
     const displayText =
       displayProse ||
       `Attached ${attachments.length} attachment${attachments.length > 1 ? "s" : ""}`
+    console.info("[MessageInput] draft image boundary", {
+      imageCount: attachments.filter(
+        (attachment) => attachment.type === "image"
+      ).length,
+      resourceCount: blocks.filter((block) => block.type !== "image").length,
+    })
     return { blocks, displayText }
-  }, [attachments, skillPrefix])
+  }, [attachments, skillPrefix, tAttach])
 
   // Clear the editor + attachments after a send / enqueue / save.
   const resetComposer = useCallback(() => {
