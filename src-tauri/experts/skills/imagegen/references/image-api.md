@@ -47,7 +47,8 @@ shadows.
 
 The CLI decodes `b64_json` into the requested output files. A process exit code
 of zero is necessary but not sufficient: confirm every expected file exists and
-is a supported image before calling `show_image`.
+is a supported image before calling `show_image` (namespaced:
+`mcp__iyw-claw-mcp__show_image`).
 
 Do not expose response metadata that identifies internal providers, channels,
 models selected by the service, token values, or request headers.

@@ -255,12 +255,18 @@ uv run --project $skillDir --python 3.13 python $knowledgeCli `
 - 只把 `ok: true` 视为 CLI 成功。
 - `queued` 和 `running` 都不是最终成功。
 - 只在状态为 `succeeded` 且存在图片 URL 时声明任务完成。
-- 生成完成后，按服务端顺序对每个最终 HTTPS URL 调用 `show_image`，让结果以原生
-  图片块显示在爱原物对话框中；`show_image` 会读取 URL，不要为了展示手动下载。
+- 生成完成后，先在当前可用工具中解析展示工具：匹配后缀为 `show_image` 的名称
+  （裸名，或命名空间形式 `mcp__<server>__show_image`；server 注册名为
+  `iyw-claw-mcp`，即 `mcp__iyw-claw-mcp__show_image`）。
+- 解析到：按服务端顺序对每个最终 HTTPS URL 调用一次，让结果以原生图片块显示在
+  爱原物对话框中；该工具自己读取 URL，不要为了展示手动下载。
+- 工具列表中没有：跳过展示，返回每个最终 HTTPS URL 并说明无法内联渲染。不要猜测
+  名称变体，也不要声称已经展示。名称找不到的报错表示工具不存在，而非拼写错误，
+  改名永远无效——第一次失败就走兜底。
 - 只有用户明确要求保存到本地，或后续操作必须使用本地文件时，才下载结果图片。
 - 创建请求超时或结果不确定时，只查询原 task ID，不要重建任务。
 - 仅重试 `retryable: true` 的只读请求；不要自动重试收费创建请求。
 - 知识库查询失败默认不阻塞后续生图；用户明确要求必须依据知识库时除外。
-- 对用户只返回简洁状态、task ID，并通过 `show_image` 直接展示最终图片。
+- 对用户只返回简洁状态、task ID，最终图片按上述展示规则处理。
 - 不得暴露模型名、模型 ID、channel、provider、platform、`commerceType`、
   `toolType`、内部统计、token 或签名信息。
