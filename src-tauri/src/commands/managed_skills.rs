@@ -519,11 +519,11 @@ fn expand_skill_targets(
 ) -> Vec<(AgentType, String, bool)> {
     agents
         .iter()
-        .filter(|(agent_type, eligible)| *eligible && family_allows_agent(family, *agent_type))
-        .flat_map(|(agent_type, _)| {
-            skills
-                .iter()
-                .map(move |(skill_id, desired)| (*agent_type, skill_id.clone(), *desired))
+        .filter(|(agent_type, _)| family_allows_agent(family, *agent_type))
+        .flat_map(|(agent_type, eligible)| {
+            skills.iter().map(move |(skill_id, desired)| {
+                (*agent_type, skill_id.clone(), *eligible && *desired)
+            })
         })
         .collect()
 }
@@ -539,7 +539,8 @@ async fn agent_eligibility(
         .into_iter()
         .map(|agent_type| {
             let eligible = settings.get(&agent_type).is_some_and(|setting| {
-                is_enable_target(agent_type, setting.enabled, setting.env_json.as_deref())
+                setting.installed_version.is_some()
+                    && is_enable_target(agent_type, setting.enabled, setting.env_json.as_deref())
             });
             (agent_type, eligible)
         })
@@ -869,7 +870,8 @@ pub async fn reconcile_agent_core(
         .await
         .map_err(AppCommandError::from)?;
     let eligible = setting.as_ref().is_some_and(|setting| {
-        is_enable_target(agent_type, agent_enabled, setting.env_json.as_deref())
+        setting.installed_version.is_some()
+            && is_enable_target(agent_type, agent_enabled, setting.env_json.as_deref())
     });
     let supported = skill_storage_spec(agent_type).is_some();
     let agents = supported

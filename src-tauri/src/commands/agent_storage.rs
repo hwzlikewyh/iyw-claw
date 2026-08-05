@@ -187,6 +187,7 @@ pub async fn update_agent_profile_override_core(
             .profile_overrides
             .remove(registry::registry_id_for(agent_type));
     }
+    ensure_agent_profile_layout(&AgentStoragePaths::new(root.clone()), &config, agent_type)?;
     config.allow_system_drive |= allow_system_drive;
     save_config(conn, &config)
         .await
@@ -204,12 +205,42 @@ fn create_storage_layout(paths: &AgentStoragePaths) -> Result<(), AppCommandErro
     ] {
         std::fs::create_dir_all(&dir).map_err(AppCommandError::io)?;
     }
-    for agent_type in registry::all_acp_agents() {
-        let profile = paths.profile(agent_type);
-        std::fs::create_dir_all(&profile.root).map_err(AppCommandError::io)?;
-        for dir in profile.env.values() {
-            std::fs::create_dir_all(dir).map_err(AppCommandError::io)?;
+    Ok(())
+}
+
+pub(crate) async fn ensure_active_agent_profile_layout(
+    conn: &DatabaseConnection,
+    agent_type: AgentType,
+) -> Result<(), AppCommandError> {
+    let paths = AgentStoragePaths::active().ok_or_else(|| {
+        AppCommandError::agent_storage_not_initialized("Agent storage is not initialized")
+    })?;
+    let config = load_config(conn)
+        .await
+        .map_err(map_storage_error)?
+        .unwrap_or_else(|| AgentStorageConfig::confirmed(paths.root().clone()));
+    ensure_agent_profile_layout(&paths, &config, agent_type)
+}
+
+fn ensure_agent_profile_layout(
+    paths: &AgentStoragePaths,
+    config: &AgentStorageConfig,
+    agent_type: AgentType,
+) -> Result<(), AppCommandError> {
+    let registry_id = registry::registry_id_for(agent_type);
+    let (root, env) = match config.profile_overrides.get(registry_id) {
+        Some(root) => (
+            root.clone(),
+            crate::acp::agent_profile::override_profile_env(agent_type, root),
+        ),
+        None => {
+            let profile = paths.profile(agent_type);
+            (profile.root, profile.env)
         }
+    };
+    std::fs::create_dir_all(root).map_err(AppCommandError::io)?;
+    for dir in env.values() {
+        std::fs::create_dir_all(dir).map_err(AppCommandError::io)?;
     }
     Ok(())
 }

@@ -34,8 +34,7 @@ pub async fn managed_target_agents(
         .filter(|agent_type| {
             settings
                 .get(agent_type)
-                .map(|setting| setting.enabled)
-                .unwrap_or_else(|| agent_setting_service::default_enabled(*agent_type))
+                .is_some_and(|setting| setting.enabled && setting.installed_version.is_some())
         })
         .collect())
 }
@@ -50,15 +49,12 @@ where
     U: FnMut(&str, &serde_json::Value) -> Result<(), AppCommandError>,
     R: FnMut(&str) -> Result<bool, AppCommandError>,
 {
-    if !agent_enabled {
-        return Ok(());
-    }
     let mut failures = Vec::new();
     for (server_id, entry) in &catalog.servers {
         if !entry.managed {
             continue;
         }
-        if entry.enabled {
+        if agent_enabled && entry.enabled {
             if let Err(error) = upsert(server_id, &entry.spec) {
                 failures.push(format_reconcile_failure("upsert", server_id, &error));
             }
@@ -98,7 +94,7 @@ pub async fn reconcile_managed_mcp_for_agent(
     agent_type: AgentType,
     agent_enabled: bool,
 ) -> Result<(), AppCommandError> {
-    if !is_managed_mcp_target(agent_type) || !agent_enabled {
+    if !is_managed_mcp_target(agent_type) {
         return Ok(());
     }
     let _guard = super::mcp_catalog::lock_operation().await;
@@ -115,13 +111,17 @@ pub(crate) async fn reconcile_managed_mcp_for_agent_unlocked(
     agent_type: AgentType,
     agent_enabled: bool,
 ) -> Result<(), AppCommandError> {
-    if !is_managed_mcp_target(agent_type) || !agent_enabled {
+    if !is_managed_mcp_target(agent_type) {
         return Ok(());
     }
+    let installed = agent_setting_service::get_by_agent_type(conn, agent_type)
+        .await
+        .map_err(AppCommandError::db)?
+        .is_some_and(|setting| setting.installed_version.is_some());
     let catalog =
         super::mcp_catalog::load_or_import_unlocked(conn, super::mcp::scan_legacy_server_specs)
             .await?;
-    reconcile_agent_with_catalog(&catalog, agent_type, true)
+    reconcile_agent_with_catalog(&catalog, agent_type, agent_enabled && installed)
 }
 
 pub(crate) async fn reconcile_all_managed_mcp_unlocked(
@@ -140,12 +140,8 @@ pub(crate) async fn reconcile_all_managed_mcp_unlocked(
     {
         let enabled = settings
             .get(&agent_type)
-            .map(|setting| setting.enabled)
-            .unwrap_or_else(|| agent_setting_service::default_enabled(agent_type));
-        if !enabled {
-            continue;
-        }
-        if let Err(error) = reconcile_agent_with_catalog(&catalog, agent_type, true) {
+            .is_some_and(|setting| setting.enabled && setting.installed_version.is_some());
+        if let Err(error) = reconcile_agent_with_catalog(&catalog, agent_type, enabled) {
             failures.push(format_agent_failure(agent_type, &error));
         }
     }

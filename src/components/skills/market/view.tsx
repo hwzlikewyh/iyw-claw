@@ -12,10 +12,7 @@ import {
   type SkillMarketUploadMode,
 } from "@/components/skills/market/upload-dialog"
 import { ManagementDialogs } from "@/components/skills/market/management-dialogs"
-import type {
-  SkillMarketV2Detail,
-  SkillMarketV2Item,
-} from "@/lib/skill-market"
+import type { SkillMarketV2Detail, SkillMarketV2Item } from "@/lib/skill-market"
 import type {
   SkillMarketAddVersionRequestV2,
   SkillMarketMetadataRequestV2,
@@ -117,10 +114,10 @@ export function SkillMarketView() {
         onRefresh={market.refresh}
         onUpload={() => openUpload("publish")}
       />
-      <div className="flex min-h-0 flex-1">
-        <aside
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_23rem] 2xl:grid-cols-[minmax(0,1fr)_25rem]">
+        <section
           className={cn(
-            "min-h-0 w-full border-r lg:w-80 lg:shrink-0",
+            "min-h-0 min-w-0 border-r",
             detailOpen && "hidden lg:block"
           )}
         >
@@ -141,12 +138,9 @@ export function SkillMarketView() {
             onLoadMore={market.loadMore}
             onRetry={market.refresh}
           />
-        </aside>
-        <main
-          className={cn(
-            "min-h-0 flex-1",
-            !detailOpen && "hidden lg:block"
-          )}
+        </section>
+        <aside
+          className={cn("min-h-0 min-w-0", !detailOpen && "hidden lg:block")}
         >
           <SkillMarketDetail
             detail={market.detail.value}
@@ -164,19 +158,19 @@ export function SkillMarketView() {
             onEditMetadata={setEditTarget}
             onDelete={setDeleteTarget}
             onUninstall={setUninstallTarget}
-            onRebuildArtifact={(detail) => {
-              void market.rebuildArtifact(
-                detail.id,
-                detail.currentVersion.version
-              )
+            onRebuildArtifact={(detail, version) => {
+              void market.rebuildArtifact(detail.id, version)
             }}
           />
-        </main>
+        </aside>
       </div>
       <SkillMarketInstallPanel
         controller={install}
         pendingTarget={pendingTarget}
-        onInstalled={market.applyInstalled}
+        onInstalled={(skillId, version) => {
+          market.applyInstalled(skillId, version)
+          market.refresh()
+        }}
         onClose={() => setPendingTarget(null)}
       />
       <SkillMarketUploadDialog

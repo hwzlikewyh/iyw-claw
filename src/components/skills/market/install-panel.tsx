@@ -3,120 +3,22 @@
 import { useEffect, useRef, useState } from "react"
 import {
   AlertTriangle,
-  Ban,
   Check,
-  ChevronDown,
-  ChevronRight,
-  Download,
-  FileArchive,
   Loader2,
-  RefreshCw,
+  PackageCheck,
   RotateCcw,
-  ShieldCheck,
   X,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import { Progress } from "@/components/ui/progress"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { AgentTargets } from "@/components/skills/market/install-agent-targets"
 import type { useSkillMarketInstall } from "@/hooks/use-skill-market-install"
 import {
   formatSkillBytes,
   installErrorAction,
-  type SkillMarketInstallArtifactProgress,
-  type SkillMarketInstallPhase,
   type SkillMarketTranslator,
 } from "@/lib/skill-market"
-
-function PhaseIcon({ phase }: { phase: SkillMarketInstallPhase }) {
-  switch (phase) {
-    case "downloading":
-      return <Download className="size-3.5" aria-hidden="true" />
-    case "verifying":
-      return <ShieldCheck className="size-3.5" aria-hidden="true" />
-    case "extracting":
-      return <FileArchive className="size-3.5" aria-hidden="true" />
-    case "activating":
-      return <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-    case "done":
-      return <Check className="size-3.5 text-emerald-500" aria-hidden="true" />
-    case "failed":
-      return <AlertTriangle className="size-3.5 text-destructive" aria-hidden="true" />
-    case "canceled":
-      return <Ban className="size-3.5 text-muted-foreground" aria-hidden="true" />
-    case "pending":
-      return <span className="size-3.5 rounded-full border" aria-hidden="true" />
-  }
-}
-
-function ArtifactRow({
-  progress,
-}: {
-  progress: SkillMarketInstallArtifactProgress
-}) {
-  const t = useTranslations("SkillMarketV2")
-  const [open, setOpen] = useState(false)
-  const ratio =
-    progress.bytesTotal > 0
-      ? Math.min(100, (progress.bytesReceived / progress.bytesTotal) * 100)
-      : 0
-  return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="flex items-center gap-2 rounded-md border px-2.5 py-2">
-        <CollapsibleTrigger asChild>
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            className="size-5 shrink-0"
-            aria-label={t(
-              open ? "install.collapse" : "install.expand",
-              { name: progress.displayName }
-            )}
-          >
-            {open ? (
-              <ChevronDown className="size-3.5" aria-hidden="true" />
-            ) : (
-              <ChevronRight className="size-3.5" aria-hidden="true" />
-            )}
-          </Button>
-        </CollapsibleTrigger>
-        <PhaseIcon phase={progress.phase} />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium">
-          {progress.displayName}
-        </span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-          v{progress.version}
-        </span>
-        <span className="shrink-0 text-[10px] text-muted-foreground">
-          {t(`install.phase.${progress.phase}`)}
-        </span>
-      </div>
-      <CollapsibleContent>
-        <div className="px-3 py-2">
-          {progress.errorCode ? (
-            <p className="mb-1.5 break-words text-[11px] text-destructive">
-              {t(`install.error.${progress.errorCode}`)}
-            </p>
-          ) : null}
-          <Progress value={ratio} className="h-1.5" />
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            {formatSkillBytes(progress.bytesReceived)} /{" "}
-            {formatSkillBytes(progress.bytesTotal)}
-          </p>
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-  )
-}
+import type { AgentType } from "@/lib/types"
 
 export interface SkillMarketInstallPanelProps {
   controller: ReturnType<typeof useSkillMarketInstall>
@@ -127,10 +29,14 @@ export interface SkillMarketInstallPanelProps {
 
 export function SkillMarketInstallPanel(props: SkillMarketInstallPanelProps) {
   const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
-  const { session, start, cancel, retry, reset } = props.controller
+  const { session, start, retry, reset } = props.controller
+  const [selected, setSelected] = useState<Set<AgentType>>(new Set())
   const onInstalledRef = useRef(props.onInstalled)
-  onInstalledRef.current = props.onInstalled
   const notifiedRef = useRef(false)
+
+  useEffect(() => {
+    onInstalledRef.current = props.onInstalled
+  }, [props.onInstalled])
 
   useEffect(() => {
     if (session.status === "done" && session.plan && !notifiedRef.current) {
@@ -144,34 +50,36 @@ export function SkillMarketInstallPanel(props: SkillMarketInstallPanelProps) {
   }, [session])
 
   if (session.status === "idle") return null
-
-  const overallRatio =
-    session.overallBytes > 0
-      ? Math.min(100, (session.receivedBytes / session.overallBytes) * 100)
-      : 0
   const errorAction = session.errorCode
     ? installErrorAction(session.errorCode)
     : null
-
   const close = () => {
     reset()
+    setSelected(new Set())
     props.onClose()
   }
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/25 p-4 backdrop-blur-[1px] sm:items-center">
       <div
         role="dialog"
+        aria-modal="true"
         aria-label={t("install.title")}
-        className="pointer-events-auto w-full max-w-2xl rounded-lg border bg-background p-4 shadow-2xl"
+        className="w-full max-w-xl rounded-lg border bg-background shadow-2xl"
       >
-        <div className="mb-3 flex items-center gap-2">
-          <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
-            {t("install.title")}
-          </h3>
-          {session.status === "done" ||
-          session.status === "canceled" ||
-          session.status === "failed" ? (
+        <div className="flex items-start gap-3 border-b px-4 py-3">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <PackageCheck className="size-4" aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-sm font-semibold">
+              {props.pendingTarget?.name ?? t("install.title")}
+            </h3>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {props.pendingTarget ? `v${props.pendingTarget.version}` : ""}
+            </p>
+          </div>
+          {!["resolving", "running"].includes(session.status) ? (
             <Button
               size="icon-sm"
               variant="ghost"
@@ -184,173 +92,180 @@ export function SkillMarketInstallPanel(props: SkillMarketInstallPanelProps) {
           ) : null}
         </div>
 
-        {session.status === "resolving" ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            <span className="min-w-0 truncate">
-              {t("install.resolving")}
-              {props.pendingTarget
-                ? ` · ${props.pendingTarget.name}@${props.pendingTarget.version}`
-                : ""}
-            </span>
-          </div>
-        ) : null}
-
-        {session.status === "confirming" && session.plan ? (
-          <div className="space-y-3">
-            <p className="text-xs leading-5 text-muted-foreground">
-              {t("install.confirmHint", {
-                count: session.plan.dependencyCount,
-                size: formatSkillBytes(session.plan.totalBytes),
-              })}
-            </p>
-            {session.plan.mandatory ? (
-              <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-                {t("install.mandatory")}
-              </p>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={start}>
-                {t("install.start")}
-              </Button>
-              <Button size="sm" variant="outline" onClick={close}>
-                {t("install.cancel")}
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        {session.status === "running" ||
-        session.status === "activating" ? (
-          <div className="space-y-3">
-            <div>
-              <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-                <span>{t("install.overall")}</span>
-                <span className="font-mono">
-                  {formatSkillBytes(session.receivedBytes)} /{" "}
-                  {formatSkillBytes(session.overallBytes)}
-                </span>
-              </div>
-              <Progress value={overallRatio} />
-            </div>
-            {session.refreshingTicket ? (
-              <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <RefreshCw className="size-3 animate-spin" aria-hidden="true" />
-                {t("install.refreshInBackground")}
-              </p>
-            ) : null}
-            {session.ticketRefreshCount > 0 &&
-            !session.refreshingTicket ? (
-              <p className="text-[11px] text-muted-foreground">
-                {t("install.ticketRefreshed", {
-                  count: session.ticketRefreshCount,
-                })}
-              </p>
-            ) : null}
-            <div className="max-h-64 space-y-1.5 overflow-y-auto">
-              {session.items.map((progress) => (
-                <ArtifactRow key={progress.artifactId} progress={progress} />
-              ))}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={session.status === "activating"}
-                title={
-                  session.status === "activating"
-                    ? t("install.cancelHint")
-                    : undefined
-                }
-                onClick={cancel}
-              >
-                {t("install.cancel")}
-              </Button>
-              {session.status === "activating" ? (
-                <span className="text-[10px] text-muted-foreground">
-                  {t("install.cancelHint")}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
-        {session.status === "done" ? (
-          <div className="space-y-3">
-            <p className="flex items-center gap-2 text-sm">
-              <Check className="size-4 text-emerald-500" aria-hidden="true" />
-              {t("install.done")}
-            </p>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={close}>
-                {t("install.doneClose")}
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        {session.status === "failed" ? (
-          <div className="space-y-3">
-            <p className="flex items-start gap-2 text-sm text-destructive">
-              <AlertTriangle
-                className="mt-0.5 size-4 shrink-0"
-                aria-hidden="true"
-              />
-              <span className="min-w-0 break-words">
-                {session.errorCode
-                  ? t(`install.error.${session.errorCode}`)
-                  : t("install.failed")}
-              </span>
-            </p>
-            {session.errorMessage ? (
-              <p className="break-words rounded-md bg-muted/40 px-2.5 py-1.5 font-mono text-[10px] text-muted-foreground">
-                {session.errorMessage}
-              </p>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={retry}>
-                <RotateCcw className="size-3.5" aria-hidden="true" />
-                {t("install.actionRetry")}
-              </Button>
-              {errorAction && errorAction !== "retry" ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled
-                      title={t("install.externalActionHint")}
-                    >
-                      {t(`install.action${capitalize(errorAction)}`)}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t("install.externalActionHint")}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
-        {session.status === "canceled" ? (
-          <div className="space-y-3">
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Ban className="size-4" aria-hidden="true" />
-              {t("install.canceled")}
-            </p>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={retry}>
-                <RotateCcw className="size-3.5" aria-hidden="true" />
-                {t("install.actionRetry")}
-              </Button>
-              <Button size="sm" variant="outline" onClick={close}>
-                {t("install.close")}
-              </Button>
-            </div>
-          </div>
-        ) : null}
+        <InstallPanelBody
+          session={session}
+          selected={selected}
+          errorAction={errorAction}
+          onSelectedChange={setSelected}
+          onStart={() => void start([...selected])}
+          onRetry={retry}
+          onClose={close}
+        />
       </div>
+    </div>
+  )
+}
+
+function InstallPanelBody({
+  session,
+  selected,
+  errorAction,
+  onSelectedChange,
+  onStart,
+  onRetry,
+  onClose,
+}: {
+  session: ReturnType<typeof useSkillMarketInstall>["session"]
+  selected: Set<AgentType>
+  errorAction: ReturnType<typeof installErrorAction> | null
+  onSelectedChange: (next: Set<AgentType>) => void
+  onStart: () => void
+  onRetry: () => void
+  onClose: () => void
+}) {
+  const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
+  if (session.status === "resolving")
+    return (
+      <div className="p-4">
+        <InstallBusy label={t("install.resolving")} />
+      </div>
+    )
+  if (session.status === "running")
+    return (
+      <div className="p-4">
+        <InstallBusy label={t("install.installingReal")} />
+      </div>
+    )
+  if (session.status === "confirming" && session.plan) {
+    return (
+      <InstallConfirmation
+        plan={session.plan}
+        selected={selected}
+        onSelectedChange={onSelectedChange}
+        onStart={onStart}
+      />
+    )
+  }
+  if (session.status === "done") {
+    return (
+      <div className="p-4">
+        <ResultState
+          icon={<Check className="size-5 text-emerald-500" />}
+          title={t("install.done")}
+        >
+          <Button size="sm" onClick={onClose}>
+            {t("install.doneClose")}
+          </Button>
+        </ResultState>
+      </div>
+    )
+  }
+  if (session.status === "failed") {
+    return (
+      <div className="p-4">
+        <ResultState
+          icon={<AlertTriangle className="size-5 text-destructive" />}
+          title={t("install.failed")}
+          detail={session.errorMessage}
+        >
+          <Button size="sm" onClick={onRetry}>
+            <RotateCcw className="size-3.5" />
+            {t("install.actionRetry")}
+          </Button>
+          {errorAction && errorAction !== "retry" ? (
+            <span className="text-[10px] text-muted-foreground">
+              {t(`install.action${capitalize(errorAction)}`)}
+            </span>
+          ) : null}
+        </ResultState>
+      </div>
+    )
+  }
+  return null
+}
+
+function InstallConfirmation({
+  plan,
+  selected,
+  onSelectedChange,
+  onStart,
+}: {
+  plan: NonNullable<ReturnType<typeof useSkillMarketInstall>["session"]["plan"]>
+  selected: Set<AgentType>
+  onSelectedChange: (next: Set<AgentType>) => void
+  onStart: () => void
+}) {
+  const t = useTranslations("SkillMarketV2")
+  return (
+    <div className="space-y-4 p-4">
+      <div className="grid grid-cols-3 gap-3 border-b pb-3 text-xs">
+        <InstallMetric
+          label={t("install.downloadSize")}
+          value={formatSkillBytes(plan.totalBytes)}
+        />
+        <InstallMetric
+          label={t("detail.dependencies")}
+          value={String(plan.dependencyCount)}
+        />
+        <InstallMetric
+          label={t("install.targets")}
+          value={String(selected.size)}
+        />
+      </div>
+      <AgentTargets selected={selected} onChange={onSelectedChange} />
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[10px] text-muted-foreground">
+          {t("install.profileRule")}
+        </p>
+        <Button size="sm" disabled={selected.size === 0} onClick={onStart}>
+          {t("install.installAndEnable")}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function InstallMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] text-muted-foreground">{label}</p>
+      <p className="mt-1 font-medium">{value}</p>
+    </div>
+  )
+}
+
+function InstallBusy({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-28 items-center justify-center gap-2 text-sm text-muted-foreground">
+      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+      {label}
+    </div>
+  )
+}
+
+function ResultState({
+  icon,
+  title,
+  detail,
+  children,
+}: {
+  icon: React.ReactNode
+  title: string
+  detail?: string | null
+  children: React.ReactNode
+}) {
+  return (
+    <div className="space-y-3 py-3">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        {icon}
+        {title}
+      </div>
+      {detail ? (
+        <p className="break-words border-l-2 border-destructive/40 pl-3 text-xs text-muted-foreground">
+          {detail}
+        </p>
+      ) : null}
+      <div className="flex items-center gap-2">{children}</div>
     </div>
   )
 }

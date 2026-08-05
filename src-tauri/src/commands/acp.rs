@@ -5231,6 +5231,10 @@ pub(crate) struct MarketSkillMarker {
     pub publisher_type: String,
     #[serde(default = "default_market_package_type")]
     pub package_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_types: Option<Vec<AgentType>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub target_references: BTreeMap<i64, Vec<AgentType>>,
     #[serde(default)]
     pub dependencies: Vec<MarketSkillDependencyMarker>,
     pub installed_at: String,
@@ -5272,6 +5276,29 @@ fn write_official_skill_marker(source: &Path, skill_id: &str) -> Result<(), AcpE
 fn read_market_skill_marker(source: &Path) -> Option<MarketSkillMarker> {
     let value = fs::read_to_string(source.join(MARKET_SKILL_MARKER)).ok()?;
     serde_json::from_str(&value).ok()
+}
+
+pub(crate) fn installed_market_skill_versions() -> HashMap<i64, String> {
+    let Ok(entries) = fs::read_dir(shared_skills_dir()) else {
+        return HashMap::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| read_market_skill_marker(&entry.path()))
+        .map(|marker| (marker.skill_id, marker.installed_version))
+        .collect()
+}
+
+pub(crate) fn installed_market_skill_targets(skill_id: i64) -> Vec<AgentType> {
+    let Ok(entries) = fs::read_dir(shared_skills_dir()) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| read_market_skill_marker(&entry.path()))
+        .find(|marker| marker.skill_id == skill_id)
+        .map(|marker| market_reference_targets(&market_target_references(&marker)))
+        .unwrap_or_default()
 }
 
 fn ensure_market_dependency_not_in_use(skill_id: &str) -> Result<(), AcpError> {
@@ -5322,6 +5349,7 @@ struct PreparedMarketSkillInstall {
     skill_id: String,
     source: PathBuf,
     files: Vec<(PathBuf, Vec<u8>)>,
+    targets: Vec<AgentType>,
     previous: PreviousMarketSkillState,
 }
 
@@ -5330,7 +5358,7 @@ struct PreviousMarketSkillState {
     skill_id: String,
     existed: bool,
     enabled: bool,
-    copy_mode: bool,
+    publications: Vec<(AgentType, AgentSkillSyncMode)>,
 }
 
 struct PendingMarketSkillInstall {
@@ -5339,25 +5367,40 @@ struct PendingMarketSkillInstall {
 }
 
 pub(crate) fn install_market_skills(
-    agent_type: AgentType,
+    agent_types: &[AgentType],
     installs: Vec<MarketSkillInstall>,
 ) -> Result<Vec<AgentSkillItem>, AcpError> {
     let _paths = require_private_agent_storage_for_write()?;
+    if agent_types.is_empty() {
+        return Err(AcpError::protocol("Skill publication targets are empty"));
+    }
     if installs.is_empty() {
         return Err(AcpError::protocol("market Skill install plan is empty"));
     }
+    let root_skill_id = market_install_root_id(&installs)?;
+    let retained_skill_ids = installs
+        .iter()
+        .map(|install| install.marker.skill_id)
+        .collect::<BTreeSet<_>>();
     let _guard = shared_skill_mutation_guard();
-    let prepared = prepare_market_skill_installs(agent_type, installs)?;
-    let pending = begin_market_skill_swaps(agent_type, prepared)?;
-    let installed = match publish_market_skill_installs(agent_type, &pending) {
+    let prepared = prepare_market_skill_installs(installs)?;
+    let pending = begin_market_skill_swaps(prepared)?;
+    let installed = match publish_market_skill_installs(&pending) {
         Ok(installed) => installed,
         Err(error) => {
-            rollback_market_skill_installs(agent_type, pending, true);
+            rollback_market_skill_installs(pending, true);
             return Err(error);
         }
     };
     for value in pending {
         value.swap.commit();
+    }
+    if let Err(error) = release_market_root_references(root_skill_id, &retained_skill_ids) {
+        tracing::warn!(
+            root_skill_id,
+            error = %error,
+            "[skill-market] install committed but stale dependency cleanup failed"
+        );
     }
     Ok(installed)
 }
@@ -5366,6 +5409,11 @@ pub(crate) fn install_market_skills(
 /// 若该 skill 仍被其他已启用的 expert 包依赖则拒绝卸载；未找到任何
 /// 安装记录时视为已卸载（幂等）。返回移除的目录数。
 pub(crate) fn uninstall_market_skill_by_id(skill_id: i64) -> Result<usize, AcpError> {
+    let _guard = shared_skill_mutation_guard();
+    uninstall_market_skill_by_id_locked(skill_id)
+}
+
+fn uninstall_market_skill_by_id_locked(skill_id: i64) -> Result<usize, AcpError> {
     let root = shared_skills_dir();
     let entries = match fs::read_dir(&root) {
         Ok(entries) => entries,
@@ -5376,7 +5424,6 @@ pub(crate) fn uninstall_market_skill_by_id(skill_id: i64) -> Result<usize, AcpEr
             )))
         }
     };
-    let mut removed = 0usize;
     for entry in entries {
         let entry = entry.map_err(|error| {
             AcpError::protocol(format!("failed to inspect market Skill installs: {error}"))
@@ -5388,27 +5435,177 @@ pub(crate) fn uninstall_market_skill_by_id(skill_id: i64) -> Result<usize, AcpEr
         if marker.skill_id != skill_id {
             continue;
         }
-        ensure_market_dependency_not_in_use(&marker.slug)?;
-        remove_skill_entry(&source).map_err(|error| {
+        if marker.target_references.is_empty() {
+            ensure_market_dependency_not_in_use(&marker.slug)?;
+        } else if !marker.target_references.contains_key(&skill_id) {
+            return Err(AcpError::protocol(format!(
+                "skill '{}' is installed as a dependency and cannot be uninstalled directly",
+                marker.slug
+            )));
+        }
+    }
+    release_market_root_references(skill_id, &BTreeSet::new())
+}
+
+fn market_install_root_id(installs: &[MarketSkillInstall]) -> Result<i64, AcpError> {
+    let root_ids = installs
+        .iter()
+        .flat_map(|install| install.marker.target_references.keys().copied())
+        .collect::<BTreeSet<_>>();
+    if root_ids.len() != 1 {
+        return Err(AcpError::protocol(
+            "market Skill install plan must reference exactly one root Skill",
+        ));
+    }
+    Ok(*root_ids.iter().next().expect("validated root Skill ID"))
+}
+
+fn release_market_root_references(
+    root_skill_id: i64,
+    retained_skill_ids: &BTreeSet<i64>,
+) -> Result<usize, AcpError> {
+    let root = shared_skills_dir();
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => {
+            return Err(AcpError::protocol(format!(
+                "failed to inspect market Skill references: {error}"
+            )))
+        }
+    };
+    let mut stale_references = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
             AcpError::protocol(format!(
-                "failed to uninstall market Skill '{}' at {}: {error}",
-                marker.slug,
-                source.display()
+                "failed to inspect market Skill references: {error}"
             ))
         })?;
-        removed += 1;
+        let Some(marker) = read_market_skill_marker(&entry.path()) else {
+            continue;
+        };
+        let legacy_root = marker.target_references.is_empty() && marker.skill_id == root_skill_id;
+        if !retained_skill_ids.contains(&marker.skill_id)
+            && (legacy_root || marker.target_references.contains_key(&root_skill_id))
+        {
+            stale_references.push(marker.slug);
+        }
+    }
+    let mut removed = 0usize;
+    for skill_id in stale_references {
+        if release_market_dependency_reference(&skill_id, root_skill_id)? {
+            removed += 1;
+        }
     }
     Ok(removed)
 }
 
+fn release_market_dependency_reference(
+    skill_id: &str,
+    root_skill_id: i64,
+) -> Result<bool, AcpError> {
+    let source = shared_skill_path(skill_id);
+    let Some(mut marker) = read_market_skill_marker(&source) else {
+        return Ok(false);
+    };
+    let legacy_reference = marker.target_references.is_empty();
+    let mut references = market_target_references(&marker);
+    references.remove(&root_skill_id);
+    if references.is_empty() {
+        if legacy_reference {
+            ensure_market_dependency_not_in_use(skill_id)?;
+        }
+        remove_shared_skill_publications_locked(skill_id)?;
+        remove_skill_entry(&source).map_err(|error| {
+            AcpError::protocol(format!(
+                "failed to remove unused market dependency '{skill_id}': {error}"
+            ))
+        })?;
+        return Ok(true);
+    }
+    marker.target_references = references;
+    marker.agent_types = Some(market_reference_targets(&marker.target_references));
+    write_market_skill_marker(&source, &marker)?;
+    if shared_skill_publish_enabled(&source, skill_id)? {
+        publish_shared_skill_to_targets_locked(
+            marker.agent_types.as_deref().unwrap_or_default(),
+            skill_id,
+            AgentSkillSyncMode::default(),
+        )?;
+    }
+    Ok(false)
+}
+
+fn repair_market_target_references_locked() -> Result<(), AcpError> {
+    let root = shared_skills_dir();
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(AcpError::protocol(format!(
+                "failed to inspect market Skill references: {error}"
+            )))
+        }
+    };
+    let markers = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| read_market_skill_marker(&entry.path()))
+        .map(|marker| (marker.skill_id, marker))
+        .collect::<BTreeMap<_, _>>();
+    let root_ids = markers
+        .values()
+        .flat_map(|marker| marker.target_references.keys().copied())
+        .collect::<BTreeSet<_>>();
+    let mut stale = Vec::new();
+    for root_skill_id in root_ids {
+        let closure = market_root_dependency_closure(root_skill_id, &markers);
+        stale.extend(markers.values().filter_map(|marker| {
+            (marker.target_references.contains_key(&root_skill_id)
+                && !closure.contains(&marker.skill_id))
+            .then(|| (marker.slug.clone(), root_skill_id))
+        }));
+    }
+    for (skill_id, root_skill_id) in stale {
+        release_market_dependency_reference(&skill_id, root_skill_id)?;
+    }
+    Ok(())
+}
+
+fn market_root_dependency_closure(
+    root_skill_id: i64,
+    markers: &BTreeMap<i64, MarketSkillMarker>,
+) -> BTreeSet<i64> {
+    let Some(root) = markers
+        .get(&root_skill_id)
+        .filter(|marker| marker.target_references.contains_key(&root_skill_id))
+    else {
+        return BTreeSet::new();
+    };
+    let mut closure = BTreeSet::new();
+    let mut pending = vec![root.skill_id];
+    while let Some(skill_id) = pending.pop() {
+        if !closure.insert(skill_id) {
+            continue;
+        }
+        if let Some(marker) = markers.get(&skill_id) {
+            pending.extend(
+                marker
+                    .dependencies
+                    .iter()
+                    .map(|dependency| dependency.skill_id),
+            );
+        }
+    }
+    closure
+}
+
 fn prepare_market_skill_installs(
-    agent_type: AgentType,
     installs: Vec<MarketSkillInstall>,
 ) -> Result<Vec<PreparedMarketSkillInstall>, AcpError> {
     let mut slugs = BTreeSet::new();
     let mut skill_ids = BTreeSet::new();
     let mut prepared = Vec::with_capacity(installs.len());
-    for install in installs {
+    for mut install in installs {
         let skill_id = validate_skill_id(&install.marker.slug)?;
         ensure_shared_skill_writable(&skill_id)?;
         if !slugs.insert(skill_id.clone()) || !skill_ids.insert(install.marker.skill_id) {
@@ -5419,24 +5616,36 @@ fn prepare_market_skill_installs(
         let source = shared_skill_path(&skill_id);
         ensure_market_install_target(&source, &install.marker)?;
         let existed = path_entry_exists(&source);
-        let (enabled, copy_mode) = if existed {
+        if let Some(existing) = existed.then(|| read_market_skill_marker(&source)).flatten() {
+            let mut references = market_target_references(&existing);
+            references.extend(install.marker.target_references.clone());
+            install.marker.target_references = references;
+            install.marker.agent_types =
+                Some(market_reference_targets(&install.marker.target_references));
+        }
+        let (enabled, publications) = if existed {
             (
                 shared_skill_publish_enabled(&source, &skill_id)?,
-                shared_skill_publish_status(agent_type, &source, &skill_id)?.1,
+                existing_shared_skill_publications(&source, &skill_id)?,
             )
         } else {
-            (false, false)
+            (true, Vec::new())
         };
-        let files = market_install_files(&skill_id, &install.marker, install.package, true)?;
+        let files = market_install_files(&skill_id, &install.marker, install.package, enabled)?;
+        let targets = install.marker.agent_types.clone().unwrap_or_default();
+        if targets.is_empty() {
+            return Err(AcpError::protocol("Skill publication targets are empty"));
+        }
         prepared.push(PreparedMarketSkillInstall {
             skill_id: skill_id.clone(),
             source,
             files,
+            targets,
             previous: PreviousMarketSkillState {
                 skill_id,
                 existed,
                 enabled,
-                copy_mode,
+                publications,
             },
         });
     }
@@ -5444,7 +5653,6 @@ fn prepare_market_skill_installs(
 }
 
 fn begin_market_skill_swaps(
-    agent_type: AgentType,
     prepared: Vec<PreparedMarketSkillInstall>,
 ) -> Result<Vec<PendingMarketSkillInstall>, AcpError> {
     let mut pending = Vec::with_capacity(prepared.len());
@@ -5452,7 +5660,7 @@ fn begin_market_skill_swaps(
         match begin_skill_directory_swap(&prepared.source, &prepared.files) {
             Ok(swap) => pending.push(PendingMarketSkillInstall { prepared, swap }),
             Err(error) => {
-                rollback_market_skill_installs(agent_type, pending, false);
+                rollback_market_skill_installs(pending, false);
                 return Err(error);
             }
         }
@@ -5461,27 +5669,28 @@ fn begin_market_skill_swaps(
 }
 
 fn publish_market_skill_installs(
-    agent_type: AgentType,
     pending: &[PendingMarketSkillInstall],
 ) -> Result<Vec<AgentSkillItem>, AcpError> {
     let mut installed = Vec::with_capacity(pending.len());
     for value in pending {
-        let mode = if value.prepared.previous.copy_mode {
-            AgentSkillSyncMode::Copy
+        if value.prepared.previous.enabled {
+            installed.push(publish_shared_skill_to_targets_locked(
+                &value.prepared.targets,
+                &value.prepared.skill_id,
+                AgentSkillSyncMode::default(),
+            )?);
         } else {
-            AgentSkillSyncMode::Symlink
-        };
-        installed.push(publish_shared_skill_to_all_agents_locked(
-            agent_type,
-            &value.prepared.skill_id,
-            mode,
-        )?);
+            remove_shared_skill_publications_locked(&value.prepared.skill_id)?;
+            installed.push(build_shared_skill_item_for_agent(
+                value.prepared.targets[0],
+                value.prepared.skill_id.clone(),
+            )?);
+        }
     }
     Ok(installed)
 }
 
 fn rollback_market_skill_installs(
-    agent_type: AgentType,
     pending: Vec<PendingMarketSkillInstall>,
     restore_publications: bool,
 ) {
@@ -5503,12 +5712,7 @@ fn rollback_market_skill_installs(
     }
     for state in previous {
         let result = if state.existed && state.enabled {
-            let mode = if state.copy_mode {
-                AgentSkillSyncMode::Copy
-            } else {
-                AgentSkillSyncMode::Symlink
-            };
-            publish_shared_skill_to_all_agents_locked(agent_type, &state.skill_id, mode).map(|_| ())
+            restore_shared_skill_publications(&state.skill_id, &state.publications)
         } else {
             remove_shared_skill_publications_locked(&state.skill_id)
         };
@@ -5520,6 +5724,38 @@ fn rollback_market_skill_installs(
             );
         }
     }
+}
+
+fn existing_shared_skill_publications(
+    source: &Path,
+    skill_id: &str,
+) -> Result<Vec<(AgentType, AgentSkillSyncMode)>, AcpError> {
+    let mut publications = Vec::new();
+    for agent_type in skill_capable_agent_types() {
+        let (published, copy_mode) = shared_skill_publish_status(agent_type, source, skill_id)?;
+        if published {
+            publications.push((
+                agent_type,
+                if copy_mode {
+                    AgentSkillSyncMode::Copy
+                } else {
+                    AgentSkillSyncMode::Symlink
+                },
+            ));
+        }
+    }
+    Ok(publications)
+}
+
+fn restore_shared_skill_publications(
+    skill_id: &str,
+    publications: &[(AgentType, AgentSkillSyncMode)],
+) -> Result<(), AcpError> {
+    remove_shared_skill_publications_locked(skill_id)?;
+    for (agent_type, mode) in publications {
+        publish_shared_skill_to_agent(*agent_type, skill_id, *mode)?;
+    }
+    Ok(())
 }
 
 fn ensure_market_install_target(source: &Path, marker: &MarketSkillMarker) -> Result<(), AcpError> {
@@ -5591,6 +5827,36 @@ fn market_install_files(
     files.push((PathBuf::from(MARKET_SKILL_MARKER), market));
     files.push((PathBuf::from(SHARED_SKILL_PUBLISH_STATE_MARKER), publish));
     Ok(files)
+}
+
+fn market_target_references(marker: &MarketSkillMarker) -> BTreeMap<i64, Vec<AgentType>> {
+    if !marker.target_references.is_empty() {
+        return marker.target_references.clone();
+    }
+    marker
+        .agent_types
+        .clone()
+        .filter(|targets| !targets.is_empty())
+        .map(|targets| BTreeMap::from([(marker.skill_id, targets)]))
+        .unwrap_or_default()
+}
+
+fn market_reference_targets(references: &BTreeMap<i64, Vec<AgentType>>) -> Vec<AgentType> {
+    references
+        .values()
+        .flatten()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn write_market_skill_marker(source: &Path, marker: &MarketSkillMarker) -> Result<(), AcpError> {
+    let bytes = serde_json::to_vec_pretty(marker).map_err(|error| {
+        AcpError::protocol(format!("failed to serialize market marker: {error}"))
+    })?;
+    fs::write(source.join(MARKET_SKILL_MARKER), bytes)
+        .map_err(|error| AcpError::protocol(format!("failed to write market marker: {error}")))
 }
 
 fn shared_skill_publish_state_path(source: &Path) -> PathBuf {
@@ -5849,11 +6115,48 @@ fn skill_capable_agent_types() -> Vec<AgentType> {
     crate::commands::managed_skills::supported_skill_agent_types()
 }
 
+async fn installed_enabled_skill_agent_types(
+    conn: &sea_orm::DatabaseConnection,
+    primary_agent_type: AgentType,
+) -> Result<Vec<AgentType>, AcpError> {
+    let settings = agent_setting_service::list_map_by_agent_type(conn)
+        .await
+        .map_err(|error| AcpError::protocol(error.to_string()))?;
+    let mut targets = skill_capable_agent_types()
+        .into_iter()
+        .filter(|agent_type| {
+            settings.get(agent_type).is_some_and(|setting| {
+                setting.enabled
+                    && setting
+                        .installed_version
+                        .as_deref()
+                        .is_some_and(|version| !version.is_empty())
+            })
+        })
+        .collect::<Vec<_>>();
+    let Some(primary_index) = targets
+        .iter()
+        .position(|agent_type| *agent_type == primary_agent_type)
+    else {
+        return Err(AcpError::protocol(format!(
+            "{primary_agent_type} is not installed and enabled"
+        )));
+    };
+    targets.swap(0, primary_index);
+    for agent_type in &targets {
+        crate::commands::agent_storage::ensure_active_agent_profile_layout(conn, *agent_type)
+            .await
+            .map_err(|error| AcpError::protocol(error.to_string()))?;
+    }
+    Ok(targets)
+}
+
 fn take_over_read_only_global_native_skill(
     agent_type: AgentType,
     spec: &SkillStorageSpec,
     skill_id: &str,
     sync_mode: AgentSkillSyncMode,
+    targets: &[AgentType],
 ) -> Result<AgentSkillItem, AcpError> {
     let _paths = require_private_agent_storage_for_write()?;
     ensure_shared_skill_writable(skill_id)?;
@@ -5866,7 +6169,8 @@ fn take_over_read_only_global_native_skill(
     }
 
     write_shared_skill_publish_state(&source, skill_id, true)?;
-    publish_shared_skill_to_all_agents(agent_type, skill_id, sync_mode)
+    let _guard = shared_skill_mutation_guard();
+    publish_shared_skill_to_active_agents_locked(agent_type, targets, skill_id, sync_mode)
 }
 
 struct PreparedPublishTarget {
@@ -6031,23 +6335,16 @@ fn remove_partial_publish_target(target: &Path) -> Result<(), AcpError> {
     })
 }
 
-fn publish_shared_skill_to_all_agents(
+fn publish_shared_skill_to_active_agents_locked(
     primary_agent_type: AgentType,
-    skill_id: &str,
-    sync_mode: AgentSkillSyncMode,
-) -> Result<AgentSkillItem, AcpError> {
-    let _guard = shared_skill_mutation_guard();
-    publish_shared_skill_to_all_agents_locked(primary_agent_type, skill_id, sync_mode)
-}
-
-fn publish_shared_skill_to_all_agents_locked(
-    primary_agent_type: AgentType,
+    agent_types: &[AgentType],
     skill_id: &str,
     sync_mode: AgentSkillSyncMode,
 ) -> Result<AgentSkillItem, AcpError> {
     let primary = publish_shared_skill_to_agent(primary_agent_type, skill_id, sync_mode)?;
-    for agent_type in skill_capable_agent_types()
-        .into_iter()
+    for agent_type in agent_types
+        .iter()
+        .copied()
         .filter(|agent_type| *agent_type != primary_agent_type)
     {
         if let Err(error) = publish_shared_skill_to_agent(agent_type, skill_id, sync_mode) {
@@ -6060,18 +6357,80 @@ fn publish_shared_skill_to_all_agents_locked(
             );
         }
     }
+    for agent_type in skill_capable_agent_types()
+        .into_iter()
+        .filter(|agent_type| !agent_types.contains(agent_type))
+    {
+        if let Err(error) = remove_shared_skill_publication_from_agent(agent_type, skill_id) {
+            tracing::warn!(
+                agent_type = %agent_type,
+                skill_id,
+                error = %error,
+                "[skills] stale Agent publication cleanup failed"
+            );
+        }
+    }
     Ok(primary)
 }
 
-pub fn reconcile_shared_market_skills() -> Result<(), AcpError> {
+fn publish_shared_skill_to_targets_locked(
+    agent_types: &[AgentType],
+    skill_id: &str,
+    sync_mode: AgentSkillSyncMode,
+) -> Result<AgentSkillItem, AcpError> {
+    let primary_agent_type = *agent_types
+        .first()
+        .ok_or_else(|| AcpError::protocol("Skill publication targets are empty"))?;
+    let primary = publish_shared_skill_to_agent(primary_agent_type, skill_id, sync_mode)?;
+    for agent_type in agent_types.iter().copied().skip(1) {
+        publish_shared_skill_to_agent(agent_type, skill_id, sync_mode)?;
+    }
+    for agent_type in skill_capable_agent_types()
+        .into_iter()
+        .filter(|agent_type| !agent_types.contains(agent_type))
+    {
+        remove_shared_skill_publication_from_agent(agent_type, skill_id)?;
+    }
+    Ok(primary)
+}
+
+pub async fn reconcile_shared_market_skills(
+    conn: &sea_orm::DatabaseConnection,
+) -> Result<(), AcpError> {
     if AgentStoragePaths::active().is_none() {
         return Ok(());
     }
     require_private_agent_storage_for_write()?;
+    let settings = agent_setting_service::list_map_by_agent_type(conn)
+        .await
+        .map_err(|error| AcpError::protocol(error.to_string()))?;
+    let agent_states = skill_capable_agent_types()
+        .into_iter()
+        .map(|agent_type| {
+            let enabled = settings.get(&agent_type).is_some_and(|setting| {
+                setting.enabled
+                    && setting
+                        .installed_version
+                        .as_deref()
+                        .is_some_and(|value| !value.is_empty())
+            });
+            (agent_type, enabled)
+        })
+        .collect::<Vec<_>>();
+    for (agent_type, enabled) in &agent_states {
+        if *enabled {
+            crate::commands::agent_storage::ensure_active_agent_profile_layout(conn, *agent_type)
+                .await
+                .map_err(|error| AcpError::protocol(error.to_string()))?;
+        }
+    }
     let _guard = shared_skill_mutation_guard();
     let mut errors = Vec::new();
-    for agent_type in skill_capable_agent_types() {
-        if let Err(error) = reconcile_shared_market_skills_for_agent_locked(agent_type) {
+    if let Err(error) = repair_market_target_references_locked() {
+        errors.push(format!("market reference repair: {error}"));
+    }
+    for (agent_type, enabled) in agent_states {
+        if let Err(error) = reconcile_shared_skills_for_agent_state_locked(agent_type, enabled) {
             errors.push(format!("{agent_type}: {error}"));
         }
     }
@@ -6092,6 +6451,36 @@ pub(crate) fn reconcile_shared_market_skills_for_agent(
     require_private_agent_storage_for_write()?;
     let _guard = shared_skill_mutation_guard();
     reconcile_shared_market_skills_for_agent_locked(agent_type)
+}
+
+pub(crate) fn reconcile_shared_skills_for_agent_state(
+    agent_type: AgentType,
+    enabled: bool,
+) -> Result<(), AcpError> {
+    require_private_agent_storage_for_write()?;
+    let _guard = shared_skill_mutation_guard();
+    reconcile_shared_skills_for_agent_state_locked(agent_type, enabled)
+}
+
+fn reconcile_shared_skills_for_agent_state_locked(
+    agent_type: AgentType,
+    enabled: bool,
+) -> Result<(), AcpError> {
+    if enabled {
+        return reconcile_shared_market_skills_for_agent_locked(agent_type);
+    }
+    let skills = list_skills_from_dir(
+        AgentSkillScope::Global,
+        &shared_skills_dir(),
+        SkillStorageKind::SkillDirectoryOnly,
+        false,
+    )?;
+    for skill in skills {
+        if !is_reserved_shared_skill_id(&skill.id) {
+            remove_shared_skill_publication_from_agent(agent_type, &skill.id)?;
+        }
+    }
+    Ok(())
 }
 
 fn reconcile_shared_market_skills_for_agent_locked(agent_type: AgentType) -> Result<(), AcpError> {
@@ -6135,6 +6524,14 @@ fn reconcile_shared_market_skill_for_agent(
     skill: &AgentSkillItem,
 ) -> Result<(), AcpError> {
     let source = Path::new(&skill.path);
+    if read_market_skill_marker(source).is_some_and(|marker| {
+        marker
+            .agent_types
+            .is_some_and(|targets| !targets.contains(&agent_type))
+    }) {
+        remove_shared_skill_publication_from_agent(agent_type, &skill.id)?;
+        return Ok(());
+    }
     if !shared_skill_publish_enabled(source, &skill.id)? {
         if remove_shared_skill_publication_from_agent(agent_type, &skill.id)? {
             tracing::info!(
@@ -7188,6 +7585,16 @@ pub async fn acp_preflight(
 }
 
 async fn reconcile_agent_skills_before_launch(db: &AppDatabase, agent_type: AgentType) {
+    if let Err(error) =
+        crate::commands::agent_storage::ensure_active_agent_profile_layout(&db.conn, agent_type)
+            .await
+    {
+        tracing::warn!(
+            agent_type = %agent_type,
+            error = %error,
+            "[skills] failed to initialize Agent profile before launch"
+        );
+    }
     let install_report = crate::commands::experts::ensure_central_experts_installed().await;
     if !install_report.errors.is_empty() {
         tracing::warn!(
@@ -7265,6 +7672,15 @@ pub(crate) async fn build_session_runtime_env(
     let setting = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
+    let installed = setting
+        .as_ref()
+        .and_then(|model| model.installed_version.as_deref())
+        .is_some_and(|version| !version.is_empty());
+    if !installed {
+        return Err(AcpError::SdkNotInstalled(format!(
+            "{agent_type} is not installed"
+        )));
+    }
     let disabled = setting
         .as_ref()
         .map(|model| !model.enabled)
@@ -8071,6 +8487,19 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
             )
             .await;
         }
+        if local_installed_version.is_some() {
+            if let Err(error) = crate::commands::agent_storage::ensure_active_agent_profile_layout(
+                &db.conn, agent_type,
+            )
+            .await
+            {
+                tracing::warn!(
+                    agent_type = %agent_type,
+                    error = %error,
+                    "[agent-storage] failed to initialize installed Agent profile"
+                );
+            }
+        }
         let codex_auth_json = if agent_type == AgentType::Codex {
             load_codex_auth_json_raw()
         } else {
@@ -8164,53 +8593,41 @@ fn enabled_state_changed(previous: bool, current: bool) -> bool {
     previous != current
 }
 
-async fn run_enablement_reconcilers_best_effort<
-    Skills,
-    SkillsFuture,
-    SkillsError,
-    Mcp,
-    McpFuture,
-    McpError,
->(
-    agent_type: AgentType,
-    reconcile_skills: Skills,
-    reconcile_mcp: Mcp,
-) where
-    Skills: FnOnce() -> SkillsFuture,
-    SkillsFuture: std::future::Future<Output = Result<(), SkillsError>>,
-    SkillsError: std::fmt::Display,
-    Mcp: FnOnce() -> McpFuture,
-    McpFuture: std::future::Future<Output = Result<(), McpError>>,
-    McpError: std::fmt::Display,
-{
-    if let Err(error) = reconcile_skills().await {
-        tracing::warn!("[ACP] managed skills reconcile failed for {agent_type}: {error}");
-    }
-    if let Err(error) = reconcile_mcp().await {
-        tracing::warn!("[ACP] managed MCP reconcile failed for {agent_type}: {error}");
-    }
-}
-
 async fn reconcile_agent_enablement_best_effort(
     db: &AppDatabase,
     agent_type: AgentType,
     enabled: bool,
 ) {
-    run_enablement_reconcilers_best_effort(
-        agent_type,
-        || async {
-            crate::commands::managed_skills::reconcile_agent_core(&db.conn, agent_type, enabled)
-                .await
-                .map(|_| ())
-        },
-        || async {
-            crate::commands::mcp_sync::reconcile_managed_mcp_for_agent(
-                &db.conn, agent_type, enabled,
-            )
+    if let Err(error) =
+        crate::commands::managed_skills::reconcile_agent_core(&db.conn, agent_type, enabled).await
+    {
+        tracing::warn!("[ACP] managed skills reconcile failed for {agent_type}: {error}");
+    }
+    if let Err(error) = reconcile_shared_skills_for_agent_state(agent_type, enabled) {
+        tracing::warn!("[ACP] shared skills reconcile failed for {agent_type}: {error}");
+    }
+    if let Err(error) =
+        crate::commands::mcp_sync::reconcile_managed_mcp_for_agent(&db.conn, agent_type, enabled)
             .await
-        },
-    )
-    .await;
+    {
+        tracing::warn!("[ACP] managed MCP reconcile failed for {agent_type}: {error}");
+    }
+}
+
+async fn reconcile_installed_agent_best_effort(db: &AppDatabase, agent_type: AgentType) {
+    let enabled = match agent_setting_service::get_by_agent_type(&db.conn, agent_type).await {
+        Ok(Some(setting)) => setting.enabled,
+        Ok(None) => agent_setting_service::default_enabled(agent_type),
+        Err(error) => {
+            tracing::warn!(
+                agent_type = %agent_type,
+                error = %error,
+                "[ACP] failed to read installed Agent enablement"
+            );
+            return;
+        }
+    };
+    reconcile_agent_enablement_best_effort(db, agent_type, enabled).await;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -8979,6 +9396,16 @@ pub(crate) async fn acp_download_agent_binary_core(
     let paths = active_agent_storage_paths()?;
 
     let meta = registry::get_agent_meta(agent_type);
+    agent_setting_service::ensure_defaults(
+        &db.conn,
+        &[agent_setting_service::AgentDefaultInput {
+            agent_type,
+            registry_id: registry::registry_id_for(agent_type).to_string(),
+            default_sort_order: i32::MAX / 2,
+        }],
+    )
+    .await
+    .map_err(|error| AcpError::protocol(error.to_string()))?;
     let result = match meta.distribution {
         registry::AgentDistribution::Binary {
             version,
@@ -9042,6 +9469,18 @@ pub(crate) async fn acp_download_agent_binary_core(
                 },
             )
             .await?;
+            crate::commands::agent_storage::ensure_active_agent_profile_layout(
+                &db.conn, agent_type,
+            )
+            .await
+            .map_err(|error| AcpError::protocol(error.to_string()))?;
+            agent_setting_service::set_installed_version(
+                &db.conn,
+                agent_type,
+                Some(effective_version.to_string()),
+            )
+            .await
+            .map_err(|error| AcpError::protocol(error.to_string()))?;
             emit_acp_agents_updated(emitter, "binary_downloaded", Some(agent_type));
             Ok(())
         }
@@ -9059,6 +9498,7 @@ pub(crate) async fn acp_download_agent_binary_core(
             .map_err(AcpError::protocol)?;
         crate::acp::account_credentials::sync_agent_credentials_for_acp(&db.conn, agent_type)
             .await?;
+        reconcile_installed_agent_best_effort(db, agent_type).await;
         Ok(())
     }
     .await;
@@ -9351,6 +9791,11 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 .await?;
             }
 
+            crate::commands::agent_storage::ensure_active_agent_profile_layout(
+                &db.conn, agent_type,
+            )
+            .await
+            .map_err(|error| AcpError::protocol(error.to_string()))?;
             agent_setting_service::set_installed_version(
                 &db.conn,
                 agent_type,
@@ -9387,6 +9832,11 @@ pub(crate) async fn acp_prepare_npx_agent_core(
 
             let resolved = version.to_string();
             binary_cache::mark_uvx_agent_prepared(&paths, agent_type, &resolved)?;
+            crate::commands::agent_storage::ensure_active_agent_profile_layout(
+                &db.conn, agent_type,
+            )
+            .await
+            .map_err(|error| AcpError::protocol(error.to_string()))?;
             agent_setting_service::set_installed_version(
                 &db.conn,
                 agent_type,
@@ -9405,6 +9855,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             .map_err(AcpError::protocol)?;
         crate::acp::account_credentials::sync_agent_credentials_for_acp(&db.conn, agent_type)
             .await?;
+        reconcile_installed_agent_best_effort(db, agent_type).await;
         Ok(version)
     }
     .await;
@@ -9488,6 +9939,7 @@ pub(crate) async fn acp_uninstall_agent_core(
         agent_setting_service::set_installed_version(&db.conn, agent_type, None)
             .await
             .map_err(|e| AcpError::protocol(e.to_string()))?;
+        reconcile_agent_enablement_best_effort(db, agent_type, false).await;
         emit_acp_agents_updated(emitter, "agent_uninstalled", Some(agent_type));
         Ok(())
     }
@@ -9570,6 +10022,12 @@ pub(crate) async fn acp_install_pi_binary_core(
                 emitter,
             )
             .await?;
+            crate::commands::agent_storage::ensure_active_agent_profile_layout(
+                &db.conn,
+                AgentType::Pi,
+            )
+            .await
+            .map_err(|error| AcpError::protocol(error.to_string()))?;
             agent_setting_service::set_installed_version(
                 &db.conn,
                 AgentType::Pi,
@@ -9584,6 +10042,7 @@ pub(crate) async fn acp_install_pi_binary_core(
                 AgentType::Pi,
             )
             .await?;
+            reconcile_installed_agent_best_effort(db, AgentType::Pi).await;
             Ok(())
         }
         .await
@@ -9640,6 +10099,7 @@ pub(crate) async fn acp_uninstall_pi_binary_core(
         agent_setting_service::set_installed_version(&db.conn, AgentType::Pi, None)
             .await
             .map_err(|e| AcpError::protocol(e.to_string()))?;
+        reconcile_agent_enablement_best_effort(db, AgentType::Pi, false).await;
         Ok(())
     }
     .await;
@@ -9723,41 +10183,6 @@ pub async fn acp_list_agent_skills(
     let include_disabled = include_disabled.unwrap_or(false);
     let mut locations = Vec::new();
     let mut skills_by_key: BTreeMap<String, AgentSkillItem> = BTreeMap::new();
-
-    // Always reconcile shared market skills for this agent so that skills
-    // installed via the marketplace but not yet linked here (e.g. because the
-    // secondary-agent publish failed silently at install time) become visible
-    // in the chat attachment menu without requiring a settings-page visit.
-    // The full `reconcile_shared_market_skills` (all agents) is only needed
-    // when `include_disabled` is set (settings page); here a lightweight
-    // single-agent pass is sufficient and avoids unnecessary I/O.
-    {
-        let _guard = shared_skill_mutation_guard();
-        if let Err(e) = reconcile_shared_market_skills_for_agent_locked(agent_type) {
-            tracing::warn!(
-                agent_type = %agent_type,
-                error = %e,
-                "[skills] reconcile on list failed (non-fatal)"
-            );
-        }
-    }
-    if include_disabled {
-        // Settings page: also reconcile for all other agents so the full
-        // shared-skill matrix stays consistent.
-        for other in skill_capable_agent_types()
-            .into_iter()
-            .filter(|t| *t != agent_type)
-        {
-            let _guard = shared_skill_mutation_guard();
-            if let Err(e) = reconcile_shared_market_skills_for_agent_locked(other) {
-                tracing::warn!(
-                    agent_type = %other,
-                    error = %e,
-                    "[skills] reconcile on list (full) failed (non-fatal)"
-                );
-            }
-        }
-    }
 
     let shared_dir = shared_skills_dir();
     locations.push(AgentSkillLocation {
@@ -9846,8 +10271,8 @@ pub async fn acp_read_agent_skill(
     Ok(AgentSkillContent { skill, content })
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn acp_take_over_agent_skill(
+pub async fn acp_take_over_agent_skill_core(
+    conn: &sea_orm::DatabaseConnection,
     agent_type: AgentType,
     skill_id: String,
     sync_mode: Option<AgentSkillSyncMode>,
@@ -9859,16 +10284,34 @@ pub async fn acp_take_over_agent_skill(
         )));
     };
     let id = validate_skill_id(&skill_id)?;
-    take_over_read_only_global_native_skill(agent_type, &spec, &id, sync_mode.unwrap_or_default())
+    let targets = installed_enabled_skill_agent_types(conn, agent_type).await?;
+    take_over_read_only_global_native_skill(
+        agent_type,
+        &spec,
+        &id,
+        sync_mode.unwrap_or_default(),
+        &targets,
+    )
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn acp_take_over_agent_skill(
+    agent_type: AgentType,
+    skill_id: String,
+    sync_mode: Option<AgentSkillSyncMode>,
+    db: State<'_, AppDatabase>,
+) -> Result<AgentSkillItem, AcpError> {
+    acp_take_over_agent_skill_core(&db.conn, agent_type, skill_id, sync_mode).await
+}
+
 #[allow(clippy::too_many_arguments)]
 /// `official: Some(true)` marks the save as an official-market (re)install:
 /// the shared source is stamped with the official marker, and the save may
 /// overwrite an already-marked skill. Any other save to a marked skill is
 /// refused so market-managed content stays immutable for users.
-pub async fn acp_save_agent_skill(
+pub async fn acp_save_agent_skill_core(
+    conn: &sea_orm::DatabaseConnection,
     agent_type: AgentType,
     scope: AgentSkillScope,
     skill_id: String,
@@ -9897,6 +10340,7 @@ pub async fn acp_save_agent_skill(
         .unwrap_or(content);
 
     if scope == AgentSkillScope::Global {
+        let targets = installed_enabled_skill_agent_types(conn, agent_type).await?;
         let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
         let _guard = shared_skill_mutation_guard();
@@ -9931,7 +10375,7 @@ pub async fn acp_save_agent_skill(
         } else {
             AgentSkillSyncMode::Symlink
         });
-        return publish_shared_skill_to_all_agents_locked(agent_type, &id, mode);
+        return publish_shared_skill_to_active_agents_locked(agent_type, &targets, &id, mode);
     }
 
     let dirs = scoped_skill_dirs(agent_type, scope, workspace_path.as_deref())?;
@@ -10008,8 +10452,38 @@ pub async fn acp_save_agent_skill(
     Ok(skill)
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn acp_set_agent_skill_enabled(
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn acp_save_agent_skill(
+    agent_type: AgentType,
+    scope: AgentSkillScope,
+    skill_id: String,
+    content: String,
+    files: Option<Vec<AgentSkillFile>>,
+    workspace_path: Option<String>,
+    layout: Option<AgentSkillLayout>,
+    sync_mode: Option<AgentSkillSyncMode>,
+    official: Option<bool>,
+    db: State<'_, AppDatabase>,
+) -> Result<AgentSkillItem, AcpError> {
+    acp_save_agent_skill_core(
+        &db.conn,
+        agent_type,
+        scope,
+        skill_id,
+        content,
+        files,
+        workspace_path,
+        layout,
+        sync_mode,
+        official,
+    )
+    .await
+}
+
+pub async fn acp_set_agent_skill_enabled_core(
+    conn: &sea_orm::DatabaseConnection,
     agent_type: AgentType,
     scope: AgentSkillScope,
     skill_id: String,
@@ -10025,14 +10499,20 @@ pub async fn acp_set_agent_skill_enabled(
     let id = validate_skill_id(&skill_id)?;
 
     if scope == AgentSkillScope::Global {
+        let targets = if enabled {
+            Some(installed_enabled_skill_agent_types(conn, agent_type).await?)
+        } else {
+            None
+        };
         let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
         let _guard = shared_skill_mutation_guard();
         let source = shared_skill_path(&id);
         if enabled {
             write_shared_skill_publish_state(&source, &id, true)?;
-            return publish_shared_skill_to_all_agents_locked(
+            return publish_shared_skill_to_active_agents_locked(
                 agent_type,
+                targets.as_deref().unwrap_or_default(),
                 &id,
                 sync_mode.unwrap_or_default(),
             );
@@ -10077,6 +10557,29 @@ pub async fn acp_set_agent_skill_enabled(
     let target = disabled_path_for_active_skill(&skill)?;
     move_skill_entry(Path::new(&skill.path), &target)?;
     Ok(build_skill_item(id, scope, skill.layout, target, false))
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn acp_set_agent_skill_enabled(
+    agent_type: AgentType,
+    scope: AgentSkillScope,
+    skill_id: String,
+    workspace_path: Option<String>,
+    enabled: bool,
+    sync_mode: Option<AgentSkillSyncMode>,
+    db: State<'_, AppDatabase>,
+) -> Result<AgentSkillItem, AcpError> {
+    acp_set_agent_skill_enabled_core(
+        &db.conn,
+        agent_type,
+        scope,
+        skill_id,
+        workspace_path,
+        enabled,
+        sync_mode,
+    )
+    .await
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]

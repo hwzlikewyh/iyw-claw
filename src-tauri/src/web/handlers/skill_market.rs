@@ -49,7 +49,7 @@ pub struct MetadataParams {
 pub struct InstallParams {
     id: String,
     version: String,
-    agent_type: AgentType,
+    agent_types: Vec<AgentType>,
 }
 
 #[derive(Deserialize)]
@@ -131,8 +131,13 @@ pub async fn install(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<InstallParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    skill_market::install_core(&state.db.conn, params.id, params.version, params.agent_type)
-        .await?;
+    skill_market::install_core(
+        &state.db.conn,
+        params.id,
+        params.version,
+        params.agent_types,
+    )
+    .await?;
     Ok(Json(()))
 }
 

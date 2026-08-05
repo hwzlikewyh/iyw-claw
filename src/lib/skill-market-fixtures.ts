@@ -26,6 +26,7 @@ import {
   type SkillMarketSource,
   type SkillMarketSourceOptions,
 } from "@/lib/skill-market-source"
+import type { AgentType } from "@/lib/types"
 
 // ---------------------------------------------------------------------------
 // Typed fixtures for the Skill Market v2 UI (Task 10).
@@ -46,6 +47,7 @@ interface FixtureRecord {
   flatFiles: Record<string, FixtureFlatFile[]>
   ownership: { source: SkillMarketOwnershipSource; managed: boolean }
   compatibilityDetail: SkillMarketV2CompatibilityDetail
+  installTargets: AgentType[]
 }
 
 const NOW = "2026-08-01T04:00:00.000Z"
@@ -160,7 +162,9 @@ function buildFileTree(files: FixtureFlatFile[]): SkillMarketV2FileNode[] {
       node = child.children ?? []
     }
   }
-  const sortNodes = (nodes: SkillMarketV2FileNode[]): SkillMarketV2FileNode[] => {
+  const sortNodes = (
+    nodes: SkillMarketV2FileNode[]
+  ): SkillMarketV2FileNode[] => {
     return nodes
       .slice()
       .sort((left, right) => {
@@ -242,6 +246,7 @@ function record(
     flatFiles: flatFilesByVersion,
     ownership,
     compatibilityDetail,
+    installTargets: item.installedVersion ? ["codex"] : [],
   }
 }
 
@@ -270,7 +275,14 @@ function buildFixtureCatalog(): FixtureRecord[] {
         { tags: ["github", "actions"], packageType: "expert" }
       ),
       [
-        version("ver-gh-110", "1.1.0", "ready", 14339, [], "Deterministic workflow ordering."),
+        version(
+          "ver-gh-110",
+          "1.1.0",
+          "ready",
+          14339,
+          [],
+          "Deterministic workflow ordering."
+        ),
         version("ver-gh-100", "1.0.0", "ready", 13208),
       ],
       ghFiles
@@ -291,7 +303,16 @@ function buildFixtureCatalog(): FixtureRecord[] {
         version("ver-crm-230", "2.3.0", "ready", 48216),
         { tags: ["crm", "api"] }
       ),
-      [version("ver-crm-230", "2.3.0", "ready", 48216, [], "Adds deal rollback.")],
+      [
+        version(
+          "ver-crm-230",
+          "2.3.0",
+          "ready",
+          48216,
+          [],
+          "Adds deal rollback."
+        ),
+      ],
       crmFiles
     ),
     record(
@@ -334,7 +355,11 @@ function buildFixtureCatalog(): FixtureRecord[] {
         "not_installed",
         null,
         version("ver-image-140", "1.4.0", "ready", 92140, [
-          { skillId: "skill-gh-workflow", slug: "gh-workflow-expert", version: "1.1.0" },
+          {
+            skillId: "skill-gh-workflow",
+            slug: "gh-workflow-expert",
+            version: "1.1.0",
+          },
         ]),
         { tags: ["image", "batch"], packageType: "expert" }
       ),
@@ -474,7 +499,14 @@ function buildFixtureCatalog(): FixtureRecord[] {
         { tags: ["ops", "runbook"] }
       ),
       [
-        version("ver-ops-120", "1.2.0", "ready", 26410, [], "Adds rollback checklist."),
+        version(
+          "ver-ops-120",
+          "1.2.0",
+          "ready",
+          26410,
+          [],
+          "Adds rollback checklist."
+        ),
         version("ver-ops-110", "1.1.0", "ready", 25040),
         version("ver-ops-100", "1.0.0", "ready", 24100),
       ],
@@ -568,7 +600,12 @@ function generatePerfItems(count: number): FixtureRecord[] {
     const state = states[index % states.length]
     const installed =
       state === "not_installed" || state === "preparing" ? null : "1.0.0"
-    const v = version(`perf-ver-${index}`, "1.0.0", "ready", 9000 + (index % 97))
+    const v = version(
+      `perf-ver-${index}`,
+      "1.0.0",
+      "ready",
+      9000 + (index % 97)
+    )
     const item = makeItem(
       id,
       `perf-skill-${index}`,
@@ -587,9 +624,7 @@ function generatePerfItems(count: number): FixtureRecord[] {
         organizationName: audience === "organization" ? "Acme Org" : null,
       }
     )
-    records.push(
-      record(item, [v], flatFiles(`perf/${id}`, 3))
-    )
+    records.push(record(item, [v], flatFiles(`perf/${id}`, 3)))
   }
   return records
 }
@@ -599,8 +634,12 @@ function fixtureLatency(perf: boolean): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
-function matchesQuery(item: SkillMarketV2Item, query: SkillMarketListQueryV2): boolean {
-  if (query.publisher !== "all" && item.publisher !== query.publisher) return false
+function matchesQuery(
+  item: SkillMarketV2Item,
+  query: SkillMarketListQueryV2
+): boolean {
+  if (query.publisher !== "all" && item.publisher !== query.publisher)
+    return false
   if (
     query.distribution !== "all" &&
     item.distributionPolicy !== query.distribution
@@ -616,12 +655,7 @@ function matchesQuery(item: SkillMarketV2Item, query: SkillMarketListQueryV2): b
   if (query.category && item.category !== query.category) return false
   const needle = query.q.trim().toLowerCase()
   if (needle) {
-    const haystack = [
-      item.displayName,
-      item.summary,
-      item.slug,
-      ...item.tags,
-    ]
+    const haystack = [item.displayName, item.summary, item.slug, ...item.tags]
       .join(" ")
       .toLowerCase()
     if (!haystack.includes(needle)) return false
@@ -629,7 +663,10 @@ function matchesQuery(item: SkillMarketV2Item, query: SkillMarketListQueryV2): b
   return true
 }
 
-function matchesView(item: SkillMarketV2Item, view: SkillMarketListQueryV2["view"]): boolean {
+function matchesView(
+  item: SkillMarketV2Item,
+  view: SkillMarketListQueryV2["view"]
+): boolean {
   switch (view) {
     case "market":
       return item.audience === "global_market"
@@ -652,11 +689,16 @@ const INSTALL_RANK: Record<SkillMarketInstallState, number> = {
   not_installed: 4,
 }
 
-function sortItems(items: SkillMarketV2Item[], sort: SkillMarketSort): SkillMarketV2Item[] {
+function sortItems(
+  items: SkillMarketV2Item[],
+  sort: SkillMarketSort
+): SkillMarketV2Item[] {
   const copy = items.slice()
   switch (sort) {
     case "updated":
-      return copy.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      return copy.sort((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt)
+      )
     case "name":
       return copy.sort((left, right) =>
         left.displayName.localeCompare(right.displayName, "en")
@@ -686,7 +728,8 @@ export function createFixtureSkillMarketSource(
 
   const findRecord = (id: string): FixtureRecord => {
     const found = records.find((candidate) => candidate.item.id === id)
-    if (!found) throw new SkillMarketSourceError("catalog_stale", `unknown skill ${id}`)
+    if (!found)
+      throw new SkillMarketSourceError("catalog_stale", `unknown skill ${id}`)
     return found
   }
 
@@ -735,6 +778,7 @@ export function createFixtureSkillMarketSource(
       return {
         ...found.item,
         files: buildFileTree(flatFileList),
+        installTargets: found.installTargets,
         ownership: found.ownership,
         compatibilityDetail: found.compatibilityDetail,
       }
@@ -742,7 +786,9 @@ export function createFixtureSkillMarketSource(
 
     async versions(id) {
       await fixtureLatency(perf)
-      return findRecord(id).versions.slice().sort((a, b) => b.version.localeCompare(a.version))
+      return findRecord(id)
+        .versions.slice()
+        .sort((a, b) => b.version.localeCompare(a.version))
     },
 
     async files(id, versionValue) {
@@ -783,7 +829,10 @@ export function createFixtureSkillMarketSource(
       }
 
       const planItems: SkillMarketInstallPlanItemV2[] = []
-      const visit = (current: FixtureRecord, versionToInstall: SkillMarketV2Version) => {
+      const visit = (
+        current: FixtureRecord,
+        versionToInstall: SkillMarketV2Version
+      ) => {
         planItems.push({
           skillId: current.item.id,
           versionId: versionToInstall.id,
@@ -829,7 +878,10 @@ export function createFixtureSkillMarketSource(
         targetSkillId: id,
         targetVersion: targetVersion.version,
         items: planItems,
-        totalBytes: planItems.reduce((sum, planItem) => sum + planItem.artifactSize, 0),
+        totalBytes: planItems.reduce(
+          (sum, planItem) => sum + planItem.artifactSize,
+          0
+        ),
         dependencyCount: Math.max(0, planItems.length - 1),
         mandatory: planItems.some(
           (planItem) => planItem.distributionPolicy === "mandatory"
@@ -846,7 +898,10 @@ export function createFixtureSkillMarketSource(
         )
       }
       const id = `fixture-upload-${records.length + 1}`
-      const artifactSize = request.files.reduce((sum, file) => sum + file.size, 0)
+      const artifactSize = request.files.reduce(
+        (sum, file) => sum + file.size,
+        0
+      )
       const uploadedVersion = version(
         `${id}-v1`,
         request.version,
@@ -894,7 +949,10 @@ export function createFixtureSkillMarketSource(
     async addVersion(request: SkillMarketAddVersionRequestV2) {
       await fixtureLatency(perf)
       const found = findRecord(request.id)
-      const artifactSize = request.files.reduce((sum, file) => sum + file.size, 0)
+      const artifactSize = request.files.reduce(
+        (sum, file) => sum + file.size,
+        0
+      )
       const added = version(
         `${request.id}-v${found.versions.length + 1}`,
         request.version,

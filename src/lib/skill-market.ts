@@ -55,12 +55,14 @@ export interface SkillMarketItem {
   currentVersion: SkillMarketVersion
   ownedByMe: boolean
   canManage: boolean
+  installedVersion?: string | null
   createdAt: string
   updatedAt: string
 }
 
 export interface SkillMarketDetail extends SkillMarketItem {
   files: SkillMarketFile[]
+  installTargets?: AgentType[]
 }
 
 export interface SkillMarketListResult {
@@ -290,9 +292,9 @@ export const skillMarketDelete = (id: string) =>
 export const skillMarketInstall = (
   id: string,
   version: string,
-  agentType: AgentType
+  agentTypes: AgentType[]
 ) =>
-  getTransport().call<void>("skill_market_install", { id, version, agentType })
+  getTransport().call<void>("skill_market_install", { id, version, agentTypes })
 
 // ---------------------------------------------------------------------------
 // Skill Market v2 display model (Task 10)
@@ -402,6 +404,7 @@ export type SkillMarketOwnershipSource = "system" | "market" | "user_dir"
 
 export interface SkillMarketV2Detail extends SkillMarketV2Item {
   files: SkillMarketV2FileNode[]
+  installTargets: AgentType[]
   ownership: {
     source: SkillMarketOwnershipSource
     managed: boolean

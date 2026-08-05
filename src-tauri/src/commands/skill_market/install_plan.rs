@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::app_error::AppCommandError;
 use crate::commands::acp::{MarketSkillDependencyMarker, MarketSkillMarker};
+use crate::models::AgentType;
 
 use super::types::{parse_id, SkillInstallPlan, SkillInstallPlanItem, SkillPackageType};
 
@@ -200,6 +201,8 @@ fn validate_plan_slug(value: &str) -> Result<String, AppCommandError> {
 pub(super) fn market_marker(
     item: &SkillInstallPlanItem,
     object_sha256: String,
+    root_skill_id: i64,
+    agent_types: Vec<AgentType>,
 ) -> Result<MarketSkillMarker, AppCommandError> {
     let dependencies = item
         .dependencies
@@ -213,7 +216,7 @@ pub(super) fn market_marker(
         })
         .collect::<Result<Vec<_>, AppCommandError>>()?;
     Ok(MarketSkillMarker {
-        schema_version: 2,
+        schema_version: 3,
         source: "iyw_skill_market".to_string(),
         skill_id: parse_id(&item.skill_id)?,
         slug: item.slug.clone(),
@@ -227,6 +230,8 @@ pub(super) fn market_marker(
             SkillPackageType::Expert => "expert",
         }
         .to_string(),
+        agent_types: Some(agent_types.clone()),
+        target_references: BTreeMap::from([(root_skill_id, agent_types)]),
         dependencies,
         installed_at: chrono::Utc::now().to_rfc3339(),
     })

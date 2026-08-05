@@ -73,10 +73,10 @@ pub async fn skill_market_delete(
 pub async fn skill_market_install(
     id: String,
     version: String,
-    agent_type: AgentType,
+    agent_types: Vec<AgentType>,
     db: State<'_, AppDatabase>,
 ) -> Result<(), AppCommandError> {
-    install::install_core(&db.conn, id, version, agent_type).await
+    install::install_core(&db.conn, id, version, agent_types).await
 }
 
 #[tauri::command]

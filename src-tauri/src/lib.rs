@@ -579,8 +579,10 @@ mod tauri_app {
                         &system_skills_emitter,
                     )
                     .await;
-                    if let Err(error) =
-                        crate::commands::acp::reconcile_shared_market_skills()
+                    if let Err(error) = crate::commands::acp::reconcile_shared_market_skills(
+                        &managed_distribution_db,
+                    )
+                    .await
                     {
                         tracing::warn!(
                             "[skills] startup central skill reconcile failed: {error}"

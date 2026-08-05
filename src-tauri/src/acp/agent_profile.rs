@@ -73,7 +73,10 @@ pub fn startup_profile_env_is_complete(
         })
 }
 
-fn override_profile_env(agent_type: AgentType, root: &Path) -> BTreeMap<&'static str, PathBuf> {
+pub(crate) fn override_profile_env(
+    agent_type: AgentType,
+    root: &Path,
+) -> BTreeMap<&'static str, PathBuf> {
     match agent_type {
         AgentType::OpenCode => {
             let mut env = BTreeMap::new();

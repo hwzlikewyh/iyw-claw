@@ -1,6 +1,7 @@
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 
 use crate::app_error::AppCommandError;
+use crate::models::AgentType;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,7 +37,7 @@ pub struct SkillMarketVersion {
     pub package_size: u64,
     #[serde(default)]
     pub package_type: SkillPackageType,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub dependencies: Vec<SkillDependency>,
     pub created_at: String,
 }
@@ -104,7 +105,7 @@ pub struct SkillMarketItem {
     pub category: String,
     #[serde(default)]
     pub icon_url: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub tags: Vec<String>,
     pub visibility: String,
     pub publisher_type: String,
@@ -123,6 +124,8 @@ pub struct SkillMarketItem {
     pub owned_by_me: bool,
     #[serde(default)]
     pub can_manage: bool,
+    #[serde(default)]
+    pub installed_version: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -132,13 +135,16 @@ pub struct SkillMarketItem {
 pub struct SkillMarketDetail {
     #[serde(flatten)]
     pub skill: SkillMarketItem,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub files: Vec<SkillMarketFile>,
+    #[serde(default)]
+    pub install_targets: Vec<AgentType>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillMarketListResult {
+    #[serde(default, deserialize_with = "null_as_default")]
     pub items: Vec<SkillMarketItem>,
     pub total: u64,
     pub page: u32,
@@ -209,6 +215,7 @@ pub struct SkillInstallPlan {
     pub root_skill_id: String,
     pub root_slug: String,
     pub root_version: String,
+    #[serde(default, deserialize_with = "null_as_default")]
     pub items: Vec<SkillInstallPlanItem>,
 }
 
@@ -223,7 +230,7 @@ pub struct SkillInstallPlanItem {
     pub package_type: SkillPackageType,
     pub visibility: String,
     pub publisher_type: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub dependencies: Vec<SkillDependency>,
     pub download: SkillDownloadInfo,
 }
@@ -231,6 +238,7 @@ pub struct SkillInstallPlanItem {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileTree {
+    #[serde(default, deserialize_with = "null_as_default")]
     pub tree: Vec<FileNode>,
 }
 
@@ -245,7 +253,7 @@ pub struct FileNode {
     pub sha256: String,
     #[serde(default)]
     pub mime_type: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub children: Vec<FileNode>,
 }
 

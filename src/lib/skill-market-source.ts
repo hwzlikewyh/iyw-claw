@@ -29,6 +29,7 @@ import {
 } from "@/lib/skill-market"
 import { getTransport } from "@/lib/transport"
 import { createFixtureSkillMarketSource } from "@/lib/skill-market-fixtures"
+import { compareSemVer } from "@/components/skills/skill-market-semver"
 
 // ---------------------------------------------------------------------------
 // Skill Market data source seam (Task 10)
@@ -111,13 +112,22 @@ export interface SkillMarketSourceOptions {
 // v1 → v2 mapping helpers
 // ---------------------------------------------------------------------------
 
-function mapAudience(raw: unknown, visibility: string, publisherType: string): SkillMarketAudience {
-  if (raw === "global_market" || raw === "organization" || raw === "owner_private") {
+function mapAudience(
+  raw: unknown,
+  visibility: string,
+  publisherType: string
+): SkillMarketAudience {
+  if (
+    raw === "global_market" ||
+    raw === "organization" ||
+    raw === "owner_private"
+  ) {
     return raw as SkillMarketAudience
   }
   // Derive from v1 visibility/publisherType when the backend hasn't been
   // upgraded (pre-T03). T01/T03 adds `audience` to all responses.
-  if (visibility === "public" && publisherType === "official") return "global_market"
+  if (visibility === "public" && publisherType === "official")
+    return "global_market"
   if (visibility === "private") return "owner_private"
   return "organization"
 }
@@ -147,6 +157,12 @@ function mapVersionV1ToV2(v: SkillMarketVersion): SkillMarketV2Version {
 
 function mapItemV1ToV2(item: SkillMarketItem): SkillMarketV2Item {
   const raw = item as unknown as Record<string, unknown>
+  const installedVersion = item.installedVersion ?? null
+  const installState = installedVersion
+    ? compareSemVer(item.currentVersion.version, installedVersion) > 0
+      ? "update_available"
+      : "installed"
+    : "not_installed"
   return {
     id: item.id,
     slug: item.slug,
@@ -156,48 +172,74 @@ function mapItemV1ToV2(item: SkillMarketItem): SkillMarketV2Item {
     iconUrl: item.iconUrl,
     tags: item.tags,
     audience: mapAudience(raw["audience"], item.visibility, item.publisherType),
-    distributionPolicy: ((raw["distribution_policy"] as string | undefined) === "mandatory"
+    distributionPolicy: ((raw["distribution_policy"] as string | undefined) ===
+    "mandatory"
       ? "mandatory"
       : "optional") as SkillMarketDistributionPolicy,
     publisher: item.publisherType,
-    packageType: ((raw["package_type"] as string | undefined) ?? "skill") as "skill" | "expert",
+    packageType: ((raw["package_type"] as string | undefined) ?? "skill") as
+      | "skill"
+      | "expert",
     currentVersion: mapVersionV1ToV2(item.currentVersion),
     compatibility: "unknown" as const,
-    installState: "not_installed" as const,
-    installedVersion: null,
+    installState,
+    installedVersion,
     canManage: item.canManage,
     organizationName: (raw["organization_name"] as string | undefined) ?? null,
     updatedAt: item.updatedAt,
   }
 }
 
-function buildFileTree(files: Array<{path: string; size: number; sha256: string; mimeType: string | null}>): SkillMarketV2FileNode[] {
+function buildFileTree(
+  files: Array<{
+    path: string
+    size: number
+    sha256: string
+    mimeType: string | null
+  }>
+): SkillMarketV2FileNode[] {
   const root: Map<string, SkillMarketV2FileNode> = new Map()
   for (const file of files) {
     const parts = file.path.split("/")
     if (parts.length === 1) {
       root.set(file.path, {
-        path: file.path, name: parts[0], size: file.size,
-        directory: false, sha256: file.sha256,
+        path: file.path,
+        name: parts[0],
+        size: file.size,
+        directory: false,
+        sha256: file.sha256,
       })
     } else {
       const dirName = parts[0]
       let dir = root.get(dirName)
       if (!dir) {
-        dir = { path: dirName, name: dirName, size: 0, directory: true, children: [] }
+        dir = {
+          path: dirName,
+          name: dirName,
+          size: 0,
+          directory: true,
+          children: [],
+        }
         root.set(dirName, dir)
       }
       const _rest = parts.slice(1).join("/")
       // _rest unused; kept for clarity of the path structure
       void _rest
       ;(dir.children ??= []).push({
-        path: file.path, name: parts[parts.length - 1], size: file.size,
-        directory: false, sha256: file.sha256,
+        path: file.path,
+        name: parts[parts.length - 1],
+        size: file.size,
+        directory: false,
+        sha256: file.sha256,
       })
     }
   }
   return Array.from(root.values()).sort((a, b) =>
-    a.directory === b.directory ? a.name.localeCompare(b.name) : a.directory ? -1 : 1
+    a.directory === b.directory
+      ? a.name.localeCompare(b.name)
+      : a.directory
+        ? -1
+        : 1
   )
 }
 
@@ -211,7 +253,8 @@ function buildFileTree(files: Array<{path: string; size: number; sha256: string;
 class TransportSkillMarketSource implements SkillMarketSource {
   async list(query: SkillMarketListQueryV2): Promise<SkillMarketV2CatalogPage> {
     const view = (() => {
-      if (query.view === "needs_update" || query.view === "installed") return "mine" as const
+      if (query.view === "needs_update" || query.view === "installed")
+        return "market" as const
       if (query.view === "organization") return "market" as const
       return query.view as "market" | "mine"
     })()
@@ -234,13 +277,25 @@ class TransportSkillMarketSource implements SkillMarketSource {
       pageSize: query.limit,
       publisherType: query.publisher === "all" ? "all" : query.publisher,
     }
-    const result = await skillMarketList(params)
-    const hasMore = page * query.limit < result.total
+    const localInstallView =
+      query.view === "installed" || query.view === "needs_update"
+    const result = localInstallView
+      ? await listCompleteCatalog(params)
+      : await skillMarketList(params)
+    const mapped = result.items.map(mapItemV1ToV2)
+    const items = mapped.filter((item) => {
+      if (query.view === "installed") return item.installedVersion !== null
+      if (query.view === "needs_update") {
+        return item.installState === "update_available"
+      }
+      return true
+    })
+    const hasMore = !localInstallView && page * query.limit < result.total
     const nextCursor = hasMore ? btoa(`page:${page + 1}`) : null
     return {
-      items: result.items.map(mapItemV1ToV2),
+      items,
       nextCursor,
-      total: result.total,
+      total: localInstallView ? items.length : result.total,
       catalogRevision: "1",
       offline: false,
     }
@@ -250,15 +305,24 @@ class TransportSkillMarketSource implements SkillMarketSource {
     return skillMarketCategories()
   }
 
-  async detail(id: string, version?: string | null): Promise<SkillMarketV2Detail> {
+  async detail(
+    id: string,
+    version?: string | null
+  ): Promise<SkillMarketV2Detail> {
     const d = await skillMarketDetail(id, version)
     // SkillMarketDetail extends SkillMarketItem — fields are flat on `d`
     const base = mapItemV1ToV2(d as SkillMarketItem)
     return {
       ...base,
       files: buildFileTree(d.files),
+      installTargets: d.installTargets ?? [],
       ownership: { source: "market" as const, managed: d.ownedByMe },
-      compatibilityDetail: { minClientVersion: null, osArch: null, reason: null, deadline: null },
+      compatibilityDetail: {
+        minClientVersion: null,
+        osArch: null,
+        reason: null,
+        deadline: null,
+      },
     }
   }
 
@@ -272,7 +336,10 @@ class TransportSkillMarketSource implements SkillMarketSource {
     return buildFileTree(d.files)
   }
 
-  async resolve(id: string, version: string): Promise<SkillMarketInstallPlanV2> {
+  async resolve(
+    id: string,
+    version: string
+  ): Promise<SkillMarketInstallPlanV2> {
     // Build a lightweight v2 install plan from the skill detail. The actual
     // download uses the existing `skill_market_install` Tauri command — the
     // plan's ticketEndpoint signals which command the installer should call.
@@ -288,14 +355,14 @@ class TransportSkillMarketSource implements SkillMarketSource {
       slug: d.slug,
       displayName: d.displayName,
       version: v.version,
-      audience: mapAudience(
-        itemRaw["audience"],
-        d.visibility,
-        d.publisherType
-      ),
-      distributionPolicy: ((itemRaw["distribution_policy"] as string | undefined) === "mandatory"
-        ? "mandatory" : "optional") as SkillMarketDistributionPolicy,
-      artifactSize: (raw["artifact_size"] as number | undefined) ?? v.packageSize,
+      audience: mapAudience(itemRaw["audience"], d.visibility, d.publisherType),
+      distributionPolicy: ((itemRaw["distribution_policy"] as
+        | string
+        | undefined) === "mandatory"
+        ? "mandatory"
+        : "optional") as SkillMarketDistributionPolicy,
+      artifactSize:
+        (raw["artifact_size"] as number | undefined) ?? v.packageSize,
       artifactSha256: (raw["artifact_sha256"] as string | undefined) ?? "",
       signature: null,
       ticketEndpoint: "skill_market_install",
@@ -313,22 +380,32 @@ class TransportSkillMarketSource implements SkillMarketSource {
     }
   }
 
-  async publish(request: SkillMarketPublishRequestV2): Promise<SkillMarketV2Item> {
+  async publish(
+    request: SkillMarketPublishRequestV2
+  ): Promise<SkillMarketV2Item> {
     const v1Request: SkillMarketPublishRequest = {
       ...request,
-      visibility: request.audience === "global_market" ? "public"
-        : request.audience === "organization" ? "public" : "private",
+      visibility:
+        request.audience === "global_market"
+          ? "public"
+          : request.audience === "organization"
+            ? "public"
+            : "private",
     }
     const detail = await skillMarketPublish(v1Request)
     return mapItemV1ToV2(detail as unknown as SkillMarketItem)
   }
 
-  async addVersion(request: SkillMarketAddVersionRequestV2): Promise<SkillMarketV2Item> {
+  async addVersion(
+    request: SkillMarketAddVersionRequestV2
+  ): Promise<SkillMarketV2Item> {
     const detail = await skillMarketAddVersion(request)
     return mapItemV1ToV2(detail as unknown as SkillMarketItem)
   }
 
-  async updateMetadata(request: SkillMarketMetadataRequestV2): Promise<SkillMarketV2Item> {
+  async updateMetadata(
+    request: SkillMarketMetadataRequestV2
+  ): Promise<SkillMarketV2Item> {
     const detail = await skillMarketUpdateMetadata({
       id: request.id,
       displayName: request.displayName,
@@ -336,8 +413,12 @@ class TransportSkillMarketSource implements SkillMarketSource {
       category: request.category,
       iconUrl: request.iconUrl,
       tags: request.tags,
-      visibility: request.audience === "global_market" ? "public"
-        : request.audience === "organization" ? "public" : "private",
+      visibility:
+        request.audience === "global_market"
+          ? "public"
+          : request.audience === "organization"
+            ? "public"
+            : "private",
     })
     return mapItemV1ToV2(detail as unknown as SkillMarketItem)
   }
@@ -350,12 +431,30 @@ class TransportSkillMarketSource implements SkillMarketSource {
     await getTransport().call("skill_market_uninstall", { id })
   }
 
-  async rebuildArtifact(id: string, version: string): Promise<SkillMarketV2Version> {
+  async rebuildArtifact(
+    id: string,
+    version: string
+  ): Promise<SkillMarketV2Version> {
     const v = await getTransport().call<SkillMarketVersion>(
-      "skill_market_rebuild_artifact", { id, version }
+      "skill_market_rebuild_artifact",
+      { id, version }
     )
     return mapVersionV1ToV2(v)
   }
+}
+
+async function listCompleteCatalog(
+  params: SkillMarketListParams
+): Promise<Awaited<ReturnType<typeof skillMarketList>>> {
+  const pageSize = 50
+  const first = await skillMarketList({ ...params, page: 1, pageSize })
+  const items = [...first.items]
+  const pages = Math.ceil(first.total / Math.max(1, first.pageSize))
+  for (let page = 2; page <= pages; page += 1) {
+    const next = await skillMarketList({ ...params, page, pageSize })
+    items.push(...next.items)
+  }
+  return { ...first, items, page: 1, pageSize: items.length || pageSize }
 }
 
 /**

@@ -33,7 +33,10 @@ const LIST_PAGE_SIZE = 50
 
 const metricSamples = new Map<string, number[]>()
 
-export function recordSkillMarketMetric(name: string, durationMs: number): void {
+export function recordSkillMarketMetric(
+  name: string,
+  durationMs: number
+): void {
   const samples = metricSamples.get(name) ?? []
   samples.push(durationMs)
   if (samples.length > 200) samples.shift()
@@ -54,7 +57,8 @@ export function getSkillMarketMetricSummary(name: string): {
   const p50 =
     sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.5))] ?? null
   const p95 =
-    sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? null
+    sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ??
+    null
   return { samples: samples.length, p50, p95 }
 }
 
@@ -85,7 +89,9 @@ function isView(value: string | null): value is SkillMarketViewV2 {
   return VIEWS.includes(value as SkillMarketViewV2)
 }
 
-function isPublisher(value: string | null): value is SkillMarketPublisher | "all" {
+function isPublisher(
+  value: string | null
+): value is SkillMarketPublisher | "all" {
   return value === "all" || value === "official" || value === "user"
 }
 
@@ -124,7 +130,9 @@ function parseQuery(searchParams: URLSearchParams): SkillMarketQueryState {
       ? (searchParams.get("publisher") as SkillMarketPublisher | "all")
       : "all",
     distribution: isDistribution(searchParams.get("distribution"))
-      ? (searchParams.get("distribution") as SkillMarketDistributionPolicy | "all")
+      ? (searchParams.get("distribution") as
+          | SkillMarketDistributionPolicy
+          | "all")
       : "all",
     compatibility: isCompatibility(searchParams.get("compatibility"))
       ? (searchParams.get("compatibility") as SkillMarketCompatibility | "all")
@@ -326,23 +334,34 @@ export function useSkillMarket() {
   }, [detailRetryKey, selectedId, selectedVersion, list.revision, source])
 
   const [versions, setVersions] = useState<{
+    skillId: string | null
     value: SkillMarketV2Version[]
     loading: boolean
     error: string | null
-  }>({ value: [], loading: false, error: null })
+  }>({ skillId: null, value: [], loading: false, error: null })
 
   useEffect(() => {
     if (!selectedId) {
-      setVersions({ value: [], loading: false, error: null })
+      setVersions({ skillId: null, value: [], loading: false, error: null })
       return
     }
     let cancelled = false
-    setVersions((current) => ({ ...current, loading: true, error: null }))
+    setVersions((current) => ({
+      ...current,
+      skillId: selectedId,
+      loading: true,
+      error: null,
+    }))
     void source
       .versions(selectedId)
       .then((value) => {
         if (cancelled) return
-        setVersions({ value, loading: false, error: null })
+        setVersions({
+          skillId: selectedId,
+          value,
+          loading: false,
+          error: null,
+        })
       })
       .catch((error) => {
         if (cancelled) return
@@ -358,51 +377,99 @@ export function useSkillMarket() {
   }, [selectedId, list.revision, source])
 
   const filesCache = useRef(new Map<string, SkillMarketV2FileNode[]>())
+  const filesRequestRef = useRef(0)
   const [files, setFiles] = useState<{
+    key: string | null
     value: SkillMarketV2FileNode[] | null
     loading: boolean
     error: string | null
     requested: boolean
-  }>({ value: null, loading: false, error: null, requested: false })
+  }>({
+    key: null,
+    value: null,
+    loading: false,
+    error: null,
+    requested: false,
+  })
 
   const activeVersion =
-    selectedVersion ?? detail.value?.currentVersion.version ?? null
+    selectedVersion ??
+    (detail.value?.id === selectedId
+      ? detail.value.currentVersion.version
+      : null)
+  const activeFilesKey =
+    selectedId && activeVersion
+      ? `${list.revision}:${selectedId}:${activeVersion}`
+      : null
+
+  useEffect(() => {
+    filesRequestRef.current += 1
+    setFiles({
+      key: activeFilesKey,
+      value: null,
+      loading: false,
+      error: null,
+      requested: false,
+    })
+  }, [activeFilesKey])
 
   const openFiles = useCallback(() => {
-    if (!selectedId || !activeVersion) return
-    const key = `${list.revision}:${selectedId}:${activeVersion}`
+    if (!selectedId || !activeVersion || !activeFilesKey) return
+    const requestId = ++filesRequestRef.current
+    const key = activeFilesKey
     const cached = filesCache.current.get(key)
     if (cached) {
-      setFiles({ value: cached, loading: false, error: null, requested: true })
+      setFiles({
+        key,
+        value: cached,
+        loading: false,
+        error: null,
+        requested: true,
+      })
       return
     }
-    let cancelled = false
-    setFiles((current) => ({
-      ...current,
+    setFiles({
+      key,
+      value: null,
       loading: true,
       error: null,
       requested: true,
-    }))
+    })
     void source
       .files(selectedId, activeVersion)
       .then((value) => {
-        if (cancelled) return
+        if (requestId !== filesRequestRef.current) return
         filesCache.current.set(key, value)
-        setFiles({ value, loading: false, error: null, requested: true })
+        setFiles({
+          key,
+          value,
+          loading: false,
+          error: null,
+          requested: true,
+        })
       })
       .catch((error) => {
-        if (cancelled) return
-        setFiles((current) => ({
-          ...current,
+        if (requestId !== filesRequestRef.current) return
+        setFiles({
+          key,
+          value: null,
           loading: false,
           error: toErrorMessage(error),
           requested: true,
-        }))
+        })
       })
-    return () => {
-      cancelled = true
-    }
-  }, [activeVersion, list.revision, selectedId, source])
+  }, [activeFilesKey, activeVersion, selectedId, source])
+
+  const visibleFiles =
+    files.key === activeFilesKey
+      ? files
+      : {
+          key: activeFilesKey,
+          value: null,
+          loading: false,
+          error: null,
+          requested: false,
+        }
 
   const [categories, setCategories] = useState<SkillMarketCategory[]>([])
   useEffect(() => {
@@ -441,8 +508,12 @@ export function useSkillMarket() {
         installState: "installed",
         installedVersion,
       })
+      detailCache.current.clear()
+      if (selectedId === skillId) {
+        setDetailRetryKey((current) => current + 1)
+      }
     },
-    [applyItemPatch]
+    [applyItemPatch, selectedId]
   )
 
   const applyUninstalled = useCallback(
@@ -451,19 +522,44 @@ export function useSkillMarket() {
         installState: "not_installed",
         installedVersion: null,
       })
+      detailCache.current.clear()
+      if (selectedId === skillId) {
+        setDetailRetryKey((current) => current + 1)
+      }
     },
-    [applyItemPatch]
+    [applyItemPatch, selectedId]
   )
 
   const applyArtifactReady = useCallback(
     (skillId: string, rebuilt: SkillMarketV2Version) => {
-      applyItemPatch(skillId, {
-        installState: "not_installed",
-        installedVersion: null,
-        currentVersion: rebuilt,
-      })
+      setVersions((current) => ({
+        ...current,
+        value:
+          current.skillId === skillId
+            ? current.value.map((version) =>
+                version.version === rebuilt.version ? rebuilt : version
+              )
+            : current.value,
+      }))
+      setList((current) => ({
+        ...current,
+        items: current.items.map((item) =>
+          item.id === skillId && item.currentVersion.version === rebuilt.version
+            ? { ...item, currentVersion: rebuilt }
+            : item
+        ),
+      }))
+      setDetail((current) =>
+        current.value?.id === skillId &&
+        current.value.currentVersion.version === rebuilt.version
+          ? {
+              ...current,
+              value: { ...current.value, currentVersion: rebuilt },
+            }
+          : current
+      )
     },
-    [applyItemPatch]
+    []
   )
 
   const applyDeleted = useCallback((skillId: string) => {
@@ -534,8 +630,9 @@ export function useSkillMarket() {
     async (skillId: string) => {
       await source.uninstall(skillId)
       applyUninstalled(skillId)
+      refresh()
     },
-    [applyUninstalled, source]
+    [applyUninstalled, refresh, source]
   )
 
   const rebuildArtifact = useCallback(
@@ -559,7 +656,7 @@ export function useSkillMarket() {
     selectVersion: setSelectedVersion,
     detail,
     versions,
-    files,
+    files: visibleFiles,
     openFiles,
     retryDetail,
     categories,

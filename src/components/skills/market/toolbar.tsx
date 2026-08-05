@@ -236,8 +236,10 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
   const t = useTranslations("SkillMarketV2")
   const { query, onQueryChange } = props
   return (
-    <header className="shrink-0 border-b bg-background/95 px-3 py-2 backdrop-blur">
-      <div className="flex items-center gap-2">
+    <header className="shrink-0 border-b bg-background px-4 py-2.5">
+      <div className="flex min-w-0 items-center gap-3">
+        <h1 className="shrink-0 text-sm font-semibold">{t("title")}</h1>
+        <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
         <ViewTabs
           view={query.view}
           onChange={(view) => onQueryChange({ view })}
@@ -263,10 +265,7 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
                 onClick={props.onRefresh}
               >
                 <RefreshCw
-                  className={cn(
-                    "size-3.5",
-                    props.loading && "animate-spin"
-                  )}
+                  className={cn("size-3.5", props.loading && "animate-spin")}
                   aria-hidden="true"
                 />
               </Button>
@@ -317,7 +316,9 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="recommended">{t("sort.recommended")}</SelectItem>
+              <SelectItem value="recommended">
+                {t("sort.recommended")}
+              </SelectItem>
               <SelectItem value="updated">{t("sort.updated")}</SelectItem>
               <SelectItem value="name">{t("sort.name")}</SelectItem>
               <SelectItem value="installed">{t("sort.installed")}</SelectItem>
@@ -332,7 +333,10 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
           </Badge>
         ) : null}
         {props.revision ? (
-          <span className="truncate" title={t("refresh.revision", { revision: props.revision })}>
+          <span
+            className="truncate"
+            title={t("refresh.revision", { revision: props.revision })}
+          >
             {t("refresh.revision", { revision: props.revision })}
           </span>
         ) : null}

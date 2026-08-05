@@ -59,7 +59,9 @@ pub async fn list_core(
     let builder = client::request(conn, Method::GET, "/skills/list")
         .await?
         .query(&query);
-    parse_value(client::send(builder).await?, None)
+    let mut result: SkillMarketListResult = parse_value(client::send(builder).await?, None)?;
+    apply_local_install_versions(&mut result.items);
+    Ok(result)
 }
 
 pub async fn categories_core(
@@ -79,14 +81,21 @@ pub async fn detail_core(
     let skill_builder = client::request(conn, Method::POST, "/skills/detail")
         .await?
         .json(&body);
-    let skill: SkillMarketItem = parse_value(client::send(skill_builder).await?, Some("skill"))?;
+    let mut skill: SkillMarketItem =
+        parse_value(client::send(skill_builder).await?, Some("skill"))?;
+    apply_local_install_versions(std::slice::from_mut(&mut skill));
     let files_builder = client::request(conn, Method::POST, "/skills/files")
         .await?
         .json(&body);
     let tree: FileTree = parse_value(client::send(files_builder).await?, None)?;
     let mut files = Vec::new();
     flatten_files(tree.tree, &mut files);
-    Ok(SkillMarketDetail { skill, files })
+    let install_targets = crate::commands::acp::installed_market_skill_targets(id_number);
+    Ok(SkillMarketDetail {
+        skill,
+        files,
+        install_targets,
+    })
 }
 
 pub async fn versions_core(
@@ -278,6 +287,7 @@ async fn refresh_detail_or_minimal(
     let fallback = SkillMarketDetail {
         skill,
         files: Vec::new(),
+        install_targets: Vec::new(),
     };
     refresh_detail_or_fallback(conn, id, fallback).await
 }
@@ -299,6 +309,17 @@ async fn refresh_detail_or_fallback(
 fn push_query(query: &mut Vec<(&'static str, String)>, key: &'static str, value: Option<String>) {
     if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
         query.push((key, value));
+    }
+}
+
+fn apply_local_install_versions(items: &mut [SkillMarketItem]) {
+    let installed = crate::commands::acp::installed_market_skill_versions();
+    for item in items {
+        item.installed_version = item
+            .id
+            .parse::<i64>()
+            .ok()
+            .and_then(|id| installed.get(&id).cloned());
     }
 }
 

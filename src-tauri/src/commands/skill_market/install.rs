@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use futures_util::StreamExt;
 use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use reqwest::Method;
@@ -38,8 +40,13 @@ pub async fn install_core(
     conn: &DatabaseConnection,
     id: String,
     version: String,
-    agent_type: AgentType,
+    agent_types: Vec<AgentType>,
 ) -> Result<(), AppCommandError> {
+    validate_install_targets(conn, &agent_types).await?;
+    for agent_type in &agent_types {
+        crate::commands::agent_storage::ensure_active_agent_profile_layout(conn, *agent_type)
+            .await?;
+    }
     let requested_id = parse_id(&id)?;
     let requested_version = semver::Version::parse(version.trim())
         .map_err(|error| {
@@ -67,11 +74,11 @@ pub async fn install_core(
         }
         let package =
             crate::acp::skill_package::validate_zip(&package_bytes, &item.download.content_sha256)?;
-        let marker = market_marker(&item, object_hash)?;
+        let marker = market_marker(&item, object_hash, requested_id, agent_types.clone())?;
         installs.push(MarketSkillInstall { marker, package });
     }
-    crate::commands::acp::install_market_skills(agent_type, installs).map_err(|error| {
-        tracing::error!(skill_id = %id, version = %requested_version, agent_type = %agent_type, error = %error, "[skill-market] local installation failed");
+    crate::commands::acp::install_market_skills(&agent_types, installs).map_err(|error| {
+        tracing::error!(skill_id = %id, version = %requested_version, agent_types = ?agent_types, error = %error, "[skill-market] local installation failed");
         map_local_install_error(error)
     })?;
     tracing::info!(
@@ -79,9 +86,54 @@ pub async fn install_core(
         slug = %root_slug,
         version = %requested_version,
         packages = package_count,
-        agent_type = %agent_type,
+        agent_types = ?agent_types,
         "[skill-market] expert package dependency closure installed"
     );
+    Ok(())
+}
+
+async fn validate_install_targets(
+    conn: &DatabaseConnection,
+    agent_types: &[AgentType],
+) -> Result<(), AppCommandError> {
+    if agent_types.is_empty() {
+        return Err(AppCommandError::invalid_input(
+            "Select at least one installed Agent",
+        ));
+    }
+    let mut unique = BTreeSet::new();
+    for agent_type in agent_types {
+        if !unique.insert(*agent_type) {
+            return Err(AppCommandError::invalid_input(
+                "Skill install targets contain duplicate Agents",
+            ));
+        }
+        if crate::commands::acp::skill_storage_spec(*agent_type).is_none() {
+            return Err(AppCommandError::invalid_input(format!(
+                "{agent_type} does not support Skills"
+            )));
+        }
+        let setting =
+            crate::db::service::agent_setting_service::get_by_agent_type(conn, *agent_type)
+                .await?
+                .ok_or_else(|| {
+                    AppCommandError::invalid_input(format!("{agent_type} is not installed"))
+                })?;
+        if setting
+            .installed_version
+            .as_deref()
+            .is_none_or(str::is_empty)
+        {
+            return Err(AppCommandError::invalid_input(format!(
+                "{agent_type} is not installed"
+            )));
+        }
+        if !setting.enabled {
+            return Err(AppCommandError::invalid_input(format!(
+                "{agent_type} is disabled"
+            )));
+        }
+    }
     Ok(())
 }
 

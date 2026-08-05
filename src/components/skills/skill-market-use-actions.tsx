@@ -103,7 +103,7 @@ export function useSkillMarketActions(options: ActionOptions) {
     await run(
       "install",
       async () => {
-        await skillMarketInstall(detail.id, version, agentType)
+        await skillMarketInstall(detail.id, version, [agentType])
         await options.onInstalledChanged()
       },
       t(options.installedVersion ? "toasts.updated" : "toasts.installed")

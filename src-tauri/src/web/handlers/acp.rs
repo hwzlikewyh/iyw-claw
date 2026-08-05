@@ -255,9 +255,11 @@ pub struct AcpTakeOverAgentSkillParams {
 }
 
 pub async fn acp_take_over_agent_skill(
+    Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<AcpTakeOverAgentSkillParams>,
 ) -> Result<Json<AgentSkillItem>, AppCommandError> {
-    let result = acp_commands::acp_take_over_agent_skill(
+    let result = acp_commands::acp_take_over_agent_skill_core(
+        &state.db.conn,
         params.agent_type,
         params.skill_id,
         params.sync_mode,
@@ -282,9 +284,11 @@ pub struct AcpSaveAgentSkillParams {
 }
 
 pub async fn acp_save_agent_skill(
+    Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<AcpSaveAgentSkillParams>,
 ) -> Result<Json<AgentSkillItem>, AppCommandError> {
-    let result = acp_commands::acp_save_agent_skill(
+    let result = acp_commands::acp_save_agent_skill_core(
+        &state.db.conn,
         params.agent_type,
         params.scope,
         params.skill_id,
@@ -312,9 +316,11 @@ pub struct AcpSetAgentSkillEnabledParams {
 }
 
 pub async fn acp_set_agent_skill_enabled(
+    Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<AcpSetAgentSkillEnabledParams>,
 ) -> Result<Json<AgentSkillItem>, AppCommandError> {
-    let result = acp_commands::acp_set_agent_skill_enabled(
+    let result = acp_commands::acp_set_agent_skill_enabled_core(
+        &state.db.conn,
         params.agent_type,
         params.scope,
         params.skill_id,
