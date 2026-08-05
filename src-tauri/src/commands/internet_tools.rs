@@ -103,12 +103,50 @@ async fn install_agent_reach(paths: &AgentStoragePaths) -> Result<(), String> {
     let uv = binary_cache::find_cached_uv_tool(paths, "uv")
         .ok_or_else(|| "uv missing after runtime installation".to_string())?;
     fs::create_dir_all(uv_tool_bin_dir(paths)).map_err(|error| error.to_string())?;
-    let mut command = crate::process::tokio_command(uv);
-    command
-        .envs(binary_cache::uv_runtime_env(paths))
-        .env("UV_TOOL_BIN_DIR", uv_tool_bin_dir(paths))
-        .args(["tool", "install", "--force", &agent_reach_package_spec()]);
-    run_install_command(command, "Agent Reach").await
+
+    // `uv` fetches the archive itself, so acceleration has to be baked into the
+    // spec handed to it: gh-proxy candidates first, direct GitHub last.
+    //
+    // Retrying the whole `uv tool install` is a blunt instrument — a failure that
+    // is not network-related (a broken sdist build, say) is deterministic and will
+    // repeat against every candidate, multiplying the wait. Distinguishing the two
+    // from outside `uv` means string-matching its stderr, which is more fragile
+    // than the extra attempts are expensive.
+    let candidates = crate::github_mirror::download_candidates(&agent_reach_package_spec());
+    let total = candidates.len();
+    let mut last_error = String::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        let source = index + 1;
+        tracing::info!(
+            source,
+            source_total = total,
+            source_host = %crate::github_mirror::host_of(candidate),
+            "[internet-tools] installing Agent Reach"
+        );
+        let mut command = crate::process::tokio_command(uv.clone());
+        command
+            .envs(binary_cache::uv_runtime_env(paths))
+            .env("UV_TOOL_BIN_DIR", uv_tool_bin_dir(paths))
+            .args(["tool", "install", "--force", candidate.as_str()]);
+        match run_install_command(command, "Agent Reach").await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                tracing::warn!(
+                    source,
+                    source_total = total,
+                    source_host = %crate::github_mirror::host_of(candidate),
+                    error_detail_present = true,
+                    "[internet-tools] Agent Reach source failed"
+                );
+                last_error = error;
+            }
+        }
+    }
+    Err(if last_error.is_empty() {
+        "Agent Reach install failed: no download source available".to_string()
+    } else {
+        last_error
+    })
 }
 
 async fn install_opencli(paths: &AgentStoragePaths) -> Result<(), String> {

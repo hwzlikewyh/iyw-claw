@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::error::AcpError;
@@ -643,51 +644,67 @@ pub(crate) fn find_binary_recursive(dir: &PathBuf, name: &str) -> Option<PathBuf
     None
 }
 
-/// Optional accelerator for GitHub release downloads (uv, OpenCode), which
-/// have no first-party mainland-China mirror. When set to a proxy base URL
-/// (e.g. a self-hosted gh-proxy), `<mirror>/<original-url>` is tried before
-/// GitHub itself. Off by default: these archives carry no checksums, so no
-/// third-party proxy is trusted implicitly.
-const GITHUB_MIRROR_ENV: &str = "IYW_CLAW_GITHUB_MIRROR";
+/// Per-candidate connect timeout. A dead mirror has to fail fast so the next one
+/// gets its turn — one public instance was observed taking ~20s to fail.
+const DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn download_candidates(url: &str) -> Vec<String> {
-    let mut candidates = Vec::new();
-    if url.starts_with("https://github.com/") {
-        if let Ok(prefix) = std::env::var(GITHUB_MIRROR_ENV) {
-            let prefix = prefix.trim().trim_end_matches('/');
-            if prefix.starts_with("https://") || prefix.starts_with("http://") {
-                candidates.push(format!("{prefix}/{url}"));
-            }
-        }
-    }
-    candidates.push(url.to_string());
-    candidates
-}
+/// Stall timeout *between* response chunks, deliberately not an overall
+/// deadline: these archives run to tens of MB, and a slow-but-live connection
+/// must be allowed to finish.
+const DOWNLOAD_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 async fn download_file_with_progress(
     url: &str,
     dest: &PathBuf,
     on_progress: &impl Fn(&str),
 ) -> Result<(), AcpError> {
-    let candidates = download_candidates(url);
-    let (fallbacks, last) = candidates.split_at(candidates.len() - 1);
-    for candidate in fallbacks {
-        match download_file_once(candidate, dest, on_progress).await {
+    // One client for every attempt: rebuilding per candidate would discard the
+    // connection pool and DNS cache between retries.
+    let client = reqwest::Client::builder()
+        .connect_timeout(DOWNLOAD_CONNECT_TIMEOUT)
+        .read_timeout(DOWNLOAD_READ_TIMEOUT)
+        .build()
+        .map_err(|e| AcpError::DownloadFailed(format!("failed to build HTTP client: {e}")))?;
+
+    let candidates = crate::github_mirror::download_candidates(url);
+    let total = candidates.len();
+    let mut last_error = None;
+    for (index, candidate) in candidates.iter().enumerate() {
+        if candidate == url {
+            if index > 0 {
+                on_progress("All mirrors failed, downloading directly from GitHub");
+            }
+        } else {
+            on_progress(&format!(
+                "Trying mirror {}/{}: {candidate}",
+                index + 1,
+                total
+            ));
+        }
+        // `File::create` truncates, so a partial body from a failed attempt is
+        // overwritten rather than appended to by the next one.
+        match download_file_once(&client, candidate, dest, on_progress).await {
             Ok(()) => return Ok(()),
-            Err(error) => on_progress(&format!("Mirror download failed, falling back: {error}")),
+            Err(error) => {
+                on_progress(&format!("Attempt failed: {error}"));
+                last_error = Some(error);
+            }
         }
     }
-    download_file_once(&last[0], dest, on_progress).await
+    Err(last_error.unwrap_or_else(|| {
+        AcpError::DownloadFailed(format!("no download candidate available for {url}"))
+    }))
 }
 
 async fn download_file_once(
+    client: &reqwest::Client,
     url: &str,
     dest: &PathBuf,
     on_progress: &impl Fn(&str),
 ) -> Result<(), AcpError> {
     use futures_util::StreamExt;
 
-    let response = reqwest::Client::new()
+    let response = client
         .get(url)
         .send()
         .await

@@ -89,10 +89,10 @@ pub(super) async fn download_archive(
             format!("failed to build fallback HTTP client: {error}")
         })?;
     let mut last_error = String::new();
-    for (label, url) in [
-        ("mirror", &spec.mirror_url),
-        ("official", &spec.official_url),
-    ] {
+    // Every mirror is exhausted before the official upstream is tried; the
+    // pinned SHA-256 below is what makes trusting a proxy safe here.
+    for (label, url) in spec.sources() {
+        let label = label.as_str();
         announce_source(spec, task_id, emitter, label);
         let source_started = Instant::now();
         let host = source_host(url);

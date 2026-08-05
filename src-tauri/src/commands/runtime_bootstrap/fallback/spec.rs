@@ -20,9 +20,37 @@ pub(super) struct ComponentSpec {
     pub(super) kind: ComponentKind,
     pub(super) version: &'static str,
     pub(super) asset: String,
-    pub(super) mirror_url: String,
+    /// Accelerated sources, best first, all tried before [`Self::official_url`].
+    /// May be empty, in which case only the official source is used.
+    pub(super) mirror_urls: Vec<String>,
     pub(super) official_url: String,
     pub(super) expected_sha256: Option<&'static str>,
+}
+
+impl ComponentSpec {
+    /// Ordered download sources: every mirror first, the official upstream last.
+    ///
+    /// The returned labels are telemetry values. The first mirror keeps the
+    /// label `mirror` and the upstream keeps `official`, so log queries written
+    /// against the previous single-mirror shape keep matching; additional
+    /// mirrors are `mirror-2`, `mirror-3`, ...
+    pub(super) fn sources(&self) -> Vec<(String, &str)> {
+        let mut sources: Vec<(String, &str)> = self
+            .mirror_urls
+            .iter()
+            .enumerate()
+            .map(|(index, url)| {
+                let label = if index == 0 {
+                    "mirror".to_string()
+                } else {
+                    format!("mirror-{}", index + 1)
+                };
+                (label, url.as_str())
+            })
+            .collect();
+        sources.push(("official".to_string(), self.official_url.as_str()));
+        sources
+    }
 }
 
 // Keep these aligned with the mirrored artifacts in iyw_fusion_api_component_artifacts.
@@ -92,10 +120,12 @@ fn node_spec(
     expected_sha256: &'static str,
 ) -> ComponentSpec {
     let asset = format!("node-v{version}-{platform}.zip");
+    // Node ships from nodejs.org, not GitHub, so gh-proxy does not apply here —
+    // npmmirror is already the mainland-friendly source.
     ComponentSpec {
         kind: ComponentKind::Node,
         version,
-        mirror_url: format!("{NODE_MIRROR_BASE}/v{version}/{asset}"),
+        mirror_urls: vec![format!("{NODE_MIRROR_BASE}/v{version}/{asset}")],
         official_url: format!("{NODE_OFFICIAL_BASE}/v{version}/{asset}"),
         expected_sha256: Some(expected_sha256),
         asset,
@@ -104,11 +134,17 @@ fn node_spec(
 
 fn git_spec(asset_arch: &str, expected_sha256: &'static str) -> ComponentSpec {
     let asset = format!("MinGit-{GIT_ASSET_VERSION}-{asset_arch}.zip");
+    let official_url = format!("{GIT_OFFICIAL_BASE}/{GIT_RELEASE_TAG}/{asset}");
+    // npmmirror stays first — it is a real CDN, not a volunteer proxy. The
+    // gh-proxies sit between it and direct GitHub so a stale npmmirror still has
+    // several accelerated routes to try before the slow path.
+    let mut mirror_urls = vec![format!("{GIT_MIRROR_BASE}/{GIT_RELEASE_TAG}/{asset}")];
+    mirror_urls.extend(crate::github_mirror::mirror_urls(&official_url));
     ComponentSpec {
         kind: ComponentKind::Git,
         version: GIT_VERSION,
-        mirror_url: format!("{GIT_MIRROR_BASE}/{GIT_RELEASE_TAG}/{asset}"),
-        official_url: format!("{GIT_OFFICIAL_BASE}/{GIT_RELEASE_TAG}/{asset}"),
+        mirror_urls,
+        official_url,
         expected_sha256: Some(expected_sha256),
         asset,
     }
@@ -116,12 +152,15 @@ fn git_spec(asset_arch: &str, expected_sha256: &'static str) -> ComponentSpec {
 
 fn uv_spec(asset_arch: &str, expected_sha256: &'static str) -> ComponentSpec {
     let asset = format!("uv-{asset_arch}-pc-windows-msvc.zip");
-    let url = format!("{UV_OFFICIAL_BASE}/{UV_VERSION}/{asset}");
+    let official_url = format!("{UV_OFFICIAL_BASE}/{UV_VERSION}/{asset}");
+    // uv has no first-party mainland mirror, so gh-proxy is the only
+    // acceleration available. Previously this slot duplicated the GitHub URL,
+    // which made the "mirror" attempt a second identical direct request.
     ComponentSpec {
         kind: ComponentKind::Uv,
         version: UV_VERSION,
-        mirror_url: url.clone(),
-        official_url: url,
+        mirror_urls: crate::github_mirror::mirror_urls(&official_url),
+        official_url,
         expected_sha256: Some(expected_sha256),
         asset,
     }
