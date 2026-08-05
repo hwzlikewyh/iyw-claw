@@ -44,11 +44,7 @@ fn reconcile_codex(
     let base_url = crate::acp::provider_overlay::model_gateway_base_url_for(AgentType::Codex);
     let next = crate::acp::provider_overlay::patch_codex_toml(&raw, &base_url)
         .map_err(ReconcileError::ParseFailed)?;
-    let changed = raw != next;
-    if changed {
-        super::super::provider_overlay_files::write_if_changed(&path, &raw, &next)
-            .map_err(|error| ReconcileError::WriteFailed(error))?;
-    }
+    let changed = super::codex_profile::reconcile(profile_root, &raw, &next)?;
     verify_toml(&path, spec, changed, started)
 }
 

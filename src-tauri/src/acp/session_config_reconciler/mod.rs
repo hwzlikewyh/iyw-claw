@@ -5,6 +5,7 @@
 //! 本模块是 Task 07 的核心，不依赖 `commands/acp.rs` 等共享入口，
 //! 由 Task 13 统一接线到各 spawn 路径。
 
+mod codex_profile;
 pub mod diagnostics;
 pub mod lock;
 pub mod merge;
