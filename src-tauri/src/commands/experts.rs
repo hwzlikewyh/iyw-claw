@@ -69,6 +69,10 @@ const MANIFEST_FILE: &str = ".manifest.json";
 const EXPERTS_TOML: &str = "experts.toml";
 const MANAGED_COPY_MARKER_FILE: &str = ".iyw-claw-managed-copy.json";
 const MANAGED_COPY_MARKER_VERSION: u8 = 1;
+/// Directories that hold installed runtime dependencies. They are expensive to
+/// rebuild (network installs, native compilation), so a superseded system skill
+/// directory is only discarded once none of these survive inside it.
+const RUNTIME_ENV_DIR_NAMES: [&str; 2] = [".venv", "node_modules"];
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1654,61 +1658,102 @@ fn reconcile_system_repo_links_locked(ids: &[String]) -> Result<(), ExpertsError
             )));
         }
         let target = expert_central_path(id);
-        prepare_system_skill_target(&source, &target, id)?;
+        match prepare_system_skill_target(&source, &target, id)? {
+            SystemSkillTarget::Ready => {}
+            // A runtime environment is still in the way. Linking would have to
+            // delete it, so this skill keeps serving its own directory and is
+            // reconsidered on the next reconcile.
+            SystemSkillTarget::KeptForRuntimeEnv => continue,
+        }
         reconcile_managed_link_entry(&source, &target, true)
             .map_err(|error| experts_error_from_managed(error, &target))?;
     }
     Ok(())
 }
 
-fn prepare_system_skill_target(source: &Path, target: &Path, id: &str) -> Result<(), ExpertsError> {
+/// Whether `target` is ready to be replaced with a managed link to `source`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SystemSkillTarget {
+    /// Nothing is in the way: either the link is already in place, or the
+    /// previous directory has been cleared out.
+    Ready,
+    /// A runtime environment could not be moved to safety, so the previous
+    /// directory was left untouched and must not be linked over.
+    KeptForRuntimeEnv,
+}
+
+/// Make `target` safe to replace with a managed link to `source`.
+///
+/// The skill keeps its own name throughout — the previous directory is never
+/// renamed, so no `<id>.user-backup-<timestamp>` sibling ever appears next to
+/// it. Its content is superseded by the repository checkout at `source` and is
+/// deleted outright, with one exception: the runtime environments named in
+/// [`RUNTIME_ENV_DIR_NAMES`] are moved into `source` first, so they survive the
+/// switch and stay reachable through the link. If one cannot be moved because
+/// the incoming version already ships its own, the whole directory is left
+/// alone rather than trading an installed environment for a link.
+fn prepare_system_skill_target(
+    source: &Path,
+    target: &Path,
+    id: &str,
+) -> Result<SystemSkillTarget, ExpertsError> {
     if managed_link_is_owned(source, target) {
-        return Ok(());
+        return Ok(SystemSkillTarget::Ready);
     }
     if managed_copy_is_owned(source, target) {
         refresh_runtime_venv_from_copy(source, target, id)?;
-        return Ok(());
+        return Ok(SystemSkillTarget::Ready);
     }
     if fs::symlink_metadata(target).is_err() {
-        return Ok(());
+        return Ok(SystemSkillTarget::Ready);
     }
-    let backup = next_system_skill_backup(id);
-    rename_system_skill_entry(target, &backup, id)
-        .map_err(|error| system_skill_backup_error(id, target, &backup, error))?;
-    if let Err(error) = migrate_runtime_venv(source, &backup, id) {
-        return Err(restore_system_skill_backup(target, &backup, id, error));
+    // Checked up front, not per directory: a partial move would strip one
+    // environment and keep another, leaving the skill in a state neither
+    // version installed.
+    if let Some(blocked) = blocking_runtime_env_dir(source, target) {
+        tracing::warn!(
+            target: "system_skills",
+            skill_id = id,
+            target = %target.display(),
+            blocked = %blocked.display(),
+            "keeping the existing system skill directory: its runtime environment \
+             cannot move because the incoming version ships one"
+        );
+        return Ok(SystemSkillTarget::KeptForRuntimeEnv);
+    }
+    migrate_runtime_envs(source, target, id)?;
+    if let Err(error) = remove_superseded_skill_dir(target, id) {
+        return Err(restore_runtime_envs(source, target, id, error));
     }
     tracing::info!(
         target: "system_skills",
         skill_id = id,
-        backup = %backup.display(),
-        "backed up previous system skill directory"
+        target = %target.display(),
+        "replaced the previous system skill directory with the repository copy"
     );
-    Ok(())
+    Ok(SystemSkillTarget::Ready)
 }
 
-fn restore_system_skill_backup(
-    target: &Path,
-    backup: &Path,
-    id: &str,
-    original_error: ExpertsError,
-) -> ExpertsError {
-    match rename_system_skill_entry(backup, target, id) {
-        Ok(()) => original_error,
-        Err(restore_error) => ExpertsError::Io(format!(
-            "{original_error}; failed to restore system skill backup {} to {}: {restore_error}",
-            backup.display(),
-            target.display()
-        )),
+/// Delete the directory that the repository checkout supersedes.
+///
+/// Unlike the rename this replaced, there is no copy left behind to fall back
+/// to. That is deliberate: the content lives in the system repository, so a
+/// failed link is recovered by the next reconcile rather than from a sibling
+/// directory, and the skill never picks up a second name on disk.
+fn remove_superseded_skill_dir(target: &Path, id: &str) -> Result<(), ExpertsError> {
+    // Runtime environments are moved out before this point; refuse to delete if
+    // one is somehow still here rather than destroy an installed environment.
+    if let Some(env) = retained_runtime_env_dir(target) {
+        return Err(ExpertsError::Io(format!(
+            "refusing to replace system skill {} while a runtime environment is still inside it: {}",
+            target.display(),
+            env.display()
+        )));
     }
+    remove_skill_entry(target).map_err(|error| superseded_skill_dir_error(id, target, error))
 }
 
-fn system_skill_backup_error(
-    id: &str,
-    target: &Path,
-    backup: &Path,
-    error: io::Error,
-) -> ExpertsError {
+fn superseded_skill_dir_error(id: &str, target: &Path, error: io::Error) -> ExpertsError {
     #[cfg(windows)]
     if is_windows_file_in_use(&error) {
         return ExpertsError::Io(format!(
@@ -1716,10 +1761,42 @@ fn system_skill_backup_error(
             target.display()
         ));
     }
+    let _ = id;
     ExpertsError::Io(format!(
-        "back up existing system skill {} to {}: {error}",
-        target.display(),
-        backup.display()
+        "replace existing system skill {}: {error}",
+        target.display()
+    ))
+}
+
+/// Undo [`migrate_runtime_envs`] after a later step failed.
+///
+/// Everything this moves was moved out of `target` a moment ago, so putting it
+/// back leaves the skill usable with its environment intact until the next
+/// reconcile retries. A failure here is reported alongside the original error
+/// instead of replacing it.
+fn restore_runtime_envs(
+    source: &Path,
+    target: &Path,
+    id: &str,
+    original_error: ExpertsError,
+) -> ExpertsError {
+    let mut failures = Vec::new();
+    for name in RUNTIME_ENV_DIR_NAMES {
+        let moved = source.join(name);
+        let original = target.join(name);
+        if !moved.is_dir() || original.exists() {
+            continue;
+        }
+        if let Err(error) = rename_system_skill_entry(&moved, &original, id) {
+            failures.push(format!("{} -> {}: {error}", moved.display(), original.display()));
+        }
+    }
+    if failures.is_empty() {
+        return original_error;
+    }
+    ExpertsError::Io(format!(
+        "{original_error}; failed to restore runtime environments [{}]",
+        failures.join("; ")
     ))
 }
 
@@ -1811,34 +1888,55 @@ fn refresh_runtime_venv_from_copy(
     Ok(())
 }
 
-fn migrate_runtime_venv(source: &Path, target: &Path, id: &str) -> Result<(), ExpertsError> {
-    let old_venv = target.join(".venv");
-    let new_venv = source.join(".venv");
-    if old_venv.is_dir() && !new_venv.exists() {
-        rename_system_skill_entry(&old_venv, &new_venv, id).map_err(|error| {
-            ExpertsError::Io(format!(
-                "move runtime environment {} to {}: {error}",
-                old_venv.display(),
-                new_venv.display()
-            ))
-        })?;
+/// Move every runtime environment directory out of the skill directory at
+/// `target` and into the system repository checkout at `source`, so installed
+/// dependencies survive the switch to a managed link instead of being rebuilt.
+///
+/// Callers must clear this with [`blocking_runtime_env_dir`] first: this moves
+/// only what `source` has room for, so a collision it did not screen out would
+/// leave one environment moved and another behind.
+fn migrate_runtime_envs(source: &Path, target: &Path, id: &str) -> Result<(), ExpertsError> {
+    for name in RUNTIME_ENV_DIR_NAMES {
+        let old_env = target.join(name);
+        let new_env = source.join(name);
+        if old_env.is_dir() && !new_env.exists() {
+            rename_system_skill_entry(&old_env, &new_env, id).map_err(|error| {
+                ExpertsError::Io(format!(
+                    "move runtime environment {} to {}: {error}",
+                    old_env.display(),
+                    new_env.display()
+                ))
+            })?;
+        }
     }
     Ok(())
 }
 
-fn next_system_skill_backup(id: &str) -> PathBuf {
-    let base = central_experts_dir().join(format!(
-        "{id}.user-backup-{}",
-        Utc::now().format("%Y%m%d-%H%M%S")
-    ));
-    if !base.exists() {
-        return base;
-    }
-    let file_name = base.file_name().unwrap_or_default().to_string_lossy();
-    (1..)
-        .map(|index| central_experts_dir().join(format!("{file_name}.{index}")))
-        .find(|path| !path.exists())
-        .unwrap_or(base)
+/// The first runtime environment in `target` that [`migrate_runtime_envs`] could
+/// not move, because `source` already holds one under that name.
+///
+/// Some of these are cheap to rebuild and some cost a long native compile, and
+/// nothing on disk says which. So the presence of one is enough to abandon the
+/// switch to a link and leave the directory as it stands.
+fn blocking_runtime_env_dir(source: &Path, target: &Path) -> Option<PathBuf> {
+    RUNTIME_ENV_DIR_NAMES
+        .iter()
+        .map(|name| target.join(name))
+        .find(|path| {
+            path.is_dir()
+                && path
+                    .file_name()
+                    .map(|name| source.join(name).exists())
+                    .unwrap_or(false)
+        })
+}
+
+/// The first runtime environment directory still inside `path`, if any.
+fn retained_runtime_env_dir(path: &Path) -> Option<PathBuf> {
+    RUNTIME_ENV_DIR_NAMES
+        .iter()
+        .map(|name| path.join(name))
+        .find(|path| path.is_dir())
 }
 
 // ─── Commands: read / open ──────────────────────────────────────────────
@@ -1869,4 +1967,258 @@ pub async fn experts_open_central_dir() -> Result<String, ExpertsError> {
     let dir = central_experts_dir();
     fs::create_dir_all(&dir)?;
     Ok(dir.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_dir(path: &Path) {
+        fs::create_dir_all(path).expect("create dir");
+    }
+
+    fn write_file(path: &Path, contents: &str) {
+        if let Some(parent) = path.parent() {
+            make_dir(parent);
+        }
+        fs::write(path, contents).expect("write");
+    }
+
+    /// A repository checkout at `<root>/.system-repo/<id>` and the user-facing
+    /// skill directory at `<root>/<id>`, mirroring the real central layout.
+    fn skill_pair(root: &Path, id: &str) -> (PathBuf, PathBuf) {
+        (root.join(".system-repo").join(id), root.join(id))
+    }
+
+    /// Names in the central directory that look like the old backup siblings.
+    fn backup_siblings(root: &Path) -> Vec<String> {
+        fs::read_dir(root)
+            .expect("read central dir")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.contains("user-backup"))
+            .collect()
+    }
+
+    #[test]
+    fn retained_runtime_env_dir_ignores_a_dir_without_runtime_envs() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let skill_dir = temp.path().join("imagegen");
+        write_file(&skill_dir.join("SKILL.md"), "# skill");
+
+        assert_eq!(retained_runtime_env_dir(&skill_dir), None);
+    }
+
+    #[test]
+    fn retained_runtime_env_dir_finds_each_runtime_dir_name() {
+        for name in RUNTIME_ENV_DIR_NAMES {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let skill_dir = temp.path().join("imagegen");
+            make_dir(&skill_dir.join(name));
+
+            assert_eq!(
+                retained_runtime_env_dir(&skill_dir),
+                Some(skill_dir.join(name)),
+                "expected {name} to be detected"
+            );
+        }
+    }
+
+    #[test]
+    fn blocking_runtime_env_dir_is_clear_when_the_repository_ships_none() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (source, target) = skill_pair(temp.path(), "imagegen");
+        write_file(&source.join("SKILL.md"), "# incoming");
+        for name in RUNTIME_ENV_DIR_NAMES {
+            make_dir(&target.join(name));
+        }
+
+        assert_eq!(blocking_runtime_env_dir(&source, &target), None);
+    }
+
+    #[test]
+    fn blocking_runtime_env_dir_reports_each_colliding_name() {
+        for name in RUNTIME_ENV_DIR_NAMES {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let (source, target) = skill_pair(temp.path(), "imagegen");
+            make_dir(&source.join(name));
+            make_dir(&target.join(name));
+
+            assert_eq!(
+                blocking_runtime_env_dir(&source, &target),
+                Some(target.join(name)),
+                "expected the {name} collision to block the switch"
+            );
+        }
+    }
+
+    #[test]
+    fn migrate_runtime_envs_moves_every_runtime_dir_into_the_repository_copy() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (source, target) = skill_pair(temp.path(), "imagegen");
+        make_dir(&source);
+        for name in RUNTIME_ENV_DIR_NAMES {
+            write_file(&target.join(name).join("marker"), name);
+        }
+
+        migrate_runtime_envs(&source, &target, "imagegen").expect("migrate");
+
+        for name in RUNTIME_ENV_DIR_NAMES {
+            assert_eq!(
+                fs::read_to_string(source.join(name).join("marker")).expect("read"),
+                name,
+                "{name} should arrive in the repository copy intact"
+            );
+            assert!(
+                !target.join(name).exists(),
+                "{name} should no longer be in the skill directory"
+            );
+        }
+    }
+
+    #[test]
+    fn remove_superseded_skill_dir_deletes_content_the_repository_supersedes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let target = temp.path().join("imagegen");
+        write_file(&target.join("SKILL.md"), "# skill");
+        write_file(&target.join("scripts").join("run.py"), "print()");
+
+        remove_superseded_skill_dir(&target, "imagegen").expect("remove");
+
+        assert!(!target.exists(), "the superseded directory should be gone");
+    }
+
+    #[test]
+    fn remove_superseded_skill_dir_refuses_to_delete_a_runtime_env() {
+        for name in RUNTIME_ENV_DIR_NAMES {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let target = temp.path().join("imagegen");
+            write_file(&target.join(name).join("marker"), name);
+
+            let error = remove_superseded_skill_dir(&target, "imagegen")
+                .expect_err("a runtime environment must stop the delete");
+
+            assert!(
+                error.to_string().contains("runtime environment"),
+                "unexpected error for {name}: {error}"
+            );
+            assert!(
+                target.join(name).is_dir(),
+                "{name} must survive the refusal"
+            );
+        }
+    }
+
+    #[test]
+    fn restore_runtime_envs_puts_a_migrated_env_back_and_keeps_the_original_error() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (source, target) = skill_pair(temp.path(), "imagegen");
+        make_dir(&target);
+        write_file(&source.join(".venv").join("marker"), "installed");
+
+        let restored = restore_runtime_envs(
+            &source,
+            &target,
+            "imagegen",
+            ExpertsError::Io("delete failed".into()),
+        );
+
+        assert!(
+            restored.to_string().contains("delete failed"),
+            "the original error must survive: {restored}"
+        );
+        assert_eq!(
+            fs::read_to_string(target.join(".venv").join("marker")).expect("read"),
+            "installed",
+            "the environment should be back in the skill directory"
+        );
+        assert!(
+            !source.join(".venv").exists(),
+            "the environment should no longer be in the repository copy"
+        );
+    }
+
+    #[test]
+    fn prepare_system_skill_target_replaces_a_plain_dir_without_renaming_it() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (source, target) = skill_pair(temp.path(), "imagegen");
+        write_file(&source.join("SKILL.md"), "# incoming");
+        write_file(&target.join("SKILL.md"), "# hand edited");
+
+        let outcome = prepare_system_skill_target(&source, &target, "imagegen").expect("prepare");
+
+        assert_eq!(outcome, SystemSkillTarget::Ready);
+        assert!(
+            !target.exists(),
+            "the directory should be cleared for the link"
+        );
+        assert!(
+            backup_siblings(temp.path()).is_empty(),
+            "no backup sibling may be created: {:?}",
+            backup_siblings(temp.path())
+        );
+    }
+
+    #[test]
+    fn prepare_system_skill_target_moves_runtime_envs_into_the_repository() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (source, target) = skill_pair(temp.path(), "imagegen");
+        write_file(&source.join("SKILL.md"), "# incoming");
+        write_file(&target.join("SKILL.md"), "# previous");
+        for name in RUNTIME_ENV_DIR_NAMES {
+            write_file(&target.join(name).join("marker"), name);
+        }
+
+        let outcome = prepare_system_skill_target(&source, &target, "imagegen").expect("prepare");
+
+        assert_eq!(outcome, SystemSkillTarget::Ready);
+        for name in RUNTIME_ENV_DIR_NAMES {
+            assert_eq!(
+                fs::read_to_string(source.join(name).join("marker")).expect("read"),
+                name,
+                "{name} must survive behind the link"
+            );
+        }
+        assert!(!target.exists(), "the directory should be cleared");
+        assert!(
+            backup_siblings(temp.path()).is_empty(),
+            "no backup sibling may be created"
+        );
+    }
+
+    #[test]
+    fn prepare_system_skill_target_keeps_the_dir_when_a_runtime_env_cannot_move() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (source, target) = skill_pair(temp.path(), "imagegen");
+        write_file(&source.join("SKILL.md"), "# incoming");
+        write_file(&source.join(".venv").join("marker"), "incoming");
+        write_file(&target.join("SKILL.md"), "# previous");
+        write_file(&target.join(".venv").join("marker"), "installed");
+
+        let outcome = prepare_system_skill_target(&source, &target, "imagegen").expect("prepare");
+
+        assert_eq!(outcome, SystemSkillTarget::KeptForRuntimeEnv);
+        assert_eq!(
+            fs::read_to_string(target.join(".venv").join("marker")).expect("read"),
+            "installed",
+            "the installed environment must not be touched"
+        );
+        assert_eq!(
+            fs::read_to_string(target.join("SKILL.md")).expect("read"),
+            "# previous",
+            "the directory is left exactly as it stands"
+        );
+    }
+
+    #[test]
+    fn prepare_system_skill_target_is_a_no_op_when_nothing_is_there() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let (source, target) = skill_pair(temp.path(), "imagegen");
+        write_file(&source.join("SKILL.md"), "# incoming");
+
+        let outcome = prepare_system_skill_target(&source, &target, "imagegen").expect("prepare");
+
+        assert_eq!(outcome, SystemSkillTarget::Ready);
+        assert!(!target.exists());
+    }
 }
