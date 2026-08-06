@@ -322,14 +322,168 @@ async fn run(
     ))
 }
 
+/// Marker line introducing the managed exclude block. Unchanged from the first
+/// version that wrote one, so a block an older build left behind is recognised.
+const EXCLUDE_MARKER: &str = "# iyw-claw runtime files";
+
+/// Paths that must survive the `git clean -fd` in [`checkout_tag`].
+///
+/// These are installed runtime environments and their build artifacts: untracked,
+/// expensive to rebuild, and living inside the checkout because a skill switching
+/// to a managed link migrates them there. A name missing from this list is a name
+/// an update deletes.
+const EXCLUDE_RULES: [&str; 5] = [
+    ".venv/",
+    ".venv.system-update-backup/",
+    "node_modules/",
+    "__pycache__/",
+    "*.pyc",
+];
+
+/// Bring the managed block in `.git/info/exclude` up to the current rule set.
+///
+/// The block is rewritten on every call rather than written once behind a marker
+/// check. The marker-check version could not add a rule after the fact: on a
+/// repository an older build had already marked, the check passed and the new
+/// rule never landed, leaving the path it protects exposed to `git clean -fd`.
+/// That is exactly how `node_modules/` came to be missing.
+///
+/// Rewriting drops every line belonging to the block — the marker, and any line
+/// matching a managed rule wherever it sits — then appends the block afresh.
+/// Lines the user added themselves are kept, in order.
 fn write_local_excludes(repo: &Path) -> Result<(), AppCommandError> {
     let path = repo.join(".git").join("info").join("exclude");
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    const RULES: &str =
-        "\n# iyw-claw runtime files\n.venv/\n.venv.system-update-backup/\n__pycache__/\n*.pyc\n";
-    if !existing.contains("# iyw-claw runtime files") {
-        std::fs::create_dir_all(path.parent().unwrap_or(repo)).map_err(AppCommandError::io)?;
-        std::fs::write(&path, format!("{existing}{RULES}")).map_err(AppCommandError::io)?;
+
+    let mut kept: Vec<&str> = existing
+        .lines()
+        .filter(|line| {
+            let line = line.trim();
+            line != EXCLUDE_MARKER && !EXCLUDE_RULES.contains(&line)
+        })
+        .collect();
+    // Otherwise the blank line that separated the previous block accumulates,
+    // one per rewrite.
+    while kept.last().is_some_and(|line| line.trim().is_empty()) {
+        kept.pop();
     }
-    Ok(())
+
+    let mut contents = String::new();
+    for line in kept {
+        contents.push_str(line);
+        contents.push('\n');
+    }
+    if !contents.is_empty() {
+        contents.push('\n');
+    }
+    contents.push_str(EXCLUDE_MARKER);
+    contents.push('\n');
+    for rule in EXCLUDE_RULES {
+        contents.push_str(rule);
+        contents.push('\n');
+    }
+
+    std::fs::create_dir_all(path.parent().unwrap_or(repo)).map_err(AppCommandError::io)?;
+    std::fs::write(&path, contents).map_err(AppCommandError::io)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The block an older build wrote: the current rules minus `node_modules/`.
+    const LEGACY_BLOCK: &str = "\n# iyw-claw runtime files\n.venv/\n.venv.system-update-backup/\n__pycache__/\n*.pyc\n";
+
+    fn exclude_path(repo: &Path) -> std::path::PathBuf {
+        repo.join(".git").join("info").join("exclude")
+    }
+
+    fn write_exclude_file(repo: &Path, contents: &str) {
+        let path = exclude_path(repo);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("create dir");
+        std::fs::write(path, contents).expect("write");
+    }
+
+    fn read_exclude_file(repo: &Path) -> String {
+        std::fs::read_to_string(exclude_path(repo)).expect("read")
+    }
+
+    #[test]
+    fn write_local_excludes_creates_the_block_in_a_fresh_repository() {
+        let temp = tempfile::tempdir().expect("tempdir");
+
+        write_local_excludes(temp.path()).expect("write excludes");
+
+        let contents = read_exclude_file(temp.path());
+        assert!(contents.contains(EXCLUDE_MARKER));
+        for rule in EXCLUDE_RULES {
+            assert!(
+                contents.lines().any(|line| line == rule),
+                "{rule} should be excluded, got:\n{contents}"
+            );
+        }
+    }
+
+    #[test]
+    fn write_local_excludes_adds_node_modules_to_a_legacy_block() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_exclude_file(temp.path(), LEGACY_BLOCK);
+        assert!(
+            !read_exclude_file(temp.path()).contains("node_modules/"),
+            "precondition: the legacy block must lack the rule"
+        );
+
+        write_local_excludes(temp.path()).expect("write excludes");
+
+        // The marker-check version returned early here, leaving a migrated
+        // node_modules exposed to the `git clean -fd` in checkout_tag.
+        assert!(
+            read_exclude_file(temp.path())
+                .lines()
+                .any(|line| line == "node_modules/"),
+            "a repository an older build marked must still gain the new rule"
+        );
+    }
+
+    #[test]
+    fn write_local_excludes_keeps_the_marker_appearing_once_across_rewrites() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_exclude_file(temp.path(), LEGACY_BLOCK);
+
+        write_local_excludes(temp.path()).expect("first");
+        let first = read_exclude_file(temp.path());
+        write_local_excludes(temp.path()).expect("second");
+        let second = read_exclude_file(temp.path());
+
+        assert_eq!(first, second, "rewriting must be idempotent");
+        assert_eq!(
+            second.lines().filter(|line| *line == EXCLUDE_MARKER).count(),
+            1,
+            "the marker must not accumulate:\n{second}"
+        );
+        for rule in EXCLUDE_RULES {
+            assert_eq!(
+                second.lines().filter(|line| line == &rule).count(),
+                1,
+                "{rule} must not accumulate:\n{second}"
+            );
+        }
+    }
+
+    #[test]
+    fn write_local_excludes_preserves_lines_the_user_added() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        write_exclude_file(temp.path(), "# my own notes\nscratch/\n*.log\n");
+
+        write_local_excludes(temp.path()).expect("write excludes");
+
+        let contents = read_exclude_file(temp.path());
+        for line in ["# my own notes", "scratch/", "*.log"] {
+            assert!(
+                contents.lines().any(|existing| existing == line),
+                "{line} should be kept, got:\n{contents}"
+            );
+        }
+        assert!(contents.contains(EXCLUDE_MARKER));
+    }
 }
