@@ -12,6 +12,7 @@ import {
   installStateBadgeInfo,
   primaryInstallAction,
   type MarketBadgeInfo,
+  type SkillMarketTranslator,
   type SkillMarketV2Item,
 } from "@/lib/skill-market"
 import { cn } from "@/lib/utils"
@@ -166,7 +167,7 @@ function SkillCardFooter({
   disabled: boolean
   onPrimaryAction: (item: SkillMarketV2Item) => void
 }) {
-  const t = useTranslations("SkillMarketV2")
+  const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
   return (
     <div className="mt-2.5 flex min-w-0 items-center gap-2">
       <div className="flex min-w-0 flex-1 gap-1 overflow-hidden">

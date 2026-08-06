@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { MarketBadgeGroup } from "@/components/skills/market/badges"
 import { DetailInspectorTabs } from "@/components/skills/market/detail-inspector-tabs"
 import type {
+  SkillMarketTranslator,
   SkillMarketV2Detail,
   SkillMarketV2FileNode,
   SkillMarketV2Version,
@@ -59,7 +60,7 @@ function DetailState({
   error: string | null
   onRetry: () => void
 }) {
-  const t = useTranslations("SkillMarketV2")
+  const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
   if (loading) {
     return (
       <div className="space-y-3 p-4">
