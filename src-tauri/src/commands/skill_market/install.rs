@@ -66,12 +66,22 @@ pub async fn install_core(
             error
         })?;
         let object_hash = crate::acp::skill_package::hash_bytes(&package_bytes);
-        if !object_hash.eq_ignore_ascii_case(&item.download.object_sha256) {
+        if !item.download.object_sha256.trim().is_empty()
+            && !object_hash.eq_ignore_ascii_case(&item.download.object_sha256)
+        {
             return Err(AppCommandError::invalid_input(format!(
                 "Downloaded Skill package integrity check failed for {}@{}",
                 item.slug, item.version
             )));
         }
+        tracing::debug!(
+            skill_id = %skill_id,
+            version = %item_version,
+            bytes = package_bytes.len(),
+            declared_package_size = item.download.package_size,
+            object_sha256_present = !item.download.object_sha256.trim().is_empty(),
+            "[skill-market] package transfer completed"
+        );
         let package =
             crate::acp::skill_package::validate_zip(&package_bytes, &item.download.content_sha256)?;
         let marker = market_marker(&item, object_hash, requested_id, agent_types.clone())?;
@@ -157,12 +167,15 @@ pub async fn revalidate_artifact_core(
     let package_bytes =
         download_package(conn, &root.skill_id, &root.version, &root.download).await?;
     let object_hash = crate::acp::skill_package::hash_bytes(&package_bytes);
-    if !object_hash.eq_ignore_ascii_case(&root.download.object_sha256) {
+    if !root.download.object_sha256.trim().is_empty()
+        && !object_hash.eq_ignore_ascii_case(&root.download.object_sha256)
+    {
         return Err(AppCommandError::invalid_input(format!(
             "Rebuilt Skill artifact integrity check failed for {}@{}",
             root.slug, root.version
         )));
     }
+    crate::acp::skill_package::validate_zip(&package_bytes, &root.download.content_sha256)?;
     tracing::info!(
         skill_id = %id,
         version = %requested_version,
@@ -213,7 +226,7 @@ async fn download_package(
         ));
     }
     for attempt in 1..=PACKAGE_DOWNLOAD_ATTEMPTS {
-        match download_package_once(conn, skill_id, version, metadata).await {
+        match download_package_once(conn, skill_id, version).await {
             Ok(bytes) => return Ok(bytes),
             Err(PackageDownloadError::Retryable(error)) if attempt < PACKAGE_DOWNLOAD_ATTEMPTS => {
                 tracing::warn!(
@@ -236,7 +249,6 @@ async fn download_package_once(
     conn: &DatabaseConnection,
     skill_id: &str,
     version: &str,
-    metadata: &SkillDownloadInfo,
 ) -> Result<Vec<u8>, PackageDownloadError> {
     let id = parse_id(skill_id).map_err(PackageDownloadError::permanent)?;
     let response = client::request(conn, Method::POST, "/skills/download")
@@ -252,14 +264,14 @@ async fn download_package_once(
                     .with_detail(error.to_string()),
             )
         })?;
-    validate_download_response(&response, metadata.package_size)
+    validate_download_response(&response, MAX_PACKAGE_BYTES)
         .map_err(PackageDownloadError::permanent)?;
-    read_download(response, metadata.package_size).await
+    read_download(response, MAX_PACKAGE_BYTES).await
 }
 
 fn validate_download_response(
     response: &reqwest::Response,
-    expected_size: u64,
+    max_size: u64,
 ) -> Result<(), AppCommandError> {
     if !response.status().is_success() {
         return Err(
@@ -285,10 +297,10 @@ fn validate_download_response(
         .get(CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok())
-        .is_some_and(|value| value != expected_size)
+        .is_some_and(|value| value > max_size)
     {
         return Err(AppCommandError::invalid_input(
-            "Skill package size does not match the release metadata",
+            "Skill package exceeds the allowed size",
         ));
     }
     Ok(())
@@ -296,9 +308,14 @@ fn validate_download_response(
 
 async fn read_download(
     response: reqwest::Response,
-    expected_size: u64,
+    max_size: u64,
 ) -> Result<Vec<u8>, PackageDownloadError> {
-    let mut bytes = Vec::with_capacity(expected_size as usize);
+    let declared_size = response
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok());
+    let mut bytes = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
@@ -307,17 +324,18 @@ async fn read_download(
                     .with_detail(error.to_string()),
             )
         })?;
-        if bytes.len().saturating_add(chunk.len()) as u64 > expected_size {
+        if bytes.len().saturating_add(chunk.len()) as u64 > max_size {
             return Err(PackageDownloadError::permanent(
-                AppCommandError::invalid_input("Skill package exceeds its declared size"),
+                AppCommandError::invalid_input("Skill package exceeds the allowed size"),
             ));
         }
         bytes.extend_from_slice(&chunk);
     }
-    if bytes.len() as u64 != expected_size {
+    if declared_size.is_some_and(|value| bytes.len() as u64 != value) {
         return Err(PackageDownloadError::retryable(
             AppCommandError::network("Skill package is incomplete").with_detail(format!(
-                "expected_size={expected_size}, received_size={}",
+                "declared_size={}, received_size={}",
+                declared_size.unwrap_or_default(),
                 bytes.len()
             )),
         ));

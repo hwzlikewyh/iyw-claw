@@ -1,6 +1,13 @@
 "use client"
 
-import { RefreshCw, Search, SlidersHorizontal, Upload, X } from "lucide-react"
+import {
+  Boxes,
+  RefreshCw,
+  Search,
+  SlidersHorizontal,
+  Upload,
+  X,
+} from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -236,19 +243,32 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
   const t = useTranslations("SkillMarketV2")
   const { query, onQueryChange } = props
   return (
-    <header className="shrink-0 border-b bg-background px-4 py-2.5">
+    <header className="shrink-0 border-b bg-background px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
-        <h1 className="shrink-0 text-sm font-semibold">{t("title")}</h1>
-        <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="flex size-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Boxes className="size-4" aria-hidden="true" />
+          </span>
+          <h1 className="text-sm font-semibold tracking-tight">{t("title")}</h1>
+        </div>
+        <span className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />
         <ViewTabs
           view={query.view}
           onChange={(view) => onQueryChange({ view })}
         />
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {props.offline ? (
+            <Badge
+              variant="outline"
+              className="hidden h-7 px-2 text-[10px] sm:inline-flex"
+            >
+              {t("refresh.offline")}
+            </Badge>
+          ) : null}
           <Button
             size="sm"
             variant="outline"
-            className="h-8"
+            className="h-8 gap-1.5"
             onClick={props.onUpload}
           >
             <Upload className="size-3.5" aria-hidden="true" />
@@ -274,7 +294,7 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
           </Tooltip>
         </div>
       </div>
-      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative min-w-0 flex-1">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -285,7 +305,7 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
             onChange={(event) => onQueryChange({ q: event.target.value })}
             placeholder={t("search.placeholder")}
             aria-label={t("search.placeholder")}
-            className="h-8 pl-8 pr-8"
+            className="h-9 border-border/70 bg-muted/30 pl-8 pr-8 shadow-none focus-visible:bg-background"
           />
           {query.q ? (
             <Button
@@ -312,7 +332,7 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
               onQueryChange({ sort: value as SkillMarketQueryState["sort"] })
             }
           >
-            <SelectTrigger size="sm" className="h-8 w-32">
+            <SelectTrigger size="sm" className="h-9 w-32">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -325,21 +345,6 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
             </SelectContent>
           </Select>
         </div>
-      </div>
-      <div className="mt-1.5 flex h-4 items-center gap-2 text-[10px] text-muted-foreground">
-        {props.offline ? (
-          <Badge variant="outline" className="h-4 px-1 text-[10px]">
-            {t("refresh.offline")}
-          </Badge>
-        ) : null}
-        {props.revision ? (
-          <span
-            className="truncate"
-            title={t("refresh.revision", { revision: props.revision })}
-          >
-            {t("refresh.revision", { revision: props.revision })}
-          </span>
-        ) : null}
       </div>
     </header>
   )

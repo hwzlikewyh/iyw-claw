@@ -205,6 +205,7 @@ pub struct SkillDownloadInfo {
     pub version: String,
     pub package_size: u64,
     pub content_sha256: String,
+    #[serde(default, deserialize_with = "null_as_default")]
     pub object_sha256: String,
 }
 

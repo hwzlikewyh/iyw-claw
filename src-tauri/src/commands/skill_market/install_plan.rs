@@ -128,18 +128,15 @@ fn validate_install_plan_item(
     validate_direct_dependencies(item, previous)
 }
 
-/// A release without a real artifact exposes placeholder metadata: the
-/// per-file upload path writes the raw file size into `packageSize` and
-/// `objectSha256` does not describe any real ZIP. Treat missing/empty
-/// digest or a zero size as "artifact not ready" instead of a network
-/// glitch so the client never repeats three identical downloads.
+/// Validate the metadata needed to safely download and inspect an artifact.
+/// `packageSize` is a transfer bound, not an exact ZIP length: the gateway
+/// may build a compressed ZIP at request time, while `contentSha256` remains
+/// the stable digest of the extracted file tree. `objectSha256` is optional
+/// for older releases and, when present, is checked against the ZIP bytes.
 fn ensure_download_artifact_ready(
     download: &super::types::SkillDownloadInfo,
 ) -> Result<(), AppCommandError> {
-    if download.package_size == 0
-        || download.object_sha256.trim().is_empty()
-        || download.content_sha256.trim().is_empty()
-    {
+    if download.package_size == 0 || download.content_sha256.trim().is_empty() {
         return Err(AppCommandError::artifact_not_ready(
             "The Skill artifact is not ready yet; this version cannot be installed",
         )
