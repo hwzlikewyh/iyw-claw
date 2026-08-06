@@ -17,25 +17,23 @@ import {
 interface OsInfo {
   osName: string
   arch: string
-  cpuCount: number
-  uptimeSecs: number
 }
 
-interface AgentProcessInfo {
+interface AppProcessInfo {
   pid: number
   displayName: string
   agentType: string | null
+  isMainProcess: boolean
   cpuUsage: number
   memoryBytes: number
   status: string
 }
 
-interface SystemPerformanceStats {
+interface AppPerformanceStats {
   cpuUsage: number
   memoryUsedBytes: number
-  memoryTotalBytes: number
   osInfo: OsInfo
-  processes: AgentProcessInfo[]
+  processes: AppProcessInfo[]
 }
 
 // ─── 工具函数 ─────────────────────────────────────────────────────────────
@@ -46,17 +44,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024)
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
-}
-
-function formatUptime(secs: number): string {
-  const days = Math.floor(secs / 86400)
-  const hours = Math.floor((secs % 86400) / 3600)
-  const mins = Math.floor((secs % 3600) / 60)
-  const parts: string[] = []
-  if (days > 0) parts.push(`${days}d`)
-  if (hours > 0) parts.push(`${hours}h`)
-  if (mins > 0) parts.push(`${mins}m`)
-  return parts.length > 0 ? parts.join(" ") : "< 1m"
 }
 
 // ─── StatCard ────────────────────────────────────────────────────────────
@@ -92,7 +79,7 @@ function StatCard({ label, value, sub, progress }: StatCardProps) {
 
 // ─── ProcessRow ──────────────────────────────────────────────────────────
 
-function ProcessRow({ proc }: { proc: AgentProcessInfo }) {
+function ProcessRow({ proc }: { proc: AppProcessInfo }) {
   const isRunning = proc.status === "运行中"
   return (
     <div className="flex items-center gap-4 px-4 py-3 hover:bg-muted/40 transition-colors">
@@ -119,7 +106,7 @@ function ProcessRow({ proc }: { proc: AgentProcessInfo }) {
 // ─── PerformanceSettings ─────────────────────────────────────────────────
 
 export function PerformanceSettings() {
-  const [stats, setStats] = useState<SystemPerformanceStats | null>(null)
+  const [stats, setStats] = useState<AppPerformanceStats | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(false)
@@ -131,7 +118,7 @@ export function PerformanceSettings() {
     setError(null)
     try {
       const transport = getShellTransport()
-      const result = await transport.call<SystemPerformanceStats>(
+      const result = await transport.call<AppPerformanceStats>(
         "get_performance_stats",
         {}
       )
@@ -163,11 +150,11 @@ export function PerformanceSettings() {
   }, [autoRefresh, fetchStats])
 
   const cpuPercent = stats ? stats.cpuUsage.toFixed(1) : "—"
-  const memPercent = stats
-    ? ((stats.memoryUsedBytes / stats.memoryTotalBytes) * 100).toFixed(1)
-    : "—"
-  const agentProcs = stats?.processes.filter((p) => p.agentType !== null) ?? []
-  const totalAgentMemory = agentProcs.reduce((s, p) => s + p.memoryBytes, 0)
+  const attachedProcs = stats?.processes.filter((p) => !p.isMainProcess) ?? []
+  const attachedMemory = attachedProcs.reduce(
+    (sum, proc) => sum + proc.memoryBytes,
+    0
+  )
 
   return (
     <SettingsPageLayout>
@@ -209,35 +196,25 @@ export function PerformanceSettings() {
       {/* 统计卡片 */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard
-          label="系统 CPU"
+          label="应用总 CPU"
           value={`${cpuPercent}%`}
+          sub="当前软件及附属进程"
           progress={stats ? stats.cpuUsage : 0}
         />
         <StatCard
-          label="系统内存"
-          value={`${memPercent}%`}
-          sub={
-            stats
-              ? `${formatBytes(stats.memoryUsedBytes)} / ${formatBytes(stats.memoryTotalBytes)}`
-              : undefined
-          }
-          progress={
-            stats ? (stats.memoryUsedBytes / stats.memoryTotalBytes) * 100 : 0
-          }
+          label="应用总内存"
+          value={stats ? formatBytes(stats.memoryUsedBytes) : "—"}
+          sub="包含当前应用及附属进程"
         />
         <StatCard
-          label="智能体进程"
-          value={String(agentProcs.length)}
-          sub={`占用 ${formatBytes(totalAgentMemory)}`}
+          label="附属进程"
+          value={String(attachedProcs.length)}
+          sub={`占用 ${formatBytes(attachedMemory)}`}
         />
         <StatCard
-          label="系统运行时间"
-          value={stats ? formatUptime(stats.osInfo.uptimeSecs) : "—"}
-          sub={
-            stats
-              ? `${stats.osInfo.cpuCount} 核 · ${stats.osInfo.arch}`
-              : undefined
-          }
+          label="监控范围"
+          value={stats ? `${stats.processes.length} 个进程` : "—"}
+          sub="当前软件及附属进程"
         />
       </div>
 
@@ -245,11 +222,10 @@ export function PerformanceSettings() {
       <div className="rounded-lg border overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
           <span className="text-sm font-medium">
-            进程
+            应用进程
             {stats?.osInfo.osName && (
               <span className="ml-2 text-xs text-muted-foreground font-normal">
-                {stats.osInfo.osName} · {stats.osInfo.arch} · 运行{" "}
-                {formatUptime(stats.osInfo.uptimeSecs)}
+                {stats.osInfo.osName} · {stats.osInfo.arch}
               </span>
             )}
           </span>
@@ -292,14 +268,14 @@ export function PerformanceSettings() {
         )}
       </div>
 
-      {/* 智能体内存汇总 */}
-      {agentProcs.length > 0 && (
+      {/* 附属进程内存汇总 */}
+      {attachedProcs.length > 0 && (
         <div className="rounded-lg border overflow-hidden">
           <div className="px-4 py-3 border-b bg-muted/30">
-            <span className="text-sm font-medium">智能体内存汇总</span>
+            <span className="text-sm font-medium">附属进程内存汇总</span>
           </div>
           <div className="divide-y">
-            {agentProcs
+            {attachedProcs
               .slice()
               .sort((a, b) => b.memoryBytes - a.memoryBytes)
               .map((proc) => (
@@ -317,8 +293,8 @@ export function PerformanceSettings() {
                         className="h-full rounded-full bg-blue-500/70 transition-all duration-500"
                         style={{
                           width:
-                            totalAgentMemory > 0
-                              ? `${((proc.memoryBytes / totalAgentMemory) * 100).toFixed(1)}%`
+                            attachedMemory > 0
+                              ? `${((proc.memoryBytes / attachedMemory) * 100).toFixed(1)}%`
                               : "0%",
                         }}
                       />

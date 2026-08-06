@@ -73,7 +73,7 @@ function ViewTabs({
     >
       <TabsList
         variant="line"
-        className="h-8 max-w-full justify-start overflow-x-auto"
+        className="h-8 max-w-full justify-start overflow-visible"
       >
         {VIEW_ORDER.map((item) => (
           <TabsTrigger key={item} value={item} className="h-8 flex-none">

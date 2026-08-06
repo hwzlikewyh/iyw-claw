@@ -8,7 +8,7 @@ use crate::commands::performance;
 
 pub async fn get_performance_stats(
     Extension(_state): Extension<Arc<AppState>>,
-) -> Result<Json<performance::SystemPerformanceStats>, AppCommandError> {
+) -> Result<Json<performance::AppPerformanceStats>, AppCommandError> {
     let stats = performance::get_performance_stats_core().await;
     Ok(Json(stats))
 }
