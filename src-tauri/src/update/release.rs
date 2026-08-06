@@ -110,7 +110,7 @@ pub fn configured_base_url() -> String {
 
 pub fn endpoint(preferences: &UpdatePreferences, reason: CheckReason) -> String {
     format!(
-        "{}/app-updates/v1/check/{{{{target}}}}/{{{{arch}}}}/{{{{current_version}}}}?product=iyw-claw&runtime=desktop&channel={}&reason={}",
+        "{}/app-updates/v1/tauri/check/{{{{target}}}}/{{{{arch}}}}/{{{{current_version}}}}?product=iyw-claw&runtime=desktop&channel={}&reason={}",
         configured_base_url(),
         preferences.channel.as_str(),
         reason.as_str()

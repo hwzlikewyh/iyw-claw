@@ -411,10 +411,10 @@ defects:
     owner_task: T06/T13
     reproduction:
       - update/version.rs:19,24 硬编码 GitHub latest.json 与下载前缀
-      - 更新客户端与 release.rs（gateway app-updates/v1/check）并存，路径未统一
+      - 更新客户端与 release.rs（gateway app-updates/v1/tauri/check）并存，路径未统一
     evidence:
       - iyw-claw/src-tauri/src/update/version.rs:19,24
-      - iyw-claw/src-tauri/src/update/release.rs:21,97
+      - iyw-claw/src-tauri/src/update/release.rs:21,113
     root_cause: 应用更新链路保留了 GitHub 直连默认路径，未完全收敛到后端版本决策
     fix_commit: null
     regression_evidence: 待实现（更新清单仅来自 Version Center/TOS 票据；GitHub 仅作显式灾备白名单）

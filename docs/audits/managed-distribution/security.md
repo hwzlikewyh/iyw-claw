@@ -43,7 +43,7 @@
 - 缓解：`runtime_bootstrap.rs` 有 pinned SHA-256 与 15s/600s 超时；`binary_cache.rs` 有 sha256 校验。
 
 ### 3.2 应用更新直连（IYW-DIST-002，P2，新发现）
-- `update/version.rs:19,24` 仍把 GitHub `releases/latest/download/latest.json` 作为默认更新清单与下载前缀，未收敛到 Version Center。与 `update/release.rs`（走 gateway `app-updates/v1/check`）并存，路径未统一。
+- `update/version.rs:19,24` 仍把 GitHub `releases/latest/download/latest.json` 作为默认更新清单与下载前缀，未收敛到 Version Center。与 `update/release.rs`（走 gateway `app-updates/v1/tauri/check`）并存，路径未统一。
 
 ### 3.3 ZIP 解包安全（已检查，良好）
 - `acp/skill_package.rs`：拒绝加密条目与符号链接、`MAX_ARCHIVE_ENTRIES=1024`、`MAX_FILES=512`、`MAX_EXPANDED_BYTES=50MiB`、`validate_path`（防路径穿越）、`register_path` 防重复路径。本轮未发现 Zip Slip/炸弹缺口。
