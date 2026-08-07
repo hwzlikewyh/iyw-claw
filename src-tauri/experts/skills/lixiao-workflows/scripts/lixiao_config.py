@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_CONFIG_DIR = Path(r"C:\Users\iyw\.iyw-claw")
 IYW_ACCOUNT_TOKEN_FILENAME = "iyw-account-token.json"
 ALLOWED_FIELDS = frozenset(
     {
@@ -70,7 +69,7 @@ def resolve_config_dir(explicit: str | Path | None = None) -> Path:
     if explicit:
         return Path(explicit).expanduser()
     configured = os.getenv("LIXIAO_CONFIG_DIR")
-    return Path(configured).expanduser() if configured else DEFAULT_CONFIG_DIR
+    return Path(configured).expanduser() if configured else Path.home() / ".iyw-claw"
 
 
 def _normalized_key(key: str) -> str:

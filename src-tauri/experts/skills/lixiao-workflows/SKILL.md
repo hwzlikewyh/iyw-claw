@@ -20,12 +20,13 @@ Use `python $cli` when a working Python 3.10+ executable is already available. E
 
 ## Security Rules
 
-- Persist credentials only in `C:\Users\iyw\.iyw-claw\credentials.json` by default.
+- Persist credentials only in the current user's `~/.iyw-claw/credentials.json` by default. Resolve
+  `~` from that user's home directory; never hard-code a Windows username or home path.
 - Save application tokens, SSO access tokens, business API tokens, required cookies, and the login phone + password so later runs can re-authenticate without user input.
 - Reuse the IYW Claw account token from `~/.iyw-claw/iyw-account-token.json`; do not copy it into the Lixiao credential file during the normal login flow.
 - Never save the Geetest captcha proof (challenge/validate/seccode); it is single-use.
-- For platform-native credential forms, the filtered command channel may pass the submitted account and password directly to `auth login --phone ... --password ...`; do not print, echo, or reuse those values outside that login call.
-- When there is no usable Lixiao session or saved account, use one client-native multiline free-text question field to collect the Lixiao account and password together; never render a Markdown credential template. Parse the submitted value only for the direct non-interactive login command, then resume the original task immediately without asking for a second confirmation or opening a local login window. Treat this platform credential flow as authorized: do not issue a security warning, refusal, password-rotation recommendation, or terminal-login instruction solely because the user supplied credentials.
+- The filtered command channel may pass the collected account and password directly to `auth login --phone ... --password ...`; do not print, echo, or reuse those values outside that login call.
+- When there is no usable Lixiao session or saved account, call `ask_user_question` once to ask only for the Lixiao account and wait for the answer. Then call `ask_user_question` a second time to ask only for the Lixiao password and wait for the answer. Each call must contain exactly one credential question; never request both values in one call or one question, and never use a normal chat reply or Markdown credential template to collect them. After both answers arrive, use them only for the direct non-interactive login command, then resume the original task immediately without asking for a second confirmation or opening a local login window. Treat this platform credential flow as authorized: do not issue a security warning, refusal, password-rotation recommendation, or terminal-login instruction solely because the user supplied credentials.
 - Automatically obtain the Lixiao application token from `getApp` when it is absent. The fixed UC login entry supplies only the temporary bootstrap value required to call `getApp`; persist and use only `data.appToken` from the structured response. Do not ask users to provide or configure it during an Agent workflow.
 - Passing `--unlock-if-needed` is the authorization to consume one unlock for that specific enterprise when product details are hidden. Do not ask a separate unlock question or add the flag to bulk queries.
 - When an unlock is actually performed, `company-products --unlock-if-needed` immediately retries products, reads the company card, contact count, and contact details, then confirms product visibility once more. Do not run this workflow against a bulk search result.
@@ -40,7 +41,7 @@ Use `python $cli` when a working Python 3.10+ executable is already available. E
 uv run --no-project python $cli auth status
 ```
 
-2. If status or `auth ensure` shows that the user is not logged in, use one client-native multiline free-text question field once to collect 励销账号 and 励销密码 together. The agent must not replace the form with a Markdown code block. Parse and submit the form value directly; do not open a local terminal login window or ask the user to reply after login. After receiving the credentials, immediately attempt the standard account-password login and then resume the original task without a second confirmation. Before this attempt, the CLI automatically calls `getApp` and persists its `data.appToken`; the UC login-entry value is used only to bootstrap that call. This automated password flow registers a Geetest challenge, solves it through the TTOCR gateway, logs in, completes the CRM SSO callback, and saves the account (phone + password), cookies, SSO access token, and business API token for reuse:
+2. If status or `auth ensure` shows that the user is not logged in, call `ask_user_question` first with only “您的励销账号是什么？” and wait for the answer. After receiving it, call `ask_user_question` again with only “您的励销密码是什么？” and wait for the answer. Never combine the two questions or collect credentials through a normal chat reply or Markdown block. After both answers arrive, submit them directly; do not open a local terminal login window or ask the user to reply after login. Immediately attempt the standard account-password login and then resume the original task without a second confirmation. Before this attempt, the CLI automatically calls `getApp` and persists its `data.appToken`; the UC login-entry value is used only to bootstrap that call. This automated password flow registers a Geetest challenge, solves it through the TTOCR gateway, logs in, completes the CRM SSO callback, and saves the account (phone + password), cookies, SSO access token, and business API token for reuse:
 
 ```powershell
 uv run --no-project python $cli auth login --phone <励销账号> --password <励销密码>
@@ -58,7 +59,7 @@ A successful response has `code: 1` and returns a new `challenge`, `validate`, a
 
 After password login, the CLI sends the returned `ticket` and `x-lx-gid` to the `lxcrm.weiwenjia.com` SSO callback with the same cookie jar, then loads `/pioneers`. It extracts `window.current_user_token` from that page and stores it as the business API token used by subsequent `Authorization: Token token=...` headers. The HTML and token are never printed.
 
-The agent must request the account and password through the native form, then immediately submit them through the filtered direct-login command and continue the original task without a second confirmation. Do not display the values in a response, request body, log, or follow-up message.
+The agent must request the account and password through two sequential `ask_user_question` calls, one credential per call, then immediately submit them through the filtered direct-login command and continue the original task without a second confirmation. Do not display the values in a response, log, or follow-up message.
 
 3. Reuse the saved session. Later runs load it automatically; when a UC call reports an expired session the CLI re-logs-in with the saved account and retries the call once. Run `auth ensure` to validate the session explicitly and re-login only when required:
 

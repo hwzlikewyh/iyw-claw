@@ -1,7 +1,7 @@
 interface:
   display_name: "IYW 图片工作流"
-  short_description: "独立知识库检索、分身生图及已确认的 IYW 电商图片操作"
-  default_prompt: "使用 $iyw-image-workflows 独立检索 IYW 知识库，或执行分身生图、上传检测和已确认的 commerce 操作；生图前仅在内部规范可能有帮助时按需检索。"
+  short_description: "IYW 图片搜索、图片工具、分身生图和上传检测"
+  default_prompt: "使用 $iyw-image-workflows 检索 IYW 知识库、图片、报告、趋势或 IP 资料，或执行已确认的图片工具、分身生图和上传检测；用户指定或上传图片且未指定专用动作时，使用已封装的 tool variation，它会调用 g_tools_generate_image 并固定 toolName。"
 
 policy:
   allow_implicit_invocation: true

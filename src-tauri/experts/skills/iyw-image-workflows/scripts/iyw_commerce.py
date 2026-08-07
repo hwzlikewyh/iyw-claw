@@ -22,6 +22,7 @@ from iyw_fission_core import (
     get_fission_task,
     wait_for_fission_tasks,
 )
+from iyw_tool_core import TOOL_OPERATIONS, validate_tool_payload
 from iyw_image import (
     API_PREFIX,
     IywClient,
@@ -82,6 +83,26 @@ async def run_command(args: argparse.Namespace) -> dict[str, Any]:
             confirm_destructive=args.confirm_destructive,
             dry_run=args.dry_run,
         )
+    if args.command == "tool":
+        payload = _read_payload(args.input_file)
+        operation = validate_tool_payload(args.alias, payload)
+        created = await invoke_operation(
+            client,
+            operation,
+            payload,
+            dry_run=args.dry_run,
+        )
+        if args.dry_run or args.wait_seconds == 0:
+            return created
+        task_id = created.get("taskId") or created.get("task_id")
+        if not task_id:
+            raise IywError("tool response did not include a task ID", "invalid_response")
+        return await wait_for_commerce_task(
+            client,
+            str(task_id),
+            args.wait_seconds,
+            args.poll_interval,
+        )
     if args.command == "task-get":
         return await get_commerce_task(client, args.task_id, dry_run=args.dry_run)
     if args.command == "task-wait":
@@ -139,6 +160,11 @@ def build_parser() -> argparse.ArgumentParser:
     invoke.add_argument("operation")
     invoke.add_argument("--input-file", required=True)
     invoke.add_argument("--confirm-destructive", action="store_true")
+
+    tool = _command_parser(sub, "tool", "invoke a fixed image tool")
+    tool.add_argument("alias", choices=sorted(TOOL_OPERATIONS))
+    tool.add_argument("--input-file", required=True)
+    tool.add_argument("--wait-seconds", type=int, default=0)
 
     task_get = _command_parser(sub, "task-get", "get a commerce task")
     task_get.add_argument("--task-id", required=True)

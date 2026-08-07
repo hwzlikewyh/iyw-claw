@@ -77,17 +77,18 @@ class IywClient:
     async def request(
         self,
         path: str,
-        payload: dict[str, Any] | None = None,
+        payload: Any = None,
         *,
         method: str = "POST",
         dry_run: bool = False,
     ) -> dict[str, Any]:
         if dry_run:
-            return {"method": method, "url": self._url(path), "body": payload or {}}
+            body = payload if payload is not None else {}
+            return {"method": method, "url": self._url(path), "body": body}
         return await asyncio.to_thread(self._request_sync, path, payload, method)
 
     def _request_sync(
-        self, path: str, payload: dict[str, Any] | None, method: str
+        self, path: str, payload: Any, method: str
     ) -> dict[str, Any]:
         body = None
         url = self._url(path)
@@ -136,7 +137,8 @@ class IywClient:
         return data if isinstance(data, dict) else {"value": data}
 
     def _url(self, path: str) -> str:
-        return f"{self.base_url}{self.prefix}/{path.strip('/')}"
+        prefix = self.prefix.rstrip("/")
+        return f"{self.base_url}{prefix}/{path.strip('/')}"
 
 
 class Progress:

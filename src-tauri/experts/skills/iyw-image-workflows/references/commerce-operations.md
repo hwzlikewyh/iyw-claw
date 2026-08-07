@@ -1,6 +1,8 @@
 # Commerce 图片操作契约
 
-本文只记录已经获得请求样例的 commerce payload。所有本地图片先通过
+本文只记录已经获得请求样例的 commerce payload。图片生成和变款统一调用服务端
+operation `g_tools_generate_image`。变款应使用已封装的本地命令 `tool variation`；
+`variation` 只是 CLI 别名和 payload 的 `toolName`，不是独立接口 operation。所有本地图片先通过
 `scripts/iyw_commerce.py upload` 上传并检测；已有网络图片先通过 `check-image`
 检测。payload 中只使用检测成功后返回的公开 HTTPS URL。
 
@@ -10,11 +12,13 @@
 - 系列延伸
 - 多图融合
 - 图片放大
+- 清单图片工具
 - 调用与任务查询
 
 ## 变款
 
-调用 `g_tools_generate_image`，固定设置 `toolName: "variation"`：
+执行 `tool variation`。CLI 内部调用 `g_tools_generate_image`，并固定设置
+`toolName: "variation"`：
 
 ```json
 {
@@ -93,13 +97,43 @@
 已知原图尺寸时填写 `width` 和 `height`。默认使用 `providerId: 0`；只有用户明确
 选择其他 provider 时才传非零值，此时宽高也必须为非零值。
 
+## 清单图片工具
+
+清单工具统一通过 `scripts/iyw_commerce.py tool <alias> --input-file payload.json`
+调用。CLI 固定 operation 和 `toolName`，并校验图片 URL、数量与枚举；不得在 payload
+中添加 token、Cookie、`securitykey` 或签名 URL。
+
+| 别名 | operation | 关键用途 |
+| --- | --- | --- |
+| `pattern-apply` | `g_tools_generate_image` | 图案应用 |
+| `free-imitation` | `fission` | 自由仿款 |
+| `material-product` | `g_tools_generate_image` | 配辅生款 |
+| `ip-apply` | `g_tools_generate_image` | IP 应用 |
+| `edit` | `erase` | 涂抹编辑 |
+| `outpaint` | `outpainting` | 智能扩图 |
+| `super-resolution` | `SuperResolution` | 高清修复 |
+| `split-layers` | `f_tools` | 元素拆分 |
+| `separate-layers` | `g_tools_generate_image` | 元素拆分增强 |
+| `enhance` | `EnhanceImage` | 画质增强 |
+| `extract-pattern` | `g_tools_generate_image` | 提取图案 |
+| `repeat-horizontal` | `g_tools_generate_image` | 二方连续（左右） |
+| `convert` | `convert` | 格式转换 |
+| `line-extraction` | `lineExtraction` | 导出线稿 |
+| `color-transfer` | `g_tools_generate_image` | 配色迁移 |
+| `image-to-3d` | `ImageTo3D` | 转 3D 模型 |
+| `video` | `videoGenerator` | 视频生成 |
+| `model-scene` | `modelScene` | 模特场景图 |
+
+`variation`、`extend`、`mix` 的完整 payload 见上文；其余工具字段以
+`功能/补充搜索接口.txt` 中的已确认样例为准，CLI 会拒绝缺少必要字段或非 HTTPS 图片。
+
 ## 调用与任务查询
 
 将 payload 写入临时 JSON 文件，再调用一次对应 operation：
 
 ```powershell
 uv run --project $skillDir --python 3.13 python $commerceCli `
-  invoke g_tools_generate_image --input-file $payloadPath
+  tool variation --input-file $payloadPath
 uv run --project $skillDir --python 3.13 python $commerceCli `
   invoke upscaleImage --input-file $payloadPath
 ```

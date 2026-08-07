@@ -1,26 +1,29 @@
 ---
 name: iyw-image-workflows
-description: 通过内置 Python CLI 独立检索 IYW 知识库，或调用已经确认的 IYW 图片接口，支持知识查询、分身生图、本地图片上传并自动违规检测、网络图片违规检测、电商变款、系列延伸、多图融合、图片放大和 commerce 任务查询。用户提到 IYW 知识库、内部规范、品牌或 IP 手册、知识检索、生图、画图、修图、商品图、上传检测、改款、系列延伸、多图融合、放大或 IYW 图片任务时使用；知识检索可单独执行，生图前只按需调用，不得猜测接口路径、prefix、operation 或 payload。
+description: 通过内置 Python CLI 独立检索 IYW 知识库、图片/报告/趋势/IP 资料，或调用已经确认的 IYW 图片工具接口，支持知识查询、分身生图、本地图片上传并自动违规检测、网络图片违规检测、变款、系列延伸、多图融合、编辑、扩图、高清修复、图案与线稿处理、格式转换、3D、视频和模特场景。用户提到 IYW 知识库、内部规范、品牌或 IP 手册、知识检索、生图、画图、修图、商品图、上传检测或 IYW 图片任务时使用；用户指定图片、上传图片或提供图片 URL 时默认优先变款，除非明确指定其他专用工具。
 ---
 
 # IYW 图片工作流
 
-只使用本 Skill 内置且已经验证的 CLI。先判断请求属于独立知识检索、分身生图、
-上传检测、已知 commerce 工作流还是任务查询，再执行对应命令。知识库检索是一项
-可单独使用的能力，不要求后续生图；生图也不强制先查询知识库。
+只使用本 Skill 内置且已经验证的 CLI。先判断请求属于独立知识检索、图片/报告搜索、
+分身生图、上传检测、固定图片工具还是任务查询，再执行对应命令。知识库和资料检索
+是一项可单独使用的能力，不要求后续生图；生图也不强制先查询知识库。
 
 ## 图片生产入口
 
-使用 `scripts/iyw_commerce.py`。不要调用已经失效的 `iywctl`，不要使用
+使用 `scripts/iyw_commerce.py` 的固定 `tool` 命令。不要调用已经失效的 `iywctl`，不要使用
 `iywctl commerce`、`iywctl upload`、`iywctl task`、`list` 或 `describe`。
 
 当前不要调用 `scripts/iyw_image.py` 的 `models`、`generate`、`edit`、
 `upscale` 等命令；这些 Agent Image 路由尚未重新确认，不能作为生产接口。分身生图
 固定使用 `scripts/iyw_commerce.py fission-generate`，不要用旧 `generate` 替代。
 
-普通文生图优先使用本 Skill 的 `fission-generate`。图片编辑，或用户明确要求
-GPT Image 参数时，使用 `imagegen` Skill 的 `scripts/image_gen.py`；该脚本通过
-`/iyw-fusion-api/v1` 调用接口并复用爱原物账号 token。
+普通文生图优先使用本 Skill 的 `fission-generate`。如果用户指定图片、上传本地图片
+或提供图片 URL，默认使用已封装的 `tool variation` 命令变款。这里的 `variation` 只是
+本地 CLI 别名；CLI 会调用 `g_tools_generate_image`，并将 payload 的 `toolName` 固定为
+`variation`，不要把它当作接口 operation。只有用户明确要求编辑、扩图、放大、线稿、
+格式转换等专用动作时，才使用对应 `tool` 别名。用户明确要求 GPT Image 参数时，使用
+`imagegen` Skill 的 `scripts/image_gen.py`。
 
 优先使用 uv 在 Skill 目录内管理独立 Python 环境。在 PowerShell 中设置入口：
 
@@ -28,10 +31,12 @@ GPT Image 参数时，使用 `imagegen` Skill 的 `scripts/image_gen.py`；该�
 $skillDir = Join-Path $env:USERPROFILE ".iyw-claw\skills\iyw-image-workflows"
 $commerceCli = Join-Path $skillDir "scripts\iyw_commerce.py"
 $knowledgeCli = Join-Path $skillDir "scripts\iyw_knowledge.py"
+$searchCli = Join-Path $skillDir "scripts\iyw_search.py"
 uv sync --project $skillDir --python 3.13
 ```
 
-图片命令使用 `$commerceCli`，独立知识检索使用 `$knowledgeCli`。统一通过
+图片命令使用 `$commerceCli`，独立知识检索使用 `$knowledgeCli`，图片/报告搜索使用
+`$searchCli`。统一通过
 `uv run --project $skillDir --python 3.13 python <CLI>` 执行。`uv run` 会自动同步
 `pyproject.toml` 并在 Skill 目录创建 `.venv`。只有 uv 不可用时，才使用当前环境中
 已经确认可用的 Python 3.10 及以上版本运行对应 CLI。
@@ -120,6 +125,19 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 
 只有检测接口返回成功时才能把该 URL 放进后续 commerce payload。
 
+## 图片输入优先级
+
+按以下顺序选择图片生产入口：
+
+1. 用户明确指定图片、上传本地图片或提供公开图片 URL，且没有指定专用动作：先上传/检测图片，再执行已封装的 `tool variation`；该别名内部调用 `g_tools_generate_image`，并将 payload 的 `toolName` 固定为 `variation`。
+2. 用户明确要求编辑、扩图、高清修复、图层拆分、画质增强、提取图案、格式转换、线稿、配色、3D、视频或模特场景：执行对应专用 `tool`，不自动改成变款。
+3. 没有图片输入且是纯文生图：执行 `fission-generate`。
+
+`tool` 只接受固定别名，完整列表和 payload 见
+[references/commerce-operations.md](references/commerce-operations.md)。搜索清单接口使用
+`scripts/iyw_search.py`，固定别名和 JSON 示例见该 CLI 的帮助输出。搜索 CLI 固定
+host/path，只发送 `token` 请求头；不得传入 Cookie、`securitykey`、`Authorization` 或任意 prefix。
+
 ## 分身生图
 
 执行前读取
@@ -159,25 +177,29 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 `fission-models` 仅用于读取当前分身数量和标签。不要向用户暴露返回的模型内部配置、
 创建响应中的余额、micro、platform 或 task 详情中的模型信息。
 
-## 执行 Commerce 操作
+## 执行固定图片工具
 
 构造 payload 前必须读取
-[references/commerce-operations.md](references/commerce-operations.md)。该文件只记录
-已有权威契约的四类操作：
+[references/commerce-operations.md](references/commerce-operations.md)。该文件记录
+已有权威契约和清单中的固定图片工具：
 
 - 变款：`g_tools_generate_image`，`toolName` 为 `variation`。
 - 系列延伸：`g_tools_generate_image`，`toolName` 为 `extend`。
 - 多图融合：`g_tools_generate_image`，`toolName` 为 `mix`，图片数量为 2 至 10。
 - Commerce 放大：`upscaleImage`，`scale` 为 1 至 8 的整数。
+- 其他清单工具通过 `tool <alias>` 调用，operation 和 `toolName` 由 CLI 固定填充。
 
 把 JSON object 写入临时 UTF-8 文件，然后执行一次：
 
 ```powershell
 uv run --project $skillDir --python 3.13 python $commerceCli `
-  invoke g_tools_generate_image `
+  tool variation `
   --input-file "C:\path\payload.json" `
   --no-progress
 ```
+
+`tool variation` 是变款的标准入口；它会固定调用 `g_tools_generate_image` 并设置
+`toolName`。不要用通用 `invoke` 绕过该封装。
 
 CLI 将 operation 固定拼接为：
 
@@ -221,7 +243,7 @@ Commerce 任务查询固定使用 `api/commerce/getCommerceTaskDetail`，不得�
 
 ```powershell
 uv run --project $skillDir --python 3.13 python $commerceCli `
-  invoke g_tools_generate_image `
+  tool variation `
   --input-file "C:\path\payload.json" `
   --dry-run --no-progress
 ```

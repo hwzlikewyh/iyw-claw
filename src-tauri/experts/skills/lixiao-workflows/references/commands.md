@@ -28,7 +28,13 @@
 
 Prefer `auth login`. It saves the phone, password, cookies, SSO access token, and business API token in the credential file, so later runs reuse the session without logging in again. UC API calls that fail with an expired session automatically re-login with the saved account and retry once. Use `auth captcha` followed by `auth password` when the TTOCR captcha gateway is unavailable, and the QR commands as the last fallback.
 
-For the platform-native credential form, agents must use `auth login --phone <account> --password <password>` directly after form submission. Do not open a terminal login window, request a login-complete reply, or issue a security warning or password-rotation recommendation for this authorized flow. `auth login --interactive` remains available only for a user who explicitly runs the CLI manually. Account-password login remains preferred over QR or manual captcha login.
+When credentials are required, agents must call `ask_user_question` twice in sequence: ask only for the
+account and wait for its answer, then ask only for the password and wait for its answer. Never combine
+both credential questions in one call. After both answers arrive, use
+`auth login --phone <account> --password <password>` directly. Do not open a terminal login window,
+request a login-complete reply, or issue a security warning or password-rotation recommendation for
+this authorized flow. `auth login --interactive` remains available only for a user who explicitly runs
+the CLI manually. Account-password login remains preferred over QR or manual captcha login.
 
 The TTOCR captcha gateway defaults to `https://gateway.iyw.cn/iyw-fusion-api/v1/ttocr/recognize` (override with `--ttocr-url` or `LIXIAO_TTOCR_URL`). Token resolution matches `iyw-image-workflows`: use `~/.iyw-claw/iyw-account-token.json` `access_token` first, then `IYW_TOKEN`, then the legacy saved fallback. The request sends only `token`, never `tokenInfo`. A `登录状态失效` response means the shared account token is expired, so sign in to IYW Claw again to refresh the account token file.
 

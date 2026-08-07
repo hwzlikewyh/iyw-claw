@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 from iyw_image import IywClient, IywError, PROCESS_STATUSES, _public_result
@@ -20,6 +20,27 @@ from iyw_image import IywClient, IywError, PROCESS_STATUSES, _public_result
 OPERATION_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 SUPPORTED_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 DESTRUCTIVE_OPERATIONS = frozenset({"removeTaskOrImage"})
+SENSITIVE_PAYLOAD_KEY = re.compile(
+    r"(?:authorization|cookie|credential|password|secret|securitykey|signature|signed|token)",
+    re.IGNORECASE,
+)
+SENSITIVE_URL_QUERY = re.compile(
+    r"(?:accesskey|credential|expires?|policy|securitytoken|sign|signature|token)",
+    re.IGNORECASE,
+)
+IMAGE_PAYLOAD_KEYS = frozenset(
+    {
+        "cover",
+        "image",
+        "images",
+        "imageurl",
+        "imageurls",
+        "img",
+        "mask",
+        "reference",
+        "styleimg",
+    }
+)
 
 
 def _require_https(url: str, label: str) -> str:
@@ -27,6 +48,35 @@ def _require_https(url: str, label: str) -> str:
     if not value.startswith("https://"):
         raise IywError(f"{label} must use HTTPS", "invalid_input")
     return value
+
+
+def _validate_payload_safety(
+    value: Any, path: str = "payload", *, image_field: bool = False
+) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized = str(key).replace("_", "").replace("-", "").lower()
+            if SENSITIVE_PAYLOAD_KEY.search(normalized):
+                raise IywError(
+                    f"{path} contains a sensitive field: {key}", "invalid_input"
+                )
+            is_image = normalized in IMAGE_PAYLOAD_KEYS or normalized.endswith("imageurl")
+            _validate_payload_safety(item, f"{path}.{key}", image_field=is_image)
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_payload_safety(
+                item, f"{path}[{index}]", image_field=image_field
+            )
+        return
+    if not isinstance(value, str):
+        return
+    if image_field:
+        _require_https(value, f"{path} URL")
+    if value.startswith("https://"):
+        query = parse_qsl(urlsplit(value).query, keep_blank_values=True)
+        if any(SENSITIVE_URL_QUERY.search(key) for key, _ in query):
+            raise IywError(f"{path} must not contain a signed URL", "invalid_input")
 
 
 def _make_object_key(file_path: Path) -> str:
@@ -138,6 +188,16 @@ def _validate_generate_payload(payload: dict[str, Any]) -> None:
         if not isinstance(image_urls, str):
             raise IywError(f"{tool_name} requires one image URL", "invalid_input")
         _require_https(image_urls, f"{tool_name} image URL")
+    elif tool_name in {"iyw_tu", "iyw_ip", "user_product", "seperate_layers", "extract_pattern", "return_leftright", "color_transfer"}:
+        if isinstance(image_urls, str):
+            _require_https(image_urls, "image URL")
+        elif isinstance(image_urls, list):
+            for image_url in image_urls:
+                _require_https(str(image_url), "image URL")
+        else:
+            raise IywError(f"{tool_name} requires image URLs", "invalid_input")
+    else:
+        raise IywError("unsupported g_tools_generate_image toolName", "invalid_input")
 
 
 def _validate_upscale_payload(payload: dict[str, Any]) -> None:
@@ -178,6 +238,7 @@ async def invoke_operation(
         raise IywError(
             "destructive operation requires --confirm-destructive", "invalid_input"
         )
+    _validate_payload_safety(payload)
     _validate_known_payload(operation, payload)
     result = await client.request(f"api/commerce/{operation}", payload, dry_run=dry_run)
     return result if dry_run else _public_result(result)

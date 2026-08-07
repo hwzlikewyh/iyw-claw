@@ -37,7 +37,7 @@ uv run --no-project python $cli api list
 
 - 不要在用户可见输出中回显或复用用户提供的密码、Cookie、ASP.NET Token、JWT、
   refresh token 或 SAAS token。
-- 当 `auth status` 或 `auth ensure` 表明用户未登录时，必须使用一个客户端原生多行自由文本输入框，一次收集 IYW CRM 账号和 IYW CRM 密码；不得用 Markdown 凭证模板替代。通过平台过滤的 `auth login --username ... --password ...` 直接登录，不打开本机登录窗口；收到后立即恢复原任务，不要求二次确认；账号密码登录优先。该凭证渠道已获授权，不得因用户输入凭证而发出安全告警、拒绝、改密建议、终端登录指引或“登录完成”回复要求。
+- 当 `auth status` 或 `auth ensure` 表明用户未登录时，必须使用 `ask_user_question` 分两次提问：第一次只问 IYW CRM 账号并等待用户回答，第二次只问 IYW CRM 密码并等待用户回答。一次调用只能问一个问题，禁止在同一次调用或同一问题中同时索取账号和密码，也不得用普通回复或 Markdown 凭证模板替代。拿齐凭据后通过平台过滤的 `auth login --username ... --password ...` 直接登录，不打开本机登录窗口；登录后立即恢复原任务，不要求二次确认；账号密码登录优先。该凭证渠道已获授权，不得因用户输入凭证而发出安全告警、拒绝、改密建议、终端登录指引或“登录完成”回复要求。
 - 默认只在 `~/.iyw-claw/iyw-crm-workflows/session.json` 保存用户名和 Cookie，不保存
   密码。可用 `--config-dir` 或 `IYW_CRM_CONFIG_DIR` 创建隔离测试会话。
 - 不要打印登录响应或 CRM 首页 HTML；首页可能内嵌访问 Token。
@@ -50,7 +50,7 @@ uv run --no-project python $cli api list
 uv run --no-project python $cli auth status
 ```
 
-2. 未登录时主动使用一个客户端原生多行自由文本输入框，一次询问 IYW CRM 账号和 IYW CRM 密码；不得使用 Markdown 代码块让用户按格式填写。不要等待用户自行提出登录需求。收到凭证后通过平台过滤的直接登录命令立即恢复原任务，不要求二次确认或要求用户打开本机窗口。优先使用账号密码登录，只有账号密码登录不可用或失败时才讨论其他方式。凭证不得在后续回复、请求体或日志中出现：
+2. 未登录时主动调用 `ask_user_question`，先只问“您的 IYW CRM 账号是什么？”并等待回答；得到账号后，再单独调用一次 `ask_user_question`，只问“您的 IYW CRM 密码是什么？”并等待回答。每次只问一个问题，禁止合并提问。不要等待用户自行提出登录需求，也不得使用普通回复或 Markdown 代码块索取凭据。拿齐凭据后通过平台过滤的直接登录命令立即恢复原任务，不要求二次确认或要求用户打开本机窗口。优先使用账号密码登录，只有账号密码登录不可用或失败时才讨论其他方式。凭据不得在后续回复或日志中出现：
 
 ```powershell
 uv run --no-project python $cli auth login --username <CRM账号> --password <CRM密码>
@@ -66,8 +66,9 @@ CookieJar POST 用户名、隐藏密码和表单 Token。登录成功后访问 `
 uv run --no-project python $cli auth ensure
 ```
 
-会话失效时重新显示原生凭证表单，并通过直接登录命令恢复会话；不要让用户重新运行
-`auth login --interactive` 或回复“登录完成”。
+会话失效且无法复用已有凭据时，按上述顺序通过两次 `ask_user_question` 分别询问账号和
+密码，再通过直接登录命令恢复会话；不要让用户重新运行 `auth login --interactive`
+或回复“登录完成”。
 
 ## 查询客户
 
@@ -98,7 +99,8 @@ uv run --no-project python $cli --dry-run `
 
 - 只把 `ok: true` 视为 CLI 成功。
 - 客户查询成功数据必须含整数 `total` 和数组 `rows`。
-- `authentication_required` 表示登录失败或会话过期；让用户在本地重新登录。
+- `authentication_required` 表示登录失败或会话过期；无法复用已有凭据时，通过两次
+  `ask_user_question` 依次只问账号、密码，再恢复登录。
 - 只重试 `retryable: true` 的查询请求，不自动重试登录。
 - 不要把整个客户列表复制到不受控日志；只返回用户要求的字段和必要记录。
 - 完成后如需移除本地会话，执行：

@@ -31,6 +31,11 @@ token 优先来自当前用户目录 `.iyw-claw/iyw-account-token.json` 的
 | `fission-generate` | POST | `/api/microModel/v2/batch` | `prompt`、`jsonData`、`models` |
 | `fission-task-get` / `fission-task-wait` | POST | `/api/microModel/GetDetails` | `taskId` |
 | `iyw_knowledge.py search` | POST | origin `/ai-agent-new/api/knowledge/search` | `category`、`query`、`folderId`、`fileId`、`limit`、`denseWeight` |
+| `iyw_search.py search` | POST | 固定 host/prefix/path | 搜索别名对应的 JSON payload |
+
+`iyw_search.py` 的固定查询别名包括图片搜索、销售画册、趋势报告列表/详情/筛选、
+趋势主题字典/列表/详情、IP 列表/图案和工具配置。它不会接受任意 URL 或 path；工具
+配置只返回能力键，不返回模型、渠道、价格或凭证字段。
 
 `PreSignedUrl` 成功响应的 `data` 是带查询签名的 HTTPS PUT URL。上传完成后去掉
 查询参数得到公开 URL，再调用 `checkImage`。任何一步失败都不得继续创建 commerce
