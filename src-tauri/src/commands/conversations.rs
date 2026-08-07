@@ -684,12 +684,12 @@ fn sig_from_user_message_blocks(
             crate::acp::types::UserMessageBlock::Text { text } => {
                 UserContentSig::Text(text.clone())
             }
-            crate::acp::types::UserMessageBlock::Image { data, mime_type } => {
-                UserContentSig::Image {
-                    mime_type: mime_type.clone(),
-                    data: data.clone(),
-                }
-            }
+            crate::acp::types::UserMessageBlock::Image {
+                data, mime_type, ..
+            } => UserContentSig::Image {
+                mime_type: mime_type.clone(),
+                data: data.clone(),
+            },
         })
         .collect()
 }

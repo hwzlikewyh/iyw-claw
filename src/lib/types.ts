@@ -1354,7 +1354,12 @@ export type ConfigStaleKind = "agent_config" | "model_provider"
  *  `text` markdown links backend-side. */
 export type UserMessageBlock =
   | { type: "text"; text: string }
-  | { type: "image"; data: string; mime_type: string }
+  | {
+      type: "image"
+      data: string
+      mime_type: string
+      uri?: string | null
+    }
 
 /**
  * Mirror of Rust `DelegationResultSummary`. `kind` discriminates Ok vs Err;

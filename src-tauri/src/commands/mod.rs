@@ -13,6 +13,7 @@ pub mod automation;
 pub mod backup;
 pub mod chat_attachments;
 pub mod chat_channel;
+pub mod chat_image;
 pub mod computer_use;
 pub mod conversations;
 pub mod delegation;
@@ -37,6 +38,8 @@ pub mod performance;
 pub mod pet;
 pub mod question;
 pub mod quick_messages;
+#[cfg(feature = "tauri-runtime")]
+pub mod remote_chat_image_upload;
 pub mod remote_image;
 #[cfg(feature = "tauri-runtime")]
 pub mod remote_proxy;

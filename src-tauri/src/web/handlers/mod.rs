@@ -5,6 +5,8 @@ pub mod app_update;
 pub mod automation;
 pub mod backup;
 pub mod chat_channel;
+pub mod chat_image;
+pub mod chat_image_upload;
 pub mod conversations;
 pub mod delegation;
 mod error;

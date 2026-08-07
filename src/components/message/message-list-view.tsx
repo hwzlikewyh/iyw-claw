@@ -396,8 +396,10 @@ function mergeConsecutiveAssistantTurns(
 
 const UserMessageCopyButton = memo(function UserMessageCopyButton({
   parts,
+  imageNames,
 }: {
   parts: AdaptedContentPart[]
+  imageNames: string[]
 }) {
   const t = useTranslations("Folder.chat.messageList")
   const [isCopied, setIsCopied] = useState(false)
@@ -409,13 +411,18 @@ const UserMessageCopyButton = memo(function UserMessageCopyButton({
     // path `C:\…` became `C:\\…`); the transcript renders it back through a
     // Markdown renderer, so the copy must reverse that escaping to match what
     // the user sees. Assistant copies (TurnStats below) keep the raw Markdown.
-    const text = unescapeComposerText(extractTextFromParts(parts))
+    const text = [
+      unescapeComposerText(extractTextFromParts(parts)),
+      ...imageNames,
+    ]
+      .filter((item) => item.length > 0)
+      .join("\n")
     if (!text) return
     const ok = await copyTextToClipboard(text)
     if (!ok) return
     setIsCopied(true)
     timeoutRef.current = window.setTimeout(() => setIsCopied(false), 2000)
-  }, [parts, isCopied])
+  }, [parts, imageNames, isCopied])
 
   useEffect(
     () => () => {
@@ -472,7 +479,10 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
         ) : null}
         {group.role === "user" ? (
           <div className="group/user-msg flex w-fit ml-auto max-w-full items-start gap-1">
-            <UserMessageCopyButton parts={group.parts} />
+            <UserMessageCopyButton
+              parts={group.parts}
+              imageNames={group.images.map((image) => image.name)}
+            />
             {enableUserMemoryActions && (
               <UserMemoryMessageActions
                 content={userText}

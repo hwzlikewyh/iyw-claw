@@ -5698,9 +5698,8 @@ mod tests {
             "append_user_memory",
         ];
 
-        let all = CompanionFeatures::parse(Some(&companion_features_arg(
-            true, true, true, true, true,
-        )));
+        let all =
+            CompanionFeatures::parse(Some(&companion_features_arg(true, true, true, true, true)));
         for tool in gated {
             assert!(all.allows_tool(tool), "{tool} missing when all flags on");
         }

@@ -5,6 +5,11 @@ import {
   tokenizeReferenceLinks,
   unescapeReferenceLabel,
 } from "@/lib/reference-link"
+import {
+  localFilePromptLabel,
+  localFilePromptUri,
+  splitLocalFilePrompts,
+} from "@/lib/local-file-prompt"
 
 export type UserMessageSegment =
   | { kind: "text"; text: string }
@@ -46,6 +51,30 @@ function pushProseSegments(value: string, output: UserMessageSegment[]): void {
 
 export function parseUserMessageSegments(text: string): UserMessageSegment[] {
   const output: UserMessageSegment[] = []
+  for (const segment of splitLocalFilePrompts(text)) {
+    if (segment.type === "file") {
+      const label = localFilePromptLabel(segment.path)
+      output.push({
+        kind: "reference",
+        attrs: {
+          refType: "file",
+          id: segment.path,
+          label,
+          uri: localFilePromptUri(segment.path),
+          meta: { fileKind: "file" },
+        },
+      })
+      continue
+    }
+    pushReferenceSegments(segment.value, output)
+  }
+  return output
+}
+
+function pushReferenceSegments(
+  text: string,
+  output: UserMessageSegment[]
+): void {
   for (const token of tokenizeReferenceLinks(text)) {
     if (token.type === "link") {
       const destination = unwrapDestination(token.destination)
@@ -64,5 +93,4 @@ export function parseUserMessageSegments(text: string): UserMessageSegment[] {
     }
     pushProseSegments(token.value, output)
   }
-  return output
 }

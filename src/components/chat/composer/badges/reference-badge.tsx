@@ -1,6 +1,11 @@
 import {
+  Archive,
   Bot,
   Command,
+  File,
+  FileCode,
+  FileImage,
+  FileSpreadsheet,
   FileText,
   Folder,
   GitCommit,
@@ -16,6 +21,54 @@ import { cn } from "@/lib/utils"
 import type { ReferenceAttrs } from "../types"
 
 const ICON_CLASS = "size-3.5 shrink-0"
+
+const SPREADSHEET_EXTENSIONS = new Set(["csv", "ods", "xls", "xlsx"])
+const ARCHIVE_EXTENSIONS = new Set([
+  "7z",
+  "bz2",
+  "gz",
+  "rar",
+  "tar",
+  "xz",
+  "zip",
+])
+const IMAGE_EXTENSIONS = new Set(["gif", "jpeg", "jpg", "png", "webp"])
+const CODE_EXTENSIONS = new Set([
+  "css",
+  "go",
+  "html",
+  "java",
+  "js",
+  "json",
+  "jsx",
+  "py",
+  "rs",
+  "sh",
+  "sql",
+  "ts",
+  "tsx",
+  "vue",
+  "xml",
+  "yaml",
+  "yml",
+])
+const TEXT_EXTENSIONS = new Set(["doc", "docx", "md", "pdf", "rtf", "txt"])
+
+function fileIcon(label: string): ReactNode {
+  const plainLabel = label.replace(/:\d+(?:-\d+)?$/, "")
+  const extension = plainLabel.split(".").pop()?.toLowerCase() ?? ""
+  if (SPREADSHEET_EXTENSIONS.has(extension)) {
+    return <FileSpreadsheet className={ICON_CLASS} />
+  }
+  if (ARCHIVE_EXTENSIONS.has(extension)) {
+    return <Archive className={ICON_CLASS} />
+  }
+  if (IMAGE_EXTENSIONS.has(extension))
+    return <FileImage className={ICON_CLASS} />
+  if (CODE_EXTENSIONS.has(extension)) return <FileCode className={ICON_CLASS} />
+  if (TEXT_EXTENSIONS.has(extension)) return <FileText className={ICON_CLASS} />
+  return <File className={ICON_CLASS} />
+}
 
 export function ReferenceIcon({
   data,
@@ -37,7 +90,7 @@ export function ReferenceIcon({
         meta?.fileKind === "dir" ? (
           <Folder className={ICON_CLASS} />
         ) : (
-          <FileText className={ICON_CLASS} />
+          fileIcon(data.label || data.id)
         )
       break
     case "agent": {
@@ -124,17 +177,19 @@ export interface ReferenceBadgeProps {
  * editor coupling.
  */
 export function ReferenceBadge({ data, className }: ReferenceBadgeProps) {
+  const label =
+    data.refType === "file" ? data.label || "file" : data.label || data.id
   return (
     <span
       data-reference-badge=""
       data-ref-type={data.refType}
-      title={data.uri ?? data.label}
+      title={label}
       // The badge is an inline contentEditable=false atom. `role="img"` makes it
       // a single named unit so `aria-label` is a reliable accessible name (a
       // bare span's aria-label is not), and collapses the decorative icon —
       // including AgentIcon's titled <svg> — into that one name.
       role="img"
-      aria-label={`${data.refType}: ${data.label || data.id}`}
+      aria-label={`${data.refType}: ${label}`}
       className={cn(
         "inline-flex max-w-[18rem] items-center gap-0.5 align-middle text-[0.85em] font-medium leading-snug",
         badgeColorClass(data),
@@ -142,7 +197,7 @@ export function ReferenceBadge({ data, className }: ReferenceBadgeProps) {
       )}
     >
       <ReferenceIcon data={data} />
-      <span className="truncate">{data.label || data.id}</span>
+      <span className="truncate">{label}</span>
     </span>
   )
 }

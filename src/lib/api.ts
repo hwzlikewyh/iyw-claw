@@ -2368,6 +2368,7 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
 export const UPLOAD_I18N_KEY_TOO_LARGE = "errors.upload.tooLarge"
 export const UPLOAD_I18N_KEY_NOT_A_FILE = "errors.upload.notAFile"
 export const UPLOAD_I18N_KEY_QUOTA_EXCEEDED = "errors.upload.quotaExceeded"
+export const CHAT_IMAGE_I18N_KEY_TOO_LARGE = "errors.chatImage.tooLarge"
 
 // Structured error thrown by the upload functions when an attachment
 // would be empty (0 bytes). Callers should recognize it and silently
@@ -2507,6 +2508,135 @@ export async function uploadAttachment(
   return res.json()
 }
 
+const REMOTE_CHAT_IMAGE_CHUNK_BYTES = 512 * 1024
+
+async function uploadRemoteDesktopChatImage(
+  file: File,
+  connectionId: number,
+  sessionId: string | null,
+  mimeType: string
+): Promise<UploadAttachmentResult> {
+  const shell = getShellTransport()
+  let uploadId: string | null = null
+  try {
+    const begun = await shell.call<{ uploadId: string }>(
+      "remote_chat_image_upload_begin",
+      {
+        fileName: file.name,
+        mimeType,
+        expectedBytes: file.size,
+      }
+    )
+    uploadId = begun.uploadId
+    let offset = 0
+    while (offset < file.size) {
+      const end = Math.min(offset + REMOTE_CHAT_IMAGE_CHUNK_BYTES, file.size)
+      const bytes = new Uint8Array(await file.slice(offset, end).arrayBuffer())
+      if (bytes.length === 0) {
+        throw new Error("Image upload chunk was empty")
+      }
+      const nextOffset = await shell.call<number>(
+        "remote_chat_image_upload_append",
+        {
+          uploadId,
+          offset,
+          chunk: Array.from(bytes),
+        }
+      )
+      if (nextOffset <= offset || nextOffset > file.size) {
+        throw new Error("Image upload offset did not advance")
+      }
+      offset = nextOffset
+    }
+    const result = await shell.call<UploadAttachmentResult>(
+      "remote_chat_image_upload_finish",
+      {
+        connectionId,
+        uploadId,
+        sessionId,
+      }
+    )
+    uploadId = null
+    return result
+  } finally {
+    if (uploadId) {
+      await shell
+        .call("remote_chat_image_upload_abort", { uploadId })
+        .catch((error) =>
+          console.warn("[api] failed to abort image upload", { error })
+        )
+    }
+  }
+}
+
+/** Stream an original image to the current server's managed upload area. */
+export async function uploadChatImage(
+  file: File,
+  sessionId?: string | null,
+  mimeType?: string | null
+): Promise<UploadAttachmentResult> {
+  if (isDesktop()) {
+    const connectionId = getActiveRemoteConnectionId()
+    if (connectionId === null) {
+      throw new Error(
+        "Browser image upload is unavailable in local desktop mode"
+      )
+    }
+    const uploadMime = file.type || mimeType || ""
+    return uploadRemoteDesktopChatImage(
+      file,
+      connectionId,
+      sessionId ?? null,
+      uploadMime
+    )
+  }
+  const form = new FormData()
+  const uploadFile =
+    file.type || !mimeType
+      ? file
+      : new File([file], file.name, { type: mimeType })
+  form.append("file", uploadFile, file.name)
+  if (sessionId) form.append("session_id", sessionId)
+  const response = await fetch(
+    `${window.location.origin}/api/upload_chat_image`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${getIywClawToken()}` },
+      body: form,
+    }
+  )
+  if (response.status === 401) {
+    notifyWebUnauthorized()
+    throw new Error("Unauthorized")
+  }
+  if (!response.ok) {
+    throw await response.json().catch(() => ({
+      code: "network_error",
+      message: `HTTP ${response.status}`,
+    }))
+  }
+  return response.json()
+}
+
+/** Stream a desktop-local image path to the active remote workspace server. */
+export async function uploadLocalChatImagePathToRemote(
+  path: string,
+  sessionId?: string | null
+): Promise<UploadAttachmentResult> {
+  const connectionId = getActiveRemoteConnectionId()
+  if (connectionId === null) {
+    throw new Error("No active remote workspace")
+  }
+  return getShellTransport().call<UploadAttachmentResult>(
+    "remote_upload_chat_image_path",
+    {
+      connectionId,
+      path,
+      sessionId: sessionId ?? null,
+    }
+  )
+}
+
 // Upload a file picked from the desktop machine's filesystem to the remote
 // iyw-claw-server bound to the current window. The Tauri-native drag-drop event
 // hands us OS paths (not `File` objects), so we read the bytes via Rust,
@@ -2556,6 +2686,24 @@ export async function readLocalFileBase64(
     path,
     maxBytes: maxBytes ?? null,
   })
+}
+
+export interface PreparedChatImage {
+  data: string
+  mimeType: string
+  name: string
+  sourceBytes: number
+  derivedBytes: number
+  width: number
+  height: number
+}
+
+export async function prepareChatImagePath(
+  path: string,
+  source: "local" | "workspace" = "local"
+): Promise<PreparedChatImage> {
+  const transport = source === "local" ? getShellTransport() : getTransport()
+  return transport.call("prepare_chat_image", { path })
 }
 
 // ─── Workspace file upload / download ───

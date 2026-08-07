@@ -1788,7 +1788,11 @@ fn restore_runtime_envs(
             continue;
         }
         if let Err(error) = rename_system_skill_entry(&moved, &original, id) {
-            failures.push(format!("{} -> {}: {error}", moved.display(), original.display()));
+            failures.push(format!(
+                "{} -> {}: {error}",
+                moved.display(),
+                original.display()
+            ));
         }
     }
     if failures.is_empty() {

@@ -392,7 +392,8 @@ mod tests {
     use super::*;
 
     /// The block an older build wrote: the current rules minus `node_modules/`.
-    const LEGACY_BLOCK: &str = "\n# iyw-claw runtime files\n.venv/\n.venv.system-update-backup/\n__pycache__/\n*.pyc\n";
+    const LEGACY_BLOCK: &str =
+        "\n# iyw-claw runtime files\n.venv/\n.venv.system-update-backup/\n__pycache__/\n*.pyc\n";
 
     fn exclude_path(repo: &Path) -> std::path::PathBuf {
         repo.join(".git").join("info").join("exclude")
@@ -457,7 +458,10 @@ mod tests {
 
         assert_eq!(first, second, "rewriting must be idempotent");
         assert_eq!(
-            second.lines().filter(|line| *line == EXCLUDE_MARKER).count(),
+            second
+                .lines()
+                .filter(|line| *line == EXCLUDE_MARKER)
+                .count(),
             1,
             "the marker must not accumulate:\n{second}"
         );

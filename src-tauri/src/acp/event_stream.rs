@@ -298,9 +298,11 @@ fn user_block_size(block: &UserMessageBlock) -> usize {
         // `{"type":"text","text":<v>}`
         UserMessageBlock::Text { text } => 24 + json_str_len(text),
         // `{"type":"image","data":"<d>","mime_type":<v>}`
-        UserMessageBlock::Image { data, mime_type } => {
-            48 + json_str_len(data) + json_str_len(mime_type)
-        }
+        UserMessageBlock::Image {
+            data,
+            mime_type,
+            uri,
+        } => 48 + json_str_len(data) + json_str_len(mime_type) + opt_str_size(uri),
     }
 }
 

@@ -87,7 +87,7 @@ function unwrapLinkDestination(destination: string): string {
   return raw.replace(/\\([\\<>])/g, "$1")
 }
 
-function fileUriToPromptPath(uri: string): string | null {
+export function fileUriToPath(uri: string): string | null {
   if (!/^file:\/\//i.test(uri)) return null
   let parsed: URL
   try {
@@ -110,6 +110,18 @@ function fileUriToPromptPath(uri: string): string | null {
     return null
   }
 
+  return path.replace(/[\r\n]+/g, " ")
+}
+
+function fileUriToPromptPath(uri: string): string | null {
+  const path = fileUriToPath(uri)
+  if (!path) return null
+  let parsed: URL
+  try {
+    parsed = new URL(uri)
+  } catch {
+    return null
+  }
   return `${path}${parsed.search}${parsed.hash}`.replace(/[\r\n]+/g, " ")
 }
 

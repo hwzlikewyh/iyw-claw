@@ -58,13 +58,14 @@ mod tauri_app {
         acp as acp_commands, agent_storage as agent_storage_commands, agent_version_center_tauri,
         app_update as app_update_commands, automation as automation_commands, backup,
         chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
-        conversations, delegation as delegation_commands, experts as experts_commands,
-        feedback as feedback_commands, file_io, folder_commands, folders,
-        internet_tools as internet_tools_commands, iyw_account as iyw_account_commands,
+        chat_image as chat_image_commands, conversations, delegation as delegation_commands,
+        experts as experts_commands, feedback as feedback_commands, file_io, folder_commands,
+        folders, internet_tools as internet_tools_commands, iyw_account as iyw_account_commands,
         logging as logging_commands, managed_skills as managed_skills_commands,
         mcp as mcp_commands, model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, performance as performance_commands,
         question as question_commands, quick_messages as quick_messages_commands,
+        remote_chat_image_upload as remote_chat_image_upload_commands,
         remote_image as remote_image_commands, remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands,
         runtime_bootstrap as runtime_bootstrap_commands, session_config as session_config_commands,
@@ -253,6 +254,9 @@ mod tauri_app {
             .manage(std::sync::Arc::new(
                 crate::commands::remote_proxy::RemoteProxyState::new(),
             ))
+            .manage(
+                remote_chat_image_upload_commands::RemoteChatImageUploadState::default(),
+            )
             .manage(std::sync::Arc::new(
                 crate::workspace_transfer::WorkspaceTransferManager::new_from_env(),
             ))
@@ -314,6 +318,7 @@ mod tauri_app {
                 // value is never mutated again for the lifetime of the
                 // process.
                 let effective_data_dir = paths::resolve_effective_data_dir(&app_data_dir);
+                remote_chat_image_upload_commands::cleanup_stale_uploads(&effective_data_dir);
                 // SAFETY: see the rationale block above — still
                 // single-threaded at setup; edition 2024 will require
                 // the `unsafe` block, mirroring the WebView2 rendering
@@ -1042,6 +1047,7 @@ mod tauri_app {
                 conversations::create_chat_dir,
                 chat_attachment_commands::stage_chat_attachment,
                 chat_attachment_commands::stage_chat_attachment_bytes,
+                chat_image_commands::prepare_chat_image,
                 conversations::update_conversation_status,
                 conversations::update_conversation_title,
                 conversations::update_conversation_pinned,
@@ -1141,6 +1147,11 @@ mod tauri_app {
                 remote_workspace_commands::open_remote_workspace,
                 remote_proxy_commands::remote_http_call,
                 remote_proxy_commands::remote_upload_attachment,
+                remote_proxy_commands::remote_upload_chat_image_path,
+                remote_chat_image_upload_commands::remote_chat_image_upload_begin,
+                remote_chat_image_upload_commands::remote_chat_image_upload_append,
+                remote_chat_image_upload_commands::remote_chat_image_upload_finish,
+                remote_chat_image_upload_commands::remote_chat_image_upload_abort,
                 remote_proxy_commands::remote_upload_workspace_paths,
                 remote_proxy_commands::remote_cancel_workspace_transfer,
                 remote_proxy_commands::remote_download_workspace_file,

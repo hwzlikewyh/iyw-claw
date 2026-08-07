@@ -17,6 +17,7 @@ import {
   FolderSearch,
   GitFork,
   Lock,
+  LoaderCircle,
   MessageSquarePlus,
   MessageSquareText,
   Paperclip,
@@ -28,6 +29,8 @@ import {
   Sparkles,
   Square,
   TextSelect,
+  RotateCcw,
+  TriangleAlert,
   Upload,
   X,
 } from "lucide-react"
@@ -61,6 +64,7 @@ import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import {
   buildFileUri,
   buildFileUriWithRange,
+  fileUriToPath,
   formatFileRangeLabel,
 } from "@/lib/reference-link"
 import {
@@ -73,21 +77,28 @@ import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabActions } from "@/contexts/tab-context"
 import {
   quickMessagesList,
-  readLocalFileBase64,
+  prepareChatImagePath,
   stageLocalChatAttachment,
   uploadAttachment,
+  uploadChatImage,
+  uploadLocalChatImagePathToRemote,
   uploadLocalPathToRemote,
   isEmptyAttachmentError,
   openSettingsWindow,
   type SettingsSection,
+  CHAT_IMAGE_I18N_KEY_TOO_LARGE,
   UPLOAD_MAX_BYTES,
   UPLOAD_I18N_KEY_TOO_LARGE,
   UPLOAD_I18N_KEY_NOT_A_FILE,
   UPLOAD_I18N_KEY_QUOTA_EXCEEDED,
 } from "@/lib/api"
+import {
+  CHAT_IMAGE_DERIVED_MAX_BYTES,
+  CHAT_IMAGE_SOURCE_MAX_BYTES,
+  prepareBrowserChatImage,
+} from "@/lib/chat-image"
 import { extractAppCommandError } from "@/lib/app-error"
-import { openFileDialog } from "@/lib/platform"
-import { getActiveRemoteConnectionId, getTransport } from "@/lib/transport"
+import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { ServerFileBrowserDialog } from "@/components/shared/server-file-browser-dialog"
 import { toast } from "sonner"
 import { preparePickedAttachmentPaths } from "./chat-attachment-staging"
@@ -186,6 +197,7 @@ import {
 import type { MentionUiLabels } from "@/components/chat/composer/suggestion/types"
 import type {
   ImageInputAttachment,
+  ImageAttachmentStaging,
   InputAttachment,
   ResourceInputAttachment,
 } from "./message-input-attachments"
@@ -288,7 +300,7 @@ const MIME_BY_EXT: Record<string, string> = {
   svg: "image/svg+xml",
 }
 
-const IMAGE_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
+const IMAGE_ATTACHMENT_MAX_BYTES = CHAT_IMAGE_DERIVED_MAX_BYTES
 const SUPPORTED_IMAGE_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -334,18 +346,73 @@ function bytesFromBase64(data: string): number {
   return Math.max(0, Math.floor((data.length * 3) / 4) - padding)
 }
 
-function fileToBase64(file: File): Promise<string> {
-  return file.arrayBuffer().then((bytes) => {
-    const view = new Uint8Array(bytes)
-    let binary = ""
-    const chunkSize = 0x8000
-    for (let offset = 0; offset < view.length; offset += chunkSize) {
-      binary += String.fromCharCode(
-        ...view.subarray(offset, offset + chunkSize)
-      )
+function updateImageAttachment(
+  current: InputAttachment[],
+  id: string,
+  update: (attachment: ImageInputAttachment) => ImageInputAttachment
+): InputAttachment[] {
+  return current.map((attachment) =>
+    attachment.type === "image" && attachment.id === id
+      ? update(attachment)
+      : attachment
+  )
+}
+
+async function retryImageUpload(
+  source: ImageAttachmentStaging["source"],
+  sessionId: string | null,
+  mimeType?: string
+) {
+  return source.kind === "browser-file"
+    ? uploadChatImage(source.file, sessionId, mimeType)
+    : uploadLocalChatImagePathToRemote(source.path, sessionId)
+}
+
+interface BrowserImageStagingResult {
+  path: string | null
+  uri: string | null
+  sourceMimeType: string
+  staging?: ImageAttachmentStaging
+  error?: unknown
+}
+
+async function stageBrowserImageOriginal(
+  file: File,
+  sessionId: string | null,
+  mimeType: string,
+  enabled: boolean
+): Promise<BrowserImageStagingResult> {
+  const initial = { path: null, uri: null, sourceMimeType: mimeType }
+  if (!enabled) return initial
+  try {
+    const staged = await uploadChatImage(file, sessionId, mimeType)
+    return {
+      path: staged.path,
+      uri: buildFileUri(staged.path),
+      sourceMimeType: staged.mimeType ?? mimeType,
     }
-    return btoa(binary)
-  })
+  } catch (error) {
+    return {
+      ...initial,
+      staging: {
+        status: "failed",
+        source: { kind: "browser-file", file },
+      },
+      error,
+    }
+  }
+}
+
+function imageTooLargeDetails(error: unknown, fallbackName: string) {
+  const appError = extractAppCommandError(error)
+  if (appError?.i18n_key !== CHAT_IMAGE_I18N_KEY_TOO_LARGE) return null
+  return {
+    name: appError.i18n_params?.name ?? fallbackName,
+    size: appError.i18n_params?.size ?? "100.0",
+    limit:
+      appError.i18n_params?.limit ??
+      String(CHAT_IMAGE_SOURCE_MAX_BYTES / (1024 * 1024)),
+  }
 }
 
 function hasDragFiles(dataTransfer: DataTransfer | null): boolean {
@@ -530,9 +597,9 @@ export function MessageInput({
   // Cached for the window's lifetime: `getActiveRemoteConnectionId()` is
   // configured once when a remote-workspace window is created and never
   // mutates afterwards. A desktop window bound to a remote iyw-claw-server
-  // has to behave like the web client for attachments — local OS paths
-  // would be ENOENT on the remote agent. Only the truly local desktop
-  // shows the native Paperclip picker.
+  // controls whether selected paths belong to the local agent or must be
+  // streamed to the workspace. Both desktop variants use the native picker;
+  // remote desktop paths are handed to the remote upload proxy before sending.
   const showNativePaperclip = useMemo(
     () => desktopMode && getActiveRemoteConnectionId() === null,
     [desktopMode]
@@ -1261,7 +1328,16 @@ export function MessageInput({
   )
 
   const appendImageAttachment = useCallback(
-    (data: string, name: string, mimeType: string, uri: string | null) => {
+    (
+      data: string,
+      name: string,
+      mimeType: string,
+      uri: string | null,
+      options: {
+        sourceMimeType?: string
+        staging?: ImageAttachmentStaging
+      } = {}
+    ) => {
       const size = bytesFromBase64(data)
       if (size === 0) throw new Error("Image data is empty")
       if (size > IMAGE_ATTACHMENT_MAX_BYTES) {
@@ -1270,7 +1346,15 @@ export function MessageInput({
         )
       }
       setAttachments((current) => [
-        ...current,
+        ...(uri &&
+        current.some(
+          (attachment) => attachment.type === "image" && attachment.uri === uri
+        )
+          ? current.filter(
+              (attachment) =>
+                attachment.type !== "image" || attachment.uri !== uri
+            )
+          : current),
         {
           id: randomUUID(),
           type: "image",
@@ -1278,6 +1362,8 @@ export function MessageInput({
           uri,
           name: name || "image",
           mimeType,
+          sourceMimeType: options.sourceMimeType,
+          staging: options.staging,
         },
       ])
     },
@@ -1290,20 +1376,47 @@ export function MessageInput({
       const mimeType = imageMimeTypeForFile(file)
       if (!mimeType) {
         toast.error(tAttach("attachImageUnsupported", { name: file.name }))
-        return true
+        return false
       }
-      if (file.size > IMAGE_ATTACHMENT_MAX_BYTES) {
+      if (file.size > CHAT_IMAGE_SOURCE_MAX_BYTES) {
         toast.error(
           tAttach("attachImageTooLarge", {
             name: file.name,
-            limit: IMAGE_ATTACHMENT_MAX_BYTES / (1024 * 1024),
+            limit: CHAT_IMAGE_SOURCE_MAX_BYTES / (1024 * 1024),
+            size: (file.size / (1024 * 1024)).toFixed(1),
           })
         )
         return true
       }
+      const staged = await stageBrowserImageOriginal(
+        file,
+        attachmentTabId ?? null,
+        mimeType,
+        !desktopMode || getActiveRemoteConnectionId() !== null
+      )
+      if (staged.error) {
+        console.error("[MessageInput] original image staging failed", {
+          name: file.name,
+          mimeType,
+          size: file.size,
+          error: staged.error,
+        })
+        toast.error(
+          tAttach("attachUploadFailed", { names: file.name || "image" })
+        )
+      }
       try {
-        const data = await fileToBase64(file)
-        appendImageAttachment(data, file.name, mimeType, null)
+        const prepared = await prepareBrowserChatImage(file)
+        appendImageAttachment(
+          prepared.data,
+          prepared.name,
+          prepared.mimeType,
+          staged.uri,
+          {
+            sourceMimeType: staged.sourceMimeType,
+            staging: staged.staging,
+          }
+        )
       } catch (error) {
         console.error("[MessageInput] image file read failed", {
           name: file.name,
@@ -1311,39 +1424,55 @@ export function MessageInput({
           size: file.size,
           error,
         })
-        toast.error(tAttach("attachImageReadFailed", { name: file.name }))
-        // Keep the legacy upload path available when reading the image bytes
-        // fails. The image-specific path is only considered consumed after
-        // the ACP block was actually created.
-        return false
+        if (staged.path) {
+          appendResourceAttachments([staged.path])
+          toast.warning(tAttach("attachImageFallbackFile", { name: file.name }))
+        } else {
+          toast.error(tAttach("attachImageReadFailed", { name: file.name }))
+        }
+        return true
       }
       return true
     },
-    [appendImageAttachment, tAttach]
+    [
+      appendImageAttachment,
+      appendResourceAttachments,
+      attachmentTabId,
+      desktopMode,
+      tAttach,
+    ]
   )
 
   const appendImagePath = useCallback(
-    async (path: string, source: "local" | "workspace" = "local") => {
+    async (
+      path: string,
+      source: "local" | "workspace" = "local",
+      opts: { sourceMimeType?: string } = {}
+    ) => {
       if (!isImageCandidatePath(path)) return false
       const mimeType = imageMimeTypeFromPath(path)
       if (!mimeType) {
         toast.error(
           tAttach("attachImageUnsupported", { name: fileNameFromPath(path) })
         )
-        return true
+        return false
       }
       try {
-        const data = await (source === "workspace"
-          ? getTransport().call<string>("read_file_base64", {
-              path,
-              maxBytes: IMAGE_ATTACHMENT_MAX_BYTES,
-            })
-          : readLocalFileBase64(path, IMAGE_ATTACHMENT_MAX_BYTES))
-        if (bytesFromBase64(data) > IMAGE_ATTACHMENT_MAX_BYTES) {
-          throw new Error("Decoded image exceeds the attachment limit")
-        }
-        appendImageAttachment(data, fileNameFromPath(path), mimeType, null)
+        const prepared = await prepareChatImagePath(path, source)
+        const uri = buildFileUri(path)
+        appendImageAttachment(
+          prepared.data,
+          prepared.name,
+          prepared.mimeType,
+          uri,
+          { sourceMimeType: opts.sourceMimeType ?? mimeType }
+        )
       } catch (error) {
+        const tooLarge = imageTooLargeDetails(error, fileNameFromPath(path))
+        if (tooLarge) {
+          toast.error(tAttach("attachImageTooLarge", tooLarge))
+          return true
+        }
         console.error("[MessageInput] image path read failed", {
           name: fileNameFromPath(path),
           mimeType,
@@ -1359,6 +1488,94 @@ export function MessageInput({
       return true
     },
     [appendImageAttachment, tAttach]
+  )
+
+  const handleComposerReferenceSelect = useCallback(
+    (reference: ReferenceAttrs) => {
+      if (reference.refType !== "file" || !reference.uri) return false
+      const path = fileUriToPath(reference.uri)
+      if (!path || !isImageCandidatePath(path)) return false
+      const source = showNativePaperclip ? "local" : "workspace"
+      void appendImagePath(path, source).then((isImage) => {
+        if (!isImage) editorRef.current?.insertReference(reference)
+      })
+      return true
+    },
+    [appendImagePath, showNativePaperclip]
+  )
+
+  const appendRemoteLocalImagePath = useCallback(
+    async (path: string): Promise<boolean> => {
+      if (!isImageCandidatePath(path)) return false
+      const sourceMimeType = imageMimeTypeFromPath(path)
+      if (!sourceMimeType) return false
+      try {
+        const staged = await uploadLocalChatImagePathToRemote(
+          path,
+          attachmentTabId ?? null
+        )
+        if (
+          await appendImagePath(staged.path, "workspace", {
+            sourceMimeType: staged.mimeType ?? sourceMimeType,
+          })
+        ) {
+          return true
+        }
+        appendResourceAttachments([staged.path])
+        return true
+      } catch (error) {
+        const tooLarge = imageTooLargeDetails(error, fileNameFromPath(path))
+        if (tooLarge) {
+          toast.error(tAttach("attachImageTooLarge", tooLarge))
+          return true
+        }
+        console.error("[MessageInput] remote image staging failed", {
+          name: fileNameFromPath(path),
+          error,
+        })
+        try {
+          const prepared = await prepareChatImagePath(path, "local")
+          appendImageAttachment(
+            prepared.data,
+            prepared.name,
+            prepared.mimeType,
+            null,
+            {
+              sourceMimeType,
+              staging: {
+                status: "failed",
+                source: { kind: "local-path", path },
+              },
+            }
+          )
+          toast.error(
+            tAttach("attachUploadFailed", { names: fileNameFromPath(path) })
+          )
+          return true
+        } catch (prepareError) {
+          const tooLarge = imageTooLargeDetails(
+            prepareError,
+            fileNameFromPath(path)
+          )
+          if (tooLarge) {
+            toast.error(tAttach("attachImageTooLarge", tooLarge))
+            return true
+          }
+          console.error("[MessageInput] local image fallback failed", {
+            name: fileNameFromPath(path),
+            error: prepareError,
+          })
+          return false
+        }
+      }
+    },
+    [
+      appendImageAttachment,
+      appendImagePath,
+      appendResourceAttachments,
+      attachmentTabId,
+      tAttach,
+    ]
   )
 
   // Attach a single file as a ranged badge (`foo.ts:10-25`), used by the file
@@ -1501,6 +1718,13 @@ export function MessageInput({
           localPaths.push(path)
           continue
         }
+        if (
+          path &&
+          getActiveRemoteConnectionId() !== null &&
+          (await appendRemoteLocalImagePath(path))
+        ) {
+          continue
+        }
         if (await appendImageFile(file)) continue
         uploadCandidates.push(file)
       }
@@ -1521,6 +1745,7 @@ export function MessageInput({
       appendResourceAttachments,
       appendImageFile,
       appendImagePath,
+      appendRemoteLocalImagePath,
       defaultPath,
       showNativePaperclip,
       stageAttachmentsInWorkingDir,
@@ -1664,6 +1889,37 @@ export function MessageInput({
   useEffect(() => {
     uploadPathsToRemoteRef.current = uploadPathsToRemote
   }, [uploadPathsToRemote])
+
+  const appendNativePickedPaths = useCallback(
+    async (paths: string[]) => {
+      const remote = getActiveRemoteConnectionId() !== null
+      const ordinary: string[] = []
+      for (const path of paths) {
+        const handled = remote
+          ? await appendRemoteLocalImagePath(path)
+          : await appendImagePath(path)
+        if (!handled) ordinary.push(path)
+      }
+      if (ordinary.length === 0) return
+      if (remote) {
+        await uploadPathsToRemoteRef.current(ordinary)
+        return
+      }
+      const prepared = await preparePickedAttachmentPaths(ordinary, {
+        stageInChatDirectory: stageAttachmentsInWorkingDir,
+        chatDirectory: defaultPath,
+        stage: stageLocalChatAttachment,
+      })
+      if (prepared.length > 0) appendResourceAttachments(prepared)
+    },
+    [
+      appendImagePath,
+      appendRemoteLocalImagePath,
+      appendResourceAttachments,
+      defaultPath,
+      stageAttachmentsInWorkingDir,
+    ]
+  )
 
   const appendFilesFromInput = useCallback(
     async (files: File[]) => {
@@ -1940,30 +2196,20 @@ export function MessageInput({
 
   const handlePickFiles = useCallback(async () => {
     if (disabled) return
-    // Only wired up when `showNativePaperclip` is true (i.e. local desktop),
-    // so we can hand raw OS paths to the local agent without a round-trip.
     let picked: string[] = []
     try {
-      const selected = await openFileDialog({
+      const { open } = await import("@tauri-apps/plugin-dialog")
+      const selected = await open({
         multiple: true,
         directory: false,
-        defaultPath,
+        defaultPath:
+          getActiveRemoteConnectionId() === null ? defaultPath : undefined,
       })
       if (!selected) return
       picked = (Array.isArray(selected) ? selected : [selected]).filter(
         (item): item is string => !!item
       )
-      const ordinary: string[] = []
-      for (const path of picked) {
-        if (await appendImagePath(path)) continue
-        ordinary.push(path)
-      }
-      const prepared = await preparePickedAttachmentPaths(ordinary, {
-        stageInChatDirectory: stageAttachmentsInWorkingDir,
-        chatDirectory: defaultPath,
-        stage: stageLocalChatAttachment,
-      })
-      if (prepared.length > 0) appendResourceAttachments(prepared)
+      await appendNativePickedPaths(picked)
     } catch (error) {
       console.error("[MessageInput] pick files failed:", error)
       toast.error(
@@ -1972,14 +2218,7 @@ export function MessageInput({
         })
       )
     }
-  }, [
-    appendResourceAttachments,
-    appendImagePath,
-    defaultPath,
-    disabled,
-    stageAttachmentsInWorkingDir,
-    tAttach,
-  ])
+  }, [appendNativePickedPaths, defaultPath, disabled, tAttach])
 
   const [serverFilePickerOpen, setServerFilePickerOpen] = useState(false)
 
@@ -2315,7 +2554,7 @@ export function MessageInput({
           void (async () => {
             const ordinary: string[] = []
             for (const path of payload.paths) {
-              if (await appendImagePath(path)) continue
+              if (await appendRemoteLocalImagePath(path)) continue
               ordinary.push(path)
             }
             if (ordinary.length > 0) {
@@ -2412,11 +2651,59 @@ export function MessageInput({
       cancelled = true
       cleanupListeners()
     }
-  }, [appendImagePath, setDragActiveIfChanged])
+  }, [appendImagePath, appendRemoteLocalImagePath, setDragActiveIfChanged])
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => prev.filter((item) => item.id !== id))
   }, [])
+
+  const retryImageStaging = useCallback(
+    async (id: string) => {
+      const attachment = attachments.find(
+        (item): item is ImageInputAttachment =>
+          item.type === "image" && item.id === id
+      )
+      if (!attachment?.staging || attachment.staging.status === "uploading") {
+        return
+      }
+      const source = attachment.staging.source
+      setAttachments((current) =>
+        updateImageAttachment(current, id, (item) => ({
+          ...item,
+          staging: { status: "uploading", source },
+        }))
+      )
+      try {
+        const staged = await retryImageUpload(
+          source,
+          attachmentTabId ?? null,
+          attachment.sourceMimeType
+        )
+        const uri = buildFileUri(staged.path)
+        setAttachments((current) =>
+          updateImageAttachment(current, id, (item) => ({
+            ...item,
+            uri,
+            sourceMimeType: staged.mimeType ?? item.sourceMimeType,
+            staging: undefined,
+          }))
+        )
+      } catch (error) {
+        console.error("[MessageInput] image staging retry failed", {
+          name: attachment.name,
+          error,
+        })
+        setAttachments((current) =>
+          updateImageAttachment(current, id, (item) => ({
+            ...item,
+            staging: { status: "failed", source },
+          }))
+        )
+        toast.error(tAttach("attachUploadFailed", { names: attachment.name }))
+      }
+    },
+    [attachments, attachmentTabId, tAttach]
+  )
 
   const applyAttachmentEdit = useCallback(
     (result: EditorImageResult) => {
@@ -2430,6 +2717,8 @@ export function MessageInput({
                 mimeType: result.mime_type,
                 name: result.name,
                 uri: null,
+                sourceMimeType: result.mime_type,
+                staging: undefined,
               }
             : attachment
         )
@@ -2486,11 +2775,30 @@ export function MessageInput({
       toast.error(tAttach("attachImageReadFailed", { name: invalidImage.name }))
       return null
     }
+    const unstagedImage = attachments.find(
+      (attachment): attachment is ImageInputAttachment =>
+        attachment.type === "image" && attachment.staging !== undefined
+    )
+    if (unstagedImage) {
+      toast.error(
+        tAttach("attachImageStagingRequired", { name: unstagedImage.name })
+      )
+      return null
+    }
     if (blocks.length === 0 && attachments.length === 0) return null
 
     // `attachments` holds only images now — files live inline as badges above.
     for (const attachment of attachments) {
       if (attachment.type === "image") {
+        if (attachment.uri) {
+          blocks.push({
+            type: "resource_link",
+            uri: attachment.uri,
+            name: attachment.name,
+            mime_type: attachment.sourceMimeType ?? attachment.mimeType,
+            description: null,
+          })
+        }
         blocks.push({
           type: "image",
           data: attachment.data,
@@ -3062,7 +3370,12 @@ export function MessageInput({
                     {imageAttachments.map((attachment) => (
                       <div
                         key={attachment.id}
-                        className="relative shrink-0 overflow-hidden rounded-md border border-border/70 bg-muted/30"
+                        className={cn(
+                          "relative shrink-0 overflow-hidden rounded-md border bg-muted/30",
+                          attachment.staging?.status === "failed"
+                            ? "border-amber-500/70"
+                            : "border-border/70"
+                        )}
                       >
                         <button
                           type="button"
@@ -3078,6 +3391,58 @@ export function MessageInput({
                             className="h-14 w-14 object-cover"
                           />
                         </button>
+                        {attachment.staging?.status === "uploading" ? (
+                          <span
+                            className="pointer-events-none absolute bottom-1 right-1 rounded-sm bg-background/85 p-0.5 shadow-sm"
+                            role="status"
+                            aria-label={t("attachUploading", {
+                              name: attachment.name,
+                            })}
+                            title={t("attachUploading", {
+                              name: attachment.name,
+                            })}
+                          >
+                            <LoaderCircle
+                              className="h-3 w-3 animate-spin"
+                              aria-hidden
+                            />
+                          </span>
+                        ) : attachment.staging ? (
+                          <>
+                            <span
+                              className="pointer-events-none absolute bottom-1 left-1 rounded-sm bg-background/85 p-0.5 text-amber-600 shadow-sm"
+                              role="img"
+                              aria-label={t("attachUploadFailed", {
+                                names: attachment.name,
+                              })}
+                              title={t("attachUploadFailed", {
+                                names: attachment.name,
+                              })}
+                            >
+                              <TriangleAlert className="h-3 w-3" aria-hidden />
+                              <span className="sr-only">
+                                {t("attachUploadFailed", {
+                                  names: attachment.name,
+                                })}
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void retryImageStaging(attachment.id)
+                              }
+                              className="absolute bottom-1 right-1 rounded-sm bg-background/85 p-0.5 shadow-sm hover:bg-background"
+                              aria-label={t("retryAttachment", {
+                                name: attachment.name,
+                              })}
+                              title={t("retryAttachment", {
+                                name: attachment.name,
+                              })}
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                            </button>
+                          </>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => removeAttachment(attachment.id)}
@@ -3099,6 +3464,7 @@ export function MessageInput({
                 ariaLabel={resolvedPlaceholder}
                 autoFocus={autoFocus}
                 referenceSearch={referenceSearch}
+                onReferenceSelect={handleComposerReferenceSelect}
                 mentionUiLabels={mentionUiLabels}
                 tabLabels={referenceGroupLabels}
                 onChange={handleComposerChange}
@@ -3133,7 +3499,7 @@ export function MessageInput({
                       align="start"
                       className="min-w-48"
                     >
-                      {showNativePaperclip ? (
+                      {desktopMode ? (
                         <DropdownMenuItem
                           onClick={() => {
                             handlePickFiles().catch((error) => {
@@ -3148,27 +3514,27 @@ export function MessageInput({
                           {t("attachFiles")}
                         </DropdownMenuItem>
                       ) : (
-                        <>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              handleUploadLocalFiles().catch((error) => {
-                                console.error(
-                                  "[MessageInput] upload local files failed:",
-                                  error
-                                )
-                              })
-                            }}
-                          >
-                            <Upload className="size-4" />
-                            {t("attachLocalUpload")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => setServerFilePickerOpen(true)}
-                          >
-                            <FolderSearch className="size-4" />
-                            {t("attachServerFile")}
-                          </DropdownMenuItem>
-                        </>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            handleUploadLocalFiles().catch((error) => {
+                              console.error(
+                                "[MessageInput] upload local files failed:",
+                                error
+                              )
+                            })
+                          }}
+                        >
+                          <Upload className="size-4" />
+                          {t("attachLocalUpload")}
+                        </DropdownMenuItem>
+                      )}
+                      {!showNativePaperclip && (
+                        <DropdownMenuItem
+                          onClick={() => setServerFilePickerOpen(true)}
+                        >
+                          <FolderSearch className="size-4" />
+                          {t("attachServerFile")}
+                        </DropdownMenuItem>
                       )}
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>

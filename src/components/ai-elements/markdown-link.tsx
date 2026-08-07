@@ -42,6 +42,16 @@ function nodeText(children: ReactNode): string {
   return ""
 }
 
+function fileNameFromHref(href: string): string {
+  try {
+    const parsed = new URL(href)
+    const path = decodeURIComponent(parsed.pathname)
+    return path.split(/[\\/]/).filter(Boolean).pop() || "file"
+  } catch {
+    return "file"
+  }
+}
+
 /**
  * Anchor override for markdown rendered by `<Streamdown>` (chat messages and
  * reasoning blocks). It mirrors Streamdown's built-in link element — a
@@ -171,7 +181,7 @@ export function MarkdownLink({
     const fileData: ReferenceAttrs = {
       refType: "file",
       id: href,
-      label: nodeText(children) || href,
+      label: nodeText(children) || fileNameFromHref(href),
       uri: href,
       meta: { fileKind: "file" },
     }
@@ -180,7 +190,7 @@ export function MarkdownLink({
         <button
           type="button"
           data-resource-kind="file"
-          title={href}
+          title={fileData.label}
           onClick={handleClick}
           className="inline-flex max-w-full -translate-y-[1.5px] cursor-pointer appearance-none items-center align-middle leading-none hover:opacity-80"
         >

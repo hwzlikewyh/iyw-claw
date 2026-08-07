@@ -43,7 +43,7 @@ use tokio::sync::{mpsc, watch, Mutex, RwLock};
 use tokio_tungstenite::tungstenite::{
     client::IntoClientRequest, handshake::client::Request, http::HeaderValue, Message,
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::{io::ReaderStream, sync::CancellationToken};
 
 /// Outbound mpsc capacity per remote WS. Bounded so a runaway frontend
 /// cannot exhaust memory by piling client-→-server messages, but generous
@@ -628,6 +628,136 @@ pub async fn remote_upload_attachment(
         AppCommandError::network("Failed to parse remote upload response")
             .with_detail(e.to_string())
     })
+}
+
+fn supported_chat_image_mime(path: &Path) -> Result<String, AppCommandError> {
+    let mime = guess_mime_from_path(path)
+        .ok_or_else(|| AppCommandError::invalid_input("Image format is not supported"))?;
+    if matches!(
+        mime.as_str(),
+        "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+    ) {
+        Ok(mime)
+    } else {
+        Err(AppCommandError::invalid_input(
+            "Image format is not supported",
+        ))
+    }
+}
+
+async fn local_chat_image_part(
+    path: PathBuf,
+    file_name: &str,
+    mime: &str,
+) -> Result<reqwest::multipart::Part, AppCommandError> {
+    let metadata = tokio::fs::symlink_metadata(&path).await.map_err(|error| {
+        AppCommandError::io_error("Unable to inspect local image").with_detail(error.to_string())
+    })?;
+    if !metadata.file_type().is_file() {
+        return Err(AppCommandError::invalid_input(
+            "Image path is not a regular file",
+        ));
+    }
+    if metadata.len() > crate::commands::chat_image::CHAT_IMAGE_SOURCE_MAX_BYTES {
+        return Err(crate::commands::chat_image::source_too_large_error(
+            file_name,
+            metadata.len(),
+        ));
+    }
+    let name = sanitize_upload_file_name(file_name);
+    let file = tokio::fs::File::open(path).await.map_err(|error| {
+        AppCommandError::io_error("Unable to open local image").with_detail(error.to_string())
+    })?;
+    let body = reqwest::Body::wrap_stream(ReaderStream::new(file));
+    reqwest::multipart::Part::stream_with_length(body, metadata.len())
+        .file_name(name)
+        .mime_str(mime)
+        .map_err(|error| {
+            AppCommandError::invalid_input("Invalid image MIME type").with_detail(error.to_string())
+        })
+}
+
+async fn parse_remote_image_upload(response: reqwest::Response) -> Result<Value, AppCommandError> {
+    let status = response.status();
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(AppCommandError::authentication_failed(
+            "Remote Workspace token is invalid",
+        ));
+    }
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        if let Ok(error) = serde_json::from_str::<AppCommandError>(&body) {
+            return Err(error);
+        }
+        return Err(
+            AppCommandError::network(format!("Remote returned HTTP {status}")).with_detail(body),
+        );
+    }
+    response.json::<Value>().await.map_err(|error| {
+        AppCommandError::network("Unable to parse remote image upload response")
+            .with_detail(error.to_string())
+    })
+}
+
+pub(crate) async fn upload_chat_image_file_to_remote(
+    db: &AppDatabase,
+    proxy: &RemoteProxyState,
+    connection_id: i32,
+    path: PathBuf,
+    file_name: String,
+    mime_type: String,
+    session_id: Option<String>,
+) -> Result<Value, AppCommandError> {
+    let conn = remote_workspace_connection_service::get(&db.conn, connection_id)
+        .await
+        .map_err(AppCommandError::db)?
+        .ok_or_else(|| AppCommandError::not_found("Remote connection was not found"))?;
+    let part = local_chat_image_part(path, &file_name, &mime_type).await?;
+    let mut form = reqwest::multipart::Form::new().part("file", part);
+    if let Some(session_id) = session_id.filter(|value| !value.is_empty()) {
+        form = form.text("session_id", session_id);
+    }
+    let url = format!(
+        "{}/api/upload_chat_image",
+        conn.base_url.trim_end_matches('/')
+    );
+    let response = proxy
+        .workspace_http
+        .post(url)
+        .bearer_auth(conn.token.trim())
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|error| {
+            AppCommandError::network("Remote image upload failed").with_detail(error.to_string())
+        })?;
+    parse_remote_image_upload(response).await
+}
+
+#[tauri::command]
+pub async fn remote_upload_chat_image_path(
+    db: State<'_, AppDatabase>,
+    proxy: State<'_, Arc<RemoteProxyState>>,
+    connection_id: i32,
+    path: String,
+    session_id: Option<String>,
+) -> Result<Value, AppCommandError> {
+    let path = PathBuf::from(path);
+    let mime_type = supported_chat_image_mime(&path)?;
+    let file_name = path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "image".to_string());
+    upload_chat_image_file_to_remote(
+        db.inner(),
+        proxy.inner().as_ref(),
+        connection_id,
+        path,
+        file_name,
+        mime_type,
+        session_id,
+    )
+    .await
 }
 
 /// Best-effort MIME guess by extension. Mirrors the frontend's

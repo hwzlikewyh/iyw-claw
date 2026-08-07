@@ -17,6 +17,7 @@ interface UserImageAttachmentsProps {
 interface ImageThumbnailProps {
   image: UserImageDisplay
   index: number
+  imageLabel: string
   downloadLabel: string
   onOpen: (index: number) => void
   onDownload: (image: UserImageDisplay) => void
@@ -28,11 +29,13 @@ function ImageThumbnail(props: ImageThumbnailProps) {
       <button
         type="button"
         onClick={() => props.onOpen(props.index)}
+        title={props.imageLabel}
+        aria-label={props.imageLabel}
         className="block cursor-pointer transition-opacity hover:opacity-80"
       >
         <Image
           src={`data:${props.image.mime_type};base64,${props.image.data}`}
-          alt={props.image.name}
+          alt={props.imageLabel}
           width={56}
           height={56}
           unoptimized
@@ -59,16 +62,18 @@ function AttachmentPreview({
   images,
   index,
   onIndexChange,
+  imageLabel,
 }: {
   images: UserImageDisplay[]
   index: number | null
   onIndexChange: (index: number | null) => void
+  imageLabel: string
 }) {
   const image = index !== null && index < images.length ? images[index] : null
   return (
     <ImagePreviewDialog
       src={image ? `data:${image.mime_type};base64,${image.data}` : ""}
-      alt={image?.name ?? ""}
+      alt={imageLabel}
       open={image !== null}
       onOpenChange={(open) => !open && onIndexChange(null)}
       navigation={
@@ -109,6 +114,7 @@ export function UserImageAttachments({
             key={`${image.uri ?? image.name}-${index}`}
             image={image}
             index={index}
+            imageLabel={t("imageAttachmentLabel", { name: image.name })}
             downloadLabel={t("downloadImage")}
             onOpen={setPreviewIndex}
             onDownload={(item) => void handleDownload(item)}
@@ -119,6 +125,11 @@ export function UserImageAttachments({
         images={images}
         index={previewIndex}
         onIndexChange={setPreviewIndex}
+        imageLabel={
+          previewIndex !== null && previewIndex < images.length
+            ? t("imageAttachmentLabel", { name: images[previewIndex].name })
+            : ""
+        }
       />
     </div>
   )

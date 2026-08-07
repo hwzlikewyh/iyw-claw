@@ -409,7 +409,7 @@ static UPLOAD_IN_FLIGHT_BYTES: AtomicU64 = AtomicU64::new(0);
 /// RAII guard returned by `try_reserve_in_flight`. Releases the
 /// reservation on drop, including the error and panic paths in
 /// `upload_attachment`.
-struct InFlightGuard<'a> {
+pub(super) struct InFlightGuard<'a> {
     counter: &'a AtomicU64,
     bytes: u64,
 }
@@ -455,10 +455,10 @@ fn try_reserve_in_flight<'a>(
 }
 
 /// Sum the size of every regular file under `uploads_root/` except the
-/// `.tmp/` staging directory. Walks at most one level of buckets — that
-/// is the structure produced by `stream_and_finalize` — but the inner
-/// walk follows whatever entries exist, so a hand-edited deeper tree
-/// is still counted faithfully.
+/// `.tmp/` and `.image-tmp/` staging directories. Walks at most one level
+/// of buckets — that is the structure produced by `stream_and_finalize` —
+/// but the inner walk follows whatever entries exist, so a hand-edited deeper
+/// tree is still counted faithfully.
 ///
 /// Failures during the walk are logged and skipped: a permission error
 /// on one file shouldn't block the upload pipeline. The returned total
@@ -488,7 +488,7 @@ async fn current_uploads_total_bytes(uploads_root: &std::path::Path) -> u64 {
             }
         };
         let name = entry.file_name();
-        if name == ".tmp" {
+        if name == ".tmp" || name == ".image-tmp" {
             // Staging files are unreferenced and purged at startup —
             // exclude them so a partial upload doesn't inflate the
             // counter and reject the very next request.
@@ -528,6 +528,26 @@ async fn current_uploads_total_bytes(uploads_root: &std::path::Path) -> u64 {
     total
 }
 
+pub(super) async fn reserve_upload_bytes(
+    uploads_root: &std::path::Path,
+    bytes: u64,
+) -> Result<Option<InFlightGuard<'static>>, AppCommandError> {
+    let Some(cap) = upload_quota_config_from_env().cap_bytes() else {
+        return Ok(None);
+    };
+    let used = current_uploads_total_bytes(uploads_root).await;
+    try_reserve_in_flight(&UPLOAD_IN_FLIGHT_BYTES, bytes, used, cap)
+        .map(Some)
+        .map_err(|_| {
+            let mut params = BTreeMap::new();
+            params.insert("used".to_string(), used.to_string());
+            params.insert("limit".to_string(), cap.to_string());
+            AppCommandError::io_error("Upload quota exceeded for this server")
+                .with_detail(format!("used={used} limit={cap}"))
+                .with_i18n(UPLOAD_I18N_KEY_QUOTA_EXCEEDED, params)
+        })
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadAttachmentResult {
@@ -543,7 +563,7 @@ pub struct UploadAttachmentResult {
 /// Strategy: keep only the final path component, strip shell-hostile and
 /// cross-platform-hostile characters, and bound the length. Leading dots are
 /// preserved for real dotfiles, but all-dot names fall back to `file`.
-fn sanitize_upload_filename(raw: &str) -> String {
+pub(super) fn sanitize_upload_filename(raw: &str) -> String {
     let base = raw
         .rsplit(['/', '\\'])
         .next()
@@ -609,7 +629,7 @@ fn upload_uuid_fallback_candidate(safe_name: &str) -> String {
     upload_filename_with_stem_suffix(safe_name, &format!("-{unique}"))
 }
 
-async fn finalize_with_available_upload_name(
+pub(super) async fn finalize_with_available_upload_name(
     tmp_dir: &std::path::Path,
     staging_name: &str,
     bucket_dir: &std::path::Path,
@@ -658,7 +678,7 @@ async fn finalize_with_available_upload_name(
 /// distinct sessions whose ids degenerate to an empty string. Only allow
 /// `[A-Za-z0-9_-]`; everything else collapses to `_`. Empty input falls back
 /// to `"anon"`.
-fn sanitize_session_bucket(raw: &str) -> String {
+pub(super) fn sanitize_session_bucket(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
         .map(|c| match c {
@@ -678,7 +698,7 @@ fn sanitize_session_bucket(raw: &str) -> String {
 
 /// Confirm `candidate` resolves (after symlink expansion) inside `root`.
 /// Returns the canonical path on success. Both paths must exist on disk.
-async fn ensure_path_inside(
+pub(super) async fn ensure_path_inside(
     candidate: &std::path::Path,
     root: &std::path::Path,
 ) -> Result<std::path::PathBuf, AppCommandError> {
@@ -708,16 +728,19 @@ async fn ensure_path_inside(
 /// expected case on a fresh install, and permission issues should not block
 /// the server from starting.
 pub async fn purge_upload_staging() {
-    let tmp_dir = iyw_claw_uploads_root().join(".tmp");
-    match tokio::fs::remove_dir_all(&tmp_dir).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => {
-            tracing::error!(
-                "[uploads] failed to purge staging dir {}: {}",
-                tmp_dir.display(),
-                e
-            );
+    let root = iyw_claw_uploads_root();
+    for name in [".tmp", ".image-tmp"] {
+        let tmp_dir = root.join(name);
+        match tokio::fs::remove_dir_all(&tmp_dir).await {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                tracing::error!(
+                    "[uploads] failed to purge staging dir {}: {}",
+                    tmp_dir.display(),
+                    e
+                );
+            }
         }
     }
 }

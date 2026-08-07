@@ -420,6 +420,10 @@ pub fn build_router(
         )
         .route("/read_file_base64", post(handlers::files::read_file_base64))
         .route(
+            "/prepare_chat_image",
+            post(handlers::chat_image::prepare_chat_image),
+        )
+        .route(
             "/read_workspace_file_base64",
             post(handlers::files::read_workspace_file_base64),
         )
@@ -456,6 +460,12 @@ pub fn build_router(
             // authoritative size boundary.
             post(handlers::files::upload_attachment)
                 .layer(DefaultBodyLimit::max(UPLOAD_MAX_BYTES as usize + 64 * 1024)),
+        )
+        .route(
+            "/upload_chat_image",
+            post(handlers::chat_image_upload::upload_chat_image).layer(DefaultBodyLimit::max(
+                crate::commands::chat_image::CHAT_IMAGE_SOURCE_MAX_BYTES as usize + 64 * 1024,
+            )),
         )
         // ─── Workspace files (web upload/download) ───
         //

@@ -36,6 +36,17 @@ export interface ImageInputAttachment {
   uri: string | null
   name: string
   mimeType: string
+  /** MIME type of the original file when the derived image was re-encoded. */
+  sourceMimeType?: string
+  /** Runtime-only retry state. It is intentionally omitted from prompt blocks. */
+  staging?: ImageAttachmentStaging
+}
+
+export type ImageAttachmentStaging = {
+  status: "failed" | "uploading"
+  source:
+    | { kind: "browser-file"; file: File }
+    | { kind: "local-path"; path: string }
 }
 
 export type InputAttachment = ResourceInputAttachment | ImageInputAttachment

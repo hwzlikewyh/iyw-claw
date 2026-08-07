@@ -151,10 +151,23 @@ function buildOptimisticUserTurnFromDraft(
   // `referenceToMarkdown`). Re-appending the resource blocks here would duplicate
   // each attached file in the optimistic bubble, so the display text is used
   // as-is — images are the only out-of-band content left to add as blocks.
-  const text = getPromptDraftDisplayText(draft, attachedResourcesFallback)
+  const images = extractUserImagesFromDraft(draft)
+  const imageUris = new Set(
+    images
+      .map((image) => image.uri?.trim())
+      .filter((uri): uri is string => Boolean(uri))
+  )
+  const hasVisibleNonImageContent = draft.blocks.some((block) => {
+    if (block.type === "text") return block.text.trim().length > 0
+    if (block.type === "resource") return true
+    return block.type === "resource_link" && !imageUris.has(block.uri.trim())
+  })
+  const text = hasVisibleNonImageContent
+    ? getPromptDraftDisplayText(draft, attachedResourcesFallback)
+    : ""
 
   const blocks: ContentBlock[] = []
-  for (const image of extractUserImagesFromDraft(draft)) {
+  for (const image of images) {
     blocks.push({
       type: "image",
       data: image.data,
@@ -162,7 +175,7 @@ function buildOptimisticUserTurnFromDraft(
       uri: image.uri ?? null,
     })
   }
-  blocks.push({ type: "text", text })
+  if (text) blocks.push({ type: "text", text })
 
   return {
     id: `optimistic-${randomUUID()}`,
@@ -182,7 +195,12 @@ function buildUserTurnFromMessageBlocks(
 ): MessageTurn {
   const contentBlocks: ContentBlock[] = blocks.map((b) =>
     b.type === "image"
-      ? { type: "image", data: b.data, mime_type: b.mime_type, uri: null }
+      ? {
+          type: "image",
+          data: b.data,
+          mime_type: b.mime_type,
+          uri: b.uri ?? null,
+        }
       : { type: "text", text: b.text }
   )
   return {

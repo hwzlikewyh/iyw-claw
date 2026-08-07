@@ -115,6 +115,8 @@ export interface RichComposerProps {
    * effect. Omit to disable mentions.
    */
   referenceSearch?: ReferenceSearch
+  /** Return true when the host consumes an `@` reference out of band. */
+  onReferenceSelect?: (reference: ReferenceAttrs) => boolean
   /**
    * Localized chrome for the `@` panel (empty / loading / listbox name / "more
    * results" hint / result-count announcement). English fallbacks apply when
@@ -186,6 +188,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       onBlur,
       onReady,
       referenceSearch,
+      onReferenceSelect,
       mentionUiLabels,
       tabLabels,
       submitShortcut,
@@ -208,6 +211,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
     // installed) is gated on whether mentions are currently enabled — robust to
     // the prop being added/removed after the editor is created once.
     const referenceSearchRef = useRef(referenceSearch)
+    const onReferenceSelectRef = useRef(onReferenceSelect)
     const submitShortcutRef = useRef(submitShortcut)
     const newlineShortcutRef = useRef(newlineShortcut)
     const isExternalMenuOpenRef = useRef(isExternalMenuOpen)
@@ -224,6 +228,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       onBlurRef.current = onBlur
       onReadyRef.current = onReady
       referenceSearchRef.current = referenceSearch
+      onReferenceSelectRef.current = onReferenceSelect
       submitShortcutRef.current = submitShortcut
       newlineShortcutRef.current = newlineShortcut
       isExternalMenuOpenRef.current = isExternalMenuOpen
@@ -442,13 +447,10 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
 
     const handleReferenceSelect = useCallback(
       (reference: ReferenceAttrs, range: { from: number; to: number }) => {
-        editor
-          ?.chain()
-          .focus()
-          .deleteRange(range)
-          .insertReference(reference)
-          .insertContent(" ")
-          .run()
+        const consumed = onReferenceSelectRef.current?.(reference) === true
+        const chain = editor?.chain().focus().deleteRange(range)
+        if (!consumed) chain?.insertReference(reference)
+        chain?.insertContent(" ").run()
         closeMention()
       },
       [editor, closeMention]

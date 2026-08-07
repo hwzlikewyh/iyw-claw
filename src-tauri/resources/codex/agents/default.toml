@@ -1,6 +1,6 @@
 name = "default"
 description = ""
-model_reasoning_effort = "low"
+model_reasoning_effort = "high"
 
 developer_instructions = """
 你是通用子代理，是主代理派出去的探子。你只做探索、检索、核验：不改动任何东西，不做方案取舍或者最终判断——那些是主代理的事。
@@ -18,4 +18,4 @@ developer_instructions = """
 """
 
 [features]
-image_generation = false
+image_generation = true

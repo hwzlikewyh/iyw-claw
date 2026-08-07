@@ -21,6 +21,7 @@ import {
   parseTodosFromJson,
 } from "@/lib/plan-parse"
 import {
+  localFileReferenceForPrompt,
   tokenizeReferenceLinks,
   unescapeReferenceLabel,
 } from "@/lib/reference-link"
@@ -691,13 +692,25 @@ function normalizeResourceText(text: string): string {
   return text.replace(/\s+\n/g, "\n").replace(/\n\s+/g, "\n").trim()
 }
 
+function safeDecodedBasename(value: string, fallback: string): string {
+  let decoded = value
+  try {
+    decoded = decodeURIComponent(value)
+  } catch {
+    decoded = value.replace(/%2f/gi, "/").replace(/%5c/gi, "\\")
+  }
+  const withoutSuffix = decoded.split(/[?#]/, 1)[0]
+  const candidate = withoutSuffix.split(/[\\/]/).filter(Boolean).pop() ?? ""
+  const safe = candidate.replace(/[\r\n]+/g, " ").trim()
+  return safe && !/^(?:file:|[a-z]:)/i.test(safe) ? safe : fallback
+}
+
 function fileNameFromUri(uri: string): string {
   try {
     const url = new URL(uri)
-    const segment = url.pathname.split("/").pop() || ""
-    return decodeURIComponent(segment) || uri
+    return safeDecodedBasename(url.pathname, "image")
   } catch {
-    return uri
+    return safeDecodedBasename(uri.replace(/^file:\/\/+?/i, ""), "image")
   }
 }
 
@@ -826,6 +839,7 @@ function handleMarkdownLink(
     ? unescapeReferenceLabel(normalizedLabel) || fileNameFromUri(normalizedUri)
     : sanitizeMentionName(unescapeReferenceLabel(normalizedLabel.slice(1))) ||
       fileNameFromUri(normalizedUri)
+  if (isFileUri) return match
   addResource(resources, { name, uri: normalizedUri, mime_type: null })
   // A real `file://` attachment is COPIED, not moved: it stays inline in the
   // prose (so markdown-link renders it as an inline file badge at the position
@@ -833,7 +847,7 @@ function handleMarkdownLink(
   // (the original grey-chip style). A bare blocked `@mention` link carries no
   // openable uri, so there is no inline badge to keep — it is still lifted out
   // (moved) to the row only.
-  return isFileUri ? match : ""
+  return ""
 }
 
 export function extractUserResourcesFromText(text: string): {
@@ -867,7 +881,8 @@ export function extractUserResourcesFromText(text: string): {
 
 function splitUserTextAndResources(
   parts: AdaptedContentPart[],
-  attachedResourcesText: string
+  attachedResourcesText: string,
+  images: UserImageDisplay[]
 ): {
   parts: AdaptedContentPart[]
   resources: UserResourceDisplay[]
@@ -880,14 +895,16 @@ function splitUserTextAndResources(
       nextParts.push(part)
       continue
     }
-    const extracted = extractUserResourcesFromText(part.text)
+    const visibleText = stripImageFileReferences(part.text, images)
+    if (visibleText.length === 0) continue
+    const extracted = extractUserResourcesFromText(visibleText)
     if (extracted.resources.length > 0) {
       resources.push(...extracted.resources)
       if (extracted.text.length > 0) {
         nextParts.push({ type: "text", text: extracted.text })
       }
-    } else {
-      nextParts.push(part)
+    } else if (extracted.text.length > 0) {
+      nextParts.push({ type: "text", text: extracted.text })
     }
   }
 
@@ -896,6 +913,40 @@ function splitUserTextAndResources(
   }
 
   return { parts: nextParts, resources }
+}
+
+function normalizedLinkDestination(destination: string): string {
+  const trimmed = destination.trim()
+  return trimmed.startsWith("<") && trimmed.endsWith(">")
+    ? trimmed.slice(1, -1).trim()
+    : trimmed
+}
+
+function stripImageFileReferences(
+  text: string,
+  images: UserImageDisplay[]
+): string {
+  const imageUris = new Set(
+    images
+      .map((image) => image.uri?.trim())
+      .filter((uri): uri is string => !!uri)
+  )
+  if (imageUris.size === 0) return text
+
+  const withoutLinks = tokenizeReferenceLinks(text)
+    .map((token) => {
+      if (token.type === "text") return token.value
+      return imageUris.has(normalizedLinkDestination(token.destination))
+        ? ""
+        : token.raw
+    })
+    .join("")
+  let visibleText = withoutLinks
+  for (const uri of imageUris) {
+    const prompt = localFileReferenceForPrompt(uri)
+    if (prompt) visibleText = visibleText.split(prompt).join("")
+  }
+  return visibleText
 }
 
 function deriveImageNameFromBlock(
@@ -1810,15 +1861,19 @@ export function adaptMessageTurn(
         )
       : adaptedContent
 
-  const userSplit =
-    turn.role === "user"
-      ? splitUserTextAndResources(groupedContent, text.attachedResources)
-      : { parts: groupedContent, resources: [] as UserResourceDisplay[] }
   // Only user-uploaded images surface as top-of-message attachments.
   // Assistant-side image_generation flows through the inline
   // `generated-image` part, rendered in-position.
   const userImages =
     turn.role === "user" ? extractUserImagesFromBlocks(turn.blocks) : []
+  const userSplit =
+    turn.role === "user"
+      ? splitUserTextAndResources(
+          groupedContent,
+          text.attachedResources,
+          userImages
+        )
+      : { parts: groupedContent, resources: [] as UserResourceDisplay[] }
 
   return {
     id: turn.id,
