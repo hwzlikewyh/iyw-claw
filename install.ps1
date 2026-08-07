@@ -7,7 +7,7 @@
 
 param(
     [string]$Version = "",
-    [string]$InstallDir = "$env:LOCALAPPDATA\iyw-claw",
+    [string]$InstallDir = "$env:LOCALAPPDATA\iywclaw",
     [switch]$NoCleanup
 )
 
