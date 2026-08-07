@@ -7711,6 +7711,7 @@ pub(crate) async fn build_session_runtime_env(
     )
     .await?;
     crate::acp::runtime_context::prepend_tool_dirs(Some(&paths), &mut runtime_env);
+    crate::acp::automation_tools::inject_scheduled_task_env(agent_type, &mut runtime_env);
     runtime_env.remove(MANAGED_AGENT_VERSION_ENV);
     if let Some(version) = setting
         .as_ref()

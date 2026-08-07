@@ -1,5 +1,95 @@
 [
   {
+    "name": "list_scheduled_tasks",
+    "description": "Query iyw-claw scheduled tasks globally. Omit filters to list every active task across all projects; pass task_id for one task. This is a read-only operation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "integer",
+          "description": "Optional iyw-claw scheduled task id."
+        },
+        "project": {
+          "type": "string",
+          "description": "Optional project absolute path or unique project name."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Optional enabled-state filter."
+        },
+        "agent_type": {
+          "type": "string",
+          "enum": ["claude_code", "codex", "open_code", "gemini", "open_claw", "cline", "hermes", "code_buddy", "kimi_code", "pi", "grok"],
+          "description": "Optional executor Agent filter."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "create_scheduled_task",
+    "description": "Create a global iyw-claw scheduled task. The task runs the prompt in the selected project using the current Agent by default. This operation executes immediately without a confirmation prompt.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["name", "project", "prompt", "cron"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "Task display name." },
+        "project": { "type": "string", "minLength": 1, "description": "Project absolute path or unique project name." },
+        "prompt": { "type": "string", "minLength": 1, "description": "Prompt executed on every scheduled run." },
+        "cron": { "type": "string", "minLength": 1, "description": "Five-field cron expression: minute hour day-of-month month day-of-week." },
+        "timezone": { "type": "string", "default": "UTC", "description": "IANA timezone, for example Asia/Shanghai. Defaults to UTC." },
+        "agent_type": {
+          "type": "string",
+          "enum": ["claude_code", "codex", "open_code", "gemini", "open_claw", "cline", "hermes", "code_buddy", "kimi_code", "pi", "grok"],
+          "description": "Executor Agent. Defaults to the current Agent."
+        },
+        "enabled": { "type": "boolean", "default": true, "description": "Whether scheduling starts immediately." }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_scheduled_task",
+    "description": "Patch an existing iyw-claw scheduled task. Unspecified fields are preserved. This operation executes immediately without a confirmation prompt.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["task_id", "patch"],
+      "properties": {
+        "task_id": { "type": "integer", "description": "iyw-claw scheduled task id." },
+        "patch": {
+          "type": "object",
+          "minProperties": 1,
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "project": { "type": "string", "minLength": 1, "description": "Project absolute path or unique project name." },
+            "prompt": { "type": "string", "minLength": 1 },
+            "cron": { "type": "string", "minLength": 1 },
+            "timezone": { "type": "string", "minLength": 1 },
+            "agent_type": {
+              "type": "string",
+              "enum": ["claude_code", "codex", "open_code", "gemini", "open_claw", "cline", "hermes", "code_buddy", "kimi_code", "pi", "grok"]
+            },
+            "enabled": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_scheduled_task",
+    "description": "Delete an iyw-claw scheduled task by id. The task is disabled and soft-deleted while run history is retained. This operation executes immediately without a confirmation prompt.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["task_id"],
+      "properties": {
+        "task_id": { "type": "integer", "description": "iyw-claw scheduled task id." }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "present_task_files",
     "description": "Proactively call this after creating task deliverables and before the final response. Register the produced files so iyw-claw can show them in the workspace Artifacts panel. Accepts workspace-relative or absolute file paths.",
     "inputSchema": {

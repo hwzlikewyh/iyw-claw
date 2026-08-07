@@ -1728,6 +1728,11 @@ async fn inject_iyw_claw_mcp(
         injection.socket_path.to_string_lossy().to_string(),
         "--token".to_string(),
         token.clone(),
+        "--agent-type".to_string(),
+        serde_json::to_value(agent_type)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_default(),
         // Self-cleanup watchdog: iyw-claw-mcp exits when this PID is gone so
         // orphaned companions can't keep the binary file locked across an
         // installer upgrade (Windows) or hold a stale broker connection

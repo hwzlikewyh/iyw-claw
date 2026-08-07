@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{watch, RwLock};
 
+use crate::acp::automation_tools::AutomationAgentService;
 use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::transport::{
     read_frame, write_frame, BrokerArtifactsRequest, BrokerAskRequest, BrokerCancelRequest,
@@ -493,6 +494,9 @@ pub struct DelegationListener {
     /// Backend-owned memory store shared with Settings and prompt snapshots.
     pub user_memory: Arc<UserMemoryService>,
     pub artifacts: Arc<dyn TaskArtifactAccess>,
+    /// Global scheduled-task CRUD service. Its CLI route is intentionally
+    /// tokenless because every local Agent already has terminal authority.
+    pub automation: Arc<AutomationAgentService>,
 }
 
 impl DelegationListener {
@@ -529,6 +533,7 @@ impl DelegationListener {
         session_info: Arc<dyn SessionInfoAccess>,
         user_memory: Arc<UserMemoryService>,
         artifacts: Arc<dyn TaskArtifactAccess>,
+        automation: Arc<AutomationAgentService>,
     ) -> Arc<Self> {
         Arc::new(Self {
             broker,
@@ -539,6 +544,7 @@ impl DelegationListener {
             session_info,
             user_memory,
             artifacts,
+            automation,
         })
     }
 
@@ -743,6 +749,13 @@ impl DelegationListener {
             }
             BrokerMessage::Artifacts(req) => BrokerResponse {
                 outcome: self.process_artifacts(req).await,
+            },
+            BrokerMessage::Automation(req) => BrokerResponse {
+                outcome: self
+                    .automation
+                    .execute(req)
+                    .await
+                    .unwrap_or_else(|error| serde_json::json!({ "error": error })),
             },
             BrokerMessage::CompanionReady(req) => {
                 self.tokens.record_companion_ready(req).await;

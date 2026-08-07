@@ -32,8 +32,10 @@
 //!   * `cancel` — fire-and-forget [`BrokerCancelRequest`] from MCP
 //!     `notifications/cancelled`, targeting an in-flight `delegate_to_agent`
 //!     call by `external_handle`; gets a `Value::Null` ack.
+//!   * `automation` — global scheduled-task CRUD shared by MCP and the host CLI.
 //!
-//! All arms are authenticated by the same per-launch `token`.
+//! Session-scoped arms are authenticated by the same per-launch `token`.
+//! `automation` is deliberately tokenless for terminal-only Agents.
 //!
 //! ### Version coupling
 //!
@@ -55,9 +57,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::acp::automation_tools::ScheduledTaskRequest;
 use crate::acp::question::QuestionSpec;
 
-pub const COMPANION_PROTOCOL_VERSION: u32 = 1;
+pub const COMPANION_PROTOCOL_VERSION: u32 = 2;
 
 const fn default_companion_protocol_version() -> u32 {
     COMPANION_PROTOCOL_VERSION
@@ -259,6 +262,7 @@ pub enum BrokerMessage {
     MemoryAppend(BrokerMemoryAppendRequest),
     MemoryProposal(BrokerMemoryProposalRequest),
     Artifacts(BrokerArtifactsRequest),
+    Automation(ScheduledTaskRequest),
     CompanionReady(BrokerCompanionReadyRequest),
 }
 
@@ -445,6 +449,15 @@ pub async fn client_artifacts_round_trip(
     req: &BrokerArtifactsRequest,
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::Artifacts(req.clone())).await
+}
+
+/// Execute one global scheduled-task CRUD request. This route deliberately has
+/// no launch token so terminal-only Agents can use the same host service.
+pub async fn client_automation_round_trip(
+    socket_path: &str,
+    req: &ScheduledTaskRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::Automation(req.clone())).await
 }
 
 /// Memory writes are content/turn-idempotent in `UserMemoryService`, so an

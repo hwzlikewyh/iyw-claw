@@ -57,6 +57,14 @@ pub async fn locate_healthy_companion() -> CompanionHealthSnapshot {
     failure
 }
 
+/// Find the first executable companion candidate without spawning it. Used at
+/// host bootstrap to expose the same packaged binary to terminal-only Agents.
+pub fn locate_companion_candidate() -> Option<PathBuf> {
+    discover_candidates()
+        .into_iter()
+        .find(|path| inspect_candidate_sync(path).is_ok())
+}
+
 pub async fn probe_companion_path(path: PathBuf, timeout: Duration) -> CompanionHealthSnapshot {
     if let Err(health) = inspect_candidate(path.clone()).await {
         return health;

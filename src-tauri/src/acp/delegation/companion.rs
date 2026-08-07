@@ -5,12 +5,12 @@
 //! The companion speaks newline-delimited JSON-RPC 2.0 on stdio:
 //! one request → one response per line, with concurrent dispatch so
 //! `notifications/cancelled` can race an in-flight `tools/call`. It exposes up
-//! to nine tools — `delegate_to_agent` (async; returns a `task_id` ack),
+//! multiple tools — `delegate_to_agent` (async; returns a `task_id` ack),
 //! `get_delegation_status` (poll/long-poll for the result), `cancel_delegation`,
 //! `check_user_feedback` (pull the user's mid-turn steering notes),
 //! `ask_user_question` (block on a multiple-choice card), and `get_session_info`
 //! (resolve a referenced session by id), `show_image`, `append_user_memory`, and
-//! `propose_user_memory` — whose schemas are embedded at compile
+//! `propose_user_memory`, and scheduled-task CRUD — whose schemas are embedded at compile
 //! time from [`TOOL_SCHEMA_JSON`] and gated by the `--features` groups (delegation
 //! / feedback / ask / sessions / images / memory / memory-proposal). Only `delegate_to_agent` registers a broker-side
 //! cancel handle; canceling a status / cancel / feedback / session round-trip
@@ -43,15 +43,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, Mutex};
 
+use crate::acp::automation_tools::{ScheduledTaskOperation, ScheduledTaskRequest};
 use crate::acp::delegation::transport::{
-    client_artifacts_round_trip, client_ask_round_trip, client_cancel,
-    client_cancel_task_round_trip, client_commit_feedback, client_companion_ready_round_trip,
-    client_feedback_round_trip, client_memory_append_round_trip, client_memory_proposal_round_trip,
-    client_round_trip, client_session_round_trip, client_status_round_trip, BrokerArtifactsRequest,
-    BrokerAskRequest, BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
-    BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerMemoryAppendRequest,
-    BrokerMemoryProposalRequest, BrokerRequest, BrokerResponse, BrokerSessionRequest,
-    BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
+    client_artifacts_round_trip, client_ask_round_trip, client_automation_round_trip,
+    client_cancel, client_cancel_task_round_trip, client_commit_feedback,
+    client_companion_ready_round_trip, client_feedback_round_trip, client_memory_append_round_trip,
+    client_memory_proposal_round_trip, client_round_trip, client_session_round_trip,
+    client_status_round_trip, BrokerArtifactsRequest, BrokerAskRequest, BrokerCancelRequest,
+    BrokerCancelTaskRequest, BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest,
+    BrokerFeedbackRequest, BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerRequest,
+    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -223,6 +224,10 @@ impl CompanionFeatures {
             "append_user_memory" => self.memory,
             "propose_user_memory" => self.memory_proposal,
             "present_task_files" => self.artifacts,
+            "list_scheduled_tasks"
+            | "create_scheduled_task"
+            | "update_scheduled_task"
+            | "delete_scheduled_task" => true,
             "delegate_to_agent" | "get_delegation_status" | "cancel_delegation" => self.delegation,
             _ => false,
         }
@@ -237,6 +242,8 @@ pub struct CompanionContext {
     pub socket_path: String,
     pub token: String,
     pub working_dir: PathBuf,
+    /// Current Agent identity used as the default executor on task creation.
+    pub agent_type: Option<String>,
     /// Tool groups this launch exposes (see [`CompanionFeatures`]).
     pub features: CompanionFeatures,
 }
@@ -492,6 +499,25 @@ async fn build_tools_call_spawn(
     }
     match name.as_str() {
         "show_image" => register_and_spawn_local(inflight, id, arguments, ctx.working_dir).await,
+        "list_scheduled_tasks"
+        | "create_scheduled_task"
+        | "update_scheduled_task"
+        | "delete_scheduled_task" => {
+            let operation = match name.as_str() {
+                "list_scheduled_tasks" => ScheduledTaskOperation::List,
+                "create_scheduled_task" => ScheduledTaskOperation::Create,
+                "update_scheduled_task" => ScheduledTaskOperation::Update,
+                _ => ScheduledTaskOperation::Delete,
+            };
+            let req = ScheduledTaskRequest {
+                operation,
+                input: arguments,
+                caller_agent_type: ctx.agent_type.clone(),
+            };
+            let round_trip =
+                Box::pin(async move { client_automation_round_trip(&socket, &req).await });
+            register_and_spawn(inflight, id, None, round_trip, render_automation_result).await
+        }
         "present_task_files" => {
             let files = match parse_artifact_files(&arguments) {
                 Ok(files) => files,
@@ -1134,6 +1160,17 @@ pub fn render_artifacts_result(outcome: &Value) -> Value {
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": error.is_some(),
+        "structuredContent": outcome.clone(),
+    })
+}
+
+pub fn render_automation_result(outcome: &Value) -> Value {
+    let is_error = outcome.get("error").is_some();
+    let text = serde_json::to_string(outcome)
+        .unwrap_or_else(|_| String::from("{\"error\":\"invalid response\"}"));
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": is_error,
         "structuredContent": outcome.clone(),
     })
 }

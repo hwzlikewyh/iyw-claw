@@ -14,7 +14,8 @@
 //!     --socket-path <abs path> \
 //!     --token <ephemeral secret>
 //!
-//! All three are required and the binary exits early if any is missing.
+//! All three are required in stdio MCP mode. The separate
+//! `tool scheduled-task` mode uses only the host socket and carries no token.
 //! Everything heavyweight — JSON-RPC dispatch, UDS round-trip, MCP tool
 //! schema, cancellation tracking — lives in
 //! `iyw_claw_lib::acp::delegation::{companion, transport}` so it's
@@ -28,116 +29,23 @@
 //! interleaved frames never corrupt the wire.
 
 use std::io::Write;
-use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use iyw_claw_lib::acp::delegation::companion::{
-    binary_capabilities, companion_ready_report_after_tools_list, dispatch_line,
-    drain_and_cancel_all, send_companion_ready_report, CompanionContext, CompanionFeatures,
-    InflightCalls, JsonRpcResponse, LineAction, SpawnResult,
+    companion_ready_report_after_tools_list, dispatch_line, drain_and_cancel_all,
+    send_companion_ready_report, CompanionContext, CompanionFeatures, InflightCalls,
+    JsonRpcResponse, LineAction, SpawnResult,
 };
 use iyw_claw_lib::acp::delegation::parent_watcher::{wait_for_parent_exit, DEFAULT_POLL_INTERVAL};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
 use tokio::sync::Mutex;
 
-struct Args {
-    parent_connection_id: String,
-    socket_path: String,
-    token: String,
-    /// Optional PID of the iyw-claw / iyw-claw-server process that owns this
-    /// session. When set, iyw-claw-mcp exits as soon as the parent is gone so
-    /// orphaned companions don't keep the binary file locked (Windows
-    /// upgrade failure) or hold open a UDS / pipe nobody will ever read
-    /// from. Omitted by older parents — backward compatible.
-    parent_pid: Option<u32>,
-    /// Comma-joined tool groups to expose (e.g.
-    /// `delegation,feedback,ask,sessions,memory,memory-proposal`). Omitted by parents that predate
-    /// feature gating; see `CompanionFeatures::parse` (defaults to
-    /// delegation-only).
-    features: Option<String>,
-    /// Base directory used to resolve relative paths passed to `show_image`.
-    working_dir: PathBuf,
-}
+mod iyw_claw_mcp_args;
+mod iyw_claw_mcp_cli;
 
-fn parse_args() -> Result<Args, String> {
-    let mut parent_connection_id = None;
-    let mut socket_path = None;
-    let mut token = None;
-    let mut parent_pid = None;
-    let mut features = None;
-    let mut working_dir = None;
-
-    let mut iter = std::env::args().skip(1);
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--parent-connection-id" => {
-                parent_connection_id = Some(
-                    iter.next()
-                        .ok_or_else(|| "--parent-connection-id requires a value".to_string())?,
-                );
-            }
-            "--socket-path" => {
-                socket_path = Some(
-                    iter.next()
-                        .ok_or_else(|| "--socket-path requires a value".to_string())?,
-                );
-            }
-            "--token" => {
-                token = Some(
-                    iter.next()
-                        .ok_or_else(|| "--token requires a value".to_string())?,
-                );
-            }
-            "--parent-pid" => {
-                let raw = iter
-                    .next()
-                    .ok_or_else(|| "--parent-pid requires a value".to_string())?;
-                parent_pid = Some(
-                    raw.parse::<u32>()
-                        .map_err(|e| format!("--parent-pid must be a u32: {e}"))?,
-                );
-            }
-            "--features" => {
-                features = Some(
-                    iter.next()
-                        .ok_or_else(|| "--features requires a value".to_string())?,
-                );
-            }
-            "--working-dir" => {
-                working_dir =
-                    Some(PathBuf::from(iter.next().ok_or_else(|| {
-                        "--working-dir requires a value".to_string()
-                    })?));
-            }
-            "--help" | "-h" => {
-                println!(
-                    "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images,memory,memory-proposal,artifacts] [--working-dir <path>]"
-                );
-                std::process::exit(0);
-            }
-            "--capabilities" => {
-                println!("{}", binary_capabilities());
-                std::process::exit(0);
-            }
-            "--version" | "-V" => {
-                println!("{}", env!("CARGO_PKG_VERSION"));
-                std::process::exit(0);
-            }
-            other => return Err(format!("unknown arg: {other}")),
-        }
-    }
-    Ok(Args {
-        parent_connection_id: parent_connection_id
-            .ok_or_else(|| "missing --parent-connection-id".to_string())?,
-        socket_path: socket_path.ok_or_else(|| "missing --socket-path".to_string())?,
-        token: token.ok_or_else(|| "missing --token".to_string())?,
-        parent_pid,
-        features,
-        working_dir: working_dir
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
-    })
-}
+use iyw_claw_mcp_args::parse_args;
+use iyw_claw_mcp_cli::run_tool_cli;
 
 /// Serialize a `JsonRpcResponse` and append a newline; small enough to keep
 /// inline so the write-mutex critical section stays tight.
@@ -161,6 +69,11 @@ async fn main() -> ExitCode {
     // concurrent mcp processes share no log file. No hub/buffer/emitter.
     let _log_guard = iyw_claw_lib::logging::init::init_mcp();
 
+    let raw_args = std::env::args().skip(1).collect::<Vec<_>>();
+    if raw_args.first().map(String::as_str) == Some("tool") {
+        return run_tool_cli(&raw_args[1..]).await;
+    }
+
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
@@ -173,6 +86,7 @@ async fn main() -> ExitCode {
         socket_path: args.socket_path,
         token: args.token,
         working_dir: args.working_dir,
+        agent_type: args.agent_type,
         features: CompanionFeatures::parse(args.features.as_deref()),
     };
 

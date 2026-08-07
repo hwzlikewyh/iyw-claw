@@ -151,6 +151,10 @@ pub fn build_delegation_stack(
     );
     let tokens = Arc::new(TokenRegistry::default());
     let socket_path = default_socket_path(&std::env::temp_dir());
+    crate::acp::automation_tools::install_scheduled_task_runtime(
+        socket_path.clone(),
+        crate::acp::companion_health::locate_companion_candidate(),
+    );
     let feedback = crate::acp::feedback::FeedbackRuntimeConfig::new();
     let ask = crate::acp::question::QuestionRuntimeConfig::new();
     let sessions = crate::acp::session_info::SessionInfoRuntimeConfig::new();

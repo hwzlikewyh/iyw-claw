@@ -4,6 +4,7 @@ pub mod agent_profile;
 pub mod agent_storage;
 pub mod agent_storage_work;
 pub mod auto_update;
+pub mod automation_tools;
 pub(crate) mod background_watch;
 pub mod binary_cache;
 pub mod codex_goal;

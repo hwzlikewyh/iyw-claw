@@ -771,6 +771,16 @@ mod tauri_app {
                                 crate::web::event_bridge::EventEmitter::Tauri(app.handle().clone()),
                             ),
                         ),
+                        std::sync::Arc::new(
+                            crate::acp::automation_tools::AutomationAgentService::new(
+                                std::sync::Arc::new(db::AppDatabase {
+                                    conn: db_conn.clone(),
+                                }),
+                                crate::web::event_bridge::EventEmitter::Tauri(
+                                    app.handle().clone(),
+                                ),
+                            ),
+                        ),
                     );
                     tauri::async_runtime::spawn(async move {
                         if let Err(e) = listener.run(socket_path).await {

@@ -452,6 +452,14 @@ async fn async_main() -> ExitCode {
                     state.emitter.clone(),
                 ),
             ),
+            Arc::new(
+                iyw_claw_lib::acp::automation_tools::AutomationAgentService::new(
+                    Arc::new(iyw_claw_lib::db::AppDatabase {
+                        conn: state.db.conn.clone(),
+                    }),
+                    state.emitter.clone(),
+                ),
+            ),
         );
         let socket = delegation_socket_path.clone();
         tokio::spawn(async move {
