@@ -3,7 +3,18 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { isDesktop } from "@/lib/platform"
-import { consumeRestoredRoute } from "@/lib/update-restore"
+import {
+  consumeInstallerRestoredRoute,
+  consumeRestoredRoute,
+} from "@/lib/update-restore"
+
+function consumeDesktopRestoreRoute(): string | null {
+  const source = new URLSearchParams(window.location.search).get("restore")
+  if (source !== "installer") return consumeRestoredRoute()
+  const installerRoute = consumeInstallerRestoredRoute()
+  const relaunchRoute = consumeRestoredRoute()
+  return installerRoute ?? relaunchRoute
+}
 
 export default function Page() {
   const router = useRouter()
@@ -11,7 +22,7 @@ export default function Page() {
     if (isDesktop()) {
       // After a self-relaunch (update install, storage migration) drop the
       // user back on the screen they had open instead of the default.
-      router.replace(consumeRestoredRoute() ?? "/workspace")
+      router.replace(consumeDesktopRestoreRoute() ?? "/workspace")
       return
     }
     // Web mode: validate token before entering app

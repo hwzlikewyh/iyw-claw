@@ -4,6 +4,19 @@
 
 Var IywClawRoot
 
+Function IywClawIsMainProcessRunning
+  ; 仅返回精确主进程命中。tasklist/find 不可用或执行失败时按未运行处理，
+  ; 避免安装完成后意外启动原本关闭的应用。
+  nsExec::Exec 'cmd.exe /D /C tasklist.exe /FI "IMAGENAME eq iyw-claw.exe" /NH | find.exe /I "iyw-claw.exe" >NUL'
+  Pop $R5
+  StrCmp $R5 "0" iyw_process_running 0
+  Push "0"
+  Return
+
+  iyw_process_running:
+    Push "1"
+FunctionEnd
+
 Function IywClawRestoreLogicalInstallRoot
   ; Older installers persisted root\app as MUI's default directory while the
   ; product-specific InstallRoot value already held the user-selected root.
@@ -32,7 +45,20 @@ Function IywClawRestoreLogicalInstallRoot
     IfErrors 0 iyw_guiinit_return
     ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
     StrCmp $R8 "" iyw_guiinit_return 0
+
+    Call IywClawIsMainProcessRunning
+    Pop $R5
+    StrCmp $R5 "1" iyw_relaunch_running_app 0
     ExecWait '"$EXEPATH" /P /UPDATE' $R6
+    Goto iyw_relaunch_finished
+
+    iyw_relaunch_running_app:
+      ; Tauri 的 NSIS 模板在被动安装成功后识别 /R，并把 /ARGS 传给新进程。
+      ; 固定参数只表达本次需要恢复，不承载或拼接用户路由。
+      DetailPrint "检测到正在运行的 iyw-claw，安装完成后将恢复原页面。"
+      ExecWait '"$EXEPATH" /P /R /UPDATE /ARGS --restore-installer-session' $R6
+
+    iyw_relaunch_finished:
     SetErrorLevel $R6
     Quit
 

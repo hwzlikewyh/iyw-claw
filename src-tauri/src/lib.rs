@@ -81,6 +81,20 @@ mod tauri_app {
     use tauri::Manager;
 
     static APP_QUITTING: AtomicBool = AtomicBool::new(false);
+    const INSTALLER_RESTORE_ARG: &str = "--restore-installer-session";
+
+    fn installer_restore_requested() -> bool {
+        std::env::args_os().any(|arg| arg == std::ffi::OsStr::new(INSTALLER_RESTORE_ARG))
+    }
+
+    fn main_window_entry_url(restore_installer_session: bool) -> tauri::WebviewUrl {
+        let path = if restore_installer_session {
+            "?restore=installer"
+        } else {
+            "index.html"
+        };
+        tauri::WebviewUrl::App(path.into())
+    }
 
     fn summarize_web_auto_start_error(err: &crate::app_error::AppCommandError) -> String {
         match err
@@ -198,6 +212,13 @@ mod tauri_app {
         let tools_stage = crate::logging::emergency::StartupStage::new("managed-tools-path");
         process::ensure_managed_tools_in_path();
         tools_stage.complete();
+
+        let restore_installer_session = installer_restore_requested();
+        tracing::info!(
+            target: "iyw_claw_startup",
+            restore_installer_session,
+            "resolved desktop entry route"
+        );
 
         let builder = tauri::Builder::default();
 
@@ -913,7 +934,7 @@ mod tauri_app {
                 // `list_opened_tabs` inside the main window.
                 crate::logging::emergency::run_stage("main-window-create", || {
                     if app.get_webview_window("main").is_none() {
-                        let url = tauri::WebviewUrl::App("workspace".into());
+                        let url = main_window_entry_url(restore_installer_session);
                         let builder = tauri::WebviewWindowBuilder::new(app, "main", url)
                             .title("iyw-claw")
                             .inner_size(1260.0, 860.0)
