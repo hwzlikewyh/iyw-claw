@@ -140,7 +140,7 @@ export const AgentPlanOverlay = memo(function AgentPlanOverlay({
     // sub-agent overlay; the chip only declares layout + pointer behavior.
     return (
       <CollapsedOverlayChip
-        icon={<ListTodoIcon className="size-3" />}
+        icon={<ListTodoIcon className="size-4 sm:size-[18px]" />}
         summary={t("collapsedSummary", {
           completed: completedCount,
           total: resolvedEntries.length,

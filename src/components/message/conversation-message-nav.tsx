@@ -112,7 +112,7 @@ export const ConversationMessageNav = memo(function ConversationMessageNav({
     // own layout + pointer behavior.
     return (
       <CollapsedOverlayChip
-        icon={<MessageCircle className="size-3" />}
+        icon={<MessageCircle className="size-4 sm:size-[18px]" />}
         summary={t("collapsedSummary", { count })}
         onClick={() => onToggle(true)}
       />

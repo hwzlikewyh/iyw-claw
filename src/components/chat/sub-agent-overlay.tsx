@@ -65,7 +65,7 @@ export const SubAgentOverlay = memo(function SubAgentOverlay({
   if (!isExpanded) {
     return (
       <CollapsedOverlayChip
-        icon={<BotIcon className="size-3" />}
+        icon={<BotIcon className="size-4 sm:size-[18px]" />}
         summary={t("collapsedSummary", { count })}
         onClick={() =>
           setCollapsedByKey((prev) => ({ ...prev, [stateKey]: false }))

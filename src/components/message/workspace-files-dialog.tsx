@@ -169,7 +169,7 @@ export function WorkspaceFilesDialog() {
         onFocus={() => prefetchWorkspaceRoot(rootPath)}
       >
         <CollapsedOverlayChip
-          icon={<FolderTree className="size-3" />}
+          icon={<FolderTree className="size-4 sm:size-[18px]" />}
           summary={t("open")}
           onClick={() => setOpen(true)}
         />

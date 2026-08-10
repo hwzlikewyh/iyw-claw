@@ -1841,6 +1841,9 @@
       "noFolderHint": "Open a folder to see its contents here"
     },
     "taskArtifacts": {
+      "open": "Artifacts",
+      "title": "Task artifacts",
+      "description": "Browse and preview task artifacts from the current session or workspace",
       "current": "Current session",
       "all": "All artifacts",
       "refresh": "Refresh artifacts",

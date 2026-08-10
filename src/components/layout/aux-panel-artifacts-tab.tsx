@@ -25,15 +25,22 @@ import { cn } from "@/lib/utils"
 type Scope = "current" | "all"
 const REFRESH_DEBOUNCE_MS = 80
 
-export function TaskArtifactsTab() {
+interface TaskArtifactsTabProps {
+  conversationId?: number
+}
+
+export function TaskArtifactsTab({
+  conversationId: conversationIdOverride,
+}: TaskArtifactsTabProps = {}) {
   const t = useTranslations("Folder.taskArtifacts")
   const { activeFolderId } = useActiveFolder()
   const tabs = useTabStore((state) => state.tabs)
   const activeTabId = useTabStore((state) => state.activeTabId)
-  const conversationId = useMemo(
+  const activeConversationId = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId)?.conversationId ?? null,
     [activeTabId, tabs]
   )
+  const conversationId = conversationIdOverride ?? activeConversationId
   const [scope, setScope] = useState<Scope>("current")
   const effectiveScope =
     scope === "current" && conversationId == null ? "all" : scope
