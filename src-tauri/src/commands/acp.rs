@@ -1588,6 +1588,12 @@ fn load_codex_model_catalog_ids() -> Vec<String> {
 const CODEX_DEFAULT_BASE_INSTRUCTIONS: &str =
     "你是爱原物原助理。你和用户共享一个工作区，请持续协作，直到用户的目标真正完成。";
 
+const CODEX_IMAGE_FALLBACK_INSTRUCTIONS: &str = r###"图片理解规则：
+- 当上下文包含图片、图片路径、file URI、HTTPS URL、Data URI 或 Base64，但上游工具或网关没有返回足以回答当前问题的图片描述时，先确认当前可用工具中存在名称后缀为 `analyze_image` 的工具，再调用它。将图片来源传入 `source`，将需要确认的视觉信息写入 `question`。
+- 如果上下文已经包含网关或上游返回的图片分析文本，优先使用该文本，不要重复调用；只有现有描述缺少回答所需细节时才追加调用。
+- 如果没有可用的 `analyze_image` 工具，不要虚构工具调用或猜测图片内容，应明确说明当前无法分析图片。
+- 不要向工具传入模型、provider 或凭据；视觉模型由系统选择。"###;
+
 #[cfg(target_os = "windows")]
 const CODEX_WINDOWS_BASE_INSTRUCTIONS: &str = concat!(
     r###"你是爱原物原助理。你和用户共享一个工作区，请持续协作，直到用户的目标真正完成。
@@ -1622,6 +1628,18 @@ fn base_instructions_for(agent_type: AgentType) -> &'static str {
     }
 }
 
+fn codex_base_instructions_for_model(model: &str) -> String {
+    let base = base_instructions_for(AgentType::Codex);
+    let uses_vision_fallback =
+        crate::acp::model_catalog::model_capabilities(model).is_some_and(|capability| {
+            capability.image_input_mode == crate::acp::model_catalog::ImageInputMode::Fallback
+        });
+    if !uses_vision_fallback {
+        return base.to_string();
+    }
+    format!("{base}\n\n{CODEX_IMAGE_FALLBACK_INSTRUCTIONS}")
+}
+
 fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value {
     serde_json::json!({
         "slug": model,
@@ -1638,7 +1656,7 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
         "visibility": "list",
         "supported_in_api": true,
         "priority": priority,
-        "base_instructions": base_instructions_for(AgentType::Codex),
+        "base_instructions": codex_base_instructions_for_model(model),
         "include_skills_usage_instructions": true,
         "supports_reasoning_summaries": true,
         "support_verbosity": false,
