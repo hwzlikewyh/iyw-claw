@@ -116,9 +116,9 @@ async fn backend_delegation_policy(conn: &DatabaseConnection) -> (Option<bool>, 
 pub struct DelegationSettings {
     pub enabled: bool,
     pub depth_limit: u32,
-    /// Per-agent default overrides applied by the delegation broker when
-    /// iyw-claw-mcp spawns a subagent. Empty map → no overrides anywhere,
-    /// which is the pre-existing behavior.
+    /// Per-agent overrides applied by the delegation broker when iyw-claw-mcp
+    /// spawns a subagent. Missing modes use the product-owned automatic mode;
+    /// missing config values keep the agent's model and effort defaults.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub agent_defaults: BTreeMap<AgentType, AgentDelegationDefaults>,
     /// Per-parent byte budget (in MB) for the broker's in-memory cache of

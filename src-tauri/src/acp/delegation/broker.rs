@@ -91,6 +91,19 @@ const COMPLETED_TEXT_CAP: usize = 256 * 1024;
 /// without re-fetching the child session.
 const STATUS_PREVIEW_CAP: usize = 2 * 1024;
 
+/// Product-owned automatic mode used when delegation has no explicit mode
+/// override. Keep this aligned with `src/lib/automatic-agent-mode.ts`.
+fn default_delegation_mode_id(agent_type: AgentType) -> &'static str {
+    match agent_type {
+        AgentType::Codex => "agent-full-access",
+        AgentType::ClaudeCode | AgentType::CodeBuddy | AgentType::Grok => "bypassPermissions",
+        AgentType::Gemini => "yolo",
+        AgentType::OpenCode => "build",
+        AgentType::Cline => "act",
+        AgentType::OpenClaw | AgentType::Hermes | AgentType::KimiCode | AgentType::Pi => "default",
+    }
+}
+
 /// Lookup the `parent_id` for a conversation. Abstracted so the broker can be
 /// unit-tested against an in-memory chain without touching SeaORM.
 #[async_trait]
@@ -143,8 +156,9 @@ pub struct DelegationConfig {
     /// to spawn a great-grandchild is rejected. See spec §5.
     pub depth_limit: u32,
     /// Per-agent overrides applied when spawning a delegation child. Keyed by
-    /// the target `agent_type`; missing entries mean "no override." Forwarded
-    /// to `ConnectionSpawner::spawn` as `preferred_mode_id` /
+    /// the target `agent_type`; a missing mode uses the product-owned automatic
+    /// mode while config values remain unset. Forwarded to
+    /// `ConnectionSpawner::spawn` as `preferred_mode_id` /
     /// `preferred_config_values`.
     pub agent_defaults: BTreeMap<AgentType, AgentDelegationDefaults>,
     /// Per-parent byte budget for cached completed-task result text. `0`
@@ -1970,11 +1984,25 @@ impl DelegationBroker {
         // Pull per-agent overrides from the broker config (defaults to empty).
         // Cloning is cheap — `AgentDelegationDefaults` is at most one Option<String>
         // and a small BTreeMap, and the spawner consumes both fields by value.
-        let (preferred_mode_id, preferred_config_values) = cfg
+        let (explicit_mode_id, preferred_config_values) = cfg
             .agent_defaults
             .get(&req.agent_type)
             .map(|d: &AgentDelegationDefaults| (d.mode_id.clone(), d.config_values.clone()))
             .unwrap_or((None, BTreeMap::new()));
+        let mode_source = if explicit_mode_id.is_some() {
+            "user"
+        } else {
+            "product_default"
+        };
+        let preferred_mode_id = explicit_mode_id
+            .or_else(|| Some(default_delegation_mode_id(req.agent_type).to_string()));
+        tracing::info!(
+            parent_conversation_id = req.parent_conversation_id,
+            mode_id = preferred_mode_id.as_deref().unwrap_or_default(),
+            mode_source,
+            config_override_count = preferred_config_values.len(),
+            "[delegation] resolved child session defaults"
+        );
         // Checkpoint #1 (opportunistic): if a parent cancel already landed
         // during the claim/depth phase, bail before spawning a child the parent
         // has abandoned. No child exists yet, so there's nothing to tear down.

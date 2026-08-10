@@ -26,6 +26,7 @@ import {
   getFixedAgentOptions,
   loadFixedAgentOptions,
 } from "@/lib/fixed-agent-options"
+import { automaticAgentMode } from "@/lib/automatic-agent-mode"
 import {
   localizeSessionConfigOption,
   type SessionConfigTranslator,
@@ -104,6 +105,9 @@ export function DelegationAgentDefaultsPanel({
   const current = selectedAgent ? (value[selectedAgent] ?? null) : null
   const currentModeId = current?.mode_id ?? null
   const currentConfigValues = current?.config_values ?? {}
+  const automaticModeId = selectedAgent
+    ? (automaticAgentMode(selectedAgent)?.id ?? null)
+    : null
 
   const setMode = (modeId: string | null) => {
     if (!selectedAgent) return
@@ -178,6 +182,7 @@ export function DelegationAgentDefaultsPanel({
         <div className="min-h-[120px] border bg-card/50 p-3">
           <SnapshotEditor
             snapshot={snapshot}
+            defaultModeId={automaticModeId}
             overrideModeId={currentModeId}
             overrideConfigValues={currentConfigValues}
             onModeChange={setMode}

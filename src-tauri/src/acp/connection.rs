@@ -2890,50 +2890,26 @@ async fn set_session_config_option_inner(
     Ok(response.config_options)
 }
 
-/// Apply user-saved mode and config-option preferences to a freshly-attached
-/// session BEFORE the initial `session_modes` / `session_config_options`
-/// events are emitted to the frontend.
+/// Apply config-option preferences to a freshly-attached session before the
+/// initial `session_config_options` event is emitted to the frontend. Mode
+/// preferences are applied separately by [`apply_preferred_session_mode`].
 ///
-/// This is the single ownership point for "preference → agent state" — the
-/// frontend stores the user's last selections per agent_type and ships them
-/// to the backend on connect; we then call `session/set_mode` and
-/// `session/set_config_option` to align the agent process so the snapshot
-/// the frontend will see (whether via WS `snapshot` frame or fetched HTTP
-/// snapshot) already reflects the user's choices. No client-side
-/// "intercept event and rewrite then sync back" hack — single source of truth.
+/// The frontend ships saved config values to the backend on connect; this
+/// function applies them so the first snapshot already reflects the effective
+/// values without a client-side rewrite and sync-back cycle.
 ///
 /// Returns the (possibly updated) list of config options that the caller
-/// should emit. Mode preferences trigger a `ModeChanged` event from
-/// `set_session_mode`, which the caller's `emit_session_modes` immediately
-/// precedes — so the frontend sees `SessionModes{default}` then
-/// `ModeChanged{preferred}` and converges to the preferred value before
-/// `SelectorsReady` fires. Failures on individual preferences are logged
-/// and skipped so a stale/invalid preference can't block session startup.
+/// should emit. Failures on individual preferences are logged and skipped so
+/// a stale or invalid preference cannot block session startup.
 #[allow(clippy::too_many_arguments)]
-async fn apply_preferred_session_options(
+async fn apply_preferred_session_config_options(
     cx: &ConnectionTo<Agent>,
     session: &mut sacp::ActiveSession<'_, Agent>,
     state: &Arc<RwLock<SessionState>>,
     emitter: &EventEmitter,
-    preferred_mode_id: Option<&str>,
     preferred_config_values: &BTreeMap<String, String>,
     initial_config_options: Vec<SessionConfigOption>,
 ) -> Vec<SessionConfigOption> {
-    if let Some(pref_mode) = preferred_mode_id {
-        let needs_apply = session
-            .modes()
-            .as_ref()
-            .map(|m| m.current_mode_id.to_string() != pref_mode)
-            .unwrap_or(false);
-        if needs_apply {
-            if let Err(e) = set_session_mode(session, state, emitter, pref_mode.to_string()).await {
-                tracing::error!(
-                    "[ACP] failed to apply preferred mode '{pref_mode}' on connect: {e}"
-                );
-            }
-        }
-    }
-
     if preferred_config_values.is_empty() {
         return initial_config_options;
     }
@@ -2990,6 +2966,30 @@ async fn apply_preferred_session_options(
     options
 }
 
+async fn apply_preferred_session_mode(
+    session: &mut sacp::ActiveSession<'_, Agent>,
+    context: (&Arc<RwLock<SessionState>>, &EventEmitter),
+    preferred_mode_id: Option<&str>,
+) {
+    let Some(preferred_mode_id) = preferred_mode_id else {
+        return;
+    };
+    let (state, emitter) = context;
+    let needs_apply = session
+        .modes()
+        .as_ref()
+        .is_some_and(|modes| modes.current_mode_id.to_string() != preferred_mode_id);
+    if needs_apply {
+        if let Err(error) =
+            set_session_mode(session, state, emitter, preferred_mode_id.to_string()).await
+        {
+            tracing::error!(
+                "[ACP] failed to apply preferred mode '{preferred_mode_id}' on connect: {error}"
+            );
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn apply_and_emit_session_config_options(
     cx: &ConnectionTo<Agent>,
@@ -3003,6 +3003,7 @@ async fn apply_and_emit_session_config_options(
     preferred_config_values: &BTreeMap<String, String>,
     initial_config_options: Vec<SessionConfigOption>,
 ) {
+    apply_preferred_session_mode(session, (state, emitter), preferred_mode_id).await;
     if agent_type == AgentType::Grok {
         let specs = grok_effort_specs.cloned().unwrap_or_default();
         let mut options =
@@ -3019,12 +3020,11 @@ async fn apply_and_emit_session_config_options(
         emit_session_config_options_info(state, emitter, options).await;
         return;
     }
-    let updated = apply_preferred_session_options(
+    let updated = apply_preferred_session_config_options(
         cx,
         session,
         state,
         emitter,
-        preferred_mode_id,
         preferred_config_values,
         initial_config_options,
     )

@@ -17,6 +17,7 @@ const DEFAULT_SENTINEL = "__iyw_claw_default__"
 
 interface SnapshotEditorProps {
   snapshot: AgentOptionsSnapshot
+  defaultModeId: string | null
   overrideModeId: string | null
   overrideConfigValues: Record<string, string>
   onModeChange: (modeId: string | null) => void
@@ -26,6 +27,7 @@ interface SnapshotEditorProps {
 
 export function SnapshotEditor({
   snapshot,
+  defaultModeId,
   overrideModeId,
   overrideConfigValues,
   onModeChange,
@@ -53,6 +55,7 @@ export function SnapshotEditor({
               key="__mode__"
               modes={snapshot.modes.available_modes}
               agentDefaultModeId={snapshot.modes.current_mode_id}
+              defaultModeId={defaultModeId}
               overrideModeId={overrideModeId}
               onChange={onModeChange}
               disabled={disabled}
@@ -77,6 +80,7 @@ export function SnapshotEditor({
 interface ModeRowProps {
   modes: Array<{ id: string; name: string; description?: string | null }>
   agentDefaultModeId: string
+  defaultModeId: string | null
   overrideModeId: string | null
   onChange: (modeId: string | null) => void
   disabled?: boolean
@@ -85,6 +89,7 @@ interface ModeRowProps {
 function ModeRow({
   modes,
   agentDefaultModeId,
+  defaultModeId,
   overrideModeId,
   onChange,
   disabled,
@@ -93,6 +98,14 @@ function ModeRow({
   const agentDefaultName =
     modes.find((mode) => mode.id === agentDefaultModeId)?.name ??
     agentDefaultModeId
+  const effectiveDefaultModeId = defaultModeId ?? agentDefaultModeId
+  const defaultModeName =
+    modes.find((mode) => mode.id === effectiveDefaultModeId)?.name ??
+    agentDefaultName
+  const selectedModeId =
+    !overrideModeId || overrideModeId === effectiveDefaultModeId
+      ? DEFAULT_SENTINEL
+      : overrideModeId
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0 space-y-0.5">
@@ -102,7 +115,7 @@ function ModeRow({
         </p>
       </div>
       <Select
-        value={overrideModeId ?? DEFAULT_SENTINEL}
+        value={selectedModeId}
         onValueChange={(value) =>
           onChange(value === DEFAULT_SENTINEL ? null : value)
         }
@@ -112,14 +125,14 @@ function ModeRow({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={DEFAULT_SENTINEL}>
-            {t("defaultOptionLabel", { value: agentDefaultName })}
-          </SelectItem>
-          {modes.map((mode) => (
-            <SelectItem key={mode.id} value={mode.id}>
-              {mode.name}
-            </SelectItem>
-          ))}
+          <SelectItem value={DEFAULT_SENTINEL}>{defaultModeName}</SelectItem>
+          {modes
+            .filter((mode) => mode.id !== effectiveDefaultModeId)
+            .map((mode) => (
+              <SelectItem key={mode.id} value={mode.id}>
+                {mode.name}
+              </SelectItem>
+            ))}
         </SelectContent>
       </Select>
     </div>
