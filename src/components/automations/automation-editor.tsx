@@ -57,6 +57,8 @@ interface AutomationEditorProps {
   onBackToTemplates?: () => void
 }
 
+const DEFAULT_FOLDER_VALUE = "__iyw_claw_default_folder__"
+
 function detectTimezone(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
@@ -85,7 +87,7 @@ export function AutomationEditor({
   // even before the user types — defaultText applies without firing onChange).
   const [prompt, setPrompt] = useState(automation?.config?.display_text ?? "")
   const [folderId, setFolderId] = useState<number | null>(
-    automation?.root_folder_id ?? folders[0]?.id ?? null
+    automation?.root_folder_id ?? null
   )
   const [cron, setCron] = useState(automation?.cron ?? "0 9 * * 1-5")
   // Detected from this device once and shown read-only (Codex-style — no manual
@@ -176,23 +178,6 @@ export function AutomationEditor({
     }
   }, [cron, timezone])
 
-  // Backfill the default folder once the workspace folders finish hydrating — a
-  // new (or template-seeded) automation opened before they load would otherwise
-  // keep folderId null and block submit on errorFolder. Guarding on
-  // `automation?.root_folder_id == null` (rather than `!automation`) also covers
-  // a template draft seeded with a null folder, while never overriding the
-  // folder of an existing automation being edited (its folderId is non-null, so
-  // the `folderId == null` guard already short-circuits).
-  useEffect(() => {
-    if (
-      folderId == null &&
-      automation?.root_folder_id == null &&
-      folders.length > 0
-    ) {
-      setFolderId(folders[0].id)
-    }
-  }, [folders, folderId, automation])
-
   const submit = async () => {
     setError(null)
     const editor = editorRef.current?.getEditor()
@@ -200,7 +185,6 @@ export function AutomationEditor({
     if (!name.trim()) return setError(t("errorName"))
     if (!displayText) return setError(t("errorPrompt"))
     if (!cron.trim()) return setError(t("errorCron"))
-    if (folderId == null) return setError(t("errorFolder"))
     // The Save button is disabled while the selected folder path resolves; this
     // is a race-safety net for a submit triggered during that transition.
     if (folderPathResolving) return
@@ -378,15 +362,17 @@ export function AutomationEditor({
         </div>
       </div>
 
-      {/* Target — automated runs always use the selected workspace folder. */}
+      {/* Target — use an explicit workspace or a task-specific managed folder. */}
       <div className="flex flex-col gap-2">
         <h3 className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
           {t("sectionTarget")}
         </h3>
         <div className="flex flex-wrap items-center gap-2">
           <Select
-            value={folderId != null ? String(folderId) : undefined}
-            onValueChange={(v) => setFolderId(Number(v))}
+            value={folderId != null ? String(folderId) : DEFAULT_FOLDER_VALUE}
+            onValueChange={(v) =>
+              setFolderId(v === DEFAULT_FOLDER_VALUE ? null : Number(v))
+            }
           >
             <SelectTrigger size="sm" className="h-7 gap-1.5 text-xs">
               <Folder
@@ -396,6 +382,9 @@ export function AutomationEditor({
               <SelectValue placeholder={t("folderPlaceholder")} />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={DEFAULT_FOLDER_VALUE}>
+                {t("folderDefault")}
+              </SelectItem>
               {folders.map((f) => (
                 <SelectItem key={f.id} value={String(f.id)}>
                   {f.name}
@@ -404,10 +393,12 @@ export function AutomationEditor({
             </SelectContent>
           </Select>
         </div>
-        {/* Running in the folder shares the user's working tree (and any
-            concurrent run); surface that trade-off near the target controls. */}
+        {/* Explain whether this task receives a managed folder or shares an
+            explicit workspace's working tree. */}
         <p className="text-xs text-muted-foreground">
-          {t("isolationSharedCaveat")}
+          {folderId == null
+            ? t("folderDefaultHint")
+            : t("isolationSharedCaveat")}
         </p>
       </div>
 

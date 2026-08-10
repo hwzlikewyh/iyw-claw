@@ -14,6 +14,7 @@ import type {
   AutomationTemplateInfo,
   AutomationTriggerKind,
 } from "@/lib/types"
+import { automaticAgentMode } from "./automatic-agent-mode"
 
 /** i18n keys live in the `Automations` namespace; the unions keep `t(...)`
  *  type-checked against the typed message catalog. */
@@ -215,8 +216,8 @@ function detectTimezone(): string {
 }
 
 /** Build an editor seed draft from a template. The localized `name` is resolved
- *  by the caller (it lives in the i18n catalog); agent + folder come from the
- *  workspace defaults. */
+ *  by the caller (it lives in the i18n catalog); templates start in the managed
+ *  default folder unless the editor explicitly chooses a workspace. */
 export function templateToDraft(
   template: AutomationTemplate,
   opts: { name: string; agentType: AgentType; folderId: number | null }
@@ -235,7 +236,7 @@ export function templateToDraft(
     config: {
       prompt_blocks: [{ type: "text", text: template.prompt }],
       display_text: template.prompt,
-      mode_id: null,
+      mode_id: automaticAgentMode(opts.agentType)?.id ?? null,
       config_values: {},
     },
   }

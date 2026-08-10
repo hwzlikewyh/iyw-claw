@@ -114,9 +114,10 @@ pub async fn automation_create(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<CreateAutomationParams>,
 ) -> Result<Json<AutomationInfo>, AppCommandError> {
-    let result = core::automation_create_core(&state.emitter, &state.db, params.draft)
-        .await
-        .map_err(AppCommandError::from)?;
+    let result =
+        core::automation_create_core(&state.emitter, &state.db, &state.data_dir, params.draft)
+            .await
+            .map_err(AppCommandError::from)?;
     Ok(Json(result))
 }
 
@@ -124,9 +125,15 @@ pub async fn automation_update(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<UpdateAutomationParams>,
 ) -> Result<Json<AutomationInfo>, AppCommandError> {
-    let result = core::automation_update_core(&state.emitter, &state.db, params.id, params.draft)
-        .await
-        .map_err(AppCommandError::from)?;
+    let result = core::automation_update_core(
+        &state.emitter,
+        &state.db,
+        &state.data_dir,
+        params.id,
+        params.draft,
+    )
+    .await
+    .map_err(AppCommandError::from)?;
     Ok(Json(result))
 }
 

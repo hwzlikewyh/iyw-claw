@@ -4,9 +4,20 @@
 //! `#[tauri::command]` wrappers are desktop-only and build an
 //! `EventEmitter::Tauri` from the `AppHandle`.
 
+use std::path::Path;
+
+#[cfg(feature = "tauri-runtime")]
+use std::path::PathBuf;
+
 use chrono::{DateTime, Utc};
 
+#[cfg(feature = "tauri-runtime")]
+use tauri::Manager;
+
 use crate::app_error::AppCommandError;
+use crate::automation::default_folder::ensure_default_folder;
+use crate::automation::default_mode::enforce_automatic_mode;
+use crate::commands::folders::emit_folder_upsert;
 use crate::db::error::DbError;
 use crate::db::service::automation_service;
 use crate::db::AppDatabase;
@@ -54,9 +65,35 @@ pub async fn automation_runs_core(
 pub async fn automation_create_core(
     emitter: &EventEmitter,
     db: &AppDatabase,
+    data_dir: &Path,
     draft: AutomationDraft,
 ) -> Result<AutomationInfo, DbError> {
-    let info = automation_service::create(&db.conn, draft).await?;
+    let draft = enforce_automatic_mode(draft);
+    let needs_default_folder = draft.root_folder_id.is_none();
+    let created = automation_service::create(&db.conn, draft).await?;
+    let folder = if needs_default_folder {
+        match ensure_default_folder(db, data_dir, created.id).await {
+            Ok(folder) => Some(folder),
+            Err(error) => {
+                compensate_failed_create(db, created.id, &error).await;
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(folder) = &folder {
+        if let Err(error) =
+            automation_service::set_root_folder_if_missing(&db.conn, created.id, folder.id).await
+        {
+            compensate_failed_create(db, created.id, &error).await;
+            return Err(error);
+        }
+    }
+    let info = automation_service::get(&db.conn, created.id).await?;
+    if let Some(folder) = folder {
+        emit_folder_upsert(emitter, folder);
+    }
     emit_event(
         emitter,
         AUTOMATION_CHANGED_EVENT,
@@ -68,16 +105,39 @@ pub async fn automation_create_core(
 pub async fn automation_update_core(
     emitter: &EventEmitter,
     db: &AppDatabase,
+    data_dir: &Path,
     id: i32,
     draft: AutomationDraft,
 ) -> Result<AutomationInfo, DbError> {
+    let mut draft = enforce_automatic_mode(draft);
+    let folder = if draft.root_folder_id.is_none() {
+        let folder = ensure_default_folder(db, data_dir, id).await?;
+        draft.root_folder_id = Some(folder.id);
+        Some(folder)
+    } else {
+        None
+    };
     let info = automation_service::update(&db.conn, id, draft).await?;
+    if let Some(folder) = folder {
+        emit_folder_upsert(emitter, folder);
+    }
     emit_event(
         emitter,
         AUTOMATION_CHANGED_EVENT,
         AutomationChange::Upsert { id: info.id },
     );
     Ok(info)
+}
+
+async fn compensate_failed_create(db: &AppDatabase, id: i32, cause: &DbError) {
+    if let Err(cleanup_error) = automation_service::delete(&db.conn, id).await {
+        tracing::error!(
+            automation_id = id,
+            error = %cleanup_error,
+            cause = %cause,
+            "[automation] failed to compensate a default-folder create error"
+        );
+    }
 }
 
 pub async fn automation_set_enabled_core(
@@ -166,7 +226,8 @@ pub async fn automation_create(
     db: tauri::State<'_, AppDatabase>,
     draft: AutomationDraft,
 ) -> Result<AutomationInfo, DbError> {
-    automation_create_core(&EventEmitter::Tauri(app), &db, draft).await
+    let data_dir = desktop_data_dir(&app)?;
+    automation_create_core(&EventEmitter::Tauri(app), &db, &data_dir, draft).await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -177,7 +238,16 @@ pub async fn automation_update(
     id: i32,
     draft: AutomationDraft,
 ) -> Result<AutomationInfo, DbError> {
-    automation_update_core(&EventEmitter::Tauri(app), &db, id, draft).await
+    let data_dir = desktop_data_dir(&app)?;
+    automation_update_core(&EventEmitter::Tauri(app), &db, &data_dir, id, draft).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn desktop_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, DbError> {
+    app.path()
+        .app_data_dir()
+        .map(|path| crate::paths::resolve_effective_data_dir(&path))
+        .map_err(|error| DbError::Validation(format!("failed to resolve app data dir: {error}")))
 }
 
 #[cfg(feature = "tauri-runtime")]

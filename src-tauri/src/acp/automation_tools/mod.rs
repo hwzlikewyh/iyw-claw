@@ -2,6 +2,7 @@ mod helpers;
 mod runtime;
 mod types;
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
@@ -28,11 +29,16 @@ pub use types::{ScheduledTaskOperation, ScheduledTaskRequest};
 pub struct AutomationAgentService {
     db: Arc<AppDatabase>,
     emitter: EventEmitter,
+    data_dir: PathBuf,
 }
 
 impl AutomationAgentService {
-    pub fn new(db: Arc<AppDatabase>, emitter: EventEmitter) -> Self {
-        Self { db, emitter }
+    pub fn new(db: Arc<AppDatabase>, emitter: EventEmitter, data_dir: PathBuf) -> Self {
+        Self {
+            db,
+            emitter,
+            data_dir,
+        }
     }
 
     pub async fn execute(&self, request: ScheduledTaskRequest) -> Result<Value, String> {
@@ -122,7 +128,7 @@ impl AutomationAgentService {
             is_remote_branch: false,
             config: prompt_config(input.prompt)?,
         };
-        let task = automation_create_core(&self.emitter, &self.db, draft)
+        let task = automation_create_core(&self.emitter, &self.db, &self.data_dir, draft)
             .await
             .map_err(db_error)?;
         tracing::info!(
@@ -145,9 +151,15 @@ impl AutomationAgentService {
         ensure_scheduled(&current)?;
         let folders = self.folders().await?;
         let draft = merge_patch(&folders, &current, input.patch)?;
-        let task = automation_update_core(&self.emitter, &self.db, input.task_id, draft)
-            .await
-            .map_err(db_error)?;
+        let task = automation_update_core(
+            &self.emitter,
+            &self.db,
+            &self.data_dir,
+            input.task_id,
+            draft,
+        )
+        .await
+        .map_err(db_error)?;
         tracing::info!(
             task_id = task.id,
             folder_id = ?task.root_folder_id,

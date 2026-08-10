@@ -25,6 +25,7 @@ use tokio::time::MissedTickBehavior;
 use crate::acp::manager::ConnectionManager;
 use crate::acp::types::{AcpEvent, EventEnvelope, PromptInputBlock};
 use crate::acp::InternalEventBus;
+use crate::automation::default_folder::ensure_default_folder;
 use crate::commands::acp::{build_session_runtime_env, verify_agent_installed};
 use crate::commands::conversations::{create_conversation_core, emit_conversation_upsert};
 use crate::commands::folders::{
@@ -515,11 +516,30 @@ impl AutomationEngine {
     }
 
     /// Resolve the working directory for a run from `(root_folder_id, isolation,
-    /// branch)`, reusing the existing worktree/checkout machinery. v1 requires a
-    /// target folder (folderless deferred).
+    /// branch)`, reusing the existing worktree/checkout machinery. A legacy
+    /// folderless row receives its dedicated managed folder before launch.
     async fn resolve_cwd(&self, auto: &AutomationInfo, run_id: i32) -> Result<ResolvedCwd, String> {
-        let Some(root_folder_id) = auto.root_folder_id else {
-            return Err("automation has no target folder".to_string());
+        let root_folder_id = match auto.root_folder_id {
+            Some(folder_id) => folder_id,
+            None => {
+                let generated = ensure_default_folder(&self.db, &self.data_dir, auto.id)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let folder_id = automation_service::set_root_folder_if_missing(
+                    &self.db.conn,
+                    auto.id,
+                    generated.id,
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+                self.emit(AutomationChange::Upsert { id: auto.id });
+                tracing::info!(
+                    automation_id = auto.id,
+                    folder_id,
+                    "[automation] bound folderless automation before launch"
+                );
+                folder_id
+            }
         };
         let root = get_folder_core(&self.db, root_folder_id)
             .await

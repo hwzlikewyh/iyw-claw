@@ -466,6 +466,7 @@ async fn async_main() -> ExitCode {
                         conn: state.db.conn.clone(),
                     }),
                     state.emitter.clone(),
+                    state.data_dir.clone(),
                 ),
             ),
         );

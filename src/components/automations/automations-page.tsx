@@ -298,7 +298,7 @@ export function AutomationsPage() {
       ? templateToDraft(tpl, {
           name: t(tpl.titleKey),
           agentType: "claude_code",
-          folderId: folders[0]?.id ?? null,
+          folderId: null,
         })
       : null
     setEditing({ kind: "create", seed })

@@ -348,6 +348,30 @@ pub async fn update(
     Ok(to_info(active.update(conn).await?))
 }
 
+/// Bind a generated default folder without overwriting a concurrently selected
+/// explicit folder. Returns the folder id that won the compare-and-set.
+pub async fn set_root_folder_if_missing(
+    conn: &DatabaseConnection,
+    id: i32,
+    folder_id: i32,
+) -> Result<i32, DbError> {
+    let result = automation::Entity::update_many()
+        .col_expr(automation::Column::RootFolderId, Expr::value(folder_id))
+        .col_expr(automation::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(automation::Column::Id.eq(id))
+        .filter(automation::Column::DeletedAt.is_null())
+        .filter(automation::Column::RootFolderId.is_null())
+        .exec(conn)
+        .await?;
+    if result.rows_affected == 1 {
+        return Ok(folder_id);
+    }
+    find_active(conn, id)
+        .await?
+        .root_folder_id
+        .ok_or_else(|| DbError::Validation(format!("automation {id} has no target folder")))
+}
+
 pub async fn set_enabled(
     conn: &DatabaseConnection,
     id: i32,

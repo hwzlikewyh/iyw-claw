@@ -809,6 +809,7 @@ mod tauri_app {
                                 crate::web::event_bridge::EventEmitter::Tauri(
                                     app.handle().clone(),
                                 ),
+                                effective_data_dir.clone(),
                             ),
                         ),
                     );
