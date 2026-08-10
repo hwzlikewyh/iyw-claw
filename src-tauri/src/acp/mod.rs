@@ -1,5 +1,12 @@
 pub mod account_credentials;
 mod account_credentials_formats;
+mod agent_input;
+mod agent_input_capabilities;
+mod agent_input_dispatch;
+mod agent_input_lifecycle;
+mod agent_input_resume;
+mod agent_input_worker;
+mod agent_input_worker_dispatch;
 pub mod agent_profile;
 pub mod agent_storage;
 pub mod agent_storage_work;
@@ -20,6 +27,8 @@ pub mod file_system_runtime;
 pub mod fork;
 pub mod grok;
 pub mod idle_sweep;
+pub mod image_analysis;
+mod image_analysis_client;
 pub mod internal_bus;
 pub mod lifecycle;
 pub mod manager;
@@ -60,6 +69,7 @@ pub use session_state::{LiveSessionSnapshot, SessionState};
 // Re-export the inner types of LiveSessionSnapshot for downstream consumers; not all are
 // directly named in Rust today (they ride along through the snapshot struct), so silence
 // dead-import warnings rather than dropping them.
+pub use agent_input::{AgentInputItem, AgentInputPayload, AgentInputStatus, AgentInputStrategy};
 #[allow(unused_imports)]
 pub use session_state::{
     LiveContentBlock, LiveMessage, PendingPermissionState, ToolCallOutput, ToolCallState,

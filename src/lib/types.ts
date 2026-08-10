@@ -873,6 +873,41 @@ export type PromptInputBlock =
       description?: string | null
     }
 
+export type AgentInputStatus =
+  | "waiting"
+  | "dispatching"
+  | "fallback_queued"
+  | "consumed"
+  | "failed"
+  | "deleted"
+
+export type AgentInputStrategy =
+  | "native_steer"
+  | "cooperative_feedback"
+  | "deferred_next"
+
+export interface AgentInputPayload {
+  blocks: PromptInputBlock[]
+  display_text: string
+  mode_id?: string | null
+}
+
+export interface AgentInputItem {
+  id: string
+  conversation_id: number
+  connection_id: string | null
+  target_turn_generation: number | null
+  agent_type: AgentType
+  payload: AgentInputPayload
+  strategy: AgentInputStrategy | null
+  status: AgentInputStatus
+  dispatch_attempt: number
+  last_error: string | null
+  created_at: string
+  dispatched_at: string | null
+  consumed_at: string | null
+}
+
 export interface PromptDraft {
   blocks: PromptInputBlock[]
   displayText: string
@@ -1293,6 +1328,10 @@ export type AcpEvent =
       message_id: string
       blocks: UserMessageBlock[]
     }
+  | {
+      type: "agent_input_changed"
+      item: AgentInputItem
+    }
   /**
    * The user submitted a live-feedback note while the agent is mid-turn (the
    * `check_user_feedback` steering path). Broadcast so every client viewing
@@ -1436,6 +1475,12 @@ export type LiveContentBlock =
   | { kind: "thinking"; text: string }
   | { kind: "tool_call_ref"; tool_call_id: string }
   | { kind: "plan"; entries: unknown }
+  | {
+      kind: "user_input"
+      message_id: string
+      blocks: UserMessageBlock[]
+      created_at: string
+    }
 
 export interface LiveMessage {
   id: string
@@ -1565,12 +1610,16 @@ export interface LiveSessionSnapshot {
   /** Live-feedback notes for the current turn. Absent on older payloads /
    *  when empty (then treated as `[]`). */
   feedback?: FeedbackItem[]
+  /** Durable running-turn inputs. Absent on older backends / when empty. */
+  agent_inputs?: AgentInputItem[]
   /** Launched but unresolved Claude background tasks. Absent means zero. */
   background_outstanding?: number
   /** Whether this agent has the `check_user_feedback` tool (fixed at launch).
    *  The frontend gates the feedback bar on this — the agent's real capability —
    *  not the (possibly later-toggled) global setting. Absent → `false`. */
   feedback_tool_available?: boolean
+  /** Host-generated active-turn identity. Absent on older backends. */
+  turn_generation?: number
   /** Frozen user-memory capability vector for this exact launch. */
   user_memory_capabilities?: UserMemoryCapabilities
   modes: SessionModeStateInfo | null

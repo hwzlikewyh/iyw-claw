@@ -34,6 +34,8 @@ pub mod broker;
 pub mod companion;
 pub mod depth;
 pub mod event_emitter;
+mod image_format;
+pub mod image_loader;
 pub mod image_tool;
 pub mod listener;
 pub mod live_reply;

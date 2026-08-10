@@ -9,8 +9,8 @@
 //! `get_delegation_status` (poll/long-poll for the result), `cancel_delegation`,
 //! `check_user_feedback` (pull the user's mid-turn steering notes),
 //! `ask_user_question` (block on a multiple-choice card), and `get_session_info`
-//! (resolve a referenced session by id), `show_image`, `append_user_memory`, and
-//! `propose_user_memory`, and scheduled-task CRUD — whose schemas are embedded at compile
+//! (resolve a referenced session by id), `show_image`, `analyze_image`,
+//! `append_user_memory`, `propose_user_memory`, and scheduled-task CRUD — whose schemas are embedded at compile
 //! time from [`TOOL_SCHEMA_JSON`] and gated by the `--features` groups (delegation
 //! / feedback / ask / sessions / images / memory / memory-proposal). Only `delegate_to_agent` registers a broker-side
 //! cancel handle; canceling a status / cancel / feedback / session round-trip
@@ -47,12 +47,14 @@ use crate::acp::automation_tools::{ScheduledTaskOperation, ScheduledTaskRequest}
 use crate::acp::delegation::transport::{
     client_artifacts_round_trip, client_ask_round_trip, client_automation_round_trip,
     client_cancel, client_cancel_task_round_trip, client_commit_feedback,
-    client_companion_ready_round_trip, client_feedback_round_trip, client_memory_append_round_trip,
+    client_companion_ready_round_trip, client_feedback_round_trip,
+    client_image_analysis_round_trip, client_memory_append_round_trip,
     client_memory_proposal_round_trip, client_round_trip, client_session_round_trip,
     client_status_round_trip, BrokerArtifactsRequest, BrokerAskRequest, BrokerCancelRequest,
     BrokerCancelTaskRequest, BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest,
-    BrokerFeedbackRequest, BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerRequest,
-    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
+    BrokerFeedbackRequest, BrokerImageAnalysisRequest, BrokerMemoryAppendRequest,
+    BrokerMemoryProposalRequest, BrokerRequest, BrokerResponse, BrokerSessionRequest,
+    BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -220,7 +222,7 @@ impl CompanionFeatures {
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask,
             "get_session_info" => self.sessions,
-            "show_image" => self.images,
+            "show_image" | "analyze_image" => self.images,
             "append_user_memory" => self.memory,
             "propose_user_memory" => self.memory_proposal,
             "present_task_files" => self.artifacts,
@@ -499,6 +501,7 @@ async fn build_tools_call_spawn(
     }
     match name.as_str() {
         "show_image" => register_and_spawn_local(inflight, id, arguments, ctx.working_dir).await,
+        "analyze_image" => register_and_spawn_image_analysis(inflight, id, arguments, ctx).await,
         "list_scheduled_tasks"
         | "create_scheduled_task"
         | "update_scheduled_task"
@@ -820,6 +823,77 @@ async fn register_and_spawn_local(
     })
 }
 
+async fn register_and_spawn_image_analysis(
+    inflight: Arc<InflightCalls>,
+    id: Value,
+    arguments: Value,
+    ctx: CompanionContext,
+) -> LineAction {
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    let id_key = request_id_key(&id);
+    inflight
+        .register(
+            id_key.clone(),
+            InflightEntry {
+                external_handle: None,
+                cancel_tx,
+            },
+        )
+        .await;
+    let response_id = id.clone();
+    let task_key = id_key.clone();
+    let task_inflight = inflight.clone();
+    let future = Box::pin(async move {
+        let analyze = execute_image_analysis_call(response_id, arguments, ctx);
+        tokio::pin!(analyze);
+        let response = tokio::select! {
+            biased;
+            _ = cancel_rx => None,
+            result = &mut analyze => Some(result),
+        };
+        let _ = task_inflight.take(&task_key).await;
+        SpawnResult {
+            response,
+            after_relay: None,
+        }
+    });
+    LineAction::Spawn(SpawnedCall {
+        request_id: id,
+        request_id_key: id_key,
+        future,
+    })
+}
+
+async fn execute_image_analysis_call(
+    response_id: Value,
+    arguments: Value,
+    ctx: CompanionContext,
+) -> JsonRpcResponse {
+    let prepared =
+        match crate::acp::delegation::image_tool::prepare_analysis(arguments, &ctx.working_dir)
+            .await
+        {
+            Ok(prepared) => prepared,
+            Err(result) => return ok(response_id, result),
+        };
+    let request = BrokerImageAnalysisRequest {
+        token: ctx.token,
+        data: prepared.data,
+        mime_type: prepared.mime_type,
+        question: prepared.question,
+        detail: prepared.detail,
+        image_bytes: prepared.image_bytes,
+    };
+    let result = match client_image_analysis_round_trip(&ctx.socket_path, &request).await {
+        Ok(response) => render_image_analysis_result(&response.outcome),
+        Err(_) => image_analysis_error_result(
+            "image_analysis_transport_failed",
+            "The image analysis host service is unavailable.",
+        ),
+    };
+    ok(response_id, result)
+}
+
 /// Register the inflight entry and build the [`SpawnedCall`] that races the
 /// broker round-trip against the cancel signal. `external_handle` is `Some` only
 /// for `delegate_to_agent` (so a cancel during setup tears the child down);
@@ -886,6 +960,73 @@ async fn register_and_spawn(
         request_id: id,
         request_id_key: id_key,
         future,
+    })
+}
+
+fn render_image_analysis_result(outcome: &Value) -> Value {
+    if let Some(error) = outcome.get("error").and_then(Value::as_str) {
+        let code = outcome
+            .get("code")
+            .and_then(Value::as_str)
+            .unwrap_or("image_analysis_failed");
+        return image_analysis_error_result(code, error);
+    }
+    let Some(analyses) = outcome.get("analyses").and_then(Value::as_array) else {
+        return image_analysis_error_result(
+            "image_analysis_invalid_response",
+            "The image analysis host returned an invalid result.",
+        );
+    };
+    let summaries = analyses
+        .iter()
+        .enumerate()
+        .filter_map(|(index, analysis)| render_analysis_summary(index, analysis))
+        .collect::<Vec<_>>();
+    if summaries.is_empty() {
+        return image_analysis_error_result(
+            "image_analysis_invalid_response",
+            "The image analysis host returned no analysis text.",
+        );
+    }
+    json!({
+        "content": [{ "type": "text", "text": summaries.join("\n\n") }],
+        "isError": false,
+        "structuredContent": outcome,
+    })
+}
+
+fn render_analysis_summary(index: usize, analysis: &Value) -> Option<String> {
+    let summary = analysis.get("summary")?.as_str()?.trim();
+    if summary.is_empty() {
+        return None;
+    }
+    let uncertainty = analysis
+        .get("uncertainty")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|item| !item.trim().is_empty())
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+        .unwrap_or_default();
+    if uncertainty.is_empty() {
+        Some(format!("Image {}: {summary}", index + 1))
+    } else {
+        Some(format!(
+            "Image {}: {summary}\nUncertainty: {uncertainty}",
+            index + 1
+        ))
+    }
+}
+
+fn image_analysis_error_result(code: &str, message: &str) -> Value {
+    json!({
+        "content": [{ "type": "text", "text": message }],
+        "isError": true,
+        "structuredContent": { "code": code, "error": message },
     })
 }
 

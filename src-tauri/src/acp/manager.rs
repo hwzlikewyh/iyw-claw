@@ -27,6 +27,14 @@ use crate::acp::types::{
 use crate::db::entities::conversation::{self, ConversationKind, ConversationStatus};
 use crate::db::service::conversation_service;
 use crate::db::AppDatabase;
+
+fn combine_prompt_context(launch: Option<Arc<str>>, private: Option<Arc<str>>) -> Option<Arc<str>> {
+    match (launch, private) {
+        (None, None) => None,
+        (Some(context), None) | (None, Some(context)) => Some(context),
+        (Some(launch), Some(private)) => Some(Arc::from(format!("{launch}\n\n{private}"))),
+    }
+}
 use crate::models::agent::AgentType;
 use crate::web::event_bridge::{emit_with_state, emit_with_state_gated, EventEmitter};
 
@@ -267,6 +275,7 @@ pub struct ConnectionManager {
     /// no cap, no cumulative growth; entries are removed on answer / cancel /
     /// connection teardown.
     pending_questions: Arc<Mutex<HashMap<String, PendingQuestionEntry>>>,
+    pub(crate) agent_input_runtime: Arc<crate::acp::agent_input_dispatch::AgentInputRuntime>,
 }
 
 /// A parked `ask_user_question` awaiting its answer. The `sender` resolves the
@@ -294,6 +303,7 @@ impl ConnectionManager {
             user_memory_service: Arc::new(std::sync::OnceLock::new()),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
+            agent_input_runtime: Arc::new(Default::default()),
         }
     }
 
@@ -307,6 +317,7 @@ impl ConnectionManager {
             user_memory_service: self.user_memory_service.clone(),
             probe_locks: self.probe_locks.clone(),
             pending_questions: self.pending_questions.clone(),
+            agent_input_runtime: self.agent_input_runtime.clone(),
         }
     }
 
@@ -859,6 +870,7 @@ impl ConnectionManager {
         conn_id: &str,
         blocks: Vec<PromptInputBlock>,
         user_message: Option<(String, Vec<crate::acp::UserMessageBlock>)>,
+        private_context: Option<Arc<str>>,
     ) -> Result<(), AcpError> {
         // Reject an empty prompt BEFORE touching the concurrency gate. An empty
         // prompt produces no turn — and thus no `TurnComplete` to clear the gate
@@ -866,7 +878,7 @@ impl ConnectionManager {
         // rejecting every future send. `map_prompt_blocks` is 1:1, so empty
         // input blocks is the only way the loop could see an empty prompt; we
         // stop it here at the single shared enqueue path.
-        if blocks.is_empty() {
+        if blocks.is_empty() && private_context.is_none() {
             return Err(AcpError::protocol(
                 "prompt must contain at least one content block".to_string(),
             ));
@@ -890,12 +902,13 @@ impl ConnectionManager {
             .reserve()
             .await
             .map_err(|_| AcpError::ProcessExited)?;
-        let user_context = {
+        let launch_context = {
             let mut s = state_arc.write().await;
-            if s.turn_in_flight {
+            if s.turn_in_flight || s.turn_completion_pending {
                 return Err(AcpError::TurnInProgress);
             }
             s.turn_in_flight = true;
+            s.turn_generation = s.turn_generation.saturating_add(1);
             s.memory_turn_tracker.begin_accepted_turn();
             if s.user_context_injected {
                 None
@@ -907,6 +920,7 @@ impl ConnectionManager {
                 )
             }
         };
+        let user_context = combine_prompt_context(launch_context, private_context);
         permit.send(ConnectionCommand::Prompt {
             blocks,
             user_context,
@@ -957,7 +971,7 @@ impl ConnectionManager {
     ) -> Result<(), AcpError> {
         let prompt_lock = self.clone_prompt_lock(conn_id).await?;
         let _guard = prompt_lock.lock_owned().await;
-        self.send_prompt_inner(conn_id, blocks, None).await
+        self.send_prompt_inner(conn_id, blocks, None, None).await
     }
 
     /// Send a prompt while ensuring a `Conversation` DB row is bound to this
@@ -1068,7 +1082,10 @@ impl ConnectionManager {
                 .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
             let (already, in_flight) = {
                 let s = conn.state.read().await;
-                (s.conversation_id.is_some(), s.turn_in_flight)
+                (
+                    s.conversation_id.is_some(),
+                    s.turn_in_flight || s.turn_completion_pending,
+                )
             };
             (
                 conn.state.clone(),
@@ -1090,6 +1107,9 @@ impl ConnectionManager {
         if turn_in_flight {
             return Err(AcpError::TurnInProgress);
         }
+
+        let image_context =
+            crate::acp::image_analysis::prepare_prompt_images(self, db, conn_id, &blocks).await?;
 
         if !already_linked {
             match (conversation_id, folder_id) {
@@ -1302,7 +1322,18 @@ impl ConnectionManager {
         // for a prompt that never reached the agent, so without this the
         // lifecycle subscriber's PendingReview write also never fires and the
         // row would be stuck until a follow-up `send_prompt_linked` re-flipped it.
-        match self.send_prompt_inner(conn_id, blocks, user_message).await {
+        let agent_blocks = if image_context.is_some() {
+            blocks
+                .into_iter()
+                .filter(|block| !matches!(block, PromptInputBlock::Image { .. }))
+                .collect()
+        } else {
+            blocks
+        };
+        match self
+            .send_prompt_inner(conn_id, agent_blocks, user_message, image_context)
+            .await
+        {
             Ok(()) => {
                 // The prompt reached the agent: surface it to the chat-channel
                 // "user message" event feed. Notification-only — never gates the
@@ -1994,6 +2025,25 @@ impl ConnectionManager {
         connections.values().map(|c| c.info()).collect()
     }
 
+    pub(crate) async fn image_analysis_state_for_connection(
+        &self,
+        connection_id: &str,
+    ) -> Option<(String, AgentType, bool)> {
+        let state = {
+            let connections = self.connections.lock().await;
+            connections.get(connection_id)?.state.clone()
+        };
+        let session = state.read().await;
+        let model = session.current_model.clone().unwrap_or_else(|| {
+            crate::acp::model_catalog::default_model_for(session.agent_type).into()
+        });
+        let accepts_images = session
+            .prompt_capabilities
+            .as_ref()
+            .is_some_and(|capabilities| capabilities.image);
+        Some((model, session.agent_type, accepts_images))
+    }
+
     /// 是否存在会话存活的 Agent 连接（未断开且非错误状态）。
     ///
     /// IR-005：受管组件版本切换/激活前用它判断是否应延迟——会话存活时不
@@ -2168,6 +2218,16 @@ impl ConnectionManager {
         conn_id: &str,
         text: String,
     ) -> Result<FeedbackItem, AcpError> {
+        self.submit_feedback_with_id(conn_id, uuid::Uuid::new_v4().to_string(), text)
+            .await
+    }
+
+    pub async fn submit_feedback_with_id(
+        &self,
+        conn_id: &str,
+        id: String,
+        text: String,
+    ) -> Result<FeedbackItem, AcpError> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return Err(AcpError::InvalidFeedback("empty note".into()));
@@ -2189,8 +2249,7 @@ impl ConnectionManager {
         if !state.read().await.feedback_tool_available {
             return Err(AcpError::FeedbackDisabled);
         }
-        let item =
-            FeedbackItem::new_pending(uuid::Uuid::new_v4().to_string(), text, chrono::Utc::now());
+        let item = FeedbackItem::new_pending(id, text, chrono::Utc::now());
         // Gate on `turn_in_flight` and append in ONE critical section (via the
         // gated emit): a `TurnComplete` (flips the flag) or `UserMessage`
         // (clears `feedback`) can't slip between the gate and the append+seq, so
@@ -2258,6 +2317,13 @@ impl ConnectionManager {
         let Some((state, emitter)) = self.get_state_and_emitter(conn_id).await else {
             return;
         };
+        let ids = crate::acp::agent_input_lifecycle::filter_feedback_commit_ids(
+            self, &state, &emitter, ids,
+        )
+        .await;
+        if ids.is_empty() {
+            return;
+        }
         let id_set: std::collections::HashSet<&String> = ids.iter().collect();
         let delivered_at = chrono::Utc::now();
         let marked: Vec<String> = {

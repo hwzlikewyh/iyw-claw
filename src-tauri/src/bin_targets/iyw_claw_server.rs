@@ -453,6 +453,14 @@ async fn async_main() -> ExitCode {
                 ),
             ),
             Arc::new(
+                iyw_claw_lib::acp::image_analysis::HostImageAnalysisService::new(
+                    Arc::new(state.connection_manager.clone_ref()),
+                    Arc::new(iyw_claw_lib::db::AppDatabase {
+                        conn: state.db.conn.clone(),
+                    }),
+                ),
+            ),
+            Arc::new(
                 iyw_claw_lib::acp::automation_tools::AutomationAgentService::new(
                     Arc::new(iyw_claw_lib::db::AppDatabase {
                         conn: state.db.conn.clone(),

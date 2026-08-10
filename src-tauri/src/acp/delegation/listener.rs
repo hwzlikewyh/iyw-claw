@@ -21,12 +21,13 @@ use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::transport::{
     read_frame, write_frame, BrokerArtifactsRequest, BrokerAskRequest, BrokerCancelRequest,
     BrokerCancelTaskRequest, BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest,
-    BrokerFeedbackRequest, BrokerMemoryAppendRequest, BrokerMemoryProposalRequest,
-    BrokerMemoryProposalResult, BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest,
-    BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
+    BrokerFeedbackRequest, BrokerImageAnalysisRequest, BrokerMemoryAppendRequest,
+    BrokerMemoryProposalRequest, BrokerMemoryProposalResult, BrokerMessage, BrokerRequest,
+    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
+use crate::acp::image_analysis::{ImageAnalysisAccess, ANALYZE_IMAGE_TOOL};
 use crate::acp::question::{QuestionOutcome, SessionQuestionAccess};
 use crate::acp::session_info::{SessionInfo, SessionInfoAccess};
 use crate::models::AgentType;
@@ -292,6 +293,7 @@ impl CompanionReadyCandidate {
     }
 
     fn required_tools_present(&self) -> bool {
+        let missing_image_analysis = !self.tools.iter().any(|tool| tool == ANALYZE_IMAGE_TOOL);
         let missing_append = self.append_required
             && !self
                 .tools
@@ -302,15 +304,16 @@ impl CompanionReadyCandidate {
                 .tools
                 .iter()
                 .any(|tool| tool == PROPOSE_USER_MEMORY_TOOL);
-        if missing_append || missing_proposal {
+        if missing_image_analysis || missing_append || missing_proposal {
             tracing::warn!(
                 connection_id = %self.parent_connection_id,
                 protocol_version = self.protocol_version,
                 detected_version = %self.version,
                 append_required = self.append_required,
                 proposal_required = self.proposal_required,
+                missing_image_analysis,
                 advertised_tools = ?self.tools,
-                "rejected companion readiness report missing authorized memory tools"
+                "rejected companion readiness report missing required tools"
             );
             return false;
         }
@@ -494,6 +497,7 @@ pub struct DelegationListener {
     /// Backend-owned memory store shared with Settings and prompt snapshots.
     pub user_memory: Arc<UserMemoryService>,
     pub artifacts: Arc<dyn TaskArtifactAccess>,
+    pub image_analysis: Arc<dyn ImageAnalysisAccess>,
     /// Global scheduled-task CRUD service. Its CLI route is intentionally
     /// tokenless because every local Agent already has terminal authority.
     pub automation: Arc<AutomationAgentService>,
@@ -533,6 +537,7 @@ impl DelegationListener {
         session_info: Arc<dyn SessionInfoAccess>,
         user_memory: Arc<UserMemoryService>,
         artifacts: Arc<dyn TaskArtifactAccess>,
+        image_analysis: Arc<dyn ImageAnalysisAccess>,
         automation: Arc<AutomationAgentService>,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -544,6 +549,7 @@ impl DelegationListener {
             session_info,
             user_memory,
             artifacts,
+            image_analysis,
             automation,
         })
     }
@@ -750,6 +756,9 @@ impl DelegationListener {
             BrokerMessage::Artifacts(req) => BrokerResponse {
                 outcome: self.process_artifacts(req).await,
             },
+            BrokerMessage::ImageAnalysis(req) => BrokerResponse {
+                outcome: self.process_image_analysis(req).await,
+            },
             BrokerMessage::Automation(req) => BrokerResponse {
                 outcome: self
                     .automation
@@ -826,6 +835,18 @@ impl DelegationListener {
                 parent_conversation_id,
                 &req.task_id,
             )
+            .await
+    }
+
+    async fn process_image_analysis(&self, req: BrokerImageAnalysisRequest) -> Value {
+        let Some(entry) = self.tokens.lookup(&req.token).await else {
+            return serde_json::json!({
+                "error": "The image analysis session is unavailable.",
+                "code": "image_analysis_session_missing",
+            });
+        };
+        self.image_analysis
+            .analyze(&entry.parent_connection_id, req)
             .await
     }
 

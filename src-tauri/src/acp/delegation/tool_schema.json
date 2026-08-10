@@ -19,7 +19,19 @@
         },
         "agent_type": {
           "type": "string",
-          "enum": ["claude_code", "codex", "open_code", "gemini", "open_claw", "cline", "hermes", "code_buddy", "kimi_code", "pi", "grok"],
+          "enum": [
+            "claude_code",
+            "codex",
+            "open_code",
+            "gemini",
+            "open_claw",
+            "cline",
+            "hermes",
+            "code_buddy",
+            "kimi_code",
+            "pi",
+            "grok"
+          ],
           "description": "Optional executor Agent filter."
         }
       },
@@ -33,17 +45,53 @@
       "type": "object",
       "required": ["name", "project", "prompt", "cron"],
       "properties": {
-        "name": { "type": "string", "minLength": 1, "description": "Task display name." },
-        "project": { "type": "string", "minLength": 1, "description": "Project absolute path or unique project name." },
-        "prompt": { "type": "string", "minLength": 1, "description": "Prompt executed on every scheduled run." },
-        "cron": { "type": "string", "minLength": 1, "description": "Five-field cron expression: minute hour day-of-month month day-of-week." },
-        "timezone": { "type": "string", "default": "UTC", "description": "IANA timezone, for example Asia/Shanghai. Defaults to UTC." },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Task display name."
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Project absolute path or unique project name."
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Prompt executed on every scheduled run."
+        },
+        "cron": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Five-field cron expression: minute hour day-of-month month day-of-week."
+        },
+        "timezone": {
+          "type": "string",
+          "default": "UTC",
+          "description": "IANA timezone, for example Asia/Shanghai. Defaults to UTC."
+        },
         "agent_type": {
           "type": "string",
-          "enum": ["claude_code", "codex", "open_code", "gemini", "open_claw", "cline", "hermes", "code_buddy", "kimi_code", "pi", "grok"],
+          "enum": [
+            "claude_code",
+            "codex",
+            "open_code",
+            "gemini",
+            "open_claw",
+            "cline",
+            "hermes",
+            "code_buddy",
+            "kimi_code",
+            "pi",
+            "grok"
+          ],
           "description": "Executor Agent. Defaults to the current Agent."
         },
-        "enabled": { "type": "boolean", "default": true, "description": "Whether scheduling starts immediately." }
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether scheduling starts immediately."
+        }
       },
       "additionalProperties": false
     }
@@ -55,19 +103,38 @@
       "type": "object",
       "required": ["task_id", "patch"],
       "properties": {
-        "task_id": { "type": "integer", "description": "iyw-claw scheduled task id." },
+        "task_id": {
+          "type": "integer",
+          "description": "iyw-claw scheduled task id."
+        },
         "patch": {
           "type": "object",
           "minProperties": 1,
           "properties": {
             "name": { "type": "string", "minLength": 1 },
-            "project": { "type": "string", "minLength": 1, "description": "Project absolute path or unique project name." },
+            "project": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Project absolute path or unique project name."
+            },
             "prompt": { "type": "string", "minLength": 1 },
             "cron": { "type": "string", "minLength": 1 },
             "timezone": { "type": "string", "minLength": 1 },
             "agent_type": {
               "type": "string",
-              "enum": ["claude_code", "codex", "open_code", "gemini", "open_claw", "cline", "hermes", "code_buddy", "kimi_code", "pi", "grok"]
+              "enum": [
+                "claude_code",
+                "codex",
+                "open_code",
+                "gemini",
+                "open_claw",
+                "cline",
+                "hermes",
+                "code_buddy",
+                "kimi_code",
+                "pi",
+                "grok"
+              ]
             },
             "enabled": { "type": "boolean" }
           },
@@ -84,7 +151,10 @@
       "type": "object",
       "required": ["task_id"],
       "properties": {
-        "task_id": { "type": "integer", "description": "iyw-claw scheduled task id." }
+        "task_id": {
+          "type": "integer",
+          "description": "iyw-claw scheduled task id."
+        }
       },
       "additionalProperties": false
     }
@@ -289,6 +359,36 @@
           "description": "Optional display filename."
         }
       }
+    }
+  },
+  {
+    "name": "analyze_image",
+    "description": "Read and analyze an image using the current model's configured image-understanding route. Use this when an image is not already available as native visual input or when you need to inspect image details.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["source", "question"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Local image path, file URI, HTTPS URL, Data URI, or raw Base64 image data."
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "The specific question to answer about the image."
+        },
+        "detail": {
+          "type": "string",
+          "enum": ["auto", "low", "high"],
+          "default": "auto"
+        },
+        "mime_type": {
+          "type": "string",
+          "description": "Required when source is raw Base64; optional for files and URLs."
+        }
+      },
+      "additionalProperties": false
     }
   },
   {

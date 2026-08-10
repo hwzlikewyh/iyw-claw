@@ -17,6 +17,7 @@ import {
   type SettingsSection,
 } from "./settings-navigation"
 import { TurnBusyError, isTurnInProgressRejection } from "./turn-busy"
+import { mergeAgentInputHistory } from "./agent-input-history"
 import {
   localFileReferenceForPrompt,
   rewriteFileReferencesForPrompt,
@@ -45,6 +46,8 @@ import type {
 } from "./user-memory-actions"
 import type {
   AgentType,
+  AgentInputItem,
+  AgentInputPayload,
   AgentStorageStatus,
   AgentStorageRootValidation,
   AgentDelegationDefaults,
@@ -252,6 +255,80 @@ export async function acpPrompt(
     if (isTurnInProgressRejection(e)) throw new TurnBusyError()
     throw e
   }
+}
+
+function normalizeAgentInputBlocks(
+  blocks: PromptInputBlock[]
+): PromptInputBlock[] {
+  return blocks.flatMap((block): PromptInputBlock[] => {
+    if (block.type === "text") {
+      return [
+        { type: "text", text: rewriteFileReferencesForPrompt(block.text) },
+      ]
+    }
+    if (block.type === "resource_link") {
+      const text = localFileReferenceForPrompt(block.uri)
+      if (text) return [{ type: "text", text }]
+    }
+    return [block]
+  })
+}
+
+export async function submitAgentInput(
+  connectionId: string,
+  conversationId: number,
+  messageId: string,
+  payload: AgentInputPayload
+): Promise<AgentInputItem> {
+  return getTransport().call("submit_agent_input", {
+    connectionId,
+    conversationId,
+    messageId,
+    payload: {
+      ...payload,
+      blocks: normalizeAgentInputBlocks(payload.blocks),
+    },
+  })
+}
+
+export async function listAgentInputs(
+  conversationId: number
+): Promise<AgentInputItem[]> {
+  return getTransport().call("list_agent_inputs", { conversationId })
+}
+
+export async function deleteAgentInput(
+  connectionId: string,
+  conversationId: number,
+  messageId: string
+): Promise<AgentInputItem> {
+  return getTransport().call("delete_agent_input", {
+    connectionId,
+    conversationId,
+    messageId,
+  })
+}
+
+export async function retryAgentInput(
+  connectionId: string,
+  conversationId: number,
+  messageId: string
+): Promise<AgentInputItem> {
+  return getTransport().call("retry_agent_input", {
+    connectionId,
+    conversationId,
+    messageId,
+  })
+}
+
+export async function resumeAgentInputs(
+  connectionId: string,
+  conversationId: number
+): Promise<void> {
+  return getTransport().call("resume_agent_inputs", {
+    connectionId,
+    conversationId,
+  })
 }
 
 export async function acpSetMode(
@@ -1526,7 +1603,13 @@ export async function importLocalConversations(
 export async function getFolderConversation(
   conversationId: number
 ): Promise<DbConversationDetail> {
-  return getTransport().call("get_folder_conversation", { conversationId })
+  const [detail, inputs] = await Promise.all([
+    getTransport().call<DbConversationDetail>("get_folder_conversation", {
+      conversationId,
+    }),
+    listAgentInputs(conversationId),
+  ])
+  return mergeAgentInputHistory(detail, inputs)
 }
 
 export async function removeFolderFromHistory(path: string): Promise<void> {

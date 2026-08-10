@@ -153,6 +153,26 @@ pub fn build_router(
             post(handlers::feedback::submit_session_feedback),
         )
         .route(
+            "/submit_agent_input",
+            post(handlers::agent_input::submit_agent_input),
+        )
+        .route(
+            "/list_agent_inputs",
+            post(handlers::agent_input::list_agent_inputs),
+        )
+        .route(
+            "/delete_agent_input",
+            post(handlers::agent_input::delete_agent_input),
+        )
+        .route(
+            "/retry_agent_input",
+            post(handlers::agent_input::retry_agent_input),
+        )
+        .route(
+            "/resume_agent_inputs",
+            post(handlers::agent_input::resume_agent_inputs),
+        )
+        .route(
             "/get_question_settings",
             post(handlers::question::get_question_settings),
         )

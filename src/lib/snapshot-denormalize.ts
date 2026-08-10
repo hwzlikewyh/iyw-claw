@@ -1,5 +1,6 @@
 import type {
   ActiveDelegationState,
+  AgentInputItem,
   AvailableCommandInfo,
   ConfigStaleKind,
   ConnectionStatus,
@@ -69,6 +70,7 @@ export interface SnapshotPatch {
    *  `seedDelegationsFromSnapshot`); the reducer does not store this on
    *  ConnectionState. `[]` when the server omitted the field. */
   activeDelegations: ActiveDelegationState[]
+  agentInputs: AgentInputItem[]
 }
 
 const DEFAULT_PROMPT_CAPS: PromptCapabilitiesInfo = {
@@ -123,6 +125,7 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
     lastError: normalizeLastError(wire.last_error),
     eventSeq: wire.event_seq,
     activeDelegations: wire.active_delegations ?? [],
+    agentInputs: wire.agent_inputs ?? [],
   }
 }
 
@@ -166,6 +169,15 @@ function denormalizeBlock(
       // payload is structurally identical to the local PlanEntryInfo[] shape
       // in practice (both are the agent's plan output forwarded verbatim).
       return { type: "plan", entries: wire.entries as never }
+    case "user_input": {
+      const createdAt = Date.parse(wire.created_at)
+      return {
+        type: "user_input",
+        messageId: wire.message_id,
+        blocks: wire.blocks,
+        createdAt: Number.isNaN(createdAt) ? Date.now() : createdAt,
+      }
+    }
     case "tool_call_ref": {
       const tc = toolMap.get(wire.tool_call_id)
       if (!tc) {

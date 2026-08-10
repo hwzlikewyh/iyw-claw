@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use crate::acp::delegation::transport::COMPANION_PROTOCOL_VERSION;
+use crate::acp::image_analysis::ANALYZE_IMAGE_TOOL;
 use crate::user_memory::{CompanionHealthReason, CompanionHealthSnapshot, CompanionHealthStatus};
 
 const MAX_DETAIL_CHARS: usize = 1_024;
@@ -62,6 +63,16 @@ fn apply_compatibility(health: &mut CompanionHealthSnapshot, manifest: Companion
             health,
             CompanionHealthReason::ProtocolMismatch,
             format!("detected protocol {}", manifest.protocol_version),
+        );
+    } else if !health
+        .advertised_tools
+        .iter()
+        .any(|tool| tool == ANALYZE_IMAGE_TOOL)
+    {
+        incompatible(
+            health,
+            CompanionHealthReason::VersionMismatch,
+            format!("required tool missing: {ANALYZE_IMAGE_TOOL}"),
         );
     } else {
         health.status = CompanionHealthStatus::Ready;

@@ -1,4 +1,5 @@
 pub mod acp;
+pub mod agent_input;
 pub mod agent_storage;
 pub mod agent_version_center;
 pub mod app_update;

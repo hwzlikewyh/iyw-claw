@@ -214,7 +214,10 @@ export interface ComposerInjectContent {
 }
 
 interface MessageInputProps {
-  onSend: (draft: PromptDraft, modeId?: string | null) => void
+  onSend: (
+    draft: PromptDraft,
+    modeId?: string | null
+  ) => void | Promise<boolean>
   placeholder?: string
   defaultPath?: string
   disabled?: boolean
@@ -645,6 +648,7 @@ export function MessageInput({
   // embedded/data-uri badge, keyed by its synthetic `file://` sentinel uri, and
   // is reconciled into the outgoing blocks by `buildDraft`.
   const [attachments, setAttachments] = useState<InputAttachment[]>([])
+  const [sendPending, setSendPending] = useState(false)
   const embeddedPayloadsRef = useRef<Map<string, PromptInputBlock>>(new Map())
   const [isDragActive, setIsDragActive] = useState(false)
   // Collapsed (narrow) selectors live in a controlled Popover holding a
@@ -2833,7 +2837,7 @@ export function MessageInput({
     // The editor stays editable while `disabled` (the agent is busy) so the user
     // can keep typing, but a plain send is blocked — only enqueue / queue-edit
     // save go through. Mirrors the legacy textarea's keydown guard.
-    if (disabled && !isPrompting && !isEditingQueueItem) return
+    if (sendPending || (disabled && !isPrompting && !isEditingQueueItem)) return
     const draft = buildDraft()
     if (!draft) return
 
@@ -2851,13 +2855,36 @@ export function MessageInput({
       return
     }
 
-    onSend(draft, showModeSelector ? effectiveModeId : null)
-    if (effectiveDraftStorageKey) {
-      clearMessageInputDraftV2(effectiveDraftStorageKey)
+    if (
+      !promptCapabilities.image &&
+      draft.blocks.some((block) => block.type === "image")
+    ) {
+      console.info("[MessageInput] host image pre-analysis required", {
+        imageCount: draft.blocks.filter((block) => block.type === "image")
+          .length,
+      })
     }
-    resetComposer()
+    const result = onSend(draft, showModeSelector ? effectiveModeId : null)
+    const finish = () => {
+      if (effectiveDraftStorageKey) {
+        clearMessageInputDraftV2(effectiveDraftStorageKey)
+      }
+      resetComposer()
+    }
+    if (!result || typeof result.then !== "function") {
+      finish()
+      return
+    }
+    setSendPending(true)
+    void result
+      .then((accepted) => {
+        if (accepted !== false) finish()
+      })
+      .catch(() => {})
+      .finally(() => setSendPending(false))
   }, [
     disabled,
+    sendPending,
     buildDraft,
     isEditingQueueItem,
     isPrompting,
@@ -2868,6 +2895,7 @@ export function MessageInput({
     showModeSelector,
     effectiveDraftStorageKey,
     resetComposer,
+    promptCapabilities.image,
   ])
 
   const handleForkSendClick = useCallback(() => {
@@ -3213,7 +3241,7 @@ export function MessageInput({
     <div className="flex items-center">
       <Button
         onClick={handleSend}
-        disabled={disabled || !hasSendableContent}
+        disabled={sendPending || disabled || !hasSendableContent}
         size="icon"
         className="h-8 w-8 rounded-r-none"
         title={t("send")}
@@ -3223,7 +3251,7 @@ export function MessageInput({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            disabled={disabled || !hasSendableContent}
+            disabled={sendPending || disabled || !hasSendableContent}
             size="icon"
             className="h-8 w-5 rounded-l-none border-l border-primary-foreground/20"
             aria-label={t("forkAndSend")}
@@ -3242,7 +3270,7 @@ export function MessageInput({
   ) : (
     <Button
       onClick={handleSend}
-      disabled={disabled || !hasSendableContent}
+      disabled={sendPending || disabled || !hasSendableContent}
       size="icon"
       className="h-8 w-8"
       title={t("send")}

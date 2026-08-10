@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from "react"
 import { useTranslations } from "next-intl"
 import type {
   AgentType,
+  AgentInputItem,
   ConnectionStatus,
   PendingQuestionState,
   PromptCapabilitiesInfo,
@@ -23,6 +24,7 @@ import { ChatInput } from "@/components/chat/chat-input"
 import { PermissionDialog } from "@/components/chat/permission-dialog"
 import { QuestionDialog } from "@/components/chat/question-dialog"
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
+import { AgentInputWaitingDisplay } from "@/components/chat/agent-input-waiting-display"
 
 interface ConversationShellProps {
   status: ConnectionStatus | null
@@ -36,7 +38,10 @@ interface ConversationShellProps {
   /** Awaiting-answer multiple-choice `ask_user_question`. */
   pendingAskQuestion: PendingQuestionState | null
   onFocus: () => void
-  onSend: (draft: PromptDraft, modeId?: string | null) => void
+  onSend: (
+    draft: PromptDraft,
+    modeId?: string | null
+  ) => void | Promise<boolean>
   onCancel: () => void
   onRespondPermission: (requestId: string, optionId: string) => void
   onAnswerQuestion: (answer: string) => void
@@ -67,6 +72,9 @@ interface ConversationShellProps {
   onAddFeedback?: () => void
   /** Grey out the live-feedback "+" entry when a note can't be sent right now. */
   feedbackAddDisabled?: boolean
+  agentInputs?: AgentInputItem[]
+  onDeleteAgentInput?: (id: string) => void
+  onRetryAgentInput?: (id: string) => void
   isActive?: boolean
   /** Show the composer's flowing active-session border (tiled multi-session
    *  active tab only). Threaded straight through to the composer. */
@@ -122,6 +130,9 @@ export function ConversationShell({
   feedbackList,
   onAddFeedback,
   feedbackAddDisabled,
+  agentInputs,
+  onDeleteAgentInput,
+  onRetryAgentInput,
   isActive,
   showActiveFlow,
   queue,
@@ -222,6 +233,16 @@ export function ConversationShell({
 
         {!hideInput && feedbackList && (
           <div className="mx-auto w-full max-w-4xl px-4">{feedbackList}</div>
+        )}
+
+        {!hideInput && agentInputs && agentInputs.length > 0 && (
+          <div className="mx-auto w-full max-w-4xl px-4">
+            <AgentInputWaitingDisplay
+              items={agentInputs}
+              onDelete={onDeleteAgentInput}
+              onRetry={onRetryAgentInput}
+            />
+          </div>
         )}
 
         {!hideInput && (

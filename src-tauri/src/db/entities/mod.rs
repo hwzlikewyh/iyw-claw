@@ -1,3 +1,4 @@
+pub mod agent_input_outbox;
 pub mod agent_installation;
 pub mod agent_setting;
 pub mod app_metadata;

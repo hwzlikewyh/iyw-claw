@@ -1,5 +1,6 @@
 #![allow(unused_imports)]
 
+pub use super::agent_input_outbox::Entity as AgentInputOutbox;
 pub use super::agent_installation::Entity as AgentInstallation;
 pub use super::agent_setting::Entity as AgentSetting;
 pub use super::app_metadata::Entity as AppMetadata;

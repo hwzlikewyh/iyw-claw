@@ -220,6 +220,10 @@ pub enum ConnectionCommand {
         value_id: String,
     },
     Cancel,
+    /// Cancel only at a scheduler-proven safe boundary. Unlike manual Cancel,
+    /// this preserves terminal runtimes and waits for the real prompt response
+    /// or stop reason before the connection returns to idle.
+    SafeCancel,
     RespondPermission {
         request_id: String,
         option_id: String,
@@ -794,6 +798,11 @@ pub async fn spawn_agent_connection(
         owner_window_label.clone(),
         None, // folder_id 由后续 prompt handler 在首次 send 时绑定 (Phase 2)
     );
+    initial_state.current_model = preferred_config_values
+        .get("model")
+        .map(|model| model.trim())
+        .filter(|model| !model.is_empty())
+        .map(str::to_string);
     initial_state.user_memory_context = user_memory_context;
     initial_state.agent_runtime_context = crate::acp::runtime_context::render_agent_context(
         crate::acp::agent_storage::AgentStoragePaths::active().as_ref(),
@@ -1490,8 +1499,8 @@ pub struct DelegationInjection {
     pub questions: Arc<dyn crate::acp::question::SessionQuestionAccess>,
 }
 
-/// The `--features` value for a companion launch. Image display and task
-/// artifact registration are always on;
+/// The `--features` value for a companion launch. Image display/analysis and
+/// task artifact registration are always on;
 /// the remaining tool groups follow their settings flags.
 ///
 /// Pulled out as a pure function so the feature set is unit-testable without a
@@ -1649,8 +1658,8 @@ async fn finalize_user_memory_launch(
 /// built-in companion features when iyw-claw-mcp didn't make it into the install.
 ///
 /// The server is registered under the name `iyw-claw-mcp` (hyphens), so an
-/// agent that namespaces MCP tools sees `mcp__iyw-claw-mcp__show_image`. Skill
-/// docs that reference the bare `show_image` must tolerate both forms.
+/// agent that namespaces MCP tools sees names such as
+/// `mcp__iyw-claw-mcp__analyze_image`; callers must tolerate both forms.
 async fn inject_iyw_claw_mcp(
     servers: &mut Vec<McpServer>,
     injection: &DelegationInjection,
@@ -1660,8 +1669,8 @@ async fn inject_iyw_claw_mcp(
     memory_access: MemoryLaunchAccess,
     health: &crate::user_memory::CompanionHealthSnapshot,
 ) -> Option<CompanionInjection> {
-    // `images` keeps the companion enabled for every MCP-capable session. The
-    // remaining feature groups stay independently gated by their settings.
+    // `images` carries both display and analysis tools for every MCP-capable
+    // session. Remaining feature groups stay independently settings-gated.
     let has_tool = |name: &str| health.advertised_tools.iter().any(|tool| tool == name);
     let delegation_enabled = injection.broker.config_snapshot().await.enabled
         && [
@@ -1739,7 +1748,7 @@ async fn inject_iyw_claw_mcp(
         // (any platform).
         "--parent-pid".to_string(),
         std::process::id().to_string(),
-        // Tool groups to expose this launch (images is always enabled).
+        // Tool groups to expose this launch (image tools are always enabled).
         "--features".to_string(),
         features_arg,
         "--working-dir".to_string(),
@@ -3918,6 +3927,10 @@ async fn run_conversation_loop<'a>(
             }) => {
                 prompt_ledger.record_prompt_blocks(&blocks);
                 let mut prompt_blocks = map_prompt_blocks(blocks);
+                if let Some(context) = user_context {
+                    prompt_blocks
+                        .insert(0, ContentBlock::Text(TextContent::new(context.to_string())));
+                }
                 if prompt_blocks.is_empty() {
                     // Defensive: the manager rejects empty prompts before the
                     // concurrency gate is set / the command is enqueued (see
@@ -3940,11 +3953,6 @@ async fn run_conversation_loop<'a>(
                     .await;
                     continue;
                 }
-                if let Some(context) = user_context {
-                    prompt_blocks
-                        .insert(0, ContentBlock::Text(TextContent::new(context.to_string())));
-                }
-
                 emit_with_state(
                     state,
                     emitter,
@@ -4340,6 +4348,23 @@ async fn run_conversation_loop<'a>(
                                         let _ = prompt_response.await;
                                     });
                                     break;
+                                }
+                                Some(ConnectionCommand::SafeCancel) => {
+                                    tracing::info!(
+                                        connection_id = conn_id,
+                                        turn_generation = state.read().await.turn_generation,
+                                        "[agent-input] requesting safe turn cancellation"
+                                    );
+                                    if let Err(error) = cx.send_notification_to(
+                                        Agent,
+                                        CancelNotification::new(sid.clone()),
+                                    ) {
+                                        tracing::warn!(
+                                            connection_id = conn_id,
+                                            error = %error,
+                                            "[agent-input] safe cancellation request failed"
+                                        );
+                                    }
                                 }
                                 Some(ConnectionCommand::Disconnect) | None => {
                                     tracing::info!(

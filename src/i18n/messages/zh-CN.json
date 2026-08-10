@@ -1683,6 +1683,7 @@
     },
     "conversation": {
       "reloadFailed": "会话重新加载失败：{message}",
+      "imageAnalysisFailed": "图片分析失败，消息未发送：{message}",
       "reloaded": "当前会话已重新加载",
       "reload": "重新加载",
       "activeConversationIndicator": "当前激活会话",
@@ -2702,6 +2703,14 @@
         "cancelEdit": "取消编辑",
         "editItem": "编辑",
         "deleteItem": "删除"
+      },
+      "agentInput": {
+        "waiting": "等待中",
+        "failed": "发送失败",
+        "retry": "重试",
+        "delete": "删除",
+        "deleteFailed": "无法删除这条等待消息",
+        "retryFailed": "无法重试这条消息"
       },
       "welcomeInputPanel": {
         "agentsSettingsPath": "设置 > Agents",

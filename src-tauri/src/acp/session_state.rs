@@ -32,10 +32,23 @@ pub struct LiveMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LiveContentBlock {
-    Text { text: String },
-    Thinking { text: String },
-    ToolCallRef { tool_call_id: String },
-    Plan { entries: serde_json::Value },
+    Text {
+        text: String,
+    },
+    Thinking {
+        text: String,
+    },
+    ToolCallRef {
+        tool_call_id: String,
+    },
+    Plan {
+        entries: serde_json::Value,
+    },
+    UserInput {
+        message_id: String,
+        blocks: Vec<UserMessageBlock>,
+        created_at: DateTime<Utc>,
+    },
 }
 
 /// 工具调用的运行态。turn 完成时统一 clear。
@@ -265,6 +278,11 @@ pub struct SessionState {
     /// Size is human-bounded (one entry per note the user types this turn).
     pub feedback: Vec<FeedbackItem>,
 
+    /// Durable host-owned inputs associated with this conversation. The DB is
+    /// authoritative; this live projection is updated by `AgentInputChanged`
+    /// so snapshots and attached windows do not need to poll between events.
+    pub agent_inputs: Vec<crate::acp::AgentInputItem>,
+
     /// Launched but unresolved Claude background tasks mirrored from the
     /// transcript watcher. A recent watcher heartbeat keeps the CLI alive.
     pub background_outstanding: u32,
@@ -278,7 +296,7 @@ pub struct SessionState {
     /// Extracted from `SessionConfigOptions` whenever it fires (the agent
     /// broadcasts the full option set on every config change, so this always
     /// reflects the latest selection). `None` when the agent advertises no
-    /// `model` option or before the first `SessionConfigOptions` event.
+    /// `model` option and no launch preference is available.
     pub current_model: Option<String>,
     pub(crate) grok_effort_specs: Option<crate::acp::grok::EffortSpecs>,
     pub prompt_capabilities: Option<PromptCapabilitiesInfo>,
@@ -417,6 +435,15 @@ pub struct SessionState {
     /// seeing success. Not serialized: it is a connection-loop liveness flag,
     /// not part of the client-visible snapshot.
     pub turn_in_flight: bool,
+    /// Host-generated active-turn identity. ACP itself has no portable turn id,
+    /// so accepted prompts increment this generation before enqueue.
+    pub turn_generation: i64,
+    /// True after `TurnComplete` applies until the lifecycle worker finishes
+    /// ordered DB settlement for that generation. New prompts wait so an old
+    /// `PendingReview` write cannot land after the next turn's `InProgress`.
+    pub turn_completion_pending: bool,
+    /// Wakes the durable input worker on turn/tool/input lifecycle changes.
+    pub(crate) agent_input_notify: Arc<tokio::sync::Notify>,
     pub last_turn_ended_abnormally: bool,
 
     /// True when the agent's effective settings changed after this connection
@@ -466,6 +493,7 @@ impl SessionState {
             pending_question: None,
             active_delegations: BTreeMap::new(),
             feedback: Vec::new(),
+            agent_inputs: Vec::new(),
             background_outstanding: 0,
             background_activity_at: None,
             modes: None,
@@ -502,6 +530,9 @@ impl SessionState {
             pending_user_message: None,
             pending_user_message_started_at: None,
             turn_in_flight: false,
+            turn_generation: 0,
+            turn_completion_pending: false,
+            agent_input_notify: Arc::new(tokio::sync::Notify::new()),
             last_turn_ended_abnormally: false,
             config_stale: false,
             config_stale_kind: None,
@@ -575,6 +606,7 @@ impl SessionState {
                     ConnectionStatus::Disconnected | ConnectionStatus::Error
                 ) {
                     self.memory_turn_tracker.complete_turn();
+                    self.agent_input_notify.notify_one();
                 }
                 self.status = status.clone();
             }
@@ -596,7 +628,9 @@ impl SessionState {
                 }
             }
             AcpEvent::SessionConfigOptions { config_options } => {
-                self.current_model = extract_model_from_config_options(config_options);
+                if let Some(model) = extract_model_from_config_options(config_options) {
+                    self.current_model = Some(model);
+                }
                 self.config_options = Some(config_options.clone());
             }
             AcpEvent::SessionConfigStale { stale, kind } => {
@@ -657,6 +691,7 @@ impl SessionState {
                 // duplicate ref. Mirrors text/thinking deltas in lazily
                 // creating `live_message` if absent.
                 self.push_tool_call_ref_if_absent(tool_call_id);
+                self.agent_input_notify.notify_one();
             }
             AcpEvent::ToolCallUpdate {
                 tool_call_id,
@@ -687,6 +722,7 @@ impl SessionState {
                 // still gets anchored. Idempotent so the normal-flow case is
                 // a no-op here.
                 self.push_tool_call_ref_if_absent(tool_call_id);
+                self.agent_input_notify.notify_one();
             }
             AcpEvent::PermissionRequest {
                 request_id,
@@ -737,6 +773,9 @@ impl SessionState {
                 }
             }
             AcpEvent::TurnComplete { stop_reason, .. } => {
+                self.turn_completion_pending = true;
+                self.agent_inputs
+                    .retain(|input| input.status != crate::acp::AgentInputStatus::Consumed);
                 // Capture the completed turn for the memory harvest hook
                 // (Task 13) BEFORE the tracker clears its active bit and the
                 // in-flight user/assistant text is dropped below.
@@ -825,6 +864,7 @@ impl SessionState {
                 // this just keeps the snapshot honest.
                 self.pending_question = None;
                 self.status = ConnectionStatus::Connected;
+                self.agent_input_notify.notify_one();
             }
             AcpEvent::UserMessage { message_id, blocks } => {
                 // Capture the in-flight user prompt so a client attaching
@@ -846,6 +886,34 @@ impl SessionState {
                 self.feedback.clear();
                 // A new user turn supersedes any stale pending question.
                 self.pending_question = None;
+                self.agent_input_notify.notify_one();
+            }
+            AcpEvent::AgentInputChanged { item } => {
+                if item.status == crate::acp::AgentInputStatus::Consumed
+                    && matches!(
+                        item.strategy,
+                        Some(crate::acp::AgentInputStrategy::CooperativeFeedback)
+                            | Some(crate::acp::AgentInputStrategy::NativeSteer)
+                    )
+                {
+                    self.push_consumed_agent_input(item);
+                }
+                let remove_from_projection = item.status == crate::acp::AgentInputStatus::Deleted
+                    || (item.status == crate::acp::AgentInputStatus::Consumed
+                        && item.strategy == Some(crate::acp::AgentInputStrategy::DeferredNext));
+                if remove_from_projection {
+                    self.agent_inputs.retain(|existing| existing.id != item.id);
+                } else if let Some(existing) = self
+                    .agent_inputs
+                    .iter_mut()
+                    .find(|existing| existing.id == item.id)
+                {
+                    *existing = item.clone();
+                } else {
+                    self.agent_inputs.push(item.clone());
+                    self.agent_inputs.sort_by_key(|input| input.created_at);
+                }
+                self.agent_input_notify.notify_one();
             }
             AcpEvent::ConversationLinked {
                 conversation_id,
@@ -1123,6 +1191,45 @@ impl SessionState {
         }
     }
 
+    fn push_consumed_agent_input(&mut self, item: &crate::acp::AgentInputItem) {
+        let live = self.ensure_live_message();
+        if live.content.iter().any(|block| {
+            matches!(
+                block,
+                LiveContentBlock::UserInput { message_id, .. } if message_id == &item.id
+            )
+        }) {
+            return;
+        }
+        let mut blocks: Vec<UserMessageBlock> = item
+            .payload
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                crate::acp::PromptInputBlock::Image {
+                    data,
+                    mime_type,
+                    uri,
+                } => Some(UserMessageBlock::Image {
+                    data: data.clone(),
+                    mime_type: mime_type.clone(),
+                    uri: uri.clone(),
+                }),
+                _ => None,
+            })
+            .collect();
+        if !item.payload.display_text.trim().is_empty() {
+            blocks.push(UserMessageBlock::Text {
+                text: item.payload.display_text.clone(),
+            });
+        }
+        live.content.push(LiveContentBlock::UserInput {
+            message_id: item.id.clone(),
+            blocks,
+            created_at: item.consumed_at.unwrap_or(item.created_at),
+        });
+    }
+
     /// Push a `ToolCallRef` block onto `live_message.content` for the given
     /// tool-call id, but only if no existing block in `content` already
     /// references that id. Called by both `ToolCall` and `ToolCallUpdate`
@@ -1236,6 +1343,7 @@ impl SessionState {
             pending_user_message: self.pending_user_message.clone(),
             active_delegations: self.active_delegations.values().cloned().collect(),
             feedback: self.feedback.clone(),
+            agent_inputs: self.agent_inputs.clone(),
             background_outstanding: self.background_outstanding,
             feedback_tool_available: self.feedback_tool_available,
             user_memory_capabilities: self.user_memory_capabilities.clone(),
@@ -1251,6 +1359,7 @@ impl SessionState {
             config_stale_kind: self.config_stale_kind,
             last_error: self.last_error.clone(),
             event_seq: self.event_seq,
+            turn_generation: self.turn_generation,
         }
     }
 }
@@ -1307,6 +1416,9 @@ pub struct LiveSessionSnapshot {
     /// wire so every snapshot stays byte-identical with the pre-feature shape.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub feedback: Vec<FeedbackItem>,
+    /// Durable waiting/consumed inputs projected from `agent_input_outbox`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_inputs: Vec<crate::acp::AgentInputItem>,
     #[serde(default, skip_serializing_if = "u32_is_zero")]
     pub background_outstanding: u32,
     /// Whether this agent has the `check_user_feedback` tool (see
@@ -1315,6 +1427,9 @@ pub struct LiveSessionSnapshot {
     /// it. Always serialized (a plain bool) so the frontend can rely on it.
     #[serde(default)]
     pub feedback_tool_available: bool,
+    /// Host turn identity used to reject stale consumption acknowledgements.
+    #[serde(default)]
+    pub turn_generation: i64,
     #[serde(default)]
     pub user_memory_capabilities: crate::user_memory::UserMemoryCapabilities,
     pub modes: Option<SessionModeStateInfo>,

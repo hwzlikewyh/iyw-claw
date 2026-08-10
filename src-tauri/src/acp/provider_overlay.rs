@@ -65,6 +65,22 @@ pub fn model_gateway_models_url() -> String {
     format!("{MODEL_GATEWAY_PRODUCTION_OPENAI_URL}/models")
 }
 
+pub fn model_gateway_image_analysis_url() -> String {
+    let base = configured_model_gateway_base_url().unwrap_or_else(|| {
+        if MODEL_GATEWAY_BASE_URL == MODEL_GATEWAY_PRODUCTION_URL {
+            MODEL_GATEWAY_PRODUCTION_OPENAI_URL.to_string()
+        } else {
+            MODEL_GATEWAY_BASE_URL.to_string()
+        }
+    });
+    let base = base.trim_end_matches('/');
+    if base.ends_with("/v1") {
+        format!("{base}/image-analysis")
+    } else {
+        format!("{base}/v1/image-analysis")
+    }
+}
+
 pub fn apply_provider_runtime_env(
     agent_type: AgentType,
     runtime_env: &mut BTreeMap<String, String>,

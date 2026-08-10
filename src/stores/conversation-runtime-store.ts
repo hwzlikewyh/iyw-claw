@@ -25,6 +25,7 @@ import { toErrorMessage } from "@/lib/app-error"
 import { parseDisplayImageMetadata } from "@/lib/display-image-metadata"
 import { computeTurnMetadataPatches } from "@/stores/turn-metadata"
 import { BACKGROUND_TASK_MARKER } from "@/lib/background-agent"
+import { parseFeedbackCheckOutcome } from "@/lib/feedback-check"
 
 export { computeTurnMetadataPatches } from "@/stores/turn-metadata"
 
@@ -345,6 +346,13 @@ interface BuiltStreamingTurns {
   inProgressToolCallIds: Set<string>
 }
 
+interface StreamingTurnGroup {
+  role: "assistant" | "user"
+  blocks: MessageTurn["blocks"]
+  id?: string
+  timestamp?: string
+}
+
 // Cache joined chunk output keyed by chunks-array identity. The ACP reducer
 // creates a new chunks array only when streaming output actually changes, so
 // a WeakMap keyed on the array reference lets repeated renders reuse the
@@ -555,6 +563,60 @@ function resolveLiveToolInput(
   return info.raw_input
 }
 
+function liveUserInputText(
+  block: LiveMessage["content"][number]
+): string | null {
+  if (block.type !== "user_input") return null
+  const text = block.blocks
+    .filter((item) => item.type === "text")
+    .map((item) => item.text.trim())
+    .filter(Boolean)
+    .join("\n")
+  return text || null
+}
+
+function feedbackToolOutput(info: ToolCallInfo): string | null {
+  if (info.raw_output_chunks.length > 0) {
+    return getJoinedChunks(info.raw_output_chunks)
+  }
+  return info.content
+}
+
+function hiddenLiveFeedbackToolIds(
+  content: LiveMessage["content"],
+  getToolName: (info: ToolCallInfo) => string
+): Set<string> {
+  const userTexts = content.map(liveUserInputText)
+  const claimed = new Set<number>()
+  const hidden = new Set<string>()
+  for (const block of content) {
+    if (block.type !== "tool_call") continue
+    if (getToolName(block.info) !== "check_user_feedback") continue
+    if (block.info.status !== "completed") continue
+    const entries = parseFeedbackCheckOutcome(
+      feedbackToolOutput(block.info)
+    )?.entries
+    if (!entries?.length) continue
+    const matches: number[] = []
+    const pending = new Set<number>()
+    for (const entry of entries) {
+      const match = userTexts.findIndex(
+        (text, index) =>
+          !claimed.has(index) &&
+          !pending.has(index) &&
+          text === entry.text.trim()
+      )
+      if (match < 0) break
+      matches.push(match)
+      pending.add(match)
+    }
+    if (matches.length !== entries.length) continue
+    matches.forEach((index) => claimed.add(index))
+    hidden.add(block.info.tool_call_id)
+  }
+  return hidden
+}
+
 export function buildStreamingTurnsFromLiveMessage(
   conversationId: number,
   liveMessage: LiveMessage
@@ -607,6 +669,7 @@ export function buildStreamingTurnsFromLiveMessage(
     inferredNames.set(info.tool_call_id, name)
     return name
   }
+  const hiddenFeedbackToolIds = hiddenLiveFeedbackToolIds(content, getToolName)
 
   // First pass: register all agent tool_call IDs
   const agentIds = new Set<string>()
@@ -684,7 +747,7 @@ export function buildStreamingTurnsFromLiveMessage(
   // pattern: each "round" (text/thinking + tool calls + tool results) is a
   // separate turn. A new turn starts when a text/thinking/plan block appears
   // after completed tool calls in the current group.
-  const groups: MessageTurn["blocks"][] = [[]]
+  const groups: StreamingTurnGroup[] = [{ role: "assistant", blocks: [] }]
   let currentGroupHasCompletedTool = false
   const inProgressToolCallIds = new Set<string>()
 
@@ -695,11 +758,11 @@ export function buildStreamingTurnsFromLiveMessage(
       block.type === "plan"
 
     if (isContentBlock && currentGroupHasCompletedTool) {
-      groups.push([])
+      groups.push({ role: "assistant", blocks: [] })
       currentGroupHasCompletedTool = false
     }
 
-    const currentBlocks = groups[groups.length - 1]
+    const currentBlocks = groups[groups.length - 1].blocks
 
     switch (block.type) {
       case "text":
@@ -727,7 +790,18 @@ export function buildStreamingTurnsFromLiveMessage(
         })
         break
       }
+      case "user_input":
+        groups.push({
+          role: "user",
+          blocks: block.blocks,
+          id: block.messageId,
+          timestamp: new Date(block.createdAt).toISOString(),
+        })
+        groups.push({ role: "assistant", blocks: [] })
+        currentGroupHasCompletedTool = false
+        break
       case "tool_call": {
+        if (hiddenFeedbackToolIds.has(block.info.tool_call_id)) break
         // Skip child tool calls — they are nested inside Agent cards
         if (childToolCallIds.has(block.info.tool_call_id)) break
 
@@ -922,15 +996,16 @@ export function buildStreamingTurnsFromLiveMessage(
 
   const timestamp = new Date(liveMessage.startedAt).toISOString()
   const turns = groups
-    .filter((blocks) => blocks.length > 0)
-    .map((blocks, i) => ({
+    .filter((group) => group.blocks.length > 0)
+    .map((group, i) => ({
       id:
-        i === 0
+        group.id ??
+        (i === 0
           ? `live-${conversationId}-${liveMessage.id}`
-          : `live-${conversationId}-${liveMessage.id}-${i}`,
-      role: "assistant" as const,
-      blocks,
-      timestamp,
+          : `live-${conversationId}-${liveMessage.id}-${i}`),
+      role: group.role,
+      blocks: group.blocks,
+      timestamp: group.timestamp ?? timestamp,
     }))
 
   return { turns, inProgressToolCallIds }

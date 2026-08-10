@@ -1683,6 +1683,7 @@
     },
     "conversation": {
       "reloadFailed": "Failed to reload conversation: {message}",
+      "imageAnalysisFailed": "Image analysis failed; the message was not sent: {message}",
       "reloaded": "Conversation reloaded",
       "reload": "Reload",
       "activeConversationIndicator": "Active conversation",
@@ -2702,6 +2703,14 @@
         "cancelEdit": "Cancel edit",
         "editItem": "Edit",
         "deleteItem": "Remove"
+      },
+      "agentInput": {
+        "waiting": "Waiting",
+        "failed": "Send failed",
+        "retry": "Retry",
+        "delete": "Remove",
+        "deleteFailed": "Couldn't remove this waiting message",
+        "retryFailed": "Couldn't retry this message"
       },
       "welcomeInputPanel": {
         "agentsSettingsPath": "Settings > Agents",

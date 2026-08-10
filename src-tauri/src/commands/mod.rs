@@ -1,4 +1,5 @@
 pub mod acp;
+pub mod agent_input;
 pub mod agent_storage;
 mod agent_storage_migration;
 mod agent_storage_profile;

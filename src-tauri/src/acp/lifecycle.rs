@@ -64,6 +64,7 @@ fn is_lifecycle_relevant(event: &AcpEvent) -> bool {
         event,
         AcpEvent::SessionStarted { .. }
             | AcpEvent::TurnComplete { .. }
+            | AcpEvent::UserMessage { .. }
             | AcpEvent::ConversationLinked { .. }
             | AcpEvent::StatusChanged {
                 status: ConnectionStatus::Disconnected
@@ -199,6 +200,17 @@ pub(crate) async fn handle_event(
             }
             Ok(())
         }
+        AcpEvent::UserMessage { message_id, .. } => {
+            let Some((state, emitter)) =
+                manager.get_state_and_emitter(&envelope.connection_id).await
+            else {
+                return Ok(());
+            };
+            crate::acp::agent_input_lifecycle::consume_user_message(
+                db_conn, &state, &emitter, message_id,
+            )
+            .await
+        }
         AcpEvent::TurnComplete { stop_reason, .. } => {
             // Centralized status transition: when the agent reports the turn
             // is done, flip the conversation row and re-broadcast the change
@@ -234,34 +246,43 @@ pub(crate) async fn handle_event(
             else {
                 return Ok(());
             };
-            let (conversation_id, last_text, current_model) = {
+            let (conversation_id, last_text, current_model, turn_generation) = {
                 let snap = state_arc.read().await;
                 (
                     snap.conversation_id,
                     snap.last_assistant_text.clone(),
                     snap.current_model.clone(),
+                    snap.turn_generation,
                 )
             };
             // No conversation row bound (defensive — should never happen in
             // practice since `send_prompt_linked` runs before TurnComplete can
             // fire). Nothing to update.
             let Some(cid) = conversation_id else {
+                manager
+                    .finish_agent_input_turn_settlement(&envelope.connection_id, turn_generation)
+                    .await;
                 return Ok(());
             };
+            let mut completion_error = None;
             if let Some(ts) = target_status.clone() {
                 // DB write before emit so any downstream subscriber that observes
                 // the ConversationStatusChanged event can assume the row is
                 // already at the target status.
-                conversation_service::update_status(db_conn, cid, ts.clone()).await?;
-                emit_with_state(
-                    &state_arc,
-                    &emitter,
-                    AcpEvent::ConversationStatusChanged {
-                        conversation_id: cid,
-                        status: ts,
-                    },
-                )
-                .await;
+                match conversation_service::update_status(db_conn, cid, ts.clone()).await {
+                    Ok(()) => {
+                        emit_with_state(
+                            &state_arc,
+                            &emitter,
+                            AcpEvent::ConversationStatusChanged {
+                                conversation_id: cid,
+                                status: ts,
+                            },
+                        )
+                        .await;
+                    }
+                    Err(error) => completion_error = Some(error),
+                }
             }
 
             // If this conversation was spawned by a delegation, resolve the
@@ -321,7 +342,30 @@ pub(crate) async fn handle_event(
                     }
                 }
             }
-            Ok(())
+            if let Err(error) = crate::acp::agent_input_lifecycle::fallback_unconsumed_turn(
+                db_conn,
+                &state_arc,
+                &emitter,
+                &envelope.connection_id,
+                turn_generation,
+            )
+            .await
+            {
+                if completion_error.is_none() {
+                    completion_error = Some(error);
+                } else {
+                    tracing::error!(
+                        connection_id = %envelope.connection_id,
+                        turn_generation,
+                        error = %error,
+                        "[agent-input] fallback settlement also failed"
+                    );
+                }
+            }
+            manager
+                .finish_agent_input_turn_settlement(&envelope.connection_id, turn_generation)
+                .await;
+            completion_error.map_or(Ok(()), Err)
         }
         // Other events don't need cross-connection DB persistence today; extend
         // this dispatcher with new arms as the lifecycle scope grows.
@@ -800,6 +844,21 @@ async fn connection_worker_loop(
                 conversation_id, ..
             } => {
                 try_cache_link(&mut cache, &manager, &connection_id, *conversation_id).await;
+                if let Err(error) = crate::acp::agent_input_lifecycle::recover_connection(
+                    &db,
+                    &manager,
+                    &connection_id,
+                    *conversation_id,
+                )
+                .await
+                {
+                    tracing::error!(
+                        connection_id = %connection_id,
+                        conversation_id,
+                        error = %error,
+                        "[agent-input] connection recovery failed"
+                    );
+                }
             }
             AcpEvent::StatusChanged {
                 status: ConnectionStatus::Disconnected,

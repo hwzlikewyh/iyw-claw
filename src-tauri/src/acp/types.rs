@@ -273,6 +273,11 @@ pub enum AcpEvent {
         message_id: String,
         blocks: Vec<UserMessageBlock>,
     },
+    /// Durable host-owned input waiting for, or acknowledged by, the active
+    /// Agent. A single replace-by-id event covers every lifecycle transition so
+    /// reconnect replay and multi-window viewers converge without applying
+    /// separate partial patches in different orders.
+    AgentInputChanged { item: crate::acp::AgentInputItem },
     /// The user submitted a live-feedback note while the agent is mid-turn (the
     /// `check_user_feedback` MCP-tool steering path). Broadcast so every client
     /// viewing this conversation renders the pending note, and captured into

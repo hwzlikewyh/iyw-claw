@@ -6,18 +6,19 @@ import type {
   SessionConfigOptionInfo,
   SessionConfigSelectOptionInfo,
 } from "@/lib/types"
+import {
+  parseGatewayModels,
+  type GatewayModel,
+} from "@/lib/gateway-model-parser"
+
+export { parseGatewayModels } from "@/lib/gateway-model-parser"
+export type {
+  GatewayImageInputMode,
+  GatewayModel,
+  GatewayModelCapabilities,
+} from "@/lib/gateway-model-parser"
 
 const GATEWAY_MODEL_CACHE_KEY = "iyw-claw.gateway-model-catalog.v1"
-
-export interface GatewayModel {
-  id: string
-  name: string
-  description: string | null
-  efforts: string[]
-  defaultEffort: string | null
-  fastModeSupported: boolean
-  fastModeDefaultEnabled: boolean
-}
 
 export interface GatewayModelPayloadCache {
   read: () => unknown | null
@@ -33,68 +34,6 @@ export interface GatewayModelCatalog {
   getCached: () => GatewayModel[]
   load: () => Promise<GatewayModel[]>
   refresh: () => Promise<GatewayModel[]>
-}
-
-function uniqueStrings(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return Array.from(
-    new Set(
-      value.flatMap((item) => {
-        if (typeof item !== "string") return []
-        const trimmed = item.trim()
-        return trimmed ? [trimmed] : []
-      })
-    )
-  )
-}
-
-function parseGatewayModel(value: unknown): GatewayModel | null {
-  if (!value || typeof value !== "object") return null
-  const raw = value as Record<string, unknown>
-  const id = typeof raw.id === "string" ? raw.id.trim() : ""
-  if (!id) return null
-  const reasoning =
-    raw.reasoning && typeof raw.reasoning === "object"
-      ? (raw.reasoning as Record<string, unknown>)
-      : {}
-  const efforts = uniqueStrings(reasoning.efforts)
-  const defaultEffort =
-    typeof reasoning.default_effort === "string" &&
-    reasoning.default_effort.trim()
-      ? reasoning.default_effort.trim()
-      : null
-  const fastMode =
-    raw.fast_mode && typeof raw.fast_mode === "object"
-      ? (raw.fast_mode as Record<string, unknown>)
-      : {}
-  return {
-    id,
-    name:
-      typeof raw.display_name === "string" && raw.display_name.trim()
-        ? raw.display_name.trim()
-        : id,
-    description:
-      typeof raw.description === "string" && raw.description.trim()
-        ? raw.description.trim()
-        : null,
-    efforts,
-    defaultEffort,
-    fastModeSupported: fastMode.supported === true,
-    fastModeDefaultEnabled: fastMode.default_enabled === true,
-  }
-}
-
-export function parseGatewayModels(payload: unknown): GatewayModel[] {
-  if (!payload || typeof payload !== "object") return []
-  const data = (payload as { data?: unknown }).data
-  if (!Array.isArray(data)) return []
-  const seen = new Set<string>()
-  return data.flatMap((item) => {
-    const model = parseGatewayModel(item)
-    if (!model || seen.has(model.id)) return []
-    seen.add(model.id)
-    return [model]
-  })
 }
 
 function browserPayloadCache(): GatewayModelPayloadCache {

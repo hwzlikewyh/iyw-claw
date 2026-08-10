@@ -306,6 +306,39 @@ fn user_block_size(block: &UserMessageBlock) -> usize {
     }
 }
 
+fn prompt_block_size(block: &crate::acp::PromptInputBlock) -> usize {
+    match block {
+        crate::acp::PromptInputBlock::Text { text } => 24 + json_str_len(text),
+        crate::acp::PromptInputBlock::Image {
+            data,
+            mime_type,
+            uri,
+        } => 48 + json_str_len(data) + json_str_len(mime_type) + opt_str_size(uri),
+        crate::acp::PromptInputBlock::Resource {
+            uri,
+            mime_type,
+            text,
+            blob,
+        } => {
+            64 + json_str_len(uri)
+                + opt_str_size(mime_type)
+                + opt_str_size(text)
+                + opt_str_size(blob)
+        }
+        crate::acp::PromptInputBlock::ResourceLink {
+            uri,
+            name,
+            mime_type,
+            description,
+        } => {
+            72 + json_str_len(uri)
+                + json_str_len(name)
+                + opt_str_size(mime_type)
+                + opt_str_size(description)
+        }
+    }
+}
+
 /// Best-effort byte estimate for an event envelope's footprint in the recent-
 /// events ring buffer. Feeds BOTH the running byte cap and the per-event
 /// `RECENT_EVENT_MAX_BYTES` threshold, so it must track the serialized size
@@ -402,6 +435,17 @@ fn estimate_envelope_size(envelope: &EventEnvelope) -> usize {
                 + 2
                 + blocks.len().saturating_sub(1)
                 + blocks.iter().map(user_block_size).sum::<usize>()
+        }
+        AcpEvent::AgentInputChanged { item } => {
+            384 + json_str_len(&item.id)
+                + json_str_len(&item.payload.display_text)
+                + item.payload.blocks.len().saturating_sub(1)
+                + item
+                    .payload
+                    .blocks
+                    .iter()
+                    .map(prompt_block_size)
+                    .sum::<usize>()
         }
         AcpEvent::BackgroundActivity {
             session_id,

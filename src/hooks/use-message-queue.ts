@@ -8,17 +8,27 @@ export interface QueuedMessage {
   id: string
   draft: PromptDraft
   modeId: string | null
+  delivery: "prompt" | "agent_input"
+  /** A failed host preflight remains editable but is not auto-flushed again
+   * until the user edits or reorders it. */
+  blocked?: boolean
 }
 
 export interface UseMessageQueueReturn {
   queue: QueuedMessage[]
   enqueue: (draft: PromptDraft, modeId: string | null) => void
+  enqueueAgentInput: (
+    id: string,
+    draft: PromptDraft,
+    modeId: string | null
+  ) => void
   /**
    * Put a draft back at the FRONT of the queue. Used when an auto-flushed item
    * was dequeued, sent, and bounced (TurnBusyError): it must return to the head
    * so it retries before items that were already behind it (FIFO preserved).
    */
   requeueFront: (draft: PromptDraft, modeId: string | null) => void
+  requeueItemFront: (item: QueuedMessage) => void
   dequeue: () => QueuedMessage | undefined
   remove: (id: string) => void
   reorder: (items: QueuedMessage[]) => void
@@ -58,14 +68,37 @@ export function useMessageQueue(): UseMessageQueueReturn {
 
   const enqueue = useCallback(
     (draft: PromptDraft, modeId: string | null) => {
-      commit([...queueRef.current, { id: randomUUID(), draft, modeId }])
+      commit([
+        ...queueRef.current,
+        { id: randomUUID(), draft, modeId, delivery: "prompt" },
+      ])
+    },
+    [commit]
+  )
+
+  const enqueueAgentInput = useCallback(
+    (id: string, draft: PromptDraft, modeId: string | null) => {
+      commit([
+        ...queueRef.current,
+        { id, draft, modeId, delivery: "agent_input" },
+      ])
     },
     [commit]
   )
 
   const requeueFront = useCallback(
     (draft: PromptDraft, modeId: string | null) => {
-      commit([{ id: randomUUID(), draft, modeId }, ...queueRef.current])
+      commit([
+        { id: randomUUID(), draft, modeId, delivery: "prompt" },
+        ...queueRef.current,
+      ])
+    },
+    [commit]
+  )
+
+  const requeueItemFront = useCallback(
+    (item: QueuedMessage) => {
+      commit([item, ...queueRef.current])
     },
     [commit]
   )
@@ -117,7 +150,7 @@ export function useMessageQueue(): UseMessageQueueReturn {
     (id: string, draft: PromptDraft) => {
       commit(
         queueRef.current.map((item) =>
-          item.id === id ? { ...item, draft } : item
+          item.id === id ? { ...item, draft, blocked: false } : item
         )
       )
       setEditingItemId(null)
@@ -138,7 +171,9 @@ export function useMessageQueue(): UseMessageQueueReturn {
   return {
     queue,
     enqueue,
+    enqueueAgentInput,
     requeueFront,
+    requeueItemFront,
     dequeue,
     remove,
     reorder,

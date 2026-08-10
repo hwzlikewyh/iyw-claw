@@ -220,6 +220,21 @@ pub struct BrokerArtifactsRequest {
     pub files: Vec<String>,
 }
 
+/// Analyze one image through the authenticated parent session's current model.
+/// The companion loads and validates bytes locally; the listener derives the
+/// parent connection from `token`, so the model cannot choose a connection or
+/// an internal visual model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerImageAnalysisRequest {
+    pub token: String,
+    pub data: String,
+    pub mime_type: String,
+    pub question: String,
+    pub detail: String,
+    pub image_bytes: usize,
+}
+
 /// Bounded Agent-facing report; internal candidate identifiers, provenance,
 /// revision, timestamps, and paths stay host-only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -262,6 +277,7 @@ pub enum BrokerMessage {
     MemoryAppend(BrokerMemoryAppendRequest),
     MemoryProposal(BrokerMemoryProposalRequest),
     Artifacts(BrokerArtifactsRequest),
+    ImageAnalysis(BrokerImageAnalysisRequest),
     Automation(ScheduledTaskRequest),
     CompanionReady(BrokerCompanionReadyRequest),
 }
@@ -449,6 +465,14 @@ pub async fn client_artifacts_round_trip(
     req: &BrokerArtifactsRequest,
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::Artifacts(req.clone())).await
+}
+
+/// Analyze one validated image through the parent session's live model route.
+pub async fn client_image_analysis_round_trip(
+    socket_path: &str,
+    req: &BrokerImageAnalysisRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::ImageAnalysis(req.clone())).await
 }
 
 /// Execute one global scheduled-task CRUD request. This route deliberately has

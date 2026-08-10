@@ -13,6 +13,7 @@ import {
 } from "@/contexts/acp-connections-context"
 import type {
   AgentType,
+  AgentInputItem,
   AvailableCommandInfo,
   ConfigStaleKind,
   ConnectionStatus,
@@ -56,6 +57,7 @@ export interface UseConnectionReturn {
   configOptions: SessionConfigOptionInfo[] | null
   availableCommands: AvailableCommandInfo[] | null
   pendingPermission: PendingPermission | null
+  agentInputs: AgentInputItem[]
   pendingUserMessage: PendingUserMessage | null
   pendingQuestion: PendingQuestion | null
   pendingAskQuestion: PendingQuestionState | null
@@ -200,6 +202,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
     connection?.configOptions ?? cached?.configOptions ?? null
   const availableCommands = connection?.availableCommands ?? null
   const pendingPermission = connection?.pendingPermission ?? null
+  const agentInputs = connection?.agentInputs ?? []
   const pendingUserMessage = connection?.pendingUserMessage ?? null
   const pendingQuestion = connection?.pendingQuestion ?? null
   const pendingAskQuestion = connection?.pendingAskQuestion ?? null
@@ -302,6 +305,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       configOptions,
       availableCommands,
       pendingPermission,
+      agentInputs,
       pendingUserMessage,
       pendingQuestion,
       pendingAskQuestion,
@@ -340,6 +344,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       configOptions,
       availableCommands,
       pendingPermission,
+      agentInputs,
       pendingUserMessage,
       pendingQuestion,
       pendingAskQuestion,

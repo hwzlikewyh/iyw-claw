@@ -55,7 +55,8 @@ mod tauri_app {
     use crate::acp::manager::ConnectionManager;
     use crate::chat_channel::manager::ChatChannelManager;
     use crate::commands::{
-        acp as acp_commands, agent_storage as agent_storage_commands, agent_version_center_tauri,
+        acp as acp_commands, agent_input as agent_input_commands,
+        agent_storage as agent_storage_commands, agent_version_center_tauri,
         app_update as app_update_commands, automation as automation_commands, backup,
         chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
         chat_image as chat_image_commands, conversations, delegation as delegation_commands,
@@ -772,6 +773,14 @@ mod tauri_app {
                             ),
                         ),
                         std::sync::Arc::new(
+                            crate::acp::image_analysis::HostImageAnalysisService::new(
+                                std::sync::Arc::new(cm_state.clone_ref()),
+                                std::sync::Arc::new(db::AppDatabase {
+                                    conn: db_conn.clone(),
+                                }),
+                            ),
+                        ),
+                        std::sync::Arc::new(
                             crate::acp::automation_tools::AutomationAgentService::new(
                                 std::sync::Arc::new(db::AppDatabase {
                                     conn: db_conn.clone(),
@@ -1221,6 +1230,11 @@ mod tauri_app {
                 feedback_commands::get_feedback_settings,
                 feedback_commands::set_feedback_settings,
                 feedback_commands::submit_session_feedback,
+                agent_input_commands::submit_agent_input,
+                agent_input_commands::list_agent_inputs,
+                agent_input_commands::delete_agent_input,
+                agent_input_commands::retry_agent_input,
+                agent_input_commands::resume_agent_inputs,
                 question_commands::get_question_settings,
                 question_commands::set_question_settings,
                 session_info_commands::get_session_info_settings,

@@ -51,8 +51,9 @@ export interface UseConnectionLifecycleReturn {
        * draft instead of treating it as an error.
        */
       onTurnInProgress?: () => void
+      onError?: (error: unknown) => void
     }
-  ) => void
+  ) => Promise<boolean>
   handleSetConfigOption: (configId: string, valueId: string) => void
   handleCancel: () => void
   handleRespondPermission: (requestId: string, optionId: string) => void
@@ -367,11 +368,12 @@ export function useConnectionLifecycle({
         conversationId?: number | null
         clientMessageId?: string | null
         onTurnInProgress?: () => void
+        onError?: (error: unknown) => void
       }
-    ) => {
+    ): Promise<boolean> => {
       touchActivity(contextKey)
       const onTurnInProgress = opts?.onTurnInProgress
-      void (async () => {
+      return (async () => {
         const currentModeId = modeIdRef.current
         if (modeId && modeId !== currentModeId) {
           await connSetMode(modeId)
@@ -380,6 +382,7 @@ export function useConnectionLifecycle({
           modeIdRef.current = modeId
         }
         await sendPrompt(draft.blocks, opts)
+        return true
       })().catch((e: unknown) => {
         if (e instanceof TurnBusyError) {
           // A turn was already in flight on the connection (another
@@ -387,9 +390,11 @@ export function useConnectionLifecycle({
           // observed yet). Not an error — the draft is re-queued by the caller
           // so it auto-sends when the current turn finishes.
           onTurnInProgress?.()
-          return
+          return false
         }
+        opts?.onError?.(e)
         console.error("[ConnLifecycle] sendPrompt:", e)
+        return false
       })
     },
     [connSetMode, sendPrompt, contextKey, touchActivity]

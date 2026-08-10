@@ -30,11 +30,13 @@ import {
   acpTouchConnection,
   acpGetSessionSnapshot,
   acpFindConnectionForConversation,
+  resumeAgentInputs,
 } from "@/lib/api"
 import { denormalizeSnapshot } from "@/lib/snapshot-denormalize"
 import { buildDelegationSeedEnvelopes } from "@/lib/delegation-seed"
 import type {
   AgentType,
+  AgentInputItem,
   AcpAgentStatus,
   AcpEvent,
   ActiveDelegationState,
@@ -147,6 +149,12 @@ export type LiveContentBlock =
   | { type: "thinking"; text: string }
   | { type: "plan"; entries: PlanEntryInfo[] }
   | { type: "tool_call"; info: ToolCallInfo }
+  | {
+      type: "user_input"
+      messageId: string
+      blocks: UserMessageBlock[]
+      createdAt: number
+    }
 
 export interface LiveMessage {
   id: string
@@ -173,6 +181,8 @@ export interface ConnectionState {
   usage: SessionUsageUpdateInfo | null
   liveMessage: LiveMessage | null
   pendingPermission: PendingPermission | null
+  /** Backend-authoritative durable inputs for the active conversation. */
+  agentInputs: AgentInputItem[]
   /** In-flight user prompt for the current turn — set from a `user_message`
    *  event or a snapshot's `pending_user_message`. A VIEWER mirrors this into
    *  the runtime as a synthesized user turn; `null` outside an active turn. */
@@ -302,6 +312,11 @@ type Action =
       type: "HYDRATE_FROM_SNAPSHOT"
       contextKey: string
       patch: import("@/lib/snapshot-denormalize").SnapshotPatch
+    }
+  | {
+      type: "AGENT_INPUT_CHANGED"
+      contextKey: string
+      item: AgentInputItem
     }
   | { type: "CONNECTION_REMOVED"; contextKey: string }
   | { type: "REMOVE_ALL" }
@@ -538,6 +553,19 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return null
   }
   return value as Record<string, unknown>
+}
+
+function mergeRecoveredAgentInputs(
+  current: AgentInputItem[],
+  recovered: AgentInputItem[]
+): AgentInputItem[] {
+  if (recovered.length === 0) return current
+  const known = new Set(current.map((item) => item.id))
+  const missing = recovered.filter((item) => !known.has(item.id))
+  if (missing.length === 0) return current
+  return [...current, ...missing].sort((a, b) =>
+    a.created_at.localeCompare(b.created_at)
+  )
 }
 
 const PERMISSION_TOOL_INPUT_KEYS = [
@@ -1054,6 +1082,7 @@ function connectionsReducer(
         usage: null,
         liveMessage: null,
         pendingPermission: null,
+        agentInputs: [],
         pendingUserMessage: null,
         pendingQuestion: null,
         pendingAskQuestion: null,
@@ -1110,6 +1139,7 @@ function connectionsReducer(
         usage: null,
         liveMessage: null,
         pendingPermission: null,
+        agentInputs: [],
         pendingUserMessage: null,
         pendingQuestion: null,
         pendingAskQuestion: null,
@@ -1171,6 +1201,10 @@ function connectionsReducer(
         current.availableCommands ?? action.patch.availableCommands
       const mergedPromptCapabilities =
         action.patch.promptCapabilities ?? current.promptCapabilities
+      const mergedAgentInputs = mergeRecoveredAgentInputs(
+        current.agentInputs,
+        action.patch.agentInputs
+      )
 
       // Race guard: the snapshot may have been generated BEFORE events
       // that have since arrived and been applied to in-memory state.
@@ -1185,7 +1219,8 @@ function connectionsReducer(
           mergedModes === current.modes &&
           mergedConfigOptions === current.configOptions &&
           mergedAvailableCommands === current.availableCommands &&
-          mergedPromptCapabilities === current.promptCapabilities
+          mergedPromptCapabilities === current.promptCapabilities &&
+          mergedAgentInputs === current.agentInputs
         ) {
           return state
         }
@@ -1198,6 +1233,7 @@ function connectionsReducer(
           promptCapabilities: mergedPromptCapabilities,
           selectorsReady: mergedSelectorsReady,
           supportsFork: mergedSupportsFork,
+          agentInputs: mergedAgentInputs,
         })
         return next
       }
@@ -1218,6 +1254,7 @@ function connectionsReducer(
         usage: action.patch.usage,
         liveMessage: hydratedLiveMessage,
         pendingPermission: hydratedPendingPermission,
+        agentInputs: action.patch.agentInputs,
         pendingAskQuestion: action.patch.pendingAskQuestion,
         pendingUserMessage: action.patch.pendingUserMessage,
         promptCapabilities: mergedPromptCapabilities,
@@ -1232,6 +1269,72 @@ function connectionsReducer(
         error: action.patch.lastError,
         lastAppliedSeq: action.patch.eventSeq,
       })
+      return next
+    }
+
+    case "AGENT_INPUT_CHANGED": {
+      const current = state.get(action.contextKey)
+      if (!current) return state
+      const withoutItem = current.agentInputs.filter(
+        (item) => item.id !== action.item.id
+      )
+      const removeFromProjection =
+        action.item.status === "deleted" ||
+        (action.item.status === "consumed" &&
+          action.item.strategy === "deferred_next")
+      const agentInputs = removeFromProjection
+        ? withoutItem
+        : [...withoutItem, action.item].sort((a, b) =>
+            a.created_at.localeCompare(b.created_at)
+          )
+      const shouldInsertUserInput =
+        action.item.status === "consumed" &&
+        (action.item.strategy === "cooperative_feedback" ||
+          action.item.strategy === "native_steer") &&
+        current.status === "prompting"
+      let liveMessage = current.liveMessage
+      if (
+        shouldInsertUserInput &&
+        !liveMessage?.content.some(
+          (block) =>
+            block.type === "user_input" && block.messageId === action.item.id
+        )
+      ) {
+        const source = liveMessage ?? ensureLiveMessage(null)
+        const blocks: UserMessageBlock[] = action.item.payload.blocks
+          .filter(
+            (block): block is Extract<PromptInputBlock, { type: "image" }> =>
+              block.type === "image"
+          )
+          .map((block) => ({
+            type: "image",
+            data: block.data,
+            mime_type: block.mime_type,
+            uri: block.uri ?? null,
+          }))
+        if (action.item.payload.display_text.trim()) {
+          blocks.push({
+            type: "text",
+            text: action.item.payload.display_text,
+          })
+        }
+        liveMessage = {
+          ...source,
+          content: [
+            ...source.content,
+            {
+              type: "user_input",
+              messageId: action.item.id,
+              blocks,
+              createdAt: Date.parse(
+                action.item.consumed_at ?? action.item.created_at
+              ),
+            },
+          ],
+        }
+      }
+      const next = new Map(state)
+      next.set(action.contextKey, { ...current, agentInputs, liveMessage })
       return next
     }
 
@@ -2770,6 +2873,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             text: e.text,
           })
           break
+        case "agent_input_changed":
+          flushStreamingQueue()
+          dispatch({
+            type: "AGENT_INPUT_CHANGED",
+            contextKey,
+            item: e.item,
+          })
+          break
         case "thinking":
           enqueueStreamingAction({ type: "THINKING", contextKey, text: e.text })
           break
@@ -3986,6 +4097,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           savedPrefs.modeId,
           savedPrefs.configValues
         )
+        if (conversationId != null && conversationId > 0) {
+          try {
+            await resumeAgentInputs(connectionId, conversationId)
+          } catch (error) {
+            await acpDisconnect(connectionId).catch(() => {})
+            throw error
+          }
+        }
 
         // If disconnect was requested while connect was in flight,
         // tear down immediately instead of registering the connection.
