@@ -13,8 +13,8 @@ use crate::acp::feedback::{FeedbackItem, FeedbackStatus};
 use crate::acp::question::PendingQuestionState;
 use crate::acp::types::{
     AcpEvent, AvailableCommandInfo, ConfigStaleKind, ConnectionStatus, EventEnvelope,
-    PromptCapabilitiesInfo, SessionConfigKindInfo, SessionConfigOptionInfo, SessionModeStateInfo,
-    ToolCallImageInfo, UserMessageBlock,
+    PromptCapabilitiesInfo, PromptInputBlock, SessionConfigKindInfo, SessionConfigOptionInfo,
+    SessionModeStateInfo, ToolCallImageInfo, UserMessageBlock,
 };
 use crate::models::agent::AgentType;
 use crate::models::message::MessageRole;
@@ -1206,7 +1206,7 @@ impl SessionState {
             .blocks
             .iter()
             .filter_map(|block| match block {
-                crate::acp::PromptInputBlock::Image {
+                PromptInputBlock::Image {
                     data,
                     mime_type,
                     uri,

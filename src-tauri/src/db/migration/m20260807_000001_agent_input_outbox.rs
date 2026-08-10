@@ -27,7 +27,8 @@ fn outbox_table() -> TableCreateStatement {
     add_identity_columns(&mut table);
     add_payload_columns(&mut table);
     add_timestamps(&mut table);
-    table.foreign_key(conversation_foreign_key()).to_owned()
+    let mut conversation_key = conversation_foreign_key();
+    table.foreign_key(&mut conversation_key).to_owned()
 }
 
 fn add_identity_columns(table: &mut TableCreateStatement) {

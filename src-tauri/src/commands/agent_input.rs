@@ -2,6 +2,7 @@ use sea_orm::DatabaseConnection;
 
 use crate::acp::error::AcpError;
 use crate::acp::manager::ConnectionManager;
+use crate::acp::types::PromptInputBlock;
 use crate::acp::{AgentInputItem, AgentInputPayload};
 use crate::app_error::AppCommandError;
 use crate::db::service::agent_input_outbox_service;
@@ -15,28 +16,26 @@ fn validate_submit(
     payload: &AgentInputPayload,
 ) -> Result<(), AcpError> {
     if conversation_id <= 0 {
-        return Err(AcpError::protocol(
-            "conversation id must be positive".into(),
-        ));
+        return Err(AcpError::protocol("conversation id must be positive"));
     }
     let id = message_id.trim();
     if id.is_empty() || id.chars().count() > MAX_MESSAGE_ID_CHARS {
-        return Err(AcpError::protocol("invalid agent input message id".into()));
+        return Err(AcpError::protocol("invalid agent input message id"));
     }
     if payload.blocks.is_empty() || !payload_has_content(payload) {
-        return Err(AcpError::protocol("agent input cannot be empty".into()));
+        return Err(AcpError::protocol("agent input cannot be empty"));
     }
     Ok(())
 }
 
 fn payload_has_content(payload: &AgentInputPayload) -> bool {
     payload.blocks.iter().any(|block| match block {
-        crate::acp::PromptInputBlock::Text { text } => !text.trim().is_empty(),
-        crate::acp::PromptInputBlock::Image {
+        PromptInputBlock::Text { text } => !text.trim().is_empty(),
+        PromptInputBlock::Image {
             data, mime_type, ..
         } => !data.trim().is_empty() && !mime_type.trim().is_empty(),
-        crate::acp::PromptInputBlock::Resource { uri, .. } => !uri.trim().is_empty(),
-        crate::acp::PromptInputBlock::ResourceLink { uri, name, .. } => {
+        PromptInputBlock::Resource { uri, .. } => !uri.trim().is_empty(),
+        PromptInputBlock::ResourceLink { uri, name, .. } => {
             !uri.trim().is_empty() && !name.trim().is_empty()
         }
     })
@@ -129,7 +128,7 @@ pub async fn submit_agent_input(
     #[cfg(not(feature = "tauri-runtime"))]
     {
         let _ = (connection_id, conversation_id, message_id, payload);
-        Err(AcpError::protocol("tauri-only command".into()))
+        Err(AcpError::protocol("tauri-only command"))
     }
 }
 
@@ -164,7 +163,7 @@ pub async fn delete_agent_input(
     #[cfg(not(feature = "tauri-runtime"))]
     {
         let _ = (connection_id, conversation_id, message_id);
-        Err(AcpError::protocol("tauri-only command".into()))
+        Err(AcpError::protocol("tauri-only command"))
     }
 }
 
@@ -183,7 +182,7 @@ pub async fn retry_agent_input(
     #[cfg(not(feature = "tauri-runtime"))]
     {
         let _ = (connection_id, conversation_id, message_id);
-        Err(AcpError::protocol("tauri-only command".into()))
+        Err(AcpError::protocol("tauri-only command"))
     }
 }
 
@@ -201,6 +200,6 @@ pub async fn resume_agent_inputs(
     #[cfg(not(feature = "tauri-runtime"))]
     {
         let _ = (connection_id, conversation_id);
-        Err(AcpError::protocol("tauri-only command".into()))
+        Err(AcpError::protocol("tauri-only command"))
     }
 }

@@ -17,7 +17,7 @@ async fn load_conversation(
         .await
         .map_err(|error| AcpError::protocol(error.to_string()))?
         .filter(|row| row.deleted_at.is_none())
-        .ok_or_else(|| AcpError::protocol("conversation not found".into()))
+        .ok_or_else(|| AcpError::protocol("conversation not found"))
 }
 
 fn validate_identity(
@@ -28,7 +28,7 @@ fn validate_identity(
 ) -> Result<(), AcpError> {
     if linked_conversation.is_some_and(|linked| linked != conversation_id) {
         return Err(AcpError::protocol(
-            "connection is linked to a different conversation".into(),
+            "connection is linked to a different conversation",
         ));
     }
     let serialized_agent = serde_json::to_value(agent_type)
@@ -36,7 +36,7 @@ fn validate_identity(
         .and_then(|value| value.as_str().map(ToOwned::to_owned));
     if serialized_agent.as_deref() != Some(row.agent_type.as_str()) {
         return Err(AcpError::protocol(
-            "conversation agent does not match connection".into(),
+            "conversation agent does not match connection",
         ));
     }
     Ok(())

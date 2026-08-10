@@ -37,7 +37,7 @@ impl AgentInputRuntime {
     ) -> Result<AgentInputItem, AcpError> {
         let db = self
             .db()
-            .ok_or_else(|| AcpError::protocol("agent input database unavailable".into()))?;
+            .ok_or_else(|| AcpError::protocol("agent input database unavailable"))?;
         let (state, emitter) = manager
             .get_state_and_emitter(conn_id)
             .await
@@ -76,7 +76,7 @@ async fn validate_target(
     let snapshot = state.read().await;
     if snapshot.conversation_id != Some(conversation_id) {
         return Err(AcpError::protocol(
-            "agent input conversation does not match connection".into(),
+            "agent input conversation does not match connection",
         ));
     }
     Ok(snapshot.agent_type)
@@ -130,7 +130,11 @@ impl ConnectionManager {
             .await
     }
 
-    pub async fn request_safe_cancel(&self, conn_id: &str) -> Result<(), AcpError> {
+    pub async fn request_safe_cancel(
+        &self,
+        conn_id: &str,
+        expected_turn_generation: i64,
+    ) -> Result<(), AcpError> {
         let cmd_tx = {
             let connections = self.connections.lock().await;
             connections
@@ -140,7 +144,9 @@ impl ConnectionManager {
                 .clone()
         };
         cmd_tx
-            .send(crate::acp::connection::ConnectionCommand::SafeCancel)
+            .send(crate::acp::connection::ConnectionCommand::SafeCancel {
+                expected_turn_generation,
+            })
             .await
             .map_err(|_| AcpError::ProcessExited)
     }
@@ -160,24 +166,22 @@ impl ConnectionManager {
         let existing = agent_input_outbox_service::get(&db.conn, id)
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?
-            .ok_or_else(|| AcpError::protocol("agent input not found".into()))?;
+            .ok_or_else(|| AcpError::protocol("agent input not found"))?;
         if existing.conversation_id != conversation_id {
             return Err(AcpError::protocol(
-                "agent input conversation does not match connection".into(),
+                "agent input conversation does not match connection",
             ));
         }
         let changed = agent_input_outbox_service::delete_waiting(&db.conn, id)
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?;
         if !changed {
-            return Err(AcpError::protocol(
-                "agent input can no longer be deleted".into(),
-            ));
+            return Err(AcpError::protocol("agent input can no longer be deleted"));
         }
         let item = agent_input_outbox_service::get(&db.conn, id)
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?
-            .ok_or_else(|| AcpError::protocol("agent input not found".into()))?;
+            .ok_or_else(|| AcpError::protocol("agent input not found"))?;
         emit_input(&state, &emitter, item.clone()).await;
         Ok(item)
     }
@@ -197,22 +201,22 @@ impl ConnectionManager {
         let existing = agent_input_outbox_service::get(&db.conn, id)
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?
-            .ok_or_else(|| AcpError::protocol("agent input not found".into()))?;
+            .ok_or_else(|| AcpError::protocol("agent input not found"))?;
         if existing.conversation_id != conversation_id {
             return Err(AcpError::protocol(
-                "agent input conversation does not match connection".into(),
+                "agent input conversation does not match connection",
             ));
         }
         let changed = agent_input_outbox_service::retry_failed(&db.conn, id)
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?;
         if !changed {
-            return Err(AcpError::protocol("agent input is not retryable".into()));
+            return Err(AcpError::protocol("agent input is not retryable"));
         }
         let item = agent_input_outbox_service::get(&db.conn, id)
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?
-            .ok_or_else(|| AcpError::protocol("agent input not found".into()))?;
+            .ok_or_else(|| AcpError::protocol("agent input not found"))?;
         emit_input(&state, &emitter, item.clone()).await;
         self.agent_input_runtime
             .ensure_worker(self.clone_ref(), conn_id.to_owned())

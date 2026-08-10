@@ -1,4 +1,5 @@
-use crate::acp::{AgentInputPayload, PromptInputBlock};
+use crate::acp::types::PromptInputBlock;
+use crate::acp::AgentInputPayload;
 use crate::models::AgentType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

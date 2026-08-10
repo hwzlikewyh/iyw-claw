@@ -223,7 +223,9 @@ pub enum ConnectionCommand {
     /// Cancel only at a scheduler-proven safe boundary. Unlike manual Cancel,
     /// this preserves terminal runtimes and waits for the real prompt response
     /// or stop reason before the connection returns to idle.
-    SafeCancel,
+    SafeCancel {
+        expected_turn_generation: i64,
+    },
     RespondPermission {
         request_id: String,
         option_id: String,
@@ -4349,20 +4351,32 @@ async fn run_conversation_loop<'a>(
                                     });
                                     break;
                                 }
-                                Some(ConnectionCommand::SafeCancel) => {
-                                    tracing::info!(
-                                        connection_id = conn_id,
-                                        turn_generation = state.read().await.turn_generation,
-                                        "[agent-input] requesting safe turn cancellation"
-                                    );
-                                    if let Err(error) = cx.send_notification_to(
-                                        Agent,
-                                        CancelNotification::new(sid.clone()),
-                                    ) {
-                                        tracing::warn!(
+                                Some(ConnectionCommand::SafeCancel {
+                                    expected_turn_generation,
+                                }) => {
+                                    let turn_generation = state.read().await.turn_generation;
+                                    if turn_generation == expected_turn_generation {
+                                        tracing::info!(
                                             connection_id = conn_id,
-                                            error = %error,
-                                            "[agent-input] safe cancellation request failed"
+                                            turn_generation,
+                                            "[agent-input] requesting safe turn cancellation"
+                                        );
+                                        if let Err(error) = cx.send_notification_to(
+                                            Agent,
+                                            CancelNotification::new(sid.clone()),
+                                        ) {
+                                            tracing::warn!(
+                                                connection_id = conn_id,
+                                                error = %error,
+                                                "[agent-input] safe cancellation request failed"
+                                            );
+                                        }
+                                    } else {
+                                        tracing::debug!(
+                                            connection_id = conn_id,
+                                            expected_turn_generation,
+                                            turn_generation,
+                                            "[agent-input] ignoring stale safe cancellation"
                                         );
                                     }
                                 }
@@ -4496,6 +4510,15 @@ async fn run_conversation_loop<'a>(
                 if let Some(inj) = delegation_injection {
                     inj.broker.cancel_by_parent_turn(conn_id).await;
                 }
+            }
+            Some(ConnectionCommand::SafeCancel {
+                expected_turn_generation,
+            }) => {
+                tracing::debug!(
+                    connection_id = conn_id,
+                    expected_turn_generation,
+                    "[agent-input] ignoring safe cancellation while connection is idle"
+                );
             }
             Some(ConnectionCommand::Fork { reply }) => {
                 if !supports_fork {

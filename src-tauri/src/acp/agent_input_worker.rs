@@ -6,7 +6,8 @@ use crate::acp::agent_input_dispatch::AgentInputRuntime;
 use crate::acp::agent_input_worker_dispatch::{dispatch_feedback, dispatch_next};
 use crate::acp::manager::ConnectionManager;
 use crate::acp::session_state::{SessionState, ToolCallStatus};
-use crate::acp::{AgentInputItem, AgentInputStatus, ConnectionStatus};
+use crate::acp::types::ConnectionStatus;
+use crate::acp::{AgentInputItem, AgentInputStatus};
 use crate::db::service::agent_input_outbox_service;
 use crate::db::AppDatabase;
 use crate::web::event_bridge::EventEmitter;
@@ -198,7 +199,7 @@ impl WorkerTracking {
         if reached
             && context
                 .manager
-                .request_safe_cancel(context.conn_id)
+                .request_safe_cancel(context.conn_id, snapshot.turn_generation)
                 .await
                 .is_ok()
         {

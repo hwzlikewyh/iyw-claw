@@ -115,7 +115,7 @@ fn validate_analysis_fields(args: &AnalyzeImageArguments) -> Result<(String, Str
             "The analysis question must contain between 1 and 4096 characters.",
         ));
     }
-    let detail = args.detail.unwrap_or_else(|| "auto".into());
+    let detail = args.detail.clone().unwrap_or_else(|| "auto".into());
     if !matches!(detail.as_str(), "auto" | "low" | "high") {
         return Err(analysis_error(
             "image_analysis_invalid_arguments",

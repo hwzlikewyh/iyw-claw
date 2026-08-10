@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::AgentType;
 
-use super::PromptInputBlock;
+use super::types::PromptInputBlock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

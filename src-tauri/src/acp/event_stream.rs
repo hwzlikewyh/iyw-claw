@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use tokio::sync::broadcast;
 
-use crate::acp::types::{AcpEvent, EventEnvelope, ToolCallImageInfo, UserMessageBlock};
+use crate::acp::types::{
+    AcpEvent, EventEnvelope, PromptInputBlock, ToolCallImageInfo, UserMessageBlock,
+};
 
 /// Capacity of the per-connection broadcast channel. Sized to absorb a brief
 /// burst when a slow subscriber lags; broadcast::channel drops oldest events
@@ -306,15 +308,15 @@ fn user_block_size(block: &UserMessageBlock) -> usize {
     }
 }
 
-fn prompt_block_size(block: &crate::acp::PromptInputBlock) -> usize {
+fn prompt_block_size(block: &PromptInputBlock) -> usize {
     match block {
-        crate::acp::PromptInputBlock::Text { text } => 24 + json_str_len(text),
-        crate::acp::PromptInputBlock::Image {
+        PromptInputBlock::Text { text } => 24 + json_str_len(text),
+        PromptInputBlock::Image {
             data,
             mime_type,
             uri,
         } => 48 + json_str_len(data) + json_str_len(mime_type) + opt_str_size(uri),
-        crate::acp::PromptInputBlock::Resource {
+        PromptInputBlock::Resource {
             uri,
             mime_type,
             text,
@@ -325,7 +327,7 @@ fn prompt_block_size(block: &crate::acp::PromptInputBlock) -> usize {
                 + opt_str_size(text)
                 + opt_str_size(blob)
         }
-        crate::acp::PromptInputBlock::ResourceLink {
+        PromptInputBlock::ResourceLink {
             uri,
             name,
             mime_type,
