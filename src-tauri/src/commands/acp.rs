@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -29,6 +29,7 @@ use crate::acp::types::{ConnectionInfo, ForkResultInfo, PromptInputBlock};
 use crate::acp::version_center::resolve_npm_agent_install;
 use crate::commands::experts::{
     central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, ExpertLinkState,
+    RUNTIME_ENV_DIR_NAMES,
 };
 use crate::db::service::agent_setting_service;
 use crate::db::AppDatabase;
@@ -5371,7 +5372,6 @@ struct PreparedMarketSkillInstall {
     previous: PreviousMarketSkillState,
 }
 
-#[derive(Clone)]
 struct PreviousMarketSkillState {
     skill_id: String,
     existed: bool,
@@ -5379,9 +5379,9 @@ struct PreviousMarketSkillState {
     publications: Vec<(AgentType, AgentSkillSyncMode)>,
 }
 
-struct PendingMarketSkillInstall {
+struct StagedMarketSkillInstall {
     prepared: PreparedMarketSkillInstall,
-    swap: PendingSkillDirectorySwap,
+    staging: PathBuf,
 }
 
 pub(crate) fn install_market_skills(
@@ -5402,17 +5402,14 @@ pub(crate) fn install_market_skills(
         .collect::<BTreeSet<_>>();
     let _guard = shared_skill_mutation_guard();
     let prepared = prepare_market_skill_installs(installs)?;
-    let pending = begin_market_skill_swaps(prepared)?;
-    let installed = match publish_market_skill_installs(&pending) {
+    let replaced = replace_market_skill_directories(prepared)?;
+    let installed = match publish_market_skill_installs(&replaced) {
         Ok(installed) => installed,
         Err(error) => {
-            rollback_market_skill_installs(pending, true);
+            restore_market_skill_publications(&replaced);
             return Err(error);
         }
     };
-    for value in pending {
-        value.swap.commit();
-    }
     if let Err(error) = release_market_root_references(root_skill_id, &retained_skill_ids) {
         tracing::warn!(
             root_skill_id,
@@ -5633,7 +5630,7 @@ fn prepare_market_skill_installs(
         }
         let source = shared_skill_path(&skill_id);
         ensure_market_install_target(&source, &install.marker)?;
-        let existed = path_entry_exists(&source);
+        let existed = is_real_skill_directory(&source);
         if let Some(existing) = existed.then(|| read_market_skill_marker(&source)).flatten() {
             let mut references = market_target_references(&existing);
             references.extend(install.marker.target_references.clone());
@@ -5670,65 +5667,221 @@ fn prepare_market_skill_installs(
     Ok(prepared)
 }
 
-fn begin_market_skill_swaps(
+fn replace_market_skill_directories(
     prepared: Vec<PreparedMarketSkillInstall>,
-) -> Result<Vec<PendingMarketSkillInstall>, AcpError> {
-    let mut pending = Vec::with_capacity(prepared.len());
+) -> Result<Vec<PreparedMarketSkillInstall>, AcpError> {
+    let mut staged = Vec::with_capacity(prepared.len());
     for prepared in prepared {
-        match begin_skill_directory_swap(&prepared.source, &prepared.files) {
-            Ok(swap) => pending.push(PendingMarketSkillInstall { prepared, swap }),
+        match stage_market_skill_directory(&prepared.source, &prepared.files) {
+            Ok(staging) => staged.push(StagedMarketSkillInstall { prepared, staging }),
             Err(error) => {
-                rollback_market_skill_installs(pending, false);
+                cleanup_staged_market_skills(staged);
                 return Err(error);
             }
         }
     }
-    Ok(pending)
+    apply_staged_market_skills(staged)
+}
+
+fn stage_market_skill_directory(
+    target: &Path,
+    files: &[(PathBuf, Vec<u8>)],
+) -> Result<PathBuf, AcpError> {
+    let parent = target
+        .parent()
+        .ok_or_else(|| AcpError::protocol("skill directory has no parent"))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| AcpError::protocol(format!("failed to create skill parent: {error}")))?;
+    let staging = parent.join(format!(".iyw-claw-skill-import-{}", uuid::Uuid::new_v4()));
+    if let Err(error) = write_market_skill_directory_files(&staging, files) {
+        let _ = remove_skill_entry(&staging);
+        return Err(error);
+    }
+    Ok(staging)
+}
+
+fn write_market_skill_directory_files(
+    target: &Path,
+    files: &[(PathBuf, Vec<u8>)],
+) -> Result<(), AcpError> {
+    fs::create_dir_all(target)
+        .map_err(|error| AcpError::protocol(format!("failed to stage skill folder: {error}")))?;
+    let mut skipped_runtime_files = 0usize;
+    for (relative, content) in files {
+        if is_runtime_env_path(relative) {
+            skipped_runtime_files += 1;
+            continue;
+        }
+        write_staged_skill_file(target, relative, content)?;
+    }
+    if skipped_runtime_files > 0 {
+        tracing::warn!(
+            target = %target.display(),
+            skipped_runtime_files,
+            "[skill-market] ignored packaged runtime environment files"
+        );
+    }
+    Ok(())
+}
+
+fn write_staged_skill_file(target: &Path, relative: &Path, content: &[u8]) -> Result<(), AcpError> {
+    let path = target.join(relative);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            AcpError::protocol(format!("failed to stage skill subdirectory: {error}"))
+        })?;
+    }
+    fs::write(path, content)
+        .map_err(|error| AcpError::protocol(format!("failed to stage skill file: {error}")))
+}
+
+fn apply_staged_market_skills(
+    staged: Vec<StagedMarketSkillInstall>,
+) -> Result<Vec<PreparedMarketSkillInstall>, AcpError> {
+    let mut iterator = staged.into_iter();
+    let mut replaced = Vec::new();
+    while let Some(value) = iterator.next() {
+        if let Err(error) = replace_staged_market_skill(
+            &value.prepared.source,
+            &value.staging,
+            &value.prepared.skill_id,
+        ) {
+            cleanup_market_skill_staging(&value.staging, &value.prepared.skill_id);
+            cleanup_staged_market_skills(iterator.collect());
+            return Err(error);
+        }
+        replaced.push(value.prepared);
+    }
+    Ok(replaced)
+}
+
+fn replace_staged_market_skill(
+    target: &Path,
+    staging: &Path,
+    skill_id: &str,
+) -> Result<(), AcpError> {
+    if !is_real_skill_directory(target) {
+        if path_entry_exists(target) {
+            remove_skill_entry(target).map_err(|error| {
+                AcpError::protocol(format!("failed to remove existing Skill entry: {error}"))
+            })?;
+        }
+        fs::rename(staging, target).map_err(|error| {
+            AcpError::protocol(format!("failed to install Skill directory: {error}"))
+        })?;
+        log_market_skill_replacement(skill_id, target, &[]);
+        return Ok(());
+    }
+    let preserved = clear_market_skill_directory(target, skill_id)?;
+    move_staged_skill_contents(staging, target)?;
+    log_market_skill_replacement(skill_id, target, &preserved);
+    Ok(())
+}
+
+fn clear_market_skill_directory(target: &Path, skill_id: &str) -> Result<Vec<String>, AcpError> {
+    let entries = fs::read_dir(target).map_err(|error| {
+        AcpError::protocol(format!(
+            "failed to inspect existing Skill directory: {error}"
+        ))
+    })?;
+    let mut preserved = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            AcpError::protocol(format!("failed to inspect existing Skill entry: {error}"))
+        })?;
+        if is_runtime_env_name(&entry.file_name()) {
+            preserved.push(entry.file_name().to_string_lossy().to_string());
+            continue;
+        }
+        remove_skill_entry(&entry.path()).map_err(|error| {
+            AcpError::protocol(format!(
+                "failed to replace existing Skill '{skill_id}' content: {error}"
+            ))
+        })?;
+    }
+    Ok(preserved)
+}
+
+fn move_staged_skill_contents(staging: &Path, target: &Path) -> Result<(), AcpError> {
+    let entries = fs::read_dir(staging)
+        .map_err(|error| AcpError::protocol(format!("failed to inspect staged Skill: {error}")))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            AcpError::protocol(format!("failed to inspect staged Skill entry: {error}"))
+        })?;
+        fs::rename(entry.path(), target.join(entry.file_name())).map_err(|error| {
+            AcpError::protocol(format!("failed to install staged Skill entry: {error}"))
+        })?;
+    }
+    fs::remove_dir(staging)
+        .map_err(|error| AcpError::protocol(format!("failed to remove Skill staging: {error}")))
+}
+
+fn cleanup_staged_market_skills(staged: Vec<StagedMarketSkillInstall>) {
+    for value in staged {
+        cleanup_market_skill_staging(&value.staging, &value.prepared.skill_id);
+    }
+}
+
+fn cleanup_market_skill_staging(staging: &Path, skill_id: &str) {
+    if path_entry_exists(staging) {
+        if let Err(error) = remove_skill_entry(staging) {
+            tracing::warn!(
+                skill_id,
+                staging = %staging.display(),
+                error = %error,
+                "[skill-market] failed to remove Skill staging directory"
+            );
+        }
+    }
+}
+
+fn is_runtime_env_path(path: &Path) -> bool {
+    RUNTIME_ENV_DIR_NAMES
+        .iter()
+        .any(|name| path.starts_with(name))
+}
+
+fn is_runtime_env_name(name: &OsStr) -> bool {
+    RUNTIME_ENV_DIR_NAMES
+        .iter()
+        .any(|candidate| name == OsStr::new(candidate))
+}
+
+fn log_market_skill_replacement(skill_id: &str, target: &Path, preserved: &[String]) {
+    tracing::info!(
+        skill_id,
+        target = %target.display(),
+        preserved_runtime_envs = ?preserved,
+        "[skill-market] replaced Skill contents without backup"
+    );
 }
 
 fn publish_market_skill_installs(
-    pending: &[PendingMarketSkillInstall],
+    replaced: &[PreparedMarketSkillInstall],
 ) -> Result<Vec<AgentSkillItem>, AcpError> {
-    let mut installed = Vec::with_capacity(pending.len());
-    for value in pending {
-        if value.prepared.previous.enabled {
+    let mut installed = Vec::with_capacity(replaced.len());
+    for value in replaced {
+        if value.previous.enabled {
             installed.push(publish_shared_skill_to_targets_locked(
-                &value.prepared.targets,
-                &value.prepared.skill_id,
+                &value.targets,
+                &value.skill_id,
                 AgentSkillSyncMode::default(),
             )?);
         } else {
-            remove_shared_skill_publications_locked(&value.prepared.skill_id)?;
+            remove_shared_skill_publications_locked(&value.skill_id)?;
             installed.push(build_shared_skill_item_for_agent(
-                value.prepared.targets[0],
-                value.prepared.skill_id.clone(),
+                value.targets[0],
+                value.skill_id.clone(),
             )?);
         }
     }
     Ok(installed)
 }
 
-fn rollback_market_skill_installs(
-    pending: Vec<PendingMarketSkillInstall>,
-    restore_publications: bool,
-) {
-    let previous = pending
-        .iter()
-        .map(|value| value.prepared.previous.clone())
-        .collect::<Vec<_>>();
-    for value in pending.into_iter().rev() {
-        if let Err(error) = value.swap.rollback() {
-            tracing::error!(
-                skill_id = %value.prepared.skill_id,
-                error = %error,
-                "[skill-market] failed to roll back Skill directory"
-            );
-        }
-    }
-    if !restore_publications {
-        return;
-    }
-    for state in previous {
+fn restore_market_skill_publications(replaced: &[PreparedMarketSkillInstall]) {
+    for value in replaced {
+        let state = &value.previous;
         let result = if state.existed && state.enabled {
             restore_shared_skill_publications(&state.skill_id, &state.publications)
         } else {
@@ -5738,7 +5891,7 @@ fn rollback_market_skill_installs(
             tracing::error!(
                 skill_id = %state.skill_id,
                 error = %error,
-                "[skill-market] failed to restore Skill publication during rollback"
+                "[skill-market] failed to restore Skill publication state after install failure"
             );
         }
     }
@@ -5781,9 +5934,7 @@ fn ensure_market_install_target(source: &Path, marker: &MarketSkillMarker) -> Re
         return Ok(());
     }
     if !is_real_skill_directory(source) {
-        return Err(AcpError::protocol(
-            "An existing non-directory entry uses this Skill slug",
-        ));
+        return Ok(());
     }
     if let Some(existing) = read_market_skill_marker(source) {
         if existing.skill_id == marker.skill_id {

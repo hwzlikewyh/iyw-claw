@@ -72,7 +72,7 @@ const MANAGED_COPY_MARKER_VERSION: u8 = 1;
 /// Directories that hold installed runtime dependencies. They are expensive to
 /// rebuild (network installs, native compilation), so a superseded system skill
 /// directory is only discarded once none of these survive inside it.
-const RUNTIME_ENV_DIR_NAMES: [&str; 2] = [".venv", "node_modules"];
+pub(crate) const RUNTIME_ENV_DIR_NAMES: [&str; 2] = [".venv", "node_modules"];
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
