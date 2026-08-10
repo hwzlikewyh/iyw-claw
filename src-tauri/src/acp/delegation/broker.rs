@@ -55,6 +55,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use tokio::sync::{Mutex, Notify};
 
+use crate::acp::automatic_mode::automatic_mode_id;
 use crate::acp::delegation::event_emitter::{DelegationEventEmitter, NoopEventEmitter};
 use crate::acp::delegation::live_reply::{ChildLiveReplyLookup, NoopChildLiveReplyLookup};
 use crate::acp::delegation::meta_writer::{
@@ -90,19 +91,6 @@ const COMPLETED_TEXT_CAP: usize = 256 * 1024;
 /// and the terminal meta, so the parent card can render the result inline
 /// without re-fetching the child session.
 const STATUS_PREVIEW_CAP: usize = 2 * 1024;
-
-/// Product-owned automatic mode used when delegation has no explicit mode
-/// override. Keep this aligned with `src/lib/automatic-agent-mode.ts`.
-fn default_delegation_mode_id(agent_type: AgentType) -> &'static str {
-    match agent_type {
-        AgentType::Codex => "agent-full-access",
-        AgentType::ClaudeCode | AgentType::CodeBuddy | AgentType::Grok => "bypassPermissions",
-        AgentType::Gemini => "yolo",
-        AgentType::OpenCode => "build",
-        AgentType::Cline => "act",
-        AgentType::OpenClaw | AgentType::Hermes | AgentType::KimiCode | AgentType::Pi => "default",
-    }
-}
 
 /// Lookup the `parent_id` for a conversation. Abstracted so the broker can be
 /// unit-tested against an in-memory chain without touching SeaORM.
@@ -1994,8 +1982,8 @@ impl DelegationBroker {
         } else {
             "product_default"
         };
-        let preferred_mode_id = explicit_mode_id
-            .or_else(|| Some(default_delegation_mode_id(req.agent_type).to_string()));
+        let preferred_mode_id =
+            explicit_mode_id.or_else(|| Some(automatic_mode_id(req.agent_type).to_string()));
         tracing::info!(
             parent_conversation_id = req.parent_conversation_id,
             mode_id = preferred_mode_id.as_deref().unwrap_or_default(),

@@ -17,7 +17,8 @@
  * incoming event and overwrite locally" path.
  */
 
-import type { SessionModeStateInfo } from "@/lib/types"
+import { automaticAgentMode } from "@/lib/automatic-agent-mode"
+import type { AgentType, SessionModeStateInfo } from "@/lib/types"
 
 const STORAGE_KEY = "iyw-claw:selector-prefs"
 
@@ -67,10 +68,17 @@ function updatePrefs(
 
 // ── Read ──
 
-/** Read saved mode id for an agent (no validation, just the raw value). */
-export function getSavedModeId(agentType: string): string | null {
+function resolveModeId(
+  agentType: AgentType,
+  prefs?: SelectorPrefs
+): string | null {
+  return prefs?.modeId ?? automaticAgentMode(agentType)?.id ?? null
+}
+
+/** Read the saved mode, falling back to the product automatic mode. */
+export function getSavedModeId(agentType: AgentType): string | null {
   const all = readAll()
-  return all[agentType]?.modeId ?? null
+  return resolveModeId(agentType, all[agentType])
 }
 
 /**
@@ -83,7 +91,7 @@ export function getSavedModeId(agentType: string): string | null {
  * `session_modes` / `session_config_options` event is emitted, so the
  * frontend never needs to "intercept event and overwrite, then sync back".
  */
-export function getSavedPrefsForConnect(agentType: string): {
+export function getSavedPrefsForConnect(agentType: AgentType): {
   modeId: string | null
   configValues: Record<string, string> | null
 } {

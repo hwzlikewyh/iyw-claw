@@ -33,6 +33,7 @@ use sacp_tokio::AcpAgent;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::acp::agent_storage::AgentStoragePaths;
+use crate::acp::automatic_mode::automatic_mode_id;
 use crate::acp::background_watch;
 use crate::acp::error::AcpError;
 use crate::acp::file_system_runtime::{FileSystemRuntime, FileSystemRuntimeError};
@@ -2971,22 +2972,34 @@ async fn apply_preferred_session_config_options(
 async fn apply_preferred_session_mode(
     session: &mut sacp::ActiveSession<'_, Agent>,
     context: (&Arc<RwLock<SessionState>>, &EventEmitter),
+    agent_type: AgentType,
     preferred_mode_id: Option<&str>,
 ) {
-    let Some(preferred_mode_id) = preferred_mode_id else {
-        return;
+    let (resolved_mode_id, mode_source) = match preferred_mode_id {
+        Some(mode_id) => (mode_id, "user_or_caller"),
+        None => (automatic_mode_id(agent_type), "product_default"),
     };
+    tracing::info!(
+        agent = ?agent_type,
+        mode_id = resolved_mode_id,
+        mode_source,
+        "[ACP] resolved session mode on connect"
+    );
     let (state, emitter) = context;
     let needs_apply = session
         .modes()
         .as_ref()
-        .is_some_and(|modes| modes.current_mode_id.to_string() != preferred_mode_id);
+        .is_some_and(|modes| modes.current_mode_id.to_string() != resolved_mode_id);
     if needs_apply {
         if let Err(error) =
-            set_session_mode(session, state, emitter, preferred_mode_id.to_string()).await
+            set_session_mode(session, state, emitter, resolved_mode_id.to_string()).await
         {
             tracing::error!(
-                "[ACP] failed to apply preferred mode '{preferred_mode_id}' on connect: {error}"
+                agent = ?agent_type,
+                mode_id = resolved_mode_id,
+                mode_source,
+                error = %error,
+                "[ACP] failed to apply resolved session mode on connect"
             );
         }
     }
@@ -3005,7 +3018,7 @@ async fn apply_and_emit_session_config_options(
     preferred_config_values: &BTreeMap<String, String>,
     initial_config_options: Vec<SessionConfigOption>,
 ) {
-    apply_preferred_session_mode(session, (state, emitter), preferred_mode_id).await;
+    apply_preferred_session_mode(session, (state, emitter), agent_type, preferred_mode_id).await;
     if agent_type == AgentType::Grok {
         let specs = grok_effort_specs.cloned().unwrap_or_default();
         let mut options =

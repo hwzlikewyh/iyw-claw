@@ -11,6 +11,7 @@ pub mod agent_profile;
 pub mod agent_storage;
 pub mod agent_storage_work;
 pub mod auto_update;
+mod automatic_mode;
 pub mod automation_tools;
 pub(crate) mod background_watch;
 pub mod binary_cache;
