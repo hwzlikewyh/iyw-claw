@@ -7,6 +7,25 @@ import type { GatewayModel } from "@/lib/gateway-model-catalog"
 
 type LocalModelDefinition = GatewayModel
 
+const LOCAL_MODEL_CAPABILITY_DEFAULTS: Pick<
+  GatewayModel,
+  "capabilities" | "imageInputMode"
+> = {
+  capabilities: {
+    streaming: false,
+    toolCalling: false,
+    parallelToolCalling: false,
+    webSearch: false,
+    vision: false,
+    audioInput: false,
+    structuredOutput: false,
+    promptCache: false,
+    imageGeneration: false,
+    imageEditing: false,
+  },
+  imageInputMode: "none",
+}
+
 export const AGENT_MODEL_IDS: Record<AgentType, readonly string[]> = {
   codex: ["gpt-5.4", "deepseek-v4-pro", "deepseek-v4-flash"],
   claude_code: ["claude-opus-4-6", "gpt-5.4"],
@@ -31,6 +50,7 @@ export const AGENT_MODEL_IDS: Record<AgentType, readonly string[]> = {
 
 const LOCAL_MODELS: readonly LocalModelDefinition[] = [
   {
+    ...LOCAL_MODEL_CAPABILITY_DEFAULTS,
     id: "gpt-5.4",
     name: "GPT-5.4",
     description: "通用对话、复杂推理、代码生成和工具调用",
@@ -40,6 +60,7 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     fastModeDefaultEnabled: false,
   },
   {
+    ...LOCAL_MODEL_CAPABILITY_DEFAULTS,
     id: "claude-opus-4-6",
     name: "Claude Opus 4.6",
     description: "复杂推理、长上下文分析和高质量代码生成",
@@ -49,6 +70,7 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     fastModeDefaultEnabled: false,
   },
   {
+    ...LOCAL_MODEL_CAPABILITY_DEFAULTS,
     id: "deepseek-v4-pro",
     name: "DeepSeek V4 Pro",
     description: "深度推理、代码生成和多步骤工具调用",
@@ -58,6 +80,7 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     fastModeDefaultEnabled: false,
   },
   {
+    ...LOCAL_MODEL_CAPABILITY_DEFAULTS,
     id: "deepseek-v4-flash",
     name: "DeepSeek V4 Flash",
     description: "低延迟对话、快速推理和常规代码任务",
@@ -67,6 +90,7 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     fastModeDefaultEnabled: false,
   },
   {
+    ...LOCAL_MODEL_CAPABILITY_DEFAULTS,
     id: "doubao-seed-2-1-pro-260628",
     name: "豆包 Seed 2.1 Pro",
     description: "通用对话、内容生成和工具调用",
@@ -76,6 +100,7 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     fastModeDefaultEnabled: false,
   },
   {
+    ...LOCAL_MODEL_CAPABILITY_DEFAULTS,
     id: "gemini-3.1-pro-preview",
     name: "Gemini 3.1 Pro Preview",
     description: "长文本理解、复杂分析和多模态扩展",
@@ -85,6 +110,7 @@ const LOCAL_MODELS: readonly LocalModelDefinition[] = [
     fastModeDefaultEnabled: false,
   },
   {
+    ...LOCAL_MODEL_CAPABILITY_DEFAULTS,
     id: "qwen3.7-max",
     name: "通义千问 3.7 Max",
     description: "中文对话、知识问答、推理和代码生成",

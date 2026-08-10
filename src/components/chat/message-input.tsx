@@ -571,6 +571,7 @@ export function MessageInput({
   onConfigOptionChange,
   agentType,
   availableCommands,
+  promptCapabilities,
   attachmentTabId,
   stageAttachmentsInWorkingDir = false,
   draftStorageKey,
