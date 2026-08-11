@@ -1,16 +1,7 @@
 "use client"
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { revealItemInDir } from "@/lib/platform"
-import ignore from "ignore"
-import { Check, ChevronRight } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { useActiveFolder } from "@/contexts/active-folder-context"
@@ -31,21 +22,14 @@ import {
   deleteFileTreeEntry,
   downloadWorkspaceDir,
   downloadWorkspaceFile,
-  gitAddFiles,
   getFileTree,
-  getGitBranch,
-  gitListAllBranches,
-  gitRollbackFile,
-  gitStatus,
-  readFilePreview,
-  openCommitWindow,
   renameFileTreeEntry,
   WORKSPACE_DOWNLOAD_CANCELLED,
 } from "@/lib/api"
 import { isDesktop, isRemoteDesktopMode } from "@/lib/transport"
 import { emitAttachFileToSession } from "@/lib/session-attachment-events"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import type { FileTreeNode, GitBranchList, GitStatusEntry } from "@/lib/types"
+import type { FileTreeNode } from "@/lib/types"
 import {
   FileTree,
   FileTreeFolder,
@@ -80,11 +64,6 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import { Skeleton } from "@/components/ui/skeleton"
 import { joinFsPath } from "@/lib/path-utils"
 import { toErrorMessage } from "@/lib/app-error"
@@ -124,28 +103,11 @@ async function copyPathToClipboard(
 }
 
 const FILE_TREE_ROOT_PATH = "__workspace_root__"
-const GITIGNORE_MUTED_CLASS = "text-muted-foreground/55"
 
 interface FileActionTarget {
   kind: "file" | "dir"
   path: string
   name: string
-}
-
-type GitFileState =
-  | "untracked"
-  | "modified"
-  | "staged"
-  | "conflicted"
-  | "deleted"
-  | "renamed"
-
-function normalizeGitStatusPath(path: string): string {
-  const normalized = path.trim()
-  const renameSeparator = " -> "
-  const renameIndex = normalized.lastIndexOf(renameSeparator)
-  if (renameIndex < 0) return normalized
-  return normalized.slice(renameIndex + renameSeparator.length).trim()
 }
 
 function normalizeComparePath(path: string): string {
@@ -202,277 +164,15 @@ function findDirectoryChildren(
   return null
 }
 
-function classifyGitFileState(status: string): GitFileState | null {
-  const code = status.trim().toUpperCase()
-  if (!code) return null
-  if (code === "??") return "untracked"
-  if (code.includes("U")) return "conflicted"
-  if (code.includes("R") || code.includes("C")) return "renamed"
-  if (code.includes("D")) return "deleted"
-  if (code.includes("M") || code.includes("T")) return "modified"
-  if (code.includes("A")) return "staged"
-  return null
-}
-
-function getGitFileStateClassName(status?: string): string {
-  if (!status) return ""
-  const state = classifyGitFileState(status)
-  if (state === "untracked") return "text-red-500 dark:text-red-400"
-  if (state === "modified") return "text-emerald-600 dark:text-emerald-400"
-  if (state === "staged") return "text-emerald-500 dark:text-emerald-400"
-  if (state === "conflicted") return "text-amber-500 dark:text-amber-400"
-  if (state === "deleted") return "text-orange-500 dark:text-orange-400"
-  if (state === "renamed") return "text-violet-500 dark:text-violet-400"
-  return ""
-}
-
-function getParentPath(path: string): string | null {
-  const splitIdx = path.lastIndexOf("/")
-  if (splitIdx < 0) return null
-  return path.slice(0, splitIdx)
-}
-
-function hasIgnoredAncestor(path: string, ignoredPaths: ReadonlySet<string>) {
-  let current = path
-  while (true) {
-    const parent = getParentPath(current)
-    if (!parent) return false
-    if (ignoredPaths.has(parent)) return true
-    current = parent
-  }
-}
-
-type DirectoryGitAction = "add" | "rollback"
-
-interface DirectoryGitCandidateEntry {
-  path: string
-  status: string
-}
-
-type DirectoryGitTreeNode = DirectoryGitTreeDirNode | DirectoryGitTreeFileNode
-
-interface DirectoryGitTreeDirNode {
-  kind: "dir"
-  name: string
-  path: string
-  children: DirectoryGitTreeNode[]
-  fileCount: number
-}
-
-interface DirectoryGitTreeFileNode {
-  kind: "file"
-  name: string
-  path: string
-  status: string
-}
-
-interface MutableDirectoryGitTreeDirNode {
-  kind: "dir"
-  name: string
-  path: string
-  children: Map<
-    string,
-    MutableDirectoryGitTreeDirNode | DirectoryGitTreeFileNode
-  >
-}
-
-const DIRECTORY_GIT_TREE_ROOT_PATH = "__directory_git_tree_root__"
-
-function isPathInDirectory(path: string, directoryPath: string): boolean {
-  const normalizedPath = normalizeComparePath(path)
-  const normalizedDir = normalizeComparePath(directoryPath)
-  if (!normalizedDir) return normalizedPath.length > 0
-  return (
-    normalizedPath === normalizedDir ||
-    normalizedPath.startsWith(`${normalizedDir}/`)
-  )
-}
-
-function scopeGitStatusEntriesForDirectory(
-  entries: GitStatusEntry[],
-  directoryPath: string
-): DirectoryGitCandidateEntry[] {
-  const normalizedDirPath = normalizeComparePath(directoryPath)
-  const scopedEntries: DirectoryGitCandidateEntry[] = []
-  const dedupByPath = new Set<string>()
-
-  for (const entry of entries) {
-    const normalizedPath = normalizeComparePath(
-      normalizeGitStatusPath(entry.file)
-    )
-    if (!normalizedPath) continue
-    if (!isPathInDirectory(normalizedPath, normalizedDirPath)) continue
-    if (normalizedPath === normalizedDirPath) continue
-    if (dedupByPath.has(normalizedPath)) continue
-    dedupByPath.add(normalizedPath)
-    scopedEntries.push({ path: normalizedPath, status: entry.status })
-  }
-
-  return scopedEntries.sort((left, right) =>
-    left.path.localeCompare(right.path, undefined, { sensitivity: "base" })
-  )
-}
-
-function filterDirectoryGitCandidates(
-  entries: DirectoryGitCandidateEntry[],
-  action: DirectoryGitAction
-): DirectoryGitCandidateEntry[] {
-  if (action === "add") {
-    return entries.filter((entry) => {
-      const fileState = classifyGitFileState(entry.status)
-      return fileState === "untracked"
-    })
-  }
-
-  return entries.filter((entry) => {
-    const fileState = classifyGitFileState(entry.status)
-    return fileState !== "untracked"
-  })
-}
-
-function buildDirectoryGitTree(
-  entries: DirectoryGitCandidateEntry[],
-  directoryPath: string
-): DirectoryGitTreeNode[] {
-  const normalizedDirPath = normalizeComparePath(directoryPath)
-  const root: MutableDirectoryGitTreeDirNode = {
-    kind: "dir",
-    name: "",
-    path: "",
-    children: new Map(),
-  }
-
-  for (const entry of entries) {
-    let relativePath = normalizeComparePath(entry.path)
-    if (normalizedDirPath && relativePath.startsWith(`${normalizedDirPath}/`)) {
-      relativePath = relativePath.slice(normalizedDirPath.length + 1)
-    }
-    const segments = relativePath.split("/").filter(Boolean)
-    if (segments.length === 0) continue
-
-    let current = root
-    for (const [index, segment] of segments.entries()) {
-      const isLeaf = index === segments.length - 1
-      const nestedPath = segments.slice(0, index + 1).join("/")
-      const nodePath = normalizedDirPath
-        ? `${normalizedDirPath}/${nestedPath}`
-        : nestedPath
-
-      if (isLeaf) {
-        current.children.set(`file:${nodePath}`, {
-          kind: "file",
-          name: segment,
-          path: nodePath,
-          status: entry.status,
-        })
-        continue
-      }
-
-      const dirKey = `dir:${nodePath}`
-      const existing = current.children.get(dirKey)
-      if (existing && existing.kind === "dir") {
-        current = existing
-        continue
-      }
-
-      const nextDir: MutableDirectoryGitTreeDirNode = {
-        kind: "dir",
-        name: segment,
-        path: nodePath,
-        children: new Map(),
-      }
-      current.children.set(dirKey, nextDir)
-      current = nextDir
-    }
-  }
-
-  const toSortedTreeNodes = (
-    dir: MutableDirectoryGitTreeDirNode
-  ): DirectoryGitTreeNode[] => {
-    return Array.from(dir.children.values())
-      .map<DirectoryGitTreeNode>((node) => {
-        if (node.kind === "file") return node
-        return {
-          kind: "dir" as const,
-          name: node.name,
-          path: node.path,
-          children: toSortedTreeNodes(node),
-          fileCount: 0,
-        }
-      })
-      .sort((left, right) => {
-        if (left.kind !== right.kind) return left.kind === "dir" ? -1 : 1
-        return left.name.localeCompare(right.name, undefined, {
-          sensitivity: "base",
-        })
-      })
-  }
-
-  const annotateDirectory = (
-    node: DirectoryGitTreeDirNode
-  ): DirectoryGitTreeDirNode => {
-    const nextChildren = node.children.map((child) => {
-      if (child.kind === "file") return child
-      return annotateDirectory(child)
-    })
-    const fileCount = nextChildren.reduce((count, child) => {
-      if (child.kind === "file") return count + 1
-      return count + child.fileCount
-    }, 0)
-    return {
-      ...node,
-      children: nextChildren,
-      fileCount,
-    }
-  }
-
-  return toSortedTreeNodes(root).map((node) => {
-    if (node.kind === "file") return node
-    return annotateDirectory(node)
-  })
-}
-
-function collectDirectoryGitTreeExpandedPaths(
-  nodes: DirectoryGitTreeNode[],
-  expanded = new Set<string>()
-): Set<string> {
-  for (const node of nodes) {
-    if (node.kind !== "dir") continue
-    expanded.add(node.path)
-    collectDirectoryGitTreeExpandedPaths(node.children, expanded)
-  }
-  return expanded
-}
-
-function collectDirectoryGitTreeLeafPaths(
-  node: DirectoryGitTreeNode
-): string[] {
-  if (node.kind === "file") return [node.path]
-  return node.children.flatMap(collectDirectoryGitTreeLeafPaths)
-}
-
 interface RenderNodeProps {
   node: FileTreeNode
   expandedPaths: ReadonlySet<string>
   workspacePath: string
   activeSessionTabId: string | null
-  gitEnabled: boolean
   webMode: boolean
   folderUploadSupported: boolean
-  gitStatusByPath: ReadonlyMap<string, string>
-  gitChangedDirPaths: ReadonlySet<string>
-  untrackedDirPaths: ReadonlySet<string>
-  gitignoreIgnoredPaths: ReadonlySet<string>
-  ancestorGitignoreIgnored: boolean
-  ancestorUntracked: boolean
   onOpenFilePreview: (path: string) => void
-  onOpenFileDiff: (path: string) => void
-  onOpenDirDiff: (path: string) => void
-  onOpenCommitWindow: () => void
-  onRequestCompareWithBranch: (target: FileActionTarget) => void
-  onRequestRollback: (target: FileActionTarget) => void
   onOpenDirInTerminal: (dirPath: string, fileName: string) => Promise<void>
-  onRequestAddToVcs: (target: FileActionTarget) => void
   onRequestRename: (target: FileActionTarget) => void
   onRequestCreate: (parentPath: string, kind: "file" | "dir") => void
   onRequestDelete: (target: FileActionTarget) => void
@@ -487,23 +187,10 @@ function RenderNode({
   expandedPaths,
   workspacePath,
   activeSessionTabId,
-  gitEnabled,
   webMode,
   folderUploadSupported,
-  gitStatusByPath,
-  gitChangedDirPaths,
-  untrackedDirPaths,
-  gitignoreIgnoredPaths,
-  ancestorGitignoreIgnored,
-  ancestorUntracked,
   onOpenFilePreview,
-  onOpenFileDiff,
-  onOpenDirDiff,
-  onOpenCommitWindow,
-  onRequestCompareWithBranch,
-  onRequestRollback,
   onOpenDirInTerminal,
-  onRequestAddToVcs,
   onRequestCreate,
   onRequestRename,
   onRequestDelete,
@@ -514,8 +201,6 @@ function RenderNode({
 }: RenderNodeProps) {
   const t = useTranslations("Folder.fileTreeTab")
   const tCommon = useTranslations("Folder.common")
-  const isGitignoreIgnored =
-    ancestorGitignoreIgnored || gitignoreIgnoredPaths.has(node.path)
 
   const systemExplorerLabel =
     typeof navigator === "undefined"
@@ -529,11 +214,8 @@ function RenderNode({
         })()
 
   if (node.kind === "file") {
-    const gitStatusCode =
-      gitStatusByPath.get(node.path) ?? (ancestorUntracked ? "??" : undefined)
     const absolutePath = joinFsPath(workspacePath, node.path)
     const dirPath = parentDir(absolutePath)
-    const isGitMenuDisabled = !gitEnabled || isGitignoreIgnored
 
     const handleAttachToSession = () => {
       if (!activeSessionTabId) return
@@ -555,15 +237,7 @@ function RenderNode({
     return (
       <ContextMenu>
         <ContextMenuTrigger>
-          <FileTreeFile
-            path={node.path}
-            name={node.name}
-            className={
-              isGitignoreIgnored
-                ? GITIGNORE_MUTED_CLASS
-                : getGitFileStateClassName(gitStatusCode)
-            }
-          />
+          <FileTreeFile path={node.path} name={node.name} />
         </ContextMenuTrigger>
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => onOpenFilePreview(node.path)}>
@@ -587,47 +261,6 @@ function RenderNode({
                 onSelect={() => onRequestCreate(node.path, "dir")}
               >
                 {t("newDirectory")}
-              </ContextMenuItem>
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger disabled={isGitMenuDisabled}>
-              {t("git")}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              <ContextMenuItem
-                onSelect={() => onOpenCommitWindow()}
-                disabled={isGitMenuDisabled}
-              >
-                {t("actions.commitCode")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => onRequestAddToVcs(node)}
-                disabled={
-                  isGitMenuDisabled ||
-                  classifyGitFileState(gitStatusCode ?? "") !== "untracked"
-                }
-              >
-                {t("actions.addToVcs")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => onOpenFileDiff(node.path)}
-                disabled={isGitMenuDisabled}
-              >
-                {tCommon("viewDiff")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onSelect={() => onRequestCompareWithBranch(node)}
-                disabled={isGitMenuDisabled}
-              >
-                {t("compareWithBranch")}
-              </ContextMenuItem>
-              <ContextMenuItem
-                variant="destructive"
-                onSelect={() => onRequestRollback(node)}
-                disabled={isGitMenuDisabled}
-              >
-                {t("actions.rollback")}
               </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
@@ -686,12 +319,6 @@ function RenderNode({
   }
 
   const absolutePath = joinFsPath(workspacePath, node.path)
-  const isThisDirUntracked =
-    ancestorUntracked || untrackedDirPaths.has(node.path)
-  const dirHasChanges =
-    !isGitignoreIgnored &&
-    (gitChangedDirPaths.has(node.path) || isThisDirUntracked)
-  const isGitMenuDisabled = !gitEnabled || isGitignoreIgnored
   const shouldRenderChildren = expandedPaths.has(node.path)
 
   const handleAttachDirToSession = () => {
@@ -714,18 +341,7 @@ function RenderNode({
   return (
     <ContextMenu>
       <ContextMenuTrigger>
-        <FileTreeFolder
-          path={node.path}
-          name={node.name}
-          nameClassName={
-            isGitignoreIgnored
-              ? GITIGNORE_MUTED_CLASS
-              : dirHasChanges
-                ? "text-emerald-600 dark:text-emerald-400"
-                : undefined
-          }
-          iconClassName={isGitignoreIgnored ? GITIGNORE_MUTED_CLASS : undefined}
-        >
+        <FileTreeFolder path={node.path} name={node.name}>
           {shouldRenderChildren
             ? node.children.map((child) => (
                 <RenderNode
@@ -734,24 +350,11 @@ function RenderNode({
                   expandedPaths={expandedPaths}
                   workspacePath={workspacePath}
                   activeSessionTabId={activeSessionTabId}
-                  gitEnabled={gitEnabled}
                   webMode={webMode}
                   folderUploadSupported={folderUploadSupported}
-                  gitStatusByPath={gitStatusByPath}
-                  gitChangedDirPaths={gitChangedDirPaths}
-                  untrackedDirPaths={untrackedDirPaths}
-                  gitignoreIgnoredPaths={gitignoreIgnoredPaths}
-                  ancestorGitignoreIgnored={isGitignoreIgnored}
-                  ancestorUntracked={isThisDirUntracked}
                   onOpenFilePreview={onOpenFilePreview}
-                  onOpenFileDiff={onOpenFileDiff}
-                  onOpenDirDiff={onOpenDirDiff}
-                  onOpenCommitWindow={onOpenCommitWindow}
-                  onRequestCompareWithBranch={onRequestCompareWithBranch}
-                  onRequestRollback={onRequestRollback}
                   onOpenDirInTerminal={onOpenDirInTerminal}
                   onRequestCreate={onRequestCreate}
-                  onRequestAddToVcs={onRequestAddToVcs}
                   onRequestRename={onRequestRename}
                   onRequestDelete={onRequestDelete}
                   onRequestUpload={onRequestUpload}
@@ -780,44 +383,6 @@ function RenderNode({
             </ContextMenuItem>
             <ContextMenuItem onSelect={() => onRequestCreate(node.path, "dir")}>
               {t("newDirectory")}
-            </ContextMenuItem>
-          </ContextMenuSubContent>
-        </ContextMenuSub>
-        <ContextMenuSub>
-          <ContextMenuSubTrigger disabled={isGitMenuDisabled}>
-            {t("git")}
-          </ContextMenuSubTrigger>
-          <ContextMenuSubContent>
-            <ContextMenuItem
-              onSelect={() => onOpenCommitWindow()}
-              disabled={isGitMenuDisabled}
-            >
-              {t("actions.commitCode")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => onRequestAddToVcs(node)}
-              disabled={isGitMenuDisabled}
-            >
-              {t("actions.addToVcs")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => onOpenDirDiff(node.path)}
-              disabled={isGitMenuDisabled}
-            >
-              {tCommon("viewDiff")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              onSelect={() => onRequestCompareWithBranch(node)}
-              disabled={isGitMenuDisabled}
-            >
-              {t("compareWithBranch")}
-            </ContextMenuItem>
-            <ContextMenuItem
-              variant="destructive"
-              onSelect={() => onRequestRollback(node)}
-              disabled={isGitMenuDisabled}
-            >
-              {t("actions.rollback")}
             </ContextMenuItem>
           </ContextMenuSubContent>
         </ContextMenuSub>
@@ -882,8 +447,7 @@ export function FileTreeTab() {
   const activeTabId = useTabStore((s) => s.activeTabId)
   const { createTerminalInDirectory } = useTerminalContext()
   const { activeFilePath } = useWorkspaceFileTabs()
-  const { openBranchDiff, openFilePreview, openWorkingTreeDiff } =
-    useWorkspaceActions()
+  const { openFilePreview } = useWorkspaceActions()
   // File tab paths are absolute; the tree's node paths are relative to
   // THIS panel's folder — derive the relative form (undefined when the
   // active file lives outside this folder, which correctly unselects).
@@ -896,10 +460,6 @@ export function FileTreeTab() {
   }, [activeFilePath, folder])
   const workspaceState = useWorkspaceStateStore(folder?.path ?? null)
   const [nodes, setNodes] = useState<FileTreeNode[]>([])
-  const [gitStatusByPath, setGitStatusByPath] = useState<Map<string, string>>(
-    new Map()
-  )
-  const [gitEnabled, setGitEnabled] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [renameTarget, setRenameTarget] = useState<FileActionTarget | null>(
@@ -915,52 +475,9 @@ export function FileTreeTab() {
     null
   )
   const [deleting, setDeleting] = useState(false)
-  const [rollbackTarget, setRollbackTarget] = useState<FileActionTarget | null>(
-    null
-  )
-  const [rollingBack, setRollingBack] = useState(false)
-  const [compareTarget, setCompareTarget] = useState<FileActionTarget | null>(
-    null
-  )
-  const [directoryGitActionType, setDirectoryGitActionType] =
-    useState<DirectoryGitAction | null>(null)
-  const [directoryGitActionTarget, setDirectoryGitActionTarget] =
-    useState<FileActionTarget | null>(null)
-  const [directoryGitCandidates, setDirectoryGitCandidates] = useState<
-    DirectoryGitCandidateEntry[]
-  >([])
-  const [directoryGitSelectedPaths, setDirectoryGitSelectedPaths] = useState<
-    Set<string>
-  >(new Set())
-  const [directoryGitExpandedPaths, setDirectoryGitExpandedPaths] = useState<
-    Set<string>
-  >(new Set([DIRECTORY_GIT_TREE_ROOT_PATH]))
-  const [directoryGitLoading, setDirectoryGitLoading] = useState(false)
-  const [directoryGitSubmitting, setDirectoryGitSubmitting] = useState(false)
-  const [directoryGitError, setDirectoryGitError] = useState<string | null>(
-    null
-  )
-  const [compareBranchFilter, setCompareBranchFilter] = useState("")
-  const [compareCurrentBranch, setCompareCurrentBranch] = useState<
-    string | null
-  >(null)
-  const [compareBranchList, setCompareBranchList] = useState<GitBranchList>({
-    local: [],
-    remote: [],
-    worktree_branches: [],
-  })
-  const [compareBranchLoading, setCompareBranchLoading] = useState(false)
-  const [compareRecentOpen, setCompareRecentOpen] = useState(true)
-  const [compareLocalOpen, setCompareLocalOpen] = useState(false)
-  const [compareRemoteOpen, setCompareRemoteOpen] = useState(false)
-  const [comparing, setComparing] = useState(false)
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
     () => new Set([FILE_TREE_ROOT_PATH])
   )
-  const [gitignoreIgnoredPaths, setGitignoreIgnoredPaths] = useState<
-    Set<string>
-  >(new Set())
-  const filePathSetRef = useRef<Set<string>>(new Set())
   const previousExpandedPathsRef = useRef<Set<string>>(
     new Set([FILE_TREE_ROOT_PATH])
   )
@@ -977,7 +494,6 @@ export function FileTreeTab() {
   useEffect(() => {
     setExpandedPaths(new Set([FILE_TREE_ROOT_PATH]))
     previousExpandedPathsRef.current = new Set([FILE_TREE_ROOT_PATH])
-    setGitignoreIgnoredPaths(new Set())
     lazyLoadedChildrenByPathRef.current.clear()
     lazyLoadingDirPathsRef.current.clear()
   }, [folder?.path])
@@ -1009,49 +525,38 @@ export function FileTreeTab() {
     return activeTab.id
   }, [tabs, activeTabId])
 
-  const fetchTree = useCallback(
-    async (options?: {
-      skipTree?: boolean
-      skipStatus?: boolean
-      silent?: boolean
-      maxDepth?: number
-    }) => {
-      void options
-      if (!folder?.path) {
-        setNodes([])
-        setGitStatusByPath(new Map())
-        setGitEnabled(false)
-        setLoading(false)
-        setError(null)
-        return
-      }
+  const fetchTree = useCallback(async () => {
+    if (!folder?.path) {
+      setNodes([])
+      setLoading(false)
+      setError(null)
+      return
+    }
 
-      // Drop the lazy-load override cache so the fresh snapshot is not
-      // masked by stale children (e.g. after deletes / renames / rollbacks
-      // or files the agent just created). Reading expanded paths via a ref
-      // keeps fetchTree's identity stable across expand/collapse so
-      // downstream memoization is not invalidated on every tree interaction.
-      const pathsToReload = Array.from(expandedPathsRef.current).filter(
-        (path) => path !== FILE_TREE_ROOT_PATH
-      )
-      lazyLoadedChildrenByPathRef.current.clear()
-      await workspaceState.requestResync("manual_refresh")
-      // Re-hydrate children for directories beyond WORKSPACE_TREE_MAX_DEPTH
-      // that are still expanded — the backend snapshot does not include them.
-      const loader = loadDirectoryChildrenRef.current
-      if (loader) {
-        for (const path of pathsToReload) {
-          void loader(path)
-        }
+    // Drop the lazy-load override cache so the fresh snapshot is not
+    // masked by stale children (e.g. after deletes, renames, or files the
+    // agent just created). Reading expanded paths via a ref
+    // keeps fetchTree's identity stable across expand/collapse so
+    // downstream memoization is not invalidated on every tree interaction.
+    const pathsToReload = Array.from(expandedPathsRef.current).filter(
+      (path) => path !== FILE_TREE_ROOT_PATH
+    )
+    lazyLoadedChildrenByPathRef.current.clear()
+    await workspaceState.requestResync("manual_refresh")
+    // Re-hydrate children for directories beyond WORKSPACE_TREE_MAX_DEPTH
+    // that are still expanded — the backend snapshot does not include them.
+    const loader = loadDirectoryChildrenRef.current
+    if (loader) {
+      for (const path of pathsToReload) {
+        void loader(path)
       }
-    },
-    [folder?.path, workspaceState]
-  )
+    }
+  }, [folder?.path, workspaceState])
 
   // Tree updates are the only source that should cause a full setNodes.
   // applyLazyTreeOverrides rebuilds every directory node object, which forces
   // React to re-render the entire tree. Keeping this effect narrow avoids
-  // wasted work on health / seq / error / git transitions that don't touch
+  // wasted work on health / seq / error transitions that don't touch
   // the tree shape (e.g. the intermediate "resyncing" patch during a refresh).
   useEffect(() => {
     workspaceTreeRef.current = workspaceState.tree
@@ -1062,15 +567,6 @@ export function FileTreeTab() {
       )
     )
   }, [folder?.path, workspaceState.tree])
-
-  useEffect(() => {
-    const nextStatusByPath = new Map<string, string>()
-    for (const entry of workspaceState.git) {
-      nextStatusByPath.set(entry.path, entry.status)
-    }
-    setGitStatusByPath(nextStatusByPath)
-    setGitEnabled(true)
-  }, [workspaceState.git])
 
   useEffect(() => {
     setLoading(
@@ -1243,139 +739,6 @@ export function FileTreeTab() {
     return paths
   }, [nodes])
 
-  const dirChildrenByPath = useMemo(() => {
-    const next = new Map<string, FileTreeNode[]>()
-    next.set("", nodes)
-
-    const collect = (items: FileTreeNode[]) => {
-      for (const item of items) {
-        if (item.kind !== "dir") continue
-        next.set(item.path, item.children)
-        collect(item.children)
-      }
-    }
-
-    collect(nodes)
-    return next
-  }, [nodes])
-
-  const expandedDirPaths = useMemo(() => {
-    const dirs = new Set<string>([""])
-    for (const path of expandedPaths) {
-      if (path === FILE_TREE_ROOT_PATH) continue
-      dirs.add(path)
-    }
-    return Array.from(dirs)
-  }, [expandedPaths])
-
-  useEffect(() => {
-    filePathSetRef.current = filePathSet
-  }, [filePathSet])
-
-  useEffect(() => {
-    if (!folder?.path) {
-      setGitignoreIgnoredPaths(new Set())
-      return
-    }
-
-    let canceled = false
-
-    const loadIgnoredPaths = async () => {
-      const nextIgnoredPaths = new Set<string>()
-      const sortedDirs = [...expandedDirPaths].sort(
-        (left, right) => left.length - right.length
-      )
-
-      for (const dirPath of sortedDirs) {
-        if (hasIgnoredAncestor(dirPath, nextIgnoredPaths)) continue
-
-        const children = dirChildrenByPath.get(dirPath)
-        if (!children || children.length === 0) continue
-
-        const gitignoreNode = children.find(
-          (child) => child.kind === "file" && child.name === ".gitignore"
-        )
-        if (!gitignoreNode || gitignoreNode.kind !== "file") continue
-
-        try {
-          const result = await readFilePreview(folder.path, gitignoreNode.path)
-          const matcher = ignore().add(result.content)
-
-          // Collect all descendant nodes so multi-level patterns like
-          // "public/vs" can be matched using relative paths.
-          const descendants: FileTreeNode[] = []
-          const collectDescendants = (parent: string) => {
-            const items = dirChildrenByPath.get(parent)
-            if (!items) return
-            for (const item of items) {
-              descendants.push(item)
-              if (item.kind === "dir") collectDescendants(item.path)
-            }
-          }
-          collectDescendants(dirPath)
-
-          for (const desc of descendants) {
-            if (hasIgnoredAncestor(desc.path, nextIgnoredPaths)) continue
-            const relativePath =
-              dirPath === "" ? desc.path : desc.path.slice(dirPath.length + 1)
-            if (!relativePath) continue
-            const ignored =
-              desc.kind === "dir"
-                ? matcher.ignores(`${relativePath}/`) ||
-                  matcher.ignores(`${relativePath}/.iyw-claw-ignore-probe`)
-                : matcher.ignores(relativePath)
-            if (ignored) {
-              nextIgnoredPaths.add(desc.path)
-            }
-          }
-        } catch {
-          // Ignore parser/read failures for non-critical visual hints.
-        }
-      }
-
-      if (!canceled) {
-        setGitignoreIgnoredPaths(nextIgnoredPaths)
-      }
-    }
-
-    void loadIgnoredPaths()
-
-    return () => {
-      canceled = true
-    }
-  }, [dirChildrenByPath, expandedDirPaths, folder?.path])
-
-  const gitChangedDirPaths = useMemo(() => {
-    const dirs = new Set<string>()
-    for (const filePath of gitStatusByPath.keys()) {
-      let current = filePath
-      // Walk up the path collecting all parent directories
-      while (true) {
-        const slashIdx = current.lastIndexOf("/")
-        const backslashIdx = current.lastIndexOf("\\")
-        const splitIdx = Math.max(slashIdx, backslashIdx)
-        if (splitIdx <= 0) break
-        current = current.slice(0, splitIdx)
-        dirs.add(current)
-      }
-    }
-    return dirs
-  }, [gitStatusByPath])
-
-  // Directories that are entirely untracked (from git status -unormal)
-  const untrackedDirPaths = useMemo(() => {
-    const dirs = new Set<string>()
-    for (const [path, status] of gitStatusByPath.entries()) {
-      if (status.trim() === "??") {
-        // Check if this path is a directory in the file tree
-        if (dirChildrenByPath.has(path)) {
-          dirs.add(path)
-        }
-      }
-    }
-    return dirs
-  }, [gitStatusByPath, dirChildrenByPath])
-
   const handleTreeSelect = useCallback(
     (path: string) => {
       if (!filePathSet.has(path)) return
@@ -1394,16 +757,6 @@ export function FileTreeTab() {
     },
     [createTerminalInDirectory, t]
   )
-
-  const handleOpenCommitWindow = useCallback(() => {
-    if (!folder) return
-    openCommitWindow(folder.id).catch((error) => {
-      const message = toErrorMessage(error)
-      toast.error(t("toasts.openCommitWindowFailed"), {
-        description: message,
-      })
-    })
-  }, [folder, t])
 
   const handleRequestCreate = useCallback(
     (parentPath: string, kind: "file" | "dir") => {
@@ -1512,374 +865,6 @@ export function FileTreeTab() {
     [folder?.path, t]
   )
 
-  const resetDirectoryGitActionDialog = useCallback(() => {
-    setDirectoryGitActionType(null)
-    setDirectoryGitActionTarget(null)
-    setDirectoryGitCandidates([])
-    setDirectoryGitSelectedPaths(new Set())
-    setDirectoryGitExpandedPaths(new Set([DIRECTORY_GIT_TREE_ROOT_PATH]))
-    setDirectoryGitError(null)
-    setDirectoryGitLoading(false)
-    setDirectoryGitSubmitting(false)
-  }, [])
-
-  const openDirectoryGitActionDialog = useCallback(
-    async (action: DirectoryGitAction, target: FileActionTarget) => {
-      if (!folder?.path) return
-      setDirectoryGitActionType(action)
-      setDirectoryGitActionTarget(target)
-      setDirectoryGitCandidates([])
-      setDirectoryGitSelectedPaths(new Set())
-      setDirectoryGitExpandedPaths(new Set([DIRECTORY_GIT_TREE_ROOT_PATH]))
-      setDirectoryGitError(null)
-      setDirectoryGitLoading(true)
-
-      try {
-        const statusEntries = await gitStatus(folder.path)
-        const scopedEntries = scopeGitStatusEntriesForDirectory(
-          statusEntries,
-          target.path
-        )
-        const candidates = filterDirectoryGitCandidates(scopedEntries, action)
-        if (candidates.length === 0) {
-          resetDirectoryGitActionDialog()
-          toast.info(
-            action === "add"
-              ? t("toasts.noAddableFilesInDir")
-              : t("toasts.noRollbackFilesInDir")
-          )
-          return
-        }
-
-        const treeNodes = buildDirectoryGitTree(candidates, target.path)
-        const expanded = collectDirectoryGitTreeExpandedPaths(treeNodes)
-        expanded.add(DIRECTORY_GIT_TREE_ROOT_PATH)
-
-        setDirectoryGitCandidates(candidates)
-        setDirectoryGitSelectedPaths(
-          new Set(candidates.map((entry) => entry.path))
-        )
-        setDirectoryGitExpandedPaths(expanded)
-      } catch (error) {
-        const message = toErrorMessage(error)
-        setDirectoryGitError(message)
-      } finally {
-        setDirectoryGitLoading(false)
-      }
-    },
-    [folder?.path, resetDirectoryGitActionDialog, t]
-  )
-
-  const handleRequestRollback = useCallback(
-    (target: FileActionTarget) => {
-      if (target.kind === "dir") {
-        void openDirectoryGitActionDialog("rollback", target)
-        return
-      }
-      setRollbackTarget(target)
-    },
-    [openDirectoryGitActionDialog]
-  )
-
-  const handleAddToVcs = useCallback(
-    async (target: FileActionTarget) => {
-      if (target.kind === "dir") {
-        await openDirectoryGitActionDialog("add", target)
-        return
-      }
-      if (!folder?.path) return
-      try {
-        await gitAddFiles(folder.path, [target.path])
-        toast.success(t("toasts.addedToVcs", { name: target.name }))
-        await fetchTree()
-      } catch (error) {
-        const message = toErrorMessage(error)
-        toast.error(t("toasts.addToVcsFailed"), { description: message })
-      }
-    },
-    [fetchTree, folder?.path, openDirectoryGitActionDialog, t]
-  )
-
-  const loadCompareBranches = useCallback(async () => {
-    if (!folder?.path) {
-      setCompareBranchList({ local: [], remote: [], worktree_branches: [] })
-      setCompareCurrentBranch(null)
-      return
-    }
-    setCompareBranchLoading(true)
-    try {
-      const [branchesResult, currentBranchResult] = await Promise.allSettled([
-        gitListAllBranches(folder.path),
-        getGitBranch(folder.path),
-      ])
-
-      if (branchesResult.status === "fulfilled") {
-        setCompareBranchList(branchesResult.value)
-      } else {
-        setCompareBranchList({ local: [], remote: [], worktree_branches: [] })
-        const message =
-          branchesResult.reason instanceof Error
-            ? branchesResult.reason.message
-            : String(branchesResult.reason)
-        toast.error(t("toasts.loadBranchesFailed"), { description: message })
-      }
-
-      if (currentBranchResult.status === "fulfilled") {
-        setCompareCurrentBranch(currentBranchResult.value)
-      } else {
-        setCompareCurrentBranch(null)
-      }
-    } catch (error) {
-      setCompareBranchList({ local: [], remote: [], worktree_branches: [] })
-      setCompareCurrentBranch(null)
-      const message = toErrorMessage(error)
-      toast.error(t("toasts.loadBranchesFailed"), { description: message })
-    } finally {
-      setCompareBranchLoading(false)
-    }
-  }, [folder?.path, t])
-
-  const handleRequestCompareWithBranch = useCallback(
-    (target: FileActionTarget) => {
-      setCompareTarget(target)
-      setCompareBranchFilter("")
-      setCompareRecentOpen(true)
-      setCompareLocalOpen(false)
-      setCompareRemoteOpen(false)
-      void loadCompareBranches()
-    },
-    [loadCompareBranches]
-  )
-
-  const compareFilterKeyword = useMemo(
-    () => compareBranchFilter.trim().toLowerCase(),
-    [compareBranchFilter]
-  )
-
-  const filteredCompareRecentBranches = useMemo(() => {
-    if (!compareCurrentBranch) return []
-    if (!compareFilterKeyword) return [compareCurrentBranch]
-    return compareCurrentBranch.toLowerCase().includes(compareFilterKeyword)
-      ? [compareCurrentBranch]
-      : []
-  }, [compareCurrentBranch, compareFilterKeyword])
-
-  const filteredCompareBranches = useMemo(() => {
-    if (!compareFilterKeyword) {
-      return compareBranchList
-    }
-
-    return {
-      local: compareBranchList.local.filter((branch) =>
-        branch.toLowerCase().includes(compareFilterKeyword)
-      ),
-      remote: compareBranchList.remote.filter((branch) =>
-        branch.toLowerCase().includes(compareFilterKeyword)
-      ),
-    }
-  }, [compareBranchList, compareFilterKeyword])
-
-  const groupedCompareRemoteBranches = useMemo(() => {
-    const groups: Record<string, string[]> = {}
-    for (const b of filteredCompareBranches.remote) {
-      const slashIndex = b.indexOf("/")
-      const remoteName = slashIndex > 0 ? b.substring(0, slashIndex) : "origin"
-      if (!groups[remoteName]) groups[remoteName] = []
-      groups[remoteName].push(b)
-    }
-    return groups
-  }, [filteredCompareBranches.remote])
-  const compareRemoteNames = Object.keys(groupedCompareRemoteBranches)
-  const hasMultipleCompareRemotes = compareRemoteNames.length > 1
-
-  const directoryGitTreeNodes = useMemo(() => {
-    if (!directoryGitActionTarget) return []
-    return buildDirectoryGitTree(
-      directoryGitCandidates,
-      directoryGitActionTarget.path
-    )
-  }, [directoryGitActionTarget, directoryGitCandidates])
-
-  const directoryGitAllFilePaths = useMemo(
-    () => directoryGitCandidates.map((entry) => entry.path),
-    [directoryGitCandidates]
-  )
-
-  const directoryGitAllSelected = useMemo(
-    () =>
-      directoryGitAllFilePaths.length > 0 &&
-      directoryGitAllFilePaths.every((path) =>
-        directoryGitSelectedPaths.has(path)
-      ),
-    [directoryGitAllFilePaths, directoryGitSelectedPaths]
-  )
-
-  const directoryGitFilePathSet = useMemo(
-    () => new Set(directoryGitAllFilePaths),
-    [directoryGitAllFilePaths]
-  )
-
-  const directoryGitLeafPathsByDirPath = useMemo(() => {
-    const next = new Map<string, string[]>()
-    const collect = (node: DirectoryGitTreeNode) => {
-      if (node.kind === "file") return
-      next.set(node.path, collectDirectoryGitTreeLeafPaths(node))
-      for (const child of node.children) {
-        if (child.kind === "dir") collect(child)
-      }
-    }
-    for (const node of directoryGitTreeNodes) {
-      if (node.kind === "dir") collect(node)
-    }
-    return next
-  }, [directoryGitTreeNodes])
-
-  const handleToggleDirectoryGitFile = useCallback((path: string) => {
-    setDirectoryGitSelectedPaths((prev) => {
-      const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
-      return next
-    })
-  }, [])
-
-  const handleToggleDirectoryGitSelectAll = useCallback(() => {
-    setDirectoryGitSelectedPaths((prev) => {
-      if (
-        directoryGitAllFilePaths.length > 0 &&
-        directoryGitAllFilePaths.every((path) => prev.has(path))
-      ) {
-        return new Set<string>()
-      }
-      return new Set(directoryGitAllFilePaths)
-    })
-  }, [directoryGitAllFilePaths])
-
-  const handleToggleDirectoryGitDir = useCallback(
-    (dirPath: string) => {
-      const leafPaths = directoryGitLeafPathsByDirPath.get(dirPath) ?? []
-      if (leafPaths.length === 0) return
-      setDirectoryGitSelectedPaths((prev) => {
-        const next = new Set(prev)
-        const allSelected = leafPaths.every((path) => next.has(path))
-        if (allSelected) {
-          for (const path of leafPaths) next.delete(path)
-        } else {
-          for (const path of leafPaths) next.add(path)
-        }
-        return next
-      })
-    },
-    [directoryGitLeafPathsByDirPath]
-  )
-
-  const handleDirectoryGitTreeSelect = useCallback(
-    (path: string) => {
-      if (path === DIRECTORY_GIT_TREE_ROOT_PATH) {
-        handleToggleDirectoryGitSelectAll()
-        return
-      }
-
-      if (directoryGitLeafPathsByDirPath.has(path)) {
-        handleToggleDirectoryGitDir(path)
-        return
-      }
-
-      if (directoryGitFilePathSet.has(path)) {
-        handleToggleDirectoryGitFile(path)
-      }
-    },
-    [
-      directoryGitFilePathSet,
-      directoryGitLeafPathsByDirPath,
-      handleToggleDirectoryGitDir,
-      handleToggleDirectoryGitFile,
-      handleToggleDirectoryGitSelectAll,
-    ]
-  )
-
-  const renderDirectoryGitTreeNode = useCallback(
-    (node: DirectoryGitTreeNode): ReactNode => {
-      if (node.kind === "dir") {
-        const leafPaths = directoryGitLeafPathsByDirPath.get(node.path) ?? []
-        const allSelected =
-          leafPaths.length > 0 &&
-          leafPaths.every((path) => directoryGitSelectedPaths.has(path))
-        const partiallySelected =
-          !allSelected &&
-          leafPaths.some((path) => directoryGitSelectedPaths.has(path))
-        return (
-          <FileTreeFolder
-            key={node.path}
-            path={node.path}
-            name={`${allSelected ? "[x]" : partiallySelected ? "[-]" : "[ ]"} ${node.name}`}
-            suffix={`(${node.fileCount})`}
-            suffixClassName="text-muted-foreground/45"
-            title={node.path}
-          >
-            {node.children.map(renderDirectoryGitTreeNode)}
-          </FileTreeFolder>
-        )
-      }
-
-      const selected = directoryGitSelectedPaths.has(node.path)
-      return (
-        <FileTreeFile
-          key={node.path}
-          path={node.path}
-          name={node.name}
-          className="gap-1 px-1.5 py-1"
-          title={node.path}
-        >
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation()
-              handleToggleDirectoryGitFile(node.path)
-            }}
-            className={
-              selected
-                ? "flex h-4 w-4 shrink-0 items-center justify-center rounded border border-primary bg-primary text-primary-foreground transition-colors"
-                : "flex h-4 w-4 shrink-0 items-center justify-center rounded border border-input transition-colors"
-            }
-            aria-label={t("aria.selectPath", {
-              action: selected ? t("actions.unselect") : t("actions.select"),
-              path: node.path,
-            })}
-            disabled={directoryGitSubmitting}
-          >
-            {selected && <Check className="h-3 w-3" />}
-          </button>
-          <button
-            type="button"
-            className="flex-1 truncate text-left"
-            onClick={(event) => {
-              event.stopPropagation()
-              handleToggleDirectoryGitFile(node.path)
-            }}
-            title={node.path}
-            disabled={directoryGitSubmitting}
-          >
-            {node.name}
-          </button>
-          <span className="w-8 shrink-0 text-right text-[10px] font-medium text-muted-foreground">
-            {node.status}
-          </span>
-        </FileTreeFile>
-      )
-    },
-    [
-      directoryGitLeafPathsByDirPath,
-      directoryGitSelectedPaths,
-      directoryGitSubmitting,
-      handleToggleDirectoryGitFile,
-      t,
-    ]
-  )
-
   const handleCreateConfirm = useCallback(async () => {
     if (!folder?.path || createParentPath === null) return
     const trimmedName = createName.trim()
@@ -1943,97 +928,6 @@ export function FileTreeTab() {
       setDeleting(false)
     }
   }, [deleteTarget, fetchTree, folder?.path, t])
-
-  const handleRollbackConfirm = useCallback(async () => {
-    if (!folder?.path || !rollbackTarget) return
-    setRollingBack(true)
-    try {
-      await gitRollbackFile(folder.path, rollbackTarget.path)
-      toast.success(t("toasts.rolledBack", { name: rollbackTarget.name }))
-      setRollbackTarget(null)
-      await fetchTree()
-    } catch (error) {
-      const message = toErrorMessage(error)
-      toast.error(t("toasts.rollbackFailed"), { description: message })
-    } finally {
-      setRollingBack(false)
-    }
-  }, [fetchTree, folder?.path, rollbackTarget, t])
-
-  const handleDirectoryGitActionConfirm = useCallback(async () => {
-    if (!folder?.path || !directoryGitActionType) return
-    if (directoryGitSelectedPaths.size === 0) return
-
-    const selectedPaths = Array.from(directoryGitSelectedPaths)
-    setDirectoryGitSubmitting(true)
-    setDirectoryGitError(null)
-
-    try {
-      if (directoryGitActionType === "add") {
-        await gitAddFiles(folder.path, selectedPaths)
-        toast.success(
-          t("toasts.addedFilesToVcs", {
-            count: selectedPaths.length,
-          })
-        )
-      } else {
-        for (const filePath of selectedPaths) {
-          await gitRollbackFile(folder.path, filePath)
-        }
-        toast.success(
-          t("toasts.rolledBackFiles", {
-            count: selectedPaths.length,
-          })
-        )
-      }
-
-      resetDirectoryGitActionDialog()
-      await fetchTree()
-    } catch (error) {
-      const message = toErrorMessage(error)
-      setDirectoryGitError(message)
-      toast.error(
-        directoryGitActionType === "add"
-          ? t("toasts.addToVcsFailed")
-          : t("toasts.rollbackFailed"),
-        {
-          description: message,
-        }
-      )
-    } finally {
-      setDirectoryGitSubmitting(false)
-    }
-  }, [
-    directoryGitActionType,
-    directoryGitSelectedPaths,
-    fetchTree,
-    folder?.path,
-    resetDirectoryGitActionDialog,
-    t,
-  ])
-
-  const handleCompareBranchClick = useCallback(
-    async (branch: string) => {
-      const nextBranch = branch.trim()
-      if (!compareTarget || !nextBranch || comparing) return
-      setComparing(true)
-      try {
-        if (compareTarget.kind === "dir") {
-          await openBranchDiff(nextBranch, compareTarget.path, {
-            mode: "overview",
-          })
-        } else {
-          await openBranchDiff(nextBranch, compareTarget.path)
-        }
-        setCompareTarget(null)
-        setCompareBranchFilter("")
-        setCompareCurrentBranch(null)
-      } finally {
-        setComparing(false)
-      }
-    },
-    [compareTarget, comparing, openBranchDiff]
-  )
 
   const rootNodeName = useMemo(() => {
     if (!folder?.path) return t("workspace")
@@ -2121,34 +1015,13 @@ export function FileTreeTab() {
                           expandedPaths={expandedPaths}
                           workspacePath={folder.path}
                           activeSessionTabId={activeSessionTabId}
-                          gitEnabled={gitEnabled}
                           webMode={webMode}
                           folderUploadSupported={folderUploadSupported}
-                          gitStatusByPath={gitStatusByPath}
-                          gitChangedDirPaths={gitChangedDirPaths}
-                          untrackedDirPaths={untrackedDirPaths}
-                          gitignoreIgnoredPaths={gitignoreIgnoredPaths}
-                          ancestorGitignoreIgnored={false}
-                          ancestorUntracked={false}
                           onOpenFilePreview={(path) => {
                             void openFilePreview(path)
                           }}
-                          onOpenFileDiff={(path) => {
-                            void openWorkingTreeDiff(path)
-                          }}
-                          onOpenDirDiff={(path) => {
-                            void openWorkingTreeDiff(path, {
-                              mode: "overview",
-                            })
-                          }}
-                          onOpenCommitWindow={handleOpenCommitWindow}
-                          onRequestCompareWithBranch={
-                            handleRequestCompareWithBranch
-                          }
-                          onRequestRollback={handleRequestRollback}
                           onOpenDirInTerminal={handleOpenDirInTerminal}
                           onRequestCreate={handleRequestCreate}
-                          onRequestAddToVcs={handleAddToVcs}
                           onRequestRename={handleRequestRename}
                           onRequestDelete={handleRequestDelete}
                           onRequestUpload={handleRequestUpload}
@@ -2176,50 +1049,6 @@ export function FileTreeTab() {
                           onSelect={() => handleRequestCreate("", "dir")}
                         >
                           {t("newDirectory")}
-                        </ContextMenuItem>
-                      </ContextMenuSubContent>
-                    </ContextMenuSub>
-                    <ContextMenuSub>
-                      <ContextMenuSubTrigger disabled={!gitEnabled}>
-                        {t("git")}
-                      </ContextMenuSubTrigger>
-                      <ContextMenuSubContent>
-                        <ContextMenuItem
-                          onSelect={() => handleOpenCommitWindow()}
-                          disabled={!gitEnabled}
-                        >
-                          {t("actions.commitCode")}
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          onSelect={() => void handleAddToVcs(rootTarget)}
-                          disabled={!gitEnabled}
-                        >
-                          {t("actions.addToVcs")}
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          onSelect={() =>
-                            void openWorkingTreeDiff(".", {
-                              mode: "overview",
-                            })
-                          }
-                          disabled={!gitEnabled}
-                        >
-                          {tCommon("viewDiff")}
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          onSelect={() =>
-                            handleRequestCompareWithBranch(rootTarget)
-                          }
-                          disabled={!gitEnabled}
-                        >
-                          {t("compareWithBranch")}
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          variant="destructive"
-                          onSelect={() => handleRequestRollback(rootTarget)}
-                          disabled={!gitEnabled}
-                        >
-                          {t("actions.rollback")}
                         </ContextMenuItem>
                       </ContextMenuSubContent>
                     </ContextMenuSub>
@@ -2456,330 +1285,6 @@ export function FileTreeTab() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={Boolean(directoryGitActionType && directoryGitActionTarget)}
-        onOpenChange={(open) => {
-          if (open) return
-          resetDirectoryGitActionDialog()
-        }}
-      >
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {directoryGitActionType === "add"
-                ? t("actions.addToVcs")
-                : t("actions.rollback")}
-            </DialogTitle>
-            <DialogDescription>
-              {directoryGitActionTarget
-                ? directoryGitActionType === "add"
-                  ? t("directoryDialog.descriptionAdd", {
-                      path: directoryGitActionTarget.path,
-                    })
-                  : t("directoryDialog.descriptionRollback", {
-                      path: directoryGitActionTarget.path,
-                    })
-                : t("directoryDialog.descriptionFallback")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="text-muted-foreground">
-                {t("directoryDialog.selectionCount", {
-                  selected: directoryGitSelectedPaths.size,
-                  total: directoryGitAllFilePaths.length,
-                })}
-              </span>
-              <Button
-                type="button"
-                size="xs"
-                variant="outline"
-                disabled={directoryGitLoading || directoryGitSubmitting}
-                onClick={handleToggleDirectoryGitSelectAll}
-              >
-                {directoryGitAllSelected
-                  ? t("directoryDialog.unselectAll")
-                  : t("directoryDialog.selectAll")}
-              </Button>
-            </div>
-            <div className="max-h-80 overflow-auto rounded-md border">
-              {directoryGitLoading ? (
-                <div className="py-8 text-center text-xs text-muted-foreground">
-                  {t("directoryDialog.loadingCandidates")}
-                </div>
-              ) : directoryGitError ? (
-                <div className="p-3 text-xs text-destructive">
-                  {directoryGitError}
-                </div>
-              ) : directoryGitTreeNodes.length > 0 &&
-                directoryGitActionTarget ? (
-                <FileTree
-                  className="text-xs [&>div]:p-1"
-                  expanded={directoryGitExpandedPaths}
-                  onSelect={handleDirectoryGitTreeSelect}
-                  onExpandedChange={setDirectoryGitExpandedPaths}
-                >
-                  <FileTreeFolder
-                    path={DIRECTORY_GIT_TREE_ROOT_PATH}
-                    name={directoryGitActionTarget.name}
-                    suffix={`(${directoryGitAllFilePaths.length})`}
-                    suffixClassName="text-muted-foreground/45"
-                    title={directoryGitActionTarget.path}
-                  >
-                    {directoryGitTreeNodes.map(renderDirectoryGitTreeNode)}
-                  </FileTreeFolder>
-                </FileTree>
-              ) : (
-                <div className="py-8 text-center text-xs text-muted-foreground">
-                  {t("directoryDialog.noOperableFiles")}
-                </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={directoryGitSubmitting}
-                onClick={resetDirectoryGitActionDialog}
-              >
-                {tCommon("cancel")}
-              </Button>
-              <Button
-                type="button"
-                variant={
-                  directoryGitActionType === "rollback"
-                    ? "destructive"
-                    : "default"
-                }
-                disabled={
-                  directoryGitLoading ||
-                  directoryGitSubmitting ||
-                  directoryGitSelectedPaths.size === 0
-                }
-                onClick={() => {
-                  void handleDirectoryGitActionConfirm()
-                }}
-              >
-                {directoryGitActionType === "add"
-                  ? t("actions.addToVcs")
-                  : t("actions.rollback")}
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={Boolean(compareTarget)}
-        onOpenChange={(open) => {
-          if (open) return
-          setCompareTarget(null)
-          setCompareBranchFilter("")
-          setCompareCurrentBranch(null)
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("compareDialog.title")}</DialogTitle>
-            <DialogDescription>
-              {compareTarget
-                ? t("compareDialog.descriptionWithTarget", {
-                    kind:
-                      compareTarget.kind === "dir"
-                        ? t("compareDialog.kindDirectory")
-                        : t("compareDialog.kindFile"),
-                    path: compareTarget.path,
-                  })
-                : t("compareDialog.descriptionFallback")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Input
-              value={compareBranchFilter}
-              onChange={(event) => setCompareBranchFilter(event.target.value)}
-              placeholder={t("compareDialog.filterPlaceholder")}
-              autoFocus
-              disabled={comparing}
-            />
-            <div className="text-xs text-muted-foreground">
-              {t("compareDialog.singleClickHint")}
-            </div>
-            <div className="space-y-2">
-              <div className="max-h-56 overflow-y-auto rounded-xl border p-2 space-y-3">
-                {compareBranchLoading ? (
-                  <div className="py-6 text-center text-xs text-muted-foreground">
-                    {t("compareDialog.loadingBranches")}
-                  </div>
-                ) : (
-                  <>
-                    <Collapsible
-                      open={compareRecentOpen}
-                      onOpenChange={setCompareRecentOpen}
-                    >
-                      <CollapsibleTrigger className="flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground select-none outline-hidden">
-                        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform [[data-state=open]>&]:rotate-90" />
-                        {t("compareDialog.recentBranches", {
-                          count: filteredCompareRecentBranches.length,
-                        })}
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="space-y-1 pt-1">
-                        {filteredCompareRecentBranches.length > 0 ? (
-                          filteredCompareRecentBranches.map((branch) => (
-                            <Button
-                              key={`recent-${branch}`}
-                              type="button"
-                              size="xs"
-                              variant="ghost"
-                              className="w-full justify-start"
-                              onClick={() => {
-                                void handleCompareBranchClick(branch)
-                              }}
-                              disabled={comparing}
-                            >
-                              {branch}
-                            </Button>
-                          ))
-                        ) : (
-                          <div className="px-2 text-xs text-muted-foreground">
-                            {t("compareDialog.noCurrentBranch")}
-                          </div>
-                        )}
-                      </CollapsibleContent>
-                    </Collapsible>
-                    <Collapsible
-                      open={compareLocalOpen}
-                      onOpenChange={setCompareLocalOpen}
-                    >
-                      <CollapsibleTrigger className="flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground select-none outline-hidden">
-                        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform [[data-state=open]>&]:rotate-90" />
-                        {t("compareDialog.localBranches", {
-                          count: filteredCompareBranches.local.length,
-                        })}
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="space-y-1 pt-1">
-                        {filteredCompareBranches.local.length > 0 ? (
-                          filteredCompareBranches.local.map((branch) => (
-                            <Button
-                              key={`local-${branch}`}
-                              type="button"
-                              size="xs"
-                              variant="ghost"
-                              className="w-full justify-start"
-                              onClick={() => {
-                                void handleCompareBranchClick(branch)
-                              }}
-                              disabled={comparing}
-                            >
-                              {branch}
-                            </Button>
-                          ))
-                        ) : (
-                          <div className="px-2 text-xs text-muted-foreground">
-                            {t("compareDialog.noMatchingBranches")}
-                          </div>
-                        )}
-                      </CollapsibleContent>
-                    </Collapsible>
-                    <Collapsible
-                      open={compareRemoteOpen}
-                      onOpenChange={setCompareRemoteOpen}
-                    >
-                      <CollapsibleTrigger className="flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground select-none outline-hidden">
-                        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform [[data-state=open]>&]:rotate-90" />
-                        {t("compareDialog.remoteBranches", {
-                          count: filteredCompareBranches.remote.length,
-                        })}
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="space-y-1 pt-1">
-                        {filteredCompareBranches.remote.length > 0 ? (
-                          hasMultipleCompareRemotes ? (
-                            compareRemoteNames.map((remoteName) => (
-                              <Collapsible key={remoteName}>
-                                <CollapsibleTrigger className="flex w-full items-center gap-2.5 rounded-xl px-2 py-1.5 pl-5 text-sm hover:bg-accent hover:text-accent-foreground select-none outline-hidden">
-                                  <ChevronRight className="h-3 w-3 shrink-0 transition-transform [[data-state=open]>&]:rotate-90" />
-                                  {remoteName} (
-                                  {
-                                    groupedCompareRemoteBranches[remoteName]
-                                      .length
-                                  }
-                                  )
-                                </CollapsibleTrigger>
-                                <CollapsibleContent className="space-y-1 pt-1 pl-3">
-                                  {groupedCompareRemoteBranches[remoteName].map(
-                                    (branch) => (
-                                      <Button
-                                        key={`remote-${branch}`}
-                                        type="button"
-                                        size="xs"
-                                        variant="ghost"
-                                        className="w-full justify-start"
-                                        onClick={() => {
-                                          void handleCompareBranchClick(branch)
-                                        }}
-                                        disabled={comparing}
-                                      >
-                                        {branch.substring(
-                                          remoteName.length + 1
-                                        )}
-                                      </Button>
-                                    )
-                                  )}
-                                </CollapsibleContent>
-                              </Collapsible>
-                            ))
-                          ) : (
-                            filteredCompareBranches.remote.map((branch) => {
-                              const slashIndex = branch.indexOf("/")
-                              const shortName =
-                                slashIndex > 0
-                                  ? branch.substring(slashIndex + 1)
-                                  : branch
-                              return (
-                                <Button
-                                  key={`remote-${branch}`}
-                                  type="button"
-                                  size="xs"
-                                  variant="ghost"
-                                  className="w-full justify-start pl-4"
-                                  onClick={() => {
-                                    void handleCompareBranchClick(branch)
-                                  }}
-                                  disabled={comparing}
-                                >
-                                  {shortName}
-                                </Button>
-                              )
-                            })
-                          )
-                        ) : (
-                          <div className="px-2 text-xs text-muted-foreground">
-                            {t("compareDialog.noMatchingBranches")}
-                          </div>
-                        )}
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </>
-                )}
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={comparing}
-                onClick={() => {
-                  setCompareTarget(null)
-                  setCompareBranchFilter("")
-                  setCompareCurrentBranch(null)
-                }}
-              >
-                {tCommon("cancel")}
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <AlertDialog
         open={Boolean(deleteTarget)}
         onOpenChange={(open) => {
@@ -2814,41 +1319,6 @@ export function FileTreeTab() {
               }}
             >
               {tCommon("delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={Boolean(rollbackTarget)}
-        onOpenChange={(open) => {
-          if (open) return
-          setRollbackTarget(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("rollbackConfirm.title")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {rollbackTarget
-                ? t("rollbackConfirm.descriptionWithTarget", {
-                    name: rollbackTarget.name,
-                  })
-                : t("rollbackConfirm.descriptionFallback")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={rollingBack}>
-              {tCommon("cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={rollingBack}
-              onClick={() => {
-                void handleRollbackConfirm()
-              }}
-            >
-              {t("actions.rollback")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

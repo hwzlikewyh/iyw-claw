@@ -20,7 +20,6 @@ import {
 } from "@/lib/adapters/ai-elements-adapter"
 import { TurnStats } from "./turn-stats"
 import { LiveTurnStats } from "./live-turn-stats"
-import { ReplyArtifacts } from "./reply-artifacts"
 import { UserResourceLinks } from "./user-resource-links"
 import { UserImageAttachments } from "./user-image-attachments"
 import { MessageTimestamp } from "./message-timestamp"
@@ -50,12 +49,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTranslations } from "next-intl"
-import type {
-  AgentType,
-  ConnectionStatus,
-  MessageTurn,
-  SessionStats,
-} from "@/lib/types"
+import type { AgentType, ConnectionStatus, SessionStats } from "@/lib/types"
 import { copyTextToClipboard } from "@/lib/utils"
 import { VirtualizedMessageThread } from "@/components/message/virtualized-message-thread"
 import { SubAgentDelegationsPopover } from "@/components/message/sub-agent-delegations-popover"
@@ -66,7 +60,6 @@ import {
 import { WorkspaceFilesDialog } from "@/components/message/workspace-files-dialog"
 import { TaskArtifactsDialog } from "@/components/message/task-artifacts-dialog"
 import type { MessageScrollContextValue } from "@/components/message/message-scroll-context"
-import { extractSessionFilesGrouped } from "@/lib/session-files"
 import { unescapeComposerText } from "@/lib/composer-copy-text"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { UserMemoryMessageActions } from "@/components/message/user-memory-message-actions"
@@ -129,9 +122,6 @@ type ThreadRenderItem =
       showStats: boolean
       isRoleTransition: boolean
       previousUserIndex: number | null
-      /** Raw assistant sub-turn(s) that compose this reply — fed to the
-       *  per-reply artifacts card so it can list files changed this reply. */
-      sourceTurns: MessageTurn[]
     }
   | {
       key: string
@@ -149,22 +139,6 @@ const EMPTY_DELEGATIONS: DelegationCardSource[] = []
 // Stable empty reference so the navigator memo / equality checks don't churn
 // when a conversation has no user messages.
 const EMPTY_NAV_ENTRIES: MessageNavEntry[] = []
-
-// A single turn's `sourceTurns` is just `[turn]`. Cache the wrapper per turn
-// object so an unchanged historical turn keeps a stable `sourceTurns` reference
-// across streaming-token re-renders — that's the last prop preventing
-// `HistoricalMessageGroup`'s memo from bailing out (its `group` and the
-// phase-derived flags are already reference-/value-stable). The streaming turn
-// is rebuilt every token, so it gets a fresh wrapper and still re-renders.
-const sourceTurnsSingletonCache = new WeakMap<MessageTurn, MessageTurn[]>()
-export function singletonSourceTurns(turn: MessageTurn): MessageTurn[] {
-  let cached = sourceTurnsSingletonCache.get(turn)
-  if (!cached) {
-    cached = [turn]
-    sourceTurnsSingletonCache.set(turn, cached)
-  }
-  return cached
-}
 
 // Collect the `delegate_to_agent` tool calls within a turn's adapted parts,
 // recursing through tool-groups and goal-runs (a delegate call is normally a
@@ -347,9 +321,6 @@ function mergeConsecutiveAssistantTurns(
       result.push({
         ...last,
         key: `merged-${first.key}`,
-        // Concatenate every sub-turn's raw turns so the artifacts card sees all
-        // file edits across the merged reply, not just the last sub-turn.
-        sourceTurns: buffer.flatMap((b) => b.sourceTurns),
         group: {
           ...last.group,
           id: first.group.id,
@@ -452,7 +423,6 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   showStats = true,
   previousUserIndex = null,
   isResponseComplete = true,
-  sourceTurns,
 }: {
   group: ResolvedMessageGroup
   agentType: AgentType
@@ -461,7 +431,6 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   showStats?: boolean
   previousUserIndex?: number | null
   isResponseComplete?: boolean
-  sourceTurns?: MessageTurn[]
 }) {
   if (group.role === "system") {
     return <CollapsibleSystemMessage group={group} />
@@ -507,12 +476,6 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
           align={group.role === "user" ? "end" : "start"}
         />
       </Message>
-      {showStats && group.role === "assistant" && sourceTurns && (
-        <ReplyArtifacts
-          sourceTurns={sourceTurns}
-          isResponseComplete={isResponseComplete}
-        />
-      )}
       {showStats && group.role === "assistant" && (
         <TurnStats
           usage={group.usage}
@@ -703,7 +666,6 @@ export function MessageListView({
         showStats: false,
         isRoleTransition: false,
         previousUserIndex: null,
-        sourceTurns: singletonSourceTurns(allTurns[i]),
       }
     })
 
@@ -774,7 +736,6 @@ export function MessageListView({
                 showStats={item.showStats}
                 previousUserIndex={item.previousUserIndex}
                 isResponseComplete={item.phase === "persisted"}
-                sourceTurns={item.sourceTurns}
               />
             </div>
           )
@@ -827,12 +788,11 @@ export function MessageListView({
   // Lifted scroll handle so the panel (which lives in the overlay stack, outside
   // the MessageScrollProvider subtree) can drive scrollToIndex.
   const scrollApiRef = useRef<MessageScrollContextValue | null>(null)
-  // Collapse state is owned here (not in the panel) so the expensive per-file
-  // `navEntries` is computed only while the panel is open.
+  // Collapse state is owned here so the navigator remains stable while the
+  // conversation streams.
   const [navExpanded, setNavExpanded] = useState(false)
 
-  // Cheap user-message tally for the collapsed chip — counts user turns without
-  // parsing any file diffs.
+  // Cheap user-message tally for the collapsed chip.
   const userMessageCount = useMemo(() => {
     if (!showMessageNav) return 0
     let count = 0
@@ -842,47 +802,23 @@ export function MessageListView({
     return count
   }, [showMessageNav, threadItems])
 
-  // One entry per user message — including ones with no edits (placeholders).
-  // Computed lazily: only while the panel is expanded, since
-  // `extractSessionFilesGrouped` parses every turn's diffs. Collapsed (the
-  // default) it stays EMPTY, keeping the streaming hot path free of diff parsing.
+  // One entry per user message, computed only while the panel is expanded.
   const navEntries = useMemo<MessageNavEntry[]>(() => {
     if (!showMessageNav || !navExpanded) return EMPTY_NAV_ENTRIES
-    const turns = timelineTurns.map((item) => item.turn)
-    const groups = extractSessionFilesGrouped(turns, { includeEmpty: true })
-    if (groups.length === 0) return EMPTY_NAV_ENTRIES
-
-    const indexByTurnId = new Map<string, number>()
+    const entries: MessageNavEntry[] = []
     for (let i = 0; i < threadItems.length; i++) {
       const item = threadItems[i]
       if (item.kind === "turn" && item.group.role === "user") {
-        indexByTurnId.set(item.group.id, i)
+        entries.push({
+          threadIndex: i,
+          turnId: item.group.id,
+          ordinal: entries.length + 1,
+          label: extractTextFromParts(item.group.parts),
+        })
       }
-    }
-
-    const entries: MessageNavEntry[] = []
-    for (const group of groups) {
-      const threadIndex = indexByTurnId.get(group.userTurnId)
-      if (threadIndex == null) continue
-      let additions = 0
-      let deletions = 0
-      for (const file of group.files) {
-        additions += file.additions
-        deletions += file.deletions
-      }
-      entries.push({
-        threadIndex,
-        turnId: group.userTurnId,
-        ordinal: entries.length + 1,
-        label: group.userMessage,
-        additions,
-        deletions,
-        files: group.files,
-        hasChanges: group.files.length > 0,
-      })
     }
     return entries.length > 0 ? entries : EMPTY_NAV_ENTRIES
-  }, [showMessageNav, navExpanded, timelineTurns, threadItems])
+  }, [showMessageNav, navExpanded, threadItems])
 
   const hasRenderableContent = threadItems.length > 0 || Boolean(liveMessage)
 

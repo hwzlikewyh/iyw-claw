@@ -1,34 +1,14 @@
 "use client"
 
-import { memo, useCallback, useState, type RefObject } from "react"
-import {
-  ChevronDownIcon,
-  ChevronRight,
-  FileIcon,
-  MessageCircle,
-} from "lucide-react"
+import { memo, useCallback, type RefObject } from "react"
+import { ChevronDownIcon, MessageCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { useActiveFolder } from "@/contexts/active-folder-context"
-import { useWorkspaceActions } from "@/contexts/workspace-context"
-import type { FileChangeStat } from "@/lib/session-files"
 import type { MessageScrollContextValue } from "@/components/message/message-scroll-context"
 import { CollapsedOverlayChip } from "@/components/chat/collapsed-overlay-chip"
-import {
-  CommitFileAdditions,
-  CommitFileDeletions,
-} from "@/components/ai-elements/commit"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  fileNameOf,
-  isRemovedFileDiff,
-  normalizeSlashPath,
-  toFolderRelativePath,
-} from "@/lib/file-path-display"
-import { cn } from "@/lib/utils"
 
-/** One navigable user message. Present for every user turn, even when it made
- *  no file edits (`hasChanges === false`) so the list is a complete index. */
+/** One navigable user message. */
 export interface MessageNavEntry {
   /** Index into the rendered `threadItems` array — fed to `scrollToIndex`. */
   threadIndex: number
@@ -36,22 +16,16 @@ export interface MessageNavEntry {
   /** 1-based position among shown entries. */
   ordinal: number
   label: string
-  additions: number
-  deletions: number
-  files: FileChangeStat[]
-  hasChanges: boolean
 }
 
 interface ConversationMessageNavProps {
-  /** Number of user messages — drives the collapsed chip summary. The parent
-   *  derives this cheaply (no diff parsing) so the chip can show without
-   *  computing the expensive per-file `entries` until the panel is opened. */
+  /** Number of user messages shown in the collapsed chip. */
   count: number
   /** Whether the panel is expanded. Owned by the parent so it can compute
    *  `entries` lazily — only while open. */
   expanded: boolean
   onToggle: (next: boolean) => void
-  /** Per-message rows. Only populated while `expanded` (computed lazily). */
+  /** Per-message rows. Only populated while expanded. */
   entries: MessageNavEntry[]
   scrollApiRef: RefObject<MessageScrollContextValue | null>
 }
@@ -60,11 +34,8 @@ interface ConversationMessageNavProps {
  * Per-conversation message navigator. Lives in the inline-start overlay stack
  * as the first chip (above the plan and sub-agent panels).
  *
- * Collapsed (default): a bullet-shaped `CollapsedOverlayChip` showing the message
- * count on hover. Expanded: a card listing each user message with `+N/-N` and
- * an expandable file-diff list (clicking a file opens it in the main editor via
- * `openSessionFileDiff`). `memo`'d so it never re-renders while collapsed during
- * streaming (its props are referentially stable then).
+ * Collapsed (default): a bullet-shaped chip showing the message count. Expanded:
+ * a compact list that jumps to each user message.
  */
 export const ConversationMessageNav = memo(function ConversationMessageNav({
   count,
@@ -74,9 +45,6 @@ export const ConversationMessageNav = memo(function ConversationMessageNav({
   scrollApiRef,
 }: ConversationMessageNavProps) {
   const t = useTranslations("Folder.chat.messageNav")
-  const { openSessionFileDiff } = useWorkspaceActions()
-  const { activeFolder: folder } = useActiveFolder()
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
 
   const jump = useCallback(
     (threadIndex: number) => {
@@ -86,22 +54,6 @@ export const ConversationMessageNav = memo(function ConversationMessageNav({
       })
     },
     [scrollApiRef]
-  )
-
-  const handleFileClick = useCallback(
-    (
-      filePath: string,
-      diff: string | null,
-      ordinal: number,
-      changeIndex: number
-    ) => {
-      openSessionFileDiff(
-        filePath,
-        diff ?? t("noDiffDataAvailable", { filePath }),
-        `msg-${ordinal}-chg-${changeIndex + 1}`
-      )
-    },
-    [openSessionFileDiff, t]
   )
 
   if (count <= 0) return null
@@ -142,145 +94,21 @@ export const ConversationMessageNav = memo(function ConversationMessageNav({
         </div>
 
         <div className="max-h-96 space-y-1.5 overflow-y-auto p-2">
-          {entries.map((entry) => {
-            const isOpen = openGroups[entry.turnId] ?? false
-            const uniqueFileCount = new Set(
-              entry.files.map((file) => normalizeSlashPath(file.path))
-            ).size
-
-            return (
-              <div
-                key={entry.turnId}
-                className="overflow-hidden rounded-lg border border-border bg-transparent text-card-foreground"
-              >
-                <div className="flex items-stretch">
-                  <button
-                    type="button"
-                    onClick={() => jump(entry.threadIndex)}
-                    className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-2 text-left transition-colors hover:bg-accent/40"
-                  >
-                    <span className="mt-0.5 shrink-0 rounded-md border border-border bg-muted/40 px-1 text-[10px] tabular-nums text-muted-foreground">
-                      #{entry.ordinal}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="line-clamp-2 text-xs leading-5 text-foreground">
-                        {entry.label}
-                      </span>
-                      {entry.hasChanges && (
-                        <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                          <span className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                            {t("fileCount", { count: uniqueFileCount })}
-                          </span>
-                          {/* Always render BOTH counts (incl. zeros) so a
-                              one-sided change still shows its +N and -N. */}
-                          <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px]">
-                            <span className="text-green-600 dark:text-green-400">
-                              +{entry.additions}
-                            </span>
-                            <span className="text-red-600 dark:text-red-400">
-                              -{entry.deletions}
-                            </span>
-                          </span>
-                        </span>
-                      )}
-                    </span>
-                  </button>
-
-                  {entry.hasChanges && (
-                    <button
-                      type="button"
-                      aria-label={t("fileCount", { count: uniqueFileCount })}
-                      aria-expanded={isOpen}
-                      onClick={() =>
-                        setOpenGroups((prev) => ({
-                          ...prev,
-                          [entry.turnId]: !isOpen,
-                        }))
-                      }
-                      className="flex w-7 shrink-0 items-center justify-center border-l border-border text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
-                    >
-                      <ChevronRight
-                        className={cn(
-                          "h-3.5 w-3.5 transition-transform",
-                          isOpen && "rotate-90"
-                        )}
-                      />
-                    </button>
-                  )}
-                </div>
-
-                {entry.hasChanges && isOpen && (
-                  <ul className="space-y-1 border-t border-border p-2">
-                    {entry.files.map((file, fileIndex) => {
-                      const displayPath = toFolderRelativePath(
-                        file.path,
-                        folder?.path
-                      )
-                      const isRemoved = isRemovedFileDiff(file.diff)
-
-                      return (
-                        <li key={file.id}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleFileClick(
-                                file.path,
-                                file.diff,
-                                entry.ordinal,
-                                fileIndex
-                              )
-                            }
-                            title={displayPath}
-                            className={cn(
-                              "flex w-full min-w-0 items-center gap-2 rounded-md border px-2 py-1.5 text-left transition-colors",
-                              isRemoved
-                                ? "border-destructive/30 bg-destructive/10 hover:bg-destructive/20"
-                                : "border-border bg-transparent hover:bg-accent/40"
-                            )}
-                          >
-                            <FileIcon
-                              className={cn(
-                                "h-3.5 w-3.5 shrink-0",
-                                isRemoved
-                                  ? "text-destructive"
-                                  : "text-muted-foreground"
-                              )}
-                            />
-                            <span
-                              className={cn(
-                                "min-w-0 flex-1 truncate text-xs",
-                                isRemoved
-                                  ? "text-destructive"
-                                  : "text-foreground"
-                              )}
-                            >
-                              {fileNameOf(displayPath)}
-                            </span>
-                            {isRemoved ? (
-                              <span className="inline-flex shrink-0 items-center rounded-md border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 font-mono text-[10px] text-destructive">
-                                {t("remove")}
-                              </span>
-                            ) : (
-                              <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-foreground">
-                                <CommitFileAdditions
-                                  count={file.additions}
-                                  className="text-[10px]"
-                                />
-                                <CommitFileDeletions
-                                  count={file.deletions}
-                                  className="text-[10px]"
-                                />
-                              </span>
-                            )}
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
-            )
-          })}
+          {entries.map((entry) => (
+            <button
+              key={entry.turnId}
+              type="button"
+              onClick={() => jump(entry.threadIndex)}
+              className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-border bg-transparent px-2.5 py-2 text-left text-card-foreground transition-colors hover:bg-accent/40"
+            >
+              <span className="mt-0.5 shrink-0 rounded-md border border-border bg-muted/40 px-1 text-[10px] tabular-nums text-muted-foreground">
+                #{entry.ordinal}
+              </span>
+              <span className="line-clamp-2 min-w-0 flex-1 text-xs leading-5 text-foreground">
+                {entry.label}
+              </span>
+            </button>
+          ))}
         </div>
       </div>
     </div>
