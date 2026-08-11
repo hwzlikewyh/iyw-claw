@@ -19,8 +19,20 @@ function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`
 }
 
-function formatCost(): string {
-  return "$0.00"
+function formatCost(value: number, currency: string): string {
+  const normalizedCurrency = /^[A-Z]{3}$/.test(currency) ? currency : "CNY"
+  const formatter = new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: normalizedCurrency,
+    currencyDisplay: "narrowSymbol",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 9,
+  })
+  if (!Number.isFinite(value)) return formatter.format(0)
+  if (value > 0 && value < 0.000000001) {
+    return `<${formatter.format(0.000000001)}`
+  }
+  return formatter.format(value)
 }
 
 function chartValue(row: UsageDailyRow | UsageModelRow): number {
@@ -147,9 +159,9 @@ export function UsageSummary({ snapshot }: { snapshot: UsageSnapshot }) {
         })}
       />
       <StatCard
-        label={t("cards.estimatedCost")}
-        value={formatCost()}
-        hint={t("cards.estimatedCostHint")}
+        label={t("cards.actualCost")}
+        value={formatCost(stats.totalCost, stats.currency)}
+        hint={t("cards.actualCostHint", { currency: stats.currency })}
       />
       <StatCard
         label={t("cards.cacheHitRate")}
@@ -205,7 +217,7 @@ export function DailyUsage({ rows }: { rows: UsageDailyRow[] }) {
     t("table.cost"),
   ]
   const visibleRows = rows
-    .filter((row) => row.total > 0)
+    .filter((row) => row.total > 0 || row.sessions > 0 || row.totalCost !== 0)
     .slice(-10)
     .reverse()
   const max = Math.max(...rows.map(chartValue), 1)
@@ -259,7 +271,9 @@ export function DailyUsage({ rows }: { rows: UsageDailyRow[] }) {
                   {formatPercent(row.cacheHitRate)}
                 </td>
                 <td className="py-2 text-right tabular-nums">{row.sessions}</td>
-                <td className="py-2 text-right tabular-nums">{formatCost()}</td>
+                <td className="py-2 text-right tabular-nums">
+                  {formatCost(row.totalCost, row.currency)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -285,5 +299,10 @@ export function UsageEmptyState() {
 }
 
 export function isUsageSnapshotEmpty(snapshot: UsageSnapshot | null): boolean {
-  return snapshot !== null && usageTotal(snapshot.stats.total) === 0
+  return (
+    snapshot !== null &&
+    usageTotal(snapshot.stats.total) === 0 &&
+    snapshot.stats.sessionCount === 0 &&
+    snapshot.stats.totalCost === 0
+  )
 }

@@ -49,6 +49,10 @@ pub struct UsageModelRow {
     pub model: String,
     pub sessions: u64,
     pub total: u64,
+    #[serde(default)]
+    pub total_cost: f64,
+    #[serde(default)]
+    pub currency: String,
     #[serde(flatten)]
     pub usage: UsageBreakdown,
 }
@@ -60,6 +64,10 @@ pub struct UsageDailyRow {
     pub sessions: u64,
     pub total: u64,
     pub cache_hit_rate: f64,
+    #[serde(default)]
+    pub total_cost: f64,
+    #[serde(default)]
+    pub currency: String,
     #[serde(flatten)]
     pub usage: UsageBreakdown,
 }
@@ -72,6 +80,10 @@ pub struct UsageDashboardStats {
     pub session_count: u64,
     pub cache_hit_rate: f64,
     pub average_daily_sessions: f64,
+    #[serde(default)]
+    pub total_cost: f64,
+    #[serde(default = "default_currency")]
+    pub currency: String,
     pub first_date: Option<String>,
     pub last_date: Option<String>,
     pub model_rows: Vec<UsageModelRow>,
@@ -86,12 +98,18 @@ impl Default for UsageDashboardStats {
             session_count: 0,
             cache_hit_rate: 0.0,
             average_daily_sessions: 0.0,
+            total_cost: 0.0,
+            currency: "CNY".to_string(),
             first_date: None,
             last_date: None,
             model_rows: Vec::new(),
             daily_rows: Vec::new(),
         }
     }
+}
+
+fn default_currency() -> String {
+    "CNY".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +186,8 @@ fn apply_model_row(
             model: snapshot.model.clone(),
             sessions: 0,
             total: 0,
+            total_cost: 0.0,
+            currency: String::new(),
             usage: UsageBreakdown::default(),
         });
     }
@@ -228,6 +248,8 @@ fn empty_daily_row(date: String) -> UsageDailyRow {
         sessions: 0,
         total: 0,
         cache_hit_rate: 0.0,
+        total_cost: 0.0,
+        currency: String::new(),
         usage: UsageBreakdown::default(),
     }
 }

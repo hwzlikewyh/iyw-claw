@@ -11,6 +11,8 @@ export interface UsageModelRow extends UsageBreakdown {
   model: string
   sessions: number
   total: number
+  totalCost: number
+  currency: string
 }
 
 export interface UsageDailyRow extends UsageBreakdown {
@@ -18,6 +20,8 @@ export interface UsageDailyRow extends UsageBreakdown {
   sessions: number
   total: number
   cacheHitRate: number
+  totalCost: number
+  currency: string
 }
 
 export interface UsageDashboardStats {
@@ -26,6 +30,8 @@ export interface UsageDashboardStats {
   sessionCount: number
   cacheHitRate: number
   averageDailySessions: number
+  totalCost: number
+  currency: string
   firstDate: string | null
   lastDate: string | null
   modelRows: UsageModelRow[]
@@ -60,6 +66,7 @@ interface DailyRowsInput {
 
 const DEFAULT_DAY_COUNT = 30
 const AUTO_MODEL = "auto"
+const DEFAULT_CURRENCY = "CNY"
 
 function emptyBreakdown(): UsageBreakdown {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
@@ -138,6 +145,8 @@ function buildDailyRows({
       sessions: 0,
       total: 0,
       cacheHitRate: cacheHitRate(empty),
+      totalCost: 0,
+      currency: DEFAULT_CURRENCY,
       ...empty,
     }
   }).filter((row) => firstDate === null || row.date >= firstDate)
@@ -164,6 +173,8 @@ function addModelUsage(
     model,
     sessions: 0,
     total: 0,
+    totalCost: 0,
+    currency: DEFAULT_CURRENCY,
     ...emptyBreakdown(),
   }
   row.sessions += 1
@@ -192,6 +203,8 @@ function addDailyUsage(
     sessions: 0,
     total: 0,
     cacheHitRate: 0,
+    totalCost: 0,
+    currency: DEFAULT_CURRENCY,
     ...emptyBreakdown(),
   }
   row.sessions += 1
@@ -236,6 +249,8 @@ export function aggregateUsageStats(
     sessionCount,
     cacheHitRate: cacheHitRate(total),
     averageDailySessions: sessionCount / daySpan,
+    totalCost: 0,
+    currency: DEFAULT_CURRENCY,
     firstDate,
     lastDate,
     modelRows: Array.from(models.values()).sort((a, b) => b.total - a.total),

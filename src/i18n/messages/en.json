@@ -4460,10 +4460,10 @@
   "UsageSettings": {
     "loading": "Loading usage...",
     "title": "Usage",
-    "description": "Aggregates token usage from parsed local session history.",
+    "description": "View actual token usage and spend from the last 30 days.",
     "refresh": "Refresh",
     "loadFailed": "Failed to load usage: {message}",
-    "coverage": "Loaded {loaded} of {total} conversations. Failed sessions: {failed}.",
+    "coverage": "Loaded {loaded} of {total} requests. Failed requests: {failed}.",
     "legend": {
       "input": "Input",
       "output": "Output",
@@ -4472,10 +4472,10 @@
     "cards": {
       "totalTokens": "Total tokens",
       "totalTokensHint": "{input} input / {output} output",
-      "sessions": "Sessions",
+      "sessions": "Requests",
       "sessionsHint": "Daily average ~{average}",
-      "estimatedCost": "Estimated cost",
-      "estimatedCostHint": "Pricing data is not configured",
+      "actualCost": "Actual spend",
+      "actualCostHint": "Server billing · {currency}",
       "cacheHitRate": "Cache hit rate",
       "cacheHitRateHint": "{tokens} tokens"
     },
@@ -4492,12 +4492,12 @@
       "cacheRead": "Cache read",
       "cacheWrite": "Cache write",
       "cacheHitRate": "Cache hit rate",
-      "sessions": "Sessions",
+      "sessions": "Requests",
       "cost": "Cost"
     },
     "empty": {
       "title": "No usage yet",
-      "description": "Parsed sessions with token usage will appear here."
+      "description": "Requests with actual usage will appear here."
     }
   },
   "UserMemorySettings": {

@@ -306,15 +306,6 @@ pub(crate) async fn handle_event(
                 tracing::warn!("[lifecycle] failed to persist model for conversation {cid}: {e}");
             }
 
-            // Persist only usage produced by a conversation actively running
-            // through iyw-claw. Passive imported history never emits this
-            // bound TurnComplete path, so it cannot enter the usage dashboard.
-            if let Err(error) =
-                crate::commands::usage::record_conversation_usage_core(db_conn, cid).await
-            {
-                tracing::warn!("[lifecycle] failed to cache usage for conversation {cid}: {error}");
-            }
-
             // Task 13: enqueue the completed turn into the user-memory harvest
             // queue. Best-effort — failures only log and must never block the
             // completion event. The capture was taken at the emit site (before

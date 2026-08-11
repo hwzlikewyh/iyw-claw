@@ -4460,10 +4460,10 @@
   "UsageSettings": {
     "loading": "正在加载用量...",
     "title": "用量",
-    "description": "从已解析的本地会话历史中聚合 Token 用量。",
+    "description": "查看近 30 日的实际 Token 用量和消费。",
     "refresh": "刷新",
     "loadFailed": "用量加载失败：{message}",
-    "coverage": "已加载 {loaded} / {total} 个会话，失败 {failed} 个。",
+    "coverage": "已加载 {loaded} / {total} 个请求，失败 {failed} 个。",
     "legend": {
       "input": "输入",
       "output": "输出",
@@ -4472,10 +4472,10 @@
     "cards": {
       "totalTokens": "总 Token 数",
       "totalTokensHint": "{input} 输入 / {output} 输出",
-      "sessions": "总会话数",
+      "sessions": "总请求数",
       "sessionsHint": "日均 ~{average}",
-      "estimatedCost": "预估费用",
-      "estimatedCostHint": "当前未配置价格数据",
+      "actualCost": "实际消费",
+      "actualCostHint": "服务端账单 · {currency}",
       "cacheHitRate": "缓存命中率",
       "cacheHitRateHint": "{tokens} Token"
     },
@@ -4492,12 +4492,12 @@
       "cacheRead": "缓存读取",
       "cacheWrite": "缓存写入",
       "cacheHitRate": "缓存命中率",
-      "sessions": "会话",
+      "sessions": "请求",
       "cost": "费用"
     },
     "empty": {
       "title": "暂无用量",
-      "description": "包含 Token 用量的已解析会话会显示在这里。"
+      "description": "产生实际用量的请求会显示在这里。"
     }
   },
   "UserMemorySettings": {
