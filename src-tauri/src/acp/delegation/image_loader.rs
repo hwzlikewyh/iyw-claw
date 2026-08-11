@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-pub const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+pub const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 const MAX_BASE64_LEN: usize = MAX_IMAGE_BYTES.div_ceil(3) * 4;
+const IMAGE_TOO_LARGE_MESSAGE: &str = "The image exceeds the 20 MiB limit.";
 
 pub struct ImageLoadRequest<'a> {
     pub source: &'a str,
@@ -35,7 +36,7 @@ impl ImageLoadError {
 
     pub fn safe_message(&self) -> &'static str {
         match self.code {
-            "image_too_large" => "The image exceeds the 10 MiB limit.",
+            "image_too_large" => IMAGE_TOO_LARGE_MESSAGE,
             "image_download_failed" => "The image could not be downloaded.",
             "image_unavailable" => "The image file could not be read.",
             "image_invalid_base64" => "The image data is not valid Base64.",
@@ -240,7 +241,7 @@ fn decode_base64(value: &str) -> Result<Vec<u8>, ImageLoadError> {
     if value.len() > MAX_BASE64_LEN + 2 {
         return Err(ImageLoadError::new(
             "image_too_large",
-            "image exceeds the 10 MiB limit",
+            IMAGE_TOO_LARGE_MESSAGE,
         ));
     }
     STANDARD.decode(value).map_err(|error| {
@@ -255,7 +256,7 @@ fn ensure_size(size: usize) -> Result<(), ImageLoadError> {
     if size > MAX_IMAGE_BYTES {
         Err(ImageLoadError::new(
             "image_too_large",
-            "image exceeds the 10 MiB limit",
+            IMAGE_TOO_LARGE_MESSAGE,
         ))
     } else {
         Ok(())
