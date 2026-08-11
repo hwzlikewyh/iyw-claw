@@ -31,6 +31,7 @@ import { useTaskContext } from "@/contexts/task-context"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import { useConnectionLifecycle } from "@/hooks/use-connection-lifecycle"
+import { useDocumentVisibility } from "@/hooks/use-document-visibility"
 import { useMessageQueue, type QueuedMessage } from "@/hooks/use-message-queue"
 import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
 import { MessageListView } from "@/components/message/message-list-view"
@@ -137,6 +138,7 @@ interface ConversationTabViewProps {
   agentType: AgentType
   workingDir?: string
   isActive: boolean
+  isVisible: boolean
   /** Drive the composer's flowing active-session border. True only for the
    *  active tab while tiled across multiple sessions — the one place the flow
    *  serves as the "which tile is active" cue. Distinct from `isActive`, which
@@ -230,9 +232,11 @@ const ConversationTabView = memo(function ConversationTabView({
   agentType,
   workingDir,
   isActive,
+  isVisible,
   showActiveFlow,
   reloadSignal,
 }: ConversationTabViewProps) {
+  const isDocumentVisible = useDocumentVisibility()
   const { status: accountStatus } = useIywAccount()
   const [catalogVersion, setCatalogVersion] = useState(0)
   useEffect(() => {
@@ -487,7 +491,9 @@ const ConversationTabView = memo(function ConversationTabView({
     loading: detailLoading,
     error: detailError,
     acpLoadError,
-  } = useConversationDetail(effectiveConversationId)
+  } = useConversationDetail(effectiveConversationId, {
+    enabled: isVisible && isDocumentVisible,
+  })
 
   // Subscribe to only the fields this panel actually reads from its runtime
   // session — NOT the whole session object. The live-message sink rewrites the
@@ -568,7 +574,7 @@ const ConversationTabView = memo(function ConversationTabView({
   } = useConnectionLifecycle({
     contextKey: tabId,
     agentType: selectedAgent,
-    isActive: isActive && canAutoConnect,
+    isActive: isActive && isDocumentVisible && canAutoConnect,
     workingDir: workingDirForConnection,
     sessionId:
       dbConversationId != null && selectedAgent !== "cline"
@@ -818,8 +824,11 @@ const ConversationTabView = memo(function ConversationTabView({
   // is owned by COMPLETE_TURN (nulls liveMessage); unmount clearing by
   // removeConversation. `tabId` is the connection contextKey.
   useEffect(() => {
-    return acpActions.registerLiveMessageSink(tabId, (liveMessage, isLive) =>
-      setLiveMessage(effectiveConversationId, liveMessage, isLive)
+    return acpActions.registerLiveMessageSink(
+      tabId,
+      effectiveConversationId,
+      (liveMessage, isLive) =>
+        setLiveMessage(effectiveConversationId, liveMessage, isLive)
     )
   }, [acpActions, tabId, effectiveConversationId, setLiveMessage])
 
@@ -2229,6 +2238,7 @@ export function ConversationDetailPanel() {
             allFolders.find((f) => f.id === tab.folderId)?.path
           }
           isActive={active}
+          isVisible={active || canTile}
           showActiveFlow={canTile && active}
           reloadSignal={reloadByTabId[tab.id] ?? 0}
         />

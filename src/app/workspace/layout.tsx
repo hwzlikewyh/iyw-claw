@@ -60,7 +60,6 @@ import { FileWorkspacePanel } from "@/components/files/file-workspace-panel"
 import { ExternalConflictDialog } from "@/components/files/external-conflict-dialog"
 import { SettingsDialog } from "@/components/settings/settings-dialog"
 import { AppToaster } from "@/components/ui/app-toaster"
-import { HeavyPluginsWarmup } from "@/components/ai-elements/heavy-plugins-warmup"
 import { DeepLinkBootstrap } from "@/components/workspace/deep-link-bootstrap"
 import {
   ResizableHandle,
@@ -977,7 +976,6 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                             <WorkspaceDocumentTitle />
                             <TabKeysSync />
                             <ModelCatalogBootstrap />
-                            <HeavyPluginsWarmup />
                             <DeepLinkBootstrap />
                             <SidebarViewOptionsProvider>
                               <SettingsDialog />

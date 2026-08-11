@@ -124,11 +124,6 @@ function ensure(kind: HeavyKind): void {
   }
 }
 
-/** Start the existing at-most-once loader before the first matching render. */
-export function prefetchHeavyPlugins(kinds: HeavyKind[]): void {
-  for (const kind of kinds) ensure(kind)
-}
-
 export type HeavyPluginNeeds = Record<HeavyKind, boolean>
 
 const NO_NEEDS: HeavyPluginNeeds = { code: false, math: false, mermaid: false }

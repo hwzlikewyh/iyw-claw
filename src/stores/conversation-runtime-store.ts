@@ -295,6 +295,7 @@ type Action =
       conversationId: number
       error: string | null
     }
+  | { type: "EVICT_CONVERSATION_CONTENT"; conversationId: number }
   | { type: "REMOVE_CONVERSATION"; conversationId: number }
   | { type: "RESET" }
 
@@ -1698,6 +1699,19 @@ function reducer(
         acpLoadError: action.error,
       }))
 
+    case "EVICT_CONVERSATION_CONTENT": {
+      const current = state.byConversationId.get(action.conversationId)
+      if (!current) return state
+      const nextByConversationId = new Map(state.byConversationId)
+      nextByConversationId.set(action.conversationId, {
+        ...createEmptySession(action.conversationId),
+        externalId: current.externalId,
+        dbConversationId: current.dbConversationId,
+        sessionStats: current.sessionStats,
+      })
+      return { ...state, byConversationId: nextByConversationId }
+    }
+
     case "REMOVE_CONVERSATION": {
       const current = state.byConversationId.get(action.conversationId)
       if (!current) return state
@@ -1777,6 +1791,7 @@ export interface RuntimeActions {
     value: boolean,
     kickoffText?: string | null
   ) => void
+  evictConversationContent: (conversationId: number) => void
   removeConversation: (conversationId: number) => void
   reset: () => void
 }
@@ -2293,6 +2308,10 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
         value,
         kickoffText,
       }),
+    evictConversationContent: (conversationId) => {
+      bumpFetchGeneration(conversationId)
+      dispatch({ type: "EVICT_CONVERSATION_CONTENT", conversationId })
+    },
     removeConversation: (conversationId) => {
       // Invalidate any outstanding fetch for this conversation so a
       // late-arriving response can't resurrect the session with stale

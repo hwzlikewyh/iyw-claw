@@ -16,6 +16,7 @@ import type {
   EventStreamSubscription,
 } from "@/lib/transport/types"
 import { randomUUID } from "@/lib/utils"
+import { TurnBusyError } from "@/lib/turn-busy"
 import { inferLiveToolName } from "@/lib/tool-call-normalization"
 import {
   acpConnect,
@@ -59,10 +60,15 @@ import type {
 } from "@/lib/types"
 import { AGENT_LABELS } from "@/lib/types"
 import {
-  CONNECTION_IDLE_TIMEOUT_MS,
   CONNECTION_KEEPALIVE_INTERVAL_MS,
   IDLE_SWEEP_INTERVAL_MS,
 } from "@/lib/constants"
+import {
+  isVisibleActiveConversation,
+  shouldKeepConnectionAlive,
+  shouldReclaimConnection,
+  type DocumentVisibilityState,
+} from "@/lib/connection-retention"
 import { sendSystemNotification } from "@/lib/notification"
 import {
   formatAgentRuntimeError,
@@ -2278,7 +2284,11 @@ export interface AcpActionsValue {
    * only removes the entry if it still points at this sink). See
    * `LiveMessageSink`.
    */
-  registerLiveMessageSink(contextKey: string, sink: LiveMessageSink): () => void
+  registerLiveMessageSink(
+    contextKey: string,
+    conversationId: number,
+    sink: LiveMessageSink
+  ): () => void
   /**
    * Clear `loadError` set by a `session/load` failure so the next auto-connect
    * attempt isn't gated by stale failure state. Wired to the Reload button in
@@ -2421,6 +2431,36 @@ function isAlertedError(error: unknown): error is AlertedError {
   return (error as { alerted?: unknown }).alerted === true
 }
 
+function getDocumentVisibilityState(): DocumentVisibilityState {
+  return document.visibilityState === "visible" ? "visible" : "hidden"
+}
+
+function coldReleaseMode(
+  connection: ConnectionState
+): "detach" | "disconnect" | "forget" {
+  if (connection.isViewer) return "detach"
+  if (connection.status === "disconnected") return "forget"
+  return "disconnect"
+}
+
+async function backendConnectionIsMissing(connectionId: string) {
+  try {
+    return !(await acpTouchConnection(connectionId))
+  } catch {
+    return false
+  }
+}
+
+async function disconnectColdBackend(connection: ConnectionState) {
+  if (connection.isViewer || connection.status === "disconnected") return
+  try {
+    await acpDisconnect(connection.connectionId)
+  } catch (error) {
+    if (await backendConnectionIsMissing(connection.connectionId)) return
+    throw error
+  }
+}
+
 // ── Provider ──
 
 export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
@@ -2483,6 +2523,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const pendingConnectRequestsRef = useRef(new Map<string, ConnectRequest>())
   // Keys whose disconnect was requested while connect was still in flight
   const abandonedKeysRef = useRef(new Set<string>())
+  const coldDisconnectingKeysRef = useRef(new Set<string>())
   const connectRef = useRef<AcpActionsValue["connect"] | null>(null)
 
   type ConnectBlockState =
@@ -2547,6 +2588,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   // connection's liveMessage reference changes, mirroring it into the runtime
   // store outside React (see `LiveMessageSink`). A ref → no re-renders.
   const liveMessageSinksRef = useRef(new Map<string, LiveMessageSink>())
+  const runtimeConversationIdsRef = useRef(new Map<string, number>())
 
   // Activity tracking (no re-renders)
   const lastActivityRef = useRef(new Map<string, number>())
@@ -2693,8 +2735,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const registerLiveMessageSink = useCallback(
-    (contextKey: string, sink: LiveMessageSink) => {
+    (contextKey: string, conversationId: number, sink: LiveMessageSink) => {
       liveMessageSinksRef.current.set(contextKey, sink)
+      runtimeConversationIdsRef.current.set(contextKey, conversationId)
       // Replay the CURRENT liveMessage immediately, matching the removed mirror
       // effect's setup write. A panel can mount/remount over a connection that
       // already holds a non-null liveMessage — connection reuse, a viewer
@@ -2711,6 +2754,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         // remount may have already replaced it).
         if (liveMessageSinksRef.current.get(contextKey) === sink) {
           liveMessageSinksRef.current.delete(contextKey)
+          runtimeConversationIdsRef.current.delete(contextKey)
         }
       }
     },
@@ -3631,32 +3675,186 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     resolveListenerReadyWaiters,
   ])
 
-  // ── Backend keepalive timer ──
-  // Frontend is the only side that knows which conversation tabs the
-  // user has open. Without this, the backend's idle sweep
-  // (IYW_CLAW_ACP_IDLE_TIMEOUT_SECS, default 180s) would reap connections
-  // backing visible tabs whenever the user was just reading without
-  // sending — forcing them to re-spawn the agent on next message.
-  // Touching only bumps last_activity_at; it does not emit any event.
+  const forgetColdConnection = useCallback(
+    (contextKey: string, connectionId: string): boolean => {
+      const current = storeRef.current.connections.get(contextKey)
+      if (current?.connectionId !== connectionId) return false
+      reverseMapRef.current.delete(connectionId)
+      teardownAttachSubscription(contextKey)
+      lastActivityRef.current.delete(contextKey)
+      pendingUnmappedEventsRef.current.delete(connectionId)
+      dispatch({ type: "CONNECTION_REMOVED", contextKey })
+      return true
+    },
+    [dispatch, teardownAttachSubscription]
+  )
+
+  const resolveColdReconnectRequest = useCallback(
+    (
+      contextKey: string,
+      conn: ConnectionState,
+      runtimeId: number | undefined
+    ): ConnectRequest | null => {
+      const pendingRequest = pendingConnectRequestsRef.current.get(contextKey)
+      const visibleAgain = isVisibleActiveConversation(
+        contextKey,
+        storeRef.current.activeKey,
+        getDocumentVisibilityState()
+      )
+      if (!pendingRequest && !visibleAgain) return null
+      return (
+        pendingRequest ?? {
+          agentType: conn.agentType,
+          workingDir: conn.workingDir ?? undefined,
+          sessionId: conn.sessionId ?? undefined,
+          conversationId:
+            runtimeId != null && runtimeId > 0 ? runtimeId : undefined,
+        }
+      )
+    },
+    []
+  )
+
+  const finalizeColdRelease = useCallback(
+    (args: {
+      contextKey: string
+      connectionId: string
+      idleMs: number
+      conn: ConnectionState
+    }): ConnectRequest | null => {
+      const { contextKey, connectionId, idleMs, conn } = args
+      const runtimeId = runtimeConversationIdsRef.current.get(contextKey)
+      const reconnectRequest = resolveColdReconnectRequest(
+        contextKey,
+        conn,
+        runtimeId
+      )
+      if (!forgetColdConnection(contextKey, connectionId)) {
+        return reconnectRequest
+      }
+      pendingConnectRequestsRef.current.delete(contextKey)
+      if (!reconnectRequest && runtimeId != null) {
+        useConversationRuntimeStore
+          .getState()
+          .actions.evictConversationContent(runtimeId)
+      }
+      console.info("[acp-context] reclaimed cold conversation", {
+        connectionIdSuffix: connectionId.slice(-8),
+        contextKey,
+        reason: "ttl",
+        connectionStatus: conn.status,
+        backgroundOutstanding: conn.backgroundOutstanding,
+        idleSeconds: Math.floor(idleMs / 1000),
+        openTab: openTabKeysRef.current.has(contextKey),
+        release: coldReleaseMode(conn),
+      })
+      return reconnectRequest
+    },
+    [forgetColdConnection, resolveColdReconnectRequest]
+  )
+
+  const queueColdReconnect = useCallback(
+    (contextKey: string, request: ConnectRequest) => {
+      queueMicrotask(() => {
+        connectRef.current?.(
+          contextKey,
+          request.agentType,
+          request.workingDir,
+          request.sessionId,
+          request.conversationId
+        )
+      })
+    },
+    []
+  )
+
+  const releaseColdConnection = useCallback(
+    async (contextKey: string, connectionId: string, idleMs: number) => {
+      if (coldDisconnectingKeysRef.current.has(contextKey)) return
+      const conn = storeRef.current.connections.get(contextKey)
+      if (!conn || conn.connectionId !== connectionId) return
+      const now = Date.now()
+      if (
+        !shouldReclaimConnection({
+          connection: conn,
+          contextKey,
+          activeKey: storeRef.current.activeKey,
+          visibilityState: getDocumentVisibilityState(),
+          lastActiveAt: lastActivityRef.current.get(contextKey),
+          now,
+        })
+      ) {
+        return
+      }
+
+      coldDisconnectingKeysRef.current.add(contextKey)
+      let reconnectRequest: ConnectRequest | null = null
+      try {
+        await disconnectColdBackend(conn)
+        reconnectRequest = finalizeColdRelease({
+          contextKey,
+          connectionId,
+          idleMs,
+          conn,
+        })
+      } catch (error) {
+        pendingConnectRequestsRef.current.delete(contextKey)
+        console.warn("[acp-context] cold conversation release failed", {
+          connectionIdSuffix: connectionId.slice(-8),
+          contextKey,
+          reason: "ttl",
+          connectionStatus: conn.status,
+          backgroundOutstanding: conn.backgroundOutstanding,
+          idleSeconds: Math.floor(idleMs / 1000),
+          error,
+        })
+      } finally {
+        coldDisconnectingKeysRef.current.delete(contextKey)
+        if (reconnectRequest) {
+          queueColdReconnect(contextKey, reconnectRequest)
+        }
+      }
+    },
+    [finalizeColdRelease, queueColdReconnect]
+  )
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const contextKey = storeRef.current.activeKey
+      if (!contextKey) return
+      lastActivityRef.current.set(contextKey, Date.now())
+      if (getDocumentVisibilityState() !== "visible") return
+      const conn = storeRef.current.connections.get(contextKey)
+      if (conn?.status === "connected") {
+        acpTouchConnection(conn.connectionId).catch(() => {})
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [])
+
+  // Keep only protected, visible-active, and not-yet-cold connections alive.
   useEffect(() => {
     const timer = setInterval(() => {
-      const currentActiveKey = storeRef.current.activeKey
-      const currentOpenTabKeys = openTabKeysRef.current
-      const seen = new Set<string>()
+      const now = Date.now()
       const toTouch: string[] = []
-      const consider = (contextKey: string) => {
-        if (seen.has(contextKey)) return
-        seen.add(contextKey)
-        const conn = storeRef.current.connections.get(contextKey)
-        if (!conn) return
-        // Prompting is already sweep-protected on the backend; touching
-        // is harmless but redundant. Connecting hasn't reached the
-        // sweep-eligible state yet. Only Connected matters.
-        if (conn.status !== "connected") return
-        toTouch.push(conn.connectionId)
+      for (const [contextKey, conn] of storeRef.current.connections) {
+        if (coldDisconnectingKeysRef.current.has(contextKey)) continue
+        if (
+          shouldKeepConnectionAlive({
+            connection: conn,
+            contextKey,
+            activeKey: storeRef.current.activeKey,
+            visibilityState: getDocumentVisibilityState(),
+            lastActiveAt: lastActivityRef.current.get(contextKey),
+            now,
+          })
+        ) {
+          toTouch.push(conn.connectionId)
+        }
       }
-      if (currentActiveKey) consider(currentActiveKey)
-      for (const contextKey of currentOpenTabKeys) consider(contextKey)
       for (const connectionId of toTouch) {
         acpTouchConnection(connectionId).catch(() => {})
       }
@@ -3665,62 +3863,41 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer)
   }, [])
 
-  // ── Idle sweep timer ──
-  // Complements the backend keepalive: this sweep targets connections
-  // that are NOT in `openTabKeys ∪ {activeKey}` — i.e. connections the
-  // frontend opened but is no longer surfacing to the user (panel
-  // dismissed, navigated away). The backend's own idle sweep would
-  // reap them on its 60s cadence regardless; doing it here too keeps
-  // the React store free of stale entries and triggers an explicit
-  // disconnect rather than waiting for the backend's own timeout.
-  // Connections backing currently-open tabs are never reaped here —
-  // those are kept alive by the keepalive loop above.
   useEffect(() => {
     const timer = setInterval(() => {
       const now = Date.now()
-      const currentActiveKey = storeRef.current.activeKey
-
-      const currentOpenTabKeys = openTabKeysRef.current
-      const toDisconnect: { contextKey: string; connectionId: string }[] = []
+      const toRelease: Array<{
+        contextKey: string
+        connectionId: string
+        idleMs: number
+      }> = []
       for (const [contextKey, conn] of storeRef.current.connections) {
-        if (contextKey === currentActiveKey) continue
-        if (currentOpenTabKeys.has(contextKey)) continue
-        if (conn.status === "prompting" || conn.status === "connecting") {
-          continue
-        }
-        if (conn.status !== "connected") continue
-        // Delegation children are owned by the broker — the
-        // delegation_completed event is the only signal that should
-        // tear them down (via detachDelegationChild). The idle sweep
-        // would otherwise call acpDisconnect on a backend connection
-        // still mid-prompt for the parent's tool_use.
-        if (conn.isDelegationChild) continue
-        // Viewers don't own their backend connection — acpDisconnect here
-        // would kill another client's agent. The viewer is torn down when its
-        // tab unmounts (disconnect's isViewer branch detaches it).
-        if (conn.isViewer) continue
-        if (conn.backgroundOutstanding > 0) continue
-        const lastActive = lastActivityRef.current.get(contextKey) ?? 0
-        if (now - lastActive > CONNECTION_IDLE_TIMEOUT_MS) {
-          toDisconnect.push({
+        const lastActiveAt = lastActivityRef.current.get(contextKey)
+        if (
+          shouldReclaimConnection({
+            connection: conn,
+            contextKey,
+            activeKey: storeRef.current.activeKey,
+            visibilityState: getDocumentVisibilityState(),
+            lastActiveAt,
+            now,
+          })
+        ) {
+          toRelease.push({
             contextKey,
             connectionId: conn.connectionId,
+            idleMs: now - (lastActiveAt ?? now),
           })
         }
       }
 
-      for (const { contextKey, connectionId } of toDisconnect) {
-        acpDisconnect(connectionId).catch(() => {})
-        reverseMapRef.current.delete(connectionId)
-        teardownAttachSubscription(contextKey)
-        lastActivityRef.current.delete(contextKey)
-        pendingUnmappedEventsRef.current.delete(connectionId)
-        dispatch({ type: "CONNECTION_REMOVED", contextKey })
+      for (const { contextKey, connectionId, idleMs } of toRelease) {
+        void releaseColdConnection(contextKey, connectionId, idleMs)
       }
     }, IDLE_SWEEP_INTERVAL_MS)
 
     return () => clearInterval(timer)
-  }, [dispatch, teardownAttachSubscription])
+  }, [releaseColdConnection])
 
   // Disconnect all on unmount
   useEffect(() => {
@@ -3874,6 +4051,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         workingDir,
         sessionId,
         conversationId,
+      }
+      if (coldDisconnectingKeysRef.current.has(contextKey)) {
+        pendingConnectRequestsRef.current.set(contextKey, request)
+        lastActivityRef.current.set(contextKey, Date.now())
+        return
       }
       if (connectingKeysRef.current.has(contextKey)) {
         pendingConnectRequestsRef.current.set(contextKey, request)
@@ -4366,6 +4548,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         clientMessageId?: string | null
       }
     ) => {
+      if (coldDisconnectingKeysRef.current.has(contextKey)) {
+        throw new TurnBusyError()
+      }
       const conn = storeRef.current.connections.get(contextKey)
       if (!conn) return
       lastActivityRef.current.set(contextKey, Date.now())
@@ -4381,6 +4566,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   )
 
   const setMode = useCallback(async (contextKey: string, modeId: string) => {
+    if (coldDisconnectingKeysRef.current.has(contextKey)) {
+      throw new TurnBusyError()
+    }
     const conn = storeRef.current.connections.get(contextKey)
     if (!conn) return
     // Persist user's mode selection to localStorage
