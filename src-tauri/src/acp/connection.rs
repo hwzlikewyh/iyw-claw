@@ -86,6 +86,62 @@ fn log_stdio_debug_line(agent_name: &str, direction: &str, line: &str) {
     );
 }
 
+fn log_agent_stderr(agent_name: &str, line: &str, builtin_prompt: &str) {
+    let line = redact_builtin_prompt(line, builtin_prompt);
+    tracing::info!("[ACP][{agent_name}][stderr] {line}");
+}
+
+fn redact_builtin_prompt(value: &str, builtin_prompt: &str) -> String {
+    const REDACTED: &str = "<built-in prompt redacted>";
+    let mut redacted = value.to_string();
+    for variant in builtin_prompt_redaction_variants(builtin_prompt) {
+        redacted = redacted.replace(&variant, REDACTED);
+    }
+    if builtin_prompt_fragment_present(&redacted, builtin_prompt) {
+        return REDACTED.to_string();
+    }
+    redacted
+}
+
+fn builtin_prompt_redaction_variants(prompt: &str) -> Vec<String> {
+    let mut variants = vec![
+        prompt.to_string(),
+        prompt.replace('\r', "\\r").replace('\n', "\\n"),
+    ];
+    push_encoded_redaction(&mut variants, prompt);
+    for line in prompt.lines().map(str::trim).filter(|line| line.len() >= 8) {
+        variants.push(line.to_string());
+        push_encoded_redaction(&mut variants, line);
+    }
+    variants.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    variants.dedup();
+    variants
+}
+
+fn push_encoded_redaction(variants: &mut Vec<String>, value: &str) {
+    if let Ok(encoded) = serde_json::to_string(value) {
+        if let Some(inner) = encoded.get(1..encoded.len().saturating_sub(1)) {
+            variants.push(inner.to_string());
+        }
+    }
+    let debug = format!("{value:?}");
+    if let Some(inner) = debug.get(1..debug.len().saturating_sub(1)) {
+        variants.push(inner.to_string());
+    }
+}
+
+fn builtin_prompt_fragment_present(value: &str, prompt: &str) -> bool {
+    const FRAGMENT_CHARS: usize = 24;
+    const STEP_CHARS: usize = 12;
+    prompt.lines().any(|line| {
+        let chars = line.chars().collect::<Vec<_>>();
+        chars
+            .windows(FRAGMENT_CHARS)
+            .step_by(STEP_CHARS)
+            .any(|window| value.contains(&window.iter().collect::<String>()))
+    })
+}
+
 fn merge_agent_env(
     env: &[(&'static str, &'static str)],
     runtime_env: &BTreeMap<String, String>,
@@ -302,6 +358,22 @@ async fn cleanup_delegation_resources(
         .await;
 }
 
+async fn cleanup_connection_resources(
+    injection: Option<&DelegationInjection>,
+    connection_id: &str,
+    mut prompt_bridges: crate::acp::builtin_prompt_bridge::PreparedPromptBridges,
+) {
+    cleanup_delegation_resources(injection, connection_id).await;
+    if let Err(error) = prompt_bridges.release() {
+        tracing::warn!(
+            connection_id,
+            code = ?error.code(),
+            error = %error,
+            "[ACP] built-in prompt bridge cleanup failed"
+        );
+    }
+}
+
 /// Represents a single active ACP agent connection.
 pub struct AgentConnection {
     pub id: String,
@@ -405,11 +477,20 @@ fn inherited_env_keys_to_remove(agent_type: AgentType) -> Vec<OsString> {
     keys
 }
 
-async fn build_agent(
+struct AgentLaunchSpec<'a> {
     agent_type: AgentType,
-    runtime_env: &BTreeMap<String, String>,
-    cwd: &Path,
-) -> Result<AcpAgent, AcpError> {
+    runtime_env: &'a BTreeMap<String, String>,
+    cwd: &'a Path,
+    builtin_prompt: &'a str,
+}
+
+async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
+    let AgentLaunchSpec {
+        agent_type,
+        runtime_env,
+        cwd,
+        builtin_prompt,
+    } = spec;
     let meta = registry::get_agent_meta(agent_type);
     debug_assert_eq!(meta.agent_type, agent_type);
 
@@ -498,9 +579,14 @@ async fn build_agent(
             }
             parts.push(command.to_string_lossy().into_owned());
             if agent_type == AgentType::Grok {
-                parts.extend(crate::acp::grok::launch_args(args));
+                parts.extend(crate::acp::grok::launch_args(args, Some(builtin_prompt)));
             } else {
                 parts.extend(args.iter().map(|arg| (*arg).to_string()));
+                crate::acp::builtin_agent_prompt::append_launch_args(
+                    agent_type,
+                    &mut parts,
+                    builtin_prompt,
+                );
             }
             // Translate OpenClaw-specific env vars to CLI flags
             if agent_type == AgentType::OpenClaw {
@@ -530,15 +616,18 @@ async fn build_agent(
             }
             let refs: Vec<&str> = parts.iter().map(|s| s.as_str()).collect();
             let agent_name = meta.name.to_string();
+            let prompt_for_log = builtin_prompt.to_string();
             AcpAgent::from_args(&refs)
                 .map(|a| {
                     a.with_debug(move |line, dir| {
                         if dir == sacp_tokio::LineDirection::Stderr {
-                            tracing::info!("[ACP][{agent_name}][stderr] {line}");
+                            log_agent_stderr(&agent_name, line, &prompt_for_log);
                         }
                     })
                 })
-                .map_err(|e| AcpError::SpawnFailed(e.to_string()))
+                .map_err(|e| {
+                    AcpError::SpawnFailed(redact_builtin_prompt(&e.to_string(), builtin_prompt))
+                })
         }
         AgentDistribution::Binary {
             version: registry_version,
@@ -710,15 +799,18 @@ async fn build_agent(
             }
             let refs: Vec<&str> = parts.iter().map(|s| s.as_str()).collect();
             let agent_name = meta.name.to_string();
+            let prompt_for_log = builtin_prompt.to_string();
             AcpAgent::from_args(&refs)
                 .map(|a| {
                     a.with_debug(move |line, dir| {
                         if dir == sacp_tokio::LineDirection::Stderr {
-                            tracing::info!("[ACP][{agent_name}][stderr] {line}");
+                            log_agent_stderr(&agent_name, line, &prompt_for_log);
                         }
                     })
                 })
-                .map_err(|e| AcpError::SpawnFailed(e.to_string()))
+                .map_err(|e| {
+                    AcpError::SpawnFailed(redact_builtin_prompt(&e.to_string(), builtin_prompt))
+                })
         }
     }?
     .with_removed_envs(inherited_env_keys_to_remove(agent_type));
@@ -807,13 +899,9 @@ pub async fn spawn_agent_connection(
         .filter(|model| !model.is_empty())
         .map(str::to_string);
     initial_state.user_memory_context = user_memory_context;
-    initial_state.agent_runtime_context = crate::acp::runtime_context::render_agent_context(
-        crate::acp::agent_storage::AgentStoragePaths::active().as_ref(),
-    );
     if session_id.is_some() {
-        // The external session already retains the private launch envelope in
-        // its own history. Re-injecting here would mix policy generations and
-        // cannot revoke context the Agent has already seen. Memory setting
+        // The external session already retains the user-memory envelope in its
+        // own history. Re-injecting here would mix policy generations. Memory setting
         // changes therefore take full effect only in a fresh conversation.
         initial_state.mark_user_context_already_present();
     }
@@ -848,6 +936,7 @@ pub async fn spawn_agent_connection(
     // agree. Computed here because `working_dir` is moved into run_connection
     // below.
     let launch_cwd = resolve_working_dir(working_dir.as_deref());
+    let config_fingerprint = crate::commands::acp::fingerprint_config(agent_type, &runtime_env);
     // `build_agent` resolves agent storage, the managed version env key, and the
     // private npm command. Every one of those failures returns before the
     // `tokio::spawn` block below, which is the *only* site that emits
@@ -855,11 +944,38 @@ pub async fn spawn_agent_connection(
     // `Connecting` status emitted above and falls back to a generic toast, and
     // nothing at all reaches the log. Emit + log here so the failure is
     // attributable to a concrete path.
-    let agent = match build_agent(agent_type, &runtime_env, &launch_cwd).await {
-        Ok(agent) => agent,
+    let launch = async {
+        let storage = AgentStoragePaths::active().ok_or_else(|| {
+            AcpError::SdkNotInstalled(
+                "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
+                    .to_string(),
+            )
+        })?;
+        let prepared = crate::acp::builtin_prompt_injection::prepare(
+            crate::acp::builtin_prompt_injection::PrepareRequest {
+                agent_type,
+                connection_id: &connection_id,
+                session_id: session_id.as_deref(),
+                environment: &runtime_env,
+                storage: &storage,
+            },
+        )
+        .await?;
+        let agent = build_agent(AgentLaunchSpec {
+            agent_type,
+            runtime_env: &prepared.environment,
+            cwd: &launch_cwd,
+            builtin_prompt: &prepared.prompt.text,
+        })
+        .await?;
+        Ok::<_, AcpError>((agent, prepared))
+    }
+    .await;
+    let (agent, prepared_prompt) = match launch {
+        Ok(launch) => launch,
         Err(error) => {
             tracing::error!(
-                "[ACP] build_agent failed connection_id={} agent={:?} cwd={} \
+                "[ACP] agent launch preparation failed connection_id={} agent={:?} cwd={} \
                  code={:?} storage_root={:?} error={error}",
                 connection_id,
                 agent_type,
@@ -892,6 +1008,12 @@ pub async fn spawn_agent_connection(
             return Err(error);
         }
     };
+    let crate::acp::builtin_prompt_injection::PreparedBuiltinPrompt {
+        environment: _launch_environment,
+        prompt: builtin_prompt,
+        bridges: prompt_bridges,
+        openclaw,
+    } = prepared_prompt;
 
     // Forward only the iyw-claw git credential helper keys into the terminal
     // runtime — not the agent's API tokens or model provider credentials.
@@ -921,12 +1043,6 @@ pub async fn spawn_agent_connection(
     let cleanup_connections = connections.clone();
     let cleanup_connection_id = connection_id.clone();
     let state_clone = Arc::clone(&session_state);
-
-    // Canonical config fingerprint of what this process is launching with.
-    // Derived from the same `runtime_env` we hand the agent (minus per-launch
-    // volatile keys) plus the agent's native config file content, so a later
-    // settings save can be compared against it to detect a stale running session.
-    let config_fingerprint = crate::commands::acp::fingerprint_config(agent_type, &runtime_env);
 
     // Insert the entry BEFORE spawning the background task so that a
     // fast-failing `run_connection` can never remove it before it was
@@ -970,8 +1086,10 @@ pub async fn spawn_agent_connection(
                 preferred_mode_id,
                 preferred_config_values,
                 delegation_injection,
+                builtin_prompt,
+                openclaw.session_key,
             ),
-            cleanup_delegation_resources(cleanup_injection.as_ref(), &conn_id),
+            cleanup_connection_resources(cleanup_injection.as_ref(), &conn_id, prompt_bridges),
         )
         .await;
 
@@ -1289,54 +1407,46 @@ fn resolve_working_dir(working_dir: Option<&str>) -> PathBuf {
     }
 }
 
-fn claude_raw_sdk_session_meta(
+#[derive(Clone, Copy)]
+struct SessionRequestContext<'a> {
     agent_type: AgentType,
-) -> Option<serde_json::Map<String, serde_json::Value>> {
-    if agent_type != AgentType::ClaudeCode {
-        return None;
-    }
-
-    let mut claude_code = serde_json::Map::new();
-    claude_code.insert(
-        "emitRawSDKMessages".to_string(),
-        serde_json::Value::Bool(true),
-    );
-
-    let mut meta = serde_json::Map::new();
-    meta.insert(
-        "claudeCode".to_string(),
-        serde_json::Value::Object(claude_code),
-    );
-    Some(meta)
+    cwd: &'a Path,
+    mcp_servers: &'a [McpServer],
+    builtin_prompt: &'a str,
+    openclaw_session_key: Option<&'a str>,
 }
 
-fn build_new_session_request(
-    agent_type: AgentType,
-    cwd: &Path,
-    mcp_servers: Vec<McpServer>,
-) -> NewSessionRequest {
-    let mut req = NewSessionRequest::new(cwd.to_path_buf());
-    if let Some(meta) = claude_raw_sdk_session_meta(agent_type) {
+impl SessionRequestContext<'_> {
+    fn meta(&self) -> Option<serde_json::Map<String, serde_json::Value>> {
+        crate::acp::builtin_agent_prompt::session_meta(
+            self.agent_type,
+            self.builtin_prompt,
+            self.openclaw_session_key,
+        )
+    }
+}
+
+fn build_new_session_request(context: SessionRequestContext<'_>) -> NewSessionRequest {
+    let mut req = NewSessionRequest::new(context.cwd.to_path_buf());
+    if let Some(meta) = context.meta() {
         req = req.meta(meta);
     }
-    if !mcp_servers.is_empty() {
-        req = req.mcp_servers(mcp_servers);
+    if !context.mcp_servers.is_empty() {
+        req = req.mcp_servers(context.mcp_servers.to_vec());
     }
     req
 }
 
 fn build_load_session_request(
-    agent_type: AgentType,
+    context: SessionRequestContext<'_>,
     session_id: SessionId,
-    cwd: &Path,
-    mcp_servers: Vec<McpServer>,
 ) -> LoadSessionRequest {
-    let mut req = LoadSessionRequest::new(session_id, cwd.to_path_buf());
-    if let Some(meta) = claude_raw_sdk_session_meta(agent_type) {
+    let mut req = LoadSessionRequest::new(session_id, context.cwd.to_path_buf());
+    if let Some(meta) = context.meta() {
         req = req.meta(meta);
     }
-    if !mcp_servers.is_empty() {
-        req = req.mcp_servers(mcp_servers);
+    if !context.mcp_servers.is_empty() {
+        req = req.mcp_servers(context.mcp_servers.to_vec());
     }
     req
 }
@@ -1347,17 +1457,15 @@ fn build_load_session_request(
 /// `skip_serializing_if = Vec::is_empty`, so an empty list is omitted from the
 /// payload rather than emitted as `[]`.
 fn build_resume_session_request(
-    agent_type: AgentType,
+    context: SessionRequestContext<'_>,
     session_id: SessionId,
-    cwd: &Path,
-    mcp_servers: Vec<McpServer>,
 ) -> ResumeSessionRequest {
-    let mut req = ResumeSessionRequest::new(session_id, cwd.to_path_buf());
-    if let Some(meta) = claude_raw_sdk_session_meta(agent_type) {
+    let mut req = ResumeSessionRequest::new(session_id, context.cwd.to_path_buf());
+    if let Some(meta) = context.meta() {
         req = req.meta(meta);
     }
-    if !mcp_servers.is_empty() {
-        req = req.mcp_servers(mcp_servers);
+    if !context.mcp_servers.is_empty() {
+        req = req.mcp_servers(context.mcp_servers.to_vec());
     }
     req
 }
@@ -1403,6 +1511,44 @@ async fn send_new_session_capturing_models(
         sacp::util::internal_error(format!("Failed to parse new_session response: {error}"))
     })?;
     Ok((response, models))
+}
+
+async fn send_new_session_with_routing(
+    cx: &ConnectionTo<Agent>,
+    context: SessionRequestContext<'_>,
+) -> Result<(NewSessionResponse, Option<serde_json::Value>), sacp::Error> {
+    let new_context = if context.agent_type == AgentType::OpenClaw {
+        SessionRequestContext {
+            openclaw_session_key: None,
+            ..context
+        }
+    } else {
+        context
+    };
+    let (new_response, models) = send_new_session_capturing_models(
+        cx,
+        context.agent_type,
+        build_new_session_request(new_context),
+    )
+    .await?;
+    if context.agent_type != AgentType::OpenClaw {
+        return Ok((new_response, models));
+    }
+    let session_id = new_response.session_id.clone();
+    let session_key = crate::acp::builtin_prompt_openclaw::session_key(session_id.0.as_ref());
+    let routed_context = SessionRequestContext {
+        openclaw_session_key: Some(&session_key),
+        ..context
+    };
+    let load_request = build_load_session_request(routed_context, session_id.clone());
+    let response = cx.send_request_to(Agent, load_request).block_task().await?;
+    Ok((
+        NewSessionResponse::new(session_id)
+            .modes(response.modes)
+            .config_options(response.config_options)
+            .meta(response.meta),
+        models,
+    ))
 }
 
 /// Whether MCP servers forwarded over the ACP wire (`session/new.mcpServers`)
@@ -1886,6 +2032,8 @@ async fn run_connection(
     preferred_mode_id: Option<String>,
     preferred_config_values: BTreeMap<String, String>,
     delegation_injection: Option<DelegationInjection>,
+    builtin_prompt: crate::acp::builtin_agent_prompt::RenderedBuiltinPrompt,
+    openclaw_session_key: Option<String>,
 ) -> Result<(), AcpError> {
     let pending_perms: PendingPermissions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
     // `terminal_base_env` already filtered to just the credential helper
@@ -2228,6 +2376,14 @@ async fn run_connection(
             )
             .await;
 
+            let session_request_context = SessionRequestContext {
+                agent_type,
+                cwd: &cwd,
+                mcp_servers: &mcp_servers,
+                builtin_prompt: &builtin_prompt.text,
+                openclaw_session_key: openclaw_session_key.as_deref(),
+            };
+
             if let Some(sid) = session_id {
                 // Prefer session/resume when the agent advertises the
                 // capability: it restores session context WITHOUT replaying
@@ -2238,10 +2394,8 @@ async fn run_connection(
                 // effective chain is resume → load → new.
                 if supports_resume {
                     let resume_req = build_resume_session_request(
-                        agent_type,
+                        session_request_context,
                         SessionId::new(sid.clone()),
-                        &cwd,
-                        mcp_servers.clone(),
                     );
                     match send_resume_session(&cx, resume_req).await {
                         Ok((resume_resp, grok_models_raw)) => {
@@ -2358,10 +2512,8 @@ async fn run_connection(
 
                 // Load existing session via session/load
                 let load_req = build_load_session_request(
-                    agent_type,
+                    session_request_context,
                     SessionId::new(sid.clone()),
-                    &cwd,
-                    mcp_servers.clone(),
                 );
                 let load_result = cx.send_request_to(Agent, load_req).block_task().await;
 
@@ -2555,12 +2707,8 @@ async fn run_connection(
                             )
                             .await;
                         }
-                        let (new_resp, grok_models_raw) = send_new_session_capturing_models(
-                            &cx,
-                            agent_type,
-                            build_new_session_request(agent_type, &cwd, mcp_servers.clone()),
-                        )
-                        .await?;
+                        let (new_resp, grok_models_raw) =
+                            send_new_session_with_routing(&cx, session_request_context).await?;
                         let fallback_sid = new_resp.session_id.0.to_string();
                         let initial_config_options = new_resp.config_options.clone();
                         let grok_meta = (agent_type == AgentType::Grok)
@@ -2642,12 +2790,8 @@ async fn run_connection(
                 }
             } else {
                 // Create new session
-                let (new_resp, grok_models_raw) = send_new_session_capturing_models(
-                    &cx,
-                    agent_type,
-                    build_new_session_request(agent_type, &cwd, mcp_servers.clone()),
-                )
-                .await?;
+                let (new_resp, grok_models_raw) =
+                    send_new_session_with_routing(&cx, session_request_context).await?;
                 let sid = new_resp.session_id.0.to_string();
                 let initial_config_options = new_resp.config_options.clone();
                 let grok_meta = (agent_type == AgentType::Grok)

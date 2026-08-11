@@ -21,7 +21,7 @@ use crate::web::event_bridge::EventEmitter;
 use helpers::*;
 
 pub use runtime::{
-    inject_scheduled_task_env, install_scheduled_task_runtime, scheduled_task_context,
+    inject_scheduled_task_env, install_scheduled_task_runtime, scheduled_task_cli_path,
 };
 use types::{CreateInput, DeleteInput, ListInput, UpdateInput};
 pub use types::{ScheduledTaskOperation, ScheduledTaskRequest};

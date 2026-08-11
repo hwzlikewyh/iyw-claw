@@ -38,18 +38,25 @@ fn permission_mode_from_toml(raw: &str) -> Option<String> {
     (mode != "default" && PERMISSION_MODES.contains(&mode)).then(|| mode.to_string())
 }
 
-fn launch_args_from_toml(subcommand: &[&str], raw: Option<&str>) -> Vec<String> {
+fn launch_args_from_toml(
+    subcommand: &[&str],
+    raw: Option<&str>,
+    rules: Option<&str>,
+) -> Vec<String> {
     let mut args = vec!["--no-auto-update".to_string()];
     if let Some(mode) = raw.and_then(permission_mode_from_toml) {
         args.push("--permission-mode".to_string());
         args.push(mode);
     }
+    if let Some(rules) = rules {
+        args.extend(["--rules".to_string(), rules.to_string()]);
+    }
     args.extend(subcommand.iter().map(|arg| (*arg).to_string()));
     args
 }
 
-pub(crate) fn launch_args(subcommand: &[&str]) -> Vec<String> {
+pub(crate) fn launch_args(subcommand: &[&str], rules: Option<&str>) -> Vec<String> {
     let config_path = crate::parsers::grok::resolve_grok_home_dir().join("config.toml");
     let raw = fs::read_to_string(config_path).ok();
-    launch_args_from_toml(subcommand, raw.as_deref())
+    launch_args_from_toml(subcommand, raw.as_deref(), rules)
 }

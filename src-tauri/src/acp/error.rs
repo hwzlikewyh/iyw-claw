@@ -48,6 +48,14 @@ pub enum AcpError {
     InitializeTimeout,
     #[error("Agent did not publish its configurable options within 60 seconds. The probe was aborted; the agent may be slow, idle, or not ACP-compliant — try again or check the agent binary.")]
     ProbeTimedOut,
+    #[error("failed to render built-in Agent prompt: {0}")]
+    BuiltinPromptRender(String),
+    #[error("failed to inject built-in Agent prompt: {0}")]
+    BuiltinPromptInjection(String),
+    #[error("built-in Agent prompt bridge is busy: {0}")]
+    BuiltinPromptBridgeBusy(String),
+    #[error("failed to clean up built-in Agent prompt bridge: {0}")]
+    BuiltinPromptBridgeCleanup(String),
 }
 
 impl AcpError {
@@ -86,6 +94,10 @@ impl AcpError {
             Self::SpawnFailed(_) => Some("spawn_failed"),
             Self::DownloadFailed(_) => Some("download_failed"),
             Self::ConnectionNotFound(_) => Some("connection_not_found"),
+            Self::BuiltinPromptRender(_) => Some("builtin_prompt_render_failed"),
+            Self::BuiltinPromptInjection(_) => Some("builtin_prompt_injection_failed"),
+            Self::BuiltinPromptBridgeBusy(_) => Some("builtin_prompt_bridge_busy"),
+            Self::BuiltinPromptBridgeCleanup(_) => Some("builtin_prompt_bridge_cleanup_failed"),
             Self::Protocol(_) => None,
         }
     }

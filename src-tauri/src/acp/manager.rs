@@ -914,10 +914,10 @@ impl ConnectionManager {
                 None
             } else {
                 s.user_context_injected = true;
-                crate::acp::runtime_context::combine_contexts(
-                    s.agent_runtime_context.clone(),
-                    s.user_memory_context.rendered.clone(),
-                )
+                s.user_memory_context
+                    .rendered
+                    .clone()
+                    .filter(|context| !context.trim().is_empty())
             }
         };
         let user_context = combine_prompt_context(launch_context, private_context);
