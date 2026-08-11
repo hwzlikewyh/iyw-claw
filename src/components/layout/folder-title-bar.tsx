@@ -17,6 +17,7 @@ import { isDesktop, openFileDialog } from "@/lib/platform"
 import { openSettingsWindow } from "@/lib/api"
 import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { Button } from "@/components/ui/button"
+import { AppIcon } from "@/components/app-icon"
 import { useSidebarContext } from "@/contexts/sidebar-context"
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { useTerminalContext } from "@/contexts/terminal-context"
@@ -32,6 +33,7 @@ import {
 import { AppTitleBar } from "./app-title-bar"
 import { BranchDropdown } from "./branch-dropdown"
 import { NewFolderDropdown } from "./new-folder-dropdown"
+import { TitleBarUpdateControl } from "./title-bar-update-control"
 import { SearchCommandDialog } from "@/components/conversations/search-command-dialog"
 import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -171,9 +173,10 @@ export function FolderTitleBar() {
             <div className="flex h-8 flex-1 items-center gap-6">
               <div
                 data-tauri-drag-region
-                className="shrink-0 whitespace-nowrap text-xs font-semibold text-foreground/80"
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-foreground/80"
               >
-                {APP_BRAND_WITH_VERSION}
+                <AppIcon className="pointer-events-none size-4 shrink-0" />
+                <span data-tauri-drag-region>{APP_BRAND_WITH_VERSION}</span>
               </div>
               <BranchDropdown />
               <div data-tauri-drag-region className="h-8 flex-1" />
@@ -183,6 +186,7 @@ export function FolderTitleBar() {
         right={
           isMobile ? (
             <div className="flex items-center gap-1">
+              <TitleBarUpdateControl mobile />
               <Button
                 variant="ghost"
                 size="icon"
@@ -245,6 +249,7 @@ export function FolderTitleBar() {
                   <PanelRight className="h-3.5 w-3.5" />
                 </Button>
               )}
+              <TitleBarUpdateControl />
               <Button
                 variant="ghost"
                 size="icon"
