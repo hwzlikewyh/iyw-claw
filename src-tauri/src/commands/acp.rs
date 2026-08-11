@@ -9896,7 +9896,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             let mut packages = vec![install_spec.as_str()];
             let mut required_commands = vec![cmd];
             if agent_type == AgentType::Pi {
-                packages.push(PI_CODING_AGENT_PACKAGE);
+                packages.push(PI_CODING_AGENT_PACKAGE_SPEC);
                 required_commands.push("pi");
             }
             if let Some(managed) = managed_install.as_ref() {
@@ -10148,7 +10148,7 @@ pub async fn acp_uninstall_agent(
 
 /// The npm package that ships the `pi` binary pi-acp spawns as `pi --mode rpc`.
 /// It is installed beside the pinned pi-acp adapter in the same private prefix.
-const PI_CODING_AGENT_PACKAGE: &str = "@earendil-works/pi-coding-agent";
+const PI_CODING_AGENT_PACKAGE_SPEC: &str = "@earendil-works/pi-coding-agent@0.84.1";
 
 /// Install the Pi adapter and child command together in one private runtime.
 pub(crate) async fn acp_install_pi_binary_core(
@@ -10182,7 +10182,7 @@ pub(crate) async fn acp_install_pi_binary_core(
                 &paths,
                 AgentType::Pi,
                 version,
-                &[package, PI_CODING_AGENT_PACKAGE],
+                &[package, PI_CODING_AGENT_PACKAGE_SPEC],
                 None,
                 None,
                 &[cmd, "pi"],

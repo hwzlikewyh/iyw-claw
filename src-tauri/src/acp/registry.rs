@@ -158,12 +158,12 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             name: "远山",
             description: "ACP wrapper for Anthropic's Claude",
             distribution: AgentDistribution::Npx {
-                version: "0.55.0",
-                package: "@agentclientprotocol/claude-agent-acp@0.55.0",
+                version: "0.66.0",
+                package: "@agentclientprotocol/claude-agent-acp@0.66.0",
                 cmd: "claude-agent-acp",
                 args: &[],
                 env: &[],
-                node_required: None,
+                node_required: Some("22.0.0"),
             },
         },
         AgentType::Codex => AcpAgentMeta {
@@ -173,18 +173,14 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             description: "ACP adapter for OpenAI's coding assistant",
             // codex-acp moved from zed-industries (Rust binary) to the
             // agentclientprotocol org (TypeScript rewrite, npx-distributed).
-            // 1.1.5 bundles `@openai/codex` 0.144.6 and drives `codex
-            // app-server`; that release routes standalone image generation
-            // through the active provider's Images API. Since 1.0.1 it also
-            // resolves the resumed `model_provider` from `~/.codex/config.toml`
-            // (#224), so iyw-claw no
-            // longer injects `MODEL_PROVIDER` to keep resumed sessions on the
-            // custom provider. 1.1.0 (#263) also reports `/goal` transitions as a
-            // structured `session_info_update` (`_meta.codex.goal`) rather than
-            // live agent text — see `crate::acp::codex_goal`.
+            // Since 1.0.1 it resolves the resumed `model_provider` from
+            // `~/.codex/config.toml` (#224), so iyw-claw no longer injects
+            // `MODEL_PROVIDER`. Since 1.1.0 (#263), `/goal` transitions arrive
+            // as structured `session_info_update` values (`_meta.codex.goal`)
+            // rather than live agent text; see `crate::acp::codex_goal`.
             distribution: AgentDistribution::Npx {
-                version: "1.1.5",
-                package: "@agentclientprotocol/codex-acp@1.1.5",
+                version: "1.1.14",
+                package: "@agentclientprotocol/codex-acp@1.1.14",
                 cmd: "codex-acp",
                 args: &[],
                 env: &[],
@@ -197,8 +193,8 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             name: "流光",
             description: "Google's official CLI for Gemini",
             distribution: AgentDistribution::Npx {
-                version: "0.47.0",
-                package: "@google/gemini-cli@0.47.0",
+                version: "0.54.4",
+                package: "@google/gemini-cli@0.54.4",
                 cmd: "gemini",
                 args: &["--acp", "--skip-trust"],
                 env: &[],
@@ -213,12 +209,12 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             name: "开放之爪",
             description: "OpenClaw is a personal AI assistant you run on your own devices.",
             distribution: AgentDistribution::Npx {
-                version: "2026.6.11",
-                package: "openclaw@2026.6.11",
+                version: "2026.7.1-2",
+                package: "openclaw@2026.7.1-2",
                 cmd: "openclaw",
                 args: &["acp"],
                 env: &[],
-                node_required: Some("22.19.0"),
+                node_required: Some("22.22.3"),
             },
         },
         AgentType::Cline => AcpAgentMeta {
@@ -227,8 +223,8 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             name: "逐风",
             description: "Autonomous coding agent CLI",
             distribution: AgentDistribution::Npx {
-                version: "3.0.34",
-                package: "cline@3.0.34",
+                version: "3.0.52",
+                package: "cline@3.0.52",
                 cmd: "cline",
                 args: &["--acp"],
                 env: &[],
@@ -241,34 +237,34 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             name: "云舟",
             description: "The open source coding agent",
             distribution: AgentDistribution::Binary {
-                version: "1.17.13",
+                version: "1.18.16",
                 cmd: "opencode",
                 args: &["acp"],
                 env: &[],
                 platforms: &[
                     PlatformBinary {
                         platform: "darwin-aarch64",
-                        url: "https://github.com/anomalyco/opencode/releases/download/v1.17.13/opencode-darwin-arm64.zip",
+                        url: "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-darwin-arm64.zip",
                     },
                     PlatformBinary {
                         platform: "darwin-x86_64",
-                        url: "https://github.com/anomalyco/opencode/releases/download/v1.17.13/opencode-darwin-x64.zip",
+                        url: "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-darwin-x64.zip",
                     },
                     PlatformBinary {
                         platform: "linux-aarch64",
-                        url: "https://github.com/anomalyco/opencode/releases/download/v1.17.13/opencode-linux-arm64.tar.gz",
+                        url: "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-linux-arm64.tar.gz",
                     },
                     PlatformBinary {
                         platform: "linux-x86_64",
-                        url: "https://github.com/anomalyco/opencode/releases/download/v1.17.13/opencode-linux-x64.tar.gz",
+                        url: "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-linux-x64.tar.gz",
                     },
                     PlatformBinary {
                         platform: "windows-aarch64",
-                        url: "https://github.com/anomalyco/opencode/releases/download/v1.17.13/opencode-windows-arm64.zip",
+                        url: "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-windows-arm64.zip",
                     },
                     PlatformBinary {
                         platform: "windows-x86_64",
-                        url: "https://github.com/anomalyco/opencode/releases/download/v1.17.13/opencode-windows-x64.zip",
+                        url: "https://github.com/anomalyco/opencode/releases/download/v1.18.16/opencode-windows-x64.zip",
                     },
                 ],
             },
@@ -279,13 +275,13 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             name: "赫尔墨斯",
             description: "Nous Research's self-improving agent (ACP via uvx)",
             distribution: AgentDistribution::Uvx {
-                version: "0.18.0",
-                package: "hermes-agent[acp,mcp]==0.18.0",
+                version: "0.19.0",
+                package: "hermes-agent[acp,mcp]==0.19.0",
                 cmd: "hermes-acp",
                 args: &[],
                 env: &[],
                 uv_required: Some("0.5.0"),
-                // hermes-agent 0.18.0 is `requires-python = ">=3.11,<3.14"`, and
+                // hermes-agent 0.19.0 is `requires-python = ">=3.11,<3.14"`, and
                 // its win32 dep `pywinpty` (>=2.0.0,<3) has no Python 3.14 wheel
                 // (the 2.0.15 source build fails against PyO3's 3.13 ceiling).
                 // Without this pin uvx grabs the machine's default interpreter
@@ -301,8 +297,8 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             name: "青岚",
             description: "Tencent Cloud's official AI coding assistant (ACP)",
             distribution: AgentDistribution::Npx {
-                version: "2.117.0",
-                package: "@tencent-ai/codebuddy-code@2.117.0",
+                version: "2.134.0",
+                package: "@tencent-ai/codebuddy-code@2.134.0",
                 cmd: "codebuddy",
                 args: &["--acp"],
                 env: &[],
@@ -315,8 +311,8 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             name: "月白",
             description: "Moonshot AI's official CLI coding assistant (ACP)",
             distribution: AgentDistribution::Npx {
-                version: "0.22.3",
-                package: "@moonshot-ai/kimi-code@0.22.3",
+                version: "0.34.0",
+                package: "@moonshot-ai/kimi-code@0.34.0",
                 cmd: "kimi",
                 args: &["acp"],
                 env: &[],
@@ -334,18 +330,19 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             supports_mcp: true,
             name: "墨川",
             description: "Self-extensible coding agent (ACP via pi-acp)",
-            // pi-acp 0.0.31 spawns `pi --mode rpc` as a child. iyw-claw installs
+            // pi-acp 0.0.33 spawns `pi --mode rpc` as a child. iyw-claw installs
             // both packages into one private prefix and injects the absolute
             // child path through `PI_ACP_PI_COMMAND`; PATH/global installs are
             // not launch fallbacks. Args are empty because ACP server mode is
-            // the adapter default. `node_required` follows pi's 22+ requirement.
+            // the adapter default. `node_required` follows the co-installed
+            // pi-coding-agent package's Node 22.19+ requirement.
             distribution: AgentDistribution::Npx {
-                version: "0.0.31",
-                package: "pi-acp@0.0.31",
+                version: "0.0.33",
+                package: "pi-acp@0.0.33",
                 cmd: "pi-acp",
                 args: &[],
                 env: &[("PI_ACP_ENABLE_EMBEDDED_CONTEXT", "true")],
-                node_required: Some("22.0.0"),
+                node_required: Some("22.19.0"),
             },
         },
         AgentType::Grok => AcpAgentMeta {
@@ -354,8 +351,8 @@ pub fn get_agent_meta(agent_type: AgentType) -> AcpAgentMeta {
             name: "知微",
             description: "xAI's official coding agent and CLI (ACP via grok agent stdio)",
             distribution: AgentDistribution::Npx {
-                version: "0.2.101",
-                package: "@xai-official/grok@0.2.101",
+                version: "1.0.0",
+                package: "@xai-official/grok@1.0.0",
                 cmd: "grok",
                 args: &["agent", "stdio"],
                 env: &[],

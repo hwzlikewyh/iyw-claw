@@ -56,10 +56,10 @@ impl ComponentSpec {
 // Keep these aligned with the mirrored artifacts in iyw_fusion_api_component_artifacts.
 // A pinned fallback that points at a version the mirror does not carry defeats the
 // purpose of the fallback: it downloads a runtime the managed catalog can never match.
-const NODE_VERSION_X64: &str = "24.18.1";
+const NODE_VERSION_X64: &str = "24.19.0";
 const NODE_VERSION_X86: &str = "22.23.1";
-const NODE_SHA256_X64: &str = "ec56b84a7551893ab2324ebdfdc4ab974a63b4781162600b68a1293cc3e53765";
-const NODE_SHA256_ARM64: &str = "ffbc7d3e1baf6804f7431ff94f19b9a885a650568c93ea4ccb1bb0038f6af825";
+const NODE_SHA256_X64: &str = "57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73";
+const NODE_SHA256_ARM64: &str = "8502f4a50b458d4cc38ed8f2001556c2cd239d464920f74017926ccb1e1c157f";
 const NODE_SHA256_X86: &str = "e298b368aad86c571447a3650db3ce19063373ffd39d6d73d014a5d9ad31dc62";
 const GIT_VERSION: &str = "2.55.0+windows.3";
 const GIT_ASSET_VERSION: &str = "2.55.0.3";
