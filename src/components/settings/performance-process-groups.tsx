@@ -22,6 +22,7 @@ export interface ProcessGroup {
   rootPid: number
   cpuUsage: number
   memoryBytes: number
+  isAgentSession: boolean
   processes: AppProcessInfo[]
 }
 
@@ -58,10 +59,12 @@ export function buildProcessGroups(
       rootPid: proc.pid,
       cpuUsage: 0,
       memoryBytes: 0,
+      isAgentSession: Boolean(proc.agentType),
       processes: [],
     }
     existing.cpuUsage += proc.cpuUsage
     existing.memoryBytes += proc.memoryBytes
+    if (proc.agentType) existing.isAgentSession = true
     existing.processes.push(proc)
     if (proc.processRole === "main" || proc.processRole === "launcher") {
       existing.rootPid = proc.pid
@@ -126,29 +129,28 @@ function ProcessRow({ proc }: { proc: AppProcessInfo }) {
   )
 }
 
-function ProcessGroupHeader({
+function ProcessGroupHeaderContent({
   group,
   expanded,
-  onToggle,
+  expandable,
 }: {
   group: ProcessGroup
   expanded: boolean
-  onToggle: () => void
+  expandable: boolean
 }) {
   return (
-    <button
-      type="button"
-      className="grid w-full grid-cols-[minmax(0,1fr)_6rem_4rem] items-center gap-2 bg-muted/20 px-4 py-3 text-left hover:bg-muted/35"
-      onClick={onToggle}
-      aria-expanded={expanded}
-    >
+    <>
       <span className="flex min-w-0 items-center gap-2">
-        <ChevronDown
-          className={cn(
-            "size-4 shrink-0 transition-transform",
-            !expanded && "-rotate-90"
-          )}
-        />
+        {expandable ? (
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 transition-transform",
+              !expanded && "-rotate-90"
+            )}
+          />
+        ) : (
+          <span aria-hidden className="size-4 shrink-0" />
+        )}
         <span className="truncate text-sm font-semibold">
           {group.displayName}
         </span>
@@ -162,6 +164,40 @@ function ProcessGroupHeader({
       <span className="text-right text-sm tabular-nums text-muted-foreground">
         {group.cpuUsage.toFixed(1)}%
       </span>
+    </>
+  )
+}
+
+function ProcessGroupHeader({
+  group,
+  expanded,
+  expandable,
+  onToggle,
+}: {
+  group: ProcessGroup
+  expanded: boolean
+  expandable: boolean
+  onToggle: () => void
+}) {
+  const className =
+    "grid w-full grid-cols-[minmax(0,1fr)_6rem_4rem] items-center gap-2 bg-muted/20 px-4 py-3 text-left"
+
+  if (!expandable) {
+    return (
+      <div className={className}>
+        <ProcessGroupHeaderContent {...{ group, expanded, expandable }} />
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className={cn(className, "hover:bg-muted/35")}
+      onClick={onToggle}
+      aria-expanded={expanded}
+    >
+      <ProcessGroupHeaderContent {...{ group, expanded, expandable }} />
     </button>
   )
 }
@@ -175,14 +211,17 @@ function ProcessGroupSection({
   expanded: boolean
   onToggle: () => void
 }) {
+  const expandable = !group.isAgentSession
+
   return (
     <section className="border-b last:border-b-0">
       <ProcessGroupHeader
         group={group}
         expanded={expanded}
+        expandable={expandable}
         onToggle={onToggle}
       />
-      {expanded && (
+      {expandable && expanded && (
         <div className="divide-y">
           {group.processes.map((proc) => (
             <ProcessRow key={proc.pid} proc={proc} />
