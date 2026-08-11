@@ -34,6 +34,10 @@ class AuthenticationError(LixiaoError):
     code = "authentication_required"
 
 
+class CredentialRejectedError(AuthenticationError):
+    pass
+
+
 def _cookie_from_data(item: dict[str, Any]) -> Cookie:
     domain = str(item.get("domain") or "")
     path = str(item.get("path") or "/")
@@ -130,7 +134,7 @@ class LixiaoClient:
         if call.body is not None:
             data = json.dumps(call.body, ensure_ascii=False).encode("utf-8")
         request = Request(url, data=data, method=call.endpoint.method, headers=headers)
-        result = self._open(request, call.endpoint.service)
+        result = self._open(request, call.endpoint.service, operation=call.operation)
         self._save_session(call.operation, result)
         return result
 
@@ -206,7 +210,7 @@ class LixiaoClient:
             f"{SERVICE_URLS['uc']}/api/sso/getApp",
             headers=app_headers(bootstrap_token),
         )
-        result = self._open(request, "uc")
+        result = self._open(request, "uc", operation="app-token-bootstrap")
         data = result.get("data") if isinstance(result, dict) else None
         token = data.get("appToken") if isinstance(data, dict) else None
         if not token:
@@ -238,7 +242,7 @@ class LixiaoClient:
             raise AuthenticationError("Lixiao app bootstrap value was not returned")
         return token
 
-    def _open(self, request: Request, service: str) -> Any:
+    def _open(self, request: Request, service: str, *, operation: str) -> Any:
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
                 raw = response.read()
@@ -260,18 +264,20 @@ class LixiaoClient:
                 code="upstream_unavailable",
                 retryable=True,
             ) from exc
-        self._validate_response(result, status, service=service)
+        self._validate_response(result, status, service=service, operation=operation)
         return result
 
-    def _validate_response(self, result: Any, status: int, *, service: str) -> None:
+    def _validate_response(
+        self, result: Any, status: int, *, service: str, operation: str
+    ) -> None:
         if not 200 <= status < 300:
             message = result.get("message") if isinstance(result, dict) else None
             self._raise_http_error(status, message)
         if not isinstance(result, dict):
             return
-        self._validate_business_result(result)
         if service == "uc":
-            self._validate_uc_result(result)
+            self._validate_uc_result(result, operation=operation)
+        self._validate_business_result(result)
 
     def _validate_business_result(self, result: dict[str, Any]) -> None:
         if result.get("success") is False:
@@ -280,11 +286,13 @@ class LixiaoClient:
                 code=str(result.get("error_code") or "request_failed"),
             )
 
-    def _validate_uc_result(self, result: dict[str, Any]) -> None:
+    def _validate_uc_result(self, result: dict[str, Any], *, operation: str) -> None:
         if "code" in result and str(result["code"]) != "0":
             message = str(result.get("message") or "login request failed")
             code = str(result.get("code"))
-            if "401" in code:
+            if code == "401":
+                if operation == "password-login":
+                    raise CredentialRejectedError(message)
                 raise AuthenticationError(message)
             raise LixiaoError(message, code=code)
 

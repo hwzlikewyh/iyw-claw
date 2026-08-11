@@ -10,6 +10,8 @@ from typing import Any
 from iyw_crm_client import (
     DEFAULT_CRM_BASE_URL,
     FUSION_API_BASE_URL,
+    AuthenticationError,
+    CredentialRejectedError,
     CrmClient,
     CrmError,
 )
@@ -98,10 +100,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="prompt for a fresh username instead of reusing the saved one",
     )
-    login.add_argument("--username", help="username paired with --password")
-    login.add_argument("--password", help="password paired with --username")
+    login.add_argument("--username", help="new username paired with --password")
+    login.add_argument(
+        "--password", help="password paired with --username or the saved username"
+    )
     auth_actions.add_parser("ensure", help="verify the saved CRM session")
-    auth_actions.add_parser("logout", help="remove the saved CRM session")
+    auth_actions.add_parser("logout", help="remove saved CRM credentials and session")
 
     api = subparsers.add_parser("api", help="call a captured CRM operation")
     operations = api.add_subparsers(dest="operation", required=True)
@@ -124,42 +128,78 @@ def _client(args: argparse.Namespace, store: SessionStore) -> CrmClient:
     )
 
 
+def _resolve_login_credentials(
+    args: argparse.Namespace, store: SessionStore
+) -> tuple[str, str]:
+    saved_username, saved_password = store.saved_credentials()
+    username = str(args.username or "")
+    password = str(args.password or "")
+    if args.interactive and (username or password):
+        raise ValueError("--interactive cannot be combined with credentials")
+    if username and not password:
+        raise ValueError("--username and --password must be provided together")
+    if password:
+        username = username or str(saved_username or "")
+        if not username:
+            raise ValueError("--password requires a saved CRM username")
+        return username, password
+    username = "" if args.interactive else str(saved_username or "")
+    if not username:
+        username = input("CRM username: ").strip()
+    if not username:
+        raise ValueError("CRM username must not be empty")
+    password = "" if args.interactive else str(saved_password or "")
+    if not password:
+        password = getpass.getpass("CRM password: ")
+    if not password:
+        raise ValueError("CRM password must not be empty")
+    return username, password
+
+
+def _login_with_saved_credentials(
+    client: CrmClient, store: SessionStore
+) -> dict[str, Any]:
+    username, password = store.saved_credentials()
+    if not username or not password:
+        raise AuthenticationError("saved CRM credentials are unavailable")
+    try:
+        return client.login(username, password)
+    except CredentialRejectedError:
+        store.invalidate_saved_credentials()
+        raise
+    finally:
+        password = None
+
+
+def _dry_run_auth(action: str, base_url: str) -> dict[str, Any]:
+    return {
+        "operation": f"auth-{action}",
+        "base_url": base_url,
+        "network": False,
+        "credentials_read": False,
+        "password_read": False,
+    }
+
+
 def _run_auth(args: argparse.Namespace, store: SessionStore) -> Any:
+    if args.dry_run:
+        return _dry_run_auth(args.auth_action, args.base_url)
     if args.auth_action == "status":
         return {
             **store.summary(),
             "crm_base_url": args.base_url,
             "fusion_api_base_url": FUSION_API_BASE_URL,
         }
-    if args.dry_run:
-        action = "auth-login" if args.auth_action == "login" else "auth-ensure"
-        if args.auth_action == "logout":
-            action = "auth-logout"
-        return {
-            "operation": action,
-            "base_url": args.base_url,
-            "network": False,
-            "password_read": False,
-        }
     if args.auth_action == "logout":
         return {"removed": store.clear(), "path": str(store.path)}
     client = _client(args, store)
     if args.auth_action == "ensure":
-        return client.ensure_authenticated()
-    username = str(args.username or "")
-    password = str(args.password or "")
-    if bool(username) != bool(password):
-        raise ValueError("--username and --password must be provided together")
-    if not username:
-        saved = store.load()
-        username = "" if args.interactive else str(saved.get("username") or "")
-        if not username:
-            username = input("CRM username: ").strip()
-        if not username:
-            raise ValueError("CRM username must not be empty")
-        password = getpass.getpass("CRM password: ")
-        if not password:
-            raise ValueError("CRM password must not be empty")
+        try:
+            return {"status": "valid", **client.ensure_authenticated()}
+        except AuthenticationError:
+            result = _login_with_saved_credentials(client, store)
+            return {"status": "reauthenticated", **result}
+    username, password = _resolve_login_credentials(args, store)
     try:
         return client.login(username, password)
     finally:
@@ -172,7 +212,14 @@ def _run_api(args: argparse.Namespace, store: SessionStore) -> Any:
     form = build_customer_search(
         args.text, page=args.page, rows=args.rows, overrides=args.field
     )
-    return _client(args, store).search_customers(form, dry_run=args.dry_run)
+    client = _client(args, store)
+    try:
+        return client.search_customers(form, dry_run=args.dry_run)
+    except AuthenticationError:
+        if args.dry_run:
+            raise
+        _login_with_saved_credentials(client, store)
+        return client.search_customers(form)
 
 
 def _success(data: Any) -> int:

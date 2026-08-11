@@ -12,9 +12,9 @@
 
 | Command | Purpose |
 | --- | --- |
-| `auth status` | Show the credential path and non-secret availability flags. |
-| `auth login [--interactive] [--phone P --password P] [--ttocr-url U]` | Automated password login: register Geetest, solve it via TTOCR, complete CRM SSO, and save the account plus API session. A platform-native credential form may supply `--phone` and `--password` directly without opening a terminal prompt. |
-| `auth ensure [--ttocr-url U]` | Verify the saved session with `app-session`; re-login with the saved account only when the session is invalid. |
+| `auth status` | Show the credential path, `has_saved_account`, `has_saved_credentials`, and other non-secret availability flags. |
+| `auth login [--interactive] [--phone P] [--password P] [--ttocr-url U]` | Automated password login. `--password` alone reuses the saved phone. |
+| `auth ensure [--ttocr-url U]` | Verify app and business sessions; submit saved credentials at most once when authentication is invalid. |
 | `auth set-app-token` | Manual diagnostic fallback to read and save the Lixiao application token. Agent workflows obtain it automatically. |
 | `auth set-business-token` | Read the business API token from hidden input and save it. |
 | `auth set-ttocr-token` | Legacy fallback: read and save one IYW gateway token when the shared IYW Claw account token is unavailable. |
@@ -24,17 +24,23 @@
 | `auth captcha` | Register a Geetest challenge for password login. |
 | `auth password ...` | Log in with an externally solved Geetest proof; also saves the account on success. |
 | `auth app` | Refresh and save the application SSO access token. |
-| `auth logout` | Remove only `.iyw-claw/credentials.json`. |
+| `auth logout` | Remove the complete plaintext `.iyw-claw/credentials.json`, including account, password, tokens, cookies, and sessions. |
 
-Prefer `auth login`. It saves the phone, password, cookies, SSO access token, and business API token in the credential file, so later runs reuse the session without logging in again. UC API calls that fail with an expired session automatically re-login with the saved account and retry once. Use `auth captcha` followed by `auth password` when the TTOCR captcha gateway is unavailable, and the QR commands as the last fallback.
+Prefer `auth login`. It saves the phone, password, cookies, SSO access token, and business API token as
+plaintext in the current user's credential file for Windows, Linux, and macOS. An authenticated read
+that finds an expired session submits saved credentials and replays once. Workflows preflight the
+session; unlock operations are not replayed after they are sent.
 
-When credentials are required, agents must call `ask_user_question` twice in sequence: ask only for the
-account and wait for its answer, then ask only for the password and wait for its answer. Never combine
-both credential questions in one call. After both answers arrive, use
-`auth login --phone <account> --password <password>` directly. Do not open a terminal login window,
-request a login-complete reply, or issue a security warning or password-rotation recommendation for
-this authorized flow. `auth login --interactive` remains available only for a user who explicitly runs
-the CLI manually. Account-password login remains preferred over QR or manual captcha login.
+After automatic login is rejected, inspect the non-secret flags. Only a structured rejection from
+`password-login` removes the saved password. If `has_saved_account` is true but the password is absent,
+ask the current internal operator only for the password and run `auth login --password <password>`.
+If no account remains, agents must call `ask_user_question` twice in sequence with the current internal
+operator: ask only for the account and wait, then ask only for the password and wait. Never combine both
+credential questions in one call. Never contact the customer or recommend asking the customer again.
+Network, captcha, TTOCR, SSO, token, rate-limit, and other upstream errors retain the saved password and
+must not trigger a credential prompt.
+Serialize authentication and credential writes for a shared config directory; parallel read-only
+work should reuse a session established by the parent Agent.
 
 The TTOCR captcha gateway defaults to `https://gateway.iyw.cn/iyw-fusion-api/v1/ttocr/recognize` (override with `--ttocr-url` or `LIXIAO_TTOCR_URL`). Token resolution matches `iyw-image-workflows`: use `~/.iyw-claw/iyw-account-token.json` `access_token` first, then `IYW_TOKEN`, then the legacy saved fallback. The request sends only `token`, never `tokenInfo`. A `登录状态失效` response means the shared account token is expired, so sign in to IYW Claw again to refresh the account token file.
 

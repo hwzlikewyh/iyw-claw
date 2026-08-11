@@ -118,6 +118,39 @@ class CredentialStore:
         self._write(data)
         return data
 
+    def saved_credentials(self) -> tuple[str | None, str | None]:
+        data = self.load()
+        phone = data.get("phone")
+        password = data.get("password")
+        return (
+            phone if isinstance(phone, str) and phone else None,
+            password if isinstance(password, str) and password else None,
+        )
+
+    def discard(self, *fields: str) -> bool:
+        unsupported = set(fields) - ALLOWED_FIELDS
+        if unsupported:
+            names = ", ".join(sorted(unsupported))
+            raise ValueError(f"refusing to remove unsupported credential fields: {names}")
+        data = self.load()
+        removed = False
+        for field in fields:
+            if field in data:
+                del data[field]
+                removed = True
+        if removed:
+            self._write(data)
+        return removed
+
+    def invalidate_saved_credentials(self) -> bool:
+        return self.discard(
+            "password",
+            "cookies",
+            "access_token",
+            "business_token",
+            "refresh_token",
+        )
+
     def summary(self) -> dict[str, Any]:
         data = self.load()
         cookies = data.get("cookies") if isinstance(data.get("cookies"), list) else []
@@ -128,6 +161,8 @@ class CredentialStore:
             or data.get("ttocr_token")
             or data.get("login_token")
         )
+        has_saved_account = bool(data.get("phone"))
+        has_saved_credentials = bool(has_saved_account and data.get("password"))
         return {
             "path": str(self.path),
             "configured": self.path.exists(),
@@ -136,7 +171,9 @@ class CredentialStore:
             "has_business_token": bool(data.get("business_token")),
             "has_iyw_token": has_iyw_token,
             "has_ttocr_token": has_iyw_token,
-            "has_account": bool(data.get("phone") and data.get("password")),
+            "has_saved_account": has_saved_account,
+            "has_saved_credentials": has_saved_credentials,
+            "has_account": has_saved_credentials,
             "cookie_count": len(cookies),
         }
 

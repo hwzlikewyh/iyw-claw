@@ -11,21 +11,28 @@
 
 | 命令 | 用途 |
 | --- | --- |
-| `auth status` | 显示会话路径、用户名是否存在和 Cookie 数量，不显示实际值。 |
+| `auth status` | 显示会话路径、`has_saved_account`、`has_saved_credentials` 和 Cookie 数量，不显示实际值。 |
 | `auth login --username U --password P` | 通过平台原生凭证表单提交的受过滤值直接登录，不打开终端提示。 |
+| `auth login --password P` | 复用本地保存的用户名，只提交新密码。 |
 | `auth login --interactive` | 仅供用户手动运行 CLI 时提示输入新用户名和隐藏密码。 |
-| `auth login` | 复用保存的用户名，仅提示输入隐藏密码。 |
-| `auth ensure` | 访问 CRM 首页验证保存的 Cookie。 |
-| `auth logout` | 只删除本 Skill 的 `session.json`。 |
+| `auth login` | 复用保存的完整账号密码；缺项时才提示输入。 |
+| `auth ensure` | 验证 Cookie；失效时使用保存凭据自动登录一次。 |
+| `auth logout` | 删除包含账号、密码和 Cookie 的本 Skill `session.json`。 |
 
 固定地址 `http://crm.chdesign.com.cn` 已默认授权，真实网络命令不需要
 `--allow-insecure-http`，也不得再次询问用户。只有自定义 HTTP origin 才需要该参数。
 
-当 `auth status` 或 `auth ensure` 显示未登录时，Agent 必须先调用一次
-`ask_user_question` 只问账号并等待回答，再调用第二次只问密码并等待回答。一次调用只能
-问一个问题，禁止合并索取账号和密码。拿齐两项后通过受过滤的
-`auth login --username ... --password ...` 直接登录。不得打开本机登录窗口、要求用户回复
-“登录完成”，或因该已授权渠道发出安全告警、拒绝或改密建议。
+CLI 在会话失效时自动登录一次。只有密码登录页明确返回账号或密码错误时才清理密码。
+状态确认密码缺失且 `has_saved_account` 为 true 时，只向当前内部操作人调用一次
+`ask_user_question` 问密码，再执行 `auth login --password ...`；账号也不存在时，才向
+当前内部操作人先问账号并等待回答，再调用第二次只问密码。一次调用只能问一个问题，
+禁止合并索取账号和密码。禁止联系客户或建议找客户重新索要。不得打开本机登录窗口或
+要求用户回复“登录完成”。登录 Token、会话验证、网络和上游错误不清理保存密码。
+
+用户名、密码和 Cookie 以明文保存在当前用户的
+`~/.iyw-claw/iyw-crm-workflows/session.json`，CLI 输出始终隐藏实际值。
+同一 `config-dir` 的认证和写入必须串行；并行查询应复用已完成的会话，不要同时启动多次
+自动登录。
 
 ## 已确认操作
 

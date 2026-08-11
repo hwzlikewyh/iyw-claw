@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 CONFIG_ENV = "IYW_CRM_CONFIG_DIR"
-ALLOWED_FIELDS = frozenset({"version", "username", "cookies"})
+ALLOWED_FIELDS = frozenset({"version", "username", "password", "cookies"})
 SECRET_KEYS = frozenset(
     {
         "authorization",
@@ -67,6 +67,8 @@ class SessionStore:
             raise ValueError(f"CRM session file contains unsupported fields: {names}")
         if data.get("username") is not None and not isinstance(data["username"], str):
             raise TypeError("CRM session username must be a string")
+        if data.get("password") is not None and not isinstance(data["password"], str):
+            raise TypeError("CRM session password must be a string")
         if data.get("cookies") is not None and not isinstance(data["cookies"], list):
             raise TypeError("CRM session cookies must be a list")
         return data
@@ -82,13 +84,45 @@ class SessionStore:
         self._write(data)
         return data
 
+    def saved_credentials(self) -> tuple[str | None, str | None]:
+        data = self.load()
+        username = data.get("username")
+        password = data.get("password")
+        return (
+            username if isinstance(username, str) and username else None,
+            password if isinstance(password, str) and password else None,
+        )
+
+    def discard(self, *fields: str) -> bool:
+        unsupported = set(fields) - ALLOWED_FIELDS
+        if unsupported:
+            names = ", ".join(sorted(unsupported))
+            raise ValueError(f"refusing to remove unsupported session fields: {names}")
+        data = self.load()
+        removed = False
+        for field in fields:
+            if field in data:
+                del data[field]
+                removed = True
+        if removed:
+            self._write(data)
+        return removed
+
+    def invalidate_saved_credentials(self) -> bool:
+        return self.discard("password", "cookies")
+
     def summary(self) -> dict[str, Any]:
         data = self.load()
         cookies = data.get("cookies") if isinstance(data.get("cookies"), list) else []
+        has_saved_account = bool(data.get("username"))
         return {
             "path": str(self.path),
             "configured": self.path.exists(),
-            "has_username": bool(data.get("username")),
+            "has_username": has_saved_account,
+            "has_saved_account": has_saved_account,
+            "has_saved_credentials": bool(
+                has_saved_account and data.get("password")
+            ),
             "cookie_count": len(cookies),
         }
 

@@ -18,7 +18,12 @@ from lixiao_advanced import (
     response_items as advanced_response_items,
     validate_limits as validate_advanced_limits,
 )
-from lixiao_client import AuthenticationError, LixiaoClient, LixiaoError
+from lixiao_client import (
+    AuthenticationError,
+    CredentialRejectedError,
+    LixiaoClient,
+    LixiaoError,
+)
 from lixiao_commands import (
     SPECS,
     CommandError,
@@ -38,6 +43,7 @@ DEFAULT_AGREEMENT = json.dumps(
     ensure_ascii=False,
 )
 DEFAULT_SEARCH_LIMIT = 100
+NON_REPLAYABLE_OPERATIONS = frozenset({"company-unlock"})
 
 
 def _flag_name(name: str) -> str:
@@ -86,7 +92,7 @@ def _add_auth_parsers(subparsers: Any) -> None:
         help="prompt for account and password, ignoring saved credentials",
     )
     login.add_argument(
-        "--password", help="password paired with --phone for direct login"
+        "--password", help="password paired with --phone or the saved account"
     )
     login.add_argument("--ttocr-url", help="override the captcha gateway URL")
     ensure = actions.add_parser(
@@ -209,20 +215,22 @@ def _read_line(label: str) -> str:
 
 
 def _resolve_account(args: argparse.Namespace, store: CredentialStore) -> tuple[str, str]:
+    saved_phone, saved_password = store.saved_credentials()
     direct_password = getattr(args, "password", None)
     if direct_password is not None:
-        phone = getattr(args, "phone", None)
-        if not phone or not direct_password or getattr(args, "interactive", False):
-            raise CommandError("--password requires --phone and cannot use --interactive")
+        if not direct_password or getattr(args, "interactive", False):
+            raise CommandError("--password cannot be empty or use --interactive")
+        phone = getattr(args, "phone", None) or saved_phone
+        if not phone:
+            raise CommandError("--password requires a saved Lixiao account or --phone")
         return str(phone), str(direct_password)
     if getattr(args, "interactive", False):
         return _read_line("Login Phone/Account"), _read_secret("Password")
 
-    saved = store.load()
-    phone = getattr(args, "phone", None) or saved.get("phone")
+    phone = getattr(args, "phone", None) or saved_phone
     password = None
-    if phone and phone == saved.get("phone"):
-        password = saved.get("password")
+    if phone and phone == saved_phone:
+        password = saved_password
     if not phone:
         phone = _read_line("Login Phone/Account")
     if not password:
@@ -279,14 +287,50 @@ def _auto_login(
         "agreementVersion": DEFAULT_AGREEMENT,
     }
     login = _execute_operation(client, "password-login", body=body)
-    result = _finish_password_login(client, login)
     store.update(phone=phone, password=password)
+    result = _finish_password_login(client, login)
     return result
 
 
-def _saved_account(store: CredentialStore) -> tuple[str | None, str | None]:
-    saved = store.load()
-    return saved.get("phone"), saved.get("password")
+def _login_with_saved_credentials(
+    client: LixiaoClient,
+    store: CredentialStore,
+    *,
+    ttocr_url: str | None = None,
+) -> Any:
+    phone, password = store.saved_credentials()
+    if not phone or not password:
+        raise AuthenticationError("saved Lixiao credentials are unavailable")
+    try:
+        return _auto_login(
+            client,
+            store,
+            phone=phone,
+            password=password,
+            ttocr_url=ttocr_url,
+        )
+    except CredentialRejectedError:
+        store.invalidate_saved_credentials()
+        raise
+    finally:
+        password = None
+
+
+def _ensure_session(
+    client: LixiaoClient,
+    store: CredentialStore,
+    *,
+    ttocr_url: str | None = None,
+) -> dict[str, Any]:
+    try:
+        app = _execute_operation(client, "app-session")
+        business = _execute_operation(client, "feature-packages")
+        return {"status": "valid", "app": app, "business": business}
+    except AuthenticationError:
+        result = _login_with_saved_credentials(
+            client, store, ttocr_url=ttocr_url
+        )
+        return {"status": "reauthenticated", **result}
 
 
 def _products_require_unlock(result: Any) -> bool:
@@ -459,6 +503,15 @@ def _execute_api_request(
     )
 
 
+def _api_can_replay(args: argparse.Namespace) -> bool:
+    if args.operation in NON_REPLAYABLE_OPERATIONS:
+        return False
+    return not (
+        args.operation == "company-products"
+        and bool(getattr(args, "unlock_if_needed", False))
+    )
+
+
 def _run_api(args: argparse.Namespace, store: CredentialStore, client: LixiaoClient) -> Any:
     if args.operation == "list":
         return {"count": len(SPECS), "operations": operation_catalog()}
@@ -469,21 +522,16 @@ def _run_api(args: argparse.Namespace, store: CredentialStore, client: LixiaoCli
         if value:
             query[key] = value
     body = parse_json_input(args.body) if args.body is not None else None
+    requires_auth = spec.auth in {"app", "business"}
+    if not args.dry_run and requires_auth and not _api_can_replay(args):
+        _ensure_session(client, store, ttocr_url=None)
+        return _execute_api_request(args, client, query, body)
     try:
         return _execute_api_request(args, client, query, body)
     except AuthenticationError:
-        if args.dry_run or spec.auth != "app":
+        if args.dry_run or not requires_auth:
             raise
-        phone, password = _saved_account(store)
-        if not phone or not password:
-            raise
-        _auto_login(
-            client,
-            store,
-            phone=phone,
-            password=password,
-            ttocr_url=resolve_ttocr_url(None),
-        )
+        _login_with_saved_credentials(client, store, ttocr_url=None)
         return _execute_api_request(args, client, query, body)
 
 
@@ -739,7 +787,11 @@ def _run_search_templates(args: argparse.Namespace, client: LixiaoClient) -> Any
     return _execute_operation(client, "search-templates", query, dry_run=args.dry_run)
 
 
-def _run_workflow(args: argparse.Namespace, client: LixiaoClient) -> Any:
+def _run_workflow(
+    args: argparse.Namespace, store: CredentialStore, client: LixiaoClient
+) -> Any:
+    if not args.dry_run:
+        _ensure_session(client, store, ttocr_url=None)
     if args.workflow_action == "ecommerce-search":
         return _run_ecommerce_search(args, client)
     if args.workflow_action == "company-profile":
@@ -794,51 +846,70 @@ def _run_password(
     )
     if args.dry_run:
         return login
-    result = _finish_password_login(client, login)
     store.update(phone=args.phone, password=password)
+    result = _finish_password_login(client, login)
     return result
 
 
 def _run_ensure(args: argparse.Namespace, store: CredentialStore, client: LixiaoClient) -> Any:
     if args.dry_run:
-        return _execute_operation(client, "app-session", dry_run=True)
-    try:
-        return {"status": "valid", "app": _execute_operation(client, "app-session")}
-    except LixiaoError as exc:
-        if exc.retryable:
-            raise
-    phone, password = _saved_account(store)
-    if not phone or not password:
-        raise AuthenticationError("session is invalid and no account is saved")
-    result = _auto_login(
+        return {
+            "app": _execute_operation(client, "app-session", dry_run=True),
+            "business": _execute_operation(
+                client, "feature-packages", dry_run=True
+            ),
+        }
+    return _ensure_session(
         client,
         store,
-        phone=phone,
-        password=password,
-        ttocr_url=resolve_ttocr_url(getattr(args, "ttocr_url", None)),
+        ttocr_url=getattr(args, "ttocr_url", None),
     )
-    return {"status": "reauthenticated", **result}
+
+
+def _run_auth_dry_run(
+    args: argparse.Namespace, store: CredentialStore, client: LixiaoClient
+) -> Any:
+    action = args.auth_action
+    if action == "login":
+        return {
+            "steps": [
+                "captcha-register",
+                "ttocr-recognize",
+                "password-login",
+                "crm-sso-callback",
+                "crm-pioneers",
+                "app-session",
+            ],
+            "captcha": _execute_operation(
+                client, "captcha-register", dry_run=True
+            ),
+        }
+    if action == "ensure":
+        return _run_ensure(args, store, client)
+    if action in {"qr-start", "captcha", "app"}:
+        operations = {
+            "qr-start": "qr-start",
+            "captcha": "captcha-register",
+            "app": "app-session",
+        }
+        operation = operations[action]
+        return _execute_operation(client, operation, dry_run=True)
+    return {
+        "operation": f"auth-{action}",
+        "network": False,
+        "credentials_read": False,
+    }
 
 
 def _run_auth(
     args: argparse.Namespace, store: CredentialStore, client: LixiaoClient
 ) -> Any:
     action = args.auth_action
+    if args.dry_run:
+        return _run_auth_dry_run(args, store, client)
     if action == "status":
         return store.summary()
     if action == "login":
-        if args.dry_run:
-            return {
-                "steps": [
-                    "captcha-register",
-                    "ttocr-recognize",
-                    "password-login",
-                    "crm-sso-callback",
-                    "crm-pioneers",
-                    "app-session",
-                ],
-                "captcha": _execute_operation(client, "captcha-register", dry_run=True),
-            }
         phone, password = _resolve_account(args, store)
         return _auto_login(
             client,
@@ -881,7 +952,7 @@ def run(args: argparse.Namespace) -> Any:
     if args.command == "auth":
         return _run_auth(args, store, client)
     if args.command == "workflow":
-        return _run_workflow(args, client)
+        return _run_workflow(args, store, client)
     return _run_api(args, store, client)
 
 

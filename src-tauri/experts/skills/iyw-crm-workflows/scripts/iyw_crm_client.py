@@ -50,6 +50,10 @@ class AuthenticationError(CrmError):
     code = "authentication_required"
 
 
+class CredentialRejectedError(AuthenticationError):
+    pass
+
+
 class ConfigurationError(CrmError):
     code = "invalid_configuration"
 
@@ -60,6 +64,12 @@ class HttpResponse:
     content_type: str
     text: str
     url: str
+
+
+def _is_credential_rejection(message: str) -> bool:
+    normalized = "".join(message.split())
+    markers = ("用户名或密码", "账号或密码", "登录名或密码", "密码错误")
+    return any(marker in normalized for marker in markers)
 
 
 class _SameOriginRedirectHandler(HTTPRedirectHandler):
@@ -121,11 +131,14 @@ class CrmClient:
             detail = extract_login_message(result.text)
             path = urlsplit(result.url).path or "/"
             suffix = f": {detail}" if detail else ""
-            raise AuthenticationError(
+            message = (
                 f"CRM login failed (HTTP {result.status}, final path {path}){suffix}"
             )
+            if _is_credential_rejection(detail):
+                raise CredentialRejectedError(message)
+            raise AuthenticationError(message)
         verified = self.ensure_authenticated(persist=False)
-        self._save_session(username)
+        self._save_session(username, password)
         verified["session_saved"] = True
         return verified
 
@@ -162,12 +175,16 @@ class CrmClient:
         self._save_session()
         return result
 
-    def _save_session(self, username: str | None = None) -> None:
+    def _save_session(
+        self, username: str | None = None, password: str | None = None
+    ) -> None:
         values: dict[str, Any] = {
             "cookies": [cookie_to_data(item) for item in self.cookies]
         }
         if username:
             values["username"] = username
+        if password:
+            values["password"] = password
         self.store.update(**values)
 
     def _url(self, path: str) -> str:
