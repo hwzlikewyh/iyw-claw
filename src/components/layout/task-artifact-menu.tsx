@@ -2,8 +2,10 @@
 
 import { Fragment, useMemo, type ReactNode } from "react"
 import {
+  AppWindow,
   Copy,
   ExternalLink,
+  Files,
   FolderSearch,
   PanelsTopLeft,
   Waypoints,
@@ -23,7 +25,7 @@ import {
 
 interface ArtifactMenuEntry {
   id: string
-  section: "preview" | "system" | "clipboard"
+  section: "preview" | "clipboard" | "system"
   label: string
   icon: LucideIcon
   onSelect: () => void
@@ -32,6 +34,7 @@ interface ArtifactMenuEntry {
 interface ArtifactMenuLabels {
   view: string
   openWorkspace: string
+  copyFile: string
   openDefault: string
   openWith: string
   reveal: string
@@ -82,7 +85,7 @@ function systemMenuEntries(
       id: "openWith",
       section: "system",
       label: labels.openWith,
-      icon: ExternalLink,
+      icon: AppWindow,
       onSelect: () => void actions.openWith(),
     })
   }
@@ -96,6 +99,30 @@ function systemMenuEntries(
   return entries
 }
 
+function clipboardMenuEntries(
+  actions: TaskArtifactActions,
+  labels: ArtifactMenuLabels
+): ArtifactMenuEntry[] {
+  const entries: ArtifactMenuEntry[] = []
+  if (actions.canCopyFile) {
+    entries.push({
+      id: "copyFile",
+      section: "clipboard",
+      label: labels.copyFile,
+      icon: Files,
+      onSelect: () => void actions.copyFile(),
+    })
+  }
+  entries.push({
+    id: "copyPath",
+    section: "clipboard",
+    label: labels.copyPath,
+    icon: Copy,
+    onSelect: () => void actions.copyPath(),
+  })
+  return entries
+}
+
 function useArtifactMenuEntries(
   actions: TaskArtifactActions
 ): ArtifactMenuEntry[] {
@@ -104,6 +131,7 @@ function useArtifactMenuEntries(
     const labels: ArtifactMenuLabels = {
       view: t("view"),
       openWorkspace: t("openWorkspace"),
+      copyFile: t("copyFile"),
       openDefault: t("openDefault"),
       openWith: t("openWith"),
       reveal: t("reveal"),
@@ -111,17 +139,15 @@ function useArtifactMenuEntries(
     }
     return [
       ...previewMenuEntries(actions, labels),
+      ...clipboardMenuEntries(actions, labels),
       ...systemMenuEntries(actions, labels),
-      {
-        id: "copy",
-        section: "clipboard" as const,
-        label: labels.copyPath,
-        icon: Copy,
-        onSelect: () => void actions.copyPath(),
-      },
     ]
   }, [actions, t])
 }
+
+export const TASK_ARTIFACT_MENU_CONTENT_CLASS = "min-w-48 rounded-lg p-1.5"
+
+const TASK_ARTIFACT_MENU_ITEM_CLASS = "gap-2 rounded-md px-2.5 py-1.5"
 
 function ArtifactMenuEntries({
   actions,
@@ -155,7 +181,10 @@ export function TaskArtifactContextMenuItems({
     <ArtifactMenuEntries
       actions={actions}
       renderItem={(entry) => (
-        <ContextMenuItem onSelect={entry.onSelect}>
+        <ContextMenuItem
+          className={TASK_ARTIFACT_MENU_ITEM_CLASS}
+          onSelect={entry.onSelect}
+        >
           <entry.icon />
           {entry.label}
         </ContextMenuItem>
@@ -174,7 +203,10 @@ export function TaskArtifactDropdownMenuItems({
     <ArtifactMenuEntries
       actions={actions}
       renderItem={(entry) => (
-        <DropdownMenuItem onSelect={entry.onSelect}>
+        <DropdownMenuItem
+          className={TASK_ARTIFACT_MENU_ITEM_CLASS}
+          onSelect={entry.onSelect}
+        >
           <entry.icon />
           {entry.label}
         </DropdownMenuItem>

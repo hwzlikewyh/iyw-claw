@@ -12,7 +12,10 @@ import {
 import { useTranslations } from "next-intl"
 
 import type { TaskArtifactActions } from "@/components/layout/task-artifact-actions"
-import { TaskArtifactDropdownMenuItems } from "@/components/layout/task-artifact-menu"
+import {
+  TASK_ARTIFACT_MENU_CONTENT_CLASS,
+  TaskArtifactDropdownMenuItems,
+} from "@/components/layout/task-artifact-menu"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -97,7 +100,10 @@ function ArtifactHeaderActions({ actions }: { actions: TaskArtifactActions }) {
             <MoreHorizontal className="size-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent
+          className={TASK_ARTIFACT_MENU_CONTENT_CLASS}
+          align="end"
+        >
           <TaskArtifactDropdownMenuItems actions={actions} />
         </DropdownMenuContent>
       </DropdownMenu>

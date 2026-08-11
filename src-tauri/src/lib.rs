@@ -34,6 +34,8 @@ mod terminal;
 pub mod update;
 pub mod user_memory;
 pub mod web;
+#[cfg(target_os = "windows")]
+mod windows_file_clipboard;
 pub mod workspace_state;
 pub mod workspace_transfer;
 
@@ -1262,6 +1264,7 @@ mod tauri_app {
                 session_info_commands::get_session_info_settings,
                 session_info_commands::set_session_info_settings,
                 task_artifact_commands::list_task_artifacts,
+                task_artifact_commands::copy_file_to_clipboard,
                 task_artifact_commands::open_path_with_picker,
                 session_config_commands::get_session_config_reconcile_diagnostics,
                 user_memory_commands::append_user_memory_direct,

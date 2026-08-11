@@ -18,6 +18,7 @@ import {
   type TaskArtifactActions,
 } from "@/components/layout/task-artifact-actions"
 import {
+  TASK_ARTIFACT_MENU_CONTENT_CLASS,
   TaskArtifactContextMenuItems,
   TaskArtifactDropdownMenuItems,
 } from "@/components/layout/task-artifact-menu"
@@ -99,7 +100,7 @@ export function TaskArtifactFileRow({
           actions={actions}
         />
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent className={TASK_ARTIFACT_MENU_CONTENT_CLASS}>
         <TaskArtifactContextMenuItems actions={actions} />
       </ContextMenuContent>
     </ContextMenu>
@@ -191,7 +192,10 @@ function ArtifactMoreMenu({ actions }: { actions: TaskArtifactActions }) {
           <MoreHorizontal className="size-3.5" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent
+        className={TASK_ARTIFACT_MENU_CONTENT_CLASS}
+        align="end"
+      >
         <TaskArtifactDropdownMenuItems actions={actions} />
       </DropdownMenuContent>
     </DropdownMenu>

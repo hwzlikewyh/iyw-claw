@@ -10,6 +10,7 @@ import { usePlatform } from "@/hooks/use-platform"
 import type { TaskArtifactInfo } from "@/lib/api"
 import { findOwningFolder } from "@/lib/file-open-target"
 import {
+  copyFileToClipboard,
   isLocalDesktop,
   openPath,
   openPathWithPicker,
@@ -33,15 +34,23 @@ export interface TaskArtifactActions {
   canOpenWorkspace: boolean
   canUseSystem: boolean
   canChooseApplication: boolean
+  canCopyFile: boolean
   preview: () => void
   openWorkspace: () => Promise<void>
+  copyFile: () => Promise<void>
   openDefault: () => Promise<void>
   openWith: () => Promise<void>
   reveal: () => Promise<void>
   copyPath: () => Promise<void>
 }
 
-type ArtifactAction = "copy" | "open" | "openWith" | "reveal" | "workspace"
+type ArtifactAction =
+  | "copyFile"
+  | "copyPath"
+  | "open"
+  | "openWith"
+  | "reveal"
+  | "workspace"
 interface ArtifactActionRequest {
   action: ArtifactAction
   task: () => Promise<void>
@@ -69,18 +78,34 @@ function useArtifactActionRunner(
       try {
         await task()
         if (success) toast.success(success)
-      } catch {
+      } catch (error) {
         console.error("[task-artifacts] action failed", {
           action,
           artifactId: artifact.id,
           status: artifact.status,
           environment: isLocalDesktop() ? "local-desktop" : "remote-or-web",
+          ...artifactActionErrorContext(error),
         })
         toast.error(failure)
       }
     },
     [artifact.id, artifact.status]
   )
+}
+
+function artifactActionErrorContext(error: unknown): {
+  errorType: string
+  errorCode?: string
+} {
+  if (error instanceof Error) return { errorType: error.name }
+  if (!error || typeof error !== "object") {
+    return { errorType: typeof error }
+  }
+  const code = "code" in error ? error.code : undefined
+  return {
+    errorType: error.constructor?.name ?? "Object",
+    errorCode: typeof code === "string" ? code : undefined,
+  }
 }
 
 export function useTaskArtifactActions({
@@ -95,17 +120,21 @@ export function useTaskArtifactActions({
   const run = useArtifactActionRunner(artifact)
   const canUseSystem = isLocalDesktop() && artifact.status === "available"
   const canOpenWorkspace = target !== null && artifact.status === "available"
+  const canCopyFile = canUseSystem && isWindows
   return createTaskArtifactActions({
     artifact,
     target,
     run,
     canUseSystem,
     canOpenWorkspace,
+    canCopyFile,
     isWindows,
     onPreview,
     onOpenWorkspace,
     openFilePreview,
     copyFailed: t("copyFailed"),
+    copyFileFailed: t("copyFileFailed"),
+    fileCopied: t("fileCopied"),
     pathCopied: t("pathCopied"),
     openFailed: t("openFailed"),
     openWithFailed: t("openWithFailed"),
@@ -119,9 +148,12 @@ interface ArtifactActionFactoryOptions extends UseTaskArtifactActionsOptions {
   run: ArtifactActionRunner
   canUseSystem: boolean
   canOpenWorkspace: boolean
+  canCopyFile: boolean
   isWindows: boolean
   openFilePreview: (path: string) => Promise<void>
   copyFailed: string
+  copyFileFailed: string
+  fileCopied: string
   pathCopied: string
   openFailed: string
   openWithFailed: string
@@ -138,7 +170,15 @@ function createTaskArtifactActions(
     canUseSystem: options.canUseSystem,
     canOpenWorkspace: options.canOpenWorkspace,
     canChooseApplication: options.canUseSystem && options.isWindows,
+    canCopyFile: options.canCopyFile,
     preview: () => options.onPreview(artifact),
+    copyFile: () =>
+      run({
+        action: "copyFile",
+        task: () => copyFileToClipboard(artifact.path),
+        failure: options.copyFileFailed,
+        success: options.fileCopied,
+      }),
     copyPath: () =>
       copyArtifactPath({
         run,
@@ -188,7 +228,7 @@ function copyArtifactPath({
   success: string
 }): Promise<void> {
   return run({
-    action: "copy",
+    action: "copyPath",
     task: async () => {
       if (!(await copyTextFromMenu(path))) throw new Error("copy")
     },

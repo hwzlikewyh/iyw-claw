@@ -1856,7 +1856,9 @@
       "selectArtifact": "Select an artifact",
       "untitled": "Untitled session",
       "view": "View artifact",
+      "copyFile": "Copy file",
       "copyPath": "Copy path",
+      "fileCopied": "File copied",
       "pathCopied": "Path copied",
       "openDefault": "Open with default app",
       "openWith": "Choose application...",
@@ -1873,6 +1875,7 @@
       "openFailed": "The file could not be opened with its default application.",
       "openWithFailed": "The application picker could not be opened.",
       "revealFailed": "The file could not be shown in the file manager.",
+      "copyFileFailed": "The file could not be copied.",
       "copyFailed": "The file path could not be copied.",
       "openWorkspaceFailed": "The file could not be opened in the workspace.",
       "actionFailed": "The file action failed."

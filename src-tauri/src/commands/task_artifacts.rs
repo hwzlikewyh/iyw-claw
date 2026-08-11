@@ -128,22 +128,75 @@ pub async fn list_task_artifacts(
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn copy_file_to_clipboard(
+    #[cfg(feature = "tauri-runtime")] window: tauri::WebviewWindow,
+    path: String,
+) -> Result<(), AppCommandError> {
+    #[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+    {
+        let owner = window.hwnd().map_err(|error| {
+            tracing::error!(
+                action = "copy_file",
+                error = %error,
+                "[task-artifacts] artifact window handle unavailable"
+            );
+            AppCommandError::window("Could not access the artifact window", error.to_string())
+        })?;
+        let owner = owner.0 as isize;
+        let result = tokio::task::spawn_blocking(move || copy_artifact_file_blocking(path, owner))
+            .await
+            .map_err(|error| {
+                tracing::error!(
+                    action = "copy_file",
+                    error = %error,
+                    "[task-artifacts] clipboard worker failed"
+                );
+                AppCommandError::task_execution_failed("File clipboard worker failed")
+                    .with_detail(error.to_string())
+            })?;
+        log_copy_file_result(&result);
+        result
+    }
+    #[cfg(not(all(feature = "tauri-runtime", target_os = "windows")))]
+    {
+        #[cfg(feature = "tauri-runtime")]
+        let _ = window;
+        let _ = path;
+        Err(AppCommandError::configuration_invalid(
+            "File clipboard is only available on Windows desktop",
+        ))
+    }
+}
+
+#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+fn copy_artifact_file_blocking(path: String, owner: isize) -> Result<(), AppCommandError> {
+    let validated = validate_artifact_file(&path)?;
+    crate::windows_file_clipboard::copy_file(Path::new(validated), owner).map_err(|error| {
+        AppCommandError::io_error("Could not copy artifact file").with_detail(error.to_string())
+    })
+}
+
+#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+fn log_copy_file_result(result: &Result<(), AppCommandError>) {
+    match result {
+        Ok(()) => tracing::info!(
+            action = "copy_file",
+            "[task-artifacts] file copied to clipboard"
+        ),
+        Err(error) => tracing::error!(
+            action = "copy_file",
+            code = ?error.code,
+            detail = error.detail.as_deref().unwrap_or("unavailable"),
+            "[task-artifacts] file clipboard action failed"
+        ),
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn open_path_with_picker(path: String) -> Result<(), AppCommandError> {
     #[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
     {
-        let normalized = path.trim();
-        if normalized.is_empty() || normalized.contains('\0') {
-            return Err(AppCommandError::invalid_input("Invalid file path"));
-        }
-        let metadata = std::fs::metadata(normalized).map_err(|error| {
-            AppCommandError::invalid_input("Artifact file is unavailable")
-                .with_detail(error.to_string())
-        })?;
-        if !metadata.is_file() {
-            return Err(AppCommandError::invalid_input(
-                "Artifact path is not a file",
-            ));
-        }
+        let normalized = validate_artifact_file(&path)?;
         crate::process::std_command("rundll32.exe")
             .arg("shell32.dll,OpenAs_RunDLL")
             .arg(normalized)
@@ -163,4 +216,20 @@ pub async fn open_path_with_picker(path: String) -> Result<(), AppCommandError> 
             "Application picker is only available on Windows desktop",
         ))
     }
+}
+
+fn validate_artifact_file(path: &str) -> Result<&str, AppCommandError> {
+    if path.trim().is_empty() || path.contains('\0') {
+        return Err(AppCommandError::invalid_input("Invalid file path"));
+    }
+    let metadata = std::fs::metadata(path).map_err(|error| {
+        AppCommandError::invalid_input("Artifact file is unavailable")
+            .with_detail(error.to_string())
+    })?;
+    if !metadata.is_file() {
+        return Err(AppCommandError::invalid_input(
+            "Artifact path is not a file",
+        ));
+    }
+    Ok(path)
 }
