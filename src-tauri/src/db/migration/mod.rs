@@ -30,6 +30,7 @@ mod m20260729_000001_agent_version_center;
 mod m20260801_000001_chat_channel_reliability;
 mod m20260805_000001_task_artifact;
 mod m20260807_000001_agent_input_outbox;
+mod m20260811_000001_task_artifact_kind;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -66,6 +67,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260801_000001_chat_channel_reliability::Migration),
             Box::new(m20260805_000001_task_artifact::Migration),
             Box::new(m20260807_000001_agent_input_outbox::Migration),
+            Box::new(m20260811_000001_task_artifact_kind::Migration),
         ]
     }
 }

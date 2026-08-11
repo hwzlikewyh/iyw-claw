@@ -107,10 +107,10 @@ export async function openPathWithPicker(path: string): Promise<void> {
   }
 }
 
-/** Copy a local Windows file to the system clipboard for file-manager paste. */
-export async function copyFileToClipboard(path: string): Promise<void> {
+/** Copy a local Windows file or directory for file-manager paste. */
+export async function copyArtifactToClipboard(path: string): Promise<void> {
   if (!isLocalDesktop()) {
-    throw new Error("File copying is only available on local desktop")
+    throw new Error("Artifact copying is only available on local desktop")
   }
   await getTransport().call("copy_file_to_clipboard", { path })
 }

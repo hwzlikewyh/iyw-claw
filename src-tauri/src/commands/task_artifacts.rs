@@ -143,7 +143,7 @@ pub async fn copy_file_to_clipboard(
             AppCommandError::window("Could not access the artifact window", error.to_string())
         })?;
         let owner = owner.0 as isize;
-        let result = tokio::task::spawn_blocking(move || copy_artifact_file_blocking(path, owner))
+        let result = tokio::task::spawn_blocking(move || copy_artifact_path_blocking(path, owner))
             .await
             .map_err(|error| {
                 tracing::error!(
@@ -154,7 +154,7 @@ pub async fn copy_file_to_clipboard(
                 AppCommandError::task_execution_failed("File clipboard worker failed")
                     .with_detail(error.to_string())
             })?;
-        log_copy_file_result(&result);
+        log_copy_artifact_result(&result);
         result
     }
     #[cfg(not(all(feature = "tauri-runtime", target_os = "windows")))]
@@ -169,25 +169,25 @@ pub async fn copy_file_to_clipboard(
 }
 
 #[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
-fn copy_artifact_file_blocking(path: String, owner: isize) -> Result<(), AppCommandError> {
-    let validated = validate_artifact_file(&path)?;
+fn copy_artifact_path_blocking(path: String, owner: isize) -> Result<(), AppCommandError> {
+    let validated = validate_artifact_path(&path)?;
     crate::windows_file_clipboard::copy_file(Path::new(validated), owner).map_err(|error| {
-        AppCommandError::io_error("Could not copy artifact file").with_detail(error.to_string())
+        AppCommandError::io_error("Could not copy artifact").with_detail(error.to_string())
     })
 }
 
 #[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
-fn log_copy_file_result(result: &Result<(), AppCommandError>) {
+fn log_copy_artifact_result(result: &Result<(), AppCommandError>) {
     match result {
         Ok(()) => tracing::info!(
-            action = "copy_file",
-            "[task-artifacts] file copied to clipboard"
+            action = "copy_artifact",
+            "[task-artifacts] artifact copied to clipboard"
         ),
         Err(error) => tracing::error!(
-            action = "copy_file",
+            action = "copy_artifact",
             code = ?error.code,
-            detail = error.detail.as_deref().unwrap_or("unavailable"),
-            "[task-artifacts] file clipboard action failed"
+            reason = %error.message,
+            "[task-artifacts] artifact clipboard action failed"
         ),
     }
 }
@@ -218,18 +218,27 @@ pub async fn open_path_with_picker(path: String) -> Result<(), AppCommandError> 
     }
 }
 
-fn validate_artifact_file(path: &str) -> Result<&str, AppCommandError> {
+fn validate_artifact_path(path: &str) -> Result<&str, AppCommandError> {
     if path.trim().is_empty() || path.contains('\0') {
-        return Err(AppCommandError::invalid_input("Invalid file path"));
+        return Err(AppCommandError::invalid_input("Invalid artifact path"));
     }
     let metadata = std::fs::metadata(path).map_err(|error| {
-        AppCommandError::invalid_input("Artifact file is unavailable")
-            .with_detail(error.to_string())
+        AppCommandError::invalid_input("Artifact is unavailable").with_detail(error.to_string())
     })?;
-    if !metadata.is_file() {
+    if !metadata.is_file() && !metadata.is_dir() {
+        return Err(AppCommandError::invalid_input(
+            "Artifact path is not a file or directory",
+        ));
+    }
+    Ok(path)
+}
+
+fn validate_artifact_file(path: &str) -> Result<&str, AppCommandError> {
+    let normalized = validate_artifact_path(path)?;
+    if !Path::new(normalized).is_file() {
         return Err(AppCommandError::invalid_input(
             "Artifact path is not a file",
         ));
     }
-    Ok(path)
+    Ok(normalized)
 }

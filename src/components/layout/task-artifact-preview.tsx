@@ -7,6 +7,7 @@ import {
   useTaskArtifactActions,
   type TaskArtifactTarget,
 } from "@/components/layout/task-artifact-actions"
+import { TaskArtifactDirectoryPreview } from "@/components/layout/task-artifact-directory-preview"
 import { EmptyTaskArtifactPreview } from "@/components/layout/task-artifact-preview-empty"
 import { TaskArtifactPreviewHeader } from "@/components/layout/task-artifact-preview-header"
 import {
@@ -66,8 +67,6 @@ function ArtifactPreview({
     onPreview,
     onOpenWorkspace,
   })
-  const preview = useArtifactPreviewState(artifact, actions.target)
-
   return (
     <section
       aria-label={artifact.displayName}
@@ -82,12 +81,35 @@ function ArtifactPreview({
         onBack={onBack}
       />
       <div className="min-h-0">
-        <WorkspaceFilePreview
-          state={preview}
-          rootPath={actions.target?.rootPath ?? ""}
-        />
+        <ArtifactPreviewBody artifact={artifact} target={actions.target} />
       </div>
     </section>
+  )
+}
+
+function ArtifactPreviewBody({
+  artifact,
+  target,
+}: {
+  artifact: TaskArtifactInfo
+  target: TaskArtifactTarget | null
+}) {
+  if (artifact.kind === "directory") {
+    return <TaskArtifactDirectoryPreview artifact={artifact} />
+  }
+  return <TaskArtifactFilePreview artifact={artifact} target={target} />
+}
+
+function TaskArtifactFilePreview({
+  artifact,
+  target,
+}: {
+  artifact: TaskArtifactInfo
+  target: TaskArtifactTarget | null
+}) {
+  const preview = useArtifactPreviewState(artifact, target)
+  return (
+    <WorkspaceFilePreview state={preview} rootPath={target?.rootPath ?? ""} />
   )
 }
 
@@ -110,8 +132,8 @@ function useArtifactPreviewState(
     target,
     previewKey,
     loaded,
-    unavailable: t("fileUnavailable"),
-    outsideWorkspace: t("previewOutsideWorkspace"),
+    unavailable: t("artifactUnavailable"),
+    previewFailed: t("previewFailed"),
   })
 }
 
@@ -151,14 +173,14 @@ function resolveArtifactPreview({
   previewKey,
   loaded,
   unavailable,
-  outsideWorkspace,
+  previewFailed,
 }: {
   artifact: TaskArtifactInfo
   target: TaskArtifactTarget | null
   previewKey: string | null
   loaded: LoadedPreview | null
   unavailable: string
-  outsideWorkspace: string
+  previewFailed: string
 }): PreviewState {
   if (artifact.status !== "available") {
     return {
@@ -171,7 +193,7 @@ function resolveArtifactPreview({
     return {
       status: "error",
       path: artifact.path,
-      message: outsideWorkspace,
+      message: previewFailed,
     }
   }
   if (isOfficePreviewable(target.ioPath)) {

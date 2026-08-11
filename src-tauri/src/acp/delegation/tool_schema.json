@@ -161,7 +161,7 @@
   },
   {
     "name": "present_task_files",
-    "description": "Proactively call this after creating task deliverables and before the final response. Register the produced files so iyw-claw can show them in the workspace Artifacts panel. Accepts workspace-relative or absolute file paths.",
+    "description": "Proactively call this after creating task deliverables and before the final response. Register produced files or directories so iyw-claw can show them in the workspace Artifacts panel. Accepts working-directory-relative or absolute artifact paths.",
     "inputSchema": {
       "type": "object",
       "required": ["files"],
@@ -175,7 +175,7 @@
             "minLength": 1,
             "maxLength": 4096
           },
-          "description": "Files produced by this task. Relative paths resolve from the current working directory; absolute paths are accepted."
+          "description": "Files or directories produced by this task. Relative paths resolve from the current working directory; absolute paths are accepted."
         }
       },
       "additionalProperties": false

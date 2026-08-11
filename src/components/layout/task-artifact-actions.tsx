@@ -4,13 +4,12 @@ import { useCallback, useMemo } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useWorkspaceActions } from "@/contexts/workspace-context"
 import { usePlatform } from "@/hooks/use-platform"
 import type { TaskArtifactInfo } from "@/lib/api"
-import { findOwningFolder } from "@/lib/file-open-target"
+import { splitAbsPath } from "@/lib/file-open-target"
 import {
-  copyFileToClipboard,
+  copyArtifactToClipboard,
   isLocalDesktop,
   openPath,
   openPathWithPicker,
@@ -30,14 +29,15 @@ interface UseTaskArtifactActionsOptions {
 }
 
 export interface TaskArtifactActions {
+  kind: TaskArtifactInfo["kind"]
   target: TaskArtifactTarget | null
   canOpenWorkspace: boolean
   canUseSystem: boolean
   canChooseApplication: boolean
-  canCopyFile: boolean
+  canCopyItem: boolean
   preview: () => void
   openWorkspace: () => Promise<void>
-  copyFile: () => Promise<void>
+  copyItem: () => Promise<void>
   openDefault: () => Promise<void>
   openWith: () => Promise<void>
   reveal: () => Promise<void>
@@ -45,7 +45,7 @@ export interface TaskArtifactActions {
 }
 
 type ArtifactAction =
-  | "copyFile"
+  | "copyItem"
   | "copyPath"
   | "open"
   | "openWith"
@@ -58,16 +58,18 @@ interface ArtifactActionRequest {
   success?: string
 }
 type ArtifactActionRunner = (request: ArtifactActionRequest) => Promise<void>
+type ArtifactSystemActions = Pick<
+  TaskArtifactActions,
+  "openDefault" | "openWith" | "reveal"
+>
 
 function useArtifactTarget(
   artifact: TaskArtifactInfo
 ): TaskArtifactTarget | null {
-  const { activeFolder } = useActiveFolder()
   return useMemo(() => {
-    if (!activeFolder || artifact.folderId !== activeFolder.id) return null
-    const owning = findOwningFolder(artifact.path, [activeFolder])
-    return owning ? { rootPath: owning.rootPath, ioPath: owning.relPath } : null
-  }, [activeFolder, artifact])
+    if (artifact.kind === "directory") return null
+    return splitAbsPath(artifact.path)
+  }, [artifact.kind, artifact.path])
 }
 
 function useArtifactActionRunner(
@@ -82,6 +84,7 @@ function useArtifactActionRunner(
         console.error("[task-artifacts] action failed", {
           action,
           artifactId: artifact.id,
+          artifactKind: artifact.kind,
           status: artifact.status,
           environment: isLocalDesktop() ? "local-desktop" : "remote-or-web",
           ...artifactActionErrorContext(error),
@@ -89,7 +92,7 @@ function useArtifactActionRunner(
         toast.error(failure)
       }
     },
-    [artifact.id, artifact.status]
+    [artifact.id, artifact.kind, artifact.status]
   )
 }
 
@@ -118,23 +121,25 @@ export function useTaskArtifactActions({
   const { isWindows } = usePlatform()
   const target = useArtifactTarget(artifact)
   const run = useArtifactActionRunner(artifact)
-  const canUseSystem = isLocalDesktop() && artifact.status === "available"
-  const canOpenWorkspace = target !== null && artifact.status === "available"
-  const canCopyFile = canUseSystem && isWindows
+  const available = artifact.status === "available"
+  const directory = artifact.kind === "directory"
+  const canUseSystem = isLocalDesktop() && available
+  const canOpenWorkspace = !directory && target !== null && available
+  const canCopyItem = canUseSystem && isWindows
   return createTaskArtifactActions({
     artifact,
     target,
     run,
     canUseSystem,
     canOpenWorkspace,
-    canCopyFile,
+    canCopyItem,
     isWindows,
     onPreview,
     onOpenWorkspace,
     openFilePreview,
     copyFailed: t("copyFailed"),
-    copyFileFailed: t("copyFileFailed"),
-    fileCopied: t("fileCopied"),
+    copyItemFailed: directory ? t("copyFolderFailed") : t("copyFileFailed"),
+    itemCopied: directory ? t("folderCopied") : t("fileCopied"),
     pathCopied: t("pathCopied"),
     openFailed: t("openFailed"),
     openWithFailed: t("openWithFailed"),
@@ -148,12 +153,12 @@ interface ArtifactActionFactoryOptions extends UseTaskArtifactActionsOptions {
   run: ArtifactActionRunner
   canUseSystem: boolean
   canOpenWorkspace: boolean
-  canCopyFile: boolean
+  canCopyItem: boolean
   isWindows: boolean
   openFilePreview: (path: string) => Promise<void>
   copyFailed: string
-  copyFileFailed: string
-  fileCopied: string
+  copyItemFailed: string
+  itemCopied: string
   pathCopied: string
   openFailed: string
   openWithFailed: string
@@ -166,18 +171,20 @@ function createTaskArtifactActions(
 ): TaskArtifactActions {
   const { artifact, run, target } = options
   return {
+    kind: artifact.kind,
     target,
     canUseSystem: options.canUseSystem,
     canOpenWorkspace: options.canOpenWorkspace,
-    canChooseApplication: options.canUseSystem && options.isWindows,
-    canCopyFile: options.canCopyFile,
+    canChooseApplication:
+      options.canUseSystem && options.isWindows && artifact.kind === "file",
+    canCopyItem: options.canCopyItem,
     preview: () => options.onPreview(artifact),
-    copyFile: () =>
+    copyItem: () =>
       run({
-        action: "copyFile",
-        task: () => copyFileToClipboard(artifact.path),
-        failure: options.copyFileFailed,
-        success: options.fileCopied,
+        action: "copyItem",
+        task: () => copyArtifactToClipboard(artifact.path),
+        failure: options.copyItemFailed,
+        success: options.itemCopied,
       }),
     copyPath: () =>
       copyArtifactPath({
@@ -186,6 +193,24 @@ function createTaskArtifactActions(
         failure: options.copyFailed,
         success: options.pathCopied,
       }),
+    ...createArtifactSystemActions(options),
+    openWorkspace: () =>
+      openArtifactInWorkspace({
+        run,
+        path: artifact.path,
+        target,
+        onOpenWorkspace: options.onOpenWorkspace,
+        openFilePreview: options.openFilePreview,
+        failure: options.openWorkspaceFailed,
+      }),
+  }
+}
+
+function createArtifactSystemActions(
+  options: ArtifactActionFactoryOptions
+): ArtifactSystemActions {
+  const { artifact, run } = options
+  return {
     openDefault: () =>
       run({
         action: "open",
@@ -203,15 +228,6 @@ function createTaskArtifactActions(
         action: "reveal",
         task: () => revealItemInDir(artifact.path),
         failure: options.revealFailed,
-      }),
-    openWorkspace: () =>
-      openArtifactInWorkspace({
-        run,
-        path: artifact.path,
-        target,
-        onOpenWorkspace: options.onOpenWorkspace,
-        openFilePreview: options.openFilePreview,
-        failure: options.openWorkspaceFailed,
       }),
   }
 }

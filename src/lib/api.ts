@@ -3895,6 +3895,7 @@ export async function setSessionInfoSettings(
 }
 
 export type TaskArtifactStatus = "available" | "missing" | "inaccessible"
+export type TaskArtifactKind = "file" | "directory"
 
 export interface TaskArtifactInfo {
   id: number
@@ -3904,6 +3905,7 @@ export interface TaskArtifactInfo {
   agentType: AgentType
   path: string
   displayName: string
+  kind: TaskArtifactKind
   createdAt: string
   lastCheckedAt: string
   status: TaskArtifactStatus

@@ -34,7 +34,7 @@ interface ArtifactMenuEntry {
 interface ArtifactMenuLabels {
   view: string
   openWorkspace: string
-  copyFile: string
+  copyItem: string
   openDefault: string
   openWith: string
   reveal: string
@@ -104,13 +104,13 @@ function clipboardMenuEntries(
   labels: ArtifactMenuLabels
 ): ArtifactMenuEntry[] {
   const entries: ArtifactMenuEntry[] = []
-  if (actions.canCopyFile) {
+  if (actions.canCopyItem) {
     entries.push({
-      id: "copyFile",
+      id: "copyItem",
       section: "clipboard",
-      label: labels.copyFile,
+      label: labels.copyItem,
       icon: Files,
-      onSelect: () => void actions.copyFile(),
+      onSelect: () => void actions.copyItem(),
     })
   }
   entries.push({
@@ -131,7 +131,7 @@ function useArtifactMenuEntries(
     const labels: ArtifactMenuLabels = {
       view: t("view"),
       openWorkspace: t("openWorkspace"),
-      copyFile: t("copyFile"),
+      copyItem: actions.kind === "directory" ? t("copyFolder") : t("copyFile"),
       openDefault: t("openDefault"),
       openWith: t("openWith"),
       reveal: t("reveal"),

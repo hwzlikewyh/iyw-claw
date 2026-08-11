@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import {
   ArrowLeft,
   ExternalLink,
+  Folder,
   FolderSearch,
   MoreHorizontal,
   PanelsTopLeft,
@@ -34,7 +35,11 @@ export function TaskArtifactPreviewHeader({
   onBack?: () => void
 }) {
   const t = useTranslations("Folder.taskArtifacts")
-  const subtitle = actions.target?.ioPath ?? t("previewOutsideWorkspace")
+  const subtitle =
+    artifact.kind === "directory"
+      ? t("folderArtifact")
+      : (actions.target?.ioPath ?? artifact.displayName)
+  const TypeIcon = artifact.kind === "directory" ? Folder : PanelsTopLeft
   return (
     <header className="flex h-12 min-w-0 items-center gap-1 border-b px-3 pr-12">
       {onBack && (
@@ -49,15 +54,10 @@ export function TaskArtifactPreviewHeader({
           <ArrowLeft className="size-4" />
         </Button>
       )}
-      <PanelsTopLeft className="size-4 shrink-0 text-muted-foreground" />
+      <TypeIcon className="size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{artifact.displayName}</p>
-        <p
-          className="truncate text-xs text-muted-foreground"
-          title={artifact.path}
-        >
-          {subtitle}
-        </p>
+        <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
       </div>
       <ArtifactHeaderActions actions={actions} />
     </header>

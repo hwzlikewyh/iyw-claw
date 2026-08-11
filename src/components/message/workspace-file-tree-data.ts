@@ -141,7 +141,7 @@ function useRootDirectoryLoad(rootPath: string, options: RootLoadOptions) {
         if (cancelled) return
         const message = toErrorMessage(reason)
         console.error("[workspace-files] root directory load failed", {
-          message,
+          errorType: reason instanceof Error ? reason.name : typeof reason,
         })
         setError(message)
       })
@@ -191,7 +191,7 @@ function useDirectoryLoader(options: DirectoryLoaderOptions) {
         const message = toErrorMessage(reason)
         console.error("[workspace-files] directory load failed", {
           directory: path,
-          message,
+          errorType: reason instanceof Error ? reason.name : typeof reason,
         })
         setPathErrors((errors) => new Map(errors).set(path, message))
       } finally {

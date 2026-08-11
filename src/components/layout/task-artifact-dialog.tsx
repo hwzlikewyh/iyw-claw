@@ -27,7 +27,7 @@ export function TaskArtifactDialog({
       <DialogContent className="h-[min(42rem,calc(100dvh-2rem))] max-w-[min(64rem,calc(100vw-2rem))] overflow-hidden p-0 sm:max-w-[min(64rem,calc(100vw-2rem))]">
         <DialogTitle className="sr-only">{artifact.displayName}</DialogTitle>
         <DialogDescription className="sr-only">
-          {artifact.path}
+          {artifact.displayName}
         </DialogDescription>
         <TaskArtifactPreview
           artifact={artifact}

@@ -14,7 +14,8 @@ use crate::db::error::DbError;
 
 const MAX_FILES: usize = 100;
 const MAX_PATH_CHARS: usize = 4096;
-
+const ARTIFACT_KIND_FILE: &str = "file";
+const ARTIFACT_KIND_DIRECTORY: &str = "directory";
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskArtifactInfo {
@@ -25,39 +26,81 @@ pub struct TaskArtifactInfo {
     pub agent_type: String,
     pub path: String,
     pub display_name: String,
+    pub kind: String,
     pub created_at: String,
     pub last_checked_at: String,
     pub status: String,
 }
-
 #[derive(Debug, Clone, Serialize)]
 pub struct ArtifactItemResult {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
-
 struct ResolvedArtifact {
     source: String,
     path: PathBuf,
     display_name: String,
+    kind: String,
 }
-
-fn resolve_path(working_dir: &Path, source: &str) -> Result<(PathBuf, String), String> {
-    let trimmed = source.trim();
-    if trimmed.is_empty() {
+struct CurrentArtifactState {
+    status: String,
+    kind: String,
+}
+fn artifact_kind(metadata: &std::fs::Metadata) -> Result<&'static str, String> {
+    match (metadata.is_file(), metadata.is_dir()) {
+        (true, _) => Ok(ARTIFACT_KIND_FILE),
+        (_, true) => Ok(ARTIFACT_KIND_DIRECTORY),
+        _ => Err("unsupported_type".into()),
+    }
+}
+fn validate_source_path(source: &str) -> Result<(), String> {
+    if source.is_empty() {
         return Err("empty_path".into());
     }
-    if trimmed.chars().count() > MAX_PATH_CHARS
-        || trimmed.contains('\0')
-        || is_windows_device_path(trimmed)
+    if source.chars().count() > MAX_PATH_CHARS
+        || source.contains('\0')
+        || is_windows_device_path(source)
     {
         return Err("invalid_path".into());
     }
+    Ok(())
+}
+fn map_metadata_error(error: std::io::Error) -> String {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => "missing".into(),
+        _ => "inaccessible".into(),
+    }
+}
+fn ensure_relative_path_stays_in_root(
+    working_dir: &Path,
+    canonical: &Path,
+    is_relative: bool,
+) -> Result<(), String> {
+    if !is_relative {
+        return Ok(());
+    }
+    let root = std::fs::canonicalize(working_dir).map_err(|_| "inaccessible".to_string())?;
+    if canonical.starts_with(root) {
+        return Ok(());
+    }
+    Err("path_escape".into())
+}
+fn artifact_display_name(path: &Path, fallback: &str) -> String {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(fallback)
+        .to_string()
+}
+fn resolve_path(working_dir: &Path, source: &str) -> Result<(PathBuf, String, String), String> {
+    let trimmed = source.trim();
+    validate_source_path(trimmed)?;
     let candidate = PathBuf::from(trimmed);
     let is_relative = !candidate.is_absolute();
     let joined = if is_relative {
@@ -65,29 +108,14 @@ fn resolve_path(working_dir: &Path, source: &str) -> Result<(PathBuf, String), S
     } else {
         candidate
     };
-    let metadata = std::fs::metadata(&joined).map_err(|error| match error.kind() {
-        std::io::ErrorKind::NotFound => "missing".to_string(),
-        _ => "inaccessible".to_string(),
-    })?;
-    if !metadata.is_file() {
-        return Err("not_a_file".into());
-    }
+    let metadata = std::fs::metadata(&joined).map_err(map_metadata_error)?;
+    let kind = artifact_kind(&metadata)?.to_string();
     let canonical = std::fs::canonicalize(&joined).map_err(|_| "inaccessible".to_string())?;
-    if is_relative {
-        let root = std::fs::canonicalize(working_dir).map_err(|_| "inaccessible".to_string())?;
-        if !canonical.starts_with(root) {
-            return Err("path_escape".into());
-        }
-    }
-    let normalized = normalize_canonical_path(canonical);
-    let display_name = normalized
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(trimmed)
-        .to_string();
-    Ok((normalized, display_name))
+    ensure_relative_path_stays_in_root(working_dir, &canonical, is_relative)?;
+    let path = normalize_canonical_path(canonical);
+    let display_name = artifact_display_name(&path, trimmed);
+    Ok((path, display_name, kind))
 }
-
 #[cfg(windows)]
 fn is_windows_device_path(path: &str) -> bool {
     let normalized = path.replace('/', "\\").to_ascii_lowercase();
@@ -130,14 +158,16 @@ fn resolve_files(
             Err("too_many_files".into())
         };
         match result {
-            Ok((path, display_name)) => resolved.push(ResolvedArtifact {
+            Ok((path, display_name, kind)) => resolved.push(ResolvedArtifact {
                 source,
                 path,
                 display_name,
+                kind,
             }),
             Err(reason) => rejected.push(ArtifactItemResult {
                 path: source,
                 display_name: None,
+                kind: None,
                 status: None,
                 reason: Some(reason),
             }),
@@ -157,6 +187,7 @@ async fn upsert_artifact<C: ConnectionTrait>(
         conversation_id: Set(conversation_id),
         path: Set(path.clone()),
         display_name: Set(artifact.display_name.clone()),
+        kind: Set(artifact.kind.clone()),
         source_path: Set(artifact.source),
         created_at: Set(now),
         last_checked_at: Set(now),
@@ -170,6 +201,7 @@ async fn upsert_artifact<C: ConnectionTrait>(
         ])
         .update_columns([
             task_artifact::Column::DisplayName,
+            task_artifact::Column::Kind,
             task_artifact::Column::LastCheckedAt,
             task_artifact::Column::Status,
         ])
@@ -180,6 +212,7 @@ async fn upsert_artifact<C: ConnectionTrait>(
     Ok(ArtifactItemResult {
         path,
         display_name: Some(artifact.display_name),
+        kind: Some(artifact.kind),
         status: Some("available".into()),
         reason: None,
     })
@@ -221,11 +254,13 @@ pub async fn list_artifacts(
         let Some(conversation) = conversation else {
             continue;
         };
-        let status = current_status(Path::new(&artifact.path));
-        let last_checked_at = if status != artifact.status {
+        let current = current_artifact_state(Path::new(&artifact.path), &artifact.kind);
+        let last_checked_at = if current.status != artifact.status || current.kind != artifact.kind
+        {
             let now = Utc::now();
             let mut active: task_artifact::ActiveModel = artifact.clone().into();
-            active.status = Set(status.clone());
+            active.status = Set(current.status.clone());
+            active.kind = Set(current.kind.clone());
             active.last_checked_at = Set(now);
             active.update(conn).await?;
             now
@@ -240,20 +275,26 @@ pub async fn list_artifacts(
             agent_type: conversation.agent_type,
             path: artifact.path,
             display_name: artifact.display_name,
+            kind: current.kind,
             created_at: artifact.created_at.to_rfc3339(),
             last_checked_at: last_checked_at.to_rfc3339(),
-            status,
+            status: current.status,
         });
     }
     Ok(results)
 }
 
-fn current_status(path: &Path) -> String {
-    match std::fs::metadata(path) {
-        Ok(metadata) if metadata.is_file() => "available",
-        Ok(_) => "missing",
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "missing",
-        Err(_) => "inaccessible",
+fn current_artifact_state(path: &Path, stored_kind: &str) -> CurrentArtifactState {
+    let (status, kind) = match std::fs::metadata(path) {
+        Ok(metadata) => match artifact_kind(&metadata) {
+            Ok(kind) => ("available", kind),
+            Err(_) => ("inaccessible", stored_kind),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => ("missing", stored_kind),
+        Err(_) => ("inaccessible", stored_kind),
+    };
+    CurrentArtifactState {
+        status: status.into(),
+        kind: kind.into(),
     }
-    .to_string()
 }

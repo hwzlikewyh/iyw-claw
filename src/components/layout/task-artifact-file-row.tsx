@@ -9,6 +9,7 @@ import {
   FileImage,
   FileSpreadsheet,
   FileText,
+  Folder,
   MoreHorizontal,
 } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
@@ -35,7 +36,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import type { TaskArtifactInfo } from "@/lib/api"
-import { toFolderRelativePath } from "@/lib/file-path-display"
+import {
+  isAbsoluteFilePath,
+  toFolderRelativePath,
+} from "@/lib/file-path-display"
 import { isImageFile, languageFromPath } from "@/lib/language-detect"
 import { cn } from "@/lib/utils"
 
@@ -82,6 +86,7 @@ export function TaskArtifactFileRow({
         folderPath: activeFolder?.path,
         locale,
         workspaceRoot: t("workspaceRoot"),
+        externalLocation: t("externalLocation"),
       }),
     [activeFolder?.path, item, locale, t]
   )
@@ -155,13 +160,10 @@ function ArtifactRowLabel({
 }) {
   return (
     <>
-      <ArtifactTypeIcon path={item.path} />
+      <ArtifactTypeIcon item={item} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm">{item.displayName}</span>
-        <span
-          className="block truncate text-xs text-muted-foreground"
-          title={item.path}
-        >
+        <span className="block truncate text-xs text-muted-foreground">
           {meta}
         </span>
       </span>
@@ -214,18 +216,33 @@ function artifactMetadata({
   folderPath,
   locale,
   workspaceRoot,
+  externalLocation,
 }: {
   path: string
   createdAt: string
   folderPath?: string
   locale: string
   workspaceRoot: string
+  externalLocation: string
 }): string {
   const relative = toFolderRelativePath(path, folderPath)
-  const lastSlash = relative.lastIndexOf("/")
-  const directory = lastSlash < 0 ? workspaceRoot : relative.slice(0, lastSlash)
+  const directory = artifactDirectoryLabel(
+    relative,
+    workspaceRoot,
+    externalLocation
+  )
   const time = formatArtifactTime(locale, createdAt)
   return time ? `${directory} · ${time}` : directory
+}
+
+function artifactDirectoryLabel(
+  relativePath: string,
+  workspaceRoot: string,
+  externalLocation: string
+): string {
+  if (isAbsoluteFilePath(relativePath)) return externalLocation
+  const lastSlash = relativePath.lastIndexOf("/")
+  return lastSlash < 0 ? workspaceRoot : relativePath.slice(0, lastSlash)
 }
 
 function formatArtifactTime(locale: string, createdAt: string): string {
@@ -239,8 +256,10 @@ function formatArtifactTime(locale: string, createdAt: string): string {
   }).format(date)
 }
 
-function ArtifactTypeIcon({ path }: { path: string }) {
+function ArtifactTypeIcon({ item }: { item: TaskArtifactInfo }) {
   const className = "size-4 shrink-0 text-muted-foreground"
+  if (item.kind === "directory") return <Folder className={className} />
+  const { path } = item
   if (isImageFile(path)) return <FileImage className={className} />
   const extension = path.split(".").pop()?.toLowerCase() ?? ""
   if (SPREADSHEET_EXTENSIONS.has(extension)) {

@@ -8,6 +8,7 @@ pub struct Model {
     pub conversation_id: i32,
     pub path: String,
     pub display_name: String,
+    pub kind: String,
     pub source_path: String,
     pub created_at: DateTimeUtc,
     pub last_checked_at: DateTimeUtc,
