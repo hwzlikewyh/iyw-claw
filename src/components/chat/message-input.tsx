@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { isDesktop } from "@/lib/platform"
+import { isDesktop, openFileDialog } from "@/lib/platform"
 import Image from "next/image"
 import { useLocale, useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
@@ -62,10 +62,12 @@ import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
 import type { EditorImageResult } from "@/components/image-editor/image-editor-model"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import {
+  buildDirectoryUri,
   buildFileUri,
   buildFileUriWithRange,
   fileUriToPath,
   formatFileRangeLabel,
+  isAbsoluteFilesystemPath,
 } from "@/lib/reference-link"
 import {
   filesFromClipboard,
@@ -73,8 +75,6 @@ import {
   imageFilesFromClipboardApi,
 } from "@/lib/clipboard-images"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
-import { useTabActions } from "@/contexts/tab-context"
 import {
   quickMessagesList,
   prepareChatImagePath,
@@ -157,7 +157,6 @@ import { useEnabledSkillIds } from "@/hooks/use-enabled-skill-ids"
 import { useScrollbarSafeDismiss } from "@/hooks/use-scrollbar-safe-dismiss"
 import { getExpertIcon, pickLocalized } from "@/lib/expert-presentation"
 import { OFFICE_ACTIONS, type OfficeAction } from "@/lib/office-actions"
-import { excludeChatFolders, filterTopLevelFolders } from "@/lib/folder-display"
 import {
   clearMessageInputDraftV2,
   loadMessageInputDraftV2,
@@ -313,6 +312,11 @@ const SUPPORTED_IMAGE_MIME_TYPES = new Set([
 
 function fileNameFromPath(path: string): string {
   return path.split(/[/\\]/).pop() || path
+}
+
+function directoryNameFromPath(path: string): string {
+  const trimmed = path.replace(/[/\\]+$/, "")
+  return trimmed.split(/[/\\]/).pop() || path
 }
 
 function mimeTypeFromPath(path: string): string | null {
@@ -720,7 +724,6 @@ export function MessageInput({
       file: t("mentionGroupFile"),
       agent: t("mentionGroupAgent"),
       session: t("mentionGroupSession"),
-      commit: t("mentionGroupCommit"),
       skill: t("mentionGroupSkill"),
     }),
     [t]
@@ -1028,12 +1031,6 @@ export function MessageInput({
   const hasFolderBranchPicker =
     useConversationFolderBranchPickerVisible(attachmentTabId)
   const folderBranchPickerAttached = hasFolderBranchPicker
-  const folders = useAppWorkspaceStore((s) => s.folders)
-  const { openNewConversationTab } = useTabActions()
-  const conversationFolders = useMemo(
-    () => excludeChatFolders(filterTopLevelFolders(folders)),
-    [folders]
-  )
   const imageAttachments = useMemo(
     () =>
       attachments.filter(
@@ -1058,15 +1055,6 @@ export function MessageInput({
   )
   const hasAttachments = attachments.length > 0
   const hasSendableContent = !composerEmpty || hasAttachments
-
-  const handleFolderConversationSelect = useCallback(
-    (folder: (typeof conversationFolders)[number]) => {
-      openNewConversationTab(folder.id, folder.path, {
-        inheritFromActive: true,
-      })
-    },
-    [openNewConversationTab]
-  )
 
   // ── Slash command autocomplete ──
   //
@@ -1237,6 +1225,7 @@ export function MessageInput({
         name: string
         uri?: string
         realBlock?: PromptInputBlock
+        fileKind?: "file" | "dir"
       }>,
       opts: { atCaret?: boolean } = {}
     ) => {
@@ -1266,7 +1255,7 @@ export function MessageInput({
             id: refUri,
             label: item.name,
             uri: refUri,
-            meta: { fileKind: "file" },
+            meta: { fileKind: item.fileKind ?? "file" },
           })
           .insertContent(" ")
         inserted++
@@ -2224,6 +2213,38 @@ export function MessageInput({
       )
     }
   }, [appendNativePickedPaths, defaultPath, disabled, tAttach])
+
+  const handlePickFolder = useCallback(async () => {
+    if (disabled) return
+    try {
+      const localPicker = isDesktop() && getActiveRemoteConnectionId() === null
+      const selected = await openFileDialog({
+        directory: true,
+        multiple: false,
+        title: localPicker ? t("referenceFolder") : t("folderReferencePrompt"),
+        defaultPath: localPicker ? defaultPath : undefined,
+      })
+      if (!selected || Array.isArray(selected)) return
+      const path = selected.trim()
+      if (!isAbsoluteFilesystemPath(path)) {
+        toast.error(t("folderReferenceInvalid"))
+        return
+      }
+      insertFileReferences(
+        [
+          {
+            name: directoryNameFromPath(path),
+            uri: buildDirectoryUri(path),
+            fileKind: "dir",
+          },
+        ],
+        { atCaret: true }
+      )
+    } catch (error) {
+      console.error("[MessageInput] reference folder failed:", error)
+      toast.error(t("folderReferenceFailed"))
+    }
+  }, [defaultPath, disabled, insertFileReferences, t])
 
   const [serverFilePickerOpen, setServerFilePickerOpen] = useState(false)
 
@@ -3565,45 +3586,10 @@ export function MessageInput({
                           {t("attachServerFile")}
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <Folder className="size-4" />
-                          {t("selectFolderForConversation")}
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent
-                          className="min-w-56 overflow-y-auto"
-                          style={{
-                            maxWidth: "min(22rem, calc(100vw - 1rem))",
-                            maxHeight:
-                              "min(32rem, var(--radix-dropdown-menu-content-available-height))",
-                          }}
-                        >
-                          {conversationFolders.length === 0 ? (
-                            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                              {t("noFoldersForConversation")}
-                            </div>
-                          ) : (
-                            conversationFolders.map((folder) => (
-                              <DropdownMenuItem
-                                key={folder.id}
-                                onClick={() =>
-                                  handleFolderConversationSelect(folder)
-                                }
-                              >
-                                <Folder className="size-4" />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate">
-                                    {folder.name}
-                                  </span>
-                                  <span className="block truncate text-xs text-muted-foreground">
-                                    {folder.path}
-                                  </span>
-                                </span>
-                              </DropdownMenuItem>
-                            ))
-                          )}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
+                      <DropdownMenuItem onClick={() => void handlePickFolder()}>
+                        <Folder className="size-4" />
+                        {t("referenceFolder")}
+                      </DropdownMenuItem>
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
                           <MessageSquareText className="size-4" />

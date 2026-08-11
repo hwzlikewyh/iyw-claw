@@ -6,16 +6,11 @@ import { useAcpAgents } from "@/hooks/use-acp-agents"
 import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 import { useFileTree, type FlatFileEntry } from "@/hooks/use-file-tree"
 import { presentAgentSdkAgents } from "@/lib/agent-sdk-presentation"
-import { gitLog, listAllConversations } from "@/lib/api"
-import type {
-  AcpAgentInfo,
-  DbConversationSummary,
-  GitLogEntry,
-} from "@/lib/types"
+import { listAllConversations } from "@/lib/api"
+import type { AcpAgentInfo, DbConversationSummary } from "@/lib/types"
 
 import {
   agentToSuggestion,
-  commitToSuggestion,
   fileToSuggestion,
   sessionToSuggestion,
 } from "./suggestion/adapters"
@@ -34,16 +29,11 @@ const useIsomorphicLayoutEffect =
 
 /** Max rows surfaced per group (mirrors the textarea `@` menu's file cap). */
 const MAX_PER_GROUP = 50
-/** How many commits the git-log group pulls (client-filtered down from here). */
-const GIT_LOG_LIMIT = 100
-const EMPTY_COMMITS: Promise<GitLogEntry[]> = Promise.resolve([])
-
 /** Display headings for each group; injected so the host can localize them. */
 export interface ReferenceGroupLabels {
   file: string
   agent: string
   session: string
-  commit: string
   skill: string
 }
 
@@ -55,7 +45,6 @@ export const DEFAULT_GROUP_LABELS: ReferenceGroupLabels = {
   file: "Files",
   agent: "Agents",
   session: "Sessions",
-  commit: "Commits",
   skill: "Skills",
 }
 
@@ -66,9 +55,6 @@ export interface ReferenceSearchSources {
   workspaceRoot: string | null
   agents: AcpAgentInfo[]
   sessions: DbConversationSummary[]
-  commits: GitLogEntry[]
-  /** Repo identity for commit URIs; null disables the commit group. */
-  repoKey: string | null
 }
 
 /** Case-insensitive substring match against an adapted item's searchable text. */
@@ -85,7 +71,7 @@ function suggestionMatches(item: SuggestionItem, lowerQuery: string): boolean {
 
 /**
  * Pure: filter + adapt the raw sources into the fixed-order grouped suggestions
- * the `@` panel renders (files → agents → sessions → commits). Each group is
+ * the `@` panel renders (files → agents → sessions). Each group is
  * independently capped at {@link MAX_PER_GROUP}; empty groups are kept
  * (the popup hides them) so the order is always stable. Extracted from the hook
  * so the matching/ordering/dedup logic is testable without React.
@@ -130,21 +116,6 @@ export function buildReferenceGroups(
     .filter((item) => suggestionMatches(item, q))
   const sessionItems = sessionMatches.slice(0, MAX_PER_GROUP)
 
-  const commitItems: SuggestionItem[] = []
-  let commitTruncated = false
-  if (sources.repoKey) {
-    const repoKey = sources.repoKey
-    for (const entry of sources.commits) {
-      const item = commitToSuggestion(entry, repoKey)
-      if (!suggestionMatches(item, q)) continue
-      if (commitItems.length >= MAX_PER_GROUP) {
-        commitTruncated = true
-        break
-      }
-      commitItems.push(item)
-    }
-  }
-
   return [
     {
       kind: "file",
@@ -164,20 +135,14 @@ export function buildReferenceGroups(
       items: sessionItems,
       truncated: sessionMatches.length > MAX_PER_GROUP,
     },
-    {
-      kind: "commit",
-      label: labels.commit,
-      items: commitItems,
-      truncated: commitTruncated,
-    },
   ]
 }
 
 export interface UseReferenceSearchOptions {
   /**
-   * Workspace root for the file + commit groups (and the commit `repoKey`).
-   * When empty/null those two groups stay empty while agents/sessions still
-   * resolve, so a brand-new draft tab degrades gracefully (R8).
+   * Workspace root for the file group. When empty/null that group stays empty
+   * while agents/sessions still resolve, so a brand-new draft tab degrades
+   * gracefully (R8).
    */
   defaultPath?: string | null
   /**
@@ -190,7 +155,7 @@ export interface UseReferenceSearchOptions {
 }
 
 /**
- * Compose the live data sources (file tree, ACP agents, conversations, git log)
+ * Compose the live data sources (file tree, ACP agents and conversations)
  * into a single {@link ReferenceSearch} for the composer's `@` panel. (Skills,
  * commands and experts are inserted via the `/` / `$` triggers and the expert
  * menu, not this panel.)
@@ -202,10 +167,10 @@ export interface UseReferenceSearchOptions {
  * on window focus) updates the refs but leaves `search` identity untouched — the
  * open panel keeps its results and the user's selection (R7).
  *
- * Files and agents are hook-loaded (and pre-warmed via `enabled`). Sessions and
- * the git log are fetched lazily on the first `@`, key-cached in a ref, and
- * awaited by `search` so the first open is populated without an extra keystroke;
- * window focus busts those caches so they stay fresh.
+ * Files and agents are hook-loaded (and pre-warmed via `enabled`). Sessions are
+ * fetched lazily on the first `@`, key-cached in a ref, and awaited by `search`
+ * so the first open is populated without an extra keystroke; window focus busts
+ * the cache so it stays fresh.
  */
 export function useReferenceSearch({
   defaultPath,
@@ -244,7 +209,7 @@ export function useReferenceSearch({
   // so they must reflect the *committed* folder/enabled state synchronously at
   // commit — a passive effect can lag behind a stale in-flight fetch that
   // resolves in the post-commit / pre-effect window, leaking the old folder's
-  // commits into the new panel. A layout effect (not a render-phase write) keeps
+  // files into the new panel. A layout effect (not a render-phase write) keeps
   // them commit-accurate without updating from an uncommitted transition render.
   useIsomorphicLayoutEffect(() => {
     pathRef.current = path
@@ -263,24 +228,18 @@ export function useReferenceSearch({
     labelsRef.current = labels
   }, [allFiles, loaded, path, presentedAgents, labels])
 
-  // Lazily-fetched network sources, key-cached so repeat searches reuse the
-  // in-flight/resolved promise while a folder switch refetches.
+  // Lazy network source, key-cached so repeat searches reuse the in-flight or
+  // resolved promise.
   const sessionsRef = useRef<{
     key: string
     promise: Promise<DbConversationSummary[]>
   } | null>(null)
-  const commitsRef = useRef<{
-    key: string
-    promise: Promise<GitLogEntry[]>
-  } | null>(null)
-
-  // Bust the lazy caches when the window regains focus so a session created in
-  // another window (or new commits) show up on the next `@` — matching the
+  // Bust the lazy cache when the window regains focus so a session created in
+  // another window shows up on the next `@` — matching the
   // focus-refresh idiom of the other data hooks, without per-keystroke fetches.
   useEffect(() => {
     const onFocus = () => {
       sessionsRef.current = null
-      commitsRef.current = null
     }
     window.addEventListener("focus", onFocus)
     return () => window.removeEventListener("focus", onFocus)
@@ -307,37 +266,12 @@ export function useReferenceSearch({
       sessionsEntry = created
     }
 
-    // Lazy git-log fetch, keyed by path with the same retry-on-rejection policy.
-    let commitsPromise = EMPTY_COMMITS
-    if (path) {
-      let commitsEntry = commitsRef.current
-      if (commitsEntry?.key !== path) {
-        const created: NonNullable<typeof commitsRef.current> = {
-          key: path,
-          promise: gitLog(path, GIT_LOG_LIMIT)
-            .then((result) => result.entries)
-            .catch(() => {
-              if (commitsRef.current === created) commitsRef.current = null
-              return [] as GitLogEntry[]
-            }),
-        }
-        commitsRef.current = created
-        commitsEntry = created
-      }
-      commitsPromise = commitsEntry.promise
-    } else {
-      commitsRef.current = null
-    }
-
-    const [sessions, commits] = await Promise.all([
-      sessionsEntry.promise,
-      commitsPromise,
-    ])
+    const sessions = await sessionsEntry.promise
     // Discard this result if it can no longer be trusted for the live panel: a
     // newer query aborted us, the composer was disabled, or the workspace folder
     // changed while the network fetch was in flight (the popup only aborts on a
     // query change, so a folder switch would otherwise leak the old repo's
-    // commits — built against `path` — into the new folder's panel). The next
+    // file results into the new folder's panel). The next
     // keystroke re-runs the search against the current folder.
     if (signal?.aborted || !enabledRef.current || pathRef.current !== path) {
       return []
@@ -351,8 +285,6 @@ export function useReferenceSearch({
         workspaceRoot: fileState.root,
         agents: agentsRef.current,
         sessions,
-        commits,
-        repoKey: path,
       },
       labelsRef.current ?? DEFAULT_GROUP_LABELS
     )

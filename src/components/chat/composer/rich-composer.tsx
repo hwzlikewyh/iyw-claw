@@ -124,10 +124,10 @@ export interface RichComposerProps {
    */
   mentionUiLabels?: MentionUiLabels
   /**
-   * Localized per-kind tab labels for the `@` panel (Agents/Files/Sessions/
-   * Commits/Skills). English fallbacks apply when omitted. Render-only.
+   * Localized per-kind tab labels for the `@` panel (Agents/Files/Sessions).
+   * English fallbacks apply when omitted. Render-only.
    */
-  tabLabels?: Record<ReferenceKind, string>
+  tabLabels?: Partial<Record<ReferenceKind, string>>
   /**
    * Key binding (matchShortcutEvent form) that sends the message. Default
    * `"enter"`. When set to a non-Enter binding, a plain Enter inserts a newline.

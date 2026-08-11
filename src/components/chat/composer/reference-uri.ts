@@ -50,12 +50,18 @@ export function parseIywClawReferenceUri(
 
   if (lower.startsWith("file:")) {
     const base = fileBaseName(uri)
+    let fileKind: "file" | "dir" = "file"
+    try {
+      fileKind = new URL(uri).pathname.endsWith("/") ? "dir" : "file"
+    } catch {
+      // Keep the conservative file fallback for malformed historical URIs.
+    }
     return {
       refType: "file",
       id: base || uri,
       label: label || base || uri,
       uri,
-      meta: { fileKind: "file" },
+      meta: { fileKind },
     }
   }
 

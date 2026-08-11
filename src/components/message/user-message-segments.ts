@@ -60,8 +60,8 @@ export function parseUserMessageSegments(text: string): UserMessageSegment[] {
           refType: "file",
           id: segment.path,
           label,
-          uri: localFilePromptUri(segment.path),
-          meta: { fileKind: "file" },
+          uri: localFilePromptUri(segment.path, segment.fileKind),
+          meta: { fileKind: segment.fileKind },
         },
       })
       continue

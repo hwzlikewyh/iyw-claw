@@ -122,7 +122,6 @@ export function AutomationEditor({
       file: tComposer("mentionGroupFile"),
       agent: tComposer("mentionGroupAgent"),
       session: tComposer("mentionGroupSession"),
-      commit: tComposer("mentionGroupCommit"),
       skill: tComposer("mentionGroupSkill"),
     }),
     [tComposer]
@@ -137,7 +136,7 @@ export function AutomationEditor({
     }),
     [tComposer]
   )
-  // Live data sources for the @ panel (files/agents/sessions/commits). All
+  // Live data sources for the @ panel (files/agents/sessions). All
   // transport-only — no live ACP session needed; just the folder path.
   const referenceSearch = useReferenceSearch({
     defaultPath: folderPath,

@@ -2579,8 +2579,10 @@
         "attachLocalUpload": "附加本地文件",
         "attachServerFile": "附加服务端文件",
         "addActions": "添加",
-        "selectFolderForConversation": "选择文件夹进行对话",
-        "noFoldersForConversation": "暂无可用文件夹",
+        "referenceFolder": "引用文件夹",
+        "folderReferencePrompt": "请输入 Agent 可访问的绝对目录路径",
+        "folderReferenceInvalid": "请输入 Agent 可访问的绝对目录路径。",
+        "folderReferenceFailed": "引用文件夹失败。",
         "quickMessages": "快捷消息",
         "quickMessagesEmpty": "暂无快捷消息",
         "quickMessagesLoading": "加载中...",
@@ -2630,7 +2632,6 @@
         "mentionGroupFile": "文件",
         "mentionGroupAgent": "智能体",
         "mentionGroupSession": "会话",
-        "mentionGroupCommit": "提交",
         "mentionGroupSkill": "技能",
         "sessionConfig": {
           "options": {

@@ -17,6 +17,11 @@
  * `[`), which would jank every sidebar/tab render and the transcript pipeline.
  */
 
+export const LOCAL_FILE_PROMPT_PREFIX =
+  "Local file path (use filesystem tools, not MCP resources): "
+export const LOCAL_DIRECTORY_PROMPT_PREFIX =
+  "Local directory path (use filesystem tools, not MCP resources): "
+
 /**
  * Build a `file://` uri from an absolute path (POSIX or Windows), percent-
  * encoding each path segment so spaces / `#` / `?` / `%` can't corrupt the uri.
@@ -41,6 +46,20 @@ export function buildFileUri(absolutePath: string): string {
   }
   const encoded = normalized.split("/").map(encodeURIComponent).join("/")
   return normalized.startsWith("/") ? `file://${encoded}` : `file:///${encoded}`
+}
+
+/** Build a file URI whose trailing slash preserves that the target is a directory. */
+export function buildDirectoryUri(absolutePath: string): string {
+  const normalized = absolutePath.replace(/\\/g, "/")
+  return buildFileUri(`${normalized.replace(/\/+$/, "")}/`)
+}
+
+export function isAbsoluteFilesystemPath(path: string): boolean {
+  return (
+    /^[a-zA-Z]:[\\/]/.test(path) ||
+    path.startsWith("\\\\") ||
+    path.startsWith("/")
+  )
 }
 
 /**
@@ -136,15 +155,25 @@ function inlineCode(text: string): string {
 }
 
 /**
- * Describe a local file as an ordinary filesystem path. ACP ResourceLinks and
- * `file://` markdown links can be mistaken for MCP resources by an agent; this
- * wording makes the intended reader explicit without carrying the file bytes.
+ * Describe a local file or directory as an ordinary filesystem path. ACP
+ * ResourceLinks and `file://` markdown links can be mistaken for MCP resources
+ * by an agent; this wording makes the intended reader explicit without carrying
+ * the file bytes.
  */
 export function localFileReferenceForPrompt(uri: string): string | null {
-  const path = fileUriToPromptPath(unwrapLinkDestination(uri))
-  return path
-    ? `Local file path (use filesystem tools, not MCP resources): ${inlineCode(path)}`
-    : null
+  const destination = unwrapLinkDestination(uri)
+  const path = fileUriToPromptPath(destination)
+  if (!path) return null
+  let isDirectory = false
+  try {
+    isDirectory = new URL(destination).pathname.endsWith("/")
+  } catch {
+    return null
+  }
+  const prefix = isDirectory
+    ? LOCAL_DIRECTORY_PROMPT_PREFIX
+    : LOCAL_FILE_PROMPT_PREFIX
+  return `${prefix}${inlineCode(path)}`
 }
 
 /** Replace only `file://` markdown links, preserving all other prompt text. */

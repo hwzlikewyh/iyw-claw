@@ -30,15 +30,10 @@ const FETCH_DEBOUNCE_MS = 150
 // own (file-first) group order, which other code/tests depend on. `skill` is
 // intentionally absent — skills, commands and experts are inserted via the `/`
 // and `$` triggers, not the `@` panel.
-const TAB_ORDER: readonly ReferenceKind[] = [
-  "agent",
-  "file",
-  "session",
-  "commit",
-]
+const TAB_ORDER: readonly ReferenceKind[] = ["agent", "file", "session"]
 
-// English fallbacks for the tab labels; the host injects localized ones. `skill`
-// is kept for type completeness (`ReferenceKind`) though it is not a shown tab.
+// English fallbacks for reference kinds; commit and skill stay here only for
+// historical-reference type completeness and are not shown as tabs.
 const DEFAULT_TAB_LABELS: Record<ReferenceKind, string> = {
   agent: "Agents",
   file: "Files",
@@ -86,7 +81,7 @@ export interface SuggestionPopupProps {
   /** Non-selectable hint shown under a tab whose matches were capped. */
   moreLabel?: string
   /** Localized per-kind tab labels (English fallbacks apply when omitted). */
-  tabLabels?: Record<ReferenceKind, string>
+  tabLabels?: Partial<Record<ReferenceKind, string>>
   /**
    * Reports the active option's element id (or null when nothing is
    * selectable), so the host can mirror it onto the editor's
@@ -266,7 +261,7 @@ export const SuggestionPopup = forwardRef<
             return true
           case "Tab": {
             // Tab / Shift+Tab move between tabs (pinning the choice); Enter still
-            // selects. Wraps around the five tabs.
+            // selects. Wraps around the visible tabs.
             const dir = event.shiftKey ? -1 : 1
             const at = TAB_ORDER.indexOf(activeTab)
             setPinnedTab(
@@ -293,7 +288,7 @@ export const SuggestionPopup = forwardRef<
     [flat, selectedIndex, activeTab, onSelect, onClose, state.range]
   )
 
-  const activeLabel = tabLabels[activeTab]
+  const activeLabel = tabLabels[activeTab] ?? DEFAULT_TAB_LABELS[activeTab]
   const truncated = !stale && activeGroup?.truncated === true
   const liveStatus = stale
     ? loadingLabel
@@ -359,7 +354,7 @@ export const SuggestionPopup = forwardRef<
                     : "text-muted-foreground hover:bg-accent/50"
                 )}
               >
-                <span>{tabLabels[kind]}</span>
+                <span>{tabLabels[kind] ?? DEFAULT_TAB_LABELS[kind]}</span>
                 {!stale && count > 0 && (
                   <span className="rounded bg-muted px-1 text-[0.7rem] tabular-nums text-muted-foreground">
                     {count}

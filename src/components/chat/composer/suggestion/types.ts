@@ -4,7 +4,7 @@ import type { ReferenceAttrs, ReferenceKind } from "../types"
 export interface SuggestionItem {
   /** The reference inserted when this row is chosen. */
   reference: ReferenceAttrs
-  /** Secondary line under the label (path, branch, commit message, …). */
+  /** Secondary line under the label (path, branch, status, …). */
   detail?: string | null
   /** Extra text matched against the query, in addition to the label. */
   keywords?: string
@@ -43,7 +43,7 @@ export interface MentionUiLabels {
 
 /**
  * Resolves the `@` query into grouped suggestions. Async so an implementation
- * can hit the file tree / conversations / git log / skills APIs. The optional
+ * can hit the file tree or conversations APIs. The optional
  * AbortSignal is aborted when a newer query supersedes this one.
  *
  * Phase 2 ships the panel against this interface; Phase 3 supplies the real

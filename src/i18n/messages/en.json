@@ -2579,8 +2579,10 @@
         "attachLocalUpload": "Upload local file",
         "attachServerFile": "Pick server file",
         "addActions": "Add",
-        "selectFolderForConversation": "Choose folder for conversation",
-        "noFoldersForConversation": "No folders available",
+        "referenceFolder": "Reference folder",
+        "folderReferencePrompt": "Enter an absolute folder path available to the agent",
+        "folderReferenceInvalid": "Enter an absolute folder path available to the agent.",
+        "folderReferenceFailed": "Failed to reference the folder.",
         "quickMessages": "Quick messages",
         "quickMessagesEmpty": "No quick messages yet",
         "quickMessagesLoading": "Loading...",
@@ -2630,7 +2632,6 @@
         "mentionGroupFile": "Files",
         "mentionGroupAgent": "Agents",
         "mentionGroupSession": "Sessions",
-        "mentionGroupCommit": "Commits",
         "mentionGroupSkill": "Skills",
         "sessionConfig": {
           "options": {

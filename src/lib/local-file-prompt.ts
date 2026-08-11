@@ -1,21 +1,16 @@
-import { buildFileUri } from "./reference-link"
-
-export const LOCAL_FILE_PROMPT_PREFIX =
-  "Local file path (use filesystem tools, not MCP resources): "
+import {
+  buildDirectoryUri,
+  buildFileUri,
+  isAbsoluteFilesystemPath,
+  LOCAL_DIRECTORY_PROMPT_PREFIX,
+  LOCAL_FILE_PROMPT_PREFIX,
+} from "./reference-link"
 
 export type LocalFilePromptSegment =
   | { type: "text"; value: string }
-  | { type: "file"; path: string }
+  | { type: "file"; path: string; fileKind: "file" | "dir" }
 
 const LINE_RANGE_FRAGMENT = /#L(\d+)(?:-(\d+))?$/
-
-function isAbsoluteLocalPath(path: string): boolean {
-  return (
-    /^[a-zA-Z]:[\\/]/.test(path) ||
-    path.startsWith("\\\\") ||
-    path.startsWith("/")
-  )
-}
 
 function readInlineCode(
   text: string,
@@ -40,25 +35,49 @@ function readInlineCode(
   return { value, end: close + fence.length }
 }
 
+function nextPromptMarker(
+  text: string,
+  start: number
+): { index: number; prefix: string; fileKind: "file" | "dir" } | null {
+  const candidates = [
+    {
+      index: text.indexOf(LOCAL_FILE_PROMPT_PREFIX, start),
+      prefix: LOCAL_FILE_PROMPT_PREFIX,
+      fileKind: "file" as const,
+    },
+    {
+      index: text.indexOf(LOCAL_DIRECTORY_PROMPT_PREFIX, start),
+      prefix: LOCAL_DIRECTORY_PROMPT_PREFIX,
+      fileKind: "dir" as const,
+    },
+  ].filter((candidate) => candidate.index >= 0)
+  return candidates.sort((a, b) => a.index - b.index)[0] ?? null
+}
+
 export function splitLocalFilePrompts(text: string): LocalFilePromptSegment[] {
   const segments: LocalFilePromptSegment[] = []
-  let cursor = 0
-  while (cursor < text.length) {
-    const marker = text.indexOf(LOCAL_FILE_PROMPT_PREFIX, cursor)
-    if (marker < 0) break
-    const code = readInlineCode(text, marker + LOCAL_FILE_PROMPT_PREFIX.length)
-    if (!code || !isAbsoluteLocalPath(code.value)) {
-      cursor = marker + LOCAL_FILE_PROMPT_PREFIX.length
+  let textStart = 0
+  let searchStart = 0
+  while (searchStart < text.length) {
+    const marker = nextPromptMarker(text, searchStart)
+    if (!marker) break
+    const code = readInlineCode(text, marker.index + marker.prefix.length)
+    if (!code || !isAbsoluteFilesystemPath(code.value)) {
+      searchStart = marker.index + marker.prefix.length
       continue
     }
-    if (marker > cursor) {
-      segments.push({ type: "text", value: text.slice(cursor, marker) })
+    if (marker.index > textStart) {
+      segments.push({
+        type: "text",
+        value: text.slice(textStart, marker.index),
+      })
     }
-    segments.push({ type: "file", path: code.value })
-    cursor = code.end
+    segments.push({ type: "file", path: code.value, fileKind: marker.fileKind })
+    textStart = code.end
+    searchStart = code.end
   }
-  if (cursor < text.length) {
-    segments.push({ type: "text", value: text.slice(cursor) })
+  if (textStart < text.length) {
+    segments.push({ type: "text", value: text.slice(textStart) })
   }
   return segments.length > 0 ? segments : [{ type: "text", value: text }]
 }
@@ -71,10 +90,16 @@ export function localFilePromptLabel(path: string): string {
   return range[2] ? `${name}:${range[1]}-${range[2]}` : `${name}:${range[1]}`
 }
 
-export function localFilePromptUri(path: string): string {
+export function localFilePromptUri(
+  path: string,
+  fileKind: "file" | "dir" = "file"
+): string {
   const range = path.match(LINE_RANGE_FRAGMENT)
   const withoutRange = range ? path.slice(0, range.index) : path
-  const uri = buildFileUri(withoutRange)
+  const uri =
+    fileKind === "dir"
+      ? buildDirectoryUri(withoutRange)
+      : buildFileUri(withoutRange)
   return range ? `${uri}${range[0]}` : uri
 }
 

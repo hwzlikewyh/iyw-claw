@@ -1,12 +1,8 @@
 import type { FlatFileEntry } from "@/hooks/use-file-tree"
 import { formatConversationTitle } from "@/lib/conversation-title"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
-import { buildFileUri } from "@/lib/reference-link"
-import {
-  type AcpAgentInfo,
-  type DbConversationSummary,
-  type GitLogEntry,
-} from "@/lib/types"
+import { buildDirectoryUri, buildFileUri } from "@/lib/reference-link"
+import { type AcpAgentInfo, type DbConversationSummary } from "@/lib/types"
 
 import type { SuggestionItem } from "./types"
 
@@ -26,7 +22,10 @@ export function fileToSuggestion(
       refType: "file",
       id: entry.relativePath,
       label: entry.name,
-      uri: buildFileUri(joinPath(workspaceRoot, entry.relativePath)),
+      uri:
+        entry.kind === "dir"
+          ? buildDirectoryUri(joinPath(workspaceRoot, entry.relativePath))
+          : buildFileUri(joinPath(workspaceRoot, entry.relativePath)),
       meta: { fileKind: entry.kind },
     },
     detail: entry.relativePath,
@@ -88,32 +87,6 @@ export function sessionToSuggestion(
     },
     detail: conversation.git_branch || conversation.status,
     keywords: `${label} ${conversation.agent_type}`,
-  }
-}
-
-/**
- * Git commit → commit reference (`iyw-claw://commit/<repoKey>@<fullHash>`).
- * `repoKey` identifies the repository (e.g. its path) and is URI-encoded.
- */
-export function commitToSuggestion(
-  entry: GitLogEntry,
-  repoKey: string
-): SuggestionItem {
-  return {
-    reference: {
-      refType: "commit",
-      id: entry.full_hash,
-      label: entry.hash,
-      uri: `iyw-claw://commit/${encodeURIComponent(repoKey)}@${entry.full_hash}`,
-      meta: {
-        shortHash: entry.hash,
-        message: entry.message,
-        author: entry.author,
-        pushed: entry.pushed,
-      },
-    },
-    detail: entry.message,
-    keywords: `${entry.hash} ${entry.message} ${entry.author}`,
   }
 }
 
