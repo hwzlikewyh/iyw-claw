@@ -5951,9 +5951,7 @@ fn ensure_market_install_target(source: &Path, marker: &MarketSkillMarker) -> Re
             }
         }
     }
-    Err(AcpError::protocol(
-        "A local Skill with this slug already exists and will not be overwritten",
-    ))
+    Ok(())
 }
 
 fn is_real_skill_directory(path: &Path) -> bool {
