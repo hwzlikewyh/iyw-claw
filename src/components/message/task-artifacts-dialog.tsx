@@ -36,7 +36,7 @@ export function TaskArtifactsDialog({
       />
       <Dialog open={open} onOpenChange={setOpen}>
         {open && (
-          <DialogContent className="flex h-[min(42rem,calc(100dvh-2rem))] max-w-[min(52rem,calc(100vw-2rem))] flex-col gap-0 overflow-hidden rounded-lg p-0 sm:max-w-[min(52rem,calc(100vw-2rem))]">
+          <DialogContent className="flex h-[min(46rem,calc(100dvh-2rem))] max-w-[min(72rem,calc(100vw-2rem))] flex-col gap-0 overflow-hidden rounded-lg p-0 sm:max-w-[min(72rem,calc(100vw-2rem))]">
             <header className="flex h-11 shrink-0 items-center gap-2 border-b bg-muted/15 px-3 pr-12">
               <PackageOpen className="size-4 text-muted-foreground" />
               <DialogTitle className="text-sm font-medium">
@@ -46,7 +46,11 @@ export function TaskArtifactsDialog({
                 {t("description")}
               </DialogDescription>
             </header>
-            <TaskArtifactsTab conversationId={conversationId} />
+            <TaskArtifactsTab
+              conversationId={conversationId}
+              displayMode="browser"
+              onRequestClose={() => setOpen(false)}
+            />
           </DialogContent>
         )}
       </Dialog>
