@@ -2,22 +2,18 @@
 
 import { useState } from "react"
 import { ChevronDown } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
 export interface AppProcessInfo {
   pid: number
-  parentPid?: number
   displayName: string
   agentType: string | null
   isMainProcess: boolean
   cpuUsage: number
   memoryBytes: number
-  privateMemoryBytes?: number
   groupId?: string
   groupDisplayName?: string
   processRole?: string
-  status: string
 }
 
 export interface ProcessGroup {
@@ -26,7 +22,6 @@ export interface ProcessGroup {
   rootPid: number
   cpuUsage: number
   memoryBytes: number
-  privateMemoryBytes?: number
   processes: AppProcessInfo[]
 }
 
@@ -67,10 +62,6 @@ export function buildProcessGroups(
     }
     existing.cpuUsage += proc.cpuUsage
     existing.memoryBytes += proc.memoryBytes
-    if (proc.privateMemoryBytes != null) {
-      existing.privateMemoryBytes =
-        (existing.privateMemoryBytes ?? 0) + proc.privateMemoryBytes
-    }
     existing.processes.push(proc)
     if (proc.processRole === "main" || proc.processRole === "launcher") {
       existing.rootPid = proc.pid
@@ -118,17 +109,12 @@ function formatBytes(bytes: number | undefined): string {
 
 function ProcessRow({ proc }: { proc: AppProcessInfo }) {
   return (
-    <div className="grid grid-cols-[minmax(220px,1fr)_110px_110px_72px_64px] items-center gap-3 px-4 py-2.5 hover:bg-muted/30">
-      <div className="min-w-0">
+    <div className="grid grid-cols-[minmax(0,1fr)_6rem_4rem] items-center gap-2 px-4 py-2.5 hover:bg-muted/30">
+      <div className="min-w-0 pl-6">
         <div className="truncate text-sm font-medium">{proc.displayName}</div>
         <div className="truncate text-xs text-muted-foreground">
-          PID {proc.pid}
-          {proc.parentPid != null && ` · PPID ${proc.parentPid}`} ·{" "}
-          {roleLabel(proc.processRole)}
+          {roleLabel(proc.processRole)} · PID {proc.pid}
         </div>
-      </div>
-      <div className="text-right text-sm tabular-nums">
-        {formatBytes(proc.privateMemoryBytes)}
       </div>
       <div className="text-right text-sm tabular-nums text-muted-foreground">
         {formatBytes(proc.memoryBytes)}
@@ -136,77 +122,67 @@ function ProcessRow({ proc }: { proc: AppProcessInfo }) {
       <div className="text-right text-sm tabular-nums text-muted-foreground">
         {proc.cpuUsage.toFixed(1)}%
       </div>
-      <Badge
-        variant={proc.status === "运行中" ? "default" : "secondary"}
-        className="w-14 justify-center text-xs"
-      >
-        {proc.status}
-      </Badge>
     </div>
   )
 }
 
 function ProcessGroupHeader({
   group,
-  collapsed,
+  expanded,
   onToggle,
 }: {
   group: ProcessGroup
-  collapsed: boolean
+  expanded: boolean
   onToggle: () => void
 }) {
   return (
     <button
       type="button"
-      className="grid w-full grid-cols-[minmax(220px,1fr)_110px_110px_72px_64px] items-center gap-3 bg-muted/20 px-4 py-3 text-left hover:bg-muted/35"
+      className="grid w-full grid-cols-[minmax(0,1fr)_6rem_4rem] items-center gap-2 bg-muted/20 px-4 py-3 text-left hover:bg-muted/35"
       onClick={onToggle}
-      aria-expanded={!collapsed}
+      aria-expanded={expanded}
     >
       <span className="flex min-w-0 items-center gap-2">
         <ChevronDown
           className={cn(
             "size-4 shrink-0 transition-transform",
-            collapsed && "-rotate-90"
+            !expanded && "-rotate-90"
           )}
         />
         <span className="truncate text-sm font-semibold">
           {group.displayName}
         </span>
         <span className="shrink-0 text-xs text-muted-foreground">
-          {group.processes.length} 个 · 根 PID {group.rootPid}
+          {group.processes.length} 个进程
         </span>
       </span>
       <span className="text-right text-sm font-medium tabular-nums">
-        {formatBytes(group.privateMemoryBytes)}
-      </span>
-      <span className="text-right text-sm tabular-nums text-muted-foreground">
         {formatBytes(group.memoryBytes)}
       </span>
       <span className="text-right text-sm tabular-nums text-muted-foreground">
         {group.cpuUsage.toFixed(1)}%
       </span>
-      <span />
     </button>
   )
 }
 
 function ProcessGroupSection({
   group,
-  collapsed,
+  expanded,
   onToggle,
 }: {
   group: ProcessGroup
-  collapsed: boolean
+  expanded: boolean
   onToggle: () => void
 }) {
   return (
     <section className="border-b last:border-b-0">
       <ProcessGroupHeader
         group={group}
-        collapsed={collapsed}
+        expanded={expanded}
         onToggle={onToggle}
       />
-      {!collapsed && (
+      {expanded && (
         <div className="divide-y">
           {group.processes.map((proc) => (
             <ProcessRow key={proc.pid} proc={proc} />
@@ -218,9 +194,9 @@ function ProcessGroupSection({
 }
 
 export function ProcessGroupList({ groups }: { groups: ProcessGroup[] }) {
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const toggle = (groupId: string) => {
-    setCollapsedIds((current) => {
+    setExpandedIds((current) => {
       const next = new Set(current)
       if (next.has(groupId)) next.delete(groupId)
       else next.add(groupId)
@@ -229,19 +205,17 @@ export function ProcessGroupList({ groups }: { groups: ProcessGroup[] }) {
   }
 
   return (
-    <div className="min-w-[720px]">
-      <div className="grid grid-cols-[minmax(220px,1fr)_110px_110px_72px_64px] gap-3 border-b bg-muted/10 px-4 py-2 text-xs text-muted-foreground">
-        <span>进程组 / 进程</span>
-        <span className="text-right">私有提交</span>
-        <span className="text-right">Working Set</span>
+    <div>
+      <div className="grid grid-cols-[minmax(0,1fr)_6rem_4rem] gap-2 border-b bg-muted/10 px-4 py-2 text-xs text-muted-foreground">
+        <span>进程组</span>
+        <span className="text-right">内存</span>
         <span className="text-right">CPU</span>
-        <span>状态</span>
       </div>
       {groups.map((group) => (
         <ProcessGroupSection
           key={group.id}
           group={group}
-          collapsed={collapsedIds.has(group.id)}
+          expanded={expandedIds.has(group.id)}
           onToggle={() => toggle(group.id)}
         />
       ))}

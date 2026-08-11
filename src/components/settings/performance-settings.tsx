@@ -22,8 +22,6 @@ const AUTO_REFRESH_INTERVAL_MS = 3000
 interface AppPerformanceStats {
   cpuUsage: number
   memoryUsedBytes: number
-  privateMemoryUsedBytes?: number
-  osInfo: { osName: string; arch: string }
   processes: AppProcessInfo[]
 }
 
@@ -105,27 +103,13 @@ function usePerformanceData(): PerformanceData {
   }
 }
 
-function StatCard(props: {
-  label: string
-  value: string
-  sub: string
-  progress?: number
-}) {
+function SummaryMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="space-y-2 rounded-lg border bg-card p-4">
-      <div className="text-xs text-muted-foreground">{props.label}</div>
-      <div className="text-2xl font-semibold tabular-nums">{props.value}</div>
-      <div className="truncate text-xs text-muted-foreground">{props.sub}</div>
-      {props.progress != null && (
-        <div className="h-1 overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary transition-all duration-500"
-            style={{
-              width: `${Math.min(Math.max(props.progress, 0), 100)}%`,
-            }}
-          />
-        </div>
-      )}
+    <div className="min-w-0 px-4 first:pl-0 last:pr-0">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 truncate text-xl font-semibold tabular-nums">
+        {value}
+      </div>
     </div>
   )
 }
@@ -162,30 +146,21 @@ function PerformanceHeader({ data }: { data: PerformanceData }) {
   )
 }
 
-function PerformanceStatsGrid({ data }: { data: PerformanceData }) {
-  const { stats, groups } = data
+function PerformanceSummary({ data }: { data: PerformanceData }) {
+  const { stats } = data
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <StatCard
-        label="应用私有提交"
-        value={formatBytes(stats?.privateMemoryUsedBytes)}
-        sub="各进程私有提交量合计"
-      />
-      <StatCard
-        label="应用 Working Set"
+    <div className="grid grid-cols-3 divide-x border-y py-3">
+      <SummaryMetric
+        label="内存占用"
         value={stats ? formatBytes(stats.memoryUsedBytes) : "不可用"}
-        sub="驻留物理页，可能包含共享页"
       />
-      <StatCard
-        label="进程组"
-        value={stats ? String(groups.length) : "不可用"}
-        sub={stats ? `${stats.processes.length} 个进程` : "等待采集"}
-      />
-      <StatCard
-        label="应用总 CPU"
+      <SummaryMetric
+        label="CPU 使用率"
         value={stats ? `${stats.cpuUsage.toFixed(1)}%` : "不可用"}
-        sub="当前软件及附属进程"
-        progress={stats?.cpuUsage}
+      />
+      <SummaryMetric
+        label="进程数"
+        value={stats ? String(stats.processes.length) : "不可用"}
       />
     </div>
   )
@@ -196,14 +171,7 @@ function PerformanceProcessPanel({ data }: { data: PerformanceData }) {
   return (
     <div className="overflow-hidden rounded-lg border">
       <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-3">
-        <span className="text-sm font-medium">
-          应用进程
-          {stats?.osInfo.osName && (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
-              {stats.osInfo.osName} · {stats.osInfo.arch}
-            </span>
-          )}
-        </span>
+        <span className="text-sm font-medium">进程占用</span>
         {lastUpdate && (
           <span className="text-xs text-muted-foreground">
             更新于 {lastUpdate.toLocaleTimeString("zh-CN")}
@@ -215,9 +183,7 @@ function PerformanceProcessPanel({ data }: { data: PerformanceData }) {
           {loading ? "加载中..." : "暂无进程数据"}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <ProcessGroupList groups={groups} />
-        </div>
+        <ProcessGroupList groups={groups} />
       )}
     </div>
   )
@@ -233,7 +199,7 @@ export function PerformanceSettings() {
           {data.error}
         </div>
       )}
-      <PerformanceStatsGrid data={data} />
+      <PerformanceSummary data={data} />
       <PerformanceProcessPanel data={data} />
     </SettingsPageLayout>
   )
