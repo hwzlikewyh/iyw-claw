@@ -5,8 +5,8 @@ use std::sync::Arc;
 use iyw_claw_lib::app_state::AppState;
 use iyw_claw_lib::web::event_bridge::{EventEmitter, WebEventBroadcaster};
 use iyw_claw_lib::web::{
-    addresses_for_bind, advertise_host, find_static_dir_standalone, resolve_persisted_server_token,
-    WebServerState,
+    addresses_for_bind, advertise_host, find_static_dir_standalone, persisted_server_token,
+    resolve_persisted_server_token, WebServerState,
 };
 
 #[cfg(debug_assertions)]
@@ -275,11 +275,16 @@ async fn async_main() -> ExitCode {
     // Resolve the access token *after* the DB is up so a generated token can be
     // persisted and reused across restarts (a self-update restart must not
     // rotate it). An empty/whitespace IYW_CLAW_TOKEN is treated as unset.
+    let configured_token = configured_server_token();
+    let persisted_token = persisted_server_token(&db.conn).await;
     let mut token_generated = false;
     let token =
-        resolve_persisted_server_token(&db.conn, configured_server_token(), &mut token_generated)
-            .await;
-    iyw_claw_lib::keyring_store::initialize_server_channel_target_crypto(&token);
+        resolve_persisted_server_token(&db.conn, configured_token, &mut token_generated).await;
+    let mut legacy_tokens = vec![token.clone()];
+    if let Some(persisted) = persisted_token.filter(|persisted| persisted != &token) {
+        legacy_tokens.push(persisted);
+    }
+    iyw_claw_lib::keyring_store::initialize_legacy_server_channel_target_crypto(legacy_tokens);
     if token_generated {
         // Operator-facing startup notice on stderr ONLY: the access token is a
         // bearer credential and must never enter the durable log files or the

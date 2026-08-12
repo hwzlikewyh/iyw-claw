@@ -22,8 +22,8 @@ fn channel_target_secret_key() -> &'static str {
 }
 
 #[cfg(not(feature = "tauri-runtime"))]
-pub fn initialize_server_channel_target_crypto(access_token: &str) {
-    crate::server_channel_target_crypto::initialize(access_token);
+pub fn initialize_legacy_server_channel_target_crypto(tokens: Vec<String>) {
+    crate::server_channel_target_crypto::initialize_legacy_channel_tokens(tokens);
 }
 
 // ── Tauri mode: OS keyring ──
@@ -180,7 +180,17 @@ fn set_secure_value(key: &str, value: &str) -> Result<(), String> {
 #[cfg(not(feature = "tauri-runtime"))]
 fn get_secure_value(key: &str) -> Option<String> {
     let encrypted = crate::server_secret_store::get(key)?;
-    crate::server_channel_target_crypto::decrypt(key, &encrypted).ok()
+    match crate::server_channel_target_crypto::decrypt(key, &encrypted) {
+        Ok(value) => Some(value),
+        Err(_) => {
+            let value =
+                crate::server_channel_target_crypto::decrypt_legacy(key, &encrypted).ok()?;
+            if let Err(error) = set_secure_value(key, &value) {
+                tracing::warn!(error = %error, "legacy channel target re-encryption failed");
+            }
+            Some(value)
+        }
+    }
 }
 
 #[cfg(not(feature = "tauri-runtime"))]

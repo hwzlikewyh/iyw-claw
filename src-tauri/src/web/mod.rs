@@ -172,6 +172,15 @@ pub async fn resolve_persisted_server_token(
     token
 }
 
+pub async fn persisted_server_token(conn: &DatabaseConnection) -> Option<String> {
+    app_metadata_service::get_value(conn, WEB_SERVICE_TOKEN_KEY)
+        .await
+        .ok()
+        .flatten()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 async fn resolve_web_service_port(
     conn: &DatabaseConnection,
     override_port: Option<u16>,
