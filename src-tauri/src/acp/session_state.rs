@@ -214,6 +214,18 @@ pub struct PendingUserMessage {
     pub blocks: Vec<crate::acp::types::UserMessageBlock>,
 }
 
+/// Codex ACP accepted a native steer by ending the current prompt and starting
+/// a wrapper-owned background turn. The host adopts that turn only after the
+/// old generation's ordered lifecycle settlement has completed.
+#[derive(Debug, Clone)]
+pub(crate) struct NativeBackgroundTurn {
+    pub message_id: String,
+    pub blocks: Vec<UserMessageBlock>,
+    pub source_generation: i64,
+    pub adopted_generation: Option<i64>,
+    pub terminal_status: Option<String>,
+}
+
 /// Captured by the `TurnComplete` arm of [`SessionState::apply_event`] for
 /// the memory harvest hook (Task 13): the completed turn's nonce (read before
 /// `MemoryTurnTracker::complete_turn` clears the active bit) and sanitized,
@@ -396,6 +408,13 @@ pub struct SessionState {
     /// frontend gates the feedback bar on the agent's actual capability, not the
     /// (possibly later-toggled) global setting.
     pub feedback_tool_available: bool,
+    /// Whether this connection advertised a native steering extension with a
+    /// consumption acknowledgement understood by the locked Agent adapter.
+    pub native_steering_available: bool,
+    /// Pending or adopted wrapper-owned turn created by `_session/steering`.
+    /// Runtime-only: reconnect cannot prove the result of an interrupted RPC.
+    pub(crate) native_background_turn: Option<NativeBackgroundTurn>,
+    pub(crate) native_background_notify: Arc<tokio::sync::Notify>,
 
     /// Concatenated text content of the just-completed turn's assistant
     /// message. Captured at TurnComplete (just before live_message is
@@ -521,6 +540,9 @@ impl SessionState {
             launch_ready: Arc::new(tokio::sync::Notify::new()),
             user_context_injected: false,
             feedback_tool_available: false,
+            native_steering_available: false,
+            native_background_turn: None,
+            native_background_notify: Arc::new(tokio::sync::Notify::new()),
             last_assistant_text: None,
             last_completed_turn_harvest: None,
             pending_user_message: None,
@@ -847,6 +869,15 @@ impl SessionState {
                 // cancel, stop-reason — emit TurnComplete; disconnect/error
                 // discard the state entirely, so no stale flag can outlive them.)
                 self.turn_in_flight = false;
+                if self
+                    .native_background_turn
+                    .as_ref()
+                    .and_then(|turn| turn.adopted_generation)
+                    == Some(self.turn_generation)
+                {
+                    self.native_background_turn = None;
+                    self.native_background_notify.notify_waiters();
+                }
                 // NOTE: `active_delegations` is intentionally NOT cleared here.
                 // A running delegation's child runs in the background long after
                 // the parent's `delegate_to_agent` tool call returns and this
@@ -870,6 +901,13 @@ impl SessionState {
                     message_id: message_id.clone(),
                     blocks: blocks.clone(),
                 });
+                if self
+                    .native_background_turn
+                    .as_ref()
+                    .is_some_and(|turn| turn.message_id == *message_id)
+                {
+                    self.agent_inputs.retain(|item| item.id != *message_id);
+                }
                 // Reference instant for the in-flight prompt's recency check in
                 // `apply_in_flight_message_id`. Set here (not at manager enqueue)
                 // so it tracks `pending_user_message` exactly.
@@ -892,7 +930,13 @@ impl SessionState {
                             | Some(crate::acp::AgentInputStrategy::NativeSteer)
                     )
                 {
-                    self.push_consumed_agent_input(item);
+                    let belongs_to_background_turn = self
+                        .native_background_turn
+                        .as_ref()
+                        .is_some_and(|turn| turn.message_id == item.id);
+                    if !belongs_to_background_turn {
+                        self.push_consumed_agent_input(item);
+                    }
                 }
                 let remove_from_projection = item.status == crate::acp::AgentInputStatus::Deleted
                     || (item.status == crate::acp::AgentInputStatus::Consumed
@@ -907,8 +951,13 @@ impl SessionState {
                     *existing = item.clone();
                 } else {
                     self.agent_inputs.push(item.clone());
-                    self.agent_inputs.sort_by_key(|input| input.created_at);
                 }
+                self.agent_inputs.sort_by(|left, right| {
+                    left.sort_index
+                        .cmp(&right.sort_index)
+                        .then_with(|| left.created_at.cmp(&right.created_at))
+                        .then_with(|| left.id.cmp(&right.id))
+                });
                 self.agent_input_notify.notify_one();
             }
             AcpEvent::ConversationLinked {
@@ -1026,6 +1075,9 @@ impl SessionState {
                         f.delivered_at = Some(*delivered_at);
                     }
                 }
+            }
+            AcpEvent::FeedbackWithdrawn { ids } => {
+                self.feedback.retain(|item| !ids.contains(&item.id));
             }
             AcpEvent::BackgroundActivity { outstanding, .. } => {
                 self.background_outstanding = *outstanding;

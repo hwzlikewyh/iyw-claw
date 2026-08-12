@@ -24,6 +24,14 @@ pub(crate) enum NativeSteerKind {
     CodeBuddyBusyQueue,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NativeSteerOutcome {
+    Injected,
+    StartedNewTurn,
+    Unsupported,
+    Failed(String),
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct AgentInputCapabilities {
     native_steer_kind: Option<NativeSteerKind>,
@@ -34,18 +42,33 @@ pub(crate) struct AgentInputCapabilities {
 }
 
 impl AgentInputCapabilities {
-    pub(crate) fn for_connection(agent_type: AgentType, feedback_tool_available: bool) -> Self {
+    pub(crate) fn for_connection(
+        agent_type: AgentType,
+        feedback_tool_available: bool,
+        native_steering_available: bool,
+    ) -> Self {
         let deferred_interrupt = matches!(
             agent_type,
             AgentType::ClaudeCode | AgentType::Gemini | AgentType::Pi | AgentType::Grok
         );
+        let codex_native = agent_type == AgentType::Codex && native_steering_available;
         Self {
-            // No current generic ACP adapter provides a reliable native-steer
-            // consumption ack. Keep this explicit instead of treating a second
-            // session/prompt as steer.
-            native_steer_kind: None,
-            accepted_block_kinds: &[],
-            has_consumption_ack: false,
+            // codex-acp 1.1.14 advertises this extension at initialize time and
+            // returns an outcome that is a real consumption boundary. Other
+            // locked Agents stay disabled until their ACP wrapper exposes an
+            // equally attributable acknowledgement.
+            native_steer_kind: codex_native.then_some(NativeSteerKind::CodexTurnSteer),
+            accepted_block_kinds: if codex_native {
+                &[
+                    AgentInputBlockKind::Text,
+                    AgentInputBlockKind::Image,
+                    AgentInputBlockKind::Resource,
+                    AgentInputBlockKind::ResourceLink,
+                ]
+            } else {
+                &[]
+            },
+            has_consumption_ack: codex_native,
             supports_cooperative_feedback: feedback_tool_available && !deferred_interrupt,
             deferred_interrupt,
         }
@@ -53,7 +76,8 @@ impl AgentInputCapabilities {
 
     pub(crate) fn native_steer_for(&self, payload: &AgentInputPayload) -> Option<NativeSteerKind> {
         let kind = self.native_steer_kind?;
-        if !self.has_consumption_ack
+        if payload.mode_id.is_some()
+            || !self.has_consumption_ack
             || !payload
                 .blocks
                 .iter()

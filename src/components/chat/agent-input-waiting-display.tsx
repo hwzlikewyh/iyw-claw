@@ -1,100 +1,219 @@
 "use client"
 
-import { CircleAlert, LoaderCircle, RotateCcw, X } from "lucide-react"
-import { useTranslations } from "next-intl"
+import { useEffect, useRef, useState } from "react"
+import { Reorder } from "motion/react"
 
-import { PlainTextWithBadges } from "@/components/message/plain-text-with-badges"
-import { UserImageAttachments } from "@/components/message/user-image-attachments"
-import { UserResourceLinks } from "@/components/message/user-resource-links"
 import {
-  extractUserImagesFromDraft,
-  extractUserResourcesFromDraft,
-} from "@/lib/prompt-draft"
-import type { AgentInputItem, PromptDraft } from "@/lib/types"
+  AgentInputWaitingRow,
+  isAgentInputLocked,
+} from "@/components/chat/agent-input-waiting-row"
+import type { AgentInputItem } from "@/lib/types"
 
 interface AgentInputWaitingDisplayProps {
   items: AgentInputItem[]
   onDelete?: (id: string) => void
   onRetry?: (id: string) => void
+  onReorder?: (orderedIds: string[]) => Promise<void>
+  onForceThrough?: (messageId: string, expectedPrefixIds: string[]) => void
 }
 
-function toDraft(item: AgentInputItem): PromptDraft {
-  return {
-    blocks: item.payload.blocks,
-    displayText: item.payload.display_text,
+function sameOrder(current: AgentInputItem[], next: AgentInputItem[]): boolean {
+  return (
+    current.length === next.length &&
+    current.every((item, index) => item.id === next[index]?.id)
+  )
+}
+
+type WaitingSection =
+  | { kind: "locked"; item: AgentInputItem }
+  | { kind: "movable"; items: AgentInputItem[] }
+
+function splitAtLockedItems(items: AgentInputItem[]): WaitingSection[] {
+  const sections: WaitingSection[] = []
+  let movable: AgentInputItem[] = []
+  const flushMovable = () => {
+    if (movable.length > 0) {
+      sections.push({ kind: "movable", items: movable })
+      movable = []
+    }
   }
+  for (const item of items) {
+    if (isAgentInputLocked(item)) {
+      flushMovable()
+      sections.push({ kind: "locked", item })
+    } else {
+      movable.push(item)
+    }
+  }
+  flushMovable()
+  return sections
+}
+
+interface MovableSectionProps {
+  items: AgentInputItem[]
+  visible: AgentInputItem[]
+  onDelete?: (id: string) => void
+  onRetry?: (id: string) => void
+  onForceThrough?: (messageId: string, expectedPrefixIds: string[]) => void
+  onCommit?: (items: AgentInputItem[]) => Promise<void>
+  forceDisabled: boolean
+}
+
+function useMovableOrder(
+  items: AgentInputItem[],
+  onCommit?: (items: AgentInputItem[]) => Promise<void>
+) {
+  const [orderedItems, setOrderedItems] = useState(items)
+  const [submitting, setSubmitting] = useState(false)
+  const orderedItemsRef = useRef(items)
+  const authoritativeOrder = items.map((item) => item.id).join(":")
+  const orderChanged = !sameOrder(items, orderedItems)
+
+  useEffect(() => {
+    orderedItemsRef.current = items
+    setOrderedItems(items)
+  }, [authoritativeOrder, items])
+
+  const previewOrder = (next: AgentInputItem[]) => {
+    orderedItemsRef.current = next
+    setOrderedItems(next)
+  }
+
+  const commitOrder = async () => {
+    const next = orderedItemsRef.current
+    if (!onCommit || sameOrder(items, next)) return
+    setSubmitting(true)
+    try {
+      await onCommit(next)
+    } catch {
+      previewOrder(items)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+  return { orderedItems, previewOrder, commitOrder, submitting, orderChanged }
+}
+
+function MovableSection({ items, onCommit, ...rowProps }: MovableSectionProps) {
+  const order = useMovableOrder(items, onCommit)
+
+  return (
+    <Reorder.Group
+      as="div"
+      axis="y"
+      values={order.orderedItems}
+      onReorder={order.previewOrder}
+      className="space-y-1"
+    >
+      {order.orderedItems.map((item) => (
+        <AgentInputWaitingRow
+          key={item.id}
+          {...rowProps}
+          item={item}
+          index={rowProps.visible.findIndex(
+            (candidate) => candidate.id === item.id
+          )}
+          onReorderFinished={order.commitOrder}
+          reorderDisabled={!onCommit || order.submitting || items.length < 2}
+          forceDisabled={
+            rowProps.forceDisabled || order.submitting || order.orderChanged
+          }
+        />
+      ))}
+    </Reorder.Group>
+  )
+}
+
+interface WaitingSectionsProps extends AgentInputWaitingDisplayProps {
+  visible: AgentInputItem[]
+  sections: WaitingSection[]
+  forceDisabled: boolean
+}
+
+function WaitingSections(props: WaitingSectionsProps) {
+  const { visible, sections, onReorder, forceDisabled } = props
+  return sections.map((section, sectionIndex) => {
+    if (section.kind === "locked") {
+      return (
+        <AgentInputWaitingRow
+          key={section.item.id}
+          item={section.item}
+          index={visible.findIndex((item) => item.id === section.item.id)}
+          visible={visible}
+          onDelete={props.onDelete}
+          onRetry={props.onRetry}
+          onForceThrough={props.onForceThrough}
+          reorderDisabled
+          forceDisabled={forceDisabled}
+        />
+      )
+    }
+    const onCommit = onReorder
+      ? (next: AgentInputItem[]) =>
+          submitSegmentOrder(sections, sectionIndex, next, onReorder)
+      : undefined
+    return (
+      <MovableSection
+        key={section.items.map((item) => item.id).join(":")}
+        items={section.items}
+        visible={visible}
+        onDelete={props.onDelete}
+        onRetry={props.onRetry}
+        onForceThrough={props.onForceThrough}
+        onCommit={onCommit}
+        forceDisabled={forceDisabled}
+      />
+    )
+  })
+}
+
+async function submitSegmentOrder(
+  sections: WaitingSection[],
+  sectionIndex: number,
+  next: AgentInputItem[],
+  onReorder: (orderedIds: string[]) => Promise<void>
+) {
+  const current = sections[sectionIndex]
+  if (current?.kind !== "movable" || sameOrder(current.items, next)) return
+  const orderedIds = sections.flatMap((section, index) => {
+    if (section.kind === "locked") return []
+    return (index === sectionIndex ? next : section.items).map(
+      (item) => item.id
+    )
+  })
+  await onReorder(orderedIds)
 }
 
 export function AgentInputWaitingDisplay({
   items,
   onDelete,
   onRetry,
+  onReorder,
+  onForceThrough,
 }: AgentInputWaitingDisplayProps) {
-  const t = useTranslations("Folder.chat.agentInput")
   const visible = items.filter((item) =>
     ["waiting", "dispatching", "fallback_queued", "failed"].includes(
       item.status
     )
   )
   if (visible.length === 0) return null
+  const sections = splitAtLockedItems(visible)
+  const forceDisabled = visible.some(
+    (item) => item.force_batch_id != null || item.force_requested_at != null
+  )
 
   return (
     <div className="max-h-40 space-y-1 overflow-y-auto pb-1">
-      {visible.map((item) => {
-        const draft = toDraft(item)
-        const images = extractUserImagesFromDraft(draft)
-        const resources = extractUserResourcesFromDraft(draft)
-        const failed = item.status === "failed"
-        return (
-          <div
-            key={item.id}
-            className="flex min-w-0 items-start gap-2 rounded-md border border-border/70 bg-muted/35 px-2 py-1.5"
-          >
-            {failed ? (
-              <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" />
-            ) : (
-              <LoaderCircle className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground" />
-            )}
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="text-[10px] font-medium text-muted-foreground">
-                {failed ? t("failed") : t("waiting")}
-              </div>
-              {images.length > 0 && <UserImageAttachments images={images} />}
-              {item.payload.display_text.trim() && (
-                <PlainTextWithBadges
-                  text={item.payload.display_text}
-                  className="line-clamp-3 text-xs text-foreground/85"
-                />
-              )}
-              {!item.payload.display_text.trim() && resources.length > 0 && (
-                <UserResourceLinks resources={resources} />
-              )}
-            </div>
-            {failed && onRetry && (
-              <button
-                type="button"
-                onClick={() => onRetry(item.id)}
-                className="shrink-0 rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                title={t("retry")}
-                aria-label={t("retry")}
-              >
-                <RotateCcw className="size-3" />
-              </button>
-            )}
-            {item.status === "waiting" && onDelete && (
-              <button
-                type="button"
-                onClick={() => onDelete(item.id)}
-                className="shrink-0 rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                title={t("delete")}
-                aria-label={t("delete")}
-              >
-                <X className="size-3" />
-              </button>
-            )}
-          </div>
-        )
-      })}
+      <WaitingSections
+        visible={visible}
+        sections={sections}
+        onDelete={onDelete}
+        onRetry={onRetry}
+        onReorder={onReorder}
+        onForceThrough={onForceThrough}
+        forceDisabled={forceDisabled}
+        items={items}
+      />
     </div>
   )
 }

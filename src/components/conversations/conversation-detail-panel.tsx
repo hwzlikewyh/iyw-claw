@@ -54,7 +54,9 @@ import {
   createChatDir,
   createConversation,
   deleteAgentInput,
+  forceAgentInputsThrough,
   openSettingsWindow,
+  reorderAgentInputs,
   retryAgentInput,
   submitAgentInput,
 } from "@/lib/api"
@@ -1325,6 +1327,44 @@ const ConversationTabView = memo(function ConversationTabView({
     [conn.connectionId, tAgentInput]
   )
 
+  const handleReorderAgentInputs = useCallback(
+    async (orderedIds: string[]) => {
+      const connectionId = conn.connectionId
+      const conversationId = dbConvIdRef.current
+      if (!connectionId || conversationId == null) return
+      try {
+        await reorderAgentInputs(connectionId, conversationId, orderedIds)
+      } catch (error) {
+        console.error("[agent-input] reorder failed", { orderedIds, error })
+        toast.error(tAgentInput("reorderFailed"))
+        throw error
+      }
+    },
+    [conn.connectionId, tAgentInput]
+  )
+
+  const handleForceAgentInputsThrough = useCallback(
+    (messageId: string, expectedPrefixIds: string[]) => {
+      const connectionId = conn.connectionId
+      const conversationId = dbConvIdRef.current
+      if (!connectionId || conversationId == null) return
+      void forceAgentInputsThrough(
+        connectionId,
+        conversationId,
+        messageId,
+        expectedPrefixIds
+      ).catch((error) => {
+        console.error("[agent-input] safe force failed", {
+          messageId,
+          expectedPrefixIds,
+          error,
+        })
+        toast.error(tAgentInput("safeForceFailed"))
+      })
+    },
+    [conn.connectionId, tAgentInput]
+  )
+
   // Sync handleSend ref for auto-send effect (declared before handleSend)
   useEffect(() => {
     handleSendRef.current = handleSend
@@ -1707,6 +1747,8 @@ const ConversationTabView = memo(function ConversationTabView({
       agentInputs={conn.agentInputs}
       onDeleteAgentInput={handleDeleteAgentInput}
       onRetryAgentInput={handleRetryAgentInput}
+      onReorderAgentInputs={handleReorderAgentInputs}
+      onForceAgentInputsThrough={handleForceAgentInputsThrough}
       isActive={isActive}
       showActiveFlow={showActiveFlow}
       queue={msgQueue}

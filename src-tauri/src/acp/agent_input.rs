@@ -47,6 +47,7 @@ pub enum AgentInputStrategy {
     NativeSteer,
     CooperativeFeedback,
     DeferredNext,
+    SafeForceNext,
 }
 
 impl AgentInputStrategy {
@@ -55,6 +56,7 @@ impl AgentInputStrategy {
             Self::NativeSteer => "native_steer",
             Self::CooperativeFeedback => "cooperative_feedback",
             Self::DeferredNext => "deferred_next",
+            Self::SafeForceNext => "safe_force_next",
         }
     }
 
@@ -63,6 +65,7 @@ impl AgentInputStrategy {
             "native_steer" => Some(Self::NativeSteer),
             "cooperative_feedback" => Some(Self::CooperativeFeedback),
             "deferred_next" => Some(Self::DeferredNext),
+            "safe_force_next" => Some(Self::SafeForceNext),
             _ => None,
         }
     }
@@ -88,6 +91,9 @@ pub struct AgentInputItem {
     pub status: AgentInputStatus,
     pub dispatch_attempt: i32,
     pub last_error: Option<String>,
+    pub sort_index: i64,
+    pub force_batch_id: Option<String>,
+    pub force_requested_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub dispatched_at: Option<DateTime<Utc>>,
     pub consumed_at: Option<DateTime<Utc>>,

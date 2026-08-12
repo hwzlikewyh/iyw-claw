@@ -1265,6 +1265,8 @@ mod tauri_app {
                 agent_input_commands::list_agent_inputs,
                 agent_input_commands::delete_agent_input,
                 agent_input_commands::retry_agent_input,
+                agent_input_commands::reorder_agent_inputs,
+                agent_input_commands::force_agent_inputs_through,
                 agent_input_commands::resume_agent_inputs,
                 question_commands::get_question_settings,
                 question_commands::set_question_settings,

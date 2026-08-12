@@ -294,6 +294,9 @@ pub enum AcpEvent {
         ids: Vec<String>,
         delivered_at: chrono::DateTime<chrono::Utc>,
     },
+    /// Pending cooperative feedback was withdrawn before the Agent read it so
+    /// the same durable input can enter a safe-force batch instead.
+    FeedbackWithdrawn { ids: Vec<String> },
     /// An agent called the `ask_user_question` MCP tool: one or more
     /// multiple-choice questions the user must answer before the (blocked) tool
     /// call returns. Broadcast so every client viewing this conversation renders

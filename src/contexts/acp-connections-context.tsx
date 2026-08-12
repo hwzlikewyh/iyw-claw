@@ -569,8 +569,11 @@ function mergeRecoveredAgentInputs(
   const known = new Set(current.map((item) => item.id))
   const missing = recovered.filter((item) => !known.has(item.id))
   if (missing.length === 0) return current
-  return [...current, ...missing].sort((a, b) =>
-    a.created_at.localeCompare(b.created_at)
+  return [...current, ...missing].sort(
+    (a, b) =>
+      a.sort_index - b.sort_index ||
+      a.created_at.localeCompare(b.created_at) ||
+      a.id.localeCompare(b.id)
   )
 }
 
@@ -1290,8 +1293,11 @@ function connectionsReducer(
           action.item.strategy === "deferred_next")
       const agentInputs = removeFromProjection
         ? withoutItem
-        : [...withoutItem, action.item].sort((a, b) =>
-            a.created_at.localeCompare(b.created_at)
+        : [...withoutItem, action.item].sort(
+            (a, b) =>
+              a.sort_index - b.sort_index ||
+              a.created_at.localeCompare(b.created_at) ||
+              a.id.localeCompare(b.id)
           )
       const shouldInsertUserInput =
         action.item.status === "consumed" &&

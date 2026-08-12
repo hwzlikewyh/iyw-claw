@@ -869,8 +869,9 @@ impl ConnectionManager {
         &self,
         conn_id: &str,
         blocks: Vec<PromptInputBlock>,
-        user_message: Option<(String, Vec<crate::acp::UserMessageBlock>)>,
+        user_messages: Vec<(String, Vec<crate::acp::UserMessageBlock>)>,
         private_context: Option<Arc<str>>,
+        accepted: Option<tokio::sync::oneshot::Sender<()>>,
     ) -> Result<(), AcpError> {
         // Reject an empty prompt BEFORE touching the concurrency gate. An empty
         // prompt produces no turn — and thus no `TurnComplete` to clear the gate
@@ -924,7 +925,8 @@ impl ConnectionManager {
         permit.send(ConnectionCommand::Prompt {
             blocks,
             user_context,
-            user_message,
+            user_messages,
+            accepted,
         });
         Ok(())
     }
@@ -971,7 +973,8 @@ impl ConnectionManager {
     ) -> Result<(), AcpError> {
         let prompt_lock = self.clone_prompt_lock(conn_id).await?;
         let _guard = prompt_lock.lock_owned().await;
-        self.send_prompt_inner(conn_id, blocks, None, None).await
+        self.send_prompt_inner(conn_id, blocks, Vec::new(), None, None)
+            .await
     }
 
     /// Send a prompt while ensuring a `Conversation` DB row is bound to this
@@ -1031,6 +1034,33 @@ impl ConnectionManager {
         conversation_id: Option<i32>,
         delegation: Option<crate::acp::delegation::spawner::DelegationLink>,
         client_message_id: Option<String>,
+    ) -> Result<Option<i32>, AcpError> {
+        self.send_prompt_linked_with_user_messages(
+            db,
+            conn_id,
+            blocks,
+            folder_id,
+            conversation_id,
+            delegation,
+            client_message_id,
+            None,
+            None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn send_prompt_linked_with_user_messages(
+        &self,
+        db: &AppDatabase,
+        conn_id: &str,
+        blocks: Vec<PromptInputBlock>,
+        folder_id: Option<i32>,
+        conversation_id: Option<i32>,
+        delegation: Option<crate::acp::delegation::spawner::DelegationLink>,
+        client_message_id: Option<String>,
+        user_messages_override: Option<Vec<(String, Vec<crate::acp::UserMessageBlock>)>>,
+        accepted: Option<tokio::sync::oneshot::Sender<()>>,
     ) -> Result<Option<i32>, AcpError> {
         log_prompt_image_summary(conn_id, client_message_id.as_deref(), &blocks);
         // Reject an empty prompt up front, BEFORE any side effects: linking /
@@ -1288,28 +1318,29 @@ impl ConnectionManager {
         // separately) and a bound conversation row (a sidebar-visible turn). The
         // `message_id` prefers the sender's client-supplied id (exact echo
         // dedup), falling back to a connection-scoped id for non-UI senders.
-        let user_message: Option<(String, Vec<crate::acp::UserMessageBlock>)> =
-            if delegation.is_none() && conversation_id_for_status.is_some() {
-                let user_blocks = crate::acp::user_blocks_from_prompt(&blocks);
-                if user_blocks.is_empty() {
-                    None
-                } else {
-                    // A client-supplied id in the parsers' turn-id namespace
-                    // (`turn-<digits>`, which every parser assigns) would collide
-                    // with a persisted transcript turn id and break id-keyed dedup
-                    // — a colliding id can suppress or hide a prompt. The id is
-                    // untrusted (the web/Tauri prompt API accepts it verbatim), so
-                    // reject that shape and fall back to a connection-scoped id;
-                    // legitimate UI senders use `optimistic-<uuid>`.
-                    let message_id = match client_message_id {
-                        Some(id) if !is_reserved_turn_id(&id) => id,
-                        _ => format!("user-{}-{}", conn_id, state_arc.read().await.event_seq),
-                    };
-                    Some((message_id, user_blocks))
-                }
+        let user_messages = if let Some(messages) = user_messages_override {
+            messages
+        } else if delegation.is_none() && conversation_id_for_status.is_some() {
+            let user_blocks = crate::acp::user_blocks_from_prompt(&blocks);
+            if user_blocks.is_empty() {
+                Vec::new()
             } else {
-                None
-            };
+                // A client-supplied id in the parsers' turn-id namespace
+                // (`turn-<digits>`, which every parser assigns) would collide
+                // with a persisted transcript turn id and break id-keyed dedup
+                // — a colliding id can suppress or hide a prompt. The id is
+                // untrusted (the web/Tauri prompt API accepts it verbatim), so
+                // reject that shape and fall back to a connection-scoped id;
+                // legitimate UI senders use `optimistic-<uuid>`.
+                let message_id = match client_message_id {
+                    Some(id) if !is_reserved_turn_id(&id) => id,
+                    _ => format!("user-{}-{}", conn_id, state_arc.read().await.event_seq),
+                };
+                vec![(message_id, user_blocks)]
+            }
+        } else {
+            Vec::new()
+        };
 
         // We hold `_prompt_guard` here, so call the lock-free inner helper —
         // re-entering `send_prompt` would try to acquire the same mutex and
@@ -1331,7 +1362,13 @@ impl ConnectionManager {
             blocks
         };
         match self
-            .send_prompt_inner(conn_id, agent_blocks, user_message, image_context)
+            .send_prompt_inner(
+                conn_id,
+                agent_blocks,
+                user_messages,
+                image_context,
+                accepted,
+            )
             .await
         {
             Ok(()) => {
@@ -1381,6 +1418,47 @@ impl ConnectionManager {
                 Err(send_err)
             }
         }
+    }
+
+    pub(crate) async fn send_force_batch_prompt(
+        &self,
+        db: &AppDatabase,
+        conn_id: &str,
+        items: &[crate::acp::AgentInputItem],
+        folder_id: i32,
+        conversation_id: i32,
+    ) -> Result<(), AcpError> {
+        if items.is_empty() {
+            return Err(AcpError::protocol("force batch is empty"));
+        }
+        let blocks = items
+            .iter()
+            .flat_map(|item| item.payload.blocks.clone())
+            .collect::<Vec<_>>();
+        let user_messages = items
+            .iter()
+            .map(|item| {
+                (
+                    item.id.clone(),
+                    crate::acp::user_blocks_from_prompt(&item.payload.blocks),
+                )
+            })
+            .collect();
+        let (accepted, acceptance) = tokio::sync::oneshot::channel();
+        self.send_prompt_linked_with_user_messages(
+            db,
+            conn_id,
+            blocks,
+            Some(folder_id),
+            Some(conversation_id),
+            None,
+            None,
+            Some(user_messages),
+            Some(accepted),
+        )
+        .await?;
+        acceptance.await.map_err(|_| AcpError::ProcessExited)?;
+        Ok(())
     }
 
     pub async fn set_mode(&self, conn_id: &str, mode_id: String) -> Result<(), AcpError> {

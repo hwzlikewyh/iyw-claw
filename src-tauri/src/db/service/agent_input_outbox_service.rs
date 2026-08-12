@@ -1,11 +1,15 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, Set,
+    QueryOrder, Set, TransactionTrait,
 };
 
+pub use super::agent_input_force_service::{
+    active_force_batch, fail_force_batch, list_force_batch, mark_force_batch_dispatching,
+    transition_force_batch,
+};
 pub use super::agent_input_outbox_mutation_service::{
-    delete_waiting, mark_dispatching, retry_failed, transition_status,
+    consume_native_started_turn, delete_waiting, mark_dispatching, retry_failed, transition_status,
 };
 
 use crate::acp::{AgentInputItem, AgentInputPayload, AgentInputStatus, AgentInputStrategy};
@@ -21,7 +25,7 @@ struct SerializedInput {
 }
 
 impl SerializedInput {
-    fn active_model(&self) -> agent_input_outbox::ActiveModel {
+    fn active_model(&self, sort_index: i64) -> agent_input_outbox::ActiveModel {
         agent_input_outbox::ActiveModel {
             id: Set(self.id.clone()),
             conversation_id: Set(self.conversation_id),
@@ -29,6 +33,7 @@ impl SerializedInput {
             payload_json: Set(self.payload_json.clone()),
             status: Set(AgentInputStatus::Waiting.as_str().into()),
             dispatch_attempt: Set(0),
+            sort_index: Set(sort_index),
             created_at: Set(Utc::now()),
             ..Default::default()
         }
@@ -47,7 +52,7 @@ fn deserialize_agent_type(value: &str) -> Result<AgentType, DbError> {
         .map_err(|error| DbError::Validation(format!("invalid stored agent type: {error}")))
 }
 
-fn parse_model(model: agent_input_outbox::Model) -> Result<AgentInputItem, DbError> {
+pub(super) fn parse_model(model: agent_input_outbox::Model) -> Result<AgentInputItem, DbError> {
     let payload = serde_json::from_str(&model.payload_json)
         .map_err(|error| DbError::Validation(format!("invalid stored input payload: {error}")))?;
     let status = AgentInputStatus::parse(&model.status)
@@ -70,6 +75,9 @@ fn parse_model(model: agent_input_outbox::Model) -> Result<AgentInputItem, DbErr
         status,
         dispatch_attempt: model.dispatch_attempt,
         last_error: model.last_error,
+        sort_index: model.sort_index,
+        force_batch_id: model.force_batch_id,
+        force_requested_at: model.force_requested_at,
         created_at: model.created_at,
         dispatched_at: model.dispatched_at,
         consumed_at: model.consumed_at,
@@ -102,9 +110,27 @@ pub async fn create(
     {
         return parse_existing_or_reject(existing, &serialized);
     }
-    match serialized.active_model().insert(conn).await {
-        Ok(model) => parse_model(model),
-        Err(error) => resolve_insert_conflict(conn, &serialized, error).await,
+    let _guard = super::agent_input_ordering_service::lock().await;
+    let txn = conn.begin().await?;
+    if let Some(existing) = agent_input_outbox::Entity::find_by_id(&serialized.id)
+        .one(&txn)
+        .await?
+    {
+        txn.commit().await?;
+        return parse_existing_or_reject(existing, &serialized);
+    }
+    let sort_index =
+        super::agent_input_ordering_service::next_sort_index(&txn, serialized.conversation_id)
+            .await?;
+    match serialized.active_model(sort_index).insert(&txn).await {
+        Ok(model) => {
+            txn.commit().await?;
+            parse_model(model)
+        }
+        Err(error) => {
+            txn.rollback().await?;
+            resolve_insert_conflict(conn, &serialized, error).await
+        }
     }
 }
 
@@ -162,7 +188,9 @@ pub async fn list_visible(
                         .eq(AgentInputStrategy::CooperativeFeedback.as_str()),
                 ),
         )
+        .order_by_asc(agent_input_outbox::Column::SortIndex)
         .order_by_asc(agent_input_outbox::Column::CreatedAt)
+        .order_by_asc(agent_input_outbox::Column::Id)
         .all(conn)
         .await?;
     rows.into_iter().map(parse_model).collect()
@@ -180,7 +208,9 @@ pub async fn next_dispatchable(
         .filter(agent_input_outbox::Column::ConversationId.eq(conversation_id))
         .filter(agent_input_outbox::Column::Status.is_in(statuses))
         .filter(agent_input_outbox::Column::DeletedAt.is_null())
+        .order_by_asc(agent_input_outbox::Column::SortIndex)
         .order_by_asc(agent_input_outbox::Column::CreatedAt)
+        .order_by_asc(agent_input_outbox::Column::Id)
         .one(conn)
         .await?
         .map(parse_model)
@@ -200,7 +230,9 @@ pub async fn next_unsettled(
         .filter(agent_input_outbox::Column::ConversationId.eq(conversation_id))
         .filter(agent_input_outbox::Column::Status.is_in(statuses))
         .filter(agent_input_outbox::Column::DeletedAt.is_null())
+        .order_by_asc(agent_input_outbox::Column::SortIndex)
         .order_by_asc(agent_input_outbox::Column::CreatedAt)
+        .order_by_asc(agent_input_outbox::Column::Id)
         .one(conn)
         .await?
         .map(parse_model)
@@ -221,7 +253,9 @@ pub async fn list_recoverable(
         .filter(agent_input_outbox::Column::ConversationId.eq(conversation_id))
         .filter(agent_input_outbox::Column::Status.is_in(statuses))
         .filter(agent_input_outbox::Column::DeletedAt.is_null())
+        .order_by_asc(agent_input_outbox::Column::SortIndex)
         .order_by_asc(agent_input_outbox::Column::CreatedAt)
+        .order_by_asc(agent_input_outbox::Column::Id)
         .all(conn)
         .await?;
     rows.into_iter().map(parse_model).collect()
@@ -236,7 +270,9 @@ pub async fn list_dispatching_for_turn(
         .filter(agent_input_outbox::Column::ConnectionId.eq(connection_id))
         .filter(agent_input_outbox::Column::TargetTurnGeneration.eq(turn_generation))
         .filter(agent_input_outbox::Column::Status.eq(AgentInputStatus::Dispatching.as_str()))
+        .order_by_asc(agent_input_outbox::Column::SortIndex)
         .order_by_asc(agent_input_outbox::Column::CreatedAt)
+        .order_by_asc(agent_input_outbox::Column::Id)
         .all(conn)
         .await?;
     rows.into_iter().map(parse_model).collect()

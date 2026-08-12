@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 use sea_orm::DatabaseConnection;
@@ -16,6 +16,7 @@ use crate::web::event_bridge::{emit_with_state, EventEmitter};
 pub(crate) struct AgentInputRuntime {
     db: OnceLock<Arc<AppDatabase>>,
     workers: Mutex<HashSet<String>>,
+    dispatch_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl AgentInputRuntime {
@@ -25,6 +26,15 @@ impl AgentInputRuntime {
 
     pub fn db(&self) -> Option<Arc<AppDatabase>> {
         self.db.get().cloned()
+    }
+
+    pub(crate) async fn dispatch_lock(&self, conn_id: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.dispatch_locks.lock().await;
+        Arc::clone(
+            locks
+                .entry(conn_id.to_owned())
+                .or_insert_with(|| Arc::new(Mutex::new(()))),
+        )
     }
 
     pub async fn submit(
@@ -69,7 +79,7 @@ impl AgentInputRuntime {
     }
 }
 
-async fn validate_target(
+pub(super) async fn validate_target(
     state: &Arc<tokio::sync::RwLock<SessionState>>,
     conversation_id: i32,
 ) -> Result<crate::models::AgentType, AcpError> {
@@ -97,7 +107,7 @@ pub(crate) async fn emit_current(
     }
 }
 
-pub(crate) async fn emit_input(
+pub(super) async fn emit_input(
     state: &Arc<tokio::sync::RwLock<SessionState>>,
     emitter: &EventEmitter,
     item: AgentInputItem,
@@ -149,6 +159,45 @@ impl ConnectionManager {
             })
             .await
             .map_err(|_| AcpError::ProcessExited)
+    }
+
+    pub(crate) async fn request_native_steer(
+        &self,
+        conn_id: &str,
+        message_id: String,
+        blocks: Vec<crate::acp::types::PromptInputBlock>,
+        expected_turn_generation: i64,
+    ) -> Result<
+        (
+            crate::acp::agent_input_capabilities::NativeSteerOutcome,
+            tokio::sync::oneshot::Sender<()>,
+        ),
+        AcpError,
+    > {
+        let cmd_tx = {
+            let connections = self.connections.lock().await;
+            connections
+                .get(conn_id)
+                .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?
+                .cmd_tx
+                .clone()
+        };
+        let (reply, response) = tokio::sync::oneshot::channel();
+        let (settled, settlement) = tokio::sync::oneshot::channel();
+        cmd_tx
+            .send(crate::acp::connection::ConnectionCommand::NativeSteer {
+                message_id,
+                blocks,
+                expected_turn_generation,
+                reply,
+                settled: settlement,
+            })
+            .await
+            .map_err(|_| AcpError::ProcessExited)?;
+        Ok((
+            response.await.map_err(|_| AcpError::ProcessExited)?,
+            settled,
+        ))
     }
 
     pub async fn delete_agent_input(
@@ -233,13 +282,6 @@ impl ConnectionManager {
     }
 
     pub async fn finish_agent_input_turn_settlement(&self, conn_id: &str, generation: i64) {
-        let Some(state) = self.get_state(conn_id).await else {
-            return;
-        };
-        let mut snapshot = state.write().await;
-        if snapshot.turn_generation == generation {
-            snapshot.turn_completion_pending = false;
-            snapshot.agent_input_notify.notify_one();
-        }
+        crate::acp::agent_input_native_turn::finish_settlement(self, conn_id, generation).await;
     }
 }

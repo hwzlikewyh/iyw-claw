@@ -30,8 +30,10 @@ use sacp::{
     UntypedMessage,
 };
 use sacp_tokio::AcpAgent;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, RwLock};
 
+use crate::acp::agent_input_capabilities::NativeSteerOutcome;
 use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::automatic_mode::automatic_mode_id;
 use crate::acp::background_watch;
@@ -54,6 +56,50 @@ use crate::network::proxy;
 use crate::web::event_bridge::{emit_with_state, EventEmitter};
 
 const DEFAULT_COMMAND_COLOR_ENV: [(&str, &str); 1] = [("CLICOLOR_FORCE", "1")];
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionSteerRequest {
+    session_id: SessionId,
+    prompt: Vec<ContentBlock>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionSteerResponse {
+    outcome: String,
+}
+
+async fn send_native_steer(
+    cx: &ConnectionTo<Agent>,
+    session_id: &SessionId,
+    blocks: Vec<PromptInputBlock>,
+) -> NativeSteerOutcome {
+    let request = match UntypedMessage::new(
+        "_session/steering",
+        SessionSteerRequest {
+            session_id: session_id.clone(),
+            prompt: map_prompt_blocks(blocks),
+        },
+    ) {
+        Ok(request) => request,
+        Err(error) => return NativeSteerOutcome::Failed(error.to_string()),
+    };
+    let response = match cx.send_request_to(Agent, request).block_task().await {
+        Ok(response) => response,
+        Err(error) => return NativeSteerOutcome::Failed(error.to_string()),
+    };
+    match serde_json::from_value::<SessionSteerResponse>(response) {
+        Ok(response) => match response.outcome.as_str() {
+            "injected" => NativeSteerOutcome::Injected,
+            "startedNewTurn" => NativeSteerOutcome::StartedNewTurn,
+            "failed" => NativeSteerOutcome::Failed("agent rejected native steering".into()),
+            "unsupported" => NativeSteerOutcome::Unsupported,
+            other => NativeSteerOutcome::Failed(format!("unknown native steer outcome: {other}")),
+        },
+        Err(error) => NativeSteerOutcome::Failed(format!("invalid native steer response: {error}")),
+    }
+}
 
 fn log_stdio_debug_line(agent_name: &str, direction: &str, line: &str) {
     let (method, id_kind) = match serde_json::from_str::<serde_json::Value>(line) {
@@ -267,7 +313,11 @@ pub enum ConnectionCommand {
         /// status events (viewers apply in seq order) and it only fires for a
         /// prompt actually being processed. `None` for delegation children,
         /// empty prompts, unbound conversations, and non-linked senders.
-        user_message: Option<(String, Vec<UserMessageBlock>)>,
+        user_messages: Vec<(String, Vec<UserMessageBlock>)>,
+        /// Internal acknowledgement that the connection loop accepted and
+        /// queued the ACP request. Durable force batches settle only after this
+        /// boundary so a command-channel enqueue is never mistaken for delivery.
+        accepted: Option<tokio::sync::oneshot::Sender<()>>,
     },
     SetMode {
         mode_id: String,
@@ -282,6 +332,13 @@ pub enum ConnectionCommand {
     /// or stop reason before the connection returns to idle.
     SafeCancel {
         expected_turn_generation: i64,
+    },
+    NativeSteer {
+        message_id: String,
+        blocks: Vec<PromptInputBlock>,
+        expected_turn_generation: i64,
+        reply: tokio::sync::oneshot::Sender<NativeSteerOutcome>,
+        settled: tokio::sync::oneshot::Receiver<()>,
     },
     RespondPermission {
         request_id: String,
@@ -2231,6 +2288,21 @@ async fn run_connection(
                     return Err(sacp::util::internal_error(INIT_TIMEOUT_SENTINEL));
                 }
             };
+            let native_steering_available = agent_type == AgentType::Codex
+                && init_resp
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("steering"))
+                    .and_then(serde_json::Value::as_object)
+                    .and_then(|steering| steering.get("supported"))
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+            state.write().await.native_steering_available = native_steering_available;
+            tracing::info!(
+                agent_type = %agent_type,
+                native_steering_available,
+                "[agent-input] native steering capability negotiated"
+            );
             emit_prompt_capabilities(
                 &state,
                 &emitter_clone,
@@ -4012,6 +4084,75 @@ fn turn_failure_error_event(reason_str: &str, agent_type: AgentType) -> Option<A
     })
 }
 
+async fn wait_for_native_background_adoption(state: &Arc<RwLock<SessionState>>) -> bool {
+    loop {
+        let wake = {
+            let snapshot = state.read().await;
+            match snapshot.native_background_turn.as_ref() {
+                None => return false,
+                Some(turn) if turn.adopted_generation.is_some() => return true,
+                Some(_) => snapshot.native_background_notify.clone().notified_owned(),
+            }
+        };
+        wake.await;
+    }
+}
+
+fn codex_thread_status(update: &SessionUpdate) -> Option<&str> {
+    let SessionUpdate::SessionInfoUpdate(info) = update else {
+        return None;
+    };
+    info.meta
+        .as_ref()?
+        .get("codex")?
+        .get("threadStatus")?
+        .get("type")?
+        .as_str()
+}
+
+async fn finish_native_background_turn(
+    state: &Arc<RwLock<SessionState>>,
+    emitter: &EventEmitter,
+    session_id: &str,
+    agent_type: AgentType,
+    thread_status: &str,
+) {
+    let stop_reason = match thread_status {
+        "idle" => "end_turn",
+        "systemError" => "unknown",
+        _ => return,
+    };
+    let active = {
+        let mut snapshot = state.write().await;
+        let current_generation = snapshot.turn_generation;
+        let turn_in_flight = snapshot.turn_in_flight;
+        let Some(turn) = snapshot.native_background_turn.as_mut() else {
+            return;
+        };
+        if turn.adopted_generation.is_none() {
+            turn.terminal_status = Some(thread_status.to_string());
+            return;
+        }
+        turn_in_flight && turn.adopted_generation == Some(current_generation)
+    };
+    if !active {
+        return;
+    }
+    if let Some(error) = turn_failure_error_event(stop_reason, agent_type) {
+        emit_with_state(state, emitter, error).await;
+    }
+    emit_with_state(
+        state,
+        emitter,
+        AcpEvent::TurnComplete {
+            session_id: session_id.to_string(),
+            stop_reason: stop_reason.to_string(),
+            agent_type: agent_type.to_string(),
+        },
+    )
+    .await;
+}
+
 /// Returns `Ok(None)` on normal exit (disconnect / channel closed) or
 /// `Ok(Some(ForkExitInfo))` when the loop should be restarted on a forked session.
 #[allow(clippy::too_many_arguments)]
@@ -4055,11 +4196,24 @@ async fn run_conversation_loop<'a>(
                             let h = emitter.clone();
                             let st = Arc::clone(state);
                             let cwd_opt = Some(cwd);
+                            let session_id = session.session_id().0.to_string();
                             let dispatch = fix_usage_update_nulls(dispatch);
                             let _ = MatchDispatch::new(dispatch)
                                 .if_notification(
                                     async |notif: SessionNotification| {
+                                        let background_status = codex_thread_status(&notif.update)
+                                            .map(str::to_owned);
                                         emit_conversation_update(&st, &h, agent_type, notif.update, cwd_opt, &mut raw_output_cache, &mut cb_state).await;
+                                        if let Some(status) = background_status {
+                                            finish_native_background_turn(
+                                                &st,
+                                                &h,
+                                                &session_id,
+                                                agent_type,
+                                                &status,
+                                            )
+                                            .await;
+                                        }
                                         Ok(())
                                     },
                                 )
@@ -4082,7 +4236,8 @@ async fn run_conversation_loop<'a>(
             Some(ConnectionCommand::Prompt {
                 blocks,
                 user_context,
-                user_message,
+                user_messages,
+                accepted,
             }) => {
                 prompt_ledger.record_prompt_blocks(&blocks);
                 let mut prompt_blocks = map_prompt_blocks(blocks);
@@ -4130,7 +4285,7 @@ async fn run_conversation_loop<'a>(
                 // dropped) broadcasts nothing. `apply_event` records it as
                 // `pending_user_message` so a client attaching mid-turn still
                 // renders the user turn from the snapshot.
-                if let Some((message_id, blocks)) = user_message {
+                for (message_id, blocks) in user_messages {
                     emit_with_state(state, emitter, AcpEvent::UserMessage { message_id, blocks })
                         .await;
                 }
@@ -4148,6 +4303,9 @@ async fn run_conversation_loop<'a>(
                         .send_request_to(Agent, prompt_request)
                         .block_task(),
                 );
+                if let Some(accepted) = accepted {
+                    let _ = accepted.send(());
+                }
                 let mut tracked_terminal_tool_calls: HashMap<String, TrackedTerminalToolCall> =
                     HashMap::new();
                 let mut terminal_poll_interval = tokio::time::interval(
@@ -4163,6 +4321,11 @@ async fn run_conversation_loop<'a>(
                 // reason so the user gets an error toast instead of a
                 // confusing `PendingReview` on a blank conversation.
                 let mut turn_had_agent_output = false;
+                // `startedNewTurn` may let the wrapper begin producing the next
+                // turn before the old prompt response has unwound locally. Hold
+                // those updates until lifecycle settlement adopts the turn and
+                // emits its UserMessage first.
+                let mut native_background_updates = Vec::new();
                 // A CodeBuddy native sub-agent's full lifecycle (Agent tool call
                 // open → completed) happens within one turn, so reset the
                 // suppression window at each turn start. This bounds the tracking
@@ -4197,6 +4360,33 @@ async fn run_conversation_loop<'a>(
                                     if let Err(e) = MatchDispatch::new(dispatch)
                                         .if_notification(
                                             async |notif: SessionNotification| {
+                                                let pending_background = {
+                                                    let snapshot = st.read().await;
+                                                    snapshot
+                                                        .native_background_turn
+                                                        .as_ref()
+                                                        .is_some_and(|turn| {
+                                                            turn.source_generation
+                                                                == snapshot.turn_generation
+                                                                && turn.adopted_generation.is_none()
+                                                        })
+                                                };
+                                                if pending_background {
+                                                    if let Some(status) = codex_thread_status(&notif.update) {
+                                                        finish_native_background_turn(
+                                                            &st,
+                                                            &h,
+                                                            session_id.0.as_ref(),
+                                                            agent_type,
+                                                            status,
+                                                        )
+                                                        .await;
+                                                    }
+                                                    native_background_updates.push(notif.update);
+                                                    return Ok(());
+                                                }
+                                                let background_status = codex_thread_status(&notif.update)
+                                                    .map(str::to_owned);
                                                 let should_poll_now = track_terminal_tool_calls(
                                                     &notif.update,
                                                     &mut tracked_terminal_tool_calls,
@@ -4205,6 +4395,16 @@ async fn run_conversation_loop<'a>(
                                                     turn_had_agent_output = true;
                                                 }
                                                 emit_conversation_update(&st, &h, agent_type, notif.update, cwd_opt, &mut raw_output_cache, &mut cb_state).await;
+                                                if let Some(status) = background_status {
+                                                    finish_native_background_turn(
+                                                        &st,
+                                                        &h,
+                                                        session_id.0.as_ref(),
+                                                        agent_type,
+                                                        &status,
+                                                    )
+                                                    .await;
+                                                }
                                                 if should_poll_now {
                                                     poll_tracked_terminal_tool_calls(
                                                         runtime.as_ref(),
@@ -4537,6 +4737,68 @@ async fn run_conversation_loop<'a>(
                                         );
                                     }
                                 }
+                                Some(ConnectionCommand::NativeSteer {
+                                    message_id,
+                                    blocks,
+                                    expected_turn_generation,
+                                    reply,
+                                    settled,
+                                }) => {
+                                    let available = {
+                                        let snapshot = state.read().await;
+                                        snapshot.turn_generation == expected_turn_generation
+                                            && snapshot.native_steering_available
+                                    };
+                                    let user_blocks = crate::acp::user_blocks_from_prompt(&blocks);
+                                    let mut outcome = if available {
+                                        send_native_steer(&cx, &sid, blocks).await
+                                    } else {
+                                        NativeSteerOutcome::Unsupported
+                                    };
+                                    if outcome == NativeSteerOutcome::StartedNewTurn {
+                                        let mut snapshot = state.write().await;
+                                        if snapshot.turn_generation == expected_turn_generation
+                                            && snapshot.turn_in_flight
+                                            && snapshot.native_background_turn.is_none()
+                                        {
+                                            snapshot.native_background_turn = Some(
+                                                crate::acp::session_state::NativeBackgroundTurn {
+                                                    message_id,
+                                                    blocks: user_blocks,
+                                                    source_generation: expected_turn_generation,
+                                                    adopted_generation: None,
+                                                    terminal_status: None,
+                                                },
+                                            );
+                                            tracing::info!(
+                                                connection_id = conn_id,
+                                                source_generation = expected_turn_generation,
+                                                "[agent-input] registered wrapper-owned native turn"
+                                            );
+                                        } else {
+                                            tracing::error!(
+                                                connection_id = conn_id,
+                                                source_generation = expected_turn_generation,
+                                                current_generation = snapshot.turn_generation,
+                                                turn_in_flight = snapshot.turn_in_flight,
+                                                already_registered = snapshot.native_background_turn.is_some(),
+                                                "[agent-input] could not register wrapper-owned native turn"
+                                            );
+                                            outcome = NativeSteerOutcome::Failed(
+                                                "native steer result could not be attached to the active generation"
+                                                    .into(),
+                                            );
+                                        }
+                                    }
+                                    let _ = reply.send(outcome);
+                                    if settled.await.is_err() {
+                                        tracing::warn!(
+                                            connection_id = conn_id,
+                                            expected_turn_generation,
+                                            "[agent-input] native steer settlement acknowledgement dropped"
+                                        );
+                                    }
+                                }
                                 Some(ConnectionCommand::Disconnect) | None => {
                                     tracing::info!(
                                         "[ACP] disconnect requested during prompting; connection_id={conn_id}"
@@ -4571,14 +4833,41 @@ async fn run_conversation_loop<'a>(
                     break;
                 }
 
-                emit_with_state(
-                    state,
-                    emitter,
-                    AcpEvent::StatusChanged {
-                        status: ConnectionStatus::Connected,
-                    },
-                )
-                .await;
+                if wait_for_native_background_adoption(state).await {
+                    for update in native_background_updates {
+                        let terminal_status = codex_thread_status(&update).map(str::to_owned);
+                        emit_conversation_update(
+                            state,
+                            emitter,
+                            agent_type,
+                            update,
+                            Some(cwd),
+                            &mut raw_output_cache,
+                            &mut cb_state,
+                        )
+                        .await;
+                        let Some(status) = terminal_status else {
+                            continue;
+                        };
+                        finish_native_background_turn(
+                            state,
+                            emitter,
+                            session.session_id().0.as_ref(),
+                            agent_type,
+                            &status,
+                        )
+                        .await;
+                    }
+                } else {
+                    emit_with_state(
+                        state,
+                        emitter,
+                        AcpEvent::StatusChanged {
+                            status: ConnectionStatus::Connected,
+                        },
+                    )
+                    .await;
+                }
             }
             Some(ConnectionCommand::RespondPermission {
                 request_id,
@@ -4676,6 +4965,9 @@ async fn run_conversation_loop<'a>(
                     expected_turn_generation,
                     "[agent-input] ignoring safe cancellation while connection is idle"
                 );
+            }
+            Some(ConnectionCommand::NativeSteer { reply, .. }) => {
+                let _ = reply.send(NativeSteerOutcome::Unsupported);
             }
             Some(ConnectionCommand::Fork { reply }) => {
                 if !supports_fork {

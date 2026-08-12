@@ -321,6 +321,32 @@ export async function retryAgentInput(
   })
 }
 
+export async function reorderAgentInputs(
+  connectionId: string,
+  conversationId: number,
+  orderedIds: string[]
+): Promise<AgentInputItem[]> {
+  return getTransport().call("reorder_agent_inputs", {
+    connectionId,
+    conversationId,
+    orderedIds,
+  })
+}
+
+export async function forceAgentInputsThrough(
+  connectionId: string,
+  conversationId: number,
+  messageId: string,
+  expectedPrefixIds: string[]
+): Promise<AgentInputItem[]> {
+  return getTransport().call("force_agent_inputs_through", {
+    connectionId,
+    conversationId,
+    messageId,
+    expectedPrefixIds,
+  })
+}
+
 export async function resumeAgentInputs(
   connectionId: string,
   conversationId: number

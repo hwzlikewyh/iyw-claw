@@ -2742,11 +2742,17 @@
       },
       "agentInput": {
         "waiting": "Waiting",
+        "dispatching": "Sending",
         "failed": "Send failed",
         "retry": "Retry",
         "delete": "Remove",
+        "reorder": "Reorder waiting message",
+        "actions": "Message actions",
+        "safeForce": "Safely force send",
         "deleteFailed": "Couldn't remove this waiting message",
-        "retryFailed": "Couldn't retry this message"
+        "retryFailed": "Couldn't retry this message",
+        "reorderFailed": "Couldn't reorder waiting messages",
+        "safeForceFailed": "Couldn't safely force send the selected messages"
       },
       "welcomeInputPanel": {
         "agentsSettingsPath": "Settings > Agents",

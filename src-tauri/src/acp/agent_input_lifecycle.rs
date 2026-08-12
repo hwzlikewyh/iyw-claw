@@ -30,15 +30,43 @@ pub(crate) async fn recover_connection(
     };
     let items = agent_input_outbox_service::list_recoverable(db, conversation_id).await?;
     for item in &items {
+        if let Some(batch_id) = item.force_batch_id.as_deref() {
+            let uncertain = item.status == AgentInputStatus::Dispatching;
+            if uncertain {
+                let batch = agent_input_outbox_service::list_force_batch(db, batch_id).await?;
+                agent_input_outbox_service::fail_force_batch(
+                    db,
+                    batch_id,
+                    "force batch result unknown after connection restart".into(),
+                )
+                .await?;
+                for member in batch {
+                    emit_current(&db_handle(db), &state, &emitter, &member.id).await;
+                }
+                continue;
+            }
+        }
         if item.status == AgentInputStatus::Dispatching
             && (!turn_in_flight || item.target_turn_generation != Some(turn_generation))
         {
+            let uncertain_native = item.strategy == Some(AgentInputStrategy::NativeSteer);
             let changed = agent_input_outbox_service::transition_status(
                 db,
                 &item.id,
                 AgentInputStatus::Dispatching,
-                AgentInputStatus::FallbackQueued,
-                Some("dispatch_claim_recovered_after_connection_restart".into()),
+                if uncertain_native {
+                    AgentInputStatus::Failed
+                } else {
+                    AgentInputStatus::FallbackQueued
+                },
+                Some(
+                    if uncertain_native {
+                        "native_steer_result_unknown_after_connection_restart"
+                    } else {
+                        "dispatch_claim_recovered_after_connection_restart"
+                    }
+                    .into(),
+                ),
             )
             .await?;
             if changed {
@@ -64,6 +92,12 @@ pub(crate) async fn consume_user_message(
     if item.status != AgentInputStatus::Dispatching {
         return Ok(());
     }
+    if item.force_batch_id.is_some() {
+        // Force batches use the connection loop's explicit prompt-acceptance
+        // acknowledgement. UserMessage is a presentation event and can be
+        // emitted before the ACP request is accepted.
+        return Ok(());
+    }
     let changed = agent_input_outbox_service::transition_status(
         db,
         message_id,
@@ -80,22 +114,68 @@ pub(crate) async fn consume_user_message(
 
 pub(crate) async fn fallback_unconsumed_turn(
     db: &DatabaseConnection,
+    manager: &ConnectionManager,
     state: &Arc<tokio::sync::RwLock<SessionState>>,
     emitter: &EventEmitter,
     connection_id: &str,
     generation: i64,
 ) -> Result<(), crate::db::error::DbError> {
+    let dispatch_lock = manager
+        .agent_input_runtime
+        .dispatch_lock(connection_id)
+        .await;
+    let _dispatch_guard = dispatch_lock.lock().await;
     let items =
         agent_input_outbox_service::list_dispatching_for_turn(db, connection_id, generation)
             .await?;
+    let native_background_id = {
+        let snapshot = state.read().await;
+        snapshot
+            .native_background_turn
+            .as_ref()
+            .filter(|turn| turn.source_generation == generation)
+            .map(|turn| turn.message_id.clone())
+    };
+    let mut settled_force_batches = std::collections::HashSet::new();
     for item in items {
+        if native_background_id.as_deref() == Some(item.id.as_str()) {
+            continue;
+        }
         let (status, reason) = match item.strategy {
             Some(AgentInputStrategy::DeferredNext) => (AgentInputStatus::Consumed, None),
-            Some(AgentInputStrategy::CooperativeFeedback)
-            | Some(AgentInputStrategy::NativeSteer) => (
+            Some(AgentInputStrategy::CooperativeFeedback) => (
                 AgentInputStatus::FallbackQueued,
                 Some("turn_completed_before_input_consumption".into()),
             ),
+            Some(AgentInputStrategy::NativeSteer) => (
+                AgentInputStatus::Failed,
+                Some("native_steer_result_unknown_at_turn_completion".into()),
+            ),
+            Some(AgentInputStrategy::SafeForceNext) => {
+                let Some(batch_id) = item.force_batch_id.as_deref() else {
+                    tracing::error!(input_id = %item.id, generation, "[agent-input] force dispatch lost its batch identity");
+                    continue;
+                };
+                if settled_force_batches.insert(batch_id.to_string()) {
+                    let members =
+                        agent_input_outbox_service::list_force_batch(db, batch_id).await?;
+                    agent_input_outbox_service::transition_force_batch(
+                        db,
+                        crate::db::service::agent_input_force_service::ForceBatchTransition {
+                            batch_id,
+                            turn_generation: generation,
+                            from: AgentInputStatus::Dispatching,
+                            to: AgentInputStatus::Consumed,
+                            error: None,
+                        },
+                    )
+                    .await?;
+                    for member in members {
+                        emit_current(&db_handle(db), state, emitter, &member.id).await;
+                    }
+                }
+                continue;
+            }
             None => continue,
         };
         let changed = agent_input_outbox_service::transition_status(
@@ -122,6 +202,12 @@ pub(crate) async fn filter_feedback_commit_ids(
     let Some(db) = manager.agent_input_runtime.db() else {
         return ids;
     };
+    let connection_id = state.read().await.connection_id.clone();
+    let dispatch_lock = manager
+        .agent_input_runtime
+        .dispatch_lock(&connection_id)
+        .await;
+    let _dispatch_guard = dispatch_lock.lock().await;
     let mut accepted = Vec::with_capacity(ids.len());
     for id in ids {
         match consume_feedback_id(&db, state, emitter, &id).await {
@@ -146,6 +232,9 @@ async fn consume_feedback_id(
     };
     if item.status == AgentInputStatus::Consumed {
         return Ok(true);
+    }
+    if item.force_batch_id.is_some() {
+        return Ok(false);
     }
     if !matches!(
         item.status,

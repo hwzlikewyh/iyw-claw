@@ -169,6 +169,14 @@ pub fn build_router(
             post(handlers::agent_input::retry_agent_input),
         )
         .route(
+            "/reorder_agent_inputs",
+            post(handlers::agent_input::reorder_agent_inputs),
+        )
+        .route(
+            "/force_agent_inputs_through",
+            post(handlers::agent_input::force_agent_inputs_through),
+        )
+        .route(
             "/resume_agent_inputs",
             post(handlers::agent_input::resume_agent_inputs),
         )

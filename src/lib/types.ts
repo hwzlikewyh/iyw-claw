@@ -885,6 +885,7 @@ export type AgentInputStrategy =
   | "native_steer"
   | "cooperative_feedback"
   | "deferred_next"
+  | "safe_force_next"
 
 export interface AgentInputPayload {
   blocks: PromptInputBlock[]
@@ -903,6 +904,9 @@ export interface AgentInputItem {
   status: AgentInputStatus
   dispatch_attempt: number
   last_error: string | null
+  sort_index: number
+  force_batch_id: string | null
+  force_requested_at: string | null
   created_at: string
   dispatched_at: string | null
   consumed_at: string | null
@@ -1350,6 +1354,10 @@ export type AcpEvent =
       type: "feedback_consumed"
       ids: string[]
       delivered_at: string
+    }
+  | {
+      type: "feedback_withdrawn"
+      ids: string[]
     }
   /**
    * An agent called `ask_user_question`: a blocking multiple-choice prompt the

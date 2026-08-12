@@ -77,6 +77,35 @@ pub async fn transition_status(
     Ok(result.rows_affected == 1)
 }
 
+pub async fn consume_native_started_turn(
+    conn: &DatabaseConnection,
+    id: &str,
+    connection_id: &str,
+    turn_generation: i64,
+) -> Result<bool, DbError> {
+    let result = agent_input_outbox::Entity::update_many()
+        .col_expr(
+            agent_input_outbox::Column::Status,
+            Expr::value(AgentInputStatus::Consumed.as_str()),
+        )
+        .col_expr(
+            agent_input_outbox::Column::ConsumedAt,
+            Expr::value(Utc::now()),
+        )
+        .col_expr(
+            agent_input_outbox::Column::LastError,
+            Expr::value(Option::<String>::None),
+        )
+        .filter(agent_input_outbox::Column::Id.eq(id))
+        .filter(agent_input_outbox::Column::ConnectionId.eq(connection_id))
+        .filter(agent_input_outbox::Column::TargetTurnGeneration.eq(turn_generation))
+        .filter(agent_input_outbox::Column::Strategy.eq(AgentInputStrategy::NativeSteer.as_str()))
+        .filter(agent_input_outbox::Column::Status.eq(AgentInputStatus::Dispatching.as_str()))
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected == 1)
+}
+
 pub async fn delete_waiting(conn: &DatabaseConnection, id: &str) -> Result<bool, DbError> {
     let result = agent_input_outbox::Entity::update_many()
         .col_expr(
@@ -89,6 +118,7 @@ pub async fn delete_waiting(conn: &DatabaseConnection, id: &str) -> Result<bool,
         )
         .filter(agent_input_outbox::Column::Id.eq(id))
         .filter(agent_input_outbox::Column::Status.eq(AgentInputStatus::Waiting.as_str()))
+        .filter(agent_input_outbox::Column::ForceBatchId.is_null())
         .exec(conn)
         .await?;
     Ok(result.rows_affected == 1)
@@ -118,6 +148,7 @@ pub async fn retry_failed(conn: &DatabaseConnection, id: &str) -> Result<bool, D
         )
         .filter(agent_input_outbox::Column::Id.eq(id))
         .filter(agent_input_outbox::Column::Status.eq(AgentInputStatus::Failed.as_str()))
+        .filter(agent_input_outbox::Column::ForceBatchId.is_null())
         .exec(conn)
         .await?;
     Ok(result.rows_affected == 1)

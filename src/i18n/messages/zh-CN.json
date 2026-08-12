@@ -2742,11 +2742,17 @@
       },
       "agentInput": {
         "waiting": "等待中",
+        "dispatching": "发送中",
         "failed": "发送失败",
         "retry": "重试",
         "delete": "删除",
+        "reorder": "调整等待消息顺序",
+        "actions": "消息操作",
+        "safeForce": "安全强制发送",
         "deleteFailed": "无法删除这条等待消息",
-        "retryFailed": "无法重试这条消息"
+        "retryFailed": "无法重试这条消息",
+        "reorderFailed": "无法调整等待消息顺序",
+        "safeForceFailed": "无法安全强制发送所选消息"
       },
       "welcomeInputPanel": {
         "agentsSettingsPath": "设置 > Agents",

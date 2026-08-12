@@ -335,6 +335,7 @@ pub(crate) async fn handle_event(
             }
             if let Err(error) = crate::acp::agent_input_lifecycle::fallback_unconsumed_turn(
                 db_conn,
+                manager,
                 &state_arc,
                 &emitter,
                 &envelope.connection_id,

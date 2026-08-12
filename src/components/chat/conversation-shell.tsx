@@ -75,6 +75,11 @@ interface ConversationShellProps {
   agentInputs?: AgentInputItem[]
   onDeleteAgentInput?: (id: string) => void
   onRetryAgentInput?: (id: string) => void
+  onReorderAgentInputs?: (orderedIds: string[]) => Promise<void>
+  onForceAgentInputsThrough?: (
+    messageId: string,
+    expectedPrefixIds: string[]
+  ) => void
   isActive?: boolean
   /** Show the composer's flowing active-session border (tiled multi-session
    *  active tab only). Threaded straight through to the composer. */
@@ -133,6 +138,8 @@ export function ConversationShell({
   agentInputs,
   onDeleteAgentInput,
   onRetryAgentInput,
+  onReorderAgentInputs,
+  onForceAgentInputsThrough,
   isActive,
   showActiveFlow,
   queue,
@@ -241,6 +248,8 @@ export function ConversationShell({
               items={agentInputs}
               onDelete={onDeleteAgentInput}
               onRetry={onRetryAgentInput}
+              onReorder={onReorderAgentInputs}
+              onForceThrough={onForceAgentInputsThrough}
             />
           </div>
         )}

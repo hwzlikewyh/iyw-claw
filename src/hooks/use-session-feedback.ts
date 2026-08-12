@@ -193,6 +193,11 @@ export function useSessionFeedback({
             )
             break
           }
+          case "feedback_withdrawn": {
+            const ids = new Set(envelope.ids)
+            setNotes((prev) => prev.filter((note) => !ids.has(note.id)))
+            break
+          }
           case "user_message": {
             // A new turn started — notes are turn-scoped, mirror the backend
             // clear so a fresh turn begins empty. Bump the generation so an

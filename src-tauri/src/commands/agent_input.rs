@@ -93,6 +93,37 @@ pub async fn retry_agent_input_core(
         .await
 }
 
+pub async fn reorder_agent_inputs_core(
+    db: &AppDatabase,
+    manager: &ConnectionManager,
+    connection_id: String,
+    conversation_id: i32,
+    ordered_ids: Vec<String>,
+) -> Result<Vec<AgentInputItem>, AcpError> {
+    manager
+        .reorder_agent_inputs(db, &connection_id, conversation_id, ordered_ids)
+        .await
+}
+
+pub async fn force_agent_inputs_through_core(
+    db: &AppDatabase,
+    manager: &ConnectionManager,
+    connection_id: String,
+    conversation_id: i32,
+    message_id: String,
+    expected_prefix_ids: Vec<String>,
+) -> Result<Vec<AgentInputItem>, AcpError> {
+    manager
+        .force_agent_inputs_through(
+            db,
+            &connection_id,
+            conversation_id,
+            &message_id,
+            expected_prefix_ids,
+        )
+        .await
+}
+
 pub async fn resume_agent_inputs_core(
     db: &AppDatabase,
     manager: &ConnectionManager,
@@ -182,6 +213,58 @@ pub async fn retry_agent_input(
     #[cfg(not(feature = "tauri-runtime"))]
     {
         let _ = (connection_id, conversation_id, message_id);
+        Err(AcpError::protocol("tauri-only command"))
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn reorder_agent_inputs(
+    connection_id: String,
+    conversation_id: i32,
+    ordered_ids: Vec<String>,
+    #[cfg(feature = "tauri-runtime")] db: tauri::State<'_, AppDatabase>,
+    #[cfg(feature = "tauri-runtime")] manager: tauri::State<'_, ConnectionManager>,
+) -> Result<Vec<AgentInputItem>, AcpError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        reorder_agent_inputs_core(&db, &manager, connection_id, conversation_id, ordered_ids).await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let _ = (connection_id, conversation_id, ordered_ids);
+        Err(AcpError::protocol("tauri-only command"))
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn force_agent_inputs_through(
+    connection_id: String,
+    conversation_id: i32,
+    message_id: String,
+    expected_prefix_ids: Vec<String>,
+    #[cfg(feature = "tauri-runtime")] db: tauri::State<'_, AppDatabase>,
+    #[cfg(feature = "tauri-runtime")] manager: tauri::State<'_, ConnectionManager>,
+) -> Result<Vec<AgentInputItem>, AcpError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        force_agent_inputs_through_core(
+            &db,
+            &manager,
+            connection_id,
+            conversation_id,
+            message_id,
+            expected_prefix_ids,
+        )
+        .await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let _ = (
+            connection_id,
+            conversation_id,
+            message_id,
+            expected_prefix_ids,
+        );
         Err(AcpError::protocol("tauri-only command"))
     }
 }
