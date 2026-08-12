@@ -79,13 +79,23 @@ pub fn spawn_daily_report_scheduler(
                 let report = generate_daily_report(&db_conn).await;
                 let message = message_formatter::format_daily_report(&report, lang);
 
-                let send_result = manager.send_to_channel(ch.id, &message).await;
+                let default_target = super::target_registry::resolve_default(&db_conn, ch.id)
+                    .await
+                    .ok()
+                    .flatten();
+                let target_id = default_target
+                    .as_ref()
+                    .map(|(target, _)| target.target_id.clone());
+                let send_result = match default_target.as_ref() {
+                    Some((_, target)) => manager.send_to_target(target, &message).await,
+                    None => manager.send_to_channel(ch.id, &message).await,
+                };
                 let (status, error_detail) = match &send_result {
                     Ok(_) => ("sent", None),
                     Err(e) => ("failed", Some(e.to_string())),
                 };
 
-                let _ = chat_channel_message_log_service::create_log(
+                let _ = chat_channel_message_log_service::create_log_for_target(
                     &db_conn,
                     ch.id,
                     "outbound",
@@ -93,6 +103,9 @@ pub fn spawn_daily_report_scheduler(
                     &message.to_plain_text(),
                     status,
                     error_detail,
+                    None,
+                    None,
+                    target_id,
                 )
                 .await;
 

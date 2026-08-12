@@ -517,6 +517,29 @@ pub async fn acp_answer_question(
     Ok(Json(()))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpRespondChannelConfirmationParams {
+    pub connection_id: String,
+    pub confirmation_id: String,
+    pub confirmed: bool,
+}
+
+pub async fn acp_respond_channel_confirmation(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<AcpRespondChannelConfirmationParams>,
+) -> Json<()> {
+    state
+        .connection_manager
+        .respond_channel_confirmation(
+            &params.connection_id,
+            &params.confirmation_id,
+            params.confirmed,
+        )
+        .await;
+    Json(())
+}
+
 pub async fn acp_list_connections(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<Vec<ConnectionInfo>>, AppCommandError> {

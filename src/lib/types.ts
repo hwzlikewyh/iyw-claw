@@ -164,7 +164,6 @@ export type ContentBlock =
       caption: string | null
       name: string
       source_kind: "file" | "url" | null
-      source: string | null
       image: ImageData
     }
   | {
@@ -949,6 +948,18 @@ export interface PendingQuestionState {
   created_at: string
 }
 
+export interface PendingChannelConfirmationState {
+  confirmation_id: string
+  action: "delete_channel" | "delete_credential"
+  channel_id: number
+  channel_name: string
+  channel_type: string
+  enabled: boolean
+  local_record_count: number
+  created_at: string
+  expires_at: string
+}
+
 /** One question's answer submitted to `acp_answer_question`. `labels` carries
  *  the selected option labels plus any free-text "Other" the user typed. */
 export interface QuestionAnswerItem {
@@ -1377,6 +1388,14 @@ export type AcpEvent =
       type: "question_resolved"
       question_id: string
     }
+  | {
+      type: "channel_confirmation_requested"
+      confirmation: PendingChannelConfirmationState
+    }
+  | {
+      type: "channel_confirmation_resolved"
+      confirmation_id: string
+    }
   /**
    * The agent's effective settings (env vars / model provider / native config)
    * changed AFTER this connection spawned, so the running process is still on
@@ -1606,6 +1625,7 @@ export interface LiveSessionSnapshot {
   /** Awaiting-answer `ask_user_question`, recoverable on mid-turn attach.
    *  Absent (omitted) when no question is pending. */
   pending_question?: PendingQuestionState | null
+  pending_channel_confirmation?: PendingChannelConfirmationState | null
   /** In-flight user prompt for the current turn — lets a client attaching
    *  mid-turn render the user turn. Absent (omitted) when no turn is in flight. */
   pending_user_message?: {
@@ -2686,6 +2706,7 @@ export interface ChatChannelInfo {
   last_error: string | null
   last_error_at: string | null
   last_connected_at: string | null
+  target_registration_error: string | null
   created_at: string
   updated_at: string
 }

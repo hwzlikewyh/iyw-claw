@@ -60,7 +60,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::acp::automation_tools::ScheduledTaskRequest;
 use crate::acp::question::QuestionSpec;
 
-pub const COMPANION_PROTOCOL_VERSION: u32 = 3;
+pub const COMPANION_PROTOCOL_VERSION: u32 = 4;
 
 const fn default_companion_protocol_version() -> u32 {
     COMPANION_PROTOCOL_VERSION
@@ -235,6 +235,15 @@ pub struct BrokerImageAnalysisRequest {
     pub image_bytes: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerChannelRequest {
+    pub token: String,
+    pub tool: String,
+    #[serde(default)]
+    pub input: Value,
+}
+
 /// Provider-neutral options accepted by the audio transcription MCP tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -327,6 +336,7 @@ pub enum BrokerMessage {
     MemoryProposal(BrokerMemoryProposalRequest),
     Artifacts(BrokerArtifactsRequest),
     ImageAnalysis(BrokerImageAnalysisRequest),
+    Channel(BrokerChannelRequest),
     AudioTranscription(BrokerAudioTranscriptionRequest),
     AudioTranscriptionQuery(BrokerAudioTranscriptionQueryRequest),
     Automation(ScheduledTaskRequest),
@@ -426,6 +436,13 @@ pub async fn client_status_round_trip(
     req: &BrokerStatusRequest,
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::Status(req.clone())).await
+}
+
+pub async fn client_channel_round_trip(
+    socket_path: &str,
+    req: &BrokerChannelRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::Channel(req.clone())).await
 }
 
 /// Dispatch a `cancel_delegation` request and read back the task report.

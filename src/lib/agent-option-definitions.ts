@@ -9,7 +9,11 @@ type LocalModelDefinition = GatewayModel
 
 const LOCAL_MODEL_CAPABILITY_DEFAULTS: Pick<
   GatewayModel,
-  "capabilities" | "imageInputMode"
+  | "capabilities"
+  | "imageInputMode"
+  | "contextWindow"
+  | "maxInputTokens"
+  | "maxOutputTokens"
 > = {
   capabilities: {
     streaming: false,
@@ -24,6 +28,9 @@ const LOCAL_MODEL_CAPABILITY_DEFAULTS: Pick<
     imageEditing: false,
   },
   imageInputMode: "none",
+  contextWindow: null,
+  maxInputTokens: null,
+  maxOutputTokens: null,
 }
 
 export const AGENT_MODEL_IDS: Record<AgentType, readonly string[]> = {

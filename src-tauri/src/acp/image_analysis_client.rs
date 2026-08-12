@@ -15,7 +15,10 @@ pub async fn call_fusion(
     let images = request
         .images
         .iter()
-        .map(|image| json!({ "data": image.data, "mime_type": image.mime_type }))
+        .map(|image| match image.url.as_deref() {
+            Some(url) => json!({ "url": url }),
+            None => json!({ "data": image.data, "mime_type": image.mime_type }),
+        })
         .collect::<Vec<_>>();
     let response = match client()
         .post(crate::acp::provider_overlay::model_gateway_image_analysis_url())

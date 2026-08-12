@@ -24,6 +24,9 @@ interface ImageThumbnailProps {
 }
 
 function ImageThumbnail(props: ImageThumbnailProps) {
+  const src =
+    props.image.uri ||
+    `data:${props.image.mime_type};base64,${props.image.data}`
   return (
     <div className="group relative overflow-hidden rounded-md border border-border/70 bg-muted/30">
       <button
@@ -34,7 +37,7 @@ function ImageThumbnail(props: ImageThumbnailProps) {
         className="block cursor-pointer transition-opacity hover:opacity-80"
       >
         <Image
-          src={`data:${props.image.mime_type};base64,${props.image.data}`}
+          src={src}
           alt={props.imageLabel}
           width={56}
           height={56}
@@ -70,9 +73,12 @@ function AttachmentPreview({
   imageLabel: string
 }) {
   const image = index !== null && index < images.length ? images[index] : null
+  const src = image
+    ? image.uri || `data:${image.mime_type};base64,${image.data}`
+    : ""
   return (
     <ImagePreviewDialog
-      src={image ? `data:${image.mime_type};base64,${image.data}` : ""}
+      src={src}
       alt={imageLabel}
       open={image !== null}
       onOpenChange={(open) => !open && onIndexChange(null)}
@@ -98,6 +104,7 @@ export function UserImageAttachments({
           data: image.data,
           mime_type: image.mime_type,
           suggestedName: image.name,
+          uri: image.uri,
         })
       } catch (error) {
         window.alert(t("downloadFailed", { message: toErrorMessage(error) }))

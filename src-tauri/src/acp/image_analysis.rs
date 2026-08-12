@@ -18,6 +18,7 @@ const DEFAULT_IMAGE_QUESTION: &str =
 pub(crate) struct AnalysisImage {
     pub data: String,
     pub mime_type: String,
+    pub url: Option<String>,
     image_bytes: usize,
 }
 
@@ -68,6 +69,7 @@ impl ImageAnalysisAccess for HostImageAnalysisService {
                 images: vec![AnalysisImage {
                     data: request.data,
                     mime_type: request.mime_type,
+                    url: None,
                     image_bytes: request.image_bytes,
                 }],
                 question: request.question,
@@ -127,12 +129,36 @@ fn prompt_images(blocks: &[PromptInputBlock]) -> Vec<AnalysisImage> {
         .iter()
         .filter_map(|block| match block {
             PromptInputBlock::Image {
-                data, mime_type, ..
-            } => Some(AnalysisImage {
-                data: data.clone(),
-                mime_type: mime_type.clone(),
-                image_bytes: data.len().saturating_mul(3) / 4,
-            }),
+                data,
+                mime_type,
+                uri,
+            } => {
+                let url = uri.as_deref().filter(|value| {
+                    reqwest::Url::parse(value).is_ok_and(|parsed| {
+                        parsed.scheme() == "https"
+                            && parsed.host_str().is_some()
+                            && parsed.username().is_empty()
+                            && parsed.password().is_none()
+                    })
+                });
+                if data.is_empty() && url.is_none() {
+                    return None;
+                }
+                Some(AnalysisImage {
+                    data: if url.is_some() {
+                        String::new()
+                    } else {
+                        data.clone()
+                    },
+                    mime_type: mime_type.clone(),
+                    url: url.map(str::to_string),
+                    image_bytes: if url.is_some() {
+                        0
+                    } else {
+                        data.len().saturating_mul(3) / 4
+                    },
+                })
+            }
             _ => None,
         })
         .collect()

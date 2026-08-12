@@ -275,6 +275,8 @@ pub struct ConnectionManager {
     /// no cap, no cumulative growth; entries are removed on answer / cancel /
     /// connection teardown.
     pending_questions: Arc<Mutex<HashMap<String, PendingQuestionEntry>>>,
+    pub(crate) pending_channel_confirmations:
+        Arc<Mutex<HashMap<String, PendingChannelConfirmationEntry>>>,
     pub(crate) agent_input_runtime: Arc<crate::acp::agent_input_dispatch::AgentInputRuntime>,
 }
 
@@ -285,6 +287,13 @@ struct PendingQuestionEntry {
     parent_connection_id: String,
     questions: Vec<QuestionSpec>,
     sender: tokio::sync::oneshot::Sender<QuestionOutcome>,
+}
+
+pub(crate) struct PendingChannelConfirmationEntry {
+    pub parent_connection_id: String,
+    pub sender: tokio::sync::oneshot::Sender<
+        crate::acp::channel_tools::confirmation::ChannelConfirmationOutcome,
+    >,
 }
 
 impl Default for ConnectionManager {
@@ -303,6 +312,7 @@ impl ConnectionManager {
             user_memory_service: Arc::new(std::sync::OnceLock::new()),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
+            pending_channel_confirmations: Arc::new(Mutex::new(HashMap::new())),
             agent_input_runtime: Arc::new(Default::default()),
         }
     }
@@ -317,6 +327,7 @@ impl ConnectionManager {
             user_memory_service: self.user_memory_service.clone(),
             probe_locks: self.probe_locks.clone(),
             pending_questions: self.pending_questions.clone(),
+            pending_channel_confirmations: self.pending_channel_confirmations.clone(),
             agent_input_runtime: self.agent_input_runtime.clone(),
         }
     }
@@ -2745,12 +2756,14 @@ fn log_prompt_image_summary(
     client_message_id: Option<&str>,
     blocks: &[PromptInputBlock],
 ) {
-    let images: Vec<(&str, usize)> = blocks
+    let images: Vec<(&str, usize, bool)> = blocks
         .iter()
         .filter_map(|block| match block {
             PromptInputBlock::Image {
-                data, mime_type, ..
-            } => Some((mime_type.as_str(), data.len())),
+                data,
+                mime_type,
+                uri,
+            } => Some((mime_type.as_str(), data.len(), uri.is_some())),
             _ => None,
         })
         .collect();
@@ -2759,21 +2772,23 @@ fn log_prompt_image_summary(
     }
     let mime_types = images
         .iter()
-        .map(|(mime, _)| *mime)
+        .map(|(mime, _, _)| *mime)
         .collect::<Vec<_>>()
         .join(",");
-    let base64_lengths = images
+    let inline_lengths = images
         .iter()
-        .map(|(_, length)| length.to_string())
+        .map(|(_, length, _)| length.to_string())
         .collect::<Vec<_>>()
         .join(",");
+    let url_images = images.iter().filter(|(_, _, has_uri)| *has_uri).count();
     tracing::info!(
         target: "acp.image",
         connection_id,
         client_message_id = client_message_id.unwrap_or(""),
         image_count = images.len(),
         mime_types,
-        base64_lengths,
+        inline_lengths,
+        url_images,
         "ACP image prompt accepted"
     );
 }

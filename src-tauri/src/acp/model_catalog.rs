@@ -4,80 +4,19 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock, RwLock};
 
-use serde::{Deserialize, Serialize};
-
 use crate::acp::provider_overlay_formats::MANAGED_MODEL_IDS;
 use crate::models::agent::AgentType;
 
+pub use super::model_catalog_types::{
+    ImageInputMode, ModelCapabilities, ModelCapabilitySnapshot, ModelLimits,
+};
+use super::model_catalog_types::{
+    PersistedCatalog, PersistedCatalogV2, PersistedModel, RuntimeCatalog,
+};
+
 const PERSIST_FILE_NAME: &str = "model-catalog.json";
-const PERSIST_VERSION: u32 = 2;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ImageInputMode {
-    Native,
-    Fallback,
-    #[default]
-    None,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelCapabilities {
-    #[serde(default)]
-    pub streaming: bool,
-    #[serde(default)]
-    pub tool_calling: bool,
-    #[serde(default)]
-    pub parallel_tool_calling: bool,
-    #[serde(default)]
-    pub web_search: bool,
-    #[serde(default)]
-    pub vision: bool,
-    #[serde(default)]
-    pub audio_input: bool,
-    #[serde(default)]
-    pub structured_output: bool,
-    #[serde(default)]
-    pub prompt_cache: bool,
-    #[serde(default)]
-    pub image_generation: bool,
-    #[serde(default)]
-    pub image_editing: bool,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ModelCapabilitySnapshot {
-    pub capabilities: ModelCapabilities,
-    pub image_input_mode: ImageInputMode,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RuntimeCatalog {
-    ids: Vec<&'static str>,
-    capabilities: HashMap<&'static str, ModelCapabilitySnapshot>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct PersistedCatalogV2 {
-    version: u32,
-    models: Vec<PersistedModel>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct PersistedModel {
-    id: String,
-    #[serde(default)]
-    capabilities: ModelCapabilities,
-    #[serde(default)]
-    image_input_mode: ImageInputMode,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum PersistedCatalog {
-    Legacy(Vec<String>),
-    Current(PersistedCatalogV2),
-}
+const PERSIST_VERSION: u32 = 3;
+const PREVIOUS_PERSIST_VERSION: u32 = 2;
 
 fn interner() -> &'static Mutex<HashSet<&'static str>> {
     static INTERNER: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
@@ -137,9 +76,14 @@ fn load_persisted() -> Option<RuntimeCatalog> {
                 id,
                 capabilities: ModelCapabilities::default(),
                 image_input_mode: ImageInputMode::None,
+                limits: ModelLimits::default(),
             })
             .collect(),
-        PersistedCatalog::Current(value) if value.version == PERSIST_VERSION => value.models,
+        PersistedCatalog::Current(value)
+            if matches!(value.version, PREVIOUS_PERSIST_VERSION | PERSIST_VERSION) =>
+        {
+            value.models
+        }
         PersistedCatalog::Current(value) => {
             tracing::warn!(
                 "[ModelCatalog] unsupported persisted version {}",
@@ -167,6 +111,7 @@ fn runtime_catalog(models: Vec<PersistedModel>) -> Option<RuntimeCatalog> {
             ModelCapabilitySnapshot {
                 capabilities: model.capabilities,
                 image_input_mode: model.image_input_mode,
+                limits: model.limits,
             },
         );
     }
@@ -186,6 +131,7 @@ fn persist(value: &RuntimeCatalog) {
                 id: (*id).to_string(),
                 capabilities: snapshot.capabilities,
                 image_input_mode: snapshot.image_input_mode,
+                limits: snapshot.limits,
             }
         })
         .collect();
@@ -240,11 +186,26 @@ fn parse_payload_model(value: &serde_json::Value) -> Option<PersistedModel> {
         } else {
             ImageInputMode::None
         });
+    let limits = value
+        .get("limits")
+        .and_then(serde_json::Value::as_object)
+        .map(parse_limits)
+        .unwrap_or_default();
     Some(PersistedModel {
         id: id.to_string(),
         capabilities,
         image_input_mode,
+        limits,
     })
+}
+
+fn parse_limits(value: &serde_json::Map<String, serde_json::Value>) -> ModelLimits {
+    let limit = |key: &str| value.get(key).and_then(serde_json::Value::as_u64);
+    ModelLimits {
+        context_window: limit("context_window"),
+        max_input_tokens: limit("max_input_tokens"),
+        max_output_tokens: limit("max_output_tokens"),
+    }
 }
 
 fn parse_capabilities(value: &serde_json::Map<String, serde_json::Value>) -> ModelCapabilities {

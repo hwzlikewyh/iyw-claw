@@ -83,7 +83,13 @@ pub async fn handle_post_action(
 
     // Record the kickoff in the message log so the end-to-end trace shows the
     // full chain even when the eventual AI reply fails later.
-    let _ = crate::db::service::chat_channel_message_log_service::create_log_full(
+    let target_id =
+        crate::db::service::chat_channel_target_service::find_by_target(db, &response_target)
+            .await
+            .ok()
+            .flatten()
+            .map(|registered| registered.target_id);
+    let _ = crate::db::service::chat_channel_message_log_service::create_log_for_target(
         db,
         channel_id,
         "outbound",
@@ -97,6 +103,7 @@ pub async fn handle_post_action(
         send_result.as_ref().err().map(|e| e.to_string()),
         trace_id,
         None,
+        target_id,
     )
     .await;
 

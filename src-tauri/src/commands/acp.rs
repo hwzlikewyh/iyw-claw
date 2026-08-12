@@ -1643,6 +1643,10 @@ fn codex_base_instructions_for_model(model: &str) -> String {
 }
 
 fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value {
+    let context_window = crate::acp::model_catalog::model_capabilities(model)
+        .and_then(|snapshot| snapshot.limits.context_window)
+        .filter(|value| *value > 0)
+        .unwrap_or(CODEX_MODEL_CONTEXT_WINDOW);
     serde_json::json!({
         "slug": model,
         "display_name": model,
@@ -1668,7 +1672,7 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
         "supports_parallel_tool_calls": true,
         // Enables Codex ACP transport; the online model catalog still gates UI exposure.
         "additional_speed_tiers": ["fast"],
-        "context_window": CODEX_MODEL_CONTEXT_WINDOW,
+        "context_window": context_window,
         "effective_context_window_percent": 95,
         "experimental_supported_tools": []
     })
@@ -8024,6 +8028,21 @@ pub(crate) async fn build_session_runtime_env(
         .map_err(AcpError::protocol)?;
     if agent_type == AgentType::Codex {
         ensure_codex_model_catalog()?;
+        if let Some(session_id) = session_id {
+            match crate::acp::codex_rollout_migration::migrate_resumed_session(session_id).await {
+                Ok(count) if count > 0 => tracing::info!(
+                    session_id,
+                    migrated_images = count,
+                    "[codex-rollout] migrated legacy show_image results"
+                ),
+                Ok(_) => {}
+                Err(error) => tracing::warn!(
+                    session_id,
+                    error = %error,
+                    "[codex-rollout] legacy show_image migration deferred"
+                ),
+            }
+        }
     }
 
     let local_config_json = load_agent_local_config_json(agent_type);
@@ -8470,6 +8489,20 @@ pub async fn acp_answer_question(
     manager
         .answer_question(&connection_id, &question_id, answer)
         .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn acp_respond_channel_confirmation(
+    connection_id: String,
+    confirmation_id: String,
+    confirmed: bool,
+    manager: State<'_, ConnectionManager>,
+) -> Result<(), AcpError> {
+    manager
+        .respond_channel_confirmation(&connection_id, &confirmation_id, confirmed)
+        .await;
+    Ok(())
 }
 
 #[cfg(feature = "tauri-runtime")]

@@ -95,7 +95,6 @@ import {
 import {
   CHAT_IMAGE_DERIVED_MAX_BYTES,
   CHAT_IMAGE_SOURCE_MAX_BYTES,
-  prepareBrowserChatImage,
 } from "@/lib/chat-image"
 import { extractAppCommandError } from "@/lib/app-error"
 import { getActiveRemoteConnectionId } from "@/lib/transport"
@@ -358,6 +357,127 @@ function bytesFromBase64(data: string): number {
   return Math.max(0, Math.floor((data.length * 3) / 4) - padding)
 }
 
+function isPublicImageUrl(value: string | null | undefined): value is string {
+  if (!value) return false
+  try {
+    const url = new URL(value)
+    return (
+      url.protocol === "https:" &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    )
+  } catch {
+    return false
+  }
+}
+
+function imageAttachmentSrc(attachment: ImageInputAttachment): string {
+  if (isPublicImageUrl(attachment.uri)) return attachment.uri
+  return attachment.data
+    ? `data:${attachment.mimeType};base64,${attachment.data}`
+    : ""
+}
+
+function base64ImageFile(result: EditorImageResult): File {
+  const binary = atob(result.data)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  return new File([bytes], result.name, { type: result.mime_type })
+}
+
+function restoredImageFile(attachment: ImageInputAttachment): File {
+  return base64ImageFile({
+    data: attachment.data,
+    mime_type: attachment.mimeType,
+    name: attachment.name,
+  })
+}
+
+interface RestoredImageUpload {
+  attachment: ImageInputAttachment
+  file: File
+}
+
+function prepareRestoredImages(restored: InputAttachment[]): {
+  images: ImageInputAttachment[]
+  uploads: RestoredImageUpload[]
+} {
+  const uploads: RestoredImageUpload[] = []
+  const images = restored
+    .filter((item): item is ImageInputAttachment => item.type === "image")
+    .map((attachment) => {
+      if (isPublicImageUrl(attachment.uri)) {
+        return { ...attachment, data: "" }
+      }
+      if (!attachment.data) return attachment
+      try {
+        const file = restoredImageFile(attachment)
+        const next: ImageInputAttachment = {
+          ...attachment,
+          staging: {
+            status: "uploading",
+            source: { kind: "browser-file", file },
+          },
+        }
+        uploads.push({ attachment: next, file })
+        return next
+      } catch (error) {
+        console.error("[MessageInput] restored image decode failed", {
+          name: attachment.name,
+          error,
+        })
+        return attachment
+      }
+    })
+  return { images, uploads }
+}
+
+function insertRestoredResources(
+  editor: Editor,
+  restored: InputAttachment[],
+  payloads: Map<string, PromptInputBlock>
+) {
+  const resources = restored.filter(
+    (item): item is ResourceInputAttachment => item.type === "resource"
+  )
+  let chain = editor.chain().focus("end")
+  for (const attachment of resources) {
+    const refUri = buildEmbeddedReferenceUri()
+    const block: PromptInputBlock =
+      attachment.kind === "embedded"
+        ? {
+            type: "resource",
+            uri: attachment.uri,
+            mime_type: attachment.mimeType,
+            text: attachment.text ?? null,
+            blob: attachment.blob ?? null,
+          }
+        : {
+            type: "resource_link",
+            uri: attachment.uri,
+            name: attachment.name,
+            mime_type: attachment.mimeType,
+            description: null,
+          }
+    payloads.set(refUri, block)
+    chain = chain
+      .insertReference({
+        refType: "file",
+        id: refUri,
+        label: attachment.name,
+        uri: refUri,
+        meta: { fileKind: "file" },
+      })
+      .insertContent(" ")
+  }
+  if (resources.length > 0) chain.run()
+}
+
 function updateImageAttachment(
   current: InputAttachment[],
   id: string,
@@ -378,41 +498,6 @@ async function retryImageUpload(
   return source.kind === "browser-file"
     ? uploadChatImage(source.file, sessionId, mimeType)
     : uploadLocalChatImagePathToRemote(source.path, sessionId)
-}
-
-interface BrowserImageStagingResult {
-  path: string | null
-  uri: string | null
-  sourceMimeType: string
-  staging?: ImageAttachmentStaging
-  error?: unknown
-}
-
-async function stageBrowserImageOriginal(
-  file: File,
-  sessionId: string | null,
-  mimeType: string,
-  enabled: boolean
-): Promise<BrowserImageStagingResult> {
-  const initial = { path: null, uri: null, sourceMimeType: mimeType }
-  if (!enabled) return initial
-  try {
-    const staged = await uploadChatImage(file, sessionId, mimeType)
-    return {
-      path: staged.path,
-      uri: buildFileUri(staged.path),
-      sourceMimeType: staged.mimeType ?? mimeType,
-    }
-  } catch (error) {
-    return {
-      ...initial,
-      staging: {
-        status: "failed",
-        source: { kind: "browser-file", file },
-      },
-      error,
-    }
-  }
 }
 
 function imageTooLargeDetails(error: unknown, fallbackName: string) {
@@ -785,6 +870,46 @@ export function MessageInput({
     }
   }, [])
 
+  const uploadRestoredImages = useCallback(
+    (uploads: RestoredImageUpload[]) => {
+      for (const { attachment, file } of uploads) {
+        void uploadChatImage(file, attachmentTabId ?? null, attachment.mimeType)
+          .then((prepared) => {
+            setAttachments((current) =>
+              updateImageAttachment(current, attachment.id, (item) => ({
+                ...item,
+                data: "",
+                uri: prepared.url,
+                name: prepared.name,
+                mimeType: prepared.mimeType,
+                sourceMimeType: prepared.mimeType,
+                staging: undefined,
+              }))
+            )
+          })
+          .catch((error) => {
+            console.error("[MessageInput] restored image upload failed", {
+              name: attachment.name,
+              error,
+            })
+            setAttachments((current) =>
+              updateImageAttachment(current, attachment.id, (item) => ({
+                ...item,
+                staging: {
+                  status: "failed",
+                  source: { kind: "browser-file", file },
+                },
+              }))
+            )
+            toast.error(
+              tAttach("attachUploadFailed", { names: attachment.name })
+            )
+          })
+      }
+    },
+    [attachmentTabId, tAttach]
+  )
+
   // Replay a sent `PromptInputBlock[]` (a queued message being re-edited) into
   // the editor: prose + file badges inline, images into `attachments`, and any
   // embedded/data-uri resources re-inlined as sentinel badges with their
@@ -793,46 +918,12 @@ export function MessageInput({
     (editor: Editor, blocks: PromptInputBlock[]) => {
       embeddedPayloadsRef.current.clear()
       const restored = restoreBlocksIntoEditor(editor, blocks)
-      setAttachments(
-        restored.filter((a): a is ImageInputAttachment => a.type === "image")
-      )
-      const resources = restored.filter(
-        (a): a is ResourceInputAttachment => a.type === "resource"
-      )
-      if (resources.length === 0) return
-      let chain = editor.chain().focus("end")
-      for (const att of resources) {
-        const refUri = buildEmbeddedReferenceUri()
-        const block: PromptInputBlock =
-          att.kind === "embedded"
-            ? {
-                type: "resource",
-                uri: att.uri,
-                mime_type: att.mimeType,
-                text: att.text ?? null,
-                blob: att.blob ?? null,
-              }
-            : {
-                type: "resource_link",
-                uri: att.uri,
-                name: att.name,
-                mime_type: att.mimeType,
-                description: null,
-              }
-        embeddedPayloadsRef.current.set(refUri, block)
-        chain = chain
-          .insertReference({
-            refType: "file",
-            id: refUri,
-            label: att.name,
-            uri: refUri,
-            meta: { fileKind: "file" },
-          })
-          .insertContent(" ")
-      }
-      chain.run()
+      const { images, uploads } = prepareRestoredImages(restored)
+      setAttachments(images)
+      uploadRestoredImages(uploads)
+      insertRestoredResources(editor, restored, embeddedPayloadsRef.current)
     },
-    []
+    [uploadRestoredImages]
   )
 
   // One-time hydration once the editor is ready: a queue-edit payload, else a v2
@@ -1328,18 +1419,21 @@ export function MessageInput({
 
   const appendImageAttachment = useCallback(
     (
-      data: string,
+      uri: string,
       name: string,
       mimeType: string,
-      uri: string | null,
       options: {
+        data?: string
         sourceMimeType?: string
         staging?: ImageAttachmentStaging
       } = {}
     ) => {
+      const data = options.data ?? ""
       const size = bytesFromBase64(data)
-      if (size === 0) throw new Error("Image data is empty")
-      if (size > IMAGE_ATTACHMENT_MAX_BYTES) {
+      if (!isPublicImageUrl(uri) && size === 0) {
+        throw new Error("Image URL is invalid")
+      }
+      if (data && size > IMAGE_ATTACHMENT_MAX_BYTES) {
         throw new Error(
           `Image exceeds the ${IMAGE_ATTACHMENT_MAX_BYTES / (1024 * 1024)}MB attachment limit`
         )
@@ -1387,35 +1481,15 @@ export function MessageInput({
         )
         return true
       }
-      const staged = await stageBrowserImageOriginal(
-        file,
-        attachmentTabId ?? null,
-        mimeType,
-        !desktopMode || getActiveRemoteConnectionId() !== null
-      )
-      if (staged.error) {
-        console.error("[MessageInput] original image staging failed", {
-          name: file.name,
-          mimeType,
-          size: file.size,
-          error: staged.error,
-        })
-        toast.error(
-          tAttach("attachUploadFailed", { names: file.name || "image" })
-        )
-      }
       try {
-        const prepared = await prepareBrowserChatImage(file)
-        appendImageAttachment(
-          prepared.data,
-          prepared.name,
-          prepared.mimeType,
-          staged.uri,
-          {
-            sourceMimeType: staged.sourceMimeType,
-            staging: staged.staging,
-          }
+        const prepared = await uploadChatImage(
+          file,
+          attachmentTabId ?? null,
+          mimeType
         )
+        appendImageAttachment(prepared.url, prepared.name, prepared.mimeType, {
+          sourceMimeType: mimeType,
+        })
       } catch (error) {
         console.error("[MessageInput] image file read failed", {
           name: file.name,
@@ -1423,23 +1497,12 @@ export function MessageInput({
           size: file.size,
           error,
         })
-        if (staged.path) {
-          appendResourceAttachments([staged.path])
-          toast.warning(tAttach("attachImageFallbackFile", { name: file.name }))
-        } else {
-          toast.error(tAttach("attachImageReadFailed", { name: file.name }))
-        }
+        toast.error(tAttach("attachUploadFailed", { names: file.name }))
         return true
       }
       return true
     },
-    [
-      appendImageAttachment,
-      appendResourceAttachments,
-      attachmentTabId,
-      desktopMode,
-      tAttach,
-    ]
+    [appendImageAttachment, attachmentTabId, tAttach]
   )
 
   const appendImagePath = useCallback(
@@ -1458,14 +1521,9 @@ export function MessageInput({
       }
       try {
         const prepared = await prepareChatImagePath(path, source)
-        const uri = buildFileUri(path)
-        appendImageAttachment(
-          prepared.data,
-          prepared.name,
-          prepared.mimeType,
-          uri,
-          { sourceMimeType: opts.sourceMimeType ?? mimeType }
-        )
+        appendImageAttachment(prepared.url, prepared.name, prepared.mimeType, {
+          sourceMimeType: opts.sourceMimeType ?? mimeType,
+        })
       } catch (error) {
         const tooLarge = imageTooLargeDetails(error, fileNameFromPath(path))
         if (tooLarge) {
@@ -1480,9 +1538,7 @@ export function MessageInput({
         toast.error(
           tAttach("attachImageReadFailed", { name: fileNameFromPath(path) })
         )
-        // Let callers use the existing path/resource fallback when the
-        // managed read endpoint cannot provide the image bytes.
-        return false
+        return true
       }
       return true
     },
@@ -1513,14 +1569,9 @@ export function MessageInput({
           path,
           attachmentTabId ?? null
         )
-        if (
-          await appendImagePath(staged.path, "workspace", {
-            sourceMimeType: staged.mimeType ?? sourceMimeType,
-          })
-        ) {
-          return true
-        }
-        appendResourceAttachments([staged.path])
+        appendImageAttachment(staged.url, staged.name, staged.mimeType, {
+          sourceMimeType,
+        })
         return true
       } catch (error) {
         const tooLarge = imageTooLargeDetails(error, fileNameFromPath(path))
@@ -1532,49 +1583,13 @@ export function MessageInput({
           name: fileNameFromPath(path),
           error,
         })
-        try {
-          const prepared = await prepareChatImagePath(path, "local")
-          appendImageAttachment(
-            prepared.data,
-            prepared.name,
-            prepared.mimeType,
-            null,
-            {
-              sourceMimeType,
-              staging: {
-                status: "failed",
-                source: { kind: "local-path", path },
-              },
-            }
-          )
-          toast.error(
-            tAttach("attachUploadFailed", { names: fileNameFromPath(path) })
-          )
-          return true
-        } catch (prepareError) {
-          const tooLarge = imageTooLargeDetails(
-            prepareError,
-            fileNameFromPath(path)
-          )
-          if (tooLarge) {
-            toast.error(tAttach("attachImageTooLarge", tooLarge))
-            return true
-          }
-          console.error("[MessageInput] local image fallback failed", {
-            name: fileNameFromPath(path),
-            error: prepareError,
-          })
-          return false
-        }
+        toast.error(
+          tAttach("attachUploadFailed", { names: fileNameFromPath(path) })
+        )
+        return true
       }
     },
-    [
-      appendImageAttachment,
-      appendImagePath,
-      appendResourceAttachments,
-      attachmentTabId,
-      tAttach,
-    ]
+    [appendImageAttachment, attachmentTabId, tAttach]
   )
 
   // Attach a single file as a ranged badge (`foo.ts:10-25`), used by the file
@@ -2490,22 +2505,12 @@ export function MessageInput({
         console.warn("[MessageInput] ignored invalid image attachment event")
         return
       }
-      try {
-        appendImageAttachment(
-          detail.data,
-          detail.name || "image.png",
-          detail.mimeType.toLowerCase(),
-          null
-        )
-      } catch (error) {
-        console.error("[MessageInput] viewer image rejected", {
-          name: detail.name,
-          mimeType: detail.mimeType,
-          base64Length: detail.data.length,
-          error,
-        })
-        toast.error(tAttach("attachImageReadFailed", { name: detail.name }))
-      }
+      const file = base64ImageFile({
+        data: detail.data,
+        mime_type: detail.mimeType.toLowerCase(),
+        name: detail.name || "image.png",
+      })
+      void appendImageFile(file)
       editorRef.current?.focus()
     }
     window.addEventListener(ATTACH_IMAGE_TO_SESSION_EVENT, handleAttachImage)
@@ -2515,7 +2520,7 @@ export function MessageInput({
         handleAttachImage
       )
     }
-  }, [appendImageAttachment, attachmentTabId, tAttach])
+  }, [appendImageFile, attachmentTabId])
 
   useEffect(() => {
     if (!attachmentTabId) return
@@ -2710,12 +2715,13 @@ export function MessageInput({
           attachmentTabId ?? null,
           attachment.sourceMimeType
         )
-        const uri = buildFileUri(staged.path)
         setAttachments((current) =>
           updateImageAttachment(current, id, (item) => ({
             ...item,
-            uri,
-            sourceMimeType: staged.mimeType ?? item.sourceMimeType,
+            data: "",
+            uri: staged.url,
+            mimeType: staged.mimeType,
+            sourceMimeType: staged.mimeType,
             staging: undefined,
           }))
         )
@@ -2737,25 +2743,30 @@ export function MessageInput({
   )
 
   const applyAttachmentEdit = useCallback(
-    (result: EditorImageResult) => {
+    async (result: EditorImageResult) => {
       if (!previewAttachmentId) return
+      const prepared = await uploadChatImage(
+        base64ImageFile(result),
+        attachmentTabId ?? null,
+        result.mime_type
+      )
       setAttachments((current) =>
         current.map((attachment) =>
           attachment.id === previewAttachmentId && attachment.type === "image"
             ? {
                 ...attachment,
-                data: result.data,
-                mimeType: result.mime_type,
-                name: result.name,
-                uri: null,
-                sourceMimeType: result.mime_type,
+                data: "",
+                mimeType: prepared.mimeType,
+                name: prepared.name,
+                uri: prepared.url,
+                sourceMimeType: prepared.mimeType,
                 staging: undefined,
               }
             : attachment
         )
       )
     },
-    [previewAttachmentId]
+    [attachmentTabId, previewAttachmentId]
   )
 
   const buildDraft = useCallback((): PromptDraft | null => {
@@ -2794,8 +2805,8 @@ export function MessageInput({
       (attachment): attachment is ImageInputAttachment =>
         attachment.type === "image" &&
         (!SUPPORTED_IMAGE_MIME_TYPES.has(attachment.mimeType.toLowerCase()) ||
-          bytesFromBase64(attachment.data) === 0 ||
-          bytesFromBase64(attachment.data) > IMAGE_ATTACHMENT_MAX_BYTES)
+          !isPublicImageUrl(attachment.uri) ||
+          attachment.data.length > 0)
     )
     if (invalidImage) {
       console.error("[MessageInput] send blocked invalid image attachment", {
@@ -2821,18 +2832,9 @@ export function MessageInput({
     // `attachments` holds only images now — files live inline as badges above.
     for (const attachment of attachments) {
       if (attachment.type === "image") {
-        if (attachment.uri) {
-          blocks.push({
-            type: "resource_link",
-            uri: attachment.uri,
-            name: attachment.name,
-            mime_type: attachment.sourceMimeType ?? attachment.mimeType,
-            description: null,
-          })
-        }
         blocks.push({
           type: "image",
-          data: attachment.data,
+          data: "",
           mime_type: attachment.mimeType,
           uri: attachment.uri,
         })
@@ -3479,7 +3481,7 @@ export function MessageInput({
                           className="cursor-pointer transition-opacity hover:opacity-80"
                         >
                           <Image
-                            src={`data:${attachment.mimeType};base64,${attachment.data}`}
+                            src={imageAttachmentSrc(attachment)}
                             alt={attachment.name}
                             width={56}
                             height={56}
@@ -4085,11 +4087,7 @@ export function MessageInput({
         )}
       </div>
       <ImagePreviewDialog
-        src={
-          previewAttachment
-            ? `data:${previewAttachment.mimeType};base64,${previewAttachment.data}`
-            : ""
-        }
+        src={previewAttachment ? imageAttachmentSrc(previewAttachment) : ""}
         alt={previewAttachment?.name ?? ""}
         open={previewAttachment !== null}
         onOpenChange={(open) => {

@@ -87,7 +87,6 @@ export type AdaptedDisplayedImagePart = {
   caption: string | null
   image: UserImageDisplay
   sourceKind: DisplayImageSourceKind | null
-  source: string | null
 }
 
 export type AdaptedGoalRunPart = {
@@ -729,11 +728,15 @@ function addResource(
 }
 
 function addImage(images: UserImageDisplay[], image: UserImageDisplay) {
-  const key = `${image.mime_type}:${image.data.length}:${image.data.slice(0, 64)}`
+  const key = image.uri
+    ? `uri:${image.uri}`
+    : `${image.mime_type}:${image.data.length}:${image.data.slice(0, 64)}`
   if (
     images.some(
       (item) =>
-        `${item.mime_type}:${item.data.length}:${item.data.slice(0, 64)}` ===
+        (item.uri
+          ? `uri:${item.uri}`
+          : `${item.mime_type}:${item.data.length}:${item.data.slice(0, 64)}`) ===
         key
     )
   ) {
@@ -965,7 +968,7 @@ function extractUserImagesFromBlocks(
   const images: UserImageDisplay[] = []
   for (const block of blocks) {
     if (block.type !== "image") continue
-    if (!block.data || !block.mime_type) continue
+    if ((!block.data && !block.uri) || !block.mime_type) continue
     addImage(images, {
       name: deriveImageNameFromBlock(block),
       data: block.data,
@@ -1065,7 +1068,6 @@ function adaptContentBlock(
           uri: block.image.uri ?? null,
         },
         sourceKind: block.source_kind,
-        source: block.source,
       }
 
     case "plan":
@@ -1112,27 +1114,27 @@ function adaptImageToolResultParts(result: {
   images?: ImageData[] | null
   output_preview?: string | null
 }): (AdaptedGeneratedImagePart | AdaptedDisplayedImagePart)[] | null {
-  const images = result.images
-  if (!images || images.length === 0) return null
   const metadata = parseDisplayImageMetadata(result.output_preview)
   const parts: (AdaptedGeneratedImagePart | AdaptedDisplayedImagePart)[] = []
-  for (const img of images) {
-    if (!img.data || !img.mime_type) continue
-    if (metadata) {
-      parts.push({
+  if (metadata) {
+    return [
+      {
         type: "displayed-image",
         caption: metadata.caption,
         image: {
           name: metadata.name,
-          data: img.data,
-          mime_type: img.mime_type,
-          uri: img.uri ?? null,
+          data: "",
+          mime_type: metadata.mimeType,
+          uri: metadata.uri,
         },
         sourceKind: metadata.sourceKind,
-        source: metadata.source,
-      })
-      continue
-    }
+      },
+    ]
+  }
+  const images = result.images
+  if (!images || images.length === 0) return null
+  for (const img of images) {
+    if (!img.data || !img.mime_type) continue
     parts.push({
       type: "generated-image",
       // A Read has no model-revised prompt — only codex image generation does.

@@ -17,6 +17,7 @@ import type {
   AvailableCommandInfo,
   ConfigStaleKind,
   ConnectionStatus,
+  PendingChannelConfirmationState,
   PendingQuestionState,
   PromptCapabilitiesInfo,
   QuestionAnswer,
@@ -61,6 +62,7 @@ export interface UseConnectionReturn {
   pendingUserMessage: PendingUserMessage | null
   pendingQuestion: PendingQuestion | null
   pendingAskQuestion: PendingQuestionState | null
+  pendingChannelConfirmation: PendingChannelConfirmationState | null
   claudeApiRetry: ClaudeApiRetryState | null
   error: string | null
   loadError: string | null
@@ -206,6 +208,8 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   const pendingUserMessage = connection?.pendingUserMessage ?? null
   const pendingQuestion = connection?.pendingQuestion ?? null
   const pendingAskQuestion = connection?.pendingAskQuestion ?? null
+  const pendingChannelConfirmation =
+    connection?.pendingChannelConfirmation ?? null
   const claudeApiRetry = connection?.claudeApiRetry ?? null
   const error = connection?.error ?? null
   const loadError = connection?.loadError ?? null
@@ -309,6 +313,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       pendingUserMessage,
       pendingQuestion,
       pendingAskQuestion,
+      pendingChannelConfirmation,
       claudeApiRetry,
       error,
       loadError,
@@ -348,6 +353,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       pendingUserMessage,
       pendingQuestion,
       pendingAskQuestion,
+      pendingChannelConfirmation,
       claudeApiRetry,
       error,
       loadError,

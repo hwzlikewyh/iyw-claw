@@ -8,6 +8,9 @@ export interface GatewayModel {
   fastModeDefaultEnabled: boolean
   capabilities: GatewayModelCapabilities
   imageInputMode: GatewayImageInputMode
+  contextWindow: number | null
+  maxInputTokens: number | null
+  maxOutputTokens: number | null
 }
 
 export interface GatewayModelCapabilities {
@@ -40,6 +43,16 @@ function uniqueStrings(value: unknown): string[] {
 
 function booleanField(value: Record<string, unknown>, key: string): boolean {
   return value[key] === true
+}
+
+function tokenLimit(
+  value: Record<string, unknown>,
+  key: string
+): number | null {
+  const limit = value[key]
+  return typeof limit === "number" && Number.isSafeInteger(limit) && limit >= 0
+    ? limit
+    : null
 }
 
 function parseCapabilities(value: unknown): GatewayModelCapabilities {
@@ -91,6 +104,10 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
       ? (raw.fast_mode as Record<string, unknown>)
       : {}
   const capabilities = parseCapabilities(raw.capabilities)
+  const limits =
+    raw.limits && typeof raw.limits === "object"
+      ? (raw.limits as Record<string, unknown>)
+      : {}
   return {
     id,
     name:
@@ -107,6 +124,9 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
     fastModeDefaultEnabled: fastMode.default_enabled === true,
     capabilities,
     imageInputMode: parseImageInputMode(raw.image_input, capabilities),
+    contextWindow: tokenLimit(limits, "context_window"),
+    maxInputTokens: tokenLimit(limits, "max_input_tokens"),
+    maxOutputTokens: tokenLimit(limits, "max_output_tokens"),
   }
 }
 

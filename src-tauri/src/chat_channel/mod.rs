@@ -1,3 +1,4 @@
+pub mod attachments;
 pub mod backends;
 pub mod command_dispatcher;
 pub mod command_handlers;
@@ -25,6 +26,7 @@ mod session_picker;
 mod session_runtime;
 mod session_topic;
 mod session_topic_messages;
+pub mod target_registry;
 #[allow(dead_code)]
 pub mod tool_detail;
 pub mod traits;

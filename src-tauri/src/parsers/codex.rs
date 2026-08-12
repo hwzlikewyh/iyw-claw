@@ -1030,15 +1030,9 @@ impl CodexParser {
                                         let Some(raw) = image.as_str() else {
                                             continue;
                                         };
-                                        let Some((mime_type, data)) = parse_data_uri_image(raw)
-                                        else {
-                                            continue;
-                                        };
-                                        blocks.push(ContentBlock::Image {
-                                            data,
-                                            mime_type,
-                                            uri: None,
-                                        });
+                                        if let Some(image) = parse_image_reference(raw) {
+                                            blocks.push(image);
+                                        }
                                     }
                                 }
 
@@ -2207,17 +2201,56 @@ fn parse_data_uri_image(raw: &str) -> Option<(String, String)> {
     Some((mime_type.to_string(), data.to_string()))
 }
 
-fn parse_input_image_data_uri(item: &serde_json::Value) -> Option<(String, String)> {
-    let data_uri = item
-        .get("image_url")
+fn input_image_url(item: &serde_json::Value) -> Option<&str> {
+    item.get("image_url")
         .and_then(|v| v.as_str())
         .or_else(|| {
             item.get("image_url")
                 .and_then(|v| v.get("url"))
                 .and_then(|v| v.as_str())
         })
-        .or_else(|| item.get("url").and_then(|v| v.as_str()))?;
-    parse_data_uri_image(data_uri)
+        .or_else(|| item.get("url").and_then(|v| v.as_str()))
+}
+
+fn image_mime_from_url(url: &reqwest::Url) -> Option<&'static str> {
+    let extension = url.path().rsplit('.').next()?.to_ascii_lowercase();
+    match extension.as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "webp" => Some("image/webp"),
+        "gif" => Some("image/gif"),
+        _ => None,
+    }
+}
+
+fn parse_image_reference(raw: &str) -> Option<ContentBlock> {
+    let raw = raw.trim();
+    if let Some((mime_type, data)) = parse_data_uri_image(raw) {
+        return Some(ContentBlock::Image {
+            data,
+            mime_type,
+            uri: None,
+        });
+    }
+    let parsed = reqwest::Url::parse(raw).ok()?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return None;
+    }
+    Some(ContentBlock::Image {
+        data: String::new(),
+        mime_type: image_mime_from_url(&parsed)?.to_string(),
+        uri: Some(raw.to_string()),
+    })
+}
+
+fn parse_input_image(item: &serde_json::Value) -> Option<ContentBlock> {
+    parse_image_reference(input_image_url(item)?)
 }
 
 fn first_text_block(blocks: &[ContentBlock]) -> Option<String> {
@@ -2299,14 +2332,10 @@ fn extract_response_item_user_image_blocks(
             }
             "input_image" => {
                 has_input_image = true;
-                let Some((mime_type, data)) = parse_input_image_data_uri(item) else {
+                let Some(image) = parse_input_image(item) else {
                     continue;
                 };
-                blocks.push(ContentBlock::Image {
-                    data,
-                    mime_type,
-                    uri: None,
-                });
+                blocks.push(image);
             }
             _ => {}
         }

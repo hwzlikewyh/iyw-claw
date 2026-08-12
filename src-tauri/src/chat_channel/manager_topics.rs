@@ -1,5 +1,6 @@
 use sea_orm::DatabaseConnection;
 
+use super::attachments::{AttachmentCapability, ChannelAttachment};
 use super::error::ChatChannelError;
 use super::manager::ChatChannelManager;
 use super::types::{
@@ -10,6 +11,24 @@ use crate::db::entities::chat_channel_thread_binding;
 use crate::db::service::thread_binding_service;
 
 impl ChatChannelManager {
+    pub async fn attachment_capability(
+        &self,
+        channel_id: i32,
+    ) -> Result<AttachmentCapability, ChatChannelError> {
+        Ok(self.backend_for(channel_id).await?.attachment_capability())
+    }
+
+    pub async fn send_attachment_to_target(
+        &self,
+        target: &ChannelMessageTarget,
+        attachment: &ChannelAttachment,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        self.backend_for(target.channel_id)
+            .await?
+            .send_attachment_to(attachment, target)
+            .await
+    }
+
     pub async fn send_to_target(
         &self,
         target: &ChannelMessageTarget,

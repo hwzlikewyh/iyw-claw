@@ -16,6 +16,9 @@ pub struct Model {
     pub trace_id: Option<String>,
     /// Provider-side message id (outbound idempotency key / inbound dedupe).
     pub provider_message_id: Option<String>,
+    /// Opaque iyw-claw target id. Older rows remain null and are surfaced as
+    /// legacy_unknown by the Agent tool API.
+    pub target_id: Option<String>,
     pub created_at: DateTimeUtc,
 }
 

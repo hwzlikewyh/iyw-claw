@@ -67,6 +67,7 @@ struct SendRequest<'a> {
     text: &'a str,
     reply_context: &'a Mutex<Option<WeixinReplyContext>>,
     pending_messages: &'a Mutex<Vec<String>>,
+    allow_buffer: bool,
 }
 
 // ── QR code auth functions (called before backend exists) ──
@@ -338,23 +339,23 @@ impl WeixinBackend {
         let resp_text = resp.text().await.unwrap_or_default();
 
         if !status_code.is_success() {
-            return Err(ChatChannelError::SendFailed(format!(
-                "HTTP {status_code}: {resp_text}"
-            )));
+            return Err(ChatChannelError::SendFailed(format!("HTTP {status_code}")));
         }
 
         // Check for ret errors in response (e.g. -2 = context expired)
         if let Ok(resp_json) = serde_json::from_str::<serde_json::Value>(&resp_text) {
             if let Some(ret) = resp_json.get("ret").and_then(|v| v.as_i64()) {
                 if ret != 0 {
-                    let errmsg = resp_json
-                        .get("errmsg")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
-                    tracing::info!("[Weixin] sendmessage ret={ret}, errmsg={errmsg}");
+                    tracing::info!(ret, "[Weixin] sendmessage rejected");
 
                     if ret == -2 {
-                        // Context token expired — mark stale and buffer
+                        if !req.allow_buffer {
+                            return Err(ChatChannelError::SendFailed(
+                                "TARGET_CONTEXT_EXPIRED".to_string(),
+                            ));
+                        }
+                        // The implicit reply path may wait for that same
+                        // conversation to refresh its context.
                         if let Some(ref mut c) = *req.reply_context.lock().await {
                             c.expired = true;
                         }
@@ -366,7 +367,7 @@ impl WeixinBackend {
                         return Ok(false);
                     }
 
-                    return Err(ChatChannelError::SendFailed(format!("ret={ret}: {errmsg}")));
+                    return Err(ChatChannelError::SendFailed(format!("provider code {ret}")));
                 }
             }
         }
@@ -407,9 +408,9 @@ impl WeixinBackend {
         }
 
         tracing::info!(
-            "[Weixin] sendmessage to={to_user_id}, context_token_len={}, text_len={}",
-            context_token.len(),
-            text.len()
+            channel_id = self.channel_id,
+            text_chars = text.chars().count(),
+            "[Weixin] sending message"
         );
 
         Self::do_send(SendRequest {
@@ -422,9 +423,44 @@ impl WeixinBackend {
             text,
             reply_context: &self.reply_context,
             pending_messages: &self.pending_messages,
+            allow_buffer: true,
         })
         .await?;
 
+        Ok(SentMessageId(String::new()))
+    }
+
+    async fn send_text_to(
+        &self,
+        target: &ChannelMessageTarget,
+        text: &str,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        let to_user_id = target.chat_id.as_deref().ok_or_else(|| {
+            ChatChannelError::ConfigurationInvalid("WeChat target user is missing".to_string())
+        })?;
+        let context_token = target
+            .provider_payload
+            .as_ref()
+            .and_then(|payload| payload.get("context_token"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                ChatChannelError::ConfigurationInvalid(
+                    "WeChat target context is unavailable".to_string(),
+                )
+            })?;
+        Self::do_send(SendRequest {
+            client: &self.client,
+            base_url: &self.base_url,
+            bot_token: &self.bot_token,
+            wechat_uin: &self.wechat_uin,
+            to_user_id,
+            context_token,
+            text,
+            reply_context: &self.reply_context,
+            pending_messages: &self.pending_messages,
+            allow_buffer: false,
+        })
+        .await?;
         Ok(SentMessageId(String::new()))
     }
 }
@@ -441,11 +477,7 @@ impl ChatChannelBackend for WeixinBackend {
     ) -> Result<(), ChatChannelError> {
         *self.status.lock().await = ChannelConnectionStatus::Connecting;
 
-        tracing::info!(
-            "[Weixin] start: base_url={}, token_len={}",
-            self.base_url,
-            self.bot_token.len()
-        );
+        tracing::info!(channel_id = self.channel_id, "[Weixin] starting backend");
 
         // Verify auth by doing a quick getupdates with empty cursor
         let verify_body = serde_json::json!({
@@ -453,8 +485,6 @@ impl ChatChannelBackend for WeixinBackend {
             "base_info": { "channel_version": ILINK_CHANNEL_VERSION }
         });
         let url = format!("{}/ilink/bot/getupdates", self.base_url);
-        tracing::info!("[Weixin] verify POST {url}");
-
         let resp = self
             .client
             .post(&url)
@@ -471,7 +501,6 @@ impl ChatChannelBackend for WeixinBackend {
             .map_err(|e| ChatChannelError::ConnectionFailed(e.to_string()))?;
 
         tracing::info!("[Weixin] verify response status={status_code}");
-        tracing::debug!("[Weixin] verify response body={resp_text}");
 
         let verify_result: serde_json::Value = serde_json::from_str(&resp_text)
             .map_err(|e| ChatChannelError::ConnectionFailed(format!("JSON parse failed: {e}")))?;
@@ -480,12 +509,8 @@ impl ChatChannelBackend for WeixinBackend {
         // (no `ret` field). Treat any non-zero errcode as authentication failure.
         if let Some(errcode) = verify_result.get("errcode").and_then(|v| v.as_i64()) {
             if errcode != 0 {
-                let errmsg = verify_result
-                    .get("errmsg")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown error");
                 return Err(ChatChannelError::AuthenticationFailed(format!(
-                    "Weixin verification failed (errcode={errcode}): {errmsg}"
+                    "Weixin verification failed with provider code {errcode}"
                 )));
             }
         }
@@ -678,6 +703,7 @@ impl ChatChannelBackend for WeixinBackend {
                                                         text: pending_text,
                                                         reply_context: &reply_context,
                                                         pending_messages: &pending_messages,
+                                                        allow_buffer: true,
                                                     })
                                                     .await;
                                                     if let Err(e) = ok {
@@ -697,7 +723,11 @@ impl ChatChannelBackend for WeixinBackend {
                                         }
                                     }
 
-                                    tracing::debug!("[Weixin] dispatching: {text}");
+                                    tracing::debug!(
+                                        channel_id,
+                                        content_chars = text.chars().count(),
+                                        "[Weixin] dispatching inbound message"
+                                    );
                                     // Provider message id: platform id when
                                     // available, else a deterministic composite.
                                     let provider_message_id = msg
@@ -723,8 +753,16 @@ impl ChatChannelBackend for WeixinBackend {
                                         sender_name: None,
                                         command_text: text.to_string(),
                                         callback_data: None,
-                                        target: ChannelMessageTarget::channel(channel_id),
-                                        metadata: msg.clone(),
+                                        target: ChannelMessageTarget {
+                                            channel_id,
+                                            chat_id: Some(from_user_id.to_string()),
+                                            thread_key: None,
+                                            thread_kind: Some("weixin_context".to_string()),
+                                            provider_payload: Some(serde_json::json!({
+                                                "context_token": context_token,
+                                            })),
+                                        },
+                                        metadata: serde_json::json!({}),
                                         message_trace_id:
                                             super::super::dedupe::new_message_trace_id(channel_id),
                                         provider_message_id: Some(provider_message_id),
@@ -748,6 +786,7 @@ impl ChatChannelBackend for WeixinBackend {
                                                     text: super::DISPATCHER_BUSY_TEXT,
                                                     reply_context: &reply_context,
                                                     pending_messages: &pending_messages,
+                                                    allow_buffer: true,
                                                 })
                                                 .await;
                                             }
@@ -805,6 +844,14 @@ impl ChatChannelBackend for WeixinBackend {
         self.send_text(&plain_text).await
     }
 
+    async fn send_rich_message_to(
+        &self,
+        message: &RichMessage,
+        target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        self.send_text_to(target, &message.to_plain_text()).await
+    }
+
     async fn test_connection(&self) -> Result<(), ChatChannelError> {
         let body = serde_json::json!({
             "get_updates_buf": "",
@@ -828,7 +875,6 @@ impl ChatChannelBackend for WeixinBackend {
             .map_err(|e| ChatChannelError::ConnectionFailed(e.to_string()))?;
 
         tracing::info!("[Weixin] test_connection: status={status_code}");
-        tracing::debug!("[Weixin] test_connection body={resp_text}");
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)
             .map_err(|e| ChatChannelError::ConnectionFailed(format!("Not valid JSON: {e}")))?;

@@ -7,6 +7,7 @@ export interface RetentionConnectionState {
   pendingPermission: unknown | null
   pendingQuestion: unknown | null
   pendingAskQuestion: unknown | null
+  pendingChannelConfirmation: unknown | null
   backgroundOutstanding: number
   isDelegationChild: boolean
 }
@@ -34,6 +35,7 @@ export function isRetentionProtected(
     connection.pendingPermission != null ||
     connection.pendingQuestion != null ||
     connection.pendingAskQuestion != null ||
+    connection.pendingChannelConfirmation != null ||
     connection.backgroundOutstanding > 0
   )
 }

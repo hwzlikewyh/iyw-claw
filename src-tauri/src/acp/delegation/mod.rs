@@ -32,10 +32,11 @@
 
 pub mod audio_tool;
 pub mod broker;
+mod channel_listener;
 pub mod companion;
 pub mod depth;
 pub mod event_emitter;
-mod image_format;
+pub(crate) mod image_format;
 pub mod image_loader;
 pub mod image_tool;
 pub mod listener;

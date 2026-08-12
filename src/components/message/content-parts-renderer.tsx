@@ -2583,14 +2583,6 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
     }
 
     if (part.type === "displayed-image") {
-      const sourceLink =
-        part.sourceKind && part.source
-          ? {
-              kind: part.sourceKind,
-              target: part.source,
-              label: part.source,
-            }
-          : null
       return (
         <GeneratedImagesBlock
           key={`dimg-${keyId}`}
@@ -2598,7 +2590,6 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
           revisedPrompt={null}
           caption={part.caption}
           image={part.image}
-          sourceLink={sourceLink}
         />
       )
     }

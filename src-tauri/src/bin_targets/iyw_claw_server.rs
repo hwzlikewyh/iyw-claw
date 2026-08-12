@@ -279,6 +279,7 @@ async fn async_main() -> ExitCode {
     let token =
         resolve_persisted_server_token(&db.conn, configured_server_token(), &mut token_generated)
             .await;
+    iyw_claw_lib::keyring_store::initialize_server_channel_target_crypto(&token);
     if token_generated {
         // Operator-facing startup notice on stderr ONLY: the access token is a
         // bearer credential and must never enter the durable log files or the
@@ -475,6 +476,17 @@ async fn async_main() -> ExitCode {
                     state.emitter.clone(),
                     state.data_dir.clone(),
                 ),
+            ),
+            Arc::new(iyw_claw_lib::acp::channel_tools::ChannelToolService::new(
+                Arc::new(iyw_claw_lib::db::AppDatabase {
+                    conn: state.db.conn.clone(),
+                }),
+                state.chat_channel_manager.clone_ref(),
+            )),
+            Arc::new(
+                iyw_claw_lib::acp::ConnectionManagerChannelConfirmationLookup {
+                    manager: Arc::new(state.connection_manager.clone_ref()),
+                },
             ),
         );
         let socket = delegation_socket_path.clone();

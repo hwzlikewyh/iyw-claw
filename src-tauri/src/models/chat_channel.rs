@@ -18,6 +18,9 @@ pub struct ChatChannelInfo {
     pub last_error: Option<String>,
     pub last_error_at: Option<String>,
     pub last_connected_at: Option<String>,
+    /// Safe machine-readable status for default-target registration. This is
+    /// separate from provider runtime errors because the channel was saved.
+    pub target_registration_error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -41,6 +44,7 @@ pub struct ChatChannelMessageLogInfo {
     pub error_detail: Option<String>,
     pub trace_id: Option<String>,
     pub provider_message_id: Option<String>,
+    pub target_id: Option<String>,
     pub created_at: String,
 }
 
@@ -59,6 +63,7 @@ impl From<crate::db::entities::chat_channel::Model> for ChatChannelInfo {
             last_error: m.last_error,
             last_error_at: m.last_error_at.map(|v| v.to_rfc3339()),
             last_connected_at: m.last_connected_at.map(|v| v.to_rfc3339()),
+            target_registration_error: None,
             created_at: m.created_at.to_rfc3339(),
             updated_at: m.updated_at.to_rfc3339(),
         }
@@ -77,6 +82,7 @@ impl From<crate::db::entities::chat_channel_message_log::Model> for ChatChannelM
             error_detail: m.error_detail,
             trace_id: m.trace_id,
             provider_message_id: m.provider_message_id,
+            target_id: m.target_id,
             created_at: m.created_at.to_rfc3339(),
         }
     }

@@ -339,7 +339,7 @@ async fn poll_once(
         )
         .await
         {
-            tracing::warn!("[WeCom] failed to poll chat {chat_id}: {error}");
+            tracing::warn!(channel_id, error = %error, "[WeCom] failed to poll chat");
         }
     }
     Ok(())
@@ -358,7 +358,7 @@ async fn send_busy_to_chat(chat_type: u8, chatid: &str) {
         "text": {"content": super::DISPATCHER_BUSY_TEXT},
     });
     if let Err(error) = run_cli_json(&["msg", "send_message", &payload.to_string()]).await {
-        tracing::warn!("[WeCom] busy reply to {chatid} failed: {error}");
+        tracing::warn!(error = %error, "[WeCom] busy reply failed");
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -435,10 +435,8 @@ async fn poll_chat(
             callback_data: None,
             target,
             metadata: serde_json::json!({
-                "chat_id": chat_id,
                 "chat_name": chat_name,
                 "chat_type": chat_type,
-                "send_time": send_time,
                 "sender_name": sender_name,
             }),
             message_trace_id: super::super::dedupe::new_message_trace_id(channel_id),
@@ -450,9 +448,7 @@ async fn poll_chat(
         if let Err(error) = command_tx.try_send(command) {
             match error {
                 mpsc::error::TrySendError::Full(_) => {
-                    tracing::warn!(
-                        "[WeCom] dispatcher queue full for chat {chat_id}; replying busy"
-                    );
+                    tracing::warn!(channel_id, "[WeCom] dispatcher queue full; replying busy");
                     send_busy_to_chat(chat_type, chat_id).await;
                 }
                 mpsc::error::TrySendError::Closed(_) => {
@@ -581,7 +577,7 @@ async fn fetch_user_display_name(userid: &str) -> Option<String> {
             .filter(|s| !s.is_empty())
             .map(String::from),
         Err(e) => {
-            tracing::debug!("[WeCom] user info fetch skipped for {userid}: {e}");
+            tracing::debug!(error = %e, "[WeCom] user info fetch skipped");
             None
         }
     }
@@ -601,15 +597,9 @@ async fn run_cli_raw(args: &[&str]) -> Result<String, ChatChannelError> {
         })?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(ChatChannelError::ConnectionFailed(format!(
-            "wecom-cli exited with {}: {}",
-            output.status,
-            if stderr.trim().is_empty() {
-                stdout.trim()
-            } else {
-                stderr.trim()
-            }
+            "wecom-cli exited with {}",
+            output.status
         )));
     }
     Ok(stdout)
@@ -618,7 +608,7 @@ async fn run_cli_raw(args: &[&str]) -> Result<String, ChatChannelError> {
 async fn run_cli_json(args: &[&str]) -> Result<serde_json::Value, ChatChannelError> {
     let stdout = run_cli_raw(args).await?;
     let json_start = stdout.find('{').ok_or_else(|| {
-        ChatChannelError::ConnectionFailed(format!("wecom-cli returned no JSON: {}", stdout.trim()))
+        ChatChannelError::ConnectionFailed("wecom-cli returned no JSON".to_string())
     })?;
     let value: serde_json::Value =
         serde_json::from_str(stdout[json_start..].trim()).map_err(|error| {
@@ -626,12 +616,8 @@ async fn run_cli_json(args: &[&str]) -> Result<serde_json::Value, ChatChannelErr
         })?;
     let errcode = value.get("errcode").and_then(|value| value.as_i64());
     if let Some(code) = errcode.filter(|code| *code != 0) {
-        let errmsg = value
-            .get("errmsg")
-            .and_then(|value| value.as_str())
-            .unwrap_or("unknown error");
         return Err(ChatChannelError::ConnectionFailed(format!(
-            "wecom-cli errcode {code}: {errmsg}"
+            "wecom-cli provider code {code}"
         )));
     }
     Ok(value)
@@ -785,7 +771,6 @@ pub async fn start_auth() -> Result<String, ChatChannelError> {
         use tokio::io::AsyncBufReadExt;
         let mut lines = tokio::io::BufReader::new(stdout).lines();
         let mut link_tx = Some(link_tx);
-        let mut tail = String::new();
         while let Ok(Some(line)) = lines.next_line().await {
             if let Some(sender) = link_tx.take() {
                 match extract_https_link(&line) {
@@ -795,13 +780,8 @@ pub async fn start_auth() -> Result<String, ChatChannelError> {
                     None => link_tx = Some(sender),
                 }
             }
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                tracing::debug!("[WeCom] init: {trimmed}");
-                tail = trimmed.to_string();
-            }
         }
-        tracing::info!("[WeCom] init stdout closed (last line: {tail})");
+        tracing::info!("[WeCom] init stdout closed");
     });
 
     // Drained purely to keep the child from blocking on a full pipe; the
@@ -816,9 +796,8 @@ pub async fn start_auth() -> Result<String, ChatChannelError> {
             if trimmed.is_empty() {
                 continue;
             }
-            tracing::debug!("[WeCom] init stderr: {trimmed}");
             let mut tail = stderr_tail_writer.lock().await;
-            *tail = trimmed.to_string();
+            *tail = "authorization process reported an error".to_string();
         }
     });
 
@@ -831,7 +810,7 @@ pub async fn start_auth() -> Result<String, ChatChannelError> {
                 set_auth_process(false, None);
             }
             Ok(status) => {
-                tracing::warn!("[WeCom] init exited with {status}: {detail}");
+                tracing::warn!(status = %status, "[WeCom] init exited unsuccessfully");
                 set_auth_process(
                     false,
                     Some(if detail.is_empty() {

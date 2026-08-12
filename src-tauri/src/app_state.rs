@@ -158,6 +158,9 @@ pub fn build_delegation_stack(
     let feedback = crate::acp::feedback::FeedbackRuntimeConfig::new();
     let ask = crate::acp::question::QuestionRuntimeConfig::new();
     let sessions = crate::acp::session_info::SessionInfoRuntimeConfig::new();
+    let confirmations = Arc::new(crate::acp::ConnectionManagerChannelConfirmationLookup {
+        manager: Arc::new(connection_manager.clone_ref()),
+    });
 
     // Install the injection on the manager so spawn_agent picks it up
     // without an extra parameter at every call site.
@@ -173,6 +176,7 @@ pub fn build_delegation_stack(
         questions: Arc::new(crate::acp::manager::ConnectionManagerQuestionLookup {
             manager: Arc::new(connection_manager.clone_ref()),
         }) as Arc<dyn crate::acp::question::SessionQuestionAccess>,
+        confirmations,
     });
 
     (broker, tokens, socket_path, feedback, ask, sessions)

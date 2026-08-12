@@ -15,8 +15,8 @@ use crate::acp::types::{AcpEvent, ConnectionStatus, EventEnvelope, PromptInputBl
 use crate::chat_channel::types::{MessageLevel, RichMessage};
 
 use crate::db::service::{
-    app_metadata_service, chat_channel_message_log_service, conversation_service,
-    sender_context_service,
+    app_metadata_service, chat_channel_message_log_service, chat_channel_target_service,
+    conversation_service, sender_context_service,
 };
 
 use super::manager::ChatChannelManager;
@@ -340,6 +340,11 @@ async fn handle_acp_envelope(
 
                 let lang = get_lang(db).await;
                 let body = format_completion(&content, lang);
+                let target_id = chat_channel_target_service::find_by_target(db, &target)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|registered| registered.target_id);
 
                 if !body.trim().is_empty() {
                     let msg = RichMessage::info(body.clone());
@@ -347,7 +352,7 @@ async fn handle_acp_envelope(
                     // the message log reconstructs the whole round trip.
                     match manager.send_to_target(&target, &msg).await {
                         Ok(sent_id) => {
-                            let _ = chat_channel_message_log_service::create_log_full(
+                            let _ = chat_channel_message_log_service::create_log_for_target(
                                 db,
                                 channel_id,
                                 "outbound",
@@ -357,6 +362,7 @@ async fn handle_acp_envelope(
                                 None,
                                 trace_id,
                                 Some(sent_id.0),
+                                target_id.clone(),
                             )
                             .await;
                         }
@@ -367,16 +373,17 @@ async fn handle_acp_envelope(
                                 channel_id,
                                 conv_id
                             );
-                            let _ = chat_channel_message_log_service::create_log_full(
+                            let _ = chat_channel_message_log_service::create_log_for_target(
                                 db,
                                 channel_id,
                                 "outbound",
                                 "agent_reply",
                                 &body,
                                 "failed",
-                                Some(error.to_string()),
+                                Some("CHANNEL_SEND_FAILED".to_string()),
                                 trace_id,
                                 None,
+                                target_id,
                             )
                             .await;
                         }
@@ -529,16 +536,22 @@ async fn handle_acp_envelope(
                 let _ = manager
                     .send_to_target(&target, &RichMessage::error(fail_body.clone()))
                     .await;
-                let _ = chat_channel_message_log_service::create_log_full(
+                let target_id = chat_channel_target_service::find_by_target(db, &target)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|registered| registered.target_id);
+                let _ = chat_channel_message_log_service::create_log_for_target(
                     db,
                     channel_id,
                     "outbound",
                     "agent_reply",
                     &fail_body,
                     "failed",
-                    Some(message.clone()),
+                    Some("AGENT_SESSION_FAILED".to_string()),
                     trace_id,
                     None,
+                    target_id,
                 )
                 .await;
 

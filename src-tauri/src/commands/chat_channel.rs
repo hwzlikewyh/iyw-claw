@@ -54,10 +54,12 @@ pub async fn create_chat_channel_core(
     )
     .await
     .map_err(AppCommandError::from)?;
+    let target_registration_error = register_default_target(db, &model, "create").await;
 
     // Auto-create a dedicated workspace folder for this channel so messages
     // route there without any heuristics — zero-config for the user.
-    let info = init_channel_workspace(db, model).await;
+    let mut info = init_channel_workspace(db, model).await;
+    info.target_registration_error = target_registration_error;
 
     // IYW-CHANNEL-001: a newly created enabled channel must connect right away.
     if info.enabled {
@@ -228,12 +230,31 @@ pub async fn update_chat_channel_core(
     )
     .await
     .map_err(AppCommandError::from)?;
-    let info = ChatChannelInfo::from(model);
+    let target_registration_error = register_default_target(db, &model, "update").await;
+    let mut info = ChatChannelInfo::from(model);
+    info.target_registration_error = target_registration_error;
 
     // Reconcile to the desired state after every update (IYW-CHANNEL-002):
     // disable → disconnect, enable → connect, edit → safe reconnect.
     let outcome = reconcile_channel_or_log(db, manager, info.id, info.enabled, "edit").await;
     Ok(with_reconcile_outcome(info, outcome))
+}
+
+async fn register_default_target(
+    db: &AppDatabase,
+    model: &crate::db::entities::chat_channel::Model,
+    operation: &'static str,
+) -> Option<String> {
+    let error = crate::chat_channel::target_registry::register_default(&db.conn, model)
+        .await
+        .err()?;
+    tracing::warn!(
+        channel_id = model.id,
+        operation,
+        error = %error,
+        "default channel target registration failed"
+    );
+    Some("TARGET_STORAGE_UNAVAILABLE".to_string())
 }
 
 pub async fn delete_chat_channel_core(
@@ -243,9 +264,18 @@ pub async fn delete_chat_channel_core(
 ) -> Result<(), AppCommandError> {
     // Disconnect running backend before deleting from DB (prevents orphaned task)
     let _ = manager.remove_channel(id).await;
-    chat_channel_service::delete(&db.conn, id)
-        .await
-        .map_err(AppCommandError::from)?;
+    let target_backup =
+        crate::db::service::chat_channel_target_service::take_secure_targets(&db.conn, id)
+            .await
+            .map_err(AppCommandError::from)?;
+    if let Err(error) = chat_channel_service::delete(&db.conn, id).await {
+        if let Err(restore_error) =
+            crate::db::service::chat_channel_target_service::restore_secure_targets(&target_backup)
+        {
+            tracing::error!(channel_id = id, error = %restore_error, "channel target restore failed after database delete failure");
+        }
+        return Err(AppCommandError::from(error));
+    }
     let _ = crate::keyring_store::delete_channel_token(id);
     Ok(())
 }
@@ -654,19 +684,11 @@ pub async fn weixin_check_qrcode_core(
     // config (IYW-CHANNEL-005: never rebuild the JSON and lose workspace
     // root / default agent / unknown fields).
     if result.status == "confirmed" {
-        tracing::error!(
-            "[Weixin] QR confirmed for channel {channel_id}, bot_token={}, base_url={}",
-            result
-                .bot_token
-                .as_deref()
-                .map(|t| {
-                    // Char-boundary-safe prefix: `&t[..8]` panics if a multibyte
-                    // char straddles byte 8.
-                    let end = t.char_indices().nth(8).map_or(t.len(), |(i, _)| i);
-                    &t[..end]
-                })
-                .unwrap_or("None"),
-            result.base_url.as_deref().unwrap_or("None"),
+        tracing::info!(
+            channel_id,
+            credential_received = result.bot_token.is_some(),
+            base_url_received = result.base_url.is_some(),
+            "[Weixin] QR authorization confirmed"
         );
         if let Some(ref token) = result.bot_token {
             save_chat_channel_token_core(db, manager, channel_id, token).await?;

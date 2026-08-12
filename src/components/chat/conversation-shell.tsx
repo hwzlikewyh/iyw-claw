@@ -5,6 +5,7 @@ import type {
   AgentInputItem,
   ConnectionStatus,
   PendingQuestionState,
+  PendingChannelConfirmationState,
   PromptCapabilitiesInfo,
   PromptDraft,
   PromptInputBlock,
@@ -24,6 +25,7 @@ import { ChatInput } from "@/components/chat/chat-input"
 import { PermissionDialog } from "@/components/chat/permission-dialog"
 import { QuestionDialog } from "@/components/chat/question-dialog"
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
+import { ChannelConfirmationCard } from "@/components/chat/channel-confirmation-card"
 import { AgentInputWaitingDisplay } from "@/components/chat/agent-input-waiting-display"
 
 interface ConversationShellProps {
@@ -37,6 +39,7 @@ interface ConversationShellProps {
   pendingQuestion: PendingQuestion | null
   /** Awaiting-answer multiple-choice `ask_user_question`. */
   pendingAskQuestion: PendingQuestionState | null
+  pendingChannelConfirmation: PendingChannelConfirmationState | null
   onFocus: () => void
   onSend: (
     draft: PromptDraft,
@@ -48,6 +51,10 @@ interface ConversationShellProps {
   onAnswerAskQuestion: (
     questionId: string,
     answer: QuestionAnswer
+  ) => void | Promise<void>
+  onRespondChannelConfirmation: (
+    confirmationId: string,
+    confirmed: boolean
   ) => void | Promise<void>
   children: ReactNode
   modes?: SessionModeInfo[]
@@ -112,12 +119,14 @@ export function ConversationShell({
   pendingPermission,
   pendingQuestion,
   pendingAskQuestion,
+  pendingChannelConfirmation,
   onFocus,
   onSend,
   onCancel,
   onRespondPermission,
   onAnswerQuestion,
   onAnswerAskQuestion,
+  onRespondChannelConfirmation,
   children,
   modes,
   configOptions,
@@ -229,6 +238,14 @@ export function ConversationShell({
           shrinks the message list instead of covering it, while staying aligned
           to the input width. */}
       <div>
+        {pendingChannelConfirmation && (
+          <div className="mx-auto w-full max-w-4xl px-4">
+            <ChannelConfirmationCard
+              confirmation={pendingChannelConfirmation}
+              onRespond={onRespondChannelConfirmation}
+            />
+          </div>
+        )}
         {pendingAskQuestion && pendingAskQuestion.questions.length > 0 && (
           <div className="mx-auto w-full max-w-4xl px-4">
             <AskQuestionCard

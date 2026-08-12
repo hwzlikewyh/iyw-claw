@@ -1,4 +1,8 @@
 import { isDesktop } from "@/lib/platform"
+import {
+  fetchDisplayAsset,
+  isDisplayAssetUri,
+} from "@/lib/display-asset-source"
 
 /**
  * Save an inline base64 image to user-chosen disk location.
@@ -16,8 +20,17 @@ export async function downloadImage(opts: {
   data: string
   mime_type: string
   suggestedName: string
+  uri?: string | null
 }): Promise<boolean> {
-  const { data, mime_type, suggestedName } = opts
+  const { data, mime_type, suggestedName, uri } = opts
+  if (isDisplayAssetUri(uri)) {
+    return downloadBlob(await fetchDisplayAsset(uri!, mime_type), suggestedName)
+  }
+  if (uri?.startsWith("https://")) {
+    const response = await fetch(uri)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return downloadBlob(await response.blob(), suggestedName)
+  }
 
   if (isDesktop()) {
     const { save } = await import("@tauri-apps/plugin-dialog")
@@ -35,7 +48,13 @@ export async function downloadImage(opts: {
   }
 
   const bytes = base64ToUint8Array(data)
-  const blob = new Blob([bytes as BlobPart], { type: mime_type })
+  return downloadBlob(
+    new Blob([bytes as BlobPart], { type: mime_type }),
+    suggestedName
+  )
+}
+
+function downloadBlob(blob: Blob, suggestedName: string): boolean {
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
   link.href = url

@@ -27,6 +27,7 @@ import {
   acpCancel,
   acpRespondPermission,
   acpAnswerQuestion,
+  acpRespondChannelConfirmation,
   acpDisconnect,
   acpTouchConnection,
   acpGetSessionSnapshot,
@@ -48,6 +49,7 @@ import type {
   EventEnvelope,
   PlanEntryInfo,
   PermissionOptionInfo,
+  PendingChannelConfirmationState,
   PendingQuestionState,
   QuestionAnswer,
   SessionConfigOptionInfo,
@@ -199,6 +201,7 @@ export interface ConnectionState {
    *  `pending_question`; cleared on `question_resolved` or turn end. Distinct
    *  from the free-text `pendingQuestion` above. */
   pendingAskQuestion: PendingQuestionState | null
+  pendingChannelConfirmation: PendingChannelConfirmationState | null
   claudeApiRetry: ClaudeApiRetryState | null
   error: string | null
   /**
@@ -434,6 +437,16 @@ type Action =
       /** When present, only clear if the current question_id matches (guards a
        *  late `question_resolved` from wiping a freshly-raised question). */
       questionId?: string
+    }
+  | {
+      type: "SET_CHANNEL_CONFIRMATION"
+      contextKey: string
+      confirmation: PendingChannelConfirmationState
+    }
+  | {
+      type: "CLEAR_CHANNEL_CONFIRMATION"
+      contextKey: string
+      confirmationId?: string
     }
   | { type: "SESSION_STARTED"; contextKey: string; sessionId: string }
   | {
@@ -1095,6 +1108,7 @@ function connectionsReducer(
         pendingUserMessage: null,
         pendingQuestion: null,
         pendingAskQuestion: null,
+        pendingChannelConfirmation: null,
         claudeApiRetry: null,
         error: null,
         loadError: null,
@@ -1152,6 +1166,7 @@ function connectionsReducer(
         pendingUserMessage: null,
         pendingQuestion: null,
         pendingAskQuestion: null,
+        pendingChannelConfirmation: null,
         claudeApiRetry: null,
         error: null,
         loadError: null,
@@ -1265,6 +1280,7 @@ function connectionsReducer(
         pendingPermission: hydratedPendingPermission,
         agentInputs: action.patch.agentInputs,
         pendingAskQuestion: action.patch.pendingAskQuestion,
+        pendingChannelConfirmation: action.patch.pendingChannelConfirmation,
         pendingUserMessage: action.patch.pendingUserMessage,
         promptCapabilities: mergedPromptCapabilities,
         selectorsReady: mergedSelectorsReady,
@@ -1406,6 +1422,7 @@ function connectionsReducer(
         // clears it via `question_resolved`; this is the safety net for a turn
         // that ended without one (agent error / abandoned block).
         updated.pendingAskQuestion = null
+        updated.pendingChannelConfirmation = null
       }
       next.set(action.contextKey, updated)
       return next
@@ -1904,6 +1921,35 @@ function connectionsReducer(
       return next
     }
 
+    case "SET_CHANNEL_CONFIRMATION": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        pendingChannelConfirmation: action.confirmation,
+      })
+      return next
+    }
+
+    case "CLEAR_CHANNEL_CONFIRMATION": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      if (
+        action.confirmationId !== undefined &&
+        conn.pendingChannelConfirmation?.confirmation_id !==
+          action.confirmationId
+      ) {
+        return state
+      }
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        pendingChannelConfirmation: null,
+      })
+      return next
+    }
+
     case "SESSION_STARTED": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
@@ -2279,6 +2325,11 @@ export interface AcpActionsValue {
     contextKey: string,
     questionId: string,
     answer: QuestionAnswer
+  ): Promise<void>
+  respondChannelConfirmation(
+    contextKey: string,
+    confirmationId: string,
+    confirmed: boolean
   ): Promise<void>
   setActiveKey(key: string | null): void
   touchActivity(contextKey: string): void
@@ -3016,6 +3067,21 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             questionId: e.question_id,
           })
           break
+        case "channel_confirmation_requested":
+          flushStreamingQueue()
+          dispatch({
+            type: "SET_CHANNEL_CONFIRMATION",
+            contextKey,
+            confirmation: e.confirmation,
+          })
+          break
+        case "channel_confirmation_resolved":
+          dispatch({
+            type: "CLEAR_CHANNEL_CONFIRMATION",
+            contextKey,
+            confirmationId: e.confirmation_id,
+          })
+          break
         case "background_activity": {
           dispatch({
             type: "SET_BACKGROUND_OUTSTANDING",
@@ -3335,6 +3401,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 })
               case "turn_failed_empty":
                 return t("backendErrors.turnFailedEmpty", {
+                  agent: agentLabel,
+                })
+              case "compaction_not_applied":
+                return t("backendErrors.compactionNotApplied", {
                   agent: agentLabel,
                 })
               case "grok_model_switch_incompatible_agent":
@@ -4663,6 +4733,37 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     [dispatch]
   )
 
+  const respondChannelConfirmation = useCallback(
+    async (contextKey: string, confirmationId: string, confirmed: boolean) => {
+      const conn = storeRef.current.connections.get(contextKey)
+      if (!conn) {
+        throw new Error(
+          `[AcpConnections] respondChannelConfirmation: no connection for ${contextKey}`
+        )
+      }
+      try {
+        lastActivityRef.current.set(contextKey, Date.now())
+        await acpRespondChannelConfirmation(
+          conn.connectionId,
+          confirmationId,
+          confirmed
+        )
+        dispatch({
+          type: "CLEAR_CHANNEL_CONFIRMATION",
+          contextKey,
+          confirmationId,
+        })
+      } catch (error) {
+        console.error(
+          "[AcpConnections] respondChannelConfirmation failed:",
+          error
+        )
+        throw error
+      }
+    },
+    [dispatch]
+  )
+
   const attachDelegationChild = useCallback(
     (args: {
       connectionId: string
@@ -4744,6 +4845,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       cancel,
       respondPermission,
       answerQuestion,
+      respondChannelConfirmation,
       setActiveKey,
       touchActivity,
       registerOpenTabKeys,
@@ -4764,6 +4866,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       cancel,
       respondPermission,
       answerQuestion,
+      respondChannelConfirmation,
       setActiveKey,
       touchActivity,
       registerOpenTabKeys,

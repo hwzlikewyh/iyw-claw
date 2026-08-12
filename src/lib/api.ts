@@ -436,6 +436,18 @@ export async function acpAnswerQuestion(
   })
 }
 
+export async function acpRespondChannelConfirmation(
+  connectionId: string,
+  confirmationId: string,
+  confirmed: boolean
+): Promise<void> {
+  return getTransport().call("acp_respond_channel_confirmation", {
+    connectionId,
+    confirmationId,
+    confirmed,
+  })
+}
+
 export async function acpDisconnect(connectionId: string): Promise<void> {
   return getTransport().call("acp_disconnect", { connectionId })
 }
@@ -2621,10 +2633,10 @@ const REMOTE_CHAT_IMAGE_CHUNK_BYTES = 512 * 1024
 
 async function uploadRemoteDesktopChatImage(
   file: File,
-  connectionId: number,
+  connectionId: number | null,
   sessionId: string | null,
   mimeType: string
-): Promise<UploadAttachmentResult> {
+): Promise<PreparedChatImage> {
   const shell = getShellTransport()
   let uploadId: string | null = null
   try {
@@ -2657,7 +2669,7 @@ async function uploadRemoteDesktopChatImage(
       }
       offset = nextOffset
     }
-    const result = await shell.call<UploadAttachmentResult>(
+    const result = await shell.call<PreparedChatImage>(
       "remote_chat_image_upload_finish",
       {
         connectionId,
@@ -2683,14 +2695,9 @@ export async function uploadChatImage(
   file: File,
   sessionId?: string | null,
   mimeType?: string | null
-): Promise<UploadAttachmentResult> {
+): Promise<PreparedChatImage> {
   if (isDesktop()) {
     const connectionId = getActiveRemoteConnectionId()
-    if (connectionId === null) {
-      throw new Error(
-        "Browser image upload is unavailable in local desktop mode"
-      )
-    }
     const uploadMime = file.type || mimeType || ""
     return uploadRemoteDesktopChatImage(
       file,
@@ -2731,12 +2738,12 @@ export async function uploadChatImage(
 export async function uploadLocalChatImagePathToRemote(
   path: string,
   sessionId?: string | null
-): Promise<UploadAttachmentResult> {
+): Promise<PreparedChatImage> {
   const connectionId = getActiveRemoteConnectionId()
   if (connectionId === null) {
     throw new Error("No active remote workspace")
   }
-  return getShellTransport().call<UploadAttachmentResult>(
+  return getShellTransport().call<PreparedChatImage>(
     "remote_upload_chat_image_path",
     {
       connectionId,
@@ -2798,7 +2805,7 @@ export async function readLocalFileBase64(
 }
 
 export interface PreparedChatImage {
-  data: string
+  url: string
   mimeType: string
   name: string
   sourceBytes: number

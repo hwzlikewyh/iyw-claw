@@ -1584,6 +1584,12 @@ const ConversationTabView = memo(function ConversationTabView({
     [acpActions, tabId]
   )
 
+  const handleRespondChannelConfirmation = useCallback(
+    (confirmationId: string, confirmed: boolean) =>
+      acpActions.respondChannelConfirmation(tabId, confirmationId, confirmed),
+    [acpActions, tabId]
+  )
+
   // Queue edit flow: derive editing draft text from queue state
   const editingQueueDraftText = useMemo(() => {
     if (!mqEditingItemId) return null
@@ -1720,12 +1726,14 @@ const ConversationTabView = memo(function ConversationTabView({
       pendingPermission={conn.pendingPermission}
       pendingQuestion={conn.pendingQuestion}
       pendingAskQuestion={conn.pendingAskQuestion}
+      pendingChannelConfirmation={conn.pendingChannelConfirmation}
       onFocus={handleFocus}
       onSend={handleSend}
       onCancel={handleCancel}
       onRespondPermission={handleRespondPermission}
       onAnswerQuestion={handleAnswerQuestion}
       onAnswerAskQuestion={handleAnswerAskQuestion}
+      onRespondChannelConfirmation={handleRespondChannelConfirmation}
       modes={connectionModes}
       configOptions={connectionConfigOptions}
       selectedModeId={selectedModeId}

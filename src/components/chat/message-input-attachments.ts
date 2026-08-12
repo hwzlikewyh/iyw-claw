@@ -27,8 +27,8 @@ export interface ResourceInputAttachment {
   blob?: string | null
 }
 
-/** An image attachment, held as base64 (no data-URI prefix). `uri` is the
- *  `file://` origin when added from a native path, else null. */
+/** An image attachment. New sends use an HTTPS `uri` and empty `data`; non-empty
+ *  base64 remains supported only for restored legacy drafts. */
 export interface ImageInputAttachment {
   id: string
   type: "image"

@@ -268,6 +268,8 @@ pub struct SessionState {
     /// At most one is pending at a time (the agent is blocked in the tool call);
     /// the backend's `pending_questions` registry keys the answer one-shot.
     pub pending_question: Option<PendingQuestionState>,
+    pub pending_channel_confirmation:
+        Option<crate::acp::channel_tools::confirmation::PendingChannelConfirmationState>,
 
     /// In-flight (running) sub-agent delegations keyed by `parent_tool_use_id`.
     /// `DelegationStarted` inserts; `DelegationCompleted` removes. UNLIKE
@@ -507,6 +509,7 @@ impl SessionState {
             active_tool_calls: BTreeMap::new(),
             pending_permission: None,
             pending_question: None,
+            pending_channel_confirmation: None,
             active_delegations: BTreeMap::new(),
             feedback: Vec::new(),
             agent_inputs: Vec::new(),
@@ -790,6 +793,17 @@ impl SessionState {
                     self.pending_question = None;
                 }
             }
+            AcpEvent::ChannelConfirmationRequested { confirmation } => {
+                self.pending_channel_confirmation = Some(confirmation.clone());
+            }
+            AcpEvent::ChannelConfirmationResolved { confirmation_id } => {
+                if matches!(
+                    &self.pending_channel_confirmation,
+                    Some(value) if value.confirmation_id == *confirmation_id,
+                ) {
+                    self.pending_channel_confirmation = None;
+                }
+            }
             AcpEvent::TurnComplete { stop_reason, .. } => {
                 self.turn_completion_pending = true;
                 self.agent_inputs
@@ -890,6 +904,7 @@ impl SessionState {
                 // answer one-shot is cleaned via the listener's peer-close race;
                 // this just keeps the snapshot honest.
                 self.pending_question = None;
+                self.pending_channel_confirmation = None;
                 self.status = ConnectionStatus::Connected;
                 self.agent_input_notify.notify_one();
             }
@@ -920,6 +935,7 @@ impl SessionState {
                 self.feedback.clear();
                 // A new user turn supersedes any stale pending question.
                 self.pending_question = None;
+                self.pending_channel_confirmation = None;
                 self.agent_input_notify.notify_one();
             }
             AcpEvent::AgentInputChanged { item } => {
@@ -1388,6 +1404,7 @@ impl SessionState {
             active_tool_calls: self.active_tool_calls.values().cloned().collect(),
             pending_permission: self.pending_permission.clone(),
             pending_question: self.pending_question.clone(),
+            pending_channel_confirmation: self.pending_channel_confirmation.clone(),
             pending_user_message: self.pending_user_message.clone(),
             active_delegations: self.active_delegations.values().cloned().collect(),
             feedback: self.feedback.clone(),
@@ -1445,6 +1462,9 @@ pub struct LiveSessionSnapshot {
     /// the wire so every snapshot stays byte-identical with the pre-feature shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_question: Option<PendingQuestionState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_channel_confirmation:
+        Option<crate::acp::channel_tools::confirmation::PendingChannelConfirmationState>,
     /// The in-flight user prompt for the current turn (see
     /// `SessionState.pending_user_message`). `#[serde(default)]` so older
     /// payloads still deserialize; `skip_serializing_if` so the no-pending case

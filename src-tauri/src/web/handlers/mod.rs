@@ -10,6 +10,7 @@ pub mod chat_image;
 pub mod chat_image_upload;
 pub mod conversations;
 pub mod delegation;
+pub mod display_assets;
 mod error;
 pub mod event_metrics;
 pub mod experts;

@@ -2545,7 +2545,8 @@
           "turnFailedMaxTurnRequests": "{agent} reached the maximum number of allowed requests for this turn.",
           "turnFailedUnknown": "{agent} ended the turn with an unrecognized stop reason.",
           "grokModelSwitchIncompatibleAgent": "{agent} can't switch to that model in an existing conversation. Start a new session to use it.",
-          "turnFailedEmpty": "{agent} ended the turn without producing any response. Please check the agent's configuration."
+          "turnFailedEmpty": "{agent} ended the turn without producing any response. Please check the agent's configuration.",
+          "compactionNotApplied": "{agent} ended the compact request without writing a new compacted summary. Compaction was not applied; check the agent logs and try again."
         },
         "unableReadAgentConfig": "Unable to read Agent config: {message}",
         "connectFailedTitle": "{agent} connection failed",
@@ -3275,6 +3276,20 @@
         "skip": "Skip",
         "next": "Next",
         "submit": "Submit",
+        "submitError": "Couldn't submit. Please try again."
+      },
+      "channelConfirmation": {
+        "deleteChannelTitle": "Delete this message channel?",
+        "deleteCredentialTitle": "Delete this channel credential?",
+        "deleteChannelDescription": "This also removes {count, plural, one {# local related record} other {# local related records}}. This action cannot be undone.",
+        "deleteCredentialDescription": "The channel will remain, but it may stop working until a new credential is added.",
+        "channel": "Channel",
+        "type": "Type",
+        "status": "Status",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "cancel": "Cancel",
+        "confirmDelete": "Confirm delete",
         "submitError": "Couldn't submit. Please try again."
       },
       "feedbackCheckResult": {

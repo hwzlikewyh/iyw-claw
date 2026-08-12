@@ -364,7 +364,17 @@ async fn process_envelope(
         }
 
         // Send
-        let send_result = manager.send_to_channel(ch.id, &msg).await;
+        let default_target = super::target_registry::resolve_default(db_conn, ch.id)
+            .await
+            .ok()
+            .flatten();
+        let target_id = default_target
+            .as_ref()
+            .map(|(target, _)| target.target_id.clone());
+        let send_result = match default_target.as_ref() {
+            Some((_, target)) => manager.send_to_target(target, &msg).await,
+            None => manager.send_to_channel(ch.id, &msg).await,
+        };
         let (status, error_detail) = match &send_result {
             Ok(_) => {
                 // Only update the debounce timestamp on success, and only for
@@ -377,7 +387,7 @@ async fn process_envelope(
             Err(e) => ("failed", Some(e.to_string())),
         };
 
-        let _ = chat_channel_message_log_service::create_log(
+        let _ = chat_channel_message_log_service::create_log_for_target(
             db_conn,
             ch.id,
             "outbound",
@@ -385,6 +395,9 @@ async fn process_envelope(
             &msg.to_plain_text(),
             status,
             error_detail,
+            None,
+            None,
+            target_id,
         )
         .await;
     }

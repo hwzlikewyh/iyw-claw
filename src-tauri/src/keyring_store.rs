@@ -13,6 +13,19 @@ fn chat_router_token_key() -> &'static str {
     "chat-natural-router"
 }
 
+fn channel_target_key(target_id: &str) -> String {
+    format!("chat-channel-target:{target_id}")
+}
+
+fn channel_target_secret_key() -> &'static str {
+    "chat-channel-target-secret"
+}
+
+#[cfg(not(feature = "tauri-runtime"))]
+pub fn initialize_server_channel_target_crypto(access_token: &str) {
+    crate::server_channel_target_crypto::initialize(access_token);
+}
+
 // ── Tauri mode: OS keyring ──
 
 #[cfg(feature = "tauri-runtime")]
@@ -41,68 +54,19 @@ pub fn delete_token(account_id: &str) -> Result<(), String> {
     }
 }
 
-// ── Server mode: file-based token store ──
-
-#[cfg(not(feature = "tauri-runtime"))]
-fn tokens_file_path() -> std::path::PathBuf {
-    tokens_file_path_for(std::env::var("IYW_CLAW_DATA_DIR").ok().as_deref())
-}
-
-/// Resolve the on-disk `tokens.json` path given an explicit
-/// `IYW_CLAW_DATA_DIR` value (or `None` to fall back to the platform
-/// default). Always returns an absolute path so subprocess credential
-/// helpers — which inherit our env but run in git's CWD, not ours —
-/// don't end up looking for `tokens.json` in the user's repo. Factored
-/// out so tests can exercise path resolution without poking at process
-/// env state.
-#[cfg(not(feature = "tauri-runtime"))]
-fn tokens_file_path_for(env_value: Option<&str>) -> std::path::PathBuf {
-    let dir = env_value.map(std::path::PathBuf::from).unwrap_or_else(|| {
-        dirs::data_dir()
-            .map(|d| d.join("iyw-claw"))
-            .unwrap_or_else(|| std::path::PathBuf::from(".iyw-claw-data"))
-    });
-    crate::git_credential::absolutize(&dir).join("tokens.json")
-}
-
-#[cfg(not(feature = "tauri-runtime"))]
-fn read_tokens() -> std::collections::HashMap<String, String> {
-    let path = tokens_file_path();
-    std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
-}
-
-#[cfg(not(feature = "tauri-runtime"))]
-fn write_tokens(tokens: &std::collections::HashMap<String, String>) -> Result<(), String> {
-    let path = tokens_file_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create token store directory: {e}"))?;
-    }
-    let json = serde_json::to_string_pretty(tokens)
-        .map_err(|e| format!("failed to serialize tokens: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("failed to write token store: {e}"))
-}
-
 #[cfg(not(feature = "tauri-runtime"))]
 pub fn set_token(account_id: &str, token: &str) -> Result<(), String> {
-    let mut tokens = read_tokens();
-    tokens.insert(token_key(account_id), token.to_string());
-    write_tokens(&tokens)
+    crate::server_secret_store::set(&token_key(account_id), token)
 }
 
 #[cfg(not(feature = "tauri-runtime"))]
 pub fn get_token(account_id: &str) -> Option<String> {
-    read_tokens().get(&token_key(account_id)).cloned()
+    crate::server_secret_store::get(&token_key(account_id))
 }
 
 #[cfg(not(feature = "tauri-runtime"))]
 pub fn delete_token(account_id: &str) -> Result<(), String> {
-    let mut tokens = read_tokens();
-    tokens.remove(&token_key(account_id));
-    write_tokens(&tokens)
+    crate::server_secret_store::delete(&token_key(account_id))
 }
 
 // ── Chat channel token helpers ──
@@ -136,21 +100,17 @@ pub fn delete_channel_token(channel_id: i32) -> Result<(), String> {
 
 #[cfg(not(feature = "tauri-runtime"))]
 pub fn set_channel_token(channel_id: i32, token: &str) -> Result<(), String> {
-    let mut tokens = read_tokens();
-    tokens.insert(channel_token_key(channel_id), token.to_string());
-    write_tokens(&tokens)
+    crate::server_secret_store::set(&channel_token_key(channel_id), token)
 }
 
 #[cfg(not(feature = "tauri-runtime"))]
 pub fn get_channel_token(channel_id: i32) -> Option<String> {
-    read_tokens().get(&channel_token_key(channel_id)).cloned()
+    crate::server_secret_store::get(&channel_token_key(channel_id))
 }
 
 #[cfg(not(feature = "tauri-runtime"))]
 pub fn delete_channel_token(channel_id: i32) -> Result<(), String> {
-    let mut tokens = read_tokens();
-    tokens.remove(&channel_token_key(channel_id));
-    write_tokens(&tokens)
+    crate::server_secret_store::delete(&channel_token_key(channel_id))
 }
 
 // ── Chat natural router token helpers ──
@@ -182,21 +142,102 @@ pub fn delete_chat_router_token() -> Result<(), String> {
     }
 }
 
+// ── Chat channel target helpers ──
+
+#[cfg(feature = "tauri-runtime")]
+fn set_secure_value(key: &str, value: &str) -> Result<(), String> {
+    let entry =
+        keyring::Entry::new(SERVICE_NAME, key).map_err(|e| format!("keyring init error: {e}"))?;
+    entry
+        .set_password(value)
+        .map_err(|e| format!("keyring set error: {e}"))
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn get_secure_value(key: &str) -> Option<String> {
+    keyring::Entry::new(SERVICE_NAME, key)
+        .ok()?
+        .get_password()
+        .ok()
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn delete_secure_value(key: &str) -> Result<(), String> {
+    let entry =
+        keyring::Entry::new(SERVICE_NAME, key).map_err(|e| format!("keyring init error: {e}"))?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!("keyring delete error: {e}")),
+    }
+}
+
+#[cfg(not(feature = "tauri-runtime"))]
+fn set_secure_value(key: &str, value: &str) -> Result<(), String> {
+    let encrypted = crate::server_channel_target_crypto::encrypt(key, value)?;
+    crate::server_secret_store::set(key, &encrypted)
+}
+
+#[cfg(not(feature = "tauri-runtime"))]
+fn get_secure_value(key: &str) -> Option<String> {
+    let encrypted = crate::server_secret_store::get(key)?;
+    crate::server_channel_target_crypto::decrypt(key, &encrypted).ok()
+}
+
+#[cfg(not(feature = "tauri-runtime"))]
+fn delete_secure_value(key: &str) -> Result<(), String> {
+    crate::server_secret_store::delete(key)
+}
+
+pub fn set_channel_target(target_id: &str, payload: &str) -> Result<(), String> {
+    set_secure_value(&channel_target_key(target_id), payload)
+}
+
+pub fn get_channel_target(target_id: &str) -> Option<String> {
+    get_secure_value(&channel_target_key(target_id))
+}
+
+pub fn delete_channel_target(target_id: &str) -> Result<(), String> {
+    delete_secure_value(&channel_target_key(target_id))
+}
+
+pub fn get_or_create_channel_target_secret() -> Result<String, String> {
+    static CREATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = CREATE_LOCK
+        .lock()
+        .map_err(|_| "channel target secret lock unavailable".to_string())?;
+    if let Some(secret) = get_secure_value(channel_target_secret_key()) {
+        return Ok(secret);
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    if crate::server_secret_store::get(channel_target_secret_key()).is_some() {
+        return Err("channel target secret unavailable".to_string());
+    }
+    let secret = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    #[cfg(feature = "tauri-runtime")]
+    {
+        set_secure_value(channel_target_secret_key(), &secret)?;
+        Ok(secret)
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let key = channel_target_secret_key();
+        let encrypted = crate::server_channel_target_crypto::encrypt(key, &secret)?;
+        let stored = crate::server_secret_store::get_or_insert(key, &encrypted)?;
+        crate::server_channel_target_crypto::decrypt(key, &stored)
+    }
+}
+
 #[cfg(not(feature = "tauri-runtime"))]
 pub fn set_chat_router_token(token: &str) -> Result<(), String> {
-    let mut tokens = read_tokens();
-    tokens.insert(chat_router_token_key().to_string(), token.to_string());
-    write_tokens(&tokens)
+    crate::server_secret_store::set(chat_router_token_key(), token)
 }
 
 #[cfg(not(feature = "tauri-runtime"))]
 pub fn get_chat_router_token() -> Option<String> {
-    read_tokens().get(chat_router_token_key()).cloned()
+    crate::server_secret_store::get(chat_router_token_key())
 }
 
 #[cfg(not(feature = "tauri-runtime"))]
 pub fn delete_chat_router_token() -> Result<(), String> {
-    let mut tokens = read_tokens();
-    tokens.remove(chat_router_token_key());
-    write_tokens(&tokens)
+    crate::server_secret_store::delete(chat_router_token_key())
 }

@@ -1,18 +1,18 @@
 use std::path::Path;
+use std::sync::Arc;
 
-use axum::extract::Multipart;
+use axum::extract::{Extension, Multipart};
 use axum::Json;
-use image::{ImageFormat, ImageReader};
 use tokio::io::AsyncWriteExt;
 
 use crate::app_error::AppCommandError;
-use crate::commands::chat_image::CHAT_IMAGE_SOURCE_MAX_BYTES;
+use crate::app_state::AppState;
+use crate::commands::chat_image::{
+    prepare_chat_image_named_core, PreparedChatImage, CHAT_IMAGE_SOURCE_MAX_BYTES,
+};
 use crate::paths::iyw_claw_uploads_root;
 
-use super::files::{
-    ensure_path_inside, finalize_with_available_upload_name, reserve_upload_bytes,
-    sanitize_session_bucket, sanitize_upload_filename, UploadAttachmentResult,
-};
+use super::files::{ensure_path_inside, reserve_upload_bytes, sanitize_upload_filename};
 use super::upload_jail;
 
 const IMAGE_UPLOAD_TMP_DIR: &str = ".image-tmp";
@@ -22,36 +22,6 @@ fn is_supported_mime(mime_type: &str) -> bool {
         mime_type.to_ascii_lowercase().as_str(),
         "image/png" | "image/jpeg" | "image/webp" | "image/gif"
     )
-}
-
-async fn validate_image_format(path: &Path) -> Result<String, AppCommandError> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        let reader = ImageReader::open(path)
-            .map_err(|error| {
-                AppCommandError::invalid_input("Unable to inspect uploaded image")
-                    .with_detail(error.to_string())
-            })?
-            .with_guessed_format()
-            .map_err(|error| {
-                AppCommandError::invalid_input("Unable to inspect uploaded image")
-                    .with_detail(error.to_string())
-            })?;
-        match reader.format() {
-            Some(ImageFormat::Png) => Ok("image/png".to_string()),
-            Some(ImageFormat::Jpeg) => Ok("image/jpeg".to_string()),
-            Some(ImageFormat::WebP) => Ok("image/webp".to_string()),
-            Some(ImageFormat::Gif) => Ok("image/gif".to_string()),
-            _ => Err(AppCommandError::invalid_input(
-                "Uploaded file is not a supported image",
-            )),
-        }
-    })
-    .await
-    .map_err(|error| {
-        AppCommandError::task_execution_failed("Image validation task failed")
-            .with_detail(error.to_string())
-    })?
 }
 
 async fn prepare_upload_dirs(uploads_root: &Path, tmp_dir: &Path) -> Result<(), AppCommandError> {
@@ -107,20 +77,18 @@ async fn stream_image(
     multipart: &mut Multipart,
     tmp_dir: &Path,
     staging_name: &str,
-) -> Result<(String, Option<String>, u64), AppCommandError> {
+) -> Result<(String, u64), AppCommandError> {
     let mut file_name: Option<String> = None;
-    let mut session_id: Option<String> = None;
     let mut size = 0;
     while let Some(mut field) = multipart.next_field().await.map_err(|error| {
         AppCommandError::invalid_input("Invalid image upload").with_detail(error.to_string())
     })? {
         match field.name().unwrap_or("") {
             "session_id" | "sessionId" => {
-                let value = field.text().await.map_err(|error| {
+                field.text().await.map_err(|error| {
                     AppCommandError::invalid_input("Invalid session id")
                         .with_detail(error.to_string())
                 })?;
-                session_id = Some(sanitize_session_bucket(value.trim()));
             }
             "file" if file_name.is_none() => {
                 let declared_mime = field.content_type().unwrap_or("").to_string();
@@ -143,56 +111,27 @@ async fn stream_image(
         }
     }
     let name = file_name.ok_or_else(|| AppCommandError::invalid_input("Image file is missing"))?;
-    Ok((name, session_id, size))
-}
-
-async fn finalize_image_upload(
-    uploads_root: &Path,
-    tmp_dir: &Path,
-    staging_name: &str,
-    raw_name: &str,
-    session_id: Option<&str>,
-) -> Result<(String, String), AppCommandError> {
-    let bucket = sanitize_session_bucket(session_id.unwrap_or("conversation"));
-    let bucket_dir = uploads_root.join(bucket);
-    tokio::fs::create_dir_all(&bucket_dir)
-        .await
-        .map_err(AppCommandError::io)?;
-    ensure_path_inside(&bucket_dir, uploads_root).await?;
-    let safe_name = sanitize_upload_filename(raw_name);
-    let final_name =
-        finalize_with_available_upload_name(tmp_dir, staging_name, &bucket_dir, &safe_name).await?;
-    let final_path = ensure_path_inside(&bucket_dir.join(&final_name), uploads_root).await?;
-    Ok((final_path.to_string_lossy().to_string(), final_name))
+    Ok((name, size))
 }
 
 pub async fn upload_chat_image(
+    Extension(state): Extension<Arc<AppState>>,
     mut multipart: Multipart,
-) -> Result<Json<UploadAttachmentResult>, AppCommandError> {
+) -> Result<Json<PreparedChatImage>, AppCommandError> {
     let uploads_root = iyw_claw_uploads_root();
     let _quota_guard = reserve_upload_bytes(&uploads_root, CHAT_IMAGE_SOURCE_MAX_BYTES).await?;
     let tmp_dir = uploads_root.join(IMAGE_UPLOAD_TMP_DIR);
     prepare_upload_dirs(&uploads_root, &tmp_dir).await?;
     let staging_name = format!("{}.part", uuid::Uuid::new_v4().simple());
     let result = async {
-        let (raw_name, session_id, size) =
-            stream_image(&mut multipart, &tmp_dir, &staging_name).await?;
+        let (raw_name, size) = stream_image(&mut multipart, &tmp_dir, &staging_name).await?;
         let staged_path = tmp_dir.join(&staging_name);
-        let mime_type = validate_image_format(&staged_path).await?;
-        let (path, name) = finalize_image_upload(
-            &uploads_root,
-            &tmp_dir,
-            &staging_name,
-            &raw_name,
-            session_id.as_deref(),
-        )
-        .await?;
-        Ok(UploadAttachmentResult {
-            path,
-            name,
-            size,
-            mime_type: Some(mime_type),
-        })
+        let display_name = sanitize_upload_filename(&raw_name);
+        let prepared =
+            prepare_chat_image_named_core(&state.db.conn, staged_path.clone(), display_name).await;
+        upload_jail::remove_staging_best_effort(&tmp_dir, &staging_name).await;
+        tracing::debug!(target: "chat.image", source_bytes = size, "processed temporary chat image upload");
+        prepared
     }
     .await;
     if result.is_err() {

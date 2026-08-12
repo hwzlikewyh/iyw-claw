@@ -37,6 +37,10 @@ pub fn build_router(
             "/fetch_remote_image",
             post(handlers::remote_image::fetch_remote_image),
         )
+        .route(
+            "/read_display_asset",
+            post(handlers::display_assets::read_display_asset),
+        )
         // ─── iyw account ───
         .route(
             "/iyw_account_get_wechat_qrcode",
@@ -746,6 +750,10 @@ pub fn build_router(
         .route(
             "/acp_answer_question",
             post(handlers::acp::acp_answer_question),
+        )
+        .route(
+            "/acp_respond_channel_confirmation",
+            post(handlers::acp::acp_respond_channel_confirmation),
         )
         .route(
             "/acp_list_connections",

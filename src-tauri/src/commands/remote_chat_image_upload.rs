@@ -249,7 +249,7 @@ pub async fn remote_chat_image_upload_finish(
     db: State<'_, AppDatabase>,
     proxy: State<'_, Arc<RemoteProxyState>>,
     state: State<'_, RemoteChatImageUploadState>,
-    connection_id: i32,
+    connection_id: Option<i32>,
     upload_id: String,
     session_id: Option<String>,
 ) -> Result<Value, AppCommandError> {
@@ -262,16 +262,29 @@ pub async fn remote_chat_image_upload_finish(
         .ok_or_else(|| AppCommandError::not_found("Image upload was not found"))?;
     let result = async {
         validate_completed_upload(&entry).await?;
-        remote_proxy::upload_chat_image_file_to_remote(
-            db.inner(),
-            proxy.inner().as_ref(),
-            connection_id,
-            entry.path.clone(),
-            entry.file_name.clone(),
-            entry.mime_type.clone(),
-            session_id,
-        )
-        .await
+        if let Some(connection_id) = connection_id {
+            remote_proxy::upload_chat_image_file_to_remote(
+                db.inner(),
+                proxy.inner().as_ref(),
+                connection_id,
+                entry.path.clone(),
+                entry.file_name.clone(),
+                entry.mime_type.clone(),
+                session_id,
+            )
+            .await
+        } else {
+            let prepared = crate::commands::chat_image::prepare_chat_image_named_core(
+                &db.conn,
+                entry.path.clone(),
+                entry.file_name.clone(),
+            )
+            .await?;
+            serde_json::to_value(prepared).map_err(|error| {
+                AppCommandError::task_execution_failed("Unable to serialize prepared image")
+                    .with_detail(error.to_string())
+            })
+        }
     }
     .await;
     remove_upload_file(upload_id, &entry.path).await;

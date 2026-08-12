@@ -49,15 +49,15 @@ use crate::acp::delegation::transport::{
     client_artifacts_round_trip, client_ask_round_trip,
     client_audio_transcription_query_round_trip, client_audio_transcription_round_trip,
     client_automation_round_trip, client_cancel, client_cancel_task_round_trip,
-    client_commit_feedback, client_companion_ready_round_trip, client_feedback_round_trip,
-    client_image_analysis_round_trip, client_memory_append_round_trip,
+    client_channel_round_trip, client_commit_feedback, client_companion_ready_round_trip,
+    client_feedback_round_trip, client_image_analysis_round_trip, client_memory_append_round_trip,
     client_memory_proposal_round_trip, client_round_trip, client_session_round_trip,
     client_status_round_trip, BrokerArtifactsRequest, BrokerAskRequest,
     BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerCancelRequest,
-    BrokerCancelTaskRequest, BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest,
-    BrokerFeedbackRequest, BrokerImageAnalysisRequest, BrokerMemoryAppendRequest,
-    BrokerMemoryProposalRequest, BrokerRequest, BrokerResponse, BrokerSessionRequest,
-    BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
+    BrokerCancelTaskRequest, BrokerChannelRequest, BrokerCommitFeedbackRequest,
+    BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
+    BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerRequest, BrokerResponse,
+    BrokerSessionRequest, BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -172,6 +172,7 @@ pub struct CompanionFeatures {
     pub memory: bool,
     pub memory_proposal: bool,
     pub artifacts: bool,
+    pub channels: bool,
 }
 
 impl CompanionFeatures {
@@ -191,6 +192,7 @@ impl CompanionFeatures {
                 memory: false,
                 memory_proposal: false,
                 artifacts: false,
+                channels: false,
             };
         };
         let mut f = Self {
@@ -202,6 +204,7 @@ impl CompanionFeatures {
             memory: false,
             memory_proposal: false,
             artifacts: false,
+            channels: false,
         };
         for tok in s.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             match tok {
@@ -213,6 +216,7 @@ impl CompanionFeatures {
                 "memory" => f.memory = true,
                 "memory-proposal" => f.memory_proposal = true,
                 "artifacts" => f.artifacts = true,
+                "channels" => f.channels = true,
                 _ => {}
             }
         }
@@ -230,6 +234,7 @@ impl CompanionFeatures {
             "append_user_memory" => self.memory,
             "propose_user_memory" => self.memory_proposal,
             "present_task_files" => self.artifacts,
+            name if crate::acp::channel_tools::CHANNEL_TOOL_NAMES.contains(&name) => self.channels,
             "list_scheduled_task_projects"
             | "list_scheduled_tasks"
             | "create_scheduled_task"
@@ -533,6 +538,16 @@ async fn build_tools_call_spawn(
             let round_trip =
                 Box::pin(async move { client_automation_round_trip(&socket, &req).await });
             register_and_spawn(inflight, id, None, round_trip, render_automation_result).await
+        }
+        channel_tool if crate::acp::channel_tools::CHANNEL_TOOL_NAMES.contains(&channel_tool) => {
+            let req = BrokerChannelRequest {
+                token: ctx.token.clone(),
+                tool: channel_tool.to_string(),
+                input: arguments,
+            };
+            let round_trip =
+                Box::pin(async move { client_channel_round_trip(&socket, &req).await });
+            register_and_spawn(inflight, id, None, round_trip, render_channel_result).await
         }
         "present_task_files" => {
             let files = match parse_artifact_files(&arguments) {
@@ -1503,6 +1518,17 @@ pub fn render_automation_result(outcome: &Value) -> Value {
     let is_error = outcome.get("error").is_some();
     let text = serde_json::to_string(outcome)
         .unwrap_or_else(|_| String::from("{\"error\":\"invalid response\"}"));
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": is_error,
+        "structuredContent": outcome.clone(),
+    })
+}
+
+pub fn render_channel_result(outcome: &Value) -> Value {
+    let is_error = outcome.get("error").is_some();
+    let text = serde_json::to_string(outcome)
+        .unwrap_or_else(|_| String::from("{\"error\":\"CHANNEL_RESULT_INVALID\"}"));
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": is_error,

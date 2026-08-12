@@ -11,6 +11,7 @@ pub mod chat_channel;
 pub mod commands;
 pub mod db;
 pub mod desktop_bootstrap;
+pub mod display_assets;
 pub mod git_credential;
 pub mod git_repo;
 pub mod github_mirror;
@@ -28,6 +29,10 @@ pub mod pets;
 pub mod preferences;
 pub mod process;
 pub mod remote_image;
+#[cfg(not(feature = "tauri-runtime"))]
+mod server_channel_target_crypto;
+#[cfg(not(feature = "tauri-runtime"))]
+mod server_secret_store;
 pub mod supervise;
 pub mod system_skills;
 mod terminal;
@@ -62,8 +67,9 @@ mod tauri_app {
         app_update as app_update_commands, automation as automation_commands, backup,
         chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
         chat_image as chat_image_commands, conversations, delegation as delegation_commands,
-        experts as experts_commands, feedback as feedback_commands, file_io, folder_commands,
-        folders, internet_tools as internet_tools_commands, iyw_account as iyw_account_commands,
+        display_assets as display_asset_commands, experts as experts_commands,
+        feedback as feedback_commands, file_io, folder_commands, folders,
+        internet_tools as internet_tools_commands, iyw_account as iyw_account_commands,
         logging as logging_commands, managed_skills as managed_skills_commands,
         mcp as mcp_commands, model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, performance as performance_commands,
@@ -823,6 +829,19 @@ mod tauri_app {
                                 effective_data_dir.clone(),
                             ),
                         ),
+                        std::sync::Arc::new(
+                            crate::acp::channel_tools::ChannelToolService::new(
+                                std::sync::Arc::new(db::AppDatabase {
+                                    conn: db_conn.clone(),
+                                }),
+                                app.state::<ChatChannelManager>().clone_ref(),
+                            ),
+                        ),
+                        std::sync::Arc::new(
+                            crate::acp::ConnectionManagerChannelConfirmationLookup {
+                                manager: std::sync::Arc::new(cm_state.clone_ref()),
+                            },
+                        ),
                     );
                     tauri::async_runtime::spawn(async move {
                         if let Err(e) = listener.run(socket_path).await {
@@ -1208,6 +1227,7 @@ mod tauri_app {
                 remote_workspace_commands::reorder_remote_workspace_connections,
                 remote_workspace_commands::open_remote_workspace,
                 remote_proxy_commands::remote_http_call,
+                remote_proxy_commands::remote_read_display_asset,
                 remote_proxy_commands::remote_upload_attachment,
                 remote_proxy_commands::remote_upload_chat_image_path,
                 remote_chat_image_upload_commands::remote_chat_image_upload_begin,
@@ -1322,6 +1342,7 @@ mod tauri_app {
                 acp_commands::acp_fork,
                 acp_commands::acp_respond_permission,
                 acp_commands::acp_answer_question,
+                acp_commands::acp_respond_channel_confirmation,
                 acp_commands::acp_disconnect,
                 acp_commands::acp_touch_connection,
                 acp_commands::acp_list_connections,
@@ -1457,6 +1478,7 @@ mod tauri_app {
                 file_io::save_text_file,
                 file_io::open_local_path,
                 remote_image_commands::fetch_remote_image,
+                display_asset_commands::read_display_asset,
                 backup::backup_create,
                 backup::backup_inspect,
                 backup::backup_scan_external_conflicts,

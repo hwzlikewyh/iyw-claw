@@ -9,12 +9,14 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio_tungstenite::tungstenite;
 
+use crate::chat_channel::attachments::{AttachmentCapability, ChannelAttachment};
 use crate::chat_channel::error::ChatChannelError;
 use crate::chat_channel::traits::ChatChannelBackend;
 use crate::chat_channel::types::*;
 
 const FEISHU_BASE_URL: &str = "https://open.feishu.cn";
 const TOKEN_REFRESH_MARGIN_SECS: u64 = 300;
+const LARK_MAX_FILE_BYTES: u64 = 30 * 1024 * 1024;
 
 // ── Lark WebSocket protobuf Frame (pbbp2) ──
 // Source: larksuite/oapi-sdk-go ws/pbbp2.pb.go
@@ -99,6 +101,17 @@ struct SendMessageResponse {
 #[derive(Deserialize)]
 struct SendMessageData {
     message_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UploadFileResponse {
+    code: i32,
+    data: Option<UploadFileData>,
+}
+
+#[derive(Deserialize)]
+struct UploadFileData {
+    file_key: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -221,6 +234,21 @@ impl LarkBackend {
         msg_type: &str,
         content: &str,
     ) -> Result<SentMessageId, ChatChannelError> {
+        self.send_lark_message_to(&self.chat_id, msg_type, content)
+            .await
+    }
+
+    async fn send_lark_message_to(
+        &self,
+        chat_id: &str,
+        msg_type: &str,
+        content: &str,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        if chat_id.trim().is_empty() {
+            return Err(ChatChannelError::ConfigurationInvalid(
+                "Lark target chat is empty".to_string(),
+            ));
+        }
         let token = self.get_tenant_access_token().await?;
 
         let resp = self
@@ -231,7 +259,7 @@ impl LarkBackend {
             ))
             .header("Authorization", format!("Bearer {}", token))
             .json(&SendMessageRequest {
-                receive_id: self.chat_id.clone(),
+                receive_id: chat_id.to_string(),
                 msg_type: msg_type.to_string(),
                 content: content.to_string(),
             })
@@ -253,6 +281,40 @@ impl LarkBackend {
 
         let message_id = result.data.and_then(|d| d.message_id).unwrap_or_default();
         Ok(SentMessageId(message_id))
+    }
+
+    async fn upload_file(&self, file: &ChannelAttachment) -> Result<String, ChatChannelError> {
+        let token = self.get_tenant_access_token().await?;
+        let part = reqwest::multipart::Part::bytes(file.bytes.to_vec())
+            .file_name(file.name.clone())
+            .mime_str(&file.mime_type)
+            .map_err(|_| ChatChannelError::SendFailed("invalid attachment MIME type".into()))?;
+        let form = reqwest::multipart::Form::new()
+            .text("file_type", "stream")
+            .text("file_name", file.name.clone())
+            .part("file", part);
+        let response = self
+            .client
+            .post(format!("{FEISHU_BASE_URL}/open-apis/im/v1/files"))
+            .header("Authorization", format!("Bearer {token}"))
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|error| ChatChannelError::SendFailed(error.to_string()))?;
+        let result: UploadFileResponse = response
+            .json()
+            .await
+            .map_err(|error| ChatChannelError::SendFailed(error.to_string()))?;
+        if result.code != 0 {
+            return Err(ChatChannelError::SendFailed(format!(
+                "provider code {}",
+                result.code
+            )));
+        }
+        result
+            .data
+            .and_then(|data| data.file_key)
+            .ok_or_else(|| ChatChannelError::SendFailed("provider file key missing".into()))
     }
 
     async fn start_ws_receiver(
@@ -505,10 +567,11 @@ async fn handle_lark_event(
             .unwrap_or("unknown")
             .to_string();
 
-        // Keep a safe breadcrumb (who sent it) at the default level; the message
-        // body itself only logs at debug so it never lands on disk by default.
-        tracing::info!("[Lark] incoming message from {sender_id}");
-        tracing::debug!("[Lark] incoming message from {sender_id}: {clean_text}");
+        tracing::info!(
+            channel_id,
+            content_chars = clean_text.chars().count(),
+            "[Lark] incoming message accepted"
+        );
 
         let provider_message_id = event
             .pointer("/event/message/message_id")
@@ -516,14 +579,25 @@ async fn handle_lark_event(
             .filter(|v| !v.is_empty())
             .map(|v| v.to_string())
             .unwrap_or_else(|| format!("l{}", lark_message_hash(&sender_id, &clean_text)));
+        let chat_id = event
+            .pointer("/event/message/chat_id")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
         let command = IncomingCommand {
             channel_id,
             sender_id,
             sender_name: None,
             command_text: clean_text,
             callback_data: None,
-            target: ChannelMessageTarget::channel(channel_id),
-            metadata: event.clone(),
+            target: ChannelMessageTarget {
+                channel_id,
+                chat_id: Some(chat_id),
+                thread_key: None,
+                thread_kind: Some("lark_chat".to_string()),
+                provider_payload: None,
+            },
+            metadata: serde_json::json!({}),
             message_trace_id: super::super::dedupe::new_message_trace_id(channel_id),
             provider_message_id: Some(provider_message_id),
             received_at: chrono::Utc::now(),
@@ -641,6 +715,41 @@ impl ChatChannelBackend for LarkBackend {
         let content = serde_json::to_string(&card)
             .map_err(|e| ChatChannelError::SendFailed(e.to_string()))?;
         self.send_lark_message("interactive", &content).await
+    }
+
+    async fn send_rich_message_to(
+        &self,
+        message: &RichMessage,
+        target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        let chat_id = target.chat_id.as_deref().ok_or_else(|| {
+            ChatChannelError::ConfigurationInvalid("Lark target chat is missing".to_string())
+        })?;
+        let card = build_lark_card(message);
+        let content = serde_json::to_string(&card)
+            .map_err(|error| ChatChannelError::SendFailed(error.to_string()))?;
+        self.send_lark_message_to(chat_id, "interactive", &content)
+            .await
+    }
+
+    fn attachment_capability(&self) -> AttachmentCapability {
+        AttachmentCapability {
+            supported: true,
+            max_file_bytes: Some(LARK_MAX_FILE_BYTES),
+        }
+    }
+
+    async fn send_attachment_to(
+        &self,
+        attachment: &ChannelAttachment,
+        target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        let chat_id = target.chat_id.as_deref().ok_or_else(|| {
+            ChatChannelError::ConfigurationInvalid("Lark target chat is missing".to_string())
+        })?;
+        let file_key = self.upload_file(attachment).await?;
+        let content = serde_json::json!({ "file_key": file_key }).to_string();
+        self.send_lark_message_to(chat_id, "file", &content).await
     }
 
     async fn test_connection(&self) -> Result<(), ChatChannelError> {

@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useCallback, useState } from "react"
+import { memo, useCallback, useEffect, useState } from "react"
 import Image from "next/image"
 import {
   AlertCircle,
@@ -17,6 +17,10 @@ import { downloadImage } from "@/lib/image-download"
 import { toErrorMessage } from "@/lib/app-error"
 import { cn } from "@/lib/utils"
 import { isLocalDesktop, openPath, openUrl } from "@/lib/platform"
+import {
+  fetchDisplayAsset,
+  isDisplayAssetUri,
+} from "@/lib/display-asset-source"
 
 export type ImagePresentation = "generated" | "displayed"
 
@@ -99,17 +103,52 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
   // when a new/different image arrives (e.g. on retry), without needing an
   // explicit effect or a mutable ref.
   const [errorImageKey, setErrorImageKey] = useState<string | null>(null)
+  const [assetSource, setAssetSource] = useState<{
+    uri: string
+    url: string | null
+    failed: boolean
+  } | null>(null)
   // Treat `failed` (and the unusual `completed`-without-image case) as
   // failure so the user gets a clear error indicator instead of a
   // perpetual skeleton when codex reports the call ended without an image.
   const isFailed =
     image === null && (status === "failed" || status === "completed")
+  const assetUri = isDisplayAssetUri(image?.uri) ? (image?.uri ?? null) : null
+  useEffect(() => {
+    if (!assetUri) return
+    let active = true
+    let objectUrl: string | null = null
+    void fetchDisplayAsset(assetUri, image?.mime_type)
+      .then((blob) => {
+        if (!active) return
+        objectUrl = URL.createObjectURL(blob)
+        setAssetSource({ uri: assetUri, url: objectUrl, failed: false })
+      })
+      .catch(() => {
+        if (active) setAssetSource({ uri: assetUri, url: null, failed: true })
+      })
+    return () => {
+      active = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [assetUri, image?.mime_type])
+  const resolvedAssetUrl =
+    assetSource?.uri === assetUri ? assetSource.url : null
+  const imageSrc = image
+    ? assetUri
+      ? resolvedAssetUrl
+      : `data:${image.mime_type};base64,${image.data}`
+    : null
   const imageKey = image
-    ? `${image.mime_type}:${image.data.length}:${image.data.slice(0, 32)}`
+    ? (assetUri ??
+      `${image.mime_type}:${image.data.length}:${image.data.slice(0, 32)}`)
     : null
   // True only when the *current* image's data failed to decode in the browser
   // (e.g. truncated or invalid base64 returned by an MCP tool).
-  const renderError = imageKey !== null && errorImageKey === imageKey
+  const renderError =
+    imageKey !== null &&
+    (errorImageKey === imageKey ||
+      (assetSource?.uri === assetUri && assetSource.failed))
   const dimensions =
     loadedDimensions?.imageKey === imageKey ? loadedDimensions : null
 
@@ -120,6 +159,7 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
           data: img.data,
           mime_type: img.mime_type,
           suggestedName: img.name,
+          uri: img.uri,
         })
       } catch (err) {
         const message = toErrorMessage(err)
@@ -188,7 +228,7 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
               <span>{t("imageRenderFailed")}</span>
             </div>
           </div>
-        ) : image ? (
+        ) : image && imageSrc ? (
           <div className="group relative inline-block shrink-0 overflow-hidden rounded-md border border-border/70 bg-muted/30">
             <button
               type="button"
@@ -196,7 +236,7 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
               className="block cursor-pointer transition-opacity hover:opacity-80"
             >
               <Image
-                src={`data:${image.mime_type};base64,${image.data}`}
+                src={imageSrc}
                 alt={image.name}
                 width={256}
                 height={256}
@@ -283,9 +323,9 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
       ) : null}
 
       <ImagePreviewDialog
-        src={image ? `data:${image.mime_type};base64,${image.data}` : ""}
+        src={imageSrc ?? ""}
         alt={image?.name ?? ""}
-        open={previewOpen && image !== null}
+        open={previewOpen && imageSrc !== null}
         onOpenChange={(open) => setPreviewOpen(open)}
       />
     </div>

@@ -62,9 +62,13 @@ pub struct EventEnvelope {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AcpEvent {
     /// Agent returned text content (streaming delta)
-    ContentDelta { text: String },
+    ContentDelta {
+        text: String,
+    },
     /// Agent thinking/reasoning
-    Thinking { text: String },
+    Thinking {
+        text: String,
+    },
     /// Raw SDK message forwarded from Claude ACP extension notification
     ClaudeSdkMessage {
         session_id: String,
@@ -121,7 +125,9 @@ pub enum AcpEvent {
     /// keeping the pet pinned on `Waiting` through whatever work the agent
     /// does after the approval (which, for ExitPlanMode, is the entire
     /// implementation phase).
-    PermissionResolved { request_id: String },
+    PermissionResolved {
+        request_id: String,
+    },
     /// Turn completed
     TurnComplete {
         session_id: String,
@@ -129,7 +135,9 @@ pub enum AcpEvent {
         agent_type: String,
     },
     /// Session established with agent-assigned session ID
-    SessionStarted { session_id: String },
+    SessionStarted {
+        session_id: String,
+    },
     /// Backend has bound this connection to a conversation row. Emitted exactly
     /// once per connection lifetime, on first prompt that creates the row.
     /// Frontend uses this to associate the connection_id with conversation_id
@@ -157,7 +165,9 @@ pub enum AcpEvent {
         status: crate::db::entities::conversation::ConversationStatus,
     },
     /// Session modes are available for this connection
-    SessionModes { modes: SessionModeStateInfo },
+    SessionModes {
+        modes: SessionModeStateInfo,
+    },
     /// Session configuration options are available/updated for this connection
     SessionConfigOptions {
         config_options: Vec<SessionConfigOptionInfo>,
@@ -169,13 +179,21 @@ pub enum AcpEvent {
         prompt_capabilities: PromptCapabilitiesInfo,
     },
     /// Whether the agent supports session/fork
-    ForkSupported { supported: bool },
+    ForkSupported {
+        supported: bool,
+    },
     /// Current session mode changed
-    ModeChanged { mode_id: String },
+    ModeChanged {
+        mode_id: String,
+    },
     /// Agent reported plan update for current turn
-    PlanUpdate { entries: Vec<PlanEntryInfo> },
+    PlanUpdate {
+        entries: Vec<PlanEntryInfo>,
+    },
     /// Connection status changed
-    StatusChanged { status: ConnectionStatus },
+    StatusChanged {
+        status: ConnectionStatus,
+    },
     /// Error occurred
     Error {
         message: String,
@@ -212,9 +230,14 @@ pub enum AcpEvent {
         code: String,
     },
     /// Available slash commands updated
-    AvailableCommands { commands: Vec<AvailableCommandInfo> },
+    AvailableCommands {
+        commands: Vec<AvailableCommandInfo>,
+    },
     /// Session usage/context window updated during conversation
-    UsageUpdate { used: u64, size: u64 },
+    UsageUpdate {
+        used: u64,
+        size: u64,
+    },
     /// Claude transcript activity that occurred outside an iyw-claw prompt
     /// turn. The transcript is authoritative for these turns; live ACP deltas
     /// received out of turn are deliberately not used as a second render path.
@@ -261,7 +284,9 @@ pub enum AcpEvent {
     /// when the message carried text. `text_preview` is already bounded by the
     /// emitter so a large paste can't bloat the event payload / ring buffer /
     /// webhook body.
-    UserPromptSent { text_preview: String },
+    UserPromptSent {
+        text_preview: String,
+    },
     /// The user's submitted prompt, broadcast on the connection stream so OTHER
     /// clients viewing this conversation can synthesize the user turn in real
     /// time. The sending client adds its own optimistic turn and ignores this
@@ -277,7 +302,9 @@ pub enum AcpEvent {
     /// Agent. A single replace-by-id event covers every lifecycle transition so
     /// reconnect replay and multi-window viewers converge without applying
     /// separate partial patches in different orders.
-    AgentInputChanged { item: crate::acp::AgentInputItem },
+    AgentInputChanged {
+        item: crate::acp::AgentInputItem,
+    },
     /// The user submitted a live-feedback note while the agent is mid-turn (the
     /// `check_user_feedback` MCP-tool steering path). Broadcast so every client
     /// viewing this conversation renders the pending note, and captured into
@@ -296,7 +323,9 @@ pub enum AcpEvent {
     },
     /// Pending cooperative feedback was withdrawn before the Agent read it so
     /// the same durable input can enter a safe-force batch instead.
-    FeedbackWithdrawn { ids: Vec<String> },
+    FeedbackWithdrawn {
+        ids: Vec<String>,
+    },
     /// An agent called the `ask_user_question` MCP tool: one or more
     /// multiple-choice questions the user must answer before the (blocked) tool
     /// call returns. Broadcast so every client viewing this conversation renders
@@ -311,7 +340,15 @@ pub enum AcpEvent {
     /// A previously-pending question was answered (from any client) or canceled
     /// (the tool call was aborted / the connection drained). Carries only the
     /// `question_id`; clients clear the matching card. Idempotent on apply.
-    QuestionResolved { question_id: String },
+    QuestionResolved {
+        question_id: String,
+    },
+    ChannelConfirmationRequested {
+        confirmation: crate::acp::channel_tools::confirmation::PendingChannelConfirmationState,
+    },
+    ChannelConfirmationResolved {
+        confirmation_id: String,
+    },
     /// The agent's effective settings (env vars / model provider / native config
     /// files) changed AFTER this connection was spawned, so the running process
     /// is still using its launch-time config. Emitted by
@@ -322,7 +359,10 @@ pub enum AcpEvent {
     /// clear its "restart to apply" banner. Carried into `SessionState` so a
     /// snapshot attach (web reconnect, window refresh, new tile) recovers the
     /// staleness the one-shot event won't replay for it.
-    SessionConfigStale { stale: bool, kind: ConfigStaleKind },
+    SessionConfigStale {
+        stale: bool,
+        kind: ConfigStaleKind,
+    },
 }
 
 /// One background task settlement surfaced from the Claude transcript.

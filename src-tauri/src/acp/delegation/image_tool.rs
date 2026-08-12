@@ -54,25 +54,21 @@ async fn show_image(arguments: Value, working_dir: &Path) -> Result<Value, Strin
     )
     .await
     .map_err(|error| error.safe_message().to_string())?;
-    let extension = match image.mime_type {
-        "image/jpeg" => "jpg",
-        "image/svg+xml" => "svg",
-        _ => image.mime_type.strip_prefix("image/").unwrap_or("img"),
-    };
     let name = args
         .name
         .or(image.name)
-        .unwrap_or_else(|| format!("image.{extension}"));
+        .unwrap_or_else(|| crate::display_assets::default_name(image.mime_type));
+    let asset = crate::display_assets::store(image.bytes, image.mime_type)
+        .await
+        .map_err(|error| format!("The image could not be stored: {error}"))?;
     let metadata = json!({
         "type": "iyw_claw_display_image", "caption": args.caption, "name": name,
-        "source_kind": image.source_kind, "source": image.source,
+        "source_kind": image.source_kind, "uri": asset.uri, "mime_type": asset.mime_type,
     });
     Ok(json!({
-        "content": [
-            { "type": "text", "text": metadata.to_string() },
-            { "type": "image", "data": STANDARD.encode(image.bytes), "mimeType": image.mime_type },
-        ],
+        "content": [{ "type": "text", "text": metadata.to_string() }],
         "isError": false,
+        "structuredContent": metadata,
     }))
 }
 

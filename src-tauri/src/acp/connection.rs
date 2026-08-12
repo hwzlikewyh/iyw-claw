@@ -416,6 +416,10 @@ async fn cleanup_delegation_resources(
         .questions
         .cancel_questions_by_parent(connection_id)
         .await;
+    injection
+        .confirmations
+        .cancel_channel_confirmations_by_parent(connection_id)
+        .await;
 }
 
 async fn cleanup_connection_resources(
@@ -1728,6 +1732,8 @@ pub struct DelegationInjection {
     /// the delegation `broker.cancel_by_parent` cleanup. Shares the same backing
     /// `ConnectionManager` as the listener's question lookup.
     pub questions: Arc<dyn crate::acp::question::SessionQuestionAccess>,
+    pub confirmations:
+        Arc<dyn crate::acp::channel_tools::confirmation::SessionChannelConfirmationAccess>,
 }
 
 /// The `--features` value for a companion launch. Image display/analysis and
@@ -1743,7 +1749,7 @@ fn companion_features_arg(
     sessions_enabled: bool,
     memory_enabled: bool,
 ) -> String {
-    let mut features: Vec<&str> = vec!["images", "artifacts"];
+    let mut features: Vec<&str> = vec!["images", "artifacts", "channels"];
     if delegation_enabled {
         features.push("delegation");
     }
@@ -1966,6 +1972,7 @@ async fn prepare_iyw_claw_mcp(
                 memory_proposal_enabled: memory_access.candidate_proposal,
                 opaque_source_id,
                 memory_turn_tracker: memory_access.turn_tracker,
+                cancellation: tokio_util::sync::CancellationToken::new(),
             },
         )
         .await;
@@ -3965,6 +3972,59 @@ fn map_prompt_blocks(blocks: Vec<PromptInputBlock>) -> Vec<ContentBlock> {
         .collect()
 }
 
+fn is_codex_compaction_prompt(agent_type: AgentType, blocks: &[PromptInputBlock]) -> bool {
+    if agent_type != AgentType::Codex || blocks.len() != 1 {
+        return false;
+    }
+    let PromptInputBlock::Text { text } = &blocks[0] else {
+        return false;
+    };
+    let command = text.trim();
+    command == "/compact" || command.starts_with("/compact ")
+}
+
+async fn verified_compaction_stop_reason(
+    raw_reason: &'static str,
+    marker: Option<&Result<crate::acp::codex_rollout_migration::CompactionMarker, String>>,
+    session_id: &str,
+) -> &'static str {
+    let Some(marker) = marker else {
+        return raw_reason;
+    };
+    if raw_reason != "end_turn" {
+        return raw_reason;
+    }
+    let marker = match marker {
+        Ok(marker) => marker,
+        Err(error) => {
+            tracing::warn!(
+                session_id,
+                error = %error,
+                "[ACP] unable to record Codex compaction marker"
+            );
+            return "compaction_not_applied";
+        }
+    };
+    match crate::acp::codex_rollout_migration::wait_for_new_compaction(marker).await {
+        Ok(true) => "end_turn",
+        Ok(false) => {
+            tracing::warn!(
+                session_id,
+                "[ACP] Codex compact turn ended without a new compacted rollout record"
+            );
+            "compaction_not_applied"
+        }
+        Err(error) => {
+            tracing::warn!(
+                session_id,
+                error = %error,
+                "[ACP] failed to verify Codex compaction result"
+            );
+            "compaction_not_applied"
+        }
+    }
+}
+
 /// Result when the conversation loop exits due to a fork request.
 struct ForkExitInfo {
     fork_response: sacp::schema::ForkSessionResponse,
@@ -4196,6 +4256,10 @@ fn turn_failure_error_event(reason_str: &str, agent_type: AgentType) -> Option<A
                  Please check the agent's configuration."
             ),
         ),
+        "compaction_not_applied" => (
+            "compaction_not_applied",
+            format!("{agent_type} ended the compact turn without writing a new compacted summary."),
+        ),
         _ => return None,
     };
     Some(AcpEvent::Error {
@@ -4368,6 +4432,17 @@ async fn run_conversation_loop<'a>(
                 accepted,
             }) => {
                 prompt_ledger.record_prompt_blocks(&blocks);
+                let is_compaction = is_codex_compaction_prompt(agent_type, &blocks);
+                let compaction_marker = if is_compaction {
+                    Some(
+                        crate::acp::codex_rollout_migration::compaction_marker(
+                            session.session_id().0.as_ref(),
+                        )
+                        .await,
+                    )
+                } else {
+                    None
+                };
                 let mut prompt_blocks = map_prompt_blocks(blocks);
                 if let Some(context) = user_context {
                     prompt_blocks
@@ -4568,13 +4643,20 @@ async fn run_conversation_loop<'a>(
                                         .await;
                                     }
                                     let raw_reason_str = stop_reason_to_str(reason);
-                                    let reason_str = if raw_reason_str == "end_turn"
+                                    let base_reason = if raw_reason_str == "end_turn"
                                         && !turn_had_agent_output
+                                        && !is_compaction
                                     {
                                         "empty"
                                     } else {
                                         raw_reason_str
                                     };
+                                    let reason_str = verified_compaction_stop_reason(
+                                        base_reason,
+                                        compaction_marker.as_ref(),
+                                        sid.0.as_ref(),
+                                    )
+                                    .await;
                                     if let Some(err_event) =
                                         turn_failure_error_event(reason_str, agent_type)
                                     {
@@ -4639,13 +4721,20 @@ async fn run_conversation_loop<'a>(
                                 .await;
                             }
                             let raw_reason_str = stop_reason_to_str(reason);
-                            let reason_str = if raw_reason_str == "end_turn"
+                            let base_reason = if raw_reason_str == "end_turn"
                                 && !turn_had_agent_output
+                                && !is_compaction
                             {
                                 "empty"
                             } else {
                                 raw_reason_str
                             };
+                            let reason_str = verified_compaction_stop_reason(
+                                base_reason,
+                                compaction_marker.as_ref(),
+                                sid.0.as_ref(),
+                            )
+                            .await;
                             if let Some(err_event) =
                                 turn_failure_error_event(reason_str, agent_type)
                             {

@@ -807,22 +807,18 @@ export function buildStreamingTurnsFromLiveMessage(
         if (childToolCallIds.has(block.info.tool_call_id)) break
 
         const displayedImage = parseDisplayImageMetadata(block.info.content)
-        const displayedImages = block.info.images ?? []
-        if (displayedImage && displayedImages.length > 0) {
-          for (const image of displayedImages) {
-            currentBlocks.push({
-              type: "display_image",
-              caption: displayedImage.caption,
-              name: displayedImage.name,
-              source_kind: displayedImage.sourceKind,
-              source: displayedImage.source,
-              image: {
-                data: image.data,
-                mime_type: image.mime_type,
-                uri: image.uri ?? null,
-              },
-            })
-          }
+        if (displayedImage) {
+          currentBlocks.push({
+            type: "display_image",
+            caption: displayedImage.caption,
+            name: displayedImage.name,
+            source_kind: displayedImage.sourceKind,
+            image: {
+              data: "",
+              mime_type: displayedImage.mimeType,
+              uri: displayedImage.uri,
+            },
+          })
           if (
             block.info.status === "completed" ||
             block.info.status === "failed"

@@ -88,6 +88,8 @@ pub struct TokenEntry {
     pub opaque_source_id: String,
     /// Read-only authority for the current accepted turn nonce.
     pub memory_turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
+    /// Cancels in-flight channel mutations when the launch token is revoked.
+    pub cancellation: tokio_util::sync::CancellationToken,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,6 +154,7 @@ impl TokenRegistry {
 
     pub async fn revoke(&self, token: &str) {
         if let Some(registered) = self.inner.write().await.remove(token) {
+            registered.entry.cancellation.cancel();
             registered.entry.memory_turn_tracker.complete_turn();
         }
     }
@@ -170,6 +173,7 @@ impl TokenRegistry {
         let mut map = self.inner.write().await;
         map.retain(|_, registered| {
             if registered.entry.parent_connection_id == parent_connection_id {
+                registered.entry.cancellation.cancel();
                 registered.entry.memory_turn_tracker.complete_turn();
                 false
             } else {
@@ -301,6 +305,11 @@ impl CompanionReadyCandidate {
             .tools
             .iter()
             .any(|tool| tool == LIST_SCHEDULED_TASK_PROJECTS_TOOL);
+        let missing_channel_tools = crate::acp::channel_tools::CHANNEL_TOOL_NAMES
+            .iter()
+            .copied()
+            .filter(|required| !self.tools.iter().any(|tool| tool == required))
+            .collect::<Vec<_>>();
         let missing_append = self.append_required
             && !self
                 .tools
@@ -315,6 +324,7 @@ impl CompanionReadyCandidate {
             || missing_project_listing
             || missing_append
             || missing_proposal
+            || !missing_channel_tools.is_empty()
         {
             tracing::warn!(
                 connection_id = %self.parent_connection_id,
@@ -324,6 +334,7 @@ impl CompanionReadyCandidate {
                 proposal_required = self.proposal_required,
                 missing_image_analysis,
                 missing_project_listing,
+                missing_channel_tools = ?missing_channel_tools,
                 advertised_tools = ?self.tools,
                 "rejected companion readiness report missing required tools"
             );
@@ -514,6 +525,9 @@ pub struct DelegationListener {
     /// Global scheduled-task CRUD service. Its CLI route is intentionally
     /// tokenless because every local Agent already has terminal authority.
     pub automation: Arc<AutomationAgentService>,
+    pub channel_tools: Arc<crate::acp::channel_tools::ChannelToolService>,
+    pub confirmations:
+        Arc<dyn crate::acp::channel_tools::confirmation::SessionChannelConfirmationAccess>,
 }
 
 impl DelegationListener {
@@ -553,6 +567,10 @@ impl DelegationListener {
         image_analysis: Arc<dyn ImageAnalysisAccess>,
         audio_transcription: Arc<dyn AudioTranscriptionAccess>,
         automation: Arc<AutomationAgentService>,
+        channel_tools: Arc<crate::acp::channel_tools::ChannelToolService>,
+        confirmations: Arc<
+            dyn crate::acp::channel_tools::confirmation::SessionChannelConfirmationAccess,
+        >,
     ) -> Arc<Self> {
         Arc::new(Self {
             broker,
@@ -566,6 +584,8 @@ impl DelegationListener {
             image_analysis,
             audio_transcription,
             automation,
+            channel_tools,
+            confirmations,
         })
     }
 
@@ -638,9 +658,9 @@ impl DelegationListener {
 
     /// Stream-generic per-connection handler. Exposed so unit tests can drive
     /// it over `tokio::io::duplex` instead of a real socket.
-    pub async fn serve_one<C>(&self, conn: &mut C) -> std::io::Result<()>
+    pub async fn serve_one<C>(self: Arc<Self>, conn: &mut C) -> std::io::Result<()>
     where
-        C: AsyncReadExt + AsyncWriteExt + Unpin,
+        C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
     {
         let msg: BrokerMessage = read_frame(conn).await?;
         let resp = match msg {
@@ -792,6 +812,10 @@ impl DelegationListener {
             BrokerMessage::ImageAnalysis(req) => BrokerResponse {
                 outcome: self.process_image_analysis(req).await,
             },
+            BrokerMessage::Channel(req) => {
+                self.serve_channel(conn, req).await?;
+                return Ok(());
+            }
             BrokerMessage::AudioTranscription(req) => {
                 // Upload and bounded polling may take minutes. The companion
                 // closes this one-shot socket when MCP cancellation wins, which

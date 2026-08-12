@@ -46,6 +46,63 @@ pub async fn create_log_full(
     trace_id: Option<String>,
     provider_message_id: Option<String>,
 ) -> Result<(), DbError> {
+    create_log_for_target(
+        conn,
+        channel_id,
+        direction,
+        message_type,
+        content_preview,
+        status,
+        error_detail,
+        trace_id,
+        provider_message_id,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn create_log_for_target(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    direction: &str,
+    message_type: &str,
+    content_preview: &str,
+    status: &str,
+    error_detail: Option<String>,
+    trace_id: Option<String>,
+    provider_message_id: Option<String>,
+    target_id: Option<String>,
+) -> Result<(), DbError> {
+    create_log_for_target_returning(
+        conn,
+        channel_id,
+        direction,
+        message_type,
+        content_preview,
+        status,
+        error_detail,
+        trace_id,
+        provider_message_id,
+        target_id,
+    )
+    .await
+    .map(|_| ())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn create_log_for_target_returning(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    direction: &str,
+    message_type: &str,
+    content_preview: &str,
+    status: &str,
+    error_detail: Option<String>,
+    trace_id: Option<String>,
+    provider_message_id: Option<String>,
+    target_id: Option<String>,
+) -> Result<chat_channel_message_log::Model, DbError> {
     let active = chat_channel_message_log::ActiveModel {
         id: NotSet,
         channel_id: Set(channel_id),
@@ -56,10 +113,35 @@ pub async fn create_log_full(
         error_detail: Set(error_detail),
         trace_id: Set(trace_id),
         provider_message_id: Set(provider_message_id),
+        target_id: Set(target_id),
         created_at: Set(Utc::now()),
     };
-    active.insert(conn).await?;
-    Ok(())
+    Ok(active.insert(conn).await?)
+}
+
+pub async fn list_filtered(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    target_id: Option<&str>,
+    direction: Option<&str>,
+    limit: u64,
+    offset: u64,
+) -> Result<Vec<chat_channel_message_log::Model>, DbError> {
+    use sea_orm::PaginatorTrait;
+    let limit = limit.max(1);
+    let mut query = chat_channel_message_log::Entity::find()
+        .filter(chat_channel_message_log::Column::ChannelId.eq(channel_id));
+    if let Some(target_id) = target_id {
+        query = query.filter(chat_channel_message_log::Column::TargetId.eq(target_id));
+    }
+    if let Some(direction) = direction {
+        query = query.filter(chat_channel_message_log::Column::Direction.eq(direction));
+    }
+    Ok(query
+        .order_by_desc(chat_channel_message_log::Column::CreatedAt)
+        .paginate(conn, limit)
+        .fetch_page(offset / limit)
+        .await?)
 }
 
 pub async fn list_by_channel(

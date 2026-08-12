@@ -353,6 +353,71 @@ pub async fn remote_http_call(
     })
 }
 
+#[tauri::command]
+pub async fn remote_read_display_asset(
+    db: State<'_, AppDatabase>,
+    proxy: State<'_, Arc<RemoteProxyState>>,
+    connection_id: i32,
+    hash: String,
+) -> Result<tauri::ipc::Response, AppCommandError> {
+    let conn = remote_workspace_connection_service::get(&db.conn, connection_id)
+        .await
+        .map_err(AppCommandError::db)?
+        .ok_or_else(|| {
+            AppCommandError::not_found(format!("Remote connection {connection_id} not found"))
+        })?;
+    let url = format!(
+        "{}/api/read_display_asset",
+        conn.base_url.trim_end_matches('/')
+    );
+    let response = proxy
+        .http
+        .post(url)
+        .bearer_auth(conn.token.trim())
+        .json(&serde_json::json!({ "hash": hash }))
+        .send()
+        .await
+        .map_err(|error| {
+            AppCommandError::network("Remote display image request failed")
+                .with_detail(error.to_string())
+        })?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(AppCommandError::authentication_failed(
+            "Remote Workspace token is invalid",
+        ));
+    }
+    if !response.status().is_success() {
+        return Err(remote_display_asset_error(response).await);
+    }
+    if response
+        .content_length()
+        .is_some_and(|length| length > crate::acp::delegation::image_loader::MAX_IMAGE_BYTES as u64)
+    {
+        return Err(AppCommandError::invalid_input(
+            "Remote display image exceeds the size limit",
+        ));
+    }
+    let bytes = response.bytes().await.map_err(|error| {
+        AppCommandError::network("Failed to read remote display image")
+            .with_detail(error.to_string())
+    })?;
+    if bytes.len() > crate::acp::delegation::image_loader::MAX_IMAGE_BYTES {
+        return Err(AppCommandError::invalid_input(
+            "Remote display image exceeds the size limit",
+        ));
+    }
+    Ok(tauri::ipc::Response::new(bytes.to_vec()))
+}
+
+async fn remote_display_asset_error(response: reqwest::Response) -> AppCommandError {
+    let status = response.status();
+    let raw = response.text().await.unwrap_or_default();
+    serde_json::from_str::<AppCommandError>(&raw).unwrap_or_else(|_| {
+        AppCommandError::network(format!("Remote returned HTTP {status}"))
+            .with_detail(status.canonical_reason().unwrap_or("error"))
+    })
+}
+
 // ─── Multipart upload proxy ───────────────────────────────────────────
 
 /// Hard ceiling for `read_local_file_for_upload`. Mirrors the server-side

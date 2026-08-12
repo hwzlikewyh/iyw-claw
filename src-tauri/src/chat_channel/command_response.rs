@@ -131,25 +131,31 @@ pub(super) async fn send_dispatch_message(
             manager.send_interactive_to_target(&target, message).await
         }
     };
-    let (status, error, provider_message_id) = match result {
+    let (status, error_code, provider_message_id) = match result {
         Ok(sent_id) => ("sent", None, Some(sent_id.0)),
         Err(error) => {
             tracing::error!(
                 "[ChatChannel] failed to send response for {command_text:?} to channel {channel_id}: {error}"
             );
-            ("failed", Some(error.to_string()), None)
+            ("failed", Some("CHANNEL_SEND_FAILED".to_string()), None)
         }
     };
-    let _ = crate::db::service::chat_channel_message_log_service::create_log_full(
+    let target_id = crate::db::service::chat_channel_target_service::find_by_target(db, &target)
+        .await
+        .ok()
+        .flatten()
+        .map(|registered| registered.target_id);
+    let _ = crate::db::service::chat_channel_message_log_service::create_log_for_target(
         db,
         channel_id,
         "outbound",
         "command_response",
         &message.to_plain_text(),
         status,
-        error,
+        error_code,
         trace_id.map(|s| s.to_string()),
         provider_message_id,
+        target_id,
     )
     .await;
 }

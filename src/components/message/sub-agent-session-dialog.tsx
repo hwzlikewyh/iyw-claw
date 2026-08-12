@@ -46,6 +46,7 @@ import {
 } from "@/contexts/acp-connections-context"
 import { PermissionDialog } from "@/components/chat/permission-dialog"
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
+import { ChannelConfirmationCard } from "@/components/chat/channel-confirmation-card"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import type { AgentType, QuestionAnswer } from "@/lib/types"
 
@@ -321,7 +322,8 @@ function SubAgentSessionBody({
   // raise a permission request. The parent card no longer answers it inline
   // (it only badges "awaiting approval"); this dialog is where the user
   // resolves it. Route the response through the CHILD connection id.
-  const { respondPermission, answerQuestion } = useAcpActions()
+  const { respondPermission, answerQuestion, respondChannelConfirmation } =
+    useAcpActions()
   const childPendingPermission = childConn?.pendingPermission ?? null
   const onRespondPermission = useCallback(
     (requestId: string, optionId: string) => {
@@ -346,6 +348,18 @@ function SubAgentSessionBody({
     },
     [childConnectionId, answerQuestion]
   )
+  const childChannelConfirmation = childConn?.pendingChannelConfirmation ?? null
+  const onRespondChannelConfirmation = useCallback(
+    (confirmationId: string, confirmed: boolean) => {
+      if (!childConnectionId) return
+      return respondChannelConfirmation(
+        childConnectionId,
+        confirmationId,
+        confirmed
+      )
+    },
+    [childConnectionId, respondChannelConfirmation]
+  )
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -366,6 +380,14 @@ function SubAgentSessionBody({
           <PermissionDialog
             permission={childPendingPermission}
             onRespond={onRespondPermission}
+          />
+        </div>
+      )}
+      {childConnectionId && childChannelConfirmation && (
+        <div className="border-b border-border px-4 py-3">
+          <ChannelConfirmationCard
+            confirmation={childChannelConfirmation}
+            onRespond={onRespondChannelConfirmation}
           />
         </div>
       )}

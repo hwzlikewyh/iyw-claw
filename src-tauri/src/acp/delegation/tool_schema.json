@@ -500,5 +500,334 @@
       },
       "additionalProperties": false
     }
+  },
+  {
+    "name": "list_message_channels",
+    "description": "List iyw-claw message channels using safe, non-secret views. Omit filters to list all channels. This never returns credentials, raw provider target ids, or config JSON.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "channel_id": {
+          "type": "integer",
+          "description": "Optional iyw-claw channel id."
+        },
+        "channel_type": {
+          "type": "string",
+          "enum": ["lark", "weixin", "wecom"]
+        },
+        "enabled": { "type": "boolean" },
+        "runtime_status": {
+          "type": "string",
+          "description": "Optional current runtime-status filter."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "save_message_channel",
+    "description": "Create or patch an iyw-claw message channel. Omit channel_id to create. Supplied credential and provider bootstrap fields are write-only and are never returned. This executes immediately without confirmation.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["request_id"],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Caller-generated idempotency id."
+        },
+        "channel_id": {
+          "type": "integer",
+          "description": "Existing channel id to patch. Omit to create."
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "channel_type": {
+          "type": "string",
+          "enum": ["lark", "weixin", "wecom"],
+          "description": "Required when creating and immutable afterwards."
+        },
+        "enabled": { "type": "boolean" },
+        "daily_report_enabled": { "type": "boolean" },
+        "daily_report_time": {
+          "type": "string",
+          "description": "Daily report time in the format accepted by iyw-claw."
+        },
+        "config": {
+          "type": "object",
+          "description": "Typed partial configuration. Provider identifiers in this object are write-only bootstrap values.",
+          "properties": {
+            "base_url": { "type": "string" },
+            "app_id": { "type": "string" },
+            "default_target": { "type": "string" },
+            "default_target_type": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "default_agent_type": { "type": "string" },
+            "poll_interval_secs": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "credential": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional write-only credential. Never echoed or stored in tool audit details."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_message_channel",
+    "description": "Request deletion of one message channel and its local related records. The operation blocks until the user explicitly confirms or cancels it in iyw-claw.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["request_id", "channel_id"],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Caller-generated idempotency id."
+        },
+        "channel_id": { "type": "integer" },
+        "reason": {
+          "type": "string",
+          "description": "Optional reason for audit context; do not include secrets."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "manage_channel_credential",
+    "description": "Check, write, replace, delete, or run QR authorization for a channel credential. Credential values are write-only. Delete blocks for explicit user confirmation; other operations execute immediately.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["channel_id", "operation"],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required for set, replace, delete, and start_authorization."
+        },
+        "channel_id": { "type": "integer" },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "status",
+            "set",
+            "replace",
+            "delete",
+            "start_authorization",
+            "check_authorization"
+          ]
+        },
+        "credential": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Write-only credential for set or replace."
+        },
+        "authorization_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque id returned by start_authorization; required for check_authorization."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "operate_message_channel",
+    "description": "Connect, disconnect, or diagnose an existing message channel. Results contain only normalized readiness and safe errors.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["request_id", "channel_id", "operation"],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Caller-generated idempotency id."
+        },
+        "channel_id": { "type": "integer" },
+        "operation": {
+          "type": "string",
+          "enum": ["connect", "disconnect", "quick_check", "full_loop"]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_channel_targets",
+    "description": "List safe opaque targets for one channel. Only configured defaults and conversations that really interacted with iyw-claw are returned. Use target_id from this tool when sending.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["channel_id"],
+      "properties": {
+        "channel_id": { "type": "integer" },
+        "target_kind": { "type": "string" },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional RFC 3339 minimum last-interaction time."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_channel_messages",
+    "description": "Read a bounded page of iyw-claw's local message log for one channel. This does not fetch platform history and never returns raw provider ids, full attachment paths, credentials, or unbounded bodies.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["channel_id"],
+      "properties": {
+        "channel_id": { "type": "integer" },
+        "target_id": {
+          "type": "string",
+          "description": "Optional opaque target id from list_channel_targets."
+        },
+        "direction": { "type": "string", "enum": ["inbound", "outbound"] },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        },
+        "cursor": {
+          "type": "string",
+          "description": "Opaque next_cursor returned by a previous page."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "send_channel_messages",
+    "description": "Send text or structured messages, optionally with readable local files, to default or known targets. target_id must come from list_channel_targets. File paths may be absolute or relative to the current Agent working directory. Unsupported attachments are reported per item and never disguised as successful sends.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["request_id", "items"],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Caller-generated idempotency id for the full batch."
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["channel_id", "target_id"],
+            "properties": {
+              "channel_id": { "type": "integer" },
+              "target_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Opaque default or known target id from list_channel_targets."
+              },
+              "text": { "type": "string" },
+              "rich": {
+                "type": "object",
+                "required": ["body"],
+                "properties": {
+                  "title": { "type": "string" },
+                  "body": { "type": "string", "minLength": 1 },
+                  "fields": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["label", "value"],
+                      "properties": {
+                        "label": { "type": "string" },
+                        "value": { "type": "string" }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "level": {
+                    "type": "string",
+                    "enum": ["info", "warning", "error"]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "files": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              }
+            },
+            "additionalProperties": false,
+            "not": { "required": ["text", "rich"] }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "manage_channel_settings",
+    "description": "Read or patch global message-channel settings. get returns only safe projections. Webhook URLs and routing secrets are write-only where applicable; patch executes immediately without confirmation.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["operation"],
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required for patch."
+        },
+        "operation": { "type": "string", "enum": ["get", "patch"] },
+        "patch": {
+          "type": "object",
+          "properties": {
+            "command_prefix": { "type": "string" },
+            "message_language": { "type": "string" },
+            "event_filter": { "type": "array", "items": { "type": "string" } },
+            "reset_event_filter": { "type": "boolean" },
+            "webhooks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["url", "enabled"],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Write-only webhook URL."
+                  },
+                  "enabled": { "type": "boolean" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "natural_router": {
+              "type": "object",
+              "required": ["enabled", "model"],
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "model": { "type": "string" },
+                "api_key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Optional write-only natural-router credential. Never returned."
+                },
+                "delete_api_key": {
+                  "type": "boolean",
+                  "description": "Set true to remove the stored natural-router credential."
+                }
+              },
+              "additionalProperties": false
+            },
+            "daily_report_enabled": { "type": "boolean" },
+            "daily_report_time": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
   }
 ]

@@ -78,9 +78,8 @@ pub fn spawn_command_dispatcher(
             if let Some(provider_id) = cmd.provider_message_id.as_deref() {
                 if !dedupe.check_and_insert(cmd.channel_id, provider_id) {
                     tracing::info!(
-                        "[ChatChannel] duplicate inbound dropped channel={} provider={}",
-                        cmd.channel_id,
-                        provider_id
+                        channel_id = cmd.channel_id,
+                        "[ChatChannel] duplicate inbound dropped"
                     );
                     continue;
                 }
@@ -89,18 +88,38 @@ pub fn spawn_command_dispatcher(
                 .record_inbound(cmd.channel_id, cmd.received_at)
                 .await;
 
+            let target_label = cmd
+                .metadata
+                .get("chat_name")
+                .and_then(serde_json::Value::as_str)
+                .or(cmd.sender_name.as_deref())
+                .unwrap_or("消息会话");
+            let registered_target =
+                super::target_registry::register_inbound(&db_conn, &cmd.target, target_label).await;
+            let target_id = match registered_target {
+                Ok(target) => Some(target.target_id),
+                Err(error) => {
+                    tracing::error!(
+                        channel_id = cmd.channel_id,
+                        error = %error,
+                        "[ChatChannel] failed to register inbound target"
+                    );
+                    None
+                }
+            };
+
             let text = cmd.command_text.trim();
             let trace_id = cmd.message_trace_id.clone();
             tracing::info!(
-                "[ChatChannel] received command from channel={} sender={} trace={}: {:?}",
-                cmd.channel_id,
-                cmd.sender_id,
+                channel_id = cmd.channel_id,
+                target_id = target_id.as_deref().unwrap_or("legacy_unknown"),
                 trace_id,
-                text
+                content_chars = text.chars().count(),
+                "[ChatChannel] received command"
             );
 
             // Log inbound command with the end-to-end trace id.
-            let _ = chat_channel_message_log_service::create_log_full(
+            let _ = chat_channel_message_log_service::create_log_for_target(
                 &db_conn,
                 cmd.channel_id,
                 "inbound",
@@ -110,6 +129,7 @@ pub fn spawn_command_dispatcher(
                 None,
                 Some(trace_id.clone()),
                 cmd.provider_message_id.clone(),
+                target_id,
             )
             .await;
 
@@ -398,10 +418,9 @@ async fn dispatch_natural_message(
     let decision =
         natural_router::route_natural_message(db, bridge, channel_id, sender_id, text, lang).await;
     tracing::info!(
-        "[ChatChannel] natural route channel={} sender={} decision={:?}",
         channel_id,
-        sender_id,
-        decision
+        decision = ?decision,
+        "[ChatChannel] natural route selected"
     );
 
     match decision {
@@ -495,10 +514,9 @@ async fn dispatch_natural_message(
         ),
         NaturalRouteDecision::AskClarification { message } => {
             tracing::info!(
-                "[ChatChannel] sending clarification to channel={} sender={}: {}",
                 channel_id,
-                sender_id,
-                message
+                content_chars = message.chars().count(),
+                "[ChatChannel] sending clarification"
             );
             DispatchResponse::current(RichMessage::info(message), target)
         }

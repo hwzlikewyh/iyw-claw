@@ -15,9 +15,11 @@ pub mod backup;
 pub mod chat_attachments;
 pub mod chat_channel;
 pub mod chat_image;
+mod chat_image_upload;
 pub mod computer_use;
 pub mod conversations;
 pub mod delegation;
+pub mod display_assets;
 pub mod experts;
 pub mod feedback;
 #[cfg(feature = "tauri-runtime")]

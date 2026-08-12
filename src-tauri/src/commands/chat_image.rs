@@ -3,15 +3,20 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use image::codecs::jpeg::JpegEncoder;
 use image::metadata::Orientation;
 use image::{
     DynamicImage, ExtendedColorType, ImageDecoder, ImageEncoder, ImageFormat, ImageReader, Limits,
 };
 use serde::Serialize;
+#[cfg(feature = "tauri-runtime")]
+use tauri::State;
 
 use crate::app_error::AppCommandError;
+#[cfg(feature = "tauri-runtime")]
+use crate::db::AppDatabase;
+
+use super::chat_image_upload;
 
 pub const CHAT_IMAGE_SOURCE_MAX_BYTES: u64 = 100 * 1024 * 1024;
 pub const CHAT_IMAGE_DERIVED_MAX_BYTES: usize = 10 * 1024 * 1024;
@@ -27,7 +32,7 @@ const JPEG_QUALITIES: [u8; 4] = [85, 70, 55, 40];
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedChatImage {
-    pub data: String,
+    pub url: String,
     pub mime_type: String,
     pub name: String,
     pub source_bytes: u64,
@@ -36,11 +41,13 @@ pub struct PreparedChatImage {
     pub height: u32,
 }
 
-struct EncodedImage {
-    bytes: Vec<u8>,
-    mime_type: &'static str,
-    width: u32,
-    height: u32,
+pub(crate) struct EncodedChatImage {
+    pub bytes: Vec<u8>,
+    pub mime_type: &'static str,
+    pub name: String,
+    pub source_bytes: u64,
+    pub width: u32,
+    pub height: u32,
 }
 
 fn image_error(message: &'static str, error: impl std::fmt::Display) -> AppCommandError {
@@ -128,14 +135,16 @@ fn shrink(image: &DynamicImage) -> DynamicImage {
     image.resize(width, height, image::imageops::FilterType::Lanczos3)
 }
 
-fn encode_derived(mut image: DynamicImage) -> Result<EncodedImage, AppCommandError> {
+fn encode_derived(mut image: DynamicImage) -> Result<EncodedChatImage, AppCommandError> {
     for attempt in 0..MAX_RESIZE_ATTEMPTS {
         if image.has_alpha() {
             let bytes = encode_png(&image)?;
             if bytes.len() <= CHAT_IMAGE_DERIVED_MAX_BYTES {
-                return Ok(EncodedImage {
+                return Ok(EncodedChatImage {
                     bytes,
                     mime_type: "image/png",
+                    name: String::new(),
+                    source_bytes: 0,
                     width: image.width(),
                     height: image.height(),
                 });
@@ -144,9 +153,11 @@ fn encode_derived(mut image: DynamicImage) -> Result<EncodedImage, AppCommandErr
             for quality in JPEG_QUALITIES {
                 let bytes = encode_jpeg(&image, quality)?;
                 if bytes.len() <= CHAT_IMAGE_DERIVED_MAX_BYTES {
-                    return Ok(EncodedImage {
+                    return Ok(EncodedChatImage {
                         bytes,
                         mime_type: "image/jpeg",
+                        name: String::new(),
+                        source_bytes: 0,
                         width: image.width(),
                         height: image.height(),
                     });
@@ -166,7 +177,7 @@ fn prepare_sync(
     path: &Path,
     source_bytes: u64,
     name: String,
-) -> Result<PreparedChatImage, AppCommandError> {
+) -> Result<EncodedChatImage, AppCommandError> {
     let bytes = std::fs::read(path).map_err(|error| {
         AppCommandError::io_error("Unable to read image").with_detail(error.to_string())
     })?;
@@ -182,9 +193,11 @@ fn prepare_sync(
         && image.height() <= CHAT_IMAGE_MAX_EDGE
         && orientation == Orientation::NoTransforms;
     let encoded = if can_reuse {
-        EncodedImage {
+        EncodedChatImage {
             bytes,
             mime_type: source_mime,
+            name: String::new(),
+            source_bytes: 0,
             width: image.width(),
             height: image.height(),
         }
@@ -194,18 +207,16 @@ fn prepare_sync(
         encode_derived(image)?
     };
 
-    Ok(PreparedChatImage {
-        data: BASE64.encode(&encoded.bytes),
-        mime_type: encoded.mime_type.to_string(),
+    Ok(EncodedChatImage {
         name,
         source_bytes,
-        derived_bytes: encoded.bytes.len(),
-        width: encoded.width,
-        height: encoded.height,
+        ..encoded
     })
 }
 
-pub async fn prepare_chat_image_core(path: PathBuf) -> Result<PreparedChatImage, AppCommandError> {
+pub(crate) async fn encode_chat_image_path(
+    path: PathBuf,
+) -> Result<EncodedChatImage, AppCommandError> {
     if !path.is_absolute() {
         return Err(AppCommandError::invalid_input(
             "Image path must be absolute",
@@ -224,30 +235,54 @@ pub async fn prepare_chat_image_core(path: PathBuf) -> Result<PreparedChatImage,
     if metadata.len() > CHAT_IMAGE_SOURCE_MAX_BYTES {
         return Err(source_too_large_error(&name, metadata.len()));
     }
-    let log_name = name.clone();
     let source_bytes = metadata.len();
-    let started = Instant::now();
-    let prepared = tokio::task::spawn_blocking(move || prepare_sync(&path, source_bytes, name))
+    tokio::task::spawn_blocking(move || prepare_sync(&path, source_bytes, name))
         .await
         .map_err(|error| {
             AppCommandError::task_execution_failed("Image processing task failed")
                 .with_detail(error.to_string())
-        })??;
+        })?
+}
+
+pub async fn prepare_chat_image_core(
+    conn: &sea_orm::DatabaseConnection,
+    path: PathBuf,
+) -> Result<PreparedChatImage, AppCommandError> {
+    let name = path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "image".to_string());
+    prepare_chat_image_named_core(conn, path, name).await
+}
+
+pub(crate) async fn prepare_chat_image_named_core(
+    conn: &sea_orm::DatabaseConnection,
+    path: PathBuf,
+    name: String,
+) -> Result<PreparedChatImage, AppCommandError> {
+    let started = Instant::now();
+    let mut prepared = encode_chat_image_path(path).await?;
+    prepared.name = name;
+    let result = chat_image_upload::upload_prepared(conn, &prepared).await?;
     tracing::info!(
         target: "chat.image",
-        file_name = %log_name,
+        file_name = %prepared.name,
         mime_type = %prepared.mime_type,
         source_bytes = prepared.source_bytes,
-        derived_bytes = prepared.derived_bytes,
+        derived_bytes = prepared.bytes.len(),
         width = prepared.width,
         height = prepared.height,
         elapsed_ms = started.elapsed().as_millis(),
-        "prepared chat image"
+        "prepared and uploaded chat image"
     );
-    Ok(prepared)
+    Ok(result)
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn prepare_chat_image(path: String) -> Result<PreparedChatImage, AppCommandError> {
-    prepare_chat_image_core(PathBuf::from(path)).await
+#[cfg(feature = "tauri-runtime")]
+pub async fn prepare_chat_image(
+    db: State<'_, AppDatabase>,
+    path: String,
+) -> Result<PreparedChatImage, AppCommandError> {
+    prepare_chat_image_core(&db.conn, PathBuf::from(path)).await
 }
