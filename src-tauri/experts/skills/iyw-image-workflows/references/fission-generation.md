@@ -21,8 +21,9 @@
 ```
 
 `model_options` 是 JSON 字符串。只选择标签以“分身”开头的配置，忽略垂直模型和
-私有模型。CLI 按实时配置顺序生成任务；遇到尚未内置精确默认参数的新分身时，
-必须在调用 batch 前失败。
+私有模型。默认只向一个平台下发并优先使用通道四；通道四不在实时配置中时，回退到
+实时配置顺序中的第一个可用平台。遇到尚未内置精确默认参数的新分身时，必须在调用
+batch 前失败。
 
 ## 创建
 
@@ -36,6 +37,17 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 CLI 固定发送 `prompt`、`jsonData: null` 和已经确认的 `models` 数组。不要通过临时
 JSON 文件覆盖 `platform`、`size` 或 `stats`。batch 是收费创建请求，只调用一次，
 不得自动重试。
+
+只有用户明确要求多平台比稿时才增加 `--compare-platforms`：
+
+```powershell
+uv run --project $skillDir --python 3.13 python $commerceCli `
+  fission-generate --prompt "产品设计草图" --compare-platforms `
+  --wait-seconds 120
+```
+
+比稿模式向全部可用分身平台下发并将通道四排在第一位。通道四缺失时保持实时配置
+顺序。默认模式和比稿模式都只调用一次 batch 创建接口。
 
 创建成功后，保留响应中每个 `tasks[].data.taskId` 和 `groupId`。不要向用户暴露
 `balance`、`micro`、`platform` 或其他内部路由字段。

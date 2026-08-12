@@ -11,6 +11,8 @@ operation `g_tools_generate_image`。变款应使用已封装的本地命令 `to
 - 变款
 - 系列延伸
 - 多图融合
+- 趋势路由与成组版式
+- 本地布局拼接
 - 图片放大
 - 清单图片工具
 - 调用与任务查询
@@ -55,6 +57,38 @@ operation `g_tools_generate_image`。变款应使用已封装的本地命令 `to
 ```
 
 除非用户明确要求无约束延伸，否则不要留空 `prompt`。
+
+## 趋势路由与成组版式
+
+用户提供一张已上传或已检测的基准图片并指定趋势或主题时，先调用一次 `tool extend`。
+只有创建明确失败、任务明确失败或视觉检查确认结果不满足要求时，才回退一次
+`tool variation`；不得循环重试。创建结果不确定或等待超时时，只查询原 task ID，
+不得据此创建回退任务。没有基准图片时，纯文本趋势或主题请求仍使用
+`fission-generate`。
+
+`variation` 和 `extend` 的 `batchSize` 固定为 `1`。用户要求宫格、联图、阵列或其他
+成组版式时，先在提示词中写明布局、数量和顺序，用一个任务直接生成一张完整合成图，
+不要拆成多个并发任务。只有任务明确失败或视觉检查确认布局不符时，才生成各分图并
+使用 `compose-layout`。无法视觉检查时保留单任务结果，说明布局未验证，不得增加收费任务。
+用户没有明确可计算的行列、图片数量或顺序时，先询问，不得猜测。
+
+趋势或主题成组版式的尝试顺序固定为：一次完整布局 `extend`、一次完整布局
+`variation`、各分图生成、本地拼接。每一步只有前一步明确失败或视觉确认不符时才进入。
+
+## 本地布局拼接
+
+`compose-layout` 只处理本地图片，不读取 token、不访问 API：
+
+```powershell
+uv run --project $skillDir --python 3.13 python $commerceCli `
+  compose-layout --image "C:\path\1.png" --image "C:\path\2.png" `
+  --rows 1 --columns 2 --gap 0 --background "#FFFFFF" `
+  --out "C:\path\layout.png"
+```
+
+按用户指定顺序重复传 `--image`。图片数量必须等于 `--rows` 乘 `--columns`；行列为
+正整数，`--gap` 为非负像素。每格使用输入图片中的最大宽高，图片保持比例、居中、
+不裁切。输出支持 PNG、JPEG 和 WebP；默认拒绝覆盖，只有用户明确允许时才传 `--force`。
 
 ## 多图融合
 

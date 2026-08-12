@@ -15,7 +15,12 @@ from iyw_sales_layout import (
     sanitize_path_component,
 )
 from iyw_sales_office import OFFICE_DELIVERABLES, create_office_deliverables
-from iyw_sales_selection import contact_status, material_status, product_status
+from iyw_sales_selection import (
+    contact_status,
+    material_status,
+    preferred_attempted_types,
+    product_status,
+)
 
 
 def _pending(action_type: str, company: str, salesperson: str) -> dict[str, object]:
@@ -116,9 +121,13 @@ def build_package(
         record["run"]["salesperson"],
         current,
     )
-    products = product_status(record.get("products", []))
+    products = product_status(record.get("products", []), record.get("company"))
     contacts = contact_status(record.get("contacts", []))
-    materials = material_status(record.get("materials", []), record["run"]["market"])
+    materials = material_status(
+        record.get("materials", []),
+        record["run"]["market"],
+        preferred_attempted=preferred_attempted_types(record.get("material_workflow")),
+    )
     crm_result = evaluation["crm_decision"]
     actions = create_pending_actions(record, crm_result)
     status = _package_status(crm_result, [products, contacts, materials])

@@ -79,9 +79,28 @@ def _write_batch(path: Path, commands: list[dict[str, object]]) -> None:
     _verify(path)
 
 
+def _verify_html(path: Path) -> None:
+    preview = path.with_name(f".{path.stem}-preview.html")
+    try:
+        _run(["view", str(path), "html", "-o", str(preview)])
+        if not preview.is_file() or not preview.stat().st_size:
+            raise OfficeCliError(f"officecli 未生成 {path.name} 的 HTML 预览")
+        content = preview.read_text(encoding="utf-8", errors="replace")
+        markers = ("###", "$fy$", "{var}", "<TODO>")
+        leaked = next((marker for marker in markers if marker in content), None)
+        if leaked:
+            raise OfficeCliError(f"{path.name} 的 HTML 预览包含异常标记：{leaked}")
+    finally:
+        preview.unlink(missing_ok=True)
+
+
 def _verify(path: Path) -> None:
     _run(["validate", str(path)])
-    _run(["view", str(path), "issues"])
+    issues = _run(["view", str(path), "issues"])
+    normalized = issues.casefold()
+    issue_markers = ("error:", "overflow", "overlap", "clipped", "truncated")
+    if any(marker in normalized for marker in issue_markers):
+        raise OfficeCliError(f"{path.name} 的布局检查未通过：{issues.strip()}")
     preview = path.with_name(f".{path.stem}-preview.png")
     preview_available = True
     args = ["view", str(path), "screenshot"]
@@ -90,7 +109,9 @@ def _verify(path: Path) -> None:
     args.extend(["-o", str(preview)])
     try:
         try:
-            _run(args)
+            output = _run(args)
+            if "No headless browser available" in output:
+                raise OfficeCliError(output.strip())
         except OfficeCliError as error:
             if "No headless browser available" not in str(error):
                 raise
@@ -99,6 +120,7 @@ def _verify(path: Path) -> None:
             except OfficePreviewError as fallback_error:
                 if "浏览器" not in str(fallback_error):
                     raise
+                _verify_html(path)
                 preview_available = False
         if preview_available and (
             not preview.is_file() or preview.stat().st_size == 0

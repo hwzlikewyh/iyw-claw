@@ -1,6 +1,6 @@
 [bundle]
 schema_version = 1
-version = "0.0.15"
+version = "0.0.16"
 min_app_version = "0.1.17"
 
 [[expert]]

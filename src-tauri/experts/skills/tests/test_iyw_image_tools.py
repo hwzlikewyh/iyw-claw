@@ -32,13 +32,25 @@ def test_all_fixed_tools_have_operations():
 
 
 def test_variation_sets_fixed_tool_name_and_accepts_one_image():
-    payload = {"imageUrls": HTTPS, "prompt": "改成蓝色"}
+    payload = {"imageUrls": HTTPS, "prompt": "改成蓝色", "batchSize": 4}
 
     operation = validate_tool_payload("variation", payload)
 
     assert operation == "g_tools_generate_image"
     assert payload["toolName"] == "variation"
     assert payload["imageUrls"] == HTTPS
+    assert payload["batchSize"] == 1
+
+
+def test_extend_sets_fixed_tool_name_and_single_batch():
+    payload = {"imageUrls": HTTPS, "prompt": "延伸春夏趋势系列"}
+
+    operation = validate_tool_payload("extend", payload)
+
+    assert operation == "g_tools_generate_image"
+    assert payload["toolName"] == "extend"
+    assert payload["imageUrls"] == HTTPS
+    assert payload["batchSize"] == 1
 
 
 def test_mix_requires_two_to_ten_images():
@@ -126,6 +138,36 @@ def test_generic_generate_operation_rejects_unknown_tool_name():
 
     with pytest.raises(IywError, match="unsupported"):
         _validate_generate_payload({"toolName": "unknown", "imageUrls": HTTPS})
+
+
+@pytest.mark.parametrize("tool_name", ["variation", "extend"])
+def test_generic_invoke_forces_single_batch(tmp_path, tool_name):
+    payload_file = tmp_path / f"{tool_name}.json"
+    payload_file.write_text(
+        json.dumps(
+            {
+                "imageUrls": HTTPS,
+                "prompt": "生成一张完整联图",
+                "toolName": tool_name,
+                "batchSize": 4,
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = build_parser().parse_args(
+        [
+            "invoke",
+            "g_tools_generate_image",
+            "--input-file",
+            str(payload_file),
+            "--dry-run",
+            "--no-progress",
+        ]
+    )
+
+    result = asyncio.run(run_command(args))
+
+    assert result["body"]["batchSize"] == 1
 
 
 def test_generic_invoke_rejects_sensitive_payload(tmp_path):

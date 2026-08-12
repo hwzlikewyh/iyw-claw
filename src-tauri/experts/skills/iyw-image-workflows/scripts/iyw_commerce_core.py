@@ -188,6 +188,7 @@ def _validate_generate_payload(payload: dict[str, Any]) -> None:
         if not isinstance(image_urls, str):
             raise IywError(f"{tool_name} requires one image URL", "invalid_input")
         _require_https(image_urls, f"{tool_name} image URL")
+        payload["batchSize"] = 1
     elif tool_name in {"iyw_tu", "iyw_ip", "user_product", "seperate_layers", "extract_pattern", "return_leftright", "color_transfer"}:
         if isinstance(image_urls, str):
             _require_https(image_urls, "image URL")
