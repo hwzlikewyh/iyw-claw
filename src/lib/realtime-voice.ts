@@ -5,16 +5,18 @@ const MAX_AUDIO_CHUNK_BYTES = 12_800
 
 export type RealtimeVoiceEvent =
   | { type: "ready"; sessionId: string }
-  | {
-      type: "partial" | "final"
-      sessionId: string
-      sequence: number
-      text: string
-      startMs?: number | null
-      endMs?: number | null
-    }
+  | ({ type: "partial" } & RealtimeVoiceTextEvent)
+  | ({ type: "final" } & RealtimeVoiceTextEvent)
   | { type: "completed"; sessionId: string; durationMs?: number | null }
   | { type: "error"; sessionId: string; code: string; message: string }
+
+interface RealtimeVoiceTextEvent {
+  sessionId: string
+  sequence: number
+  text: string
+  startMs?: number | null
+  endMs?: number | null
+}
 
 export interface RealtimeVoiceSession {
   sessionId: string

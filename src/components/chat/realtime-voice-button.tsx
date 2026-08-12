@@ -52,7 +52,7 @@ export function RealtimeVoiceButton({
           )}
         </Button>
       </ContextMenuTrigger>
-      <ContextMenuContent side="top" align="end">
+      <ContextMenuContent>
         <ContextMenuPrimitive.CheckboxItem
           checked={autoSend}
           className="focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2.5 rounded-xl py-2 pr-8 pl-3 text-sm outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50"

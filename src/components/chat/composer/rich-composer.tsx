@@ -549,8 +549,8 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
 )
 
 function needsVoiceSeparator(existing: string, incoming: string): boolean {
-  const left = existing.at(-1)
-  const right = incoming.at(0)
+  const left = existing[existing.length - 1]
+  const right = incoming[0]
   return Boolean(
     left && right && /[a-z0-9]/i.test(left) && /[a-z0-9]/i.test(right)
   )
