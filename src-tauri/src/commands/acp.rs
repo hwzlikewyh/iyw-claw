@@ -1593,6 +1593,7 @@ const CODEX_IMAGE_FALLBACK_INSTRUCTIONS: &str = r###"图片理解规则：
 - 当当前任务需要识别、读取、比较或判断图片内容时，先确认当前可用工具中存在名称后缀为 `analyze_image` 的工具，再对每个相关图片来源调用它，即使上下文已经包含原生图片输入或上游图片描述。将图片路径、file URI、HTTPS URL、Data URI 或 Base64 传入 `source`，将当前任务需要确认的视觉信息写入 `question`。
 - 只有现有 `analyze_image` 结果已经足以回答同一问题时才不要重复调用。
 - 如果没有可用的 `analyze_image` 工具或调用失败，回退使用已有的原生视觉输入或上游分析文本；现有视觉信息仍不足时明确说明当前无法可靠分析图片，不要虚构工具调用或猜测图片内容。
+- 若已调用的 MCP 工具返回 unknown、unsupported、not found 等路由错误，视为该工具本轮不可用。不得通过添加、删除或猜测 `mcp__`、namespace 或 `__` 前缀重新调用，也不得对同一输入重复调用；按已有视觉信息回退，仍不足时说明无法可靠完成。
 - 不要向工具传入模型、provider 或凭据；视觉模型由系统选择。"###;
 
 #[cfg(target_os = "windows")]
