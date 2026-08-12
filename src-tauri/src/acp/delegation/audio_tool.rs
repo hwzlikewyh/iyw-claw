@@ -25,7 +25,7 @@ pub struct QueryAudioTranscriptionArguments {
 }
 
 pub fn prepare_transcribe(arguments: Value) -> Result<TranscribeAudioArguments, Value> {
-    let input = serde_json::from_value(arguments).map_err(|_| {
+    let input: TranscribeAudioArguments = serde_json::from_value(arguments).map_err(|_| {
         error_result(
             "audio_transcription_invalid_arguments",
             "Audio transcription arguments are invalid.",

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio_util::io::ReaderStream;
 
-use super::audio_transcription::{AudioToolFailure, PreparedAudioFile};
+use super::{AudioToolFailure, PreparedAudioFile};
 use crate::acp::delegation::transport::AudioTranscriptionOptions;
 use crate::commands::skill_market::client as fusion_client;
 
