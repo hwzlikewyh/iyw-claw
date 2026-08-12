@@ -13,7 +13,12 @@ import {
   type UserMemoryCandidateSummary,
   type UserMemorySettingsSnapshot,
 } from "@/lib/user-memory-documents"
-import { CandidateRow, ConfirmDialog, MergeDialog } from "./user-memory-candidate-dialogs"
+import {
+  CandidateRow,
+  ConfirmDialog,
+  isMergeTarget,
+  MergeDialog,
+} from "./user-memory-candidate-dialogs"
 
 interface UserMemoryCandidatesPanelProps {
   settings: UserMemorySettingsSnapshot
@@ -42,8 +47,12 @@ export function UserMemoryCandidatesPanel({
   const [mergeTarget, setMergeTarget] = useState("")
 
   const grouped = useMemo(() => {
-    const groups = new Map<UserMemoryCandidateStatus, UserMemoryCandidateSummary[]>()
-    for (const status of USER_MEMORY_CANDIDATE_STATUS_ORDER) groups.set(status, [])
+    const groups = new Map<
+      UserMemoryCandidateStatus,
+      UserMemoryCandidateSummary[]
+    >()
+    for (const status of USER_MEMORY_CANDIDATE_STATUS_ORDER)
+      groups.set(status, [])
     for (const candidate of candidates) {
       groups.get(candidate.status)?.push(candidate)
     }
@@ -55,13 +64,22 @@ export function UserMemoryCandidatesPanel({
     resolution: UserMemoryCandidateResolveRequest["resolution"]
   ) {
     if (!revision) return
-    const module = await import("@/lib/api")
-    const call = (module as { resolveUserMemoryCandidate?: (request: UserMemoryCandidateResolveRequest) => Promise<unknown> })
-      .resolveUserMemoryCandidate
+    const apiModule = await import("@/lib/api")
+    const call = (
+      apiModule as {
+        resolveUserMemoryCandidate?: (
+          request: UserMemoryCandidateResolveRequest
+        ) => Promise<unknown>
+      }
+    ).resolveUserMemoryCandidate
     if (typeof call !== "function") return
     setLoading(true)
     try {
-      await call({ candidateId: candidate.id, expectedRevision: revision, resolution })
+      await call({
+        candidateId: candidate.id,
+        expectedRevision: revision,
+        resolution,
+      })
       toast.success(t("diagnostics.candidates.done"))
       await onChanged()
     } catch (error) {
@@ -75,9 +93,15 @@ export function UserMemoryCandidatesPanel({
 
   async function remove(candidate: UserMemoryCandidateSummary) {
     if (!revision) return
-    const module = await import("@/lib/api")
-    const call = (module as { deleteUserMemoryCandidate?: (request: { candidateId: string; expectedRevision: string }) => Promise<unknown> })
-      .deleteUserMemoryCandidate
+    const apiModule = await import("@/lib/api")
+    const call = (
+      apiModule as {
+        deleteUserMemoryCandidate?: (request: {
+          candidateId: string
+          expectedRevision: string
+        }) => Promise<unknown>
+      }
+    ).deleteUserMemoryCandidate
     if (typeof call !== "function") return
     setLoading(true)
     try {
@@ -102,7 +126,9 @@ export function UserMemoryCandidatesPanel({
         </span>
       </div>
       {candidates.length === 0 ? (
-        <p className="text-muted-foreground">{t("diagnostics.candidates.empty")}</p>
+        <p className="text-muted-foreground">
+          {t("diagnostics.candidates.empty")}
+        </p>
       ) : (
         <div className="space-y-3">
           {USER_MEMORY_CANDIDATE_STATUS_ORDER.map((status) => {
@@ -111,12 +137,16 @@ export function UserMemoryCandidatesPanel({
             return (
               <div key={status}>
                 <div className="mb-1 flex items-center gap-2">
-                  <span className="font-medium">{t(`diagnostics.candidates.${status}`)}</span>
+                  <span className="font-medium">
+                    {t(`diagnostics.candidates.${status}`)}
+                  </span>
                   <Badge variant="outline" className="text-[10px]">
                     {list.length}
                   </Badge>
                   {(counts[status] ?? 0) > 0 && (
-                    <span className="text-[10px] text-muted-foreground">{counts[status]}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {counts[status]}
+                    </span>
                   )}
                 </div>
                 <ul className="space-y-2">
@@ -124,12 +154,17 @@ export function UserMemoryCandidatesPanel({
                     <CandidateRow
                       key={candidate.id}
                       candidate={candidate}
+                      canMerge={candidates.some((item) =>
+                        isMergeTarget(item, candidate.id)
+                      )}
                       busy={busy || loading}
                       onConfirm={() => {
                         setEditedContent(candidate.content)
                         setConfirmCandidate(candidate)
                       }}
-                      onReject={() => void resolve(candidate, { type: "reject" })}
+                      onReject={() =>
+                        void resolve(candidate, { type: "reject" })
+                      }
                       onMerge={() => {
                         setMergeTarget("")
                         setMergeCandidate(candidate)

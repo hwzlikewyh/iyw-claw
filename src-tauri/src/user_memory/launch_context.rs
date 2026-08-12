@@ -115,10 +115,10 @@ fn build_context(
     }
 }
 
-fn policy_access(policy: &UserMemoryPolicy, agent_type: AgentType) -> UserMemoryPolicyAccess {
+fn policy_access(policy: &UserMemoryPolicy, _agent_type: AgentType) -> UserMemoryPolicyAccess {
     UserMemoryPolicyAccess {
         enabled: policy.enabled,
-        agent_enabled: policy.per_agent.get(&agent_type).copied().unwrap_or(true),
+        agent_enabled: true,
         inheritance_allowed: policy.inherit_to_subagents,
         agent_write_enabled: policy.agent_write_enabled,
         enabled_documents: enabled_documents(policy),

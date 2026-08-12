@@ -140,12 +140,7 @@ fn validate_candidate_target(
         .iter()
         .find(|candidate| candidate.id == target);
     if state.candidates[index].id == target.map_or("", |candidate| candidate.id.as_str())
-        || target.is_none_or(|candidate| {
-            matches!(
-                candidate.status,
-                UserMemoryCandidateStatus::Rejected | UserMemoryCandidateStatus::Superseded
-            )
-        })
+        || target.is_none_or(|candidate| candidate.status.is_terminal())
     {
         Err(AppCommandError::invalid_input(
             "Superseding candidate target is invalid",

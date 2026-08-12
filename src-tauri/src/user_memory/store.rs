@@ -4,7 +4,10 @@ use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
 use crate::paths::UserMemoryPathError;
 
-use super::helpers::{conflict, hash_parts, settings_revision, validate_document_update_content};
+use super::helpers::{
+    conflict, hash_parts, normalize_agent_policy, settings_revision,
+    validate_document_update_content,
+};
 use super::service::POLICY_KEY;
 use super::settings_projection::{readable_document_snapshot, unreadable_document_snapshot};
 use super::{candidate_store, fs};
@@ -12,13 +15,18 @@ use super::{
     UserMemoryAvailabilityDiagnostic, UserMemoryAvailabilityReason, UserMemoryCandidateDiagnostic,
     UserMemoryCandidateDiagnosticReason, UserMemoryCandidateStatus, UserMemoryDocumentId,
     UserMemoryPolicy, UserMemoryService, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
-    USER_MEMORY_AGENT_TYPES,
 };
 
 impl UserMemoryService {
     pub(super) async fn load_policy(&self) -> Result<UserMemoryPolicy, AppCommandError> {
         self.recover_pending_transaction().await?;
-        self.load_policy_unrecovered().await
+        let mut policy = self.load_policy_unrecovered().await?;
+        let previous = policy.clone();
+        normalize_agent_policy(&mut policy);
+        if policy != previous {
+            self.save_policy(&policy).await?;
+        }
+        Ok(policy)
     }
 
     pub(super) async fn load_policy_unrecovered(
@@ -34,9 +42,6 @@ impl UserMemoryService {
             })?,
             None => UserMemoryPolicy::default(),
         };
-        for agent in USER_MEMORY_AGENT_TYPES {
-            policy.per_agent.entry(agent).or_insert(true);
-        }
         for document in UserMemoryDocumentId::ALL {
             policy.documents.entry(document).or_insert(true);
         }
@@ -47,7 +52,9 @@ impl UserMemoryService {
         &self,
         policy: &UserMemoryPolicy,
     ) -> Result<(), AppCommandError> {
-        let value = serde_json::to_string(policy)
+        let mut normalized = policy.clone();
+        normalize_agent_policy(&mut normalized);
+        let value = serde_json::to_string(&normalized)
             .map_err(|error| AppCommandError::configuration_invalid(error.to_string()))?;
         app_metadata_service::upsert_value(&self.db, POLICY_KEY, &value)
             .await
@@ -94,13 +101,15 @@ impl UserMemoryService {
         policy: &UserMemoryPolicy,
         error: &UserMemoryPathError,
     ) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
+        let mut policy = policy.clone();
+        normalize_agent_policy(&mut policy);
         let documents = BTreeMap::new();
-        let revision = unavailable_settings_revision(policy)?;
+        let revision = unavailable_settings_revision(&policy)?;
         Ok(UserMemorySettingsSnapshot {
             enabled: policy.enabled,
             agent_write_enabled: policy.agent_write_enabled,
             inherit_to_subagents: policy.inherit_to_subagents,
-            per_agent: policy.per_agent.clone(),
+            per_agent: policy.per_agent,
             documents,
             revision,
             stale_running_sessions: 0,

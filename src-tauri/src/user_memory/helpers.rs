@@ -9,8 +9,14 @@ use crate::models::agent::AgentType;
 use super::context::{USER_CONTEXT_END, USER_CONTEXT_START};
 use super::{
     UserMemoryDocumentId, UserMemoryDocumentSnapshot, UserMemoryPolicy, UserMemoryUpdateRequest,
-    USER_MEMORY_MAX_APPEND_CHARS, USER_MEMORY_MAX_DOCUMENT_CHARS,
+    USER_MEMORY_AGENT_TYPES, USER_MEMORY_MAX_APPEND_CHARS, USER_MEMORY_MAX_DOCUMENT_CHARS,
 };
+
+pub(super) fn normalize_agent_policy(policy: &mut UserMemoryPolicy) {
+    for agent in USER_MEMORY_AGENT_TYPES {
+        policy.per_agent.insert(agent, true);
+    }
+}
 
 pub(super) fn apply_policy_patch(policy: &mut UserMemoryPolicy, request: &UserMemoryUpdateRequest) {
     if let Some(value) = request.enabled {
@@ -27,6 +33,7 @@ pub(super) fn apply_policy_patch(policy: &mut UserMemoryPolicy, request: &UserMe
             .per_agent
             .extend(values.iter().map(|(key, value)| (*key, *value)));
     }
+    normalize_agent_policy(policy);
     for (id, patch) in &request.documents {
         if let Some(value) = patch.enabled {
             policy.documents.insert(*id, value);
@@ -165,7 +172,6 @@ pub(super) fn ensure_agent_write_allowed(
 ) -> Result<(), AppCommandError> {
     let allowed = policy.enabled
         && policy.agent_write_enabled
-        && policy.per_agent.get(&agent).copied().unwrap_or(true)
         && policy
             .documents
             .get(&UserMemoryDocumentId::Memory)

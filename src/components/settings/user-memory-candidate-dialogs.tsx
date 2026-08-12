@@ -21,7 +21,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import type { UserMemoryCandidateStatus, UserMemoryCandidateSummary } from "@/lib/user-memory-documents"
+import type {
+  UserMemoryCandidateStatus,
+  UserMemoryCandidateSummary,
+} from "@/lib/user-memory-documents"
 
 const TERMINAL_STATUSES: UserMemoryCandidateStatus[] = [
   "confirmed",
@@ -29,12 +32,22 @@ const TERMINAL_STATUSES: UserMemoryCandidateStatus[] = [
   "superseded",
 ]
 
+export function isMergeTarget(
+  candidate: UserMemoryCandidateSummary,
+  sourceId: string | undefined
+): boolean {
+  return (
+    candidate.id !== sourceId && !TERMINAL_STATUSES.includes(candidate.status)
+  )
+}
+
 export function CandidateRow({
   candidate,
   busy,
   onConfirm,
   onReject,
   onMerge,
+  canMerge,
   onDelete,
 }: {
   candidate: UserMemoryCandidateSummary
@@ -42,6 +55,7 @@ export function CandidateRow({
   onConfirm: () => void
   onReject: () => void
   onMerge: () => void
+  canMerge: boolean
   onDelete: () => void
 }) {
   const t = useTranslations("UserMemorySettings")
@@ -65,27 +79,51 @@ export function CandidateRow({
               count: candidate.observationCount,
             })}{" "}
             ·{" "}
-            {t("diagnostics.candidates.confidence", { value: candidate.confidence })}
+            {t("diagnostics.candidates.confidence", {
+              value: candidate.confidence,
+            })}
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           {candidate.status === "pending_confirmation" && (
-            <Button size="sm" variant="default" disabled={busy} onClick={onConfirm}>
+            <Button
+              size="sm"
+              variant="default"
+              disabled={busy}
+              onClick={onConfirm}
+            >
               {t("diagnostics.candidates.confirm")}
             </Button>
           )}
           {active && (
             <span className="flex gap-1">
-              <Button size="sm" variant="outline" disabled={busy} onClick={onReject}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={onReject}
+              >
                 {t("diagnostics.candidates.reject")}
               </Button>
-              <Button size="sm" variant="outline" disabled={busy} onClick={onMerge}>
-                {t("diagnostics.candidates.merge")}
-              </Button>
+              {canMerge && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={onMerge}
+                >
+                  {t("diagnostics.candidates.merge")}
+                </Button>
+              )}
             </span>
           )}
           {candidate.status === "confirmed" && (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={onDelete}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={onDelete}
+            >
               {t("diagnostics.candidates.delete")}
             </Button>
           )}
@@ -112,7 +150,10 @@ export function ConfirmDialog({
 }) {
   const t = useTranslations("UserMemorySettings")
   return (
-    <Dialog open={candidate !== null} onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open={candidate !== null}
+      onOpenChange={(open) => !open && onClose()}
+    >
       <DialogContent className="max-w-lg rounded-lg">
         <DialogHeader>
           <DialogTitle>{t("diagnostics.candidates.confirmTitle")}</DialogTitle>
@@ -132,10 +173,19 @@ export function ConfirmDialog({
           />
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" disabled={loading} onClick={onClose}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={loading}
+            onClick={onClose}
+          >
             {t("diagnostics.candidates.cancel")}
           </Button>
-          <Button type="button" disabled={loading || !candidate} onClick={onSubmit}>
+          <Button
+            type="button"
+            disabled={loading || !candidate}
+            onClick={onSubmit}
+          >
             {loading && <Loader2 className="animate-spin" />}
             {t("diagnostics.candidates.save")}
           </Button>
@@ -163,8 +213,12 @@ export function MergeDialog({
   onSubmit: () => void
 }) {
   const t = useTranslations("UserMemorySettings")
+  const targets = candidates.filter((item) =>
+    isMergeTarget(item, candidate?.id)
+  )
+  const canMerge = candidate !== null && targets.length > 0
   return (
-    <Dialog open={candidate !== null} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={canMerge} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-lg rounded-lg">
         <DialogHeader>
           <DialogTitle>{t("diagnostics.candidates.mergeTitle")}</DialogTitle>
@@ -181,22 +235,21 @@ export function MergeDialog({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {candidates
-                .filter(
-                  (item) =>
-                    item.id !== candidate?.id &&
-                    !TERMINAL_STATUSES.includes(item.status)
-                )
-                .map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.content.slice(0, 60)}
-                  </SelectItem>
-                ))}
+              {targets.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.content.slice(0, 60)}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" disabled={loading} onClick={onClose}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={loading}
+            onClick={onClose}
+          >
             {t("diagnostics.candidates.cancel")}
           </Button>
           <Button

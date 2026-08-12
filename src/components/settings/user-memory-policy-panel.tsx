@@ -1,11 +1,9 @@
 "use client"
 
-import { Bot, FileStack, Settings2 } from "lucide-react"
+import { FileStack, Settings2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
-import { AgentIcon } from "@/components/agent-icon"
 import { Switch } from "@/components/ui/switch"
-import { AGENT_LABELS, ALL_AGENT_TYPES, type AgentType } from "@/lib/types"
 import {
   USER_MEMORY_DOCUMENTS,
   type UserMemoryDocumentId,
@@ -78,13 +76,6 @@ export function UserMemoryPolicyPanel({
     })
   }
 
-  const updateAgent = (agent: AgentType, enabled: boolean) => {
-    onChange({
-      ...draft,
-      perAgent: { ...draft.perAgent, [agent]: enabled },
-    })
-  }
-
   return (
     <section className="border-y bg-muted/20 px-3 py-3">
       <div className="mb-2 flex items-center gap-2">
@@ -153,33 +144,6 @@ export function UserMemoryPolicyPanel({
                   onCheckedChange={(enabled) =>
                     updateDocument(document.id, enabled)
                   }
-                />
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="mt-3 border-t pt-3">
-        <div className="mb-2 flex items-center gap-2 text-xs font-medium">
-          <Bot className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-          {t("policy.agentsTitle")}
-        </div>
-        <div className="grid gap-x-5 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
-          {ALL_AGENT_TYPES.map((agent) => {
-            const label = AGENT_LABELS[agent]
-            return (
-              <div
-                key={agent}
-                className="flex min-w-0 items-center gap-2 border-b py-2 last:border-b-0"
-              >
-                <AgentIcon agentType={agent} className="h-4 w-4" />
-                <span className="min-w-0 flex-1 truncate text-xs">{label}</span>
-                <Switch
-                  aria-label={t("policy.agentToggle", { agent: label })}
-                  checked={draft.perAgent[agent] ?? true}
-                  disabled={childDisabled}
-                  onCheckedChange={(enabled) => updateAgent(agent, enabled)}
                 />
               </div>
             )

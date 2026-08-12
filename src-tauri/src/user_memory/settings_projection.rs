@@ -91,7 +91,7 @@ fn settings_capability_inputs(
         service_available: true,
         policy: UserMemoryPolicyAccess {
             enabled: snapshot.enabled,
-            agent_enabled: snapshot.per_agent.get(&agent_type).copied().unwrap_or(true),
+            agent_enabled: true,
             inheritance_allowed: snapshot.inherit_to_subagents,
             agent_write_enabled: snapshot.agent_write_enabled,
             enabled_documents,

@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl"
 import { toErrorMessage } from "@/lib/app-error"
 import type {
   UserMemoryCapabilities,
+  UserMemoryCandidateListRequest,
   UserMemoryCandidatePage,
   UserMemoryCandidateSummary,
   UserMemoryHarvestStatus,
@@ -20,27 +21,62 @@ interface UserMemoryDiagnosticsPanelProps {
   busy: boolean
 }
 
+const CANDIDATE_PAGE_SIZE = 100
+
+type CandidateList = (
+  request: UserMemoryCandidateListRequest
+) => Promise<UserMemoryCandidatePage>
+
+async function loadAllCandidates(
+  list: CandidateList,
+  retryOnChange = true
+): Promise<UserMemoryCandidatePage> {
+  const candidates: UserMemoryCandidateSummary[] = []
+  let revision: string | null = null
+  let total = 0
+  while (candidates.length < total || revision === null) {
+    const page = await list({
+      status: null,
+      offset: candidates.length,
+      limit: CANDIDATE_PAGE_SIZE,
+    })
+    if (revision !== null && page.revision !== revision) {
+      if (retryOnChange) return loadAllCandidates(list, false)
+      throw new Error("User memory candidates changed while loading")
+    }
+    revision = page.revision
+    total = page.total
+    candidates.push(...page.candidates)
+    if (page.candidates.length === 0) break
+  }
+  return {
+    candidates,
+    total,
+    offset: 0,
+    limit: CANDIDATE_PAGE_SIZE,
+    revision: revision ?? "",
+  }
+}
+
 export function UserMemoryDiagnosticsPanel({
   settings,
   busy,
 }: UserMemoryDiagnosticsPanelProps) {
   const t = useTranslations("UserMemorySettings")
   const [candidates, setCandidates] = useState<UserMemoryCandidateSummary[]>([])
-  const [candidateRevision, setCandidateRevision] = useState<string | null>(null)
+  const [candidateRevision, setCandidateRevision] = useState<string | null>(
+    null
+  )
   const [harvest, setHarvest] = useState<UserMemoryHarvestStatus | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
   const loadState = useCallback(async () => {
-    const module = await import("@/lib/api")
-    const list = module.listUserMemoryCandidates
-    const status = module.getUserMemoryHarvestStatus
+    const apiModule = await import("@/lib/api")
+    const list = apiModule.listUserMemoryCandidates
+    const status = apiModule.getUserMemoryHarvestStatus
     if (typeof list === "function") {
       try {
-        const page: UserMemoryCandidatePage = await list({
-          status: null,
-          offset: 0,
-          limit: 100,
-        })
+        const page = await loadAllCandidates(list)
         setCandidates(page.candidates)
         setCandidateRevision(page.revision)
       } catch (error) {
@@ -61,8 +97,8 @@ export function UserMemoryDiagnosticsPanel({
   }, [loadState])
 
   const refreshHarvest = useCallback(async () => {
-    const module = await import("@/lib/api")
-    const status = module.getUserMemoryHarvestStatus
+    const apiModule = await import("@/lib/api")
+    const status = apiModule.getUserMemoryHarvestStatus
     if (typeof status !== "function") return
     try {
       setHarvest(await status())
@@ -187,7 +223,7 @@ function CompanionDiagnostics({
         {t("diagnostics.companion")}
       </div>
       <p>
-        {isReady ? t("diagnostics.companionReady") : companion?.status ?? "—"}
+        {isReady ? t("diagnostics.companionReady") : (companion?.status ?? "—")}
         {!isReady && companion?.detail ? ` — ${companion.detail}` : ""}
       </p>
       <p className="mt-1">
@@ -211,9 +247,12 @@ function CompanionDiagnostics({
         <p className="mt-1">
           {t("diagnostics.capabilities")}:{" "}
           {[
-            capabilities.readContext.available && t("diagnostics.capabilityRead"),
-            capabilities.confirmedAppend.available && t("diagnostics.capabilityAppend"),
-            capabilities.candidateProposal.available && t("diagnostics.capabilityPropose"),
+            capabilities.readContext.available &&
+              t("diagnostics.capabilityRead"),
+            capabilities.confirmedAppend.available &&
+              t("diagnostics.capabilityAppend"),
+            capabilities.candidateProposal.available &&
+              t("diagnostics.capabilityPropose"),
           ]
             .filter(Boolean)
             .join(" · ") || t("diagnostics.capabilityNo")}
