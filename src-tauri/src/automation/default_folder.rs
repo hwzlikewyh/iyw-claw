@@ -17,14 +17,12 @@ pub async fn ensure_default_folder(
         .join(format!("automation-{automation_id}"));
     tracing::info!(
         automation_id,
-        path = %path.display(),
         "[automation] ensuring dedicated default folder"
     );
 
     if let Err(error) = tokio::fs::create_dir_all(&path).await {
         tracing::error!(
             automation_id,
-            path = %path.display(),
             error = %error,
             "[automation] failed to create default folder"
         );
@@ -37,7 +35,6 @@ pub async fn ensure_default_folder(
         .map_err(|error| {
             tracing::error!(
                 automation_id,
-                path = %path.display(),
                 error = %error,
                 "[automation] failed to register default folder"
             );
@@ -49,7 +46,6 @@ pub async fn ensure_default_folder(
     tracing::info!(
         automation_id,
         folder_id = detail.id,
-        path = %detail.path,
         "[automation] dedicated default folder ready"
     );
     Ok(detail)

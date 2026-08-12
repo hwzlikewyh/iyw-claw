@@ -2,8 +2,11 @@ mod helpers;
 mod runtime;
 mod types;
 
+pub const LIST_SCHEDULED_TASK_PROJECTS_TOOL: &str = "list_scheduled_task_projects";
+
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -13,6 +16,7 @@ use crate::commands::automation::{
     automation_update_core,
 };
 use crate::db::entities::automation::{IsolationMode, TriggerKind};
+use crate::db::entities::folder::FolderKind;
 use crate::db::service::folder_service;
 use crate::db::AppDatabase;
 use crate::models::{AutomationDraft, FolderDetail};
@@ -23,7 +27,9 @@ use helpers::*;
 pub use runtime::{
     inject_scheduled_task_env, install_scheduled_task_runtime, scheduled_task_cli_path,
 };
-use types::{CreateInput, DeleteInput, ListInput, UpdateInput};
+use types::{
+    CreateInput, DeleteInput, ListInput, ListProjectsInput, ScheduledTaskProjectView, UpdateInput,
+};
 pub use types::{ScheduledTaskOperation, ScheduledTaskRequest};
 
 pub struct AutomationAgentService {
@@ -42,12 +48,40 @@ impl AutomationAgentService {
     }
 
     pub async fn execute(&self, request: ScheduledTaskRequest) -> Result<Value, String> {
+        let request_id = uuid::Uuid::new_v4();
+        let started_at = Instant::now();
+        let operation = request.operation;
         tracing::info!(
-            operation = ?request.operation,
+            request_id = %request_id,
+            operation = ?operation,
             caller_agent_type = ?request.caller_agent_type,
             "[automation-tool] request received"
         );
-        let result = match request.operation {
+        let result = self.dispatch(request).await;
+        let elapsed_ms = started_at.elapsed().as_millis();
+        match &result {
+            Ok(_) => tracing::info!(
+                request_id = %request_id,
+                operation = ?operation,
+                elapsed_ms,
+                "[automation-tool] request completed"
+            ),
+            Err(error) => tracing::warn!(
+                request_id = %request_id,
+                operation = ?operation,
+                elapsed_ms,
+                error = %error,
+                "[automation-tool] request failed"
+            ),
+        }
+        result
+    }
+
+    async fn dispatch(&self, request: ScheduledTaskRequest) -> Result<Value, String> {
+        match request.operation {
+            ScheduledTaskOperation::ListProjects => {
+                self.list_projects(parse_empty(request.input)?).await
+            }
             ScheduledTaskOperation::List => self.list(parse(request.input)?).await,
             ScheduledTaskOperation::Create => {
                 self.create(parse(request.input)?, request.caller_agent_type)
@@ -55,20 +89,34 @@ impl AutomationAgentService {
             }
             ScheduledTaskOperation::Update => self.update(parse(request.input)?).await,
             ScheduledTaskOperation::Delete => self.delete(parse(request.input)?).await,
-        };
-        if let Err(error) = &result {
-            tracing::warn!(operation = ?request.operation, error = %error, "[automation-tool] request failed");
         }
-        result
+    }
+
+    async fn list_projects(&self, _input: ListProjectsInput) -> Result<Value, String> {
+        let mut projects = self
+            .folders()
+            .await?
+            .into_iter()
+            .filter(|folder| folder.kind == FolderKind::Regular)
+            .map(|folder| ScheduledTaskProjectView {
+                project_id: folder.id,
+                name: folder.name,
+            })
+            .collect::<Vec<_>>();
+        projects.sort_by(|left, right| {
+            left.name
+                .to_lowercase()
+                .cmp(&right.name.to_lowercase())
+                .then(left.project_id.cmp(&right.project_id))
+        });
+        tracing::info!(count = projects.len(), "[automation-tool] projects listed");
+        Ok(json!({ "projects": projects }))
     }
 
     async fn list(&self, input: ListInput) -> Result<Value, String> {
         let folders = self.folders().await?;
-        let project_id = input
-            .project
-            .as_deref()
-            .map(|project| resolve_project(&folders, project))
-            .transpose()?;
+        let project_id =
+            resolve_project_selection(&folders, input.project.as_deref(), input.project_id)?;
         let agent_type = input
             .agent_type
             .as_deref()
@@ -95,7 +143,7 @@ impl AutomationAgentService {
             count = tasks.len(),
             task_id = ?input.task_id,
             enabled = ?input.enabled,
-            has_project_filter = input.project.is_some(),
+            has_project_filter = input.project.is_some() || input.project_id.is_some(),
             agent_type = ?agent_type,
             "[automation-tool] list completed"
         );
@@ -111,7 +159,8 @@ impl AutomationAgentService {
         require_text(&input.prompt, "prompt")?;
         require_text(&input.cron, "cron")?;
         let folders = self.folders().await?;
-        let folder_id = resolve_project(&folders, &input.project)?;
+        let folder_id =
+            resolve_project_selection(&folders, input.project.as_deref(), input.project_id)?;
         let raw_agent = input.agent_type.or(caller_agent_type).ok_or(
             "agent_type is required when the current Agent identity is unavailable".to_string(),
         )?;
@@ -122,7 +171,7 @@ impl AutomationAgentService {
             cron: Some(input.cron),
             timezone: input.timezone,
             agent_type: normalize_agent_type(&raw_agent)?,
-            root_folder_id: Some(folder_id),
+            root_folder_id: folder_id,
             isolation: IsolationMode::SharedInRoot,
             branch: None,
             is_remote_branch: false,
@@ -133,12 +182,23 @@ impl AutomationAgentService {
             .map_err(db_error)?;
         tracing::info!(
             task_id = task.id,
-            folder_id,
+            folder_id = ?task.root_folder_id,
             agent_type = %task.agent_type,
             enabled = task.enabled,
             "[automation-tool] task created"
         );
-        Ok(json!({ "task": task_view(task, &folders) }))
+        let result_folders = match self.folders().await {
+            Ok(result_folders) => result_folders,
+            Err(error) => {
+                tracing::warn!(
+                    task_id = task.id,
+                    error = %error,
+                    "[automation-tool] task project metadata refresh failed"
+                );
+                folders
+            }
+        };
+        Ok(json!({ "task": task_view(task, &result_folders) }))
     }
 
     async fn update(&self, input: UpdateInput) -> Result<Value, String> {
@@ -197,5 +257,10 @@ impl AutomationAgentService {
 }
 
 fn parse<T: DeserializeOwned>(input: Value) -> Result<T, String> {
-    serde_json::from_value(input).map_err(|error| format!("invalid input: {error}"))
+    serde_json::from_value(input)
+        .map_err(|_| "invalid input: request does not match the tool schema".to_string())
+}
+
+fn parse_empty<T: DeserializeOwned>(input: Value) -> Result<T, String> {
+    parse(if input.is_null() { json!({}) } else { input })
 }

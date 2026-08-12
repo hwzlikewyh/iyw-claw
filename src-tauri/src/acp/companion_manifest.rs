@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
+use crate::acp::automation_tools::LIST_SCHEDULED_TASK_PROJECTS_TOOL;
 use crate::acp::delegation::transport::COMPANION_PROTOCOL_VERSION;
 use crate::acp::image_analysis::ANALYZE_IMAGE_TOOL;
 use crate::user_memory::{CompanionHealthReason, CompanionHealthSnapshot, CompanionHealthStatus};
@@ -64,15 +65,11 @@ fn apply_compatibility(health: &mut CompanionHealthSnapshot, manifest: Companion
             CompanionHealthReason::ProtocolMismatch,
             format!("detected protocol {}", manifest.protocol_version),
         );
-    } else if !health
-        .advertised_tools
-        .iter()
-        .any(|tool| tool == ANALYZE_IMAGE_TOOL)
-    {
+    } else if let Some(tool) = missing_required_tool(&health.advertised_tools) {
         incompatible(
             health,
             CompanionHealthReason::VersionMismatch,
-            format!("required tool missing: {ANALYZE_IMAGE_TOOL}"),
+            format!("required tool missing: {tool}"),
         );
     } else {
         health.status = CompanionHealthStatus::Ready;
@@ -84,6 +81,12 @@ fn apply_compatibility(health: &mut CompanionHealthSnapshot, manifest: Companion
             )));
         }
     }
+}
+
+fn missing_required_tool(tools: &[String]) -> Option<&'static str> {
+    [ANALYZE_IMAGE_TOOL, LIST_SCHEDULED_TASK_PROJECTS_TOOL]
+        .into_iter()
+        .find(|required| !tools.iter().any(|tool| tool == *required))
 }
 
 fn incompatible(

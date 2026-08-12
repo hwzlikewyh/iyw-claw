@@ -1,5 +1,14 @@
 [
   {
+    "name": "list_scheduled_task_projects",
+    "description": "List projects that can be selected for iyw-claw scheduled tasks. Returns safe project ids and names without local paths. This is a read-only operation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "list_scheduled_tasks",
     "description": "Query iyw-claw scheduled tasks globally. Omit filters to list every active task across all projects; pass task_id for one task. This is a read-only operation.",
     "inputSchema": {
@@ -12,6 +21,10 @@
         "project": {
           "type": "string",
           "description": "Optional project absolute path or unique project name."
+        },
+        "project_id": {
+          "type": "integer",
+          "description": "Optional project id from list_scheduled_task_projects. Do not combine with project."
         },
         "enabled": {
           "type": "boolean",
@@ -35,15 +48,16 @@
           "description": "Optional executor Agent filter."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "not": { "required": ["project", "project_id"] }
     }
   },
   {
     "name": "create_scheduled_task",
-    "description": "Create a global iyw-claw scheduled task. The task runs the prompt in the selected project using the current Agent by default. This operation executes immediately without a confirmation prompt.",
+    "description": "Create a global iyw-claw scheduled task. Omit project and project_id to use a dedicated persistent folder, or select a regular project. The current Agent is used by default. This operation executes immediately without a confirmation prompt.",
     "inputSchema": {
       "type": "object",
-      "required": ["name", "project", "prompt", "cron"],
+      "required": ["name", "prompt", "cron"],
       "properties": {
         "name": {
           "type": "string",
@@ -53,7 +67,11 @@
         "project": {
           "type": "string",
           "minLength": 1,
-          "description": "Project absolute path or unique project name."
+          "description": "Optional project absolute path or unique project name. Omit for a dedicated folder."
+        },
+        "project_id": {
+          "type": "integer",
+          "description": "Optional project id from list_scheduled_task_projects. Do not combine with project."
         },
         "prompt": {
           "type": "string",
@@ -93,7 +111,8 @@
           "description": "Whether scheduling starts immediately."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "not": { "required": ["project", "project_id"] }
     }
   },
   {
@@ -117,6 +136,10 @@
               "minLength": 1,
               "description": "Project absolute path or unique project name."
             },
+            "project_id": {
+              "type": "integer",
+              "description": "Project id from list_scheduled_task_projects. Do not combine with project."
+            },
             "prompt": { "type": "string", "minLength": 1 },
             "cron": { "type": "string", "minLength": 1 },
             "timezone": { "type": "string", "minLength": 1 },
@@ -138,7 +161,8 @@
             },
             "enabled": { "type": "boolean" }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "not": { "required": ["project", "project_id"] }
         }
       },
       "additionalProperties": false

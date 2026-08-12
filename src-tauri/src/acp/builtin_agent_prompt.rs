@@ -43,7 +43,7 @@ const SCHEDULED_TASKS: &str = r#"## Scheduled task management
 
 CLI executable: {tool}
 When available, its path, host socket, and current Agent type are in `IYW_CLAW_TOOL_BIN`, `IYW_CLAW_TOOL_SOCKET`, and `IYW_CLAW_AGENT_TYPE`.
-Invoke it as `tool scheduled-task <list|create|update|delete> --input <json>`; use `--stdin` when shell JSON quoting is unsafe. Output is JSON and a non-zero exit code means failure. Queries are global across projects. When the user's intent is clear, mutations execute without an extra confirmation."#;
+Invoke it as `tool scheduled-task <list-projects|list|create|update|delete> --input <json>`; use `--stdin` when shell JSON quoting is unsafe. Output is JSON and a non-zero exit code means failure. Use `list-projects` to discover safe project ids without local paths. Omit both `project` and `project_id` on create to use a dedicated persistent folder. Queries are global across projects. When the user's intent is clear, mutations execute without an extra confirmation."#;
 
 #[derive(Debug, Clone)]
 pub struct RenderedBuiltinPrompt {

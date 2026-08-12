@@ -12,14 +12,11 @@ pub(super) fn merge_patch(
     current: &AutomationInfo,
     patch: ScheduledTaskPatch,
 ) -> Result<AutomationDraft, String> {
-    let project_changed = patch.project.is_some();
+    let project_changed = patch.project.is_some() || patch.project_id.is_some();
     validate_patch(&patch)?;
-    let root_folder_id = patch
-        .project
-        .as_deref()
-        .map(|project| resolve_project(folders, project))
-        .transpose()?
-        .or(current.root_folder_id);
+    let selected_project =
+        resolve_project_selection(folders, patch.project.as_deref(), patch.project_id)?;
+    let root_folder_id = selected_project.or(current.root_folder_id);
     let config = match patch.prompt {
         Some(prompt) => prompt_config(prompt)?,
         None => current.config.clone(),
@@ -75,11 +72,37 @@ pub(super) fn resolve_project(folders: &[FolderDetail], query: &str) -> Result<i
         .collect::<Vec<_>>();
     match matches.as_slice() {
         [folder] => Ok(folder.id),
-        [] => Err(format!("project not found: {query}")),
-        _ => Err(format!(
-            "project name is ambiguous; use an absolute path: {query}"
-        )),
+        [] => Err(project_not_found()),
+        _ => Err(
+            "project name is ambiguous; call list_scheduled_task_projects and use project_id"
+                .to_string(),
+        ),
     }
+}
+
+pub(super) fn resolve_project_selection(
+    folders: &[FolderDetail],
+    project: Option<&str>,
+    project_id: Option<i32>,
+) -> Result<Option<i32>, String> {
+    match (project, project_id) {
+        (Some(_), Some(_)) => Err("project and project_id cannot be used together".to_string()),
+        (Some(query), None) => resolve_project(folders, query).map(Some),
+        (None, Some(id)) => resolve_project_id(folders, id).map(Some),
+        (None, None) => Ok(None),
+    }
+}
+
+fn resolve_project_id(folders: &[FolderDetail], project_id: i32) -> Result<i32, String> {
+    folders
+        .iter()
+        .find(|folder| folder.id == project_id && folder.kind == FolderKind::Regular)
+        .map(|folder| folder.id)
+        .ok_or_else(project_not_found)
+}
+
+fn project_not_found() -> String {
+    "project not found; call list_scheduled_task_projects and use project_id, or omit the project when creating to use a dedicated folder".to_string()
 }
 
 pub(super) fn task_view(task: AutomationInfo, folders: &[FolderDetail]) -> ScheduledTaskView {
@@ -97,8 +120,8 @@ pub(super) fn task_view(task: AutomationInfo, folders: &[FolderDetail]) -> Sched
         timezone: task.timezone,
         next_run_at: task.next_run_at,
         agent_type: task.agent_type,
+        project_id: task.root_folder_id,
         project_name: folder.map(|item| item.name.clone()),
-        project_path: folder.map(|item| item.path.clone()),
         prompt,
         last_run_at: task.last_run_at,
         last_run_status: task.last_run_status,

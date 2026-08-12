@@ -45,7 +45,9 @@ pub async fn run_tool_cli(raw: &[String]) -> ExitCode {
 
 async fn parse_tool_args(raw: &[String]) -> Result<ToolArgs, String> {
     if raw.first().map(String::as_str) != Some("scheduled-task") {
-        return Err("expected `tool scheduled-task <list|create|update|delete>`".to_string());
+        return Err(
+            "expected `tool scheduled-task <list-projects|list|create|update|delete>`".to_string(),
+        );
     }
     let operation = parse_operation(raw.get(1).map(String::as_str))?;
     let options = parse_options(&raw[2..])?;
@@ -67,11 +69,15 @@ async fn parse_tool_args(raw: &[String]) -> Result<ToolArgs, String> {
 
 fn parse_operation(raw: Option<&str>) -> Result<ScheduledTaskOperation, String> {
     match raw {
+        Some("list-projects") => Ok(ScheduledTaskOperation::ListProjects),
         Some("list") => Ok(ScheduledTaskOperation::List),
         Some("create") => Ok(ScheduledTaskOperation::Create),
         Some("update") => Ok(ScheduledTaskOperation::Update),
         Some("delete") => Ok(ScheduledTaskOperation::Delete),
-        _ => Err("expected scheduled-task operation: list, create, update, or delete".into()),
+        _ => Err(
+            "expected scheduled-task operation: list-projects, list, create, update, or delete"
+                .into(),
+        ),
     }
 }
 

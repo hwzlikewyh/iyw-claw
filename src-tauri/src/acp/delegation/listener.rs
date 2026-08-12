@@ -17,7 +17,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{watch, RwLock};
 
 use crate::acp::audio_transcription::AudioTranscriptionAccess;
-use crate::acp::automation_tools::AutomationAgentService;
+use crate::acp::automation_tools::{AutomationAgentService, LIST_SCHEDULED_TASK_PROJECTS_TOOL};
 use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::transport::{
     read_frame, write_frame, BrokerArtifactsRequest, BrokerAskRequest,
@@ -296,6 +296,10 @@ impl CompanionReadyCandidate {
 
     fn required_tools_present(&self) -> bool {
         let missing_image_analysis = !self.tools.iter().any(|tool| tool == ANALYZE_IMAGE_TOOL);
+        let missing_project_listing = !self
+            .tools
+            .iter()
+            .any(|tool| tool == LIST_SCHEDULED_TASK_PROJECTS_TOOL);
         let missing_append = self.append_required
             && !self
                 .tools
@@ -306,7 +310,11 @@ impl CompanionReadyCandidate {
                 .tools
                 .iter()
                 .any(|tool| tool == PROPOSE_USER_MEMORY_TOOL);
-        if missing_image_analysis || missing_append || missing_proposal {
+        if missing_image_analysis
+            || missing_project_listing
+            || missing_append
+            || missing_proposal
+        {
             tracing::warn!(
                 connection_id = %self.parent_connection_id,
                 protocol_version = self.protocol_version,
@@ -314,6 +322,7 @@ impl CompanionReadyCandidate {
                 append_required = self.append_required,
                 proposal_required = self.proposal_required,
                 missing_image_analysis,
+                missing_project_listing,
                 advertised_tools = ?self.tools,
                 "rejected companion readiness report missing required tools"
             );

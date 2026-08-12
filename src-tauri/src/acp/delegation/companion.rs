@@ -230,7 +230,8 @@ impl CompanionFeatures {
             "append_user_memory" => self.memory,
             "propose_user_memory" => self.memory_proposal,
             "present_task_files" => self.artifacts,
-            "list_scheduled_tasks"
+            "list_scheduled_task_projects"
+            | "list_scheduled_tasks"
             | "create_scheduled_task"
             | "update_scheduled_task"
             | "delete_scheduled_task" => true,
@@ -512,11 +513,13 @@ async fn build_tools_call_spawn(
         "query_audio_transcription" => {
             register_and_spawn_audio(inflight, id, arguments, ctx, AudioToolCall::Query).await
         }
-        "list_scheduled_tasks"
+        "list_scheduled_task_projects"
+        | "list_scheduled_tasks"
         | "create_scheduled_task"
         | "update_scheduled_task"
         | "delete_scheduled_task" => {
             let operation = match name.as_str() {
+                "list_scheduled_task_projects" => ScheduledTaskOperation::ListProjects,
                 "list_scheduled_tasks" => ScheduledTaskOperation::List,
                 "create_scheduled_task" => ScheduledTaskOperation::Create,
                 "update_scheduled_task" => ScheduledTaskOperation::Update,
