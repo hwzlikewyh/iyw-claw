@@ -1,8 +1,9 @@
 from pathlib import Path
 
-
 SKILL = Path(__file__).parents[1] / "iyw-image-workflows" / "SKILL.md"
-AGENT_CONFIG = Path(__file__).parents[1] / "iyw-image-workflows" / "agents" / "openai.yaml"
+AGENT_CONFIG = (
+    Path(__file__).parents[1] / "iyw-image-workflows" / "agents" / "openai.yaml"
+)
 COMMERCE_REFERENCE = (
     Path(__file__).parents[1]
     / "iyw-image-workflows"
@@ -21,7 +22,42 @@ def test_skill_documents_image_priority_and_fixed_tools():
     assert "payload 的 `toolName` 固定为" in text
     assert "不要把它当作接口 operation" in text
     assert "scripts/iyw_search.py" in text
+    assert "`example <alias>`" in text
+    assert "`search <alias> --input-file <path> --dry-run`" in text
+    assert "帮助输出" not in text
     assert "该别名内部调用 `g_tools_generate_image`" in text
+
+
+def test_search_contract_reference_lists_all_aliases_and_safe_flow():
+    text = (
+        Path(__file__).parents[1]
+        / "iyw-image-workflows"
+        / "references"
+        / "tool-contracts.md"
+    ).read_text(encoding="utf-8")
+    for alias in (
+        "image",
+        "catalog",
+        "dict-industry",
+        "report-areas",
+        "report-years",
+        "report-list",
+        "report-detail",
+        "report-detail-tu",
+        "report-recommendations",
+        "report-images",
+        "report-full",
+        "trend-dict",
+        "tool-config",
+        "trend-list",
+        "trend-detail",
+        "ip-list",
+        "ip-patterns",
+    ):
+        assert f"`{alias}`" in text
+    assert "example image" in text
+    assert "签名 URL" in text
+    assert "invalid_response" in text
 
 
 def test_agent_prompt_uses_g_tools_generate_image_for_variation():
@@ -68,3 +104,30 @@ def test_grouped_layout_uses_one_task_before_local_composition():
     assert "不得增加收费任务" in reference
     assert "`compose-layout`" in skill
     assert "成组版式先用一个任务直出完整合成图" in agent
+
+
+def test_smart_search_theme_design_has_complete_decision_flow():
+    skill = SKILL.read_text(encoding="utf-8")
+    agent = AGENT_CONFIG.read_text(encoding="utf-8")
+    reference = COMMERCE_REFERENCE.read_text(encoding="utf-8")
+
+    assert "使用智能搜索获取趋势或主题素材并设计" in skill.split("---", 2)[1]
+    assert "把智能搜索作为必需前置步骤" in skill
+    assert "4 宫格或 6 宫格系列套组" in skill
+    assert "优先推荐系列作品或" in skill
+    assert "不得替用户静默决定" in skill
+    assert "每个主题只有一页" in skill and "`tool variation`" in skill
+    assert "每个主题有多页" in skill and "`tool mix`" in skill
+    assert "选择系列结果后再使用 `extend` 延展" in skill
+    assert "不得改用其他模型通道" in skill
+
+    assert "`classify` 使用 `[51]`" in reference
+    assert "每个主题独立判断页数" in reference
+    assert "用户已明确结果形态及产品时不要重复询问" in reference
+    assert "多页主题超过 10 页" in reference
+    assert "payload 都固定使用 `modelChannel: 2`" in reference
+    assert "不得退化为凭空生成" in reference
+
+    assert "先搜索并推荐趋势或主题" in agent
+    assert "生成前询问系列产品、4/6 宫格系列套组或单品/系列企划案" in agent
+    assert "种子作品再用 modelChannel 2 的 extend 做系列延伸" in agent

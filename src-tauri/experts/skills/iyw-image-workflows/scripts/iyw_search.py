@@ -5,46 +5,33 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import html
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from iyw_image import IywClient, IywError, _resolve_token
+from iyw_search_contracts import (
+    SEARCH_CONTRACTS,
+    example_payload,
+    is_sensitive_query_key,
+    normalize_search_response,
+    validate_search_payload,
+)
 
-
-DEFAULT_GATEWAY = "https://gateway.iyw.cn"
-
-
-SEARCH_SPECS: dict[str, tuple[str, str, str]] = {
-    "image": ("https://tu.iyw.cn", "/sapi", "ai-chat/api/imageSearch/search"),
-    "catalog": ("https://www.iyw.cn", "/gateway", "ai-chat/api/procurementCatalog/list"),
-    "dict-industry": ("https://www.iyw.cn", "/gateway", "account-search/basic/dict/getByKeys"),
-    "report-areas": ("https://www.iyw.cn", "/gateway", "exhibition/report/getAreaList"),
-    "report-years": ("https://www.iyw.cn", "/gateway", "exhibition/report/getPublishYear"),
-    "report-list": ("https://www.iyw.cn", "/gateway", "exhibition/report/queryList"),
-    "report-detail": ("https://www.iyw.cn", "/gateway", "exhibition/report/detail"),
-    "report-detail-tu": ("https://tu.iyw.cn", "/sapi", "exhibition/report/detail"),
-    "report-recommendations": ("https://www.iyw.cn", "/gateway", "exhibition/report/recommendationReport"),
-    "report-images": ("https://www.iyw.cn", "/gateway", "exhibition/report/getReportImg"),
-    "report-full": ("https://www.iyw.cn", "/gateway", "exhibition/report/getFullReport"),
-    "trend-dict": ("https://tu.iyw.cn", "/sapi", "platform/basic/dict/getByKeys"),
-    "tool-config": ("https://gateway.iyw.cn", "/platform", "basic/dict/getByKeys"),
-    "trend-list": (DEFAULT_GATEWAY, "/theme-activity", "api/Trend/GetTrendList"),
-    "trend-detail": (DEFAULT_GATEWAY, "/theme-activity", "api/Trend/GetTrendDetail"),
-    "ip-list": (DEFAULT_GATEWAY, "/tu-zp", "api/Ip/GetList"),
-    "ip-patterns": (DEFAULT_GATEWAY, "/tu-zp", "api/ip/GetDesignPatternList"),
+SEARCH_SPECS = {
+    alias: (contract.base_url, contract.prefix, contract.path)
+    for alias, contract in SEARCH_CONTRACTS.items()
 }
 
 SENSITIVE_KEY = re.compile(
     r"(?:token|cookie|authorization|security|secret|password|signature|signed|credential|request[_-]?id)",
     re.IGNORECASE,
 )
-SENSITIVE_QUERY = re.compile(
-    r"(?:token|signature|sign|expires?|credential|accesskey|securitytoken|policy)",
-    re.IGNORECASE,
-)
+EMBEDDED_URL = re.compile(r"https?://[^\s<>\"')]+", re.IGNORECASE)
 
 
 def _read_payload(path: str) -> Any:
@@ -56,10 +43,21 @@ def _read_payload(path: str) -> Any:
 
 def _safe_url(value: str) -> str:
     parts = urlsplit(value)
-    if not parts.query:
-        return value
-    query = [(key, item) for key, item in parse_qsl(parts.query, keep_blank_values=True) if not SENSITIVE_QUERY.search(key)]
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+    query = [
+        (key, item)
+        for key, item in parse_qsl(parts.query, keep_blank_values=True)
+        if not is_sensitive_query_key(key)
+    ]
+    netloc = parts.netloc.rsplit("@", 1)[-1]
+    return urlunsplit(
+        (parts.scheme, netloc, parts.path, urlencode(query), parts.fragment)
+    )
+
+
+def _safe_embedded_url(match: re.Match[str]) -> str:
+    original = match.group(0)
+    cleaned = _safe_url(html.unescape(original))
+    return html.escape(cleaned, quote=False) if "&amp;" in original else cleaned
 
 
 def redact_search_result(value: Any, *, key: str = "") -> Any:
@@ -73,8 +71,8 @@ def redact_search_result(value: Any, *, key: str = "") -> Any:
             for item_key, item in value.items()
             if not SENSITIVE_KEY.search(item_key)
         }
-    if isinstance(value, str) and value.startswith(("http://", "https://")):
-        return _safe_url(value)
+    if isinstance(value, str):
+        return EMBEDDED_URL.sub(_safe_embedded_url, value)
     return value
 
 
@@ -95,10 +93,17 @@ def normalize_tool_config(value: Any) -> dict[str, Any]:
     return {"available": True, "capabilities": allowed}
 
 
+def _unwrap_client_data(value: Any) -> Any:
+    if isinstance(value, dict) and set(value) == {"value"}:
+        return value["value"]
+    return value
+
+
 async def run_search(args: argparse.Namespace) -> dict[str, Any]:
     if args.alias not in SEARCH_SPECS:
         raise IywError(f"unsupported search: {args.alias}", "invalid_input")
     default_base, prefix, path = SEARCH_SPECS[args.alias]
+    payload = validate_search_payload(args.alias, _read_payload(args.input_file))
     token = "" if args.dry_run else _resolve_token(args.token)
     client = IywClient(
         default_base,
@@ -107,13 +112,19 @@ async def run_search(args: argparse.Namespace) -> dict[str, Any]:
         args.timeout,
         allow_missing_token=args.dry_run,
     )
-    payload = _read_payload(args.input_file)
     result = await client.request(path, payload, dry_run=args.dry_run)
     if args.dry_run:
         return result
-    if args.alias == "tool-config":
-        return normalize_tool_config(result)
-    return redact_search_result(result)
+    normalized = normalize_search_response(
+        args.alias, _unwrap_client_data(result), payload
+    )
+    return redact_search_result(normalized)
+
+
+async def run_command(args: argparse.Namespace) -> dict[str, Any]:
+    if args.command == "example":
+        return example_payload(args.alias)
+    return await run_search(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -126,20 +137,52 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--dry-run", action="store_true")
     search.add_argument("alias", choices=sorted(SEARCH_SPECS))
     search.add_argument("--input-file", required=True)
+    example = sub.add_parser("example", help="print a safe payload template")
+    example.add_argument("alias", choices=sorted(SEARCH_SPECS))
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        reconfigure(encoding="utf-8")
     args = build_parser().parse_args(argv)
     try:
-        result = asyncio.run(run_search(args))
+        result = asyncio.run(run_command(args))
     except IywError as exc:
-        print(json.dumps({"ok": False, "error": {"code": exc.code, "message": str(exc), "retryable": exc.retryable}}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": exc.code,
+                        "message": str(exc),
+                        "retryable": exc.retryable,
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 1
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        print(json.dumps({"ok": False, "error": {"code": "invalid_input", "message": str(exc), "retryable": False}}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": {
+                        "code": "invalid_input",
+                        "message": str(exc),
+                        "retryable": False,
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 1
-    print(json.dumps({"ok": True, "data": result}, ensure_ascii=False, indent=2))
+    output = result if args.command == "example" else {"ok": True, "data": result}
+    print(json.dumps(output, ensure_ascii=False, indent=2))
     return 0
 
 

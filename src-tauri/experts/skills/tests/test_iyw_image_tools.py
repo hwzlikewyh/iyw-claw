@@ -1,29 +1,43 @@
-import sys
 import asyncio
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
-
 SCRIPTS_DIR = Path(__file__).parents[1] / "iyw-image-workflows" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from iyw_image import IywError  # noqa: E402
-from iyw_tool_core import TOOL_OPERATIONS, validate_tool_payload  # noqa: E402
-from iyw_commerce import build_parser, run_command  # noqa: E402
-
+from iyw_commerce import build_parser, run_command
+from iyw_image import IywError
+from iyw_tool_core import TOOL_OPERATIONS, validate_tool_payload
 
 HTTPS = "https://example.com/image.png"
 
 
 def test_all_fixed_tools_have_operations():
     expected = {
-        "variation", "extend", "mix", "pattern-apply", "free-imitation",
-        "material-product", "ip-apply", "edit", "outpaint", "super-resolution",
-        "split-layers", "separate-layers", "enhance", "extract-pattern",
-        "repeat-horizontal", "convert", "line-extraction", "color-transfer",
-        "image-to-3d", "video", "model-scene",
+        "variation",
+        "extend",
+        "mix",
+        "pattern-apply",
+        "free-imitation",
+        "material-product",
+        "ip-apply",
+        "edit",
+        "outpaint",
+        "super-resolution",
+        "split-layers",
+        "separate-layers",
+        "enhance",
+        "extract-pattern",
+        "repeat-horizontal",
+        "convert",
+        "line-extraction",
+        "color-transfer",
+        "image-to-3d",
+        "video",
+        "model-scene",
     }
     assert set(TOOL_OPERATIONS) == expected
     assert TOOL_OPERATIONS["variation"] == "g_tools_generate_image"
@@ -32,7 +46,12 @@ def test_all_fixed_tools_have_operations():
 
 
 def test_variation_sets_fixed_tool_name_and_accepts_one_image():
-    payload = {"imageUrls": HTTPS, "prompt": "改成蓝色", "batchSize": 4}
+    payload = {
+        "imageUrls": HTTPS,
+        "prompt": "改成蓝色",
+        "batchSize": 4,
+        "modelChannel": 9,
+    }
 
     operation = validate_tool_payload("variation", payload)
 
@@ -40,6 +59,7 @@ def test_variation_sets_fixed_tool_name_and_accepts_one_image():
     assert payload["toolName"] == "variation"
     assert payload["imageUrls"] == HTTPS
     assert payload["batchSize"] == 1
+    assert payload["modelChannel"] == 2
 
 
 def test_extend_sets_fixed_tool_name_and_single_batch():
@@ -51,11 +71,28 @@ def test_extend_sets_fixed_tool_name_and_single_batch():
     assert payload["toolName"] == "extend"
     assert payload["imageUrls"] == HTTPS
     assert payload["batchSize"] == 1
+    assert payload["modelChannel"] == 2
 
 
 def test_mix_requires_two_to_ten_images():
     with pytest.raises(IywError, match="mix requires"):
         validate_tool_payload("mix", {"imageUrls": [HTTPS], "prompt": "融合"})
+
+
+def test_mix_fixes_model_channel_two_and_keeps_image_order():
+    second = "https://example.com/second.png"
+    payload = {
+        "imageUrls": [HTTPS, second],
+        "prompt": "融合",
+        "modelChannel": 4,
+    }
+
+    operation = validate_tool_payload("mix", payload)
+
+    assert operation == "g_tools_generate_image"
+    assert payload["toolName"] == "mix"
+    assert payload["modelChannel"] == 2
+    assert payload["imageUrls"] == [HTTPS, second]
 
 
 def test_pattern_and_material_tools_accept_captured_metadata_shapes():
@@ -74,14 +111,18 @@ def test_pattern_and_material_tools_accept_captured_metadata_shapes():
     }
 
     assert validate_tool_payload("pattern-apply", pattern) == "g_tools_generate_image"
-    assert validate_tool_payload("material-product", material) == "g_tools_generate_image"
+    assert (
+        validate_tool_payload("material-product", material) == "g_tools_generate_image"
+    )
     assert pattern["toolName"] == "iyw_tu"
     assert material["toolName"] == "user_product"
 
 
 def test_tool_rejects_non_https_image():
     with pytest.raises(IywError, match="HTTPS"):
-        validate_tool_payload("variation", {"imageUrls": "http://example.com/a.png", "prompt": "改款"})
+        validate_tool_payload(
+            "variation", {"imageUrls": "http://example.com/a.png", "prompt": "改款"}
+        )
 
 
 @pytest.mark.parametrize("field", ["token", "Cookie", "Authorization", "securityKey"])
@@ -133,47 +174,17 @@ def test_repeat_horizontal_preserves_single_image_array():
     assert payload["imageUrls"] == [HTTPS]
 
 
-def test_generic_generate_operation_rejects_unknown_tool_name():
-    from iyw_commerce_core import _validate_generate_payload
-
-    with pytest.raises(IywError, match="unsupported"):
-        _validate_generate_payload({"toolName": "unknown", "imageUrls": HTTPS})
-
-
-@pytest.mark.parametrize("tool_name", ["variation", "extend"])
-def test_generic_invoke_forces_single_batch(tmp_path, tool_name):
-    payload_file = tmp_path / f"{tool_name}.json"
+def test_generic_invoke_rejects_sensitive_payload(tmp_path):
+    payload_file = tmp_path / "unsafe.json"
     payload_file.write_text(
         json.dumps(
             {
                 "imageUrls": HTTPS,
-                "prompt": "生成一张完整联图",
-                "toolName": tool_name,
-                "batchSize": 4,
+                "prompt": "改款",
+                "toolName": "variation",
+                "token": "secret",
             }
         ),
-        encoding="utf-8",
-    )
-    args = build_parser().parse_args(
-        [
-            "invoke",
-            "g_tools_generate_image",
-            "--input-file",
-            str(payload_file),
-            "--dry-run",
-            "--no-progress",
-        ]
-    )
-
-    result = asyncio.run(run_command(args))
-
-    assert result["body"]["batchSize"] == 1
-
-
-def test_generic_invoke_rejects_sensitive_payload(tmp_path):
-    payload_file = tmp_path / "unsafe.json"
-    payload_file.write_text(
-        json.dumps({"imageUrls": HTTPS, "prompt": "改款", "toolName": "variation", "token": "secret"}),
         encoding="utf-8",
     )
     args = build_parser().parse_args(
@@ -212,7 +223,9 @@ def test_unknown_tool_is_rejected():
 
 def test_tool_cli_dispatches_fixed_operation_in_dry_run(tmp_path):
     payload_file = tmp_path / "variation.json"
-    payload_file.write_text(json.dumps({"imageUrls": HTTPS, "prompt": "改款"}), encoding="utf-8")
+    payload_file.write_text(
+        json.dumps({"imageUrls": HTTPS, "prompt": "改款"}), encoding="utf-8"
+    )
     args = build_parser().parse_args(
         [
             "tool",
@@ -226,5 +239,8 @@ def test_tool_cli_dispatches_fixed_operation_in_dry_run(tmp_path):
 
     result = asyncio.run(run_command(args))
 
-    assert result["url"] == "https://gateway.iyw.cn/ai-application/api/commerce/g_tools_generate_image"
+    assert (
+        result["url"]
+        == "https://gateway.iyw.cn/ai-application/api/commerce/g_tools_generate_image"
+    )
     assert result["body"]["toolName"] == "variation"

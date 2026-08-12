@@ -2,35 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from iyw_commerce_core import _require_https, _validate_payload_safety
+from iyw_commerce_safety import require_https, validate_payload_safety
 from iyw_image import IywError
-
-
-TOOL_OPERATIONS = {
-    "variation": "g_tools_generate_image",
-    "extend": "g_tools_generate_image",
-    "mix": "g_tools_generate_image",
-    "pattern-apply": "g_tools_generate_image",
-    "free-imitation": "fission",
-    "material-product": "g_tools_generate_image",
-    "ip-apply": "g_tools_generate_image",
-    "edit": "erase",
-    "outpaint": "outpainting",
-    "super-resolution": "SuperResolution",
-    "split-layers": "f_tools",
-    "separate-layers": "g_tools_generate_image",
-    "enhance": "EnhanceImage",
-    "extract-pattern": "g_tools_generate_image",
-    "repeat-horizontal": "g_tools_generate_image",
-    "convert": "convert",
-    "line-extraction": "lineExtraction",
-    "color-transfer": "g_tools_generate_image",
-    "image-to-3d": "ImageTo3D",
-    "video": "videoGenerator",
-    "model-scene": "modelScene",
-}
+from iyw_tool_specs import DESIGN_MODEL_CHANNEL, TOOL_OPERATIONS
 
 IMAGE_FORMATS = frozenset(
     {"psd", "svg", "bmp", "gif", "ico", "jpeg", "jpg", "odd", "png", "tiff", "webp"}
@@ -45,7 +22,13 @@ def _string(payload: dict[str, Any], key: str, *, required: bool = True) -> str:
     return value
 
 
-def _number(payload: dict[str, Any], key: str, *, minimum: float = 0, maximum: float | None = None) -> None:
+def _number(
+    payload: dict[str, Any],
+    key: str,
+    *,
+    minimum: float = 0,
+    maximum: float | None = None,
+) -> None:
     value = payload.get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise IywError(f"{key} must be a number", "invalid_input")
@@ -54,20 +37,34 @@ def _number(payload: dict[str, Any], key: str, *, minimum: float = 0, maximum: f
 
 
 def _image(payload: dict[str, Any], key: str = "image") -> str:
-    return _require_https(_string(payload, key), f"{key} URL")
+    return require_https(_string(payload, key), f"{key} URL")
 
 
-def _image_list(payload: dict[str, Any], key: str = "imageUrls", *, minimum: int = 1, maximum: int = 10) -> list[str]:
+def _image_list(
+    payload: dict[str, Any],
+    key: str = "imageUrls",
+    *,
+    minimum: int = 1,
+    maximum: int = 10,
+) -> list[str]:
     values = payload.get(key)
     if isinstance(values, str):
         values = [values]
     if not isinstance(values, list) or not minimum <= len(values) <= maximum:
-        raise IywError(f"{key} must contain {minimum} to {maximum} image URLs", "invalid_input")
-    return [_require_https(_string({"url": value}, "url"), f"{key} URL") for value in values]
+        raise IywError(
+            f"{key} must contain {minimum} to {maximum} image URLs", "invalid_input"
+        )
+    return [
+        require_https(_string({"url": value}, "url"), f"{key} URL") for value in values
+    ]
 
 
-def _g_tools(payload: dict[str, Any], tool_name: str, *, images: int | None = None) -> None:
+def _g_tools(
+    payload: dict[str, Any], tool_name: str, *, images: int | None = None
+) -> None:
     payload["toolName"] = tool_name
+    if tool_name in {"variation", "extend", "mix"}:
+        payload["modelChannel"] = DESIGN_MODEL_CHANNEL
     values = _image_list(payload, minimum=images or 1, maximum=images or 10)
     if images == 1:
         payload["imageUrls"] = values[0]
@@ -96,8 +93,12 @@ def _validate_mix(payload: dict[str, Any]) -> None:
 
 def _validate_pattern_apply(payload: dict[str, Any]) -> None:
     _g_tools(payload, "iyw_tu", images=2)
-    if not isinstance(payload.get("product"), list) or not isinstance(payload.get("material"), list):
-        raise IywError("pattern-apply requires product and material metadata", "invalid_input")
+    if not isinstance(payload.get("product"), list) or not isinstance(
+        payload.get("material"), list
+    ):
+        raise IywError(
+            "pattern-apply requires product and material metadata", "invalid_input"
+        )
     _string(payload, "prompt")
 
 
@@ -114,15 +115,23 @@ def _validate_free_imitation(payload: dict[str, Any]) -> None:
 
 def _validate_material_product(payload: dict[str, Any]) -> None:
     _g_tools(payload, "user_product", images=2)
-    if not isinstance(payload.get("product"), dict) or not isinstance(payload.get("material"), list):
-        raise IywError("material-product requires product and material metadata", "invalid_input")
+    if not isinstance(payload.get("product"), dict) or not isinstance(
+        payload.get("material"), list
+    ):
+        raise IywError(
+            "material-product requires product and material metadata", "invalid_input"
+        )
     _string(payload, "prompt")
 
 
 def _validate_ip_apply(payload: dict[str, Any]) -> None:
     _g_tools(payload, "iyw_ip")
-    if not isinstance(payload.get("product"), dict) or not isinstance(payload.get("jsonData"), dict):
-        raise IywError("ip-apply requires product and jsonData metadata", "invalid_input")
+    if not isinstance(payload.get("product"), dict) or not isinstance(
+        payload.get("jsonData"), dict
+    ):
+        raise IywError(
+            "ip-apply requires product and jsonData metadata", "invalid_input"
+        )
     _string(payload, "prompt")
 
 
@@ -156,7 +165,9 @@ def _validate_separate_layers(payload: dict[str, Any]) -> None:
 
 def _validate_enhance(payload: dict[str, Any]) -> None:
     _image(payload)
-    if not isinstance(payload.get("enhanceType"), int) or payload["enhanceType"] not in {1, 2}:
+    if not isinstance(payload.get("enhanceType"), int) or payload[
+        "enhanceType"
+    ] not in {1, 2}:
         raise IywError("enhanceType must be 1 or 2", "invalid_input")
     if not isinstance(payload.get("model"), int):
         raise IywError("model must be an integer", "invalid_input")
@@ -185,7 +196,7 @@ def _validate_line_extraction(payload: dict[str, Any]) -> None:
     stats = payload.get("stats")
     if not isinstance(stats, dict):
         raise IywError("line-extraction requires stats", "invalid_input")
-    _require_https(_string(stats, "reference"), "stats reference URL")
+    require_https(_string(stats, "reference"), "stats reference URL")
     if payload.get("model") not in {"realistic", "canny"}:
         raise IywError("model must be realistic or canny", "invalid_input")
     if not isinstance(payload.get("batch_size"), int) or payload["batch_size"] < 1:
@@ -214,7 +225,7 @@ def _validate_image_to_3d(payload: dict[str, Any]) -> None:
         for view in views:
             if not isinstance(view, dict):
                 raise IywError("each 3D view must be an object", "invalid_input")
-            _require_https(_string(view, "ViewImageUrl"), "3D view URL")
+            require_https(_string(view, "ViewImageUrl"), "3D view URL")
 
 
 def _validate_video(payload: dict[str, Any]) -> None:
@@ -222,7 +233,10 @@ def _validate_video(payload: dict[str, Any]) -> None:
     _string(payload, "prompt")
     if payload.get("ratio") not in RATIOS - {"auto"}:
         raise IywError("video ratio is invalid", "invalid_input")
-    if not isinstance(payload.get("duration"), int) or not 4 <= payload["duration"] <= 15:
+    if (
+        not isinstance(payload.get("duration"), int)
+        or not 4 <= payload["duration"] <= 15
+    ):
         raise IywError("video duration must be 4 to 15 seconds", "invalid_input")
     if payload.get("mode") not in {"normal", "hd"}:
         raise IywError("video mode must be normal or hd", "invalid_input")
@@ -267,6 +281,6 @@ def validate_tool_payload(alias: str, payload: dict[str, Any]) -> str:
         raise IywError(f"unsupported tool: {alias}", "invalid_input")
     if not isinstance(payload, dict):
         raise IywError("tool payload must be a JSON object", "invalid_input")
-    _validate_payload_safety(payload)
+    validate_payload_safety(payload)
     VALIDATORS[alias](payload)
     return TOOL_OPERATIONS[alias]

@@ -1,6 +1,6 @@
 ---
 name: iyw-image-workflows
-description: 通过内置 Python CLI 独立检索 IYW 知识库、图片/报告/趋势/IP 资料，或调用已经确认的 IYW 图片工具接口，支持知识查询、分身生图、本地图片上传并自动违规检测、网络图片违规检测、变款、系列延伸、多图融合、编辑、扩图、高清修复、图案与线稿处理、格式转换、3D、视频和模特场景。用户提到 IYW 知识库、内部规范、品牌或 IP 手册、知识检索、生图、画图、修图、商品图、上传检测或 IYW 图片任务时使用；图片请求按图片输入优先级路由，其中有基准图片且指定趋势或主题时优先系列延伸，其他普通有图请求默认变款，明确指定专用工具时使用对应工具。
+description: 通过内置 Python CLI 独立检索 IYW 知识库、图片/报告/趋势/IP 资料，或调用已经确认的 IYW 图片工具接口，支持知识查询、分身生图、本地图片上传并自动违规检测、网络图片违规检测、变款、系列延伸、多图融合、编辑、扩图、高清修复、图案与线稿处理、格式转换、3D、视频和模特场景。用户提到 IYW 知识库、内部规范、品牌或 IP 手册、知识检索、生图、画图、修图、商品图、上传检测、使用智能搜索获取趋势或主题素材并设计，或 IYW 图片任务时使用；图片请求按图片输入优先级路由，其中有基准图片且指定趋势或主题时优先系列延伸，其他普通有图请求默认变款，明确指定专用工具时使用对应工具。
 ---
 
 # IYW 图片工作流
@@ -135,10 +135,37 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 
 用户要求宫格、联图或其他成组版式时，`variation`/`extend` 先用单个任务直接生成一张完整合成图，不拆分并发。只有任务失败或视觉检查确认布局不符时才生成分图，并用 `compose-layout` 按用户指定布局拼接；无法视觉检查时不增加任务。细则见 [references/commerce-operations.md](references/commerce-operations.md)。
 
+## 智能搜索驱动的趋势或主题设计
+
+用户提到“使用智能搜索拿到图片及内容，再根据趋势或主题进行设计”或同义要求时，
+把智能搜索作为必需前置步骤，并按以下顺序执行：
+
+1. 从需求提取产品、趋势、主题、市场和时间范围；优先使用 `trend-list`、
+   `trend-detail` 和 `image` 搜索趋势内容及主题图片，按需要补充报告类搜索。向用户推荐
+   相关趋势或主题及安全图片，不得虚构搜索结果。
+2. 第一次收费生成前，若用户尚未说明，先询问并让其选择：系列作品及包含的产品；
+   4 宫格或 6 宫格系列套组；单个作品或一个系列并形成企划案。优先推荐系列作品或
+   系列企划案，但不得替用户静默决定。
+3. 按选定趋势或主题拆分素材。每个主题只有一页时，按顺序上传或检测该主题页并使用
+   `tool variation`（自定义改款）；每个主题有多页时，按页面顺序上传或检测全部主题页
+   并使用 `tool mix`（多图融合）。
+4. 已有产品或设计基准图时，仍优先使用 `tool extend` 形成系列；没有基准图时先用主题页
+   通过 `variation` 或 `mix` 得到种子作品，选择系列结果后再使用 `extend` 延展。三个工具
+   均必须使用各自固定的 `modelChannel: 2` 合同，不得改用其他模型通道。
+5. 4 宫格或 6 宫格必须让每格各有一个符合主题的作品，并保持产品语言、配色和材质体系
+   一致，形成系列套组；企划案必须同时组织主题依据、产品组合、配色、材质、工艺和作品图。
+
+用户明确要求智能搜索但搜索失败或没有可用趋势、主题图片及内容时，不要跳过搜索后直接
+收费生成；先说明结果，并询问是放宽搜索条件还是改用用户提供的主题页。详细路由见
+[references/commerce-operations.md](references/commerce-operations.md)。
+
 `tool` 只接受固定别名，完整列表和 payload 见
 [references/commerce-operations.md](references/commerce-operations.md)。搜索清单接口使用
-`scripts/iyw_search.py`，固定别名和 JSON 示例见该 CLI 的帮助输出。搜索 CLI 固定
-host/path，只发送 `token` 请求头；不得传入 Cookie、`securitykey`、`Authorization` 或任意 prefix。
+`scripts/iyw_search.py`；先执行 `example <alias>` 获取安全 JSON 模板，按需求修改后
+再执行 `search <alias> --input-file <path> --dry-run`。17 个固定别名、字段和结果
+格式见 [references/tool-contracts.md](references/tool-contracts.md)。搜索 CLI 固定
+host/path，只发送 `token` 请求头；不得传入 Cookie、`securitykey`、
+`Authorization` 或任意 prefix。
 
 ## 分身生图
 

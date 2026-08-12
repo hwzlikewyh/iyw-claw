@@ -33,9 +33,44 @@ token 优先来自当前用户目录 `.iyw-claw/iyw-account-token.json` 的
 | `iyw_knowledge.py search` | POST | origin `/ai-agent-new/api/knowledge/search` | `category`、`query`、`folderId`、`fileId`、`limit`、`denseWeight` |
 | `iyw_search.py search` | POST | 固定 host/prefix/path | 搜索别名对应的 JSON payload |
 
-`iyw_search.py` 的固定查询别名包括图片搜索、销售画册、趋势报告列表/详情/筛选、
-趋势主题字典/列表/详情、IP 列表/图案和工具配置。它不会接受任意 URL 或 path；工具
-配置只返回能力键，不返回模型、渠道、价格或凭证字段。
+`iyw_search.py` 不接受任意 URL 或 path。先生成可复用的安全模板，再 dry-run：
+
+```powershell
+uv run --project $skillDir --python 3.13 python $searchCli example image
+uv run --project $skillDir --python 3.13 python $searchCli `
+  search image --input-file $payloadPath --dry-run
+```
+
+`example` 输出裸 JSON，可直接写入 UTF-8 文件作为 `search` 输入。搜索请求拒绝未知字段、
+错误类型、超过 200 的分页大小、HTTP 图片、签名 URL 和任何认证字段。
+
+| 别名 | 用途 | 稳定输出 |
+| --- | --- | --- |
+| `image` | 智能图片搜索 | `items`、`total`、`page`、`page_size` |
+| `catalog` | 销售画册 | `items`、`total`、`page`、`page_size` |
+| `dict-industry` | 行业字典 | `values` |
+| `report-areas` / `report-years` | 报告筛选项 | `items`、`total` |
+| `report-list` | 报告列表 | `items`、`total`、`page`、`page_size` |
+| `report-detail` / `report-detail-tu` | 报告详情 | `item` |
+| `report-recommendations` | 推荐报告 | `items`、`total` |
+| `report-images` | 报告图片 | 分页字段及权限 `meta` |
+| `report-full` | 完整报告 | `item` |
+| `trend-dict` | 趋势分类字典 | `values` |
+| `trend-list` | 趋势列表 | `items`、`total`、`page`、`page_size` |
+| `trend-detail` | 趋势详情 | `item` |
+| `tool-config` | 公开工具能力 | `available`、`capabilities` |
+| `ip-list` | IP 列表 | `items`、`total`、`page`、`page_size` |
+| `ip-patterns` | IP 图案 | `items`、`total`、`page`、`page_size` |
+
+智能图片搜索的 `classify` 已确认值为：`52` 展会报告、`51` 趋势主题、`4` 实拍图、
+`11` 销售画册、`2` AI 稿、`1` 正版图案、`5` IP。仅当 `classify` 包含 `51` 时可传
+`market`：`0` 全部、`1` 内销、`2` 外销。`timeRange` 可传 `one_year`、
+`half_year`、`three_months`、`one_month`、`all` 或 `null`。
+
+资源详情类请求必须显式提供 ID，不能沿用模板中的示例 ID。工具配置只返回能力键，
+不返回模型、渠道、价格或凭证字段。所有响应先验证已确认的容器和列表项 shape；结构
+异常返回 `invalid_response`，不得包装为成功。原接口只返回当前页数组时，`total` 是
+当前页条数；只有原接口返回总数时，`total` 才表示完整结果数。
 
 `PreSignedUrl` 成功响应的 `data` 是带查询签名的 HTTPS PUT URL。上传完成后去掉
 查询参数得到公开 URL，再调用 `checkImage`。任何一步失败都不得继续创建 commerce
