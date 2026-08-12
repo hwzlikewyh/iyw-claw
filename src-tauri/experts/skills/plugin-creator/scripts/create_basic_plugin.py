@@ -9,6 +9,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from portable_manifest import build_claude_plugin_json, build_iyw_plugin_json
+
 
 MAX_PLUGIN_NAME_LENGTH = 64
 DEFAULT_INSTALL_POLICY = "AVAILABLE"
@@ -53,7 +55,13 @@ def display_name_from_plugin_name(plugin_name: str) -> str:
     return " ".join(part.capitalize() for part in re.split(r"[-_]+", plugin_name))
 
 
-def build_plugin_json(plugin_name: str, *, with_mcp: bool, with_apps: bool) -> dict[str, Any]:
+def build_plugin_json(
+    plugin_name: str,
+    *,
+    with_skills: bool,
+    with_mcp: bool,
+    with_apps: bool,
+) -> dict[str, Any]:
     display_name = display_name_from_plugin_name(plugin_name)
     payload: dict[str, Any] = {
         "name": plugin_name,
@@ -62,7 +70,6 @@ def build_plugin_json(plugin_name: str, *, with_mcp: bool, with_apps: bool) -> d
         "author": {
             "name": "Local developer",
         },
-        "skills": "./skills/",
         "interface": {
             "displayName": display_name,
             "shortDescription": f"Use {display_name} in Codex.",
@@ -73,6 +80,8 @@ def build_plugin_json(plugin_name: str, *, with_mcp: bool, with_apps: bool) -> d
             "defaultPrompt": f"Help me use {display_name}.",
         },
     }
+    if with_skills:
+        payload["skills"] = "./skills/"
     if with_mcp:
         payload["mcpServers"] = "./.mcp.json"
     if with_apps:
@@ -272,7 +281,24 @@ def main() -> None:
     plugin_json_path = plugin_root / ".codex-plugin" / "plugin.json"
     write_json(
         plugin_json_path,
-        build_plugin_json(plugin_name, with_mcp=args.with_mcp, with_apps=args.with_apps),
+        build_plugin_json(
+            plugin_name,
+            with_skills=args.with_skills,
+            with_mcp=args.with_mcp,
+            with_apps=args.with_apps,
+        ),
+        args.force,
+    )
+    claude_plugin_json_path = plugin_root / ".claude-plugin" / "plugin.json"
+    write_json(
+        claude_plugin_json_path,
+        build_claude_plugin_json(plugin_name),
+        args.force,
+    )
+    iyw_plugin_json_path = plugin_root / ".iyw-plugin.json"
+    write_json(
+        iyw_plugin_json_path,
+        build_iyw_plugin_json(plugin_name),
         args.force,
     )
 
@@ -315,7 +341,9 @@ def main() -> None:
         )
 
     print(f"Created plugin scaffold: {plugin_root}")
-    print(f"plugin manifest: {plugin_json_path}")
+    print(f"Codex plugin manifest: {plugin_json_path}")
+    print(f"Claude plugin manifest: {claude_plugin_json_path}")
+    print(f"IYW plugin manifest: {iyw_plugin_json_path}")
     if args.with_marketplace:
         print(f"marketplace manifest: {marketplace_path}")
 

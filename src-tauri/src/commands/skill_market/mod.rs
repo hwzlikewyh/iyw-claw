@@ -1,6 +1,14 @@
 pub(crate) mod client;
 mod install;
 mod install_plan;
+mod plugin_components;
+mod plugin_install;
+mod plugin_install_context;
+mod plugin_install_data;
+mod plugin_install_rollback;
+mod plugin_manifest;
+mod plugin_storage;
+mod plugin_types;
 mod types;
 
 pub use install::{install_core, revalidate_artifact_core};
@@ -11,6 +19,7 @@ use reqwest::Method;
 use sea_orm::DatabaseConnection;
 
 use crate::app_error::AppCommandError;
+pub use plugin_types::{SkillPluginBinding, SkillPluginComponent, SkillPluginManifest};
 use types::{parse_id, parse_value, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
 pub use types::{
     SkillDependencyInput, SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail,
@@ -60,7 +69,7 @@ pub async fn list_core(
         .await?
         .query(&query);
     let mut result: SkillMarketListResult = parse_value(client::send(builder).await?, None)?;
-    apply_local_install_versions(&mut result.items);
+    apply_local_install_versions(conn, &mut result.items).await?;
     Ok(result)
 }
 
@@ -83,14 +92,14 @@ pub async fn detail_core(
         .json(&body);
     let mut skill: SkillMarketItem =
         parse_value(client::send(skill_builder).await?, Some("skill"))?;
-    apply_local_install_versions(std::slice::from_mut(&mut skill));
+    apply_local_install_versions(conn, std::slice::from_mut(&mut skill)).await?;
     let files_builder = client::request(conn, Method::POST, "/skills/files")
         .await?
         .json(&body);
     let tree: FileTree = parse_value(client::send(files_builder).await?, None)?;
     let mut files = Vec::new();
     flatten_files(tree.tree, &mut files);
-    let install_targets = crate::commands::acp::installed_market_skill_targets(id_number);
+    let install_targets = local_install_targets(conn, id_number).await?;
     Ok(SkillMarketDetail {
         skill,
         files,
@@ -128,6 +137,10 @@ pub async fn publish_core(
             ("visibility", request.visibility),
             ("version", request.version),
             ("changelog", request.changelog),
+            (
+                "packageType",
+                package_type_value(request.package_type).to_string(),
+            ),
             ("dependencies", dependencies),
         ],
         &request.tags,
@@ -160,6 +173,10 @@ pub async fn add_version_core(
             ("id", parse_id(&id)?.to_string()),
             ("version", request.version),
             ("changelog", request.changelog),
+            (
+                "packageType",
+                package_type_value(request.package_type).to_string(),
+            ),
             ("dependencies", dependencies),
         ],
         &[],
@@ -189,6 +206,14 @@ fn serialize_dependencies(
         AppCommandError::invalid_input("Failed to serialize Skill dependencies")
             .with_detail(error.to_string())
     })
+}
+
+fn package_type_value(package_type: SkillPackageType) -> &'static str {
+    match package_type {
+        SkillPackageType::Skill => "skill",
+        SkillPackageType::Expert => "expert",
+        SkillPackageType::Plugin => "plugin",
+    }
 }
 
 pub async fn update_metadata_core(
@@ -229,8 +254,12 @@ pub async fn delete_core(conn: &DatabaseConnection, id: String) -> Result<(), Ap
 
 /// 卸载本地已安装的 market skill（按 `skill_id` 匹配本地 market marker）。
 /// 未找到安装记录时幂等成功；被其他已启用 expert 包依赖时拒绝。
-pub async fn uninstall_core(_conn: &DatabaseConnection, id: String) -> Result<(), AppCommandError> {
+pub async fn uninstall_core(conn: &DatabaseConnection, id: String) -> Result<(), AppCommandError> {
     let skill_id = parse_id(&id)?;
+    if plugin_install::uninstall_plugin(conn, skill_id).await? {
+        tracing::info!(skill_id, "[skill-market] Plugin uninstalled");
+        return Ok(());
+    }
     let removed =
         crate::commands::acp::uninstall_market_skill_by_id(skill_id).map_err(|error| {
             tracing::error!(
@@ -312,8 +341,17 @@ fn push_query(query: &mut Vec<(&'static str, String)>, key: &'static str, value:
     }
 }
 
-fn apply_local_install_versions(items: &mut [SkillMarketItem]) {
-    let installed = crate::commands::acp::installed_market_skill_versions();
+async fn apply_local_install_versions(
+    conn: &DatabaseConnection,
+    items: &mut [SkillMarketItem],
+) -> Result<(), AppCommandError> {
+    let mut installed = crate::commands::acp::installed_market_skill_versions();
+    for plugin in crate::db::service::plugin_installation_service::list_installations(conn)
+        .await
+        .map_err(AppCommandError::db)?
+    {
+        installed.insert(plugin.market_skill_id, plugin.version);
+    }
     for item in items {
         item.installed_version = item
             .id
@@ -321,6 +359,28 @@ fn apply_local_install_versions(items: &mut [SkillMarketItem]) {
             .ok()
             .and_then(|id| installed.get(&id).cloned());
     }
+    Ok(())
+}
+
+async fn local_install_targets(
+    conn: &DatabaseConnection,
+    skill_id: i64,
+) -> Result<Vec<crate::models::AgentType>, AppCommandError> {
+    let targets = crate::commands::acp::installed_market_skill_targets(skill_id);
+    if !targets.is_empty() {
+        return Ok(targets);
+    }
+    let Some(plugin) =
+        crate::db::service::plugin_installation_service::find_by_market_skill_id(conn, skill_id)
+            .await
+            .map_err(AppCommandError::db)?
+    else {
+        return Ok(Vec::new());
+    };
+    serde_json::from_str(&plugin.installation.agent_types_json).map_err(|error| {
+        AppCommandError::configuration_invalid("Plugin installation targets are invalid")
+            .with_detail(error.to_string())
+    })
 }
 
 fn flatten_files(nodes: Vec<FileNode>, files: &mut Vec<SkillMarketFile>) {

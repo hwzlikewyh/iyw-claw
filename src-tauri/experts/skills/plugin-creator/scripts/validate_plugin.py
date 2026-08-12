@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 
 import yaml
 
+from portable_plugin import validate_portable_plugin
+
 
 TODO_MARKER = "[TODO:"
 SEMVER_RE = re.compile(
@@ -26,7 +28,7 @@ HEX_COLOR_RE = re.compile(r"^#[0-9A-F]{6}$", re.IGNORECASE)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate a local Codex plugin.")
+    parser = argparse.ArgumentParser(description="Validate a portable Codex and Claude plugin.")
     parser.add_argument("plugin_path", help="Path to the plugin root directory")
     return parser.parse_args()
 
@@ -52,6 +54,7 @@ def validate_plugin(plugin_root: Path) -> list[str]:
 
     reject_todo_markers(manifest, "$", errors)
     validate_manifest_shape(plugin_root, manifest, errors)
+    validate_portable_plugin(plugin_root, manifest, errors)
     return errors
 
 

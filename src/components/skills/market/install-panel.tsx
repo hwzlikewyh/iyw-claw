@@ -1,23 +1,18 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import {
-  AlertTriangle,
-  Check,
-  Loader2,
-  PackageCheck,
-  RotateCcw,
-  X,
-} from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { PackageCheck, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { AgentTargets } from "@/components/skills/market/install-agent-targets"
-import type { useSkillMarketInstall } from "@/hooks/use-skill-market-install"
 import {
-  formatSkillBytes,
-  installErrorAction,
-  type SkillMarketTranslator,
-} from "@/lib/skill-market"
+  BusyPanel,
+  InstallFailure,
+  InstallPlanMetrics,
+  InstallSuccess,
+} from "@/components/skills/market/install-panel-parts"
+import type { useSkillMarketInstall } from "@/hooks/use-skill-market-install"
+import { installErrorAction } from "@/lib/skill-market"
 import type { AgentType } from "@/lib/types"
 
 export interface SkillMarketInstallPanelProps {
@@ -27,8 +22,16 @@ export interface SkillMarketInstallPanelProps {
   onClose: () => void
 }
 
+type InstallSession = ReturnType<typeof useSkillMarketInstall>["session"]
+type InstallAction = ReturnType<typeof installErrorAction> | null
+
 export function SkillMarketInstallPanel(props: SkillMarketInstallPanelProps) {
-  const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
+  const panel = useInstallPanelState(props)
+  if (panel.session.status === "idle") return null
+  return <InstallPanelDialog target={props.pendingTarget} panel={panel} />
+}
+
+function useInstallPanelState(props: SkillMarketInstallPanelProps) {
   const { session, start, retry, reset } = props.controller
   const [selected, setSelected] = useState<Set<AgentType>>(new Set())
   const onInstalledRef = useRef(props.onInstalled)
@@ -49,15 +52,36 @@ export function SkillMarketInstallPanel(props: SkillMarketInstallPanelProps) {
     if (session.status !== "done") notifiedRef.current = false
   }, [session])
 
-  if (session.status === "idle") return null
   const errorAction = session.errorCode
     ? installErrorAction(session.errorCode)
     : null
-  const close = () => {
+  const close = useCallback(() => {
     reset()
     setSelected(new Set())
     props.onClose()
+  }, [props, reset])
+
+  return {
+    session,
+    selected,
+    errorAction,
+    setSelected,
+    start: () => void start([...selected]),
+    retry,
+    close,
   }
+}
+
+type InstallPanelState = ReturnType<typeof useInstallPanelState>
+
+function InstallPanelDialog({
+  target,
+  panel,
+}: {
+  target: SkillMarketInstallPanelProps["pendingTarget"]
+  panel: InstallPanelState
+}) {
+  const t = useTranslations("SkillMarketV2")
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/25 p-4 backdrop-blur-[1px] sm:items-center">
@@ -67,209 +91,190 @@ export function SkillMarketInstallPanel(props: SkillMarketInstallPanelProps) {
         aria-label={t("install.title")}
         className="w-full max-w-xl rounded-lg border bg-background shadow-2xl"
       >
-        <div className="flex items-start gap-3 border-b px-4 py-3">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <PackageCheck className="size-4" aria-hidden="true" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate text-sm font-semibold">
-              {props.pendingTarget?.name ?? t("install.title")}
-            </h3>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {props.pendingTarget ? `v${props.pendingTarget.version}` : ""}
-            </p>
-          </div>
-          {!["resolving", "running"].includes(session.status) ? (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={t("install.close")}
-              title={t("install.close")}
-              onClick={close}
-            >
-              <X className="size-3.5" aria-hidden="true" />
-            </Button>
-          ) : null}
-        </div>
-
+        <InstallPanelHeader target={target} panel={panel} />
         <InstallPanelBody
-          session={session}
-          selected={selected}
-          errorAction={errorAction}
-          onSelectedChange={setSelected}
-          onStart={() => void start([...selected])}
-          onRetry={retry}
-          onClose={close}
+          session={panel.session}
+          selected={panel.selected}
+          errorAction={panel.errorAction}
+          onSelectedChange={panel.setSelected}
+          onStart={panel.start}
+          onRetry={panel.retry}
+          onClose={panel.close}
         />
       </div>
     </div>
   )
 }
 
-function InstallPanelBody({
-  session,
-  selected,
-  errorAction,
-  onSelectedChange,
-  onStart,
-  onRetry,
-  onClose,
+function InstallPanelHeader({
+  target,
+  panel,
 }: {
-  session: ReturnType<typeof useSkillMarketInstall>["session"]
+  target: SkillMarketInstallPanelProps["pendingTarget"]
+  panel: InstallPanelState
+}) {
+  const t = useTranslations("SkillMarketV2")
+  const canClose = !["resolving", "running"].includes(panel.session.status)
+  return (
+    <div className="flex items-start gap-3 border-b px-4 py-3">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <PackageCheck className="size-4" aria-hidden="true" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-sm font-semibold">
+          {target?.name ?? t("install.title")}
+        </h3>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          {target ? `v${target.version}` : ""}
+        </p>
+      </div>
+      {canClose ? (
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label={t("install.close")}
+          title={t("install.close")}
+          onClick={panel.close}
+        >
+          <X className="size-3.5" aria-hidden="true" />
+        </Button>
+      ) : null}
+    </div>
+  )
+}
+
+interface InstallPanelBodyProps {
+  session: InstallSession
   selected: Set<AgentType>
-  errorAction: ReturnType<typeof installErrorAction> | null
+  errorAction: InstallAction
   onSelectedChange: (next: Set<AgentType>) => void
   onStart: () => void
   onRetry: () => void
   onClose: () => void
-}) {
-  const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
-  if (session.status === "resolving")
-    return (
-      <div className="p-4">
-        <InstallBusy label={t("install.resolving")} />
-      </div>
+}
+
+function InstallPanelBody(props: InstallPanelBodyProps) {
+  const { session } = props
+  const includesConnectors = Boolean(
+    session.plan?.items.some((item) =>
+      item.plugin?.components.some(
+        (component) => component.type === "connector"
+      )
     )
+  )
+  const requiresAgentTargets = Boolean(
+    session.plan?.items.some(
+      (item) =>
+        item.packageType !== "plugin" ||
+        item.plugin?.components.some((component) => component.type === "skill")
+    )
+  )
+  if (session.status === "resolving") return <BusyPanel message="resolving" />
   if (session.status === "running")
-    return (
-      <div className="p-4">
-        <InstallBusy label={t("install.installingReal")} />
-      </div>
-    )
+    return <BusyPanel message="installingReal" />
   if (session.status === "confirming" && session.plan) {
     return (
       <InstallConfirmation
         plan={session.plan}
-        selected={selected}
-        onSelectedChange={onSelectedChange}
-        onStart={onStart}
+        selected={props.selected}
+        includesConnectors={includesConnectors}
+        requiresAgentTargets={requiresAgentTargets}
+        onSelectedChange={props.onSelectedChange}
+        onStart={props.onStart}
       />
     )
   }
-  if (session.status === "done") {
+  if (session.status === "done")
     return (
-      <div className="p-4">
-        <ResultState
-          icon={<Check className="size-5 text-emerald-500" />}
-          title={t("install.done")}
-        >
-          <Button size="sm" onClick={onClose}>
-            {t("install.doneClose")}
-          </Button>
-        </ResultState>
-      </div>
+      <InstallSuccess
+        includesConnectors={includesConnectors}
+        onClose={props.onClose}
+      />
     )
-  }
-  if (session.status === "failed") {
+  if (session.status === "failed")
     return (
-      <div className="p-4">
-        <ResultState
-          icon={<AlertTriangle className="size-5 text-destructive" />}
-          title={t("install.failed")}
-          detail={session.errorMessage}
-        >
-          <Button size="sm" onClick={onRetry}>
-            <RotateCcw className="size-3.5" />
-            {t("install.actionRetry")}
-          </Button>
-          {errorAction && errorAction !== "retry" ? (
-            <span className="text-[10px] text-muted-foreground">
-              {t(`install.action${capitalize(errorAction)}`)}
-            </span>
-          ) : null}
-        </ResultState>
-      </div>
+      <InstallFailure
+        errorMessage={session.errorMessage}
+        errorAction={props.errorAction}
+        onRetry={props.onRetry}
+      />
     )
-  }
   return null
 }
 
 function InstallConfirmation({
   plan,
   selected,
+  includesConnectors,
+  requiresAgentTargets,
   onSelectedChange,
   onStart,
 }: {
   plan: NonNullable<ReturnType<typeof useSkillMarketInstall>["session"]["plan"]>
   selected: Set<AgentType>
+  includesConnectors: boolean
+  requiresAgentTargets: boolean
   onSelectedChange: (next: Set<AgentType>) => void
   onStart: () => void
 }) {
   const t = useTranslations("SkillMarketV2")
   return (
     <div className="space-y-4 p-4">
-      <div className="grid grid-cols-3 gap-3 border-b pb-3 text-xs">
-        <InstallMetric
-          label={t("install.downloadSize")}
-          value={formatSkillBytes(plan.totalBytes)}
-        />
-        <InstallMetric
-          label={t("detail.dependencies")}
-          value={String(plan.dependencyCount)}
-        />
-        <InstallMetric
-          label={t("install.targets")}
-          value={String(selected.size)}
-        />
-      </div>
-      <AgentTargets selected={selected} onChange={onSelectedChange} />
-      <div className="flex items-center justify-between gap-3">
+      <InstallPlanMetrics
+        totalBytes={plan.totalBytes}
+        dependencyCount={plan.dependencyCount}
+        targetCount={selected.size}
+      />
+      {includesConnectors ? (
+        <p className="border-l-2 border-amber-500/50 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
+          {t("install.connectorsOff")}
+        </p>
+      ) : null}
+      {requiresAgentTargets ? (
+        <AgentTargets selected={selected} onChange={onSelectedChange} />
+      ) : null}
+      <InstallConfirmationActions
+        selectedCount={selected.size}
+        includesConnectors={includesConnectors}
+        requiresAgentTargets={requiresAgentTargets}
+        onStart={onStart}
+      />
+    </div>
+  )
+}
+
+function InstallConfirmationActions({
+  selectedCount,
+  includesConnectors,
+  requiresAgentTargets,
+  onStart,
+}: {
+  selectedCount: number
+  includesConnectors: boolean
+  requiresAgentTargets: boolean
+  onStart: () => void
+}) {
+  const t = useTranslations("SkillMarketV2")
+  return (
+    <div className="flex items-center justify-between gap-3">
+      {requiresAgentTargets ? (
         <p className="text-[10px] text-muted-foreground">
           {t("install.profileRule")}
         </p>
-        <Button size="sm" disabled={selected.size === 0} onClick={onStart}>
-          {t("install.installAndEnable")}
-        </Button>
-      </div>
+      ) : (
+        <span />
+      )}
+      <Button
+        size="sm"
+        disabled={requiresAgentTargets && selectedCount === 0}
+        onClick={onStart}
+      >
+        {t(
+          includesConnectors
+            ? "install.installPlugin"
+            : "install.installAndEnable"
+        )}
+      </Button>
     </div>
   )
-}
-
-function InstallMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-[10px] text-muted-foreground">{label}</p>
-      <p className="mt-1 font-medium">{value}</p>
-    </div>
-  )
-}
-
-function InstallBusy({ label }: { label: string }) {
-  return (
-    <div className="flex min-h-28 items-center justify-center gap-2 text-sm text-muted-foreground">
-      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-      {label}
-    </div>
-  )
-}
-
-function ResultState({
-  icon,
-  title,
-  detail,
-  children,
-}: {
-  icon: React.ReactNode
-  title: string
-  detail?: string | null
-  children: React.ReactNode
-}) {
-  return (
-    <div className="space-y-3 py-3">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        {icon}
-        {title}
-      </div>
-      {detail ? (
-        <p className="break-words border-l-2 border-destructive/40 pl-3 text-xs text-muted-foreground">
-          {detail}
-        </p>
-      ) : null}
-      <div className="flex items-center gap-2">{children}</div>
-    </div>
-  )
-}
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1)
 }

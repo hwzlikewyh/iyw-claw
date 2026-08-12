@@ -4,7 +4,28 @@ import type { AgentSkillItem, AgentType } from "@/lib/types"
 export type SkillMarketVisibility = "public" | "private"
 export type SkillMarketPublisher = "official" | "user"
 export type SkillMarketView = "market" | "mine"
-export type SkillPackageType = "skill" | "expert"
+export type SkillPackageType = "skill" | "expert" | "plugin"
+
+export interface SkillPluginManifest {
+  schemaVersion: number
+  name: string
+  version: string
+  targets: Array<"codex" | "claude_code">
+  components: SkillPluginComponent[]
+  bindings: SkillPluginBinding[]
+}
+
+export interface SkillPluginComponent {
+  type: "skill" | "connector"
+  key: string
+  path?: string
+  serverKey?: string
+}
+
+export interface SkillPluginBinding {
+  skillKey: string
+  connectorKey: string
+}
 
 export interface SkillDependency {
   skillId: string
@@ -32,6 +53,7 @@ export interface SkillMarketVersion {
   packageSize: number
   packageType: SkillPackageType
   dependencies: SkillDependency[]
+  plugin?: SkillPluginManifest | null
   createdAt: string
 }
 
@@ -90,6 +112,7 @@ export interface SkillMarketUploadFile {
 
 export interface SelectedSkillMarketFolder {
   name: string
+  packageType: Extract<SkillPackageType, "skill" | "plugin">
   files: SkillMarketUploadFile[]
   totalBytes: number
 }
@@ -104,6 +127,7 @@ export interface SkillMarketPublishRequest {
   visibility: SkillMarketVisibility
   version: string
   changelog: string
+  packageType: SkillPackageType
   dependencies: SkillDependencyInput[]
   files: SkillMarketUploadFile[]
 }
@@ -122,6 +146,7 @@ export interface SkillMarketAddVersionRequest {
   id: string
   version: string
   changelog: string
+  packageType: SkillPackageType
   dependencies: SkillDependencyInput[]
   files: SkillMarketUploadFile[]
 }
@@ -226,13 +251,37 @@ export async function readSkillMarketFolder(
   validatePathConflicts(paths)
   const totalBytes = entries.reduce((total, { file }) => total + file.size, 0)
   if (totalBytes > MAX_BYTES) throw new Error("folderTooLarge")
-  const entryIndex = paths.indexOf("SKILL.md")
+  const pluginIndex = paths.indexOf(".iyw-plugin.json")
+  const packageType = pluginIndex >= 0 ? "plugin" : "skill"
+  const entryIndex =
+    packageType === "plugin" ? pluginIndex : paths.indexOf("SKILL.md")
   if (entryIndex < 0) throw new Error("missingSkillFile")
-  const skillFile = entries[entryIndex].file
-  if (skillFile.size > MAX_SKILL_MD_BYTES) throw new Error("skillFileTooLarge")
-  const skillBytes = new Uint8Array(await skillFile.arrayBuffer())
+  const entryFile = entries[entryIndex].file
+  const entryBytes = new Uint8Array(await entryFile.arrayBuffer())
+  if (packageType === "plugin") {
+    await validatePluginFolderEntry(entryBytes, name, paths)
+  } else {
+    validateSkillFolderEntry(entryBytes)
+  }
+  const files = await Promise.all(
+    entries.map(async ({ file }, index) => ({
+      path: paths[index],
+      contentBase64: bytesToBase64(
+        index === entryIndex
+          ? entryBytes
+          : new Uint8Array(await file.arrayBuffer())
+      ),
+      size: file.size,
+    }))
+  )
+  return { name, packageType, files, totalBytes }
+}
+
+function validateSkillFolderEntry(bytes: Uint8Array): void {
+  if (bytes.byteLength > MAX_SKILL_MD_BYTES)
+    throw new Error("skillFileTooLarge")
   try {
-    if (!new TextDecoder("utf-8", { fatal: true }).decode(skillBytes).trim()) {
+    if (!new TextDecoder("utf-8", { fatal: true }).decode(bytes).trim()) {
       throw new Error("emptySkillFile")
     }
   } catch (error) {
@@ -240,18 +289,38 @@ export async function readSkillMarketFolder(
       throw error
     throw new Error("invalidSkillFile")
   }
-  const files = await Promise.all(
-    entries.map(async ({ file }, index) => ({
-      path: paths[index],
-      contentBase64: bytesToBase64(
-        index === entryIndex
-          ? skillBytes
-          : new Uint8Array(await file.arrayBuffer())
-      ),
-      size: file.size,
-    }))
-  )
-  return { name, files, totalBytes }
+}
+
+async function validatePluginFolderEntry(
+  bytes: Uint8Array,
+  folderName: string,
+  paths: string[]
+): Promise<void> {
+  if (bytes.byteLength > MAX_SKILL_MD_BYTES)
+    throw new Error("skillFileTooLarge")
+  if (
+    !paths.includes(".codex-plugin/plugin.json") ||
+    !paths.includes(".claude-plugin/plugin.json")
+  ) {
+    throw new Error("missingPluginManifest")
+  }
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+    const manifest = JSON.parse(text) as Record<string, unknown>
+    if (
+      manifest.schemaVersion !== 1 ||
+      manifest.name !== folderName ||
+      typeof manifest.version !== "string" ||
+      !manifest.version
+    ) {
+      throw new Error("invalidPluginManifest")
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message === "invalidPluginManifest") {
+      throw error
+    }
+    throw new Error("invalidPluginManifest")
+  }
 }
 
 export const skillMarketList = (params: SkillMarketListParams) =>
@@ -359,6 +428,8 @@ export interface SkillMarketV2Version {
   rawSize?: number
   artifactSha256: string | null
   dependencies: SkillDependency[]
+  packageType: SkillPackageType
+  plugin?: SkillPluginManifest | null
   releasedAt: string
   failureCode?: string | null
 }
@@ -446,6 +517,8 @@ export interface SkillMarketInstallPlanItemV2 {
   signature: string | null
   ticketEndpoint: string
   dependencies: SkillDependency[]
+  packageType: SkillPackageType
+  plugin?: SkillPluginManifest | null
 }
 
 export interface SkillMarketInstallPlanV2 {

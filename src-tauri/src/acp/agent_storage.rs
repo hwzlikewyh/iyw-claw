@@ -164,6 +164,10 @@ impl AgentStoragePaths {
         self.runtime_dir().join("trash")
     }
 
+    pub fn plugins_dir(&self) -> PathBuf {
+        self.root.join("plugins")
+    }
+
     pub fn profile(&self, agent_type: AgentType) -> AgentProfilePaths {
         let config_dir = self.config_dir();
         let (root, env) = match agent_type {

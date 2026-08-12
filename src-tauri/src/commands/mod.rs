@@ -30,6 +30,8 @@ pub mod logging;
 pub mod managed_skills;
 pub mod mcp;
 pub mod mcp_catalog;
+mod mcp_catalog_persistence;
+pub mod mcp_catalog_sources;
 pub mod mcp_sync;
 pub mod model_provider;
 #[cfg(feature = "tauri-runtime")]

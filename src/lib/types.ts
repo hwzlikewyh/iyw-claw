@@ -2071,6 +2071,20 @@ export interface LocalMcpServer {
   spec: Record<string, unknown>
   apps: McpAppType[]
   enabled: boolean
+  display_name: string | null
+  description: string | null
+  missing_config: string[]
+  sources: ManagedMcpCatalogSource[]
+}
+
+export interface ManagedMcpCatalogSource {
+  kind: "plugin" | string
+  ownerId: string
+  ownerName: string
+  version: string
+  componentKey: string
+  requiredSkillKeys: string[]
+  templateSpec: Record<string, unknown>
 }
 
 export interface McpMarketplaceProvider {

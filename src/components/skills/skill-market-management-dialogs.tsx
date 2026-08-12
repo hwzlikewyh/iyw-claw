@@ -69,6 +69,7 @@ function useVersionForm(props: VersionDialogProps) {
       id: props.detail.id,
       version: version.trim(),
       changelog: changelog.trim(),
+      packageType: folder.packageType,
       dependencies: parseSkillDependencies(dependencies),
       files: folder.files,
     })

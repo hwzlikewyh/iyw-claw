@@ -12,6 +12,12 @@ import {
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
+import {
+  ConnectorDetailMetadata,
+  ConnectorListMetadata,
+  connectorName,
+  pluginSources,
+} from "@/components/settings/connector-metadata"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -60,7 +66,7 @@ import type {
   McpMarketplaceServerDetail,
 } from "@/lib/types"
 
-type LeftTab = "local" | "market"
+type LeftTab = "local" | "market" | "custom"
 
 type Selection =
   | { kind: "local"; id: string }
@@ -351,6 +357,14 @@ export function McpSettings() {
     if (!q) return installedServers
     return installedServers.filter((item) => {
       if (item.id.toLowerCase().includes(q)) return true
+      if (connectorName(item).toLowerCase().includes(q)) return true
+      if (
+        pluginSources(item).some((source) =>
+          source.ownerName.toLowerCase().includes(q)
+        )
+      ) {
+        return true
+      }
       const spec = isObject(item.spec) ? item.spec : {}
       return specSummary(spec, mcpT).toLowerCase().includes(q)
     })
@@ -586,7 +600,7 @@ export function McpSettings() {
   }, [localSpecText, mcpT, refreshLocalServers, selectedLocal, t])
 
   const handleCreateDraft = useCallback(() => {
-    setLeftTab("local")
+    setLeftTab("custom")
     setSelection({ kind: "draft" })
     setDraftServerId("")
     setDraftSpecText(DEFAULT_DRAFT_SPEC)
@@ -939,7 +953,13 @@ export function McpSettings() {
         <section className="min-h-0 rounded-xl border bg-card p-3">
           <Tabs
             value={leftTab}
-            onValueChange={(value) => setLeftTab(value as LeftTab)}
+            onValueChange={(value) => {
+              if (value === "custom") {
+                handleCreateDraft()
+                return
+              }
+              setLeftTab(value as LeftTab)
+            }}
             className="h-full"
           >
             <TabsList className="w-full">
@@ -948,6 +968,9 @@ export function McpSettings() {
               </TabsTrigger>
               <TabsTrigger value="market" className="flex-1">
                 {t("tabs.market")}
+              </TabsTrigger>
+              <TabsTrigger value="custom" className="flex-1">
+                {t("tabs.custom")}
               </TabsTrigger>
             </TabsList>
 
@@ -979,6 +1002,8 @@ export function McpSettings() {
                     const active =
                       selection?.kind === "local" && selection.id === server.id
                     const spec = isObject(server.spec) ? server.spec : {}
+                    const sources = pluginSources(server)
+                    const needsConfig = (server.missing_config ?? []).length > 0
                     return (
                       <ContextMenu key={server.id}>
                         <ContextMenuTrigger asChild>
@@ -997,12 +1022,18 @@ export function McpSettings() {
                                 setSelection({ kind: "local", id: server.id })
                               }}
                             >
-                              <div className="text-sm font-medium break-all">
-                                {server.id}
+                              <div className="truncate text-sm font-medium">
+                                {connectorName(server)}
                               </div>
+                              {connectorName(server) !== server.id ? (
+                                <div className="truncate font-mono text-[10px] text-muted-foreground">
+                                  {server.id}
+                                </div>
+                              ) : null}
                               <div className="text-xs text-muted-foreground line-clamp-2 break-all">
                                 {specSummary(spec, mcpT)}
                               </div>
+                              <ConnectorListMetadata server={server} />
                             </button>
                             <Switch
                               checked={server.enabled}
@@ -1016,25 +1047,35 @@ export function McpSettings() {
                                   }
                                 )
                               }}
-                              disabled={runningAction !== null}
-                              aria-label={server.id}
+                              disabled={
+                                runningAction !== null ||
+                                (!server.enabled && needsConfig)
+                              }
+                              aria-label={t("local.globalToggle", {
+                                name: connectorName(server),
+                              })}
+                              title={t("local.globalToggle", {
+                                name: connectorName(server),
+                              })}
                             />
                           </div>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
-                          <ContextMenuItem
-                            variant="destructive"
-                            onClick={() => {
-                              uninstallServer(server.id).catch((err) => {
-                                console.error(
-                                  "[Settings] uninstall MCP failed:",
-                                  err
-                                )
-                              })
-                            }}
-                          >
-                            {t("actions.uninstall")}
-                          </ContextMenuItem>
+                          {sources.length === 0 ? (
+                            <ContextMenuItem
+                              variant="destructive"
+                              onClick={() => {
+                                uninstallServer(server.id).catch((err) => {
+                                  console.error(
+                                    "[Settings] uninstall connector failed:",
+                                    err
+                                  )
+                                })
+                              }}
+                            >
+                              {t("actions.uninstall")}
+                            </ContextMenuItem>
+                          ) : null}
                         </ContextMenuContent>
                       </ContextMenu>
                     )
@@ -1055,14 +1096,6 @@ export function McpSettings() {
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                   {t("actions.refresh")}
-                </Button>
-                <Button
-                  size="sm"
-                  className="flex-1"
-                  onClick={handleCreateDraft}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  {t("actions.newMcp")}
                 </Button>
               </div>
             </TabsContent>
@@ -1243,6 +1276,18 @@ export function McpSettings() {
                 )}
               </div>
             </TabsContent>
+
+            <TabsContent value="custom" className="h-full min-h-0 pt-2">
+              <div className="flex h-full flex-col items-center justify-center gap-3 border border-dashed p-5 text-center">
+                <Plus className="size-5 text-muted-foreground" />
+                <p className="text-xs text-muted-foreground">
+                  {t("custom.description")}
+                </p>
+                <Button size="sm" onClick={handleCreateDraft}>
+                  {t("actions.newConnector")}
+                </Button>
+              </div>
+            </TabsContent>
           </Tabs>
         </section>
 
@@ -1323,31 +1368,41 @@ export function McpSettings() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-base font-semibold break-all">
-                    {selectedLocal.id}
+                    {connectorName(selectedLocal)}
                   </h2>
+                  <p className="font-mono text-[10px] text-muted-foreground">
+                    {selectedLocal.id}
+                  </p>
                   <p className="text-xs text-muted-foreground mt-1">
                     {t("local.description")}
                   </p>
                 </div>
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    uninstallServer(selectedLocal.id).catch((err) => {
-                      console.error("[Settings] uninstall MCP failed:", err)
-                    })
-                  }}
-                  disabled={runningAction === `uninstall:${selectedLocal.id}`}
-                >
-                  {runningAction === `uninstall:${selectedLocal.id}` ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      {t("actions.uninstalling")}
-                    </>
-                  ) : (
-                    t("actions.uninstall")
-                  )}
-                </Button>
+                {pluginSources(selectedLocal).length === 0 ? (
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      uninstallServer(selectedLocal.id).catch((err) => {
+                        console.error(
+                          "[Settings] uninstall connector failed:",
+                          err
+                        )
+                      })
+                    }}
+                    disabled={runningAction === `uninstall:${selectedLocal.id}`}
+                  >
+                    {runningAction === `uninstall:${selectedLocal.id}` ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {t("actions.uninstalling")}
+                      </>
+                    ) : (
+                      t("actions.uninstall")
+                    )}
+                  </Button>
+                ) : null}
               </div>
+
+              <ConnectorDetailMetadata server={selectedLocal} />
 
               <div className="space-y-2">
                 <div className="text-xs text-muted-foreground">

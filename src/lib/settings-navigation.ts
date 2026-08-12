@@ -9,6 +9,7 @@ export type SettingsSection =
   | "performance"
   | "user-memory"
   | "agents"
+  | "connectors"
   | "mcp"
   | "experts"
   | "office-tools"
@@ -44,7 +45,7 @@ export function normalizeSettingsSection(
     case "performance":
     case "user-memory":
     case "agents":
-    case "mcp":
+    case "connectors":
     case "experts":
     case "office-tools":
     case "internet-tools":
@@ -58,6 +59,8 @@ export function normalizeSettingsSection(
     case "model-providers":
     case "logs":
       return section
+    case "mcp":
+      return "connectors"
     default:
       return DEFAULT_SETTINGS_SECTION
   }

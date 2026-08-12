@@ -85,6 +85,8 @@ function version(
     rawSize: artifactSize,
     artifactSha256: status === "ready" ? `fixture-sha256-${id}` : null,
     dependencies,
+    packageType: dependencies.length ? "expert" : "skill",
+    plugin: null,
     releasedAt: "2026-07-20T08:00:00.000Z",
     failureCode: status === "failed" ? "build_failed" : null,
   }
@@ -847,6 +849,8 @@ export function createFixtureSkillMarketSource(
           signature: null,
           ticketEndpoint: "/skills/artifact-ticket",
           dependencies: versionToInstall.dependencies,
+          packageType: versionToInstall.packageType,
+          plugin: versionToInstall.plugin ?? null,
         })
         for (const dependency of versionToInstall.dependencies) {
           const depRecord = records.find(

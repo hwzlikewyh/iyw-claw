@@ -46,7 +46,7 @@ export interface SettingsNavItem {
     | "usage"
     | "user_memory"
     | "agents"
-    | "mcp"
+    | "connectors"
     | "skills"
     | "quick_messages"
     | "shortcuts"
@@ -90,9 +90,9 @@ const NAV_AGENTS: SettingsNavItem = {
   labelKey: "agents",
   icon: Bot,
 }
-const NAV_MCP: SettingsNavItem = {
-  href: "/settings/mcp",
-  labelKey: "mcp",
+const NAV_CONNECTORS: SettingsNavItem = {
+  href: "/settings/connectors",
+  labelKey: "connectors",
   icon: PlugZap,
 }
 const NAV_SKILLS: SettingsNavItem = {
@@ -155,7 +155,7 @@ const NAV_GROUPS_BASE: SettingsNavGroup[] = [
   },
   {
     groupKey: "aiModels",
-    items: [NAV_AGENTS, NAV_MCP, NAV_SKILLS],
+    items: [NAV_AGENTS, NAV_CONNECTORS, NAV_SKILLS],
   },
   {
     groupKey: "productivity",
@@ -193,6 +193,8 @@ export function normalizeSettingsPath(path: string): string {
 export function normalizeSettingsNavPath(path: string): string {
   const normalized = normalizeSettingsPath(path)
   switch (normalized) {
+    case "/settings/mcp":
+      return "/settings/connectors"
     case "/settings/experts":
     case "/settings/office-tools":
     case "/settings/internet-tools":

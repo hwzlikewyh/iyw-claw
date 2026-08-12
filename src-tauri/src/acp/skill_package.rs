@@ -16,20 +16,66 @@ const OFFICIAL_MARKER: &str = ".iyw-claw-official-skill.json";
 const PUBLISH_STATE_MARKER: &str = ".iyw-claw-publish-state.json";
 const MANAGED_COPY_MARKER: &str = ".iyw-claw-managed-copy.json";
 
+#[derive(Clone)]
 pub struct PackageFile {
     pub path: PathBuf,
     pub bytes: Vec<u8>,
     sha256: String,
 }
 
+#[derive(Clone)]
 pub struct ValidatedSkillPackage {
     pub files: Vec<PackageFile>,
     pub content_sha256: String,
 }
 
+impl ValidatedSkillPackage {
+    pub fn skill_component(&self, root: &str) -> Result<Self, AppCommandError> {
+        let prefix = Path::new(root);
+        let mut files = Vec::new();
+        for file in &self.files {
+            let Ok(relative) = file.path.strip_prefix(prefix) else {
+                continue;
+            };
+            if relative.as_os_str().is_empty() {
+                continue;
+            }
+            let normalized = normalized_path(relative);
+            let path = validate_path(&normalized)?;
+            files.push(PackageFile {
+                path,
+                bytes: file.bytes.clone(),
+                sha256: file.sha256.clone(),
+            });
+        }
+        validate_skill_entry(&files)?;
+        files.sort_by(|left, right| normalized_path(&left.path).cmp(&normalized_path(&right.path)));
+        let content_sha256 = hash_file_tree(&files);
+        Ok(Self {
+            files,
+            content_sha256,
+        })
+    }
+}
+
 pub fn validate_zip(
     bytes: &[u8],
     expected_content_sha256: &str,
+) -> Result<ValidatedSkillPackage, AppCommandError> {
+    validate_zip_with_entry(bytes, expected_content_sha256, true)
+}
+
+pub fn validate_plugin_zip(
+    bytes: &[u8],
+    expected_content_sha256: &str,
+) -> Result<ValidatedSkillPackage, AppCommandError> {
+    validate_zip_with_entry(bytes, expected_content_sha256, false)
+}
+
+fn validate_zip_with_entry(
+    bytes: &[u8],
+    expected_content_sha256: &str,
+    require_root_skill: bool,
 ) -> Result<ValidatedSkillPackage, AppCommandError> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(invalid_zip)?;
     if archive.len() > MAX_ARCHIVE_ENTRIES {
@@ -72,7 +118,9 @@ pub fn validate_zip(
             sha256,
         });
     }
-    validate_skill_entry(&files)?;
+    if require_root_skill {
+        validate_skill_entry(&files)?;
+    }
     files.sort_by(|left, right| normalized_path(&left.path).cmp(&normalized_path(&right.path)));
     let content_sha256 = hash_file_tree(&files);
     if !content_sha256.eq_ignore_ascii_case(expected_content_sha256.trim()) {

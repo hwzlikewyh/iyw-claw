@@ -17,5 +17,7 @@ pub use super::managed_tool_installation::Entity as ManagedToolInstallation;
 pub use super::managed_tool_setting::Entity as ManagedToolSetting;
 pub use super::model_provider::Entity as ModelProvider;
 pub use super::opened_tab::Entity as OpenedTab;
+pub use super::plugin_component_ownership::Entity as PluginComponentOwnership;
+pub use super::plugin_installation::Entity as PluginInstallation;
 pub use super::quick_message::Entity as QuickMessage;
 pub use super::task_artifact::Entity as TaskArtifact;

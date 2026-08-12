@@ -1,6 +1,6 @@
 ---
 name: plugin-creator
-description: Create and scaffold plugin directories for Codex with a required `.codex-plugin/plugin.json`, optional plugin folders/files, valid manifest defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add optional plugin structure, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow.
+description: Create and scaffold portable plugin directories for Codex and Claude Code with dual native manifests, an IYW component manifest, optional plugin folders/files, valid defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add shared skills or MCP connectors, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow.
 ---
 
 # Plugin Creator
@@ -11,14 +11,15 @@ description: Create and scaffold plugin directories for Codex with a required `.
 
 ```bash
 # Plugin names are normalized to lower-case hyphen-case and must be <= 64 chars.
-# The generated folder and plugin.json name are always the same.
+# The generated folder and both native plugin.json names are always the same.
 # Run from the skill root (the directory containing this `SKILL.md`).
 # By default creates in `~/plugins/<plugin-name>`.
 python3 scripts/create_basic_plugin.py <plugin-name>
 ```
 
-2. Edit `<plugin-path>/.codex-plugin/plugin.json` when the request gives specific metadata.
-   The scaffold starts with valid defaults and must not contain `[TODO: ...]` placeholders.
+2. Edit both native manifests and `<plugin-path>/.iyw-plugin.json` when the request gives specific
+   metadata or components. Keep the native `name` and `version` values identical. The scaffold
+   starts with valid defaults and must not contain `[TODO: ...]` placeholders.
 
 3. Generate or update the personal marketplace entry when the plugin should appear in Codex UI ordering:
 
@@ -85,6 +86,8 @@ See `references/installing-and-updating.md` for the expected cachebuster and rei
   `~/plugins/<plugin-name>/`.
 - Creates plugin root at `/<parent-plugin-directory>/<plugin-name>/`.
 - Always creates `/<parent-plugin-directory>/<plugin-name>/.codex-plugin/plugin.json`.
+- Always creates `/<parent-plugin-directory>/<plugin-name>/.claude-plugin/plugin.json`.
+- Always creates `/<parent-plugin-directory>/<plugin-name>/.iyw-plugin.json` with both runtime targets.
 - Fills the manifest with the validated schema shape that the ingestion path accepts.
 - Creates or updates `~/.agents/plugins/marketplace.json` when `--with-marketplace` is set.
   - If the marketplace file does not exist yet, seed a personal marketplace root before adding the first plugin entry.
@@ -183,7 +186,12 @@ See `references/installing-and-updating.md` for the expected cachebuster and rei
 ## Required behavior
 
 - Outer folder name and `plugin.json` `"name"` are always the same normalized plugin name.
-- Do not remove required structure; keep `.codex-plugin/plugin.json` present.
+- Do not remove required structure; keep both native manifests and `.iyw-plugin.json` present.
+- Keep the native and IYW manifest `name` and `version` values identical.
+- Declare every direct child of `skills/` in `components.skills` and every `.mcp.json` server in
+  `components.connectors`. Connector requirements use connector keys, not MCP server keys.
+- Treat connector activation as a host-owned global setting. Creating or installing a plugin must
+  not imply that any bundled connector is enabled.
 - Do not leave `[TODO: ...]` placeholders in plugin manifests.
 - Keep `apps` and `mcpServers` out of `plugin.json` unless their companion files are actually created.
 - Omit unsupported plugin manifest fields that validation rejects, including `hooks`.
@@ -222,7 +230,7 @@ See `references/installing-and-updating.md` for the expected cachebuster and rei
 
 ## Reference to exact spec sample
 
-For the exact canonical sample JSON for both plugin manifests and marketplace entries, use:
+For the exact canonical sample JSON for the portable manifests and marketplace entries, use:
 
 - `references/plugin-json-spec.md`
 - `references/installing-and-updating.md` for update/reinstall guidance while

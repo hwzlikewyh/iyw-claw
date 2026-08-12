@@ -11,7 +11,12 @@ use crate::models::AgentType;
 
 use super::client;
 use super::install_plan::{market_marker, validate_install_plan, MAX_PACKAGE_BYTES};
-use super::types::{parse_id, parse_value, SkillDownloadInfo, SkillInstallPlan};
+use super::plugin_install_context::{MarketInstallPlanExecution, PreparedPluginInstall};
+use super::plugin_manifest::{validate_plugin_package, ValidatedPluginPackage};
+use super::types::{
+    parse_id, parse_value, SkillDownloadInfo, SkillInstallPlan, SkillInstallPlanItem,
+    SkillPackageType,
+};
 
 const PACKAGE_DOWNLOAD_ATTEMPTS: usize = 3;
 
@@ -58,6 +63,7 @@ pub async fn install_core(
     let root_slug = plan.root_slug.clone();
     let package_count = plan.items.len();
     let mut installs = Vec::with_capacity(package_count);
+    let mut plugins = Vec::new();
     for item in plan.items {
         let skill_id = item.skill_id.clone();
         let item_version = item.version.clone();
@@ -82,14 +88,33 @@ pub async fn install_core(
             object_sha256_present = !item.download.object_sha256.trim().is_empty(),
             "[skill-market] package transfer completed"
         );
-        let package =
-            crate::acp::skill_package::validate_zip(&package_bytes, &item.download.content_sha256)?;
+        let (package, plugin) = validate_downloaded_package(&package_bytes, &item)?;
         let marker = market_marker(&item, object_hash, requested_id, agent_types.clone())?;
-        installs.push(MarketSkillInstall { marker, package });
+        if let Some(plugin) = plugin {
+            plugins.push(PreparedPluginInstall {
+                market_skill_id: parse_id(&item.skill_id)?,
+                slug: item.slug,
+                version: item.version,
+                object_sha256: marker.object_sha256.clone(),
+                package,
+                plugin,
+                marker,
+            });
+        } else {
+            installs.push(MarketSkillInstall { marker, package });
+        }
     }
-    crate::commands::acp::install_market_skills(&agent_types, installs).map_err(|error| {
+    super::plugin_install::install_market_plan(MarketInstallPlanExecution {
+        conn,
+        agent_types: &agent_types,
+        root_skill_id: requested_id,
+        skill_installs: installs,
+        plugins,
+    })
+    .await
+    .map_err(|error| {
         tracing::error!(skill_id = %id, version = %requested_version, agent_types = ?agent_types, error = %error, "[skill-market] local installation failed");
-        map_local_install_error(error)
+        error
     })?;
     tracing::info!(
         skill_id = %id,
@@ -175,7 +200,7 @@ pub async fn revalidate_artifact_core(
             root.slug, root.version
         )));
     }
-    crate::acp::skill_package::validate_zip(&package_bytes, &root.download.content_sha256)?;
+    validate_downloaded_package(&package_bytes, root)?;
     tracing::info!(
         skill_id = %id,
         version = %requested_version,
@@ -184,7 +209,39 @@ pub async fn revalidate_artifact_core(
     Ok(())
 }
 
-fn map_local_install_error(error: crate::acp::error::AcpError) -> AppCommandError {
+fn validate_downloaded_package(
+    bytes: &[u8],
+    item: &SkillInstallPlanItem,
+) -> Result<
+    (
+        crate::acp::skill_package::ValidatedSkillPackage,
+        Option<ValidatedPluginPackage>,
+    ),
+    AppCommandError,
+> {
+    match item.package_type {
+        SkillPackageType::Skill | SkillPackageType::Expert => {
+            let package =
+                crate::acp::skill_package::validate_zip(bytes, &item.download.content_sha256)?;
+            Ok((package, None))
+        }
+        SkillPackageType::Plugin => {
+            let package = crate::acp::skill_package::validate_plugin_zip(
+                bytes,
+                &item.download.content_sha256,
+            )?;
+            let expected = item.plugin.as_ref().ok_or_else(|| {
+                AppCommandError::configuration_invalid(
+                    "Plugin install plan is missing component metadata",
+                )
+            })?;
+            let plugin = validate_plugin_package(&package, expected, &item.slug, &item.version)?;
+            Ok((package, Some(plugin)))
+        }
+    }
+}
+
+pub(super) fn map_local_install_error(error: crate::acp::error::AcpError) -> AppCommandError {
     let detail = error.to_string();
     let lowered = detail.to_ascii_lowercase();
     let result = if lowered.contains("already exists")

@@ -3,6 +3,8 @@ use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use crate::app_error::AppCommandError;
 use crate::models::AgentType;
 
+use super::plugin_types::SkillPluginManifest;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillMarketListParams {
@@ -39,6 +41,8 @@ pub struct SkillMarketVersion {
     pub package_type: SkillPackageType,
     #[serde(default, deserialize_with = "null_as_default")]
     pub dependencies: Vec<SkillDependency>,
+    #[serde(default)]
+    pub plugin: Option<SkillPluginManifest>,
     pub created_at: String,
 }
 
@@ -48,6 +52,7 @@ pub enum SkillPackageType {
     #[default]
     Skill,
     Expert,
+    Plugin,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -172,6 +177,8 @@ pub struct SkillMarketPublishRequest {
     pub version: String,
     pub changelog: String,
     #[serde(default)]
+    pub package_type: SkillPackageType,
+    #[serde(default)]
     pub dependencies: Vec<SkillDependencyInput>,
     pub files: Vec<SkillMarketUploadFile>,
 }
@@ -194,6 +201,8 @@ pub struct SkillMarketAddVersionRequest {
     pub id: String,
     pub version: String,
     pub changelog: String,
+    #[serde(default)]
+    pub package_type: SkillPackageType,
     #[serde(default)]
     pub dependencies: Vec<SkillDependencyInput>,
     pub files: Vec<SkillMarketUploadFile>,
@@ -233,6 +242,8 @@ pub struct SkillInstallPlanItem {
     pub publisher_type: String,
     #[serde(default, deserialize_with = "null_as_default")]
     pub dependencies: Vec<SkillDependency>,
+    #[serde(default)]
+    pub plugin: Option<SkillPluginManifest>,
     pub download: SkillDownloadInfo,
 }
 

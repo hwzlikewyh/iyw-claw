@@ -50,7 +50,7 @@
       "general": "General",
       "appearance": "Appearance",
       "agents": "Agents",
-      "mcp": "MCP",
+      "connectors": "Connectors",
       "skills": "Skill Packs",
       "shortcuts": "Shortcuts",
       "version_control": "Version Control",
@@ -800,7 +800,7 @@
       "specMustBeObject": "MCP config must be a JSON object.",
       "missingType": "MCP config is missing the type field. Use one of stdio, http (aliases: streamable-http, streamableHttp), sse.",
       "unsupportedType": "Unsupported MCP type {type}. Supported: stdio, http (aliases: streamable-http, streamableHttp), sse.",
-      "codexEntryUnsupportedType": "Codex MCP entry {id} has unsupported type {type}. Supported: stdio, http (aliases: streamable-http, streamableHttp), sse.",
+      "codexEntryUnsupportedType": "星河 MCP entry {id} has unsupported type {type}. Supported: stdio, http (aliases: streamable-http, streamableHttp), sse.",
       "unsupportedTransportType": "Unsupported transport type {type}. Supported: http (aliases: streamable-http, streamableHttp), sse.",
       "stdioCommandRequired": "stdio MCP requires a non-empty command field.",
       "remoteUrlRequired": "Remote MCP requires a non-empty url field.",
@@ -811,7 +811,7 @@
       "installConfig": "Install Config"
     },
     "toasts": {
-      "uninstalled": "MCP uninstalled",
+      "uninstalled": "Connector removed",
       "uninstallFailed": "Uninstall failed: {message}",
       "selectAtLeastOneApp": "Please select at least one target app",
       "saveSuccess": "Saved",
@@ -820,18 +820,18 @@
       "installFailed": "Install failed: {message}",
       "serverIdRequired": "Server ID is required",
       "serverIdExists": "Server ID \"{id}\" already exists. Edit the existing entry or pick a different name.",
-      "created": "MCP created"
+      "created": "Connector created"
     },
     "installDialog": {
-      "title": "Confirm MCP Installation",
-      "descriptionWithName": "Install {name} to local configuration.",
-      "description": "Select target apps for installation.",
+      "title": "Confirm Connector",
+      "descriptionWithName": "Add {name} as a globally disabled connector.",
+      "description": "A connector stays globally disabled until you enable it.",
       "protocol": "Protocol",
       "selectProtocol": "Select protocol",
       "parameters": "Configuration Parameters",
       "booleanPlaceholder": "Please select true/false",
       "selectOneValue": "Select a value",
-      "targetApps": "Target Apps"
+      "targetApps": "Affected Agents"
     },
     "actions": {
       "cancel": "Cancel",
@@ -844,42 +844,55 @@
       "saving": "Saving",
       "install": "Install",
       "refresh": "Refresh",
-      "newMcp": "New MCP",
+      "newConnector": "New Connector",
       "create": "Create",
       "creating": "Creating..."
     },
     "tabs": {
-      "local": "Local MCP",
-      "market": "MCP Marketplace"
+      "local": "Connected",
+      "market": "Marketplace",
+      "custom": "Custom"
     },
     "local": {
-      "filterPlaceholder": "Filter local MCP...",
+      "filterPlaceholder": "Filter added connectors...",
       "loadFailed": "Load failed: {message}",
-      "empty": "No local MCP detected.",
-      "description": "Local MCP configuration can be edited and saved directly.",
+      "empty": "No connectors have been added.",
+      "description": "Connectors are globally disabled by default. Update the advanced configuration, then enable it when ready.",
       "enabledApps": "Enabled Apps",
-      "configJson": "MCP Config (JSON)",
-      "draftTitle": "New MCP",
-      "draftDescription": "Provide a Server ID and configuration to create a local MCP server.",
+      "configJson": "Advanced MCP Config (JSON)",
+      "draftTitle": "New Connector",
+      "draftDescription": "Provide a Server ID and advanced MCP configuration to create a connector.",
       "serverIdLabel": "Server ID",
       "serverIdPlaceholder": "Server ID (e.g. my-mcp)",
       "typeHint": "Supported types: stdio, http (aliases: streamable-http, streamableHttp), sse. env is only used by stdio; for remote MCPs use headers to carry auth tokens.",
-      "envOnRemoteWarning": "env detected on a remote MCP. Only stdio uses env; remote MCPs carry auth tokens via headers, so env will be ignored on save."
+      "envOnRemoteWarning": "env detected on a remote MCP. Only stdio uses env; remote MCPs carry auth tokens via headers, so env will be ignored on save.",
+      "global": "Global",
+      "needsConfig": "Needs setup",
+      "fromPlugin": "Plugin: {name}",
+      "globalToggle": "Globally enable {name}",
+      "enabledGlobally": "Enabled globally",
+      "disabledGlobally": "Globally disabled",
+      "pluginSourceVersion": "Plugin {name} · v{version}",
+      "missingConfig": "Configure before enabling: {fields}",
+      "usedBySkills": "Used by these skills"
+    },
+    "custom": {
+      "description": "Add a custom connector. It remains globally disabled until you turn it on."
     },
     "market": {
-      "selectMarketplace": "Select marketplace",
-      "searchPlaceholder": "Search MCP...",
+      "selectMarketplace": "Select connector marketplace",
+      "searchPlaceholder": "Search connectors...",
       "searchFailed": "Search failed: {message}",
-      "loadingList": "Loading MCP list...",
-      "empty": "No MCP results.",
-      "loadingDetail": "Loading marketplace details...",
+      "loadingList": "Loading connectors...",
+      "empty": "No connector results.",
+      "loadingDetail": "Loading connector details...",
       "detailLoadFailed": "Failed to load details: {message}",
       "owner": "Owner: {owner}",
       "namespace": "Namespace: {namespace}",
       "defaultInstallProtocol": "Default Install Protocol",
       "currentOptionParameterCount": "Current option parameter count: {count}",
       "installConfigDescription": "Install Config (JSON, editable before install; edits will override protocol/parameter form)",
-      "selectLeftToView": "Select a marketplace MCP on the left to view details."
+      "selectLeftToView": "Select a marketplace connector on the left to view details."
     },
     "badges": {
       "verified": "Verified",
@@ -889,7 +902,7 @@
       "deployed": "Deployed",
       "notDeployed": "Not Deployed"
     },
-    "selectLeftMcp": "Select an MCP on the left."
+    "selectLeftMcp": "Select a connector on the left."
   },
   "AcpAgentSettings": {
     "storage": {
@@ -4695,6 +4708,9 @@
       "mandatory": "Mandatory",
       "optional": "Optional"
     },
+    "package": {
+      "plugin": "Plugin"
+    },
     "compatibility": {
       "compatible": "Compatible",
       "incompatible": "Incompatible",
@@ -4713,6 +4729,7 @@
       "notInstalled": "Not installed",
       "installedVersion": "v{version} installed",
       "dependencyCount": "{count} dependencies",
+      "pluginComponents": "{skills} skills · {connectors} connectors",
       "primary": {
         "install": "Install",
         "update": "Update",
@@ -4724,9 +4741,9 @@
       },
       "error": "Failed to load catalog",
       "retry": "Retry",
-      "empty": "No matching skills",
+      "empty": "No matching skills or plugins",
       "emptyHint": "Adjust the search or filters and try again.",
-      "count": "{count} skills",
+      "count": "{count} items",
       "loadMore": "Load more"
     },
     "a11y": {
@@ -4736,7 +4753,7 @@
       "collapseDir": "Collapse directory"
     },
     "detail": {
-      "selectHint": "Select a skill on the left to see its details.",
+      "selectHint": "Select a skill or plugin on the left to see its details.",
       "error": "Failed to load details",
       "retry": "Retry",
       "artifactNotReadyHint": "The artifact is not ready yet",
@@ -4749,6 +4766,17 @@
       "mandatoryReason": "Mandatory reason",
       "deadline": "Deadline",
       "dependencies": "Dependencies",
+      "components": "Contents",
+      "noPluginComponents": "This package has no portable plugin components.",
+      "componentType": {
+        "skill": "Skill",
+        "connector": "Connector"
+      },
+      "componentPath": "Path",
+      "componentServer": "Server ID",
+      "requiresConnectors": "Required connectors",
+      "bindings": "Skill and connector bindings",
+      "noBindings": "No connector required",
       "targets": "Install targets",
       "noDependencies": "None",
       "versions": "Versions",
@@ -4777,8 +4805,8 @@
       "editMetadata": "Edit metadata",
       "editMetadataHint": "Versions, dependencies and audience are controlled by backend permissions.",
       "uninstall": "Uninstall",
-      "uninstallTitle": "Uninstall this skill?",
-      "uninstallDescription": "{name} will be removed from this device.",
+      "uninstallTitle": "Uninstall this skill or plugin?",
+      "uninstallDescription": "{name} and its managed components will be removed from this device.",
       "delete": "Delete",
       "deleteTitle": "Delete this skill?",
       "deleteDescription": "{name} will be removed from the market and cannot be restored.",
@@ -4794,6 +4822,8 @@
       "title": "Install plan",
       "resolving": "Resolving install plan",
       "confirmHint": "Installs {count} dependencies, {size} total.",
+      "connectorsOff": "Plugin connectors are added under Connectors but remain globally disabled; installation never turns them on.",
+      "openConnectors": "Open Connectors",
       "downloadSize": "Download size",
       "targets": "Enable for",
       "targetsLoading": "Loading installed Agents…",
@@ -4802,6 +4832,7 @@
       "defaultMode": "Default / auto mode",
       "profileRule": "An Agent profile is created only when that Agent is installed. Uninstalled Agents are not shown and no directory is created for them.",
       "installAndEnable": "Install and enable",
+      "installPlugin": "Install plugin",
       "installingReal": "Downloading, verifying, and publishing to selected Agents…",
       "mandatory": "This skill is mandatory.",
       "start": "Start install",
@@ -4849,13 +4880,13 @@
       }
     },
     "upload": {
-      "title": "Upload skill",
+      "title": "Upload skill or plugin",
       "subtitle": "Choose organization or private audience; the official global market is published by the backend.",
       "addVersionTitle": "Publish new version",
       "addVersionSubtitle": "Add a new version for the selected skill; the artifact builds after upload.",
       "progressLabel": "Upload steps",
       "folderStep": "Choose folder",
-      "folderHint": "Choose a complete skill directory containing SKILL.md.",
+      "folderHint": "Choose a skill directory containing SKILL.md or a plugin directory containing .iyw-plugin.json.",
       "slug": "Slug",
       "displayName": "Name",
       "summary": "Summary",

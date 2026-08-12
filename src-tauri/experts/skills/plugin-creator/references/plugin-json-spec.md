@@ -1,4 +1,53 @@
-# Plugin JSON sample spec
+# Portable plugin manifest spec
+
+A portable plugin uses one shared content tree with three manifests:
+
+```text
+plugin-name/
+├── .codex-plugin/plugin.json
+├── .claude-plugin/plugin.json
+├── .iyw-plugin.json
+├── .mcp.json
+└── skills/
+```
+
+The Codex and Claude manifests must use the same `name` and strict SemVer `version`. Codex uses
+explicit component paths; Claude Code discovers `skills/` and `.mcp.json` at the plugin root.
+
+`.iyw-plugin.json` is the host-neutral component and dependency contract:
+
+```json
+{
+  "schemaVersion": 1,
+  "name": "sales-assistant-plugin",
+  "version": "1.0.0",
+  "targets": ["codex", "claude_code"],
+  "components": {
+    "skills": [
+      {
+        "key": "sales-assistant",
+        "path": "skills/sales-assistant",
+        "requiresConnectors": ["crm"]
+      }
+    ],
+    "connectors": [
+      {
+        "key": "crm",
+        "serverKey": "crm"
+      }
+    ]
+  }
+}
+```
+
+- `targets` must contain `codex` and `claude_code` in that order.
+- Skill paths point to direct children of `skills/` containing `SKILL.md`.
+- Connector `serverKey` values exactly cover the server names in `.mcp.json`.
+- `requiresConnectors` references connector `key` values from the same manifest.
+- Installing a plugin registers connectors but never enables them. The host owns one global switch
+  per connector.
+
+## Codex manifest sample
 
 ```json
 {
@@ -116,7 +165,21 @@ Or as an object directly in `plugin.json`:
 - Path values should be relative and begin with `./`.
 - `skills`, `hooks`, and string-valued `mcpServers` are supplemented on top of default component discovery; they do not replace defaults.
 - Custom path values must follow the plugin root convention and naming/namespacing rules.
-- This repo’s scaffold writes `.codex-plugin/plugin.json`; treat that as the manifest location this skill generates.
+- This repo's scaffold writes both native manifests plus `.iyw-plugin.json`; keep shared content at
+  the plugin root so both hosts resolve the same files.
+
+## Claude Code manifest sample
+
+```json
+{
+  "name": "plugin-name",
+  "version": "1.2.0",
+  "description": "Brief plugin description",
+  "author": {
+    "name": "Author Name"
+  }
+}
+```
 
 # Marketplace JSON sample spec
 
@@ -200,8 +263,8 @@ personal marketplace unless the caller explicitly requests a repo-local destinat
 
 ### Plugin validation notes
 
-- The validator mirrors the workspace plugin ingestion schema so generated plugins follow the same
-  manifest contract from the start.
+- The validator mirrors both native ingestion schemas and the IYW portable component contract so
+  generated plugins follow the same package rules from the start.
 - Plugin manifests must include real values for `name`, `version`, `description`,
   `author.name`, and the required `interface` fields.
 - `version` must use strict semver.

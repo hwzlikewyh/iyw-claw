@@ -50,7 +50,7 @@
       "general": "常规",
       "appearance": "外观",
       "agents": "智能体",
-      "mcp": "MCP",
+      "connectors": "连接器",
       "skills": "技能包",
       "shortcuts": "快捷键",
       "version_control": "版本控制",
@@ -800,7 +800,7 @@
       "specMustBeObject": "MCP 配置必须是 JSON 对象。",
       "missingType": "MCP 配置缺少 type 字段。请填写 stdio、http（别名 streamable-http、streamableHttp）、sse 之一。",
       "unsupportedType": "不支持的 MCP type：{type}。支持的类型：stdio、http（别名 streamable-http、streamableHttp）、sse。",
-      "codexEntryUnsupportedType": "Codex MCP 条目 {id} 的 type 不受支持：{type}。支持的类型：stdio、http（别名 streamable-http、streamableHttp）、sse。",
+      "codexEntryUnsupportedType": "星河 MCP 条目 {id} 的 type 不受支持：{type}。支持的类型：stdio、http（别名 streamable-http、streamableHttp）、sse。",
       "unsupportedTransportType": "不支持的 transport 类型：{type}。支持的类型：http（别名 streamable-http、streamableHttp）、sse。",
       "stdioCommandRequired": "stdio 类型的 MCP 必须填写非空的 command 字段。",
       "remoteUrlRequired": "远端 MCP 必须填写非空的 url 字段。",
@@ -811,7 +811,7 @@
       "installConfig": "安装配置"
     },
     "toasts": {
-      "uninstalled": "已卸载 MCP",
+      "uninstalled": "已移除连接器",
       "uninstallFailed": "卸载失败：{message}",
       "selectAtLeastOneApp": "请至少选择一个目标应用",
       "saveSuccess": "保存成功",
@@ -820,18 +820,18 @@
       "installFailed": "安装失败：{message}",
       "serverIdRequired": "Server ID 不能为空",
       "serverIdExists": "Server ID \"{id}\" 已存在，请编辑现有项或更换名称",
-      "created": "MCP 已创建"
+      "created": "连接器已创建"
     },
     "installDialog": {
-      "title": "确认安装 MCP",
-      "descriptionWithName": "将 {name} 安装到本地配置。",
-      "description": "选择安装目标应用。",
+      "title": "确认添加连接器",
+      "descriptionWithName": "将 {name} 添加为全局关闭的连接器。",
+      "description": "连接器添加后需要由你全局启用。",
       "protocol": "协议",
       "selectProtocol": "选择协议",
       "parameters": "配置参数",
       "booleanPlaceholder": "请选择 true/false",
       "selectOneValue": "选择一个值",
-      "targetApps": "目标应用"
+      "targetApps": "受影响智能体"
     },
     "actions": {
       "cancel": "取消",
@@ -844,42 +844,55 @@
       "saving": "保存中",
       "install": "安装",
       "refresh": "刷新",
-      "newMcp": "新建 MCP",
+      "newConnector": "新建连接器",
       "create": "创建",
       "creating": "创建中..."
     },
     "tabs": {
-      "local": "本地 MCP",
-      "market": "MCP 市场"
+      "local": "已连接",
+      "market": "市场",
+      "custom": "自定义"
     },
     "local": {
-      "filterPlaceholder": "筛选本地 MCP...",
+      "filterPlaceholder": "筛选已添加连接器...",
       "loadFailed": "加载失败：{message}",
-      "empty": "当前未检测到本地 MCP。",
-      "description": "本地 MCP 配置可直接编辑并保存。",
+      "empty": "当前没有已添加的连接器。",
+      "description": "连接器默认全局关闭；修改高级配置后需要手动启用。",
       "enabledApps": "启用应用",
-      "configJson": "MCP 配置(JSON)",
-      "draftTitle": "新建 MCP",
-      "draftDescription": "填写 Server ID 与配置以创建本地 MCP 服务器。",
+      "configJson": "高级 MCP 配置(JSON)",
+      "draftTitle": "新建连接器",
+      "draftDescription": "填写 Server ID 和高级 MCP 配置以创建连接器。",
       "serverIdLabel": "Server ID",
       "serverIdPlaceholder": "Server ID（例如：my-mcp）",
       "typeHint": "支持类型：stdio、http（别名 streamable-http、streamableHttp）、sse。env 仅适用于 stdio；远端 MCP 请通过 headers 字段传递鉴权 token。",
-      "envOnRemoteWarning": "检测到远端 MCP 配置中包含 env 字段。env 仅 stdio 类型使用，远端 MCP 应通过 headers 携带鉴权信息，env 字段保存时会被忽略。"
+      "envOnRemoteWarning": "检测到远端 MCP 配置中包含 env 字段。env 仅 stdio 类型使用，远端 MCP 应通过 headers 携带鉴权信息，env 字段保存时会被忽略。",
+      "global": "全局",
+      "needsConfig": "待配置",
+      "fromPlugin": "来自插件：{name}",
+      "globalToggle": "全局启用 {name}",
+      "enabledGlobally": "已全局启用",
+      "disabledGlobally": "全局关闭",
+      "pluginSourceVersion": "插件 {name} · v{version}",
+      "missingConfig": "启用前请配置：{fields}",
+      "usedBySkills": "被以下技能使用"
+    },
+    "custom": {
+      "description": "添加自定义连接器；保存后保持全局关闭，直到你手动启用。"
     },
     "market": {
-      "selectMarketplace": "选择市场",
-      "searchPlaceholder": "搜索 MCP...",
+      "selectMarketplace": "选择连接器市场",
+      "searchPlaceholder": "搜索连接器...",
       "searchFailed": "搜索失败：{message}",
-      "loadingList": "加载 MCP 列表...",
-      "empty": "暂无 MCP 结果。",
-      "loadingDetail": "加载市场详情...",
+      "loadingList": "加载连接器列表...",
+      "empty": "暂无连接器结果。",
+      "loadingDetail": "加载连接器详情...",
       "detailLoadFailed": "加载详情失败：{message}",
       "owner": "所有者：{owner}",
       "namespace": "命名空间：{namespace}",
       "defaultInstallProtocol": "默认安装协议",
       "currentOptionParameterCount": "当前选项参数数：{count}",
       "installConfigDescription": "安装配置(JSON，可修改后安装；修改后将覆盖协议/参数表单)",
-      "selectLeftToView": "请选择左侧市场 MCP 查看详情。"
+      "selectLeftToView": "请选择左侧市场连接器查看详情。"
     },
     "badges": {
       "verified": "已验证",
@@ -889,7 +902,7 @@
       "deployed": "已部署",
       "notDeployed": "未部署"
     },
-    "selectLeftMcp": "请选择左侧 MCP。"
+    "selectLeftMcp": "请选择左侧连接器。"
   },
   "AcpAgentSettings": {
     "storage": {
@@ -4695,6 +4708,9 @@
       "mandatory": "强制",
       "optional": "可选"
     },
+    "package": {
+      "plugin": "插件"
+    },
     "compatibility": {
       "compatible": "兼容",
       "incompatible": "不兼容",
@@ -4713,6 +4729,7 @@
       "notInstalled": "未安装",
       "installedVersion": "已装 {version}",
       "dependencyCount": "{count} 项依赖",
+      "pluginComponents": "{skills} 个技能 · {connectors} 个连接器",
       "primary": {
         "install": "安装",
         "update": "更新",
@@ -4724,9 +4741,9 @@
       },
       "error": "目录加载失败",
       "retry": "重试",
-      "empty": "没有匹配的 Skill",
+      "empty": "没有匹配的技能或插件",
       "emptyHint": "调整搜索或筛选条件后重试。",
-      "count": "{count} 个 Skill",
+      "count": "{count} 项",
       "loadMore": "加载更多"
     },
     "a11y": {
@@ -4736,7 +4753,7 @@
       "collapseDir": "收起目录"
     },
     "detail": {
-      "selectHint": "从左侧选择一个 Skill 查看详情。",
+      "selectHint": "从左侧选择一个技能或插件查看详情。",
       "error": "无法加载详情",
       "retry": "重试",
       "artifactNotReadyHint": "制品尚未就绪，无法安装",
@@ -4749,6 +4766,17 @@
       "mandatoryReason": "强制原因",
       "deadline": "截止时间",
       "dependencies": "依赖",
+      "components": "包含内容",
+      "noPluginComponents": "此包不包含可移植插件组件。",
+      "componentType": {
+        "skill": "技能",
+        "connector": "连接器"
+      },
+      "componentPath": "路径",
+      "componentServer": "Server ID",
+      "requiresConnectors": "需要连接器",
+      "bindings": "技能与连接器绑定",
+      "noBindings": "无需连接器",
       "targets": "安装目标",
       "noDependencies": "无依赖",
       "versions": "版本",
@@ -4777,8 +4805,8 @@
       "editMetadata": "编辑元数据",
       "editMetadataHint": "版本、依赖和可见范围受后端权限控制。",
       "uninstall": "卸载",
-      "uninstallTitle": "卸载这个 Skill？",
-      "uninstallDescription": "{name} 将从本机移除。",
+      "uninstallTitle": "卸载这个技能或插件？",
+      "uninstallDescription": "{name} 及其受管组件将从本机移除。",
       "delete": "删除",
       "deleteTitle": "删除这个 Skill？",
       "deleteDescription": "{name} 将从市场中删除，不可恢复。",
@@ -4794,6 +4822,8 @@
       "title": "安装计划",
       "resolving": "正在解析安装计划",
       "confirmHint": "将安装 {count} 个依赖，共 {size}。",
+      "connectorsOff": "插件中的连接器会添加到“连接器”，但默认全局关闭，不会自动启用。",
+      "openConnectors": "前往连接器",
       "downloadSize": "下载大小",
       "targets": "启用目标",
       "targetsLoading": "正在读取已安装 Agent…",
@@ -4802,6 +4832,7 @@
       "defaultMode": "默认 / 自动模式",
       "profileRule": "Agent 安装一个才创建一个配置目录；未安装 Agent 不展示、不创建目录。",
       "installAndEnable": "安装并启用",
+      "installPlugin": "安装插件",
       "installingReal": "正在下载、校验并发布到所选 Agent…",
       "mandatory": "这是一个强制安装的 Skill。",
       "start": "开始安装",
@@ -4849,13 +4880,13 @@
       }
     },
     "upload": {
-      "title": "上传 Skill",
+      "title": "上传技能或插件",
       "subtitle": "选择组织或私有可见范围；官方全球市场由后台发布。",
       "addVersionTitle": "发布新版本",
       "addVersionSubtitle": "为已选 Skill 添加新版本，上传完成后进入制品构建。",
       "progressLabel": "上传步骤",
       "folderStep": "选择文件夹",
-      "folderHint": "选择包含 SKILL.md 的完整 Skill 目录。",
+      "folderHint": "选择包含 SKILL.md 的技能目录，或包含 .iyw-plugin.json 的插件目录。",
       "slug": "标识（slug）",
       "displayName": "名称",
       "summary": "简介",

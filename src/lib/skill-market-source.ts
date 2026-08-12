@@ -52,6 +52,7 @@ export interface SkillMarketPublishRequestV2 {
   audience: SkillMarketAudience
   version: string
   changelog: string
+  packageType: SkillMarketPublishRequest["packageType"]
   dependencies: SkillMarketPublishRequest["dependencies"]
   files: SkillMarketPublishRequest["files"]
 }
@@ -70,6 +71,7 @@ export interface SkillMarketAddVersionRequestV2 {
   id: string
   version: string
   changelog: string
+  packageType: SkillMarketAddVersionRequest["packageType"]
   dependencies: SkillMarketAddVersionRequest["dependencies"]
   files: SkillMarketAddVersionRequest["files"]
 }
@@ -150,6 +152,8 @@ function mapVersionV1ToV2(v: SkillMarketVersion): SkillMarketV2Version {
     rawSize: v.packageSize,
     artifactSha256: (raw["artifact_sha256"] as string | undefined) ?? null,
     dependencies: v.dependencies,
+    packageType: v.packageType,
+    plugin: v.plugin ?? null,
     releasedAt: v.createdAt,
     failureCode: (raw["failure_code"] as string | undefined) ?? null,
   }
@@ -177,9 +181,7 @@ function mapItemV1ToV2(item: SkillMarketItem): SkillMarketV2Item {
       ? "mandatory"
       : "optional") as SkillMarketDistributionPolicy,
     publisher: item.publisherType,
-    packageType: ((raw["package_type"] as string | undefined) ?? "skill") as
-      | "skill"
-      | "expert",
+    packageType: item.currentVersion.packageType,
     currentVersion: mapVersionV1ToV2(item.currentVersion),
     compatibility: "unknown" as const,
     installState,
@@ -367,6 +369,8 @@ class TransportSkillMarketSource implements SkillMarketSource {
       signature: null,
       ticketEndpoint: "skill_market_install",
       dependencies: v.dependencies,
+      packageType: v.packageType,
+      plugin: v.plugin ?? null,
     }
     return {
       planId: `${id}:${version}:${Date.now()}`,

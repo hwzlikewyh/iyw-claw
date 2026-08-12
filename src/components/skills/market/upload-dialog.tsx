@@ -14,10 +14,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  RadioGroup,
-  RadioGroupItem,
-} from "@/components/ui/radio-group"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
   Select,
   SelectContent,
@@ -131,7 +128,9 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
     if (step === 1 && !folder) return
     if (step === 2) {
       const valid =
-        props.mode === "publish" ? isPublishValid(form) : isValidPublishCommon(form)
+        props.mode === "publish"
+          ? isPublishValid(form)
+          : isValidPublishCommon(form)
       if (!valid) {
         setInvalid(true)
         return
@@ -154,6 +153,7 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
         audience: form.audience,
         version: form.version.trim(),
         changelog: form.changelog.trim(),
+        packageType: folder.packageType,
         dependencies: parseSkillDependencies(form.dependencies),
         files: folder.files,
       })
@@ -163,6 +163,7 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
         id: props.targetSkillId ?? "",
         version: form.version.trim(),
         changelog: form.changelog.trim(),
+        packageType: folder.packageType,
         dependencies: parseSkillDependencies(form.dependencies),
         files: folder.files,
       })
@@ -408,8 +409,7 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
 
 function isValidPublishCommon(form: PublishForm): boolean {
   return (
-    isValidSemVer(form.version) &&
-    isValidSkillDependencies(form.dependencies)
+    isValidSemVer(form.version) && isValidSkillDependencies(form.dependencies)
   )
 }
 

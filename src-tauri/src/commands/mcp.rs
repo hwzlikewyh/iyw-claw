@@ -87,6 +87,10 @@ pub struct LocalMcpServer {
     pub spec: Value,
     pub apps: Vec<McpAppType>,
     pub enabled: bool,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    pub missing_config: Vec<String>,
+    pub sources: Vec<super::mcp_catalog_sources::ManagedMcpCatalogSource>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -191,6 +195,10 @@ pub async fn mcp_scan_local_core(
             id,
             spec: entry.spec,
             enabled: entry.enabled,
+            display_name: entry.display_name,
+            description: entry.description,
+            missing_config: entry.missing_config,
+            sources: entry.sources.into_values().collect(),
         })
         .collect())
 }
@@ -1177,6 +1185,10 @@ fn canonicalize_spec(spec: &Value, source: &str) -> Result<Value, AppCommandErro
     }
 
     Ok(Value::Object(normalized))
+}
+
+pub(crate) fn canonicalize_plugin_spec(spec: &Value) -> Result<Value, AppCommandError> {
+    canonicalize_spec(spec, "plugin connector")
 }
 
 fn canonicalize_opencode_spec(spec: &Value, source: &str) -> Result<Value, AppCommandError> {
@@ -2388,6 +2400,10 @@ fn scan_local_servers() -> Vec<LocalMcpServer> {
             spec,
             apps: apps.into_iter().collect(),
             enabled: true,
+            display_name: None,
+            description: None,
+            missing_config: Vec::new(),
+            sources: Vec::new(),
         })
         .collect()
 }

@@ -19,6 +19,15 @@ import { cn } from "@/lib/utils"
 
 function itemBadges(item: SkillMarketV2Item): MarketBadgeInfo[] {
   return [
+    ...(item.packageType === "plugin"
+      ? [
+          {
+            key: "package.plugin",
+            tone: "primary" as const,
+            icon: "package" as const,
+          },
+        ]
+      : []),
     installStateBadgeInfo(item.installState),
     audienceBadgeInfo(item.audience),
     ...(item.compatibility !== "compatible"
@@ -115,7 +124,7 @@ function SkillCardSummary({
       </span>
       <MarketBadgeGroup
         badges={itemBadges(item)}
-        limit={3}
+        limit={4}
         className="mt-3 h-5 overflow-hidden"
       />
       <span className="mt-3 line-clamp-3 block min-h-[3.75rem] text-xs leading-5 text-muted-foreground">
@@ -133,6 +142,20 @@ function SkillCardMeta({
   locale: string
 }) {
   const t = useTranslations("SkillMarketV2")
+  const components = item.currentVersion.plugin?.components ?? []
+  const skillCount = components.filter((value) => value.type === "skill").length
+  const connectorCount = components.filter(
+    (value) => value.type === "connector"
+  ).length
+  const dependencySummary =
+    item.packageType === "plugin"
+      ? t("list.pluginComponents", {
+          skills: skillCount,
+          connectors: connectorCount,
+        })
+      : t("list.dependencyCount", {
+          count: item.currentVersion.dependencies.length,
+        })
   return (
     <div className="mt-auto grid grid-cols-2 gap-x-2 gap-y-1.5 border-t pt-2.5 text-[10px] text-muted-foreground">
       <CardMeta icon={Package} value={`v${item.currentVersion.version}`} />
@@ -140,12 +163,7 @@ function SkillCardMeta({
         icon={HardDrive}
         value={formatSkillBytes(item.currentVersion.artifactSize)}
       />
-      <CardMeta
-        icon={Boxes}
-        value={t("list.dependencyCount", {
-          count: item.currentVersion.dependencies.length,
-        })}
-      />
+      <CardMeta icon={Boxes} value={dependencySummary} />
       <CardMeta
         icon={CalendarClock}
         value={formatDate(locale, item.updatedAt)}

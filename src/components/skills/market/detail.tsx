@@ -117,6 +117,15 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
       : "buildFailed"
     : action
   const badges = [
+    ...(activeVersion.packageType === "plugin"
+      ? [
+          {
+            key: "package.plugin",
+            tone: "primary" as const,
+            icon: "package" as const,
+          },
+        ]
+      : []),
     installStateBadgeInfo(detail.installState),
     audienceBadgeInfo(detail.audience),
     ...(detail.compatibility !== "compatible"
@@ -153,7 +162,7 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
             <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
               {detail.slug}
             </p>
-            <MarketBadgeGroup badges={badges} limit={3} className="mt-2" />
+            <MarketBadgeGroup badges={badges} limit={4} className="mt-2" />
           </div>
         </div>
 

@@ -78,6 +78,7 @@ function buildPublishRequest(
     summary: draft.summary.trim(),
     version: draft.version.trim(),
     changelog: draft.changelog.trim(),
+    packageType: folder.packageType,
     dependencies: parseSkillDependencies(draft.dependencies),
     files: folder.files,
   }

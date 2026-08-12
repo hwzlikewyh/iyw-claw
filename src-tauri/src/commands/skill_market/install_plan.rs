@@ -4,6 +4,7 @@ use crate::app_error::AppCommandError;
 use crate::commands::acp::{MarketSkillDependencyMarker, MarketSkillMarker};
 use crate::models::AgentType;
 
+use super::plugin_manifest::validate_plugin_summary;
 use super::types::{parse_id, SkillInstallPlan, SkillInstallPlanItem, SkillPackageType};
 
 pub(super) const MAX_PACKAGE_BYTES: u64 = 30 * 1024 * 1024;
@@ -111,13 +112,8 @@ fn validate_install_plan_item(
             "Skill install plan download metadata is inconsistent",
         ));
     }
-    let expected_type = if item.dependencies.is_empty() {
-        SkillPackageType::Skill
-    } else {
-        SkillPackageType::Expert
-    };
-    if item.package_type != expected_type
-        || item.display_name.trim().is_empty()
+    validate_package_metadata(item)?;
+    if item.display_name.trim().is_empty()
         || !matches!(item.visibility.as_str(), "public" | "private")
         || !matches!(item.publisher_type.as_str(), "official" | "user")
     {
@@ -126,6 +122,32 @@ fn validate_install_plan_item(
         ));
     }
     validate_direct_dependencies(item, previous)
+}
+
+fn validate_package_metadata(item: &SkillInstallPlanItem) -> Result<(), AppCommandError> {
+    match item.package_type {
+        SkillPackageType::Plugin => {
+            let plugin = item.plugin.as_ref().ok_or_else(|| {
+                AppCommandError::configuration_invalid(
+                    "Plugin install plan is missing component metadata",
+                )
+            })?;
+            validate_plugin_summary(plugin, &item.slug, &item.version)
+        }
+        SkillPackageType::Skill | SkillPackageType::Expert => {
+            let expected = if item.dependencies.is_empty() {
+                SkillPackageType::Skill
+            } else {
+                SkillPackageType::Expert
+            };
+            if item.package_type != expected || item.plugin.is_some() {
+                return Err(AppCommandError::configuration_invalid(
+                    "Skill install plan package metadata is invalid",
+                ));
+            }
+            Ok(())
+        }
+    }
 }
 
 /// Validate the metadata needed to safely download and inspect an artifact.
@@ -225,11 +247,14 @@ pub(super) fn market_marker(
         package_type: match item.package_type {
             SkillPackageType::Skill => "skill",
             SkillPackageType::Expert => "expert",
+            SkillPackageType::Plugin => "plugin",
         }
         .to_string(),
         agent_types: Some(agent_types.clone()),
         target_references: BTreeMap::from([(root_skill_id, agent_types)]),
         dependencies,
+        plugin_slug: None,
+        plugin_component_key: None,
         installed_at: chrono::Utc::now().to_rfc3339(),
     })
 }

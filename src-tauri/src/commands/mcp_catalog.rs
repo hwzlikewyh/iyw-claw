@@ -11,8 +11,10 @@ use tokio::sync::Mutex;
 use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
 
+use super::mcp_catalog_persistence::{parse_catalog, persist_catalog};
+
 pub const MANAGED_MCP_CATALOG_KEY: &str = "managed_mcp.catalog.v1";
-const MANAGED_MCP_CATALOG_VERSION: u32 = 1;
+pub(crate) const MANAGED_MCP_CATALOG_VERSION: u32 = 2;
 
 static MCP_OPERATION_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
@@ -26,6 +28,16 @@ pub struct ManagedMcpCatalogEntry {
     pub enabled: bool,
     #[serde(default = "persisted_entry_is_managed")]
     pub managed: bool,
+    #[serde(default)]
+    pub managed_key: Option<String>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub missing_config: Vec<String>,
+    #[serde(default)]
+    pub sources: BTreeMap<String, super::mcp_catalog_sources::ManagedMcpCatalogSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -43,12 +55,18 @@ impl ManagedMcpCatalog {
             servers: servers
                 .into_iter()
                 .map(|(id, spec)| {
+                    let managed_key = id.clone();
                     (
                         id,
                         ManagedMcpCatalogEntry {
                             spec,
                             enabled: false,
                             managed: false,
+                            managed_key: Some(managed_key),
+                            display_name: None,
+                            description: None,
+                            missing_config: Vec::new(),
+                            sources: BTreeMap::new(),
                         },
                     )
                 })
@@ -63,12 +81,18 @@ impl ManagedMcpCatalog {
             if self.tombstones.contains(&server_id) || self.servers.contains_key(&server_id) {
                 continue;
             }
+            let managed_key = server_id.clone();
             self.servers.insert(
                 server_id,
                 ManagedMcpCatalogEntry {
                     spec,
                     enabled: false,
                     managed: false,
+                    managed_key: Some(managed_key),
+                    display_name: None,
+                    description: None,
+                    missing_config: Vec::new(),
+                    sources: BTreeMap::new(),
                 },
             );
             changed = true;
@@ -115,16 +139,31 @@ where
     F: FnOnce() -> Result<BTreeMap<String, Value>, AppCommandError>,
 {
     let mut catalog = load_or_import_unlocked(conn, import_legacy).await?;
-    let enabled = catalog
-        .servers
-        .get(server_id)
-        .filter(|entry| entry.managed)
-        .map(|entry| entry.enabled)
-        .unwrap_or(true);
-    let entry = ManagedMcpCatalogEntry {
-        spec,
-        enabled,
-        managed: true,
+    let entry = if let Some(existing) = catalog.servers.get_mut(server_id) {
+        existing.spec = spec;
+        existing.managed = true;
+        let template = existing
+            .sources
+            .values()
+            .next()
+            .map(|source| source.template_spec.clone());
+        existing.missing_config = template
+            .map(|value| {
+                super::mcp_catalog_sources::missing_template_config(&value, &existing.spec)
+            })
+            .unwrap_or_default();
+        existing.clone()
+    } else {
+        ManagedMcpCatalogEntry {
+            spec,
+            enabled: false,
+            managed: true,
+            managed_key: Some(server_id.to_string()),
+            display_name: None,
+            description: None,
+            missing_config: Vec::new(),
+            sources: BTreeMap::new(),
+        }
     };
     catalog.tombstones.remove(server_id);
     catalog.servers.insert(server_id.to_string(), entry.clone());
@@ -158,6 +197,11 @@ where
     let Some(entry) = catalog.servers.get_mut(server_id) else {
         return Ok(None);
     };
+    if enabled && !entry.missing_config.is_empty() {
+        return Err(AppCommandError::invalid_input(format!(
+            "Connector '{server_id}' still requires configuration"
+        )));
+    }
     entry.enabled = enabled;
     entry.managed = true;
     let updated = entry.clone();
@@ -187,6 +231,15 @@ where
     F: FnOnce() -> Result<BTreeMap<String, Value>, AppCommandError>,
 {
     let mut catalog = load_or_import_unlocked(conn, import_legacy).await?;
+    if catalog
+        .servers
+        .get(server_id)
+        .is_some_and(|entry| !entry.sources.is_empty())
+    {
+        return Err(AppCommandError::invalid_input(
+            "Plugin connectors must be removed by uninstalling their source plugin",
+        ));
+    }
     let removed = catalog.servers.remove(server_id);
     if removed.is_some() {
         catalog.tombstones.insert(server_id.to_string());
@@ -206,8 +259,9 @@ where
         .await
         .map_err(AppCommandError::db)?
     {
-        let mut catalog = parse_catalog(&raw)?;
-        if catalog.merge_legacy(import_legacy()?) {
+        let (mut catalog, upgraded) = parse_catalog(&raw)?;
+        let merged_legacy = catalog.merge_legacy(import_legacy()?);
+        if upgraded || merged_legacy {
             persist_catalog(conn, &catalog).await?;
         }
         return Ok(catalog);
@@ -218,29 +272,9 @@ where
     Ok(catalog)
 }
 
-fn parse_catalog(raw: &str) -> Result<ManagedMcpCatalog, AppCommandError> {
-    let catalog = serde_json::from_str::<ManagedMcpCatalog>(raw).map_err(|error| {
-        AppCommandError::configuration_invalid("Managed MCP catalog is invalid")
-            .with_detail(error.to_string())
-    })?;
-    if catalog.version != MANAGED_MCP_CATALOG_VERSION {
-        return Err(AppCommandError::configuration_invalid(format!(
-            "Unsupported managed MCP catalog version: {}",
-            catalog.version
-        )));
-    }
-    Ok(catalog)
-}
-
-async fn persist_catalog(
+pub(crate) async fn replace_catalog_unlocked(
     conn: &DatabaseConnection,
     catalog: &ManagedMcpCatalog,
 ) -> Result<(), AppCommandError> {
-    let raw = serde_json::to_string(catalog).map_err(|error| {
-        AppCommandError::configuration_invalid("Failed to serialize managed MCP catalog")
-            .with_detail(error.to_string())
-    })?;
-    app_metadata_service::upsert_value(conn, MANAGED_MCP_CATALOG_KEY, &raw)
-        .await
-        .map_err(AppCommandError::db)
+    persist_catalog(conn, catalog).await
 }

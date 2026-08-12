@@ -41,6 +41,7 @@ function SettingsDialogBody({ section, agentType }: SettingsDialogState) {
       return <AppearanceSettings />
     case "agents":
       return <AcpAgentSettings initialAgentType={agentType} />
+    case "connectors":
     case "mcp":
       return <McpSettings />
     case "experts":

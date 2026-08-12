@@ -15,6 +15,8 @@ pub mod managed_tool_installation;
 pub mod managed_tool_setting;
 pub mod model_provider;
 pub mod opened_tab;
+pub mod plugin_component_ownership;
+pub mod plugin_installation;
 pub mod prelude;
 pub mod quick_message;
 pub mod remote_workspace_connection;

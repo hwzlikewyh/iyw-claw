@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MarketBadge } from "@/components/skills/market/badges"
 import { SkillMarketFilesTree } from "@/components/skills/market/files-tree"
+import { PluginComponents } from "@/components/skills/market/plugin-components"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
 import {
   artifactStatusBadgeInfo,
@@ -63,15 +64,24 @@ export function DetailInspectorTabs(props: Props) {
     agentType,
     agent: agents.find((item) => item.agent_type === agentType),
   }))
+  const tabs =
+    props.activeVersion.packageType === "plugin"
+      ? ([
+          "overview",
+          "components",
+          "files",
+          "versions",
+          "dependencies",
+          "targets",
+        ] as const)
+      : (["overview", "files", "versions", "dependencies", "targets"] as const)
   return (
     <Tabs defaultValue="overview" className="min-h-0 flex-1 gap-0">
       <TabsList
         variant="line"
         className="h-10 w-full shrink-0 justify-start overflow-x-auto border-b bg-background px-3"
       >
-        {(
-          ["overview", "files", "versions", "dependencies", "targets"] as const
-        ).map((tab) => (
+        {tabs.map((tab) => (
           <TabsTrigger key={tab} value={tab} className="h-9 text-xs">
             {t(`detail.${tab}`)}
           </TabsTrigger>
@@ -121,6 +131,12 @@ export function DetailInspectorTabs(props: Props) {
             {t("install.profileRule")}
           </p>
         </TabsContent>
+
+        {props.activeVersion.packageType === "plugin" ? (
+          <TabsContent value="components">
+            <PluginComponents plugin={props.activeVersion.plugin} />
+          </TabsContent>
+        ) : null}
 
         <TabsContent value="files">
           {props.files.requested ? (
