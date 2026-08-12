@@ -13,6 +13,8 @@ ALLOWED_TOP_LEVEL = {
     "contacts",
     "materials",
     "outreach",
+    "material_workflow",
+    "track_results",
     "pending_actions",
     "errors",
 }
@@ -21,6 +23,7 @@ ARRAY_FIELDS = {
     "products",
     "contacts",
     "materials",
+    "track_results",
     "pending_actions",
     "errors",
 }
@@ -36,6 +39,13 @@ SENSITIVE_KEYS = {
     "validate",
 }
 SENSITIVE_SUFFIXES = ("password", "cookie", "token")
+TRACK_NAMES = {
+    "business_contacts",
+    "product_images",
+    "activity_evidence",
+    "image_materials_ppt",
+}
+COMPLETE_TRACK_STATUSES = {"ok", "complete", "completed"}
 
 
 class ValidationError(ValueError):
@@ -95,6 +105,49 @@ def _validate_arrays(record: dict[str, Any]) -> None:
             raise ValidationError("input pending actions cannot be completed")
 
 
+def _validate_material_workflow(record: dict[str, Any]) -> None:
+    workflow = record.get("material_workflow")
+    if workflow is None:
+        return
+    if not isinstance(workflow, dict) or not isinstance(
+        workflow.get("attempts", []), list
+    ):
+        raise ValidationError("material_workflow.attempts must be an array")
+    if any(not isinstance(item, dict) for item in workflow.get("attempts", [])):
+        raise ValidationError("material_workflow.attempts items must be objects")
+
+
+def _validate_track_results(record: dict[str, Any], company: dict[str, Any]) -> None:
+    expected_key = str(company.get("lixiao_id") or company.get("name") or "").strip()
+    seen: set[str] = set()
+    for item in record.get("track_results", []):
+        track = item.get("track")
+        if track not in TRACK_NAMES:
+            raise ValidationError("track_results[].track is invalid")
+        if track in seen:
+            raise ValidationError("track_results[] contains a duplicate track")
+        seen.add(track)
+        if str(item.get("company_key") or "").strip() != expected_key:
+            raise ValidationError("track_results[].company_key does not match company")
+        if not str(item.get("status") or "").strip():
+            raise ValidationError("track_results[].status is required")
+        if not isinstance(item.get("missing"), list):
+            raise ValidationError("track_results[].missing must be an array")
+
+
+def track_results_complete(record: dict[str, Any]) -> bool:
+    tracks = record.get("track_results", [])
+    if not isinstance(tracks, list):
+        return False
+    for name in TRACK_NAMES:
+        matching = [item for item in tracks if isinstance(item, dict) and item.get("track") == name]
+        if len(matching) != 1:
+            return False
+        if str(matching[0].get("status") or "").casefold() not in COMPLETE_TRACK_STATUSES:
+            return False
+    return True
+
+
 def validate_record(record: object) -> dict[str, Any]:
     if not isinstance(record, dict):
         raise ValidationError("record must be an object")
@@ -114,4 +167,6 @@ def validate_record(record: object) -> dict[str, Any]:
     if "outreach" in record and not isinstance(record["outreach"], dict):
         raise ValidationError("outreach must be an object")
     _validate_arrays(record)
+    _validate_material_workflow(record)
+    _validate_track_results(record, company)
     return record

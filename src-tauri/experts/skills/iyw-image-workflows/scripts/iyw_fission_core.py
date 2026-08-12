@@ -15,6 +15,7 @@ MODEL_OPTIONS_REQUEST = {
     "nameSpace": "COMMON",
     "keys": ["model_options"],
 }
+PREFERRED_FISSION_PLATFORM = "4"
 DEFAULT_FISSION_MODELS = (
     {
         "platform": "1",
@@ -110,6 +111,25 @@ def _configured_model_payloads(
     return payloads
 
 
+def _select_fission_payloads(
+    payloads: list[dict[str, Any]], *, compare_platforms: bool = False
+) -> list[dict[str, Any]]:
+    ordered = sorted(
+        payloads,
+        key=lambda item: item["platform"] != PREFERRED_FISSION_PLATFORM,
+    )
+    return ordered if compare_platforms else ordered[:1]
+
+
+def _select_fission_models(
+    options: list[dict[str, Any]], *, compare_platforms: bool = False
+) -> list[dict[str, Any]]:
+    payloads = _configured_model_payloads(options)
+    return _select_fission_payloads(
+        payloads, compare_platforms=compare_platforms
+    )
+
+
 def _batch_payload(prompt: str, models: list[dict[str, Any]]) -> dict[str, Any]:
     normalized = prompt.strip()
     if not normalized:
@@ -148,15 +168,23 @@ async def create_fission_tasks(
     config_client: IywClient,
     prompt: str,
     *,
+    compare_platforms: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     if dry_run:
-        payload = _batch_payload(prompt, list(copy.deepcopy(DEFAULT_FISSION_MODELS)))
+        models = _select_fission_payloads(
+            list(copy.deepcopy(DEFAULT_FISSION_MODELS)),
+            compare_platforms=compare_platforms,
+        )
+        payload = _batch_payload(prompt, models)
         return await api_client.request(
             "api/microModel/v2/batch", payload, dry_run=True
         )
     options = await _fetch_model_options(config_client)
-    payload = _batch_payload(prompt, _configured_model_payloads(options))
+    models = _select_fission_models(
+        options, compare_platforms=compare_platforms
+    )
+    payload = _batch_payload(prompt, models)
     data = await api_client.request("api/microModel/v2/batch", payload)
     return _normalize_created_tasks(data)
 
@@ -243,10 +271,15 @@ async def generate_fission_images(
     wait_seconds: int,
     poll_interval: float,
     *,
+    compare_platforms: bool = False,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     created = await create_fission_tasks(
-        api_client, config_client, prompt, dry_run=dry_run
+        api_client,
+        config_client,
+        prompt,
+        compare_platforms=compare_platforms,
+        dry_run=dry_run,
     )
     if dry_run or wait_seconds <= 0 or created["status"] != "queued":
         return created

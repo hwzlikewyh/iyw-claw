@@ -14,10 +14,23 @@ from iyw_sales_layout import (
     sanitize_path_component,
 )
 from iyw_sales_package import copy_selected
-from iyw_sales_selection import contact_status, material_status, product_status
-from iyw_sales_validation import ValidationError
+from iyw_sales_ppt import generate_company_presentation, validate_company_presentation
+from iyw_sales_ppt_package import prepared_presentation_path
+from iyw_sales_selection import (
+    TRUSTED_PRODUCT_SOURCE,
+    contact_status,
+    material_status,
+    preferred_attempted_types,
+    product_status,
+)
+from iyw_sales_validation import ValidationError, track_results_complete
 
 WORKBOOK_NAME = "今日推荐公司.xlsx"
+BUSINESS_INFO_KEYS = (
+    "unified_social_credit_code", "legal_representative", "registration_number",
+    "organization_code", "registered_capital", "paid_in_capital", "company_type",
+    "industry", "approval_date", "business_period", "english_name",
+)
 
 
 def _has_analysis(products: list[dict[str, Any]]) -> bool:
@@ -30,16 +43,40 @@ def _has_analysis(products: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _is_store_product(item: dict[str, Any]) -> bool:
+    has_sales_link = any(
+        str(item.get(field) or "").strip().startswith("https://")
+        for field in ("product_url", "store_url")
+    )
+    has_image_link = str(item.get("image_url") or "").strip().startswith("https://")
+    source = str(item.get("source") or "").strip().casefold()
+    return has_sales_link and has_image_link and source == TRUSTED_PRODUCT_SOURCE
+
+
 def _delivery_status(plan: dict[str, Any]) -> str:
     missing: list[str] = []
-    if not plan["products"]["actual"]:
+    products = plan.get("products", {})
+    contacts = plan.get("contacts", {})
+    materials = plan.get("materials", {})
+    if products.get("missing", 10 - len(products.get("selected", []))):
         missing.append("images")
-    if not plan["analysis_available"]:
+    if not plan.get("analysis_available", _has_analysis(products.get("selected", []))):
         missing.append("analysis")
-    if plan["contacts"]["missing"]:
+    if contacts.get("missing", 0):
         missing.append("contacts")
-    if any(plan["materials"]["missing"].values()):
+    if any(materials.get("missing", {}).values()):
         missing.append("materials")
+    if not plan.get("ppt_available", False):
+        missing.append("ppt")
+    record = plan.get("record", {})
+    company = record.get("company", {})
+    business = company.get("business_info", {})
+    if not isinstance(business, dict) or any(not str(business.get(key) or "").strip() for key in BUSINESS_INFO_KEYS):
+        missing.append("business_info")
+    if not str((record.get("outreach") or {}).get("opening_copy") or "").strip():
+        missing.append("opening_copy")
+    if not track_results_complete(record):
+        missing.append("tracks")
     return "complete" if not missing else "incomplete"
 
 
@@ -81,12 +118,18 @@ def _plan_record(
     product_items = [
         item
         for item in record.get("products", [])
-        if isinstance(item, dict) and is_supported_image(str(item.get("local_path") or ""))
+        if isinstance(item, dict)
+        and is_supported_image(str(item.get("local_path") or ""))
+        and _is_store_product(item)
     ]
-    plan["products"] = product_status(product_items)
+    plan["products"] = product_status(product_items, record.get("company"))
     plan["contacts"] = contact_status(record.get("contacts", []))
-    plan["materials"] = material_status(record.get("materials", []), record["run"]["market"])
+    attempted = preferred_attempted_types(record.get("material_workflow"))
+    plan["materials"] = material_status(
+        record.get("materials", []), record["run"]["market"], preferred_attempted=attempted
+    )
     plan["analysis_available"] = _has_analysis(plan["products"]["selected"])
+    plan["ppt_available"] = prepared_presentation_path(record) is not None
     plan["status"] = _delivery_status(plan)
     return plan
 
@@ -109,24 +152,82 @@ def _assign_company_folders(plans: list[dict[str, Any]], batch: Path) -> None:
         plan["material_dir"] = str(batch / name / "销售资料")
 
 
-def _copy_materials(plan: dict[str, Any], company: Path) -> None:
+def _copy_materials(plan: dict[str, Any], company: Path) -> dict[str, str]:
     market = plan["record"]["run"]["market"]
     material_root = company / "销售资料"
     material_root.mkdir(parents=True, exist_ok=True)
+    staged: dict[str, str] = {}
     for kind, folder in MATERIAL_FOLDERS[market].items():
         selected = [item for item in plan["materials"]["selected"] if item.get("type") == kind]
-        copy_selected(selected, material_root / folder)
+        for item, path in zip(selected, copy_selected(selected, material_root / folder)):
+            staged[str(item["local_path"])] = path
+    return staged
 
 
-def _render_company(plan: dict[str, Any], staging: Path, final: Path) -> dict[str, Any]:
+def _prepare_ppt(
+    plan: dict[str, Any],
+    company: Path,
+    final: Path,
+    generator: Callable[[dict[str, Any], str | Path], Path] | None,
+    validator: Callable[[str | Path], Path] | None,
+) -> Path | None:
+    folder = company / "准备资料"
+    folder.mkdir(parents=True, exist_ok=True)
+    filename = f"{sanitize_path_component(plan['name'], '未命名公司')}-销售资料.pptx"
+    target = folder / filename
+    source = prepared_presentation_path(plan["record"])
+    if source is not None:
+        try:
+            shutil.copy2(source, target)
+            if validator is not None:
+                validator(target)
+        except Exception:
+            target.unlink(missing_ok=True)
+    if not target.is_file() and generator is not None:
+        try:
+            generator(plan, target)
+        except Exception:
+            target.unlink(missing_ok=True)
+    if not target.is_file():
+        return None
+    return final / str(plan["folder_name"]) / "准备资料" / filename
+
+
+def _render_company(
+    plan: dict[str, Any],
+    staging: Path,
+    final: Path,
+    *,
+    ppt_generator: Callable[[dict[str, Any], str | Path], Path] | None = generate_company_presentation,
+    ppt_validator: Callable[[str | Path], Path] | None = validate_company_presentation,
+) -> dict[str, Any]:
     folder = str(plan["folder_name"])
     company = staging / folder
-    previews = copy_selected(plan["products"]["selected"], company / "产品图片")
-    _copy_materials(plan, company)
+    try:
+        selected_products = plan["products"]["selected"]
+        previews = copy_selected(selected_products, company / "产品图片")
+        for item, path in zip(selected_products, previews):
+            item["local_path"] = path
+        staged_materials = _copy_materials(plan, company)
+        for item in plan["materials"]["selected"]:
+            path = staged_materials.get(str(item.get("local_path")))
+            if path:
+                item["local_path"] = path
+        ppt_path = _prepare_ppt(plan, company, final, ppt_generator, ppt_validator)
+    except Exception as error:
+        plan["error"] = str(error)
+        plan["ppt_available"] = False
+        plan["status"] = "incomplete"
+        ppt_path = None
+        previews = []
+    else:
+        plan["ppt_available"] = ppt_path is not None
+        plan["status"] = _delivery_status(plan)
     return {
         "plan": plan,
         "preview_images": previews[:3],
         "company_dir": final / folder,
+        "ppt_path": ppt_path,
     }
 
 
@@ -146,6 +247,8 @@ def _public_company(plan: dict[str, Any]) -> dict[str, object]:
 def _summary(plans: list[dict[str, Any]]) -> dict[str, int]:
     return {
         "recommended": sum(bool(item["recommended"]) for item in plans),
+        "complete": sum(item["status"] == "complete" for item in plans),
+        "incomplete": sum(item["status"] == "incomplete" for item in plans),
         "skipped": sum(item["status"] == "skipped" for item in plans),
         "review": sum(item["status"] == "review" for item in plans),
         "failed": sum(item["status"] == "failed" for item in plans),
@@ -190,4 +293,6 @@ def build_batch_package(
         shutil.rmtree(staging, ignore_errors=True)
         raise
     result["writes"] = True
+    result["summary"] = _summary(plans)
+    result["companies"] = [_public_company(plan) for plan in plans]
     return result

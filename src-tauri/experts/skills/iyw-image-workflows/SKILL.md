@@ -1,6 +1,6 @@
 ---
 name: iyw-image-workflows
-description: 通过内置 Python CLI 独立检索 IYW 知识库、图片/报告/趋势/IP 资料，或调用已经确认的 IYW 图片工具接口，支持知识查询、分身生图、本地图片上传并自动违规检测、网络图片违规检测、变款、系列延伸、多图融合、编辑、扩图、高清修复、图案与线稿处理、格式转换、3D、视频和模特场景。用户提到 IYW 知识库、内部规范、品牌或 IP 手册、知识检索、生图、画图、修图、商品图、上传检测或 IYW 图片任务时使用；用户指定图片、上传图片或提供图片 URL 时默认优先变款，除非明确指定其他专用工具。
+description: 通过内置 Python CLI 独立检索 IYW 知识库、图片/报告/趋势/IP 资料，或调用已经确认的 IYW 图片工具接口，支持知识查询、分身生图、本地图片上传并自动违规检测、网络图片违规检测、变款、系列延伸、多图融合、编辑、扩图、高清修复、图案与线稿处理、格式转换、3D、视频和模特场景。用户提到 IYW 知识库、内部规范、品牌或 IP 手册、知识检索、生图、画图、修图、商品图、上传检测或 IYW 图片任务时使用；图片请求按图片输入优先级路由，其中有基准图片且指定趋势或主题时优先系列延伸，其他普通有图请求默认变款，明确指定专用工具时使用对应工具。
 ---
 
 # IYW 图片工作流
@@ -18,12 +18,12 @@ description: 通过内置 Python CLI 独立检索 IYW 知识库、图片/报告/
 `upscale` 等命令；这些 Agent Image 路由尚未重新确认，不能作为生产接口。分身生图
 固定使用 `scripts/iyw_commerce.py fission-generate`，不要用旧 `generate` 替代。
 
-普通文生图优先使用本 Skill 的 `fission-generate`。如果用户指定图片、上传本地图片
-或提供图片 URL，默认使用已封装的 `tool variation` 命令变款。这里的 `variation` 只是
-本地 CLI 别名；CLI 会调用 `g_tools_generate_image`，并将 payload 的 `toolName` 固定为
-`variation`，不要把它当作接口 operation。只有用户明确要求编辑、扩图、放大、线稿、
-格式转换等专用动作时，才使用对应 `tool` 别名。用户明确要求 GPT Image 参数时，使用
-`imagegen` Skill 的 `scripts/image_gen.py`。
+普通文生图使用 `fission-generate`；有图片时按“图片输入优先级”选择固定 `tool`。
+使用已封装的 `tool variation` 命令变款；CLI 会调用 `g_tools_generate_image`，payload 的 `toolName` 固定为
+`variation`，不要把它当作接口 operation。`extend` 使用同一 operation。
+用户明确要求 GPT Image 参数时，使用 `imagegen` Skill 的 `scripts/image_gen.py`。
+
+`fission-generate` 默认只向一个平台下发并优先使用通道四；通道四不可用时，回退到实时配置顺序中的第一个可用平台。只有明确要求多平台比稿时才传 `--compare-platforms`。
 
 优先使用 uv 在 Skill 目录内管理独立 Python 环境。在 PowerShell 中设置入口：
 
@@ -129,9 +129,11 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 
 按以下顺序选择图片生产入口：
 
-1. 用户明确指定图片、上传本地图片或提供公开图片 URL，且没有指定专用动作：先上传/检测图片，再执行已封装的 `tool variation`；该别名内部调用 `g_tools_generate_image`，并将 payload 的 `toolName` 固定为 `variation`。
-2. 用户明确要求编辑、扩图、高清修复、图层拆分、画质增强、提取图案、格式转换、线稿、配色、3D、视频或模特场景：执行对应专用 `tool`，不自动改成变款。
-3. 没有图片输入且是纯文生图：执行 `fission-generate`。
+1. 用户明确要求编辑、扩图、高清修复、图层拆分、画质增强、提取图案、格式转换、线稿、配色、3D、视频或模特场景：执行对应专用 `tool`。
+2. 用户提供一张基准图片并指定趋势或主题：先上传/检测，优先执行 `tool extend`；明确失败后只回退一次 `tool variation`。
+3. 其他有图请求：先上传/检测，再执行已封装的 `tool variation` 命令变款；该别名内部调用 `g_tools_generate_image`。没有基准图片的纯文生图仍执行 `fission-generate`。
+
+用户要求宫格、联图或其他成组版式时，`variation`/`extend` 先用单个任务直接生成一张完整合成图，不拆分并发。只有任务失败或视觉检查确认布局不符时才生成分图，并用 `compose-layout` 按用户指定布局拼接；无法视觉检查时不增加任务。细则见 [references/commerce-operations.md](references/commerce-operations.md)。
 
 `tool` 只接受固定别名，完整列表和 payload 见
 [references/commerce-operations.md](references/commerce-operations.md)。搜索清单接口使用
@@ -153,11 +155,15 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 CLI 固定执行以下流程：
 
 1. 从 `/platform/basic/dict/getByKeys` 读取实时 `model_options`。
-2. 按配置顺序选择标签为“分身”的模型，并套用已经确认的默认参数。
+2. 校验标签为“分身”的平台并套用已经确认的默认参数；默认只选通道四，缺失时回退到
+   实时配置顺序中的第一个可用平台。
 3. 向 `api/microModel/v2/batch` 只提交一次收费创建请求。
 4. 保存返回的 `groupId` 和全部 task ID。
 5. 使用 `api/microModel/GetDetails` 分别轮询每个 task ID。
 6. 按 batch 任务顺序返回并直接展示全部 HTTPS 图片。
+
+比稿时选择全部可用分身平台并将通道四排在第一位；通道四不可用时保持实时配置顺序。
+命令示例见 [references/fission-generation.md](references/fission-generation.md)。
 
 实时配置出现 CLI 尚未支持的新分身时，在创建任务前停止，不要猜参数。创建请求
 超时或响应不确定时不要重新生成；只查询已经获得的 task ID。

@@ -22,6 +22,7 @@ from iyw_fission_core import (
     get_fission_task,
     wait_for_fission_tasks,
 )
+from iyw_layout import compose_layout
 from iyw_tool_core import TOOL_OPERATIONS, validate_tool_payload
 from iyw_image import (
     API_PREFIX,
@@ -62,6 +63,16 @@ def _command_parser(
 
 
 async def run_command(args: argparse.Namespace) -> dict[str, Any]:
+    if args.command == "compose-layout":
+        return compose_layout(
+            [Path(path) for path in args.image],
+            args.rows,
+            args.columns,
+            Path(args.out),
+            gap=args.gap,
+            background=args.background,
+            force=args.force,
+        )
     client = _client(args)
     if args.command.startswith("fission-"):
         return await _run_fission_command(args, client)
@@ -130,6 +141,7 @@ async def _run_fission_command(
             args.prompt,
             args.wait_seconds,
             args.poll_interval,
+            compare_platforms=args.compare_platforms,
             dry_run=args.dry_run,
         )
     if args.command == "fission-task-get":
@@ -148,6 +160,15 @@ async def _run_fission_command(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="IYW commerce image CLI")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    compose = sub.add_parser("compose-layout", help="compose local images into a grid")
+    compose.add_argument("--image", action="append", required=True)
+    compose.add_argument("--rows", type=int, required=True)
+    compose.add_argument("--columns", type=int, required=True)
+    compose.add_argument("--out", required=True)
+    compose.add_argument("--gap", type=int, default=0)
+    compose.add_argument("--background", default="#FFFFFF")
+    compose.add_argument("--force", action="store_true")
 
     upload = _command_parser(sub, "upload", "upload and check a local image")
     upload.add_argument("--file", required=True)
@@ -176,10 +197,17 @@ def build_parser() -> argparse.ArgumentParser:
     _command_parser(sub, "fission-models", "list configured fission models")
 
     fission_generate = _command_parser(
-        sub, "fission-generate", "generate one image with each fission model"
+        sub,
+        "fission-generate",
+        "generate with preferred platform or compare configured platforms",
     )
     fission_generate.add_argument("--prompt", required=True)
     fission_generate.add_argument("--wait-seconds", type=int, default=120)
+    fission_generate.add_argument(
+        "--compare-platforms",
+        action="store_true",
+        help="compare all configured fission platforms",
+    )
 
     fission_get = _command_parser(sub, "fission-task-get", "get a fission task")
     fission_get.add_argument("--task-id", required=True)
@@ -195,7 +223,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     try:
-        if args.poll_interval <= 0 or getattr(args, "wait_seconds", 0) < 0:
+        if getattr(args, "poll_interval", 1) <= 0 or getattr(
+            args, "wait_seconds", 0
+        ) < 0:
             raise IywError("poll and wait values must not be negative", "invalid_input")
         result = asyncio.run(run_command(args))
     except IywError as exc:

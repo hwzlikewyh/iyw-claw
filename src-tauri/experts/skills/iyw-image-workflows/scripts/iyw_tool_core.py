@@ -78,11 +78,13 @@ def _g_tools(payload: dict[str, Any], tool_name: str, *, images: int | None = No
 def _validate_variation(payload: dict[str, Any]) -> None:
     _g_tools(payload, "variation", images=1)
     _string(payload, "prompt")
+    payload["batchSize"] = 1
 
 
 def _validate_extend(payload: dict[str, Any]) -> None:
     _g_tools(payload, "extend", images=1)
     _string(payload, "prompt")
+    payload["batchSize"] = 1
 
 
 def _validate_mix(payload: dict[str, Any]) -> None:
