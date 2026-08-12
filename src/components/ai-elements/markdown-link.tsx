@@ -13,7 +13,11 @@ import { parseLocalPathUri } from "@/lib/local-path-links"
 import { cn } from "@/lib/utils"
 import { LocalPathActions } from "./local-path-actions"
 import { useStreamdownLinkSafety } from "./link-safety"
-import { isImageUrl, MarkdownImageLink } from "./markdown-image-link"
+import {
+  isImageUrl,
+  MarkdownImage,
+  MarkdownImageLink,
+} from "./markdown-image-link"
 
 const RESOURCE_KIND_ICON: Record<ResourceKind, LucideIcon> = {
   file: FileText,
@@ -234,4 +238,5 @@ export function MarkdownLink({
 // gap — MarkdownLink receives exactly the props react-markdown passes for `a`.
 export const markdownLinkComponents: Components = {
   a: MarkdownLink as Components["a"],
+  img: MarkdownImage as Components["img"],
 }

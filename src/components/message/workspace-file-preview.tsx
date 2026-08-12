@@ -4,6 +4,7 @@ import { AlertCircle, FileCode2, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { OfficePreview } from "@/components/files/office-preview"
+import { EditableImagePreview } from "@/components/ui/editable-image-preview"
 
 export type PreviewState =
   | { status: "idle" }
@@ -81,11 +82,14 @@ export function WorkspaceFilePreview({
   if (state.status === "image") {
     return (
       <div className="flex h-full items-center justify-center overflow-auto bg-muted/20 p-6">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <EditableImagePreview
           src={state.content}
           alt={fileName(state.path)}
-          className="max-h-full max-w-full object-contain"
+          trigger="edit-button"
+          className="flex size-full items-center justify-center"
+          imageProps={{
+            className: "max-h-full max-w-full object-contain",
+          }}
         />
       </div>
     )

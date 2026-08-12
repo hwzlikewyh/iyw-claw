@@ -1,10 +1,11 @@
 "use client"
 
-import type { MouseEvent } from "react"
+import type { ComponentProps, MouseEvent } from "react"
 import { useState } from "react"
 import { ExternalLink, ImageIcon } from "lucide-react"
 import { useTranslations } from "next-intl"
 
+import { EditableImagePreview } from "@/components/ui/editable-image-preview"
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
 import { cn } from "@/lib/utils"
 
@@ -19,6 +20,30 @@ interface MarkdownImageLinkProps {
   src: string
   alt: string
   onOpenSource: (event: MouseEvent<HTMLButtonElement>) => void | Promise<void>
+}
+
+type MarkdownImageProps = ComponentProps<"img"> & { node?: unknown }
+
+export function MarkdownImage({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  node,
+  src,
+  alt,
+  ...imageProps
+}: MarkdownImageProps) {
+  if (typeof src !== "string" || !src) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={src} alt={alt ?? ""} {...imageProps} />
+  }
+  return (
+    <EditableImagePreview
+      src={src}
+      alt={alt ?? imageName(src, "image")}
+      trigger="image"
+      className="inline-block max-w-full align-top"
+      imageProps={imageProps}
+    />
+  )
 }
 
 export function isImageUrl(value: string): boolean {
