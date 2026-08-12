@@ -10,6 +10,7 @@ mod agent_input_worker_dispatch;
 pub mod agent_profile;
 pub mod agent_storage;
 pub mod agent_storage_work;
+pub mod audio_transcription;
 pub mod auto_update;
 mod automatic_mode;
 pub mod automation_tools;

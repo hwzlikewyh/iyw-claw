@@ -10,6 +10,7 @@
 //! `check_user_feedback` (pull the user's mid-turn steering notes),
 //! `ask_user_question` (block on a multiple-choice card), and `get_session_info`
 //! (resolve a referenced session by id), `show_image`, `analyze_image`,
+//! `transcribe_audio`, `query_audio_transcription`,
 //! `append_user_memory`, `propose_user_memory`, and scheduled-task CRUD — whose schemas are embedded at compile
 //! time from [`TOOL_SCHEMA_JSON`] and gated by the `--features` groups (delegation
 //! / feedback / ask / sessions / images / memory / memory-proposal). Only `delegate_to_agent` registers a broker-side
@@ -45,12 +46,14 @@ use tokio::sync::{oneshot, Mutex};
 
 use crate::acp::automation_tools::{ScheduledTaskOperation, ScheduledTaskRequest};
 use crate::acp::delegation::transport::{
-    client_artifacts_round_trip, client_ask_round_trip, client_automation_round_trip,
-    client_cancel, client_cancel_task_round_trip, client_commit_feedback,
-    client_companion_ready_round_trip, client_feedback_round_trip,
+    client_artifacts_round_trip, client_ask_round_trip,
+    client_audio_transcription_query_round_trip, client_audio_transcription_round_trip,
+    client_automation_round_trip, client_cancel, client_cancel_task_round_trip,
+    client_commit_feedback, client_companion_ready_round_trip, client_feedback_round_trip,
     client_image_analysis_round_trip, client_memory_append_round_trip,
     client_memory_proposal_round_trip, client_round_trip, client_session_round_trip,
-    client_status_round_trip, BrokerArtifactsRequest, BrokerAskRequest, BrokerCancelRequest,
+    client_status_round_trip, BrokerArtifactsRequest, BrokerAskRequest,
+    BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerCancelRequest,
     BrokerCancelTaskRequest, BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest,
     BrokerFeedbackRequest, BrokerImageAnalysisRequest, BrokerMemoryAppendRequest,
     BrokerMemoryProposalRequest, BrokerRequest, BrokerResponse, BrokerSessionRequest,
@@ -223,6 +226,7 @@ impl CompanionFeatures {
             "ask_user_question" => self.ask,
             "get_session_info" => self.sessions,
             "show_image" | "analyze_image" => self.images,
+            "transcribe_audio" | "query_audio_transcription" => true,
             "append_user_memory" => self.memory,
             "propose_user_memory" => self.memory_proposal,
             "present_task_files" => self.artifacts,
@@ -502,6 +506,12 @@ async fn build_tools_call_spawn(
     match name.as_str() {
         "show_image" => register_and_spawn_local(inflight, id, arguments, ctx.working_dir).await,
         "analyze_image" => register_and_spawn_image_analysis(inflight, id, arguments, ctx).await,
+        "transcribe_audio" => {
+            register_and_spawn_audio(inflight, id, arguments, ctx, AudioToolCall::Transcribe).await
+        }
+        "query_audio_transcription" => {
+            register_and_spawn_audio(inflight, id, arguments, ctx, AudioToolCall::Query).await
+        }
         "list_scheduled_tasks"
         | "create_scheduled_task"
         | "update_scheduled_task"
@@ -892,6 +902,187 @@ async fn execute_image_analysis_call(
         ),
     };
     ok(response_id, result)
+}
+
+#[derive(Clone, Copy)]
+enum AudioToolCall {
+    Transcribe,
+    Query,
+}
+
+async fn register_and_spawn_audio(
+    inflight: Arc<InflightCalls>,
+    id: Value,
+    arguments: Value,
+    ctx: CompanionContext,
+    call: AudioToolCall,
+) -> LineAction {
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    let id_key = request_id_key(&id);
+    inflight
+        .register(
+            id_key.clone(),
+            InflightEntry {
+                external_handle: None,
+                cancel_tx,
+            },
+        )
+        .await;
+    let response_id = id.clone();
+    let task_key = id_key.clone();
+    let task_inflight = inflight.clone();
+    let future = Box::pin(async move {
+        let execute = execute_audio_call(response_id, arguments, ctx, call);
+        tokio::pin!(execute);
+        let response = tokio::select! {
+            biased;
+            _ = cancel_rx => None,
+            result = &mut execute => Some(result),
+        };
+        let _ = task_inflight.take(&task_key).await;
+        SpawnResult {
+            response,
+            after_relay: None,
+        }
+    });
+    LineAction::Spawn(SpawnedCall {
+        request_id: id,
+        request_id_key: id_key,
+        future,
+    })
+}
+
+async fn execute_audio_call(
+    response_id: Value,
+    arguments: Value,
+    ctx: CompanionContext,
+    call: AudioToolCall,
+) -> JsonRpcResponse {
+    let result = match call {
+        AudioToolCall::Transcribe => execute_audio_transcription(arguments, ctx).await,
+        AudioToolCall::Query => execute_audio_query(arguments, ctx).await,
+    };
+    ok(response_id, result)
+}
+
+async fn execute_audio_transcription(arguments: Value, ctx: CompanionContext) -> Value {
+    let input = match crate::acp::delegation::audio_tool::prepare_transcribe(arguments) {
+        Ok(input) => input,
+        Err(result) => return result,
+    };
+    let request = BrokerAudioTranscriptionRequest {
+        token: ctx.token,
+        path: input.path,
+        language: input.language,
+        options: input.options,
+    };
+    match client_audio_transcription_round_trip(&ctx.socket_path, &request).await {
+        Ok(response) => render_audio_result(response.outcome),
+        Err(_) => crate::acp::delegation::audio_tool::error_result(
+            "audio_transcription_transport_failed",
+            "The audio transcription host service is unavailable.",
+        ),
+    }
+}
+
+async fn execute_audio_query(arguments: Value, ctx: CompanionContext) -> Value {
+    let input = match crate::acp::delegation::audio_tool::prepare_query(arguments) {
+        Ok(input) => input,
+        Err(result) => return result,
+    };
+    let request = BrokerAudioTranscriptionQueryRequest {
+        token: ctx.token,
+        job_id: input.job_id.trim().to_string(),
+    };
+    match client_audio_transcription_query_round_trip(&ctx.socket_path, &request).await {
+        Ok(response) => render_audio_result(response.outcome),
+        Err(_) => crate::acp::delegation::audio_tool::error_result(
+            "audio_transcription_transport_failed",
+            "The audio transcription host service is unavailable.",
+        ),
+    }
+}
+
+fn render_audio_result(outcome: Value) -> Value {
+    let Some(structured) = outcome.get("structuredContent") else {
+        return crate::acp::delegation::audio_tool::error_result(
+            "audio_transcription_invalid_response",
+            "The audio transcription host returned an invalid result.",
+        );
+    };
+    if outcome.get("isError").and_then(Value::as_bool) == Some(true) {
+        let code = structured
+            .get("code")
+            .and_then(Value::as_str)
+            .unwrap_or("audio_transcription_failed");
+        let (code, message) = safe_audio_error(code);
+        return crate::acp::delegation::audio_tool::error_result(code, message);
+    }
+    let Some(job_id) = structured.get("jobId").and_then(Value::as_str) else {
+        return crate::acp::delegation::audio_tool::error_result(
+            "audio_transcription_invalid_response",
+            "The audio transcription host returned an invalid result.",
+        );
+    };
+    let Some(status) = structured.get("status").and_then(Value::as_str) else {
+        return crate::acp::delegation::audio_tool::error_result(
+            "audio_transcription_invalid_response",
+            "The audio transcription host returned an invalid result.",
+        );
+    };
+    let transcript = structured.get("transcript").cloned().unwrap_or(Value::Null);
+    let text = transcript
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Transcription job {job_id} is {status}."));
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": false,
+        "structuredContent": {
+            "jobId": job_id,
+            "status": status,
+            "transcript": transcript,
+        },
+    })
+}
+
+fn safe_audio_error(code: &str) -> (&'static str, &'static str) {
+    match code {
+        "audio_transcription_invalid_path" => (
+            "audio_transcription_invalid_path",
+            "Audio path must be a readable workspace-relative audio file.",
+        ),
+        "audio_transcription_invalid_arguments" => (
+            "audio_transcription_invalid_arguments",
+            "Audio transcription arguments are invalid.",
+        ),
+        "audio_transcription_auth_required" => (
+            "audio_transcription_auth_required",
+            "Sign in to iyw-claw before transcribing audio.",
+        ),
+        "audio_transcription_transport_failed" => (
+            "audio_transcription_transport_failed",
+            "The transcription service could not be reached.",
+        ),
+        "audio_transcription_upload_failed" => (
+            "audio_transcription_upload_failed",
+            "The audio file could not be uploaded.",
+        ),
+        "audio_transcription_request_failed" => (
+            "audio_transcription_request_failed",
+            "The transcription request was rejected.",
+        ),
+        "audio_transcription_session_missing" => (
+            "audio_transcription_session_missing",
+            "The audio transcription session is unavailable.",
+        ),
+        _ => (
+            "audio_transcription_failed",
+            "The audio transcription request failed.",
+        ),
+    }
 }
 
 /// Register the inflight entry and build the [`SpawnedCall`] that races the

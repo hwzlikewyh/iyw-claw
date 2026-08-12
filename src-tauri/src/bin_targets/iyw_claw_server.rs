@@ -461,6 +461,13 @@ async fn async_main() -> ExitCode {
                 ),
             ),
             Arc::new(
+                iyw_claw_lib::acp::audio_transcription::HostAudioTranscriptionService::new(
+                    Arc::new(iyw_claw_lib::db::AppDatabase {
+                        conn: state.db.conn.clone(),
+                    }),
+                ),
+            ),
+            Arc::new(
                 iyw_claw_lib::acp::automation_tools::AutomationAgentService::new(
                     Arc::new(iyw_claw_lib::db::AppDatabase {
                         conn: state.db.conn.clone(),

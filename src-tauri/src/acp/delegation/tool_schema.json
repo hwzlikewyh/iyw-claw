@@ -334,6 +334,53 @@
     }
   },
   {
+    "name": "transcribe_audio",
+    "description": "Transcribe a workspace-relative audio file. The host uploads the file directly to managed storage, submits an asynchronous transcription job, and waits briefly for a result. Returns the transcript when ready, otherwise the jobId and status. Do not pass an absolute path, URL, bucket key, provider, or credentials.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Audio file path relative to the current workspace."
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 35,
+          "description": "Optional BCP-47 language tag. Defaults to zh-CN."
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "punctuation": { "type": "boolean", "default": true },
+            "wordTimestamps": { "type": "boolean", "default": true },
+            "speakerDiarization": { "type": "boolean", "default": false },
+            "channelSplit": { "type": "boolean", "default": false }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "query_audio_transcription",
+    "description": "Query a previously returned audio transcription job. Use this after transcribe_audio returns a non-terminal status.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["job_id"],
+      "properties": {
+        "job_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Decimal transcription job ID returned by transcribe_audio."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "show_image",
     "description": "Display one image directly in the iyw-claw conversation. Supports a local file path, HTTP/HTTPS URL, Data URI, or raw Base64 with mime_type.",
     "inputSchema": {

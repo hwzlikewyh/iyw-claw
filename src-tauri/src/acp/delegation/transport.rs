@@ -60,7 +60,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::acp::automation_tools::ScheduledTaskRequest;
 use crate::acp::question::QuestionSpec;
 
-pub const COMPANION_PROTOCOL_VERSION: u32 = 2;
+pub const COMPANION_PROTOCOL_VERSION: u32 = 3;
 
 const fn default_companion_protocol_version() -> u32 {
     COMPANION_PROTOCOL_VERSION
@@ -235,6 +235,55 @@ pub struct BrokerImageAnalysisRequest {
     pub image_bytes: usize,
 }
 
+/// Provider-neutral options accepted by the audio transcription MCP tool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AudioTranscriptionOptions {
+    #[serde(default = "default_true")]
+    pub punctuation: bool,
+    #[serde(default = "default_true")]
+    pub word_timestamps: bool,
+    #[serde(default)]
+    pub speaker_diarization: bool,
+    #[serde(default)]
+    pub channel_split: bool,
+}
+
+impl Default for AudioTranscriptionOptions {
+    fn default() -> Self {
+        Self {
+            punctuation: true,
+            word_timestamps: true,
+            speaker_diarization: false,
+            channel_split: false,
+        }
+    }
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+/// Submit one workspace-relative audio file through the authenticated host.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerAudioTranscriptionRequest {
+    pub token: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(default)]
+    pub options: AudioTranscriptionOptions,
+}
+
+/// Query one authenticated user's existing transcription job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerAudioTranscriptionQueryRequest {
+    pub token: String,
+    pub job_id: String,
+}
+
 /// Bounded Agent-facing report; internal candidate identifiers, provenance,
 /// revision, timestamps, and paths stay host-only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,6 +327,8 @@ pub enum BrokerMessage {
     MemoryProposal(BrokerMemoryProposalRequest),
     Artifacts(BrokerArtifactsRequest),
     ImageAnalysis(BrokerImageAnalysisRequest),
+    AudioTranscription(BrokerAudioTranscriptionRequest),
+    AudioTranscriptionQuery(BrokerAudioTranscriptionQueryRequest),
     Automation(ScheduledTaskRequest),
     CompanionReady(BrokerCompanionReadyRequest),
 }
@@ -473,6 +524,26 @@ pub async fn client_image_analysis_round_trip(
     req: &BrokerImageAnalysisRequest,
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::ImageAnalysis(req.clone())).await
+}
+
+/// Submit one audio file through the host's authenticated Fusion API route.
+pub async fn client_audio_transcription_round_trip(
+    socket_path: &str,
+    req: &BrokerAudioTranscriptionRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::AudioTranscription(req.clone())).await
+}
+
+/// Query an existing audio transcription job through the host.
+pub async fn client_audio_transcription_query_round_trip(
+    socket_path: &str,
+    req: &BrokerAudioTranscriptionQueryRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(
+        socket_path,
+        &BrokerMessage::AudioTranscriptionQuery(req.clone()),
+    )
+    .await
 }
 
 /// Execute one global scheduled-task CRUD request. This route deliberately has

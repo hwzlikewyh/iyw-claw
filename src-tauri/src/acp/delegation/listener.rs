@@ -16,10 +16,12 @@ use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{watch, RwLock};
 
+use crate::acp::audio_transcription::AudioTranscriptionAccess;
 use crate::acp::automation_tools::AutomationAgentService;
 use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::transport::{
-    read_frame, write_frame, BrokerArtifactsRequest, BrokerAskRequest, BrokerCancelRequest,
+    read_frame, write_frame, BrokerArtifactsRequest, BrokerAskRequest,
+    BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerCancelRequest,
     BrokerCancelTaskRequest, BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest,
     BrokerFeedbackRequest, BrokerImageAnalysisRequest, BrokerMemoryAppendRequest,
     BrokerMemoryProposalRequest, BrokerMemoryProposalResult, BrokerMessage, BrokerRequest,
@@ -498,6 +500,7 @@ pub struct DelegationListener {
     pub user_memory: Arc<UserMemoryService>,
     pub artifacts: Arc<dyn TaskArtifactAccess>,
     pub image_analysis: Arc<dyn ImageAnalysisAccess>,
+    pub audio_transcription: Arc<dyn AudioTranscriptionAccess>,
     /// Global scheduled-task CRUD service. Its CLI route is intentionally
     /// tokenless because every local Agent already has terminal authority.
     pub automation: Arc<AutomationAgentService>,
@@ -538,6 +541,7 @@ impl DelegationListener {
         user_memory: Arc<UserMemoryService>,
         artifacts: Arc<dyn TaskArtifactAccess>,
         image_analysis: Arc<dyn ImageAnalysisAccess>,
+        audio_transcription: Arc<dyn AudioTranscriptionAccess>,
         automation: Arc<AutomationAgentService>,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -550,6 +554,7 @@ impl DelegationListener {
             user_memory,
             artifacts,
             image_analysis,
+            audio_transcription,
             automation,
         })
     }
@@ -759,6 +764,31 @@ impl DelegationListener {
             BrokerMessage::ImageAnalysis(req) => BrokerResponse {
                 outcome: self.process_image_analysis(req).await,
             },
+            BrokerMessage::AudioTranscription(req) => {
+                // Upload and bounded polling may take minutes. The companion
+                // closes this one-shot socket when MCP cancellation wins, which
+                // drops the in-flight HTTP work and file stream promptly.
+                let transcription = self.process_audio_transcription(req);
+                tokio::pin!(transcription);
+                let mut probe = [0u8; 1];
+                let outcome = tokio::select! {
+                    biased;
+                    outcome = &mut transcription => outcome,
+                    _ = conn.read(&mut probe) => return Ok(()),
+                };
+                BrokerResponse { outcome }
+            }
+            BrokerMessage::AudioTranscriptionQuery(req) => {
+                let query = self.process_audio_transcription_query(req);
+                tokio::pin!(query);
+                let mut probe = [0u8; 1];
+                let outcome = tokio::select! {
+                    biased;
+                    outcome = &mut query => outcome,
+                    _ = conn.read(&mut probe) => return Ok(()),
+                };
+                BrokerResponse { outcome }
+            }
             BrokerMessage::Automation(req) => BrokerResponse {
                 outcome: self
                     .automation
@@ -848,6 +878,34 @@ impl DelegationListener {
         self.image_analysis
             .analyze(&entry.parent_connection_id, req)
             .await
+    }
+
+    async fn process_audio_transcription(&self, req: BrokerAudioTranscriptionRequest) -> Value {
+        let Some(entry) = self.tokens.lookup(&req.token).await else {
+            return self.audio_session_missing();
+        };
+        self.audio_transcription
+            .transcribe(&entry.working_dir, req)
+            .await
+    }
+
+    async fn process_audio_transcription_query(
+        &self,
+        req: BrokerAudioTranscriptionQueryRequest,
+    ) -> Value {
+        if self.tokens.lookup(&req.token).await.is_none() {
+            return self.audio_session_missing();
+        }
+        self.audio_transcription.query(req).await
+    }
+
+    /// Keep an invalid launch token indistinguishable from a disconnected host
+    /// session without exposing the per-launch token or workspace details.
+    fn audio_session_missing(&self) -> Value {
+        crate::acp::delegation::audio_tool::error_result(
+            "audio_transcription_session_missing",
+            "The audio transcription session is unavailable.",
+        )
     }
 
     /// Validate the token and resolve the `check_user_feedback` target: the

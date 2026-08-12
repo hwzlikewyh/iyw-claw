@@ -804,6 +804,13 @@ mod tauri_app {
                             ),
                         ),
                         std::sync::Arc::new(
+                            crate::acp::audio_transcription::HostAudioTranscriptionService::new(
+                                std::sync::Arc::new(db::AppDatabase {
+                                    conn: db_conn.clone(),
+                                }),
+                            ),
+                        ),
+                        std::sync::Arc::new(
                             crate::acp::automation_tools::AutomationAgentService::new(
                                 std::sync::Arc::new(db::AppDatabase {
                                     conn: db_conn.clone(),
