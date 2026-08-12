@@ -181,14 +181,23 @@ pub async fn start_office_watch(
     Json(params): Json<OfficeWatchParams>,
 ) -> Result<Json<crate::office_watch::OfficeWatchStarted>, AppCommandError> {
     // `?` converts WatchError → AppCommandError, carrying the machine code.
-    let result =
-        crate::office_watch::start_office_watch_core(params.root_path, params.path).await?;
+    let result = crate::office_watch::start_office_watch_core(
+        params.root_path,
+        params.path,
+        crate::office_watch::WatchOrigin::Web,
+    )
+    .await?;
     Ok(Json(result))
 }
 
 pub async fn stop_office_watch(
     Json(params): Json<OfficeWatchParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    crate::office_watch::stop_office_watch_core(params.root_path, params.path).await?;
+    crate::office_watch::stop_office_watch_core(
+        params.root_path,
+        params.path,
+        crate::office_watch::WatchOrigin::Web,
+    )
+    .await?;
     Ok(Json(()))
 }

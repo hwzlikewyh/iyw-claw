@@ -1976,6 +1976,7 @@
       "officeNotInstalledHint": "Install OfficeCLI under Settings → Office Tools to preview Word, Excel, and PowerPoint files.",
       "officeOpenSettings": "Open Settings",
       "officeWatchFailed": "Couldn't start the live preview",
+      "officeFileNotReady": "The file is still being created or was moved. Try again shortly.",
       "officeWatchRetry": "Retry",
       "officeServerInstallHint": "OfficeCLI must be installed on the server host. Run this command there, then retry:",
       "officeRemoteDesktopUnsupported": "Live preview isn't available in a remote-desktop window. Open this workspace in the server's web UI to preview Office files."
@@ -2624,6 +2625,17 @@
         "cancel": "Cancel",
         "send": "Send",
         "forkAndSend": "Fork & Send",
+        "voice": {
+          "start": "Start voice input",
+          "stop": "Stop voice input",
+          "starting": "Connecting to voice recognition",
+          "stopping": "Finishing voice recognition",
+          "autoSend": "Send automatically after stopping",
+          "loginRequired": "Sign in to your IYW account before using voice input.",
+          "microphoneDenied": "Microphone access was denied. Allow access in system settings.",
+          "microphoneUnavailable": "No microphone is available, or voice input is not supported on this device.",
+          "serviceUnavailable": "Voice recognition is temporarily unavailable. Text already in the input was kept."
+        },
         "slashCommands": "Slash commands",
         "skills": "Skills",
         "slashSearchPlaceholder": "Search commands...",

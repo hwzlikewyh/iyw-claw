@@ -19,6 +19,7 @@ import { extractAppCommandError } from "@/lib/app-error"
 // Machine code the backend stamps into `i18n_params.watchCode` for a missing
 // officecli (mirrors `WatchError::NotInstalled.code()` in office_watch/mod.rs).
 const NOT_INSTALLED = "NOT_INSTALLED"
+const FILE_NOT_READY = "FILE_NOT_READY"
 
 // One-liner that installs OfficeCLI on the *server* host — shown to web/remote
 // users, for whom an "open Settings" desktop link would point at the wrong
@@ -200,6 +201,24 @@ export function OfficePreview({
             </button>
           </>
         )}
+      </div>
+    )
+  }
+
+  if (errorCode === FILE_NOT_READY) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <FileWarning className="h-8 w-8 text-muted-foreground" />
+        <div className="text-sm font-medium text-foreground">
+          {t("officeFileNotReady")}
+        </div>
+        <button
+          type="button"
+          onClick={retry}
+          className="mt-1 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-primary/8"
+        >
+          {t("officeWatchRetry")}
+        </button>
       </div>
     )
   }

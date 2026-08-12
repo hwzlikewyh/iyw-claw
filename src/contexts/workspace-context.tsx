@@ -1279,6 +1279,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     // so we open on first sighting and remember it in `autoOpened` (which also
     // keeps a tab the user has since closed from popping back open).
     const autoOpened = new Set<string>()
+    const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>()
     const streamRoot = folderPath
     const unsubscribe = subscribeOfficeEnvelopes(({ changed_paths }) => {
       if (!changed_paths || changed_paths.length === 0) return
@@ -1295,11 +1296,22 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         if (!isOfficePreviewable(changed)) continue
         const abs = joinRootRel(streamRoot, changed)
         if (autoOpened.has(abs) || openPaths.has(abs)) continue
-        autoOpened.add(abs)
-        void openFilePreview(abs)
+        const pending = pendingTimers.get(abs)
+        if (pending) clearTimeout(pending)
+        pendingTimers.set(
+          abs,
+          setTimeout(() => {
+            pendingTimers.delete(abs)
+            autoOpened.add(abs)
+            void openFilePreview(abs)
+          }, 700)
+        )
       }
     })
-    return unsubscribe
+    return () => {
+      unsubscribe()
+      for (const timer of pendingTimers.values()) clearTimeout(timer)
+    }
   }, [
     folderPath,
     activeFolderIdForOffice,

@@ -29,7 +29,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::Serialize;
 use tokio::net::TcpStream;
@@ -57,6 +57,13 @@ const MAX_CONCURRENT_WATCHES: usize = 32;
 /// / loses network and its `stop_office_watch` request never arrives, while
 /// tolerating brief SSE reconnects (officecli's stream auto-reconnects).
 const SSE_LEASE_GRACE: Duration = Duration::from_secs(90);
+/// Keep the last few desktop previews warm so switching back is fast.
+const MAX_IDLE_WATCHES: usize = 2;
+/// Delay between file readiness samples. This also lets atomic-save/rename
+/// sequences settle before OfficeCLI opens the document.
+const FILE_READY_RETRY_DELAY: Duration = Duration::from_millis(100);
+const FILE_READY_TIMEOUT: Duration = Duration::from_secs(5);
+const IDLE_WATCH_RETENTION: Duration = Duration::from_secs(60);
 
 /// Default idle threshold for the sweep (5 minutes). Override via
 /// `IYW_CLAW_OFFICE_WATCH_IDLE_TIMEOUT_SECS`; `0` disables the sweep.
@@ -74,6 +81,8 @@ pub enum WatchError {
     NotOffice,
     #[error("path is outside the workspace root")]
     OutsideRoot,
+    #[error("office file is still being created or was moved")]
+    FileNotReady,
     #[error("failed to start officecli watch: {0}")]
     StartFailed(String),
     #[error("officecli watch did not become ready in time: {0}")]
@@ -95,6 +104,7 @@ impl WatchError {
             WatchError::NotInstalled => "NOT_INSTALLED",
             WatchError::NotOffice => "NOT_OFFICE",
             WatchError::OutsideRoot => "OUTSIDE_ROOT",
+            WatchError::FileNotReady => "FILE_NOT_READY",
             WatchError::StartFailed(_) => "START_FAILED",
             WatchError::PortTimeout(_) => "PORT_TIMEOUT",
             WatchError::NoPort => "NO_PORT",
@@ -145,6 +155,12 @@ pub struct OfficeWatchStarted {
     pub cap: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchOrigin {
+    Desktop,
+    Web,
+}
+
 // ─── Process-pool state ─────────────────────────────────────────────────
 
 struct WatchInstance {
@@ -153,14 +169,10 @@ struct WatchInstance {
     /// Per-watch capability the proxy authenticates against (see `OfficeWatchStarted`).
     cap: String,
     file_canonical: PathBuf,
-    ref_count: usize,
+    desktop_ref_count: usize,
+    web_ref_count: usize,
     last_activity: Instant,
-    /// Set once the server-mode proxy serves any request for this watch — i.e.
-    /// this is a web/remote preview, not a desktop one (desktop hits loopback
-    /// directly, never the proxy). Gates the SSE-lease reaping rule so a desktop
-    /// preview — which legitimately sits idle with no proxy traffic — is never
-    /// swept out from under the user.
-    proxied: bool,
+    idle_file_state: Option<(u64, Option<SystemTime>)>,
     /// Number of live SSE (`/events`) connections the proxy currently holds open
     /// for this watch. While ≥1 the preview is open in a browser; when it drops
     /// to 0 the (web) watch becomes eligible for grace-period reaping.
@@ -200,6 +212,24 @@ fn reap(mut child: Child) {
     }
 }
 
+fn schedule_idle_reap(key: String) {
+    tokio::spawn(async move {
+        tokio::time::sleep(IDLE_WATCH_RETENTION).await;
+        let child = {
+            let mut watches = lock_watches();
+            let should_reap = watches.get(&key).is_some_and(|entry| {
+                entry.desktop_ref_count == 0
+                    && entry.web_ref_count == 0
+                    && entry.last_activity.elapsed() >= IDLE_WATCH_RETENTION
+            });
+            should_reap.then(|| watches.remove(&key)).flatten()
+        };
+        if let Some(entry) = child {
+            reap(entry.child);
+        }
+    });
+}
+
 fn spawn_lock_for(key: &str) -> Arc<tokio::sync::Mutex<()>> {
     SPAWN_LOCKS
         .lock()
@@ -207,6 +237,11 @@ fn spawn_lock_for(key: &str) -> Arc<tokio::sync::Mutex<()>> {
         .entry(key.to_string())
         .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
         .clone()
+}
+
+fn file_state(path: &Path) -> Option<(u64, Option<SystemTime>)> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()))
 }
 
 // ─── Path handling ──────────────────────────────────────────────────────
@@ -232,7 +267,13 @@ fn resolve_office_target(root_path: &str, rel_path: &str) -> Result<PathBuf, Wat
     }
     let target = resolve_tree_path(&root, rel_path).map_err(|e| WatchError::Io(e.to_string()))?;
     let canonical_root = std::fs::canonicalize(&root)?;
-    let canonical_target = std::fs::canonicalize(&target)?;
+    let canonical_target = std::fs::canonicalize(&target).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            WatchError::FileNotReady
+        } else {
+            WatchError::Io(error.to_string())
+        }
+    })?;
     if !canonical_target.starts_with(&canonical_root) {
         return Err(WatchError::OutsideRoot);
     }
@@ -243,6 +284,50 @@ fn resolve_office_target(root_path: &str, rel_path: &str) -> Result<PathBuf, Wat
         return Err(WatchError::NotOffice);
     }
     Ok(canonical_target)
+}
+
+/// Wait for a generated Office file to exist and stop changing before spawning
+/// OfficeCLI. The first sample is immediate; the second sample prevents an
+/// atomic-save or rename burst from handing OfficeCLI a partial document.
+async fn resolve_office_target_ready(
+    root_path: &str,
+    rel_path: &str,
+    deadline: Instant,
+) -> Result<PathBuf, WatchError> {
+    let mut previous: Option<(u64, Option<SystemTime>)> = None;
+    loop {
+        if Instant::now() >= deadline {
+            return Err(WatchError::FileNotReady);
+        }
+        match resolve_office_target(root_path, rel_path) {
+            Ok(target) => {
+                let Some(state) = file_state(&target) else {
+                    previous = None;
+                    sleep_until_file_retry(deadline).await?;
+                    continue;
+                };
+                if previous.as_ref() == Some(&state) {
+                    return Ok(target);
+                }
+                previous = Some(state);
+                sleep_until_file_retry(deadline).await?;
+            }
+            Err(WatchError::FileNotReady) => {
+                previous = None;
+                sleep_until_file_retry(deadline).await?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+async fn sleep_until_file_retry(deadline: Instant) -> Result<(), WatchError> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(WatchError::FileNotReady);
+    }
+    tokio::time::sleep(FILE_READY_RETRY_DELAY.min(remaining)).await;
+    Ok(())
 }
 
 /// Best-effort key for `stop` — falls back to a loose canonicalization so a
@@ -372,13 +457,21 @@ async fn drain_stderr(child: &mut Child) -> String {
 pub async fn start_office_watch_core(
     root_path: String,
     path: String,
+    origin: WatchOrigin,
 ) -> Result<OfficeWatchStarted, WatchError> {
-    let canonical_target = resolve_office_target(&root_path, &path)?;
+    let file_ready_deadline = Instant::now() + FILE_READY_TIMEOUT;
+    let canonical_target = match resolve_office_target(&root_path, &path) {
+        Ok(target) => target,
+        Err(WatchError::FileNotReady) => {
+            resolve_office_target_ready(&root_path, &path, file_ready_deadline).await?
+        }
+        Err(error) => return Err(error),
+    };
     let key = watch_key(&canonical_target);
 
     // Fast path: a live process already exists → just share it. This path
     // intentionally does not need the officecli binary on disk.
-    if let Some((port, cap)) = reuse_live(&key) {
+    if let Some((port, cap)) = reuse_live(&key, origin) {
         return Ok(OfficeWatchStarted { port, cap });
     }
 
@@ -388,13 +481,18 @@ pub async fn start_office_watch_core(
     // task holds (`Arc::strong_count == 1`), bounding the map's growth.
     let spawn_lock = spawn_lock_for(&key);
     let _guard = spawn_lock.lock().await;
-    if let Some((port, cap)) = reuse_live(&key) {
+    if let Some((port, cap)) = reuse_live(&key, origin) {
         return Ok(OfficeWatchStarted { port, cap });
     }
     if lock_watches().len() >= MAX_CONCURRENT_WATCHES {
         return Err(WatchError::TooMany);
     }
 
+    // The file may have been in an atomic-save window while the spawn lock was
+    // held. Re-check stability only on the cold path; warm reuse above stays
+    // immediate.
+    let canonical_target =
+        resolve_office_target_ready(&root_path, &path, file_ready_deadline).await?;
     let officecli = resolve_officecli().ok_or(WatchError::NotInstalled)?;
     let port = allocate_free_port()?;
     // Mint the per-watch capability the proxy will authenticate against.
@@ -432,7 +530,7 @@ pub async fn start_office_watch_core(
         let mut watches = lock_watches();
         if let Some(entry) = watches.get_mut(&key) {
             if matches!(entry.child.try_wait(), Ok(None)) {
-                entry.ref_count += 1;
+                increment_ref_count(entry, origin);
                 entry.last_activity = Instant::now();
                 let winner = OfficeWatchStarted {
                     port: entry.port,
@@ -451,6 +549,7 @@ pub async fn start_office_watch_core(
                     port,
                     cap.clone(),
                     canonical_target,
+                    origin,
                 )
             }
         } else if watches.len() >= MAX_CONCURRENT_WATCHES {
@@ -468,6 +567,7 @@ pub async fn start_office_watch_core(
                 port,
                 cap.clone(),
                 canonical_target,
+                origin,
             )
         }
     };
@@ -483,7 +583,12 @@ fn register_new(
     port: u16,
     cap: String,
     file_canonical: PathBuf,
+    origin: WatchOrigin,
 ) -> Result<OfficeWatchStarted, WatchError> {
+    let (desktop_ref_count, web_ref_count) = match origin {
+        WatchOrigin::Desktop => (1, 0),
+        WatchOrigin::Web => (0, 1),
+    };
     watches.insert(
         key,
         WatchInstance {
@@ -491,9 +596,10 @@ fn register_new(
             port,
             cap: cap.clone(),
             file_canonical,
-            ref_count: 1,
+            desktop_ref_count,
+            web_ref_count,
             last_activity: Instant::now(),
-            proxied: false,
+            idle_file_state: None,
             sse_leases: 0,
         },
     );
@@ -503,13 +609,25 @@ fn register_new(
 /// Fast-path helper: if a live watch exists for `key`, bump its ref-count and
 /// return its `(port, cap)`; if the entry is dead, reap + prune it so the slow
 /// path respawns.
-fn reuse_live(key: &str) -> Option<(u16, String)> {
+fn reuse_live(key: &str, origin: WatchOrigin) -> Option<(u16, String)> {
     let mut watches = lock_watches();
+    let changed_while_idle = watches.get(key).is_some_and(|entry| {
+        entry.desktop_ref_count == 0
+            && entry.web_ref_count == 0
+            && entry.idle_file_state.as_ref() != file_state(&entry.file_canonical).as_ref()
+    });
+    if changed_while_idle {
+        if let Some(stale) = watches.remove(key) {
+            reap(stale.child);
+        }
+        return None;
+    }
     let entry = watches.get_mut(key)?;
     match entry.child.try_wait() {
         Ok(None) => {
-            entry.ref_count += 1;
+            increment_ref_count(entry, origin);
             entry.last_activity = Instant::now();
+            entry.idle_file_state = None;
             Some((entry.port, entry.cap.clone()))
         }
         _ => {
@@ -522,9 +640,36 @@ fn reuse_live(key: &str) -> Option<(u16, String)> {
     }
 }
 
-/// Release one reference to the watch for `path`. Kills the process when the
-/// last reference goes away. Idempotent (closing an already-stopped tab is OK).
-pub async fn stop_office_watch_core(root_path: String, path: String) -> Result<(), WatchError> {
+fn increment_ref_count(entry: &mut WatchInstance, origin: WatchOrigin) {
+    match origin {
+        WatchOrigin::Desktop => entry.desktop_ref_count += 1,
+        WatchOrigin::Web => entry.web_ref_count += 1,
+    }
+}
+
+fn evict_idle_desktop_watches(watches: &mut HashMap<String, WatchInstance>) -> Vec<Child> {
+    let mut idle_keys: Vec<(String, Instant)> = watches
+        .iter()
+        .filter(|(_, entry)| entry.desktop_ref_count == 0 && entry.web_ref_count == 0)
+        .map(|(key, entry)| (key.clone(), entry.last_activity))
+        .collect();
+    idle_keys.sort_by_key(|(_, last_activity)| *last_activity);
+    let overflow = idle_keys.len().saturating_sub(MAX_IDLE_WATCHES);
+    idle_keys
+        .into_iter()
+        .take(overflow)
+        .filter_map(|(key, _)| watches.remove(&key).map(|entry| entry.child))
+        .collect()
+}
+
+/// Release one reference to the watch for `path`. The last reference keeps the
+/// process warm briefly so reopening the same file avoids a cold OfficeCLI
+/// startup. Idempotent (closing an already-stopped tab is OK).
+pub async fn stop_office_watch_core(
+    root_path: String,
+    path: String,
+    origin: WatchOrigin,
+) -> Result<(), WatchError> {
     let Some(key) = loose_key(&root_path, &path) else {
         return Ok(());
     };
@@ -541,19 +686,38 @@ pub async fn stop_office_watch_core(root_path: String, path: String) -> Result<(
     let Some(target_key) = target_key else {
         return Ok(());
     };
+    let idle_reap_key = target_key.clone();
 
     if let Some(entry) = watches.get_mut(&target_key) {
-        if entry.ref_count > 1 {
-            entry.ref_count -= 1;
+        let origin_count = match origin {
+            WatchOrigin::Desktop => &mut entry.desktop_ref_count,
+            WatchOrigin::Web => &mut entry.web_ref_count,
+        };
+        if *origin_count == 0 {
             return Ok(());
         }
+        *origin_count -= 1;
+        entry.last_activity = Instant::now();
+        if entry.desktop_ref_count > 0 || entry.web_ref_count > 0 {
+            return Ok(());
+        }
+        if origin == WatchOrigin::Web {
+            let child = watches.remove(&target_key).map(|entry| entry.child);
+            drop(watches);
+            if let Some(child) = child {
+                reap(child);
+            }
+            return Ok(());
+        }
+        entry.idle_file_state = file_state(&entry.file_canonical);
     }
-    if let Some(entry) = watches.remove(&target_key) {
-        // Removing the entry instantly closes the proxy gate (validate looks it
-        // up here), so the port can't be forwarded the moment it's unservable.
-        drop(watches);
-        reap(entry.child);
+
+    let children = evict_idle_desktop_watches(&mut watches);
+    drop(watches);
+    for child in children {
+        reap(child);
     }
+    schedule_idle_reap(idle_reap_key);
     Ok(())
 }
 
@@ -569,13 +733,11 @@ fn is_live(entry: &mut WatchInstance) -> bool {
 // shadow a port the OS has since re-assigned to a new watch. At most one *live*
 // watch ever holds a given port.
 
-/// Mark a watch as proxy-served (web/remote, not desktop) and bump its activity
-/// clock. Called by the server-mode proxy on every request it forwards.
+/// Bump a web watch's activity clock on every proxied request.
 pub fn note_proxy_request(port: u16) {
     let mut watches = lock_watches();
     for entry in watches.values_mut() {
         if entry.port == port && is_live(entry) {
-            entry.proxied = true;
             entry.last_activity = Instant::now();
             return;
         }
@@ -588,7 +750,6 @@ pub fn acquire_sse_lease(port: u16) {
     let mut watches = lock_watches();
     for entry in watches.values_mut() {
         if entry.port == port && is_live(entry) {
-            entry.proxied = true;
             entry.sse_leases += 1;
             entry.last_activity = Instant::now();
             return;
@@ -697,14 +858,14 @@ pub fn idle_timeout_from_env() -> Option<Duration> {
 
 /// Reap watches that are no longer needed:
 /// - **dead children** (a crashed watch must not linger);
-/// - **desktop stragglers** — `ref_count == 0` (the tab stopped it) past the
-///   idle window. A *live* desktop preview (`ref_count >= 1`, `!proxied`) is
+/// - **desktop stragglers** — both origin counts are zero past the idle window.
+///   A live desktop preview (`desktop_ref_count >= 1`) is
 ///   never swept: it connects loopback directly so no proxy traffic bumps
 ///   `last_activity`, and reaping it by idle would yank it from under the user;
-/// - **abandoned web previews** — a `proxied` watch whose last SSE connection
+/// - **abandoned web previews** — a web-only watch whose last SSE connection
 ///   closed (`sse_leases == 0`) and stayed closed past [`SSE_LEASE_GRACE`]. This
 ///   is the backstop for a browser tab that closed / crashed / lost network
-///   before its `stop_office_watch` arrived, so its `ref_count` never reached 0.
+///   before its `stop_office_watch` arrived, so its web reference remains live.
 pub fn sweep_office_watches(idle_timeout: Duration) -> usize {
     let now = Instant::now();
     let mut watches = lock_watches();
@@ -714,8 +875,13 @@ pub fn sweep_office_watches(idle_timeout: Duration) -> usize {
         .filter_map(|(k, entry)| {
             let idle = now.duration_since(entry.last_activity);
             let dead = matches!(entry.child.try_wait(), Ok(Some(_)));
-            let desktop_straggler = !entry.proxied && entry.ref_count == 0 && idle > idle_timeout;
-            let web_abandoned = entry.proxied && entry.sse_leases == 0 && idle > SSE_LEASE_GRACE;
+            let desktop_idle_timeout = IDLE_WATCH_RETENTION.min(idle_timeout);
+            let no_refs = entry.desktop_ref_count == 0 && entry.web_ref_count == 0;
+            let desktop_straggler = no_refs && idle > desktop_idle_timeout;
+            let web_abandoned = entry.desktop_ref_count == 0
+                && entry.web_ref_count > 0
+                && entry.sse_leases == 0
+                && idle > SSE_LEASE_GRACE;
             (dead || desktop_straggler || web_abandoned).then(|| k.clone())
         })
         .collect();
