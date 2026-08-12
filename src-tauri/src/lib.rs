@@ -68,6 +68,7 @@ mod tauri_app {
         mcp as mcp_commands, model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, performance as performance_commands,
         question as question_commands, quick_messages as quick_messages_commands,
+        realtime_voice as realtime_voice_commands,
         remote_chat_image_upload as remote_chat_image_upload_commands,
         remote_image as remote_image_commands, remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands,
@@ -267,6 +268,7 @@ mod tauri_app {
             .manage(ConnectionManager::new())
             .manage(TerminalManager::new())
             .manage(ChatChannelManager::new())
+            .manage(realtime_voice_commands::RealtimeVoiceState::default())
             .manage(windows::SettingsWindowState::new())
             .manage(windows::CommitWindowState::new())
             .manage(windows::MergeWindowState::new())
@@ -1078,6 +1080,16 @@ mod tauri_app {
                         }
                     }
                 }
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    let app = window.app_handle();
+                    if let Some(state) = app.try_state::<realtime_voice_commands::RealtimeVoiceState>() {
+                        let state = state.inner().clone();
+                        let label = label.clone();
+                        tauri::async_runtime::spawn(async move {
+                            state.cancel_window(&label).await;
+                        });
+                    }
+                }
             })
             .invoke_handler(tauri::generate_handler![
                 conversations::list_conversations,
@@ -1239,6 +1251,10 @@ mod tauri_app {
                 iyw_account_commands::iyw_account_get_profile,
                 iyw_account_commands::iyw_account_list_models,
                 iyw_account_commands::iyw_account_logout,
+                realtime_voice_commands::realtime_voice_start,
+                realtime_voice_commands::realtime_voice_push_audio,
+                realtime_voice_commands::realtime_voice_finish,
+                realtime_voice_commands::realtime_voice_cancel,
                 system_settings::get_system_proxy_settings,
                 system_settings::update_system_proxy_settings,
                 system_settings::get_system_language_settings,

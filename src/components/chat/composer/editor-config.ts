@@ -3,6 +3,7 @@ import { Placeholder } from "@tiptap/extension-placeholder"
 import StarterKit from "@tiptap/starter-kit"
 
 import { InactiveSelectionHighlight } from "./inactive-selection"
+import { RealtimeVoicePartial } from "./realtime-partial"
 import { Reference } from "./nodes/reference-node"
 import {
   MentionSuggestion,
@@ -94,6 +95,7 @@ export function buildComposerExtensions(
     Reference,
     // Keeps the selection visible when focus moves to the right-click menu.
     InactiveSelectionHighlight,
+    RealtimeVoicePartial,
   ]
   if (options.mentionController) {
     extensions.push(

@@ -155,6 +155,10 @@ import { useAgentSkills } from "@/hooks/use-agent-skills"
 import { useBuiltInExperts } from "@/hooks/use-built-in-experts"
 import { useEnabledSkillIds } from "@/hooks/use-enabled-skill-ids"
 import { useScrollbarSafeDismiss } from "@/hooks/use-scrollbar-safe-dismiss"
+import {
+  useRealtimeVoiceInput,
+  type RealtimeVoiceErrorKind,
+} from "@/hooks/use-realtime-voice-input"
 import { getExpertIcon, pickLocalized } from "@/lib/expert-presentation"
 import { OFFICE_ACTIONS, type OfficeAction } from "@/lib/office-actions"
 import {
@@ -166,6 +170,7 @@ import {
   RichComposer,
   type RichComposerHandle,
 } from "@/components/chat/composer/rich-composer"
+import { RealtimeVoiceButton } from "@/components/chat/realtime-voice-button"
 import {
   composerLeafText,
   docToPromptBlocks,
@@ -2855,7 +2860,7 @@ export function MessageInput({
     closeSlashMenu()
   }, [closeSlashMenu])
 
-  const handleSend = useCallback(() => {
+  const sendCurrentDraft = useCallback(() => {
     // The editor stays editable while `disabled` (the agent is busy) so the user
     // can keep typing, but a plain send is blocked — only enqueue / queue-edit
     // save go through. Mirrors the legacy textarea's keydown guard.
@@ -2920,7 +2925,32 @@ export function MessageInput({
     promptCapabilities.image,
   ])
 
+  const handleVoiceFinal = useCallback((text: string) => {
+    editorRef.current?.appendText(text)
+  }, [])
+
+  const handleVoiceError = useCallback(
+    (kind: RealtimeVoiceErrorKind) => {
+      toast.error(t(`voice.${kind}`))
+    },
+    [t]
+  )
+
+  const voice = useRealtimeVoiceInput({
+    enabled: desktopMode && !isEditingQueueItem,
+    scopeKey: attachmentTabId ?? effectiveDraftStorageKey,
+    onFinal: handleVoiceFinal,
+    onAutoSend: sendCurrentDraft,
+    onError: handleVoiceError,
+  })
+
+  const handleSend = useCallback(() => {
+    if (voice.status !== "idle") return
+    sendCurrentDraft()
+  }, [sendCurrentDraft, voice.status])
+
   const handleForkSendClick = useCallback(() => {
+    if (voice.status !== "idle") return
     if (!onForkSend) return
     const draft = buildDraft()
     if (!draft) return
@@ -2940,6 +2970,7 @@ export function MessageInput({
     showModeSelector,
     effectiveDraftStorageKey,
     resetComposer,
+    voice.status,
   ])
 
   // Navigation/confirm/escape keys for the `/` (commands) and `$` (Codex skills)
@@ -3263,7 +3294,12 @@ export function MessageInput({
     <div className="flex items-center">
       <Button
         onClick={handleSend}
-        disabled={sendPending || disabled || !hasSendableContent}
+        disabled={
+          sendPending ||
+          disabled ||
+          voice.status !== "idle" ||
+          !hasSendableContent
+        }
         size="icon"
         className="h-8 w-8 rounded-r-none"
         title={t("send")}
@@ -3273,7 +3309,12 @@ export function MessageInput({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            disabled={sendPending || disabled || !hasSendableContent}
+            disabled={
+              sendPending ||
+              disabled ||
+              voice.status !== "idle" ||
+              !hasSendableContent
+            }
             size="icon"
             className="h-8 w-5 rounded-l-none border-l border-primary-foreground/20"
             aria-label={t("forkAndSend")}
@@ -3292,7 +3333,12 @@ export function MessageInput({
   ) : (
     <Button
       onClick={handleSend}
-      disabled={sendPending || disabled || !hasSendableContent}
+      disabled={
+        sendPending ||
+        disabled ||
+        voice.status !== "idle" ||
+        !hasSendableContent
+      }
       size="icon"
       className="h-8 w-8"
       title={t("send")}
@@ -3527,6 +3573,7 @@ export function MessageInput({
                 newlineShortcut={shortcuts.newline_in_message}
                 isExternalMenuOpen={slashMenuOpen && slashAutocompleteCount > 0}
                 onExternalMenuKeyDown={handleExternalMenuKeyDown}
+                partialText={voice.partialText}
                 className="min-h-0 flex-1"
               />
               <div className="flex shrink-0 items-center justify-between gap-1 px-2 pb-2">
@@ -3925,6 +3972,19 @@ export function MessageInput({
                     popoverSide="top"
                     popoverSideOffset={8}
                   />
+                  {desktopMode && !isEditingQueueItem && (
+                    <RealtimeVoiceButton
+                      status={voice.status}
+                      autoSend={voice.autoSend}
+                      disabled={
+                        voice.status === "starting" ||
+                        voice.status === "stopping" ||
+                        (voice.status === "idle" && disabled)
+                      }
+                      onToggle={voice.toggle}
+                      onAutoSendChange={voice.setAutoSend}
+                    />
+                  )}
                   {actionButtons}
                 </div>
               </div>

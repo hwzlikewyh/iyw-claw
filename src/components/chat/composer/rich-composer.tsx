@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils"
 
 import { buildComposerExtensions } from "./editor-config"
 import { textToDoc, textToInlineContent } from "./plain-text-content"
+import { setRealtimeVoicePartial } from "./realtime-partial"
 import { serializeDocToText } from "./to-prompt-blocks"
 import { decideComposerKey } from "./submit-key"
 import type {
@@ -69,6 +70,8 @@ export interface RichComposerHandle {
   getJSON: () => JSONContent
   /** Insert plain text at the current selection. */
   insertTextAtCursor: (text: string) => void
+  /** Append confirmed voice text to the current document end. */
+  appendText: (text: string) => void
   /** Insert an inline reference badge at the current selection. */
   insertReference: (attrs: ReferenceAttrs) => void
   /** Escape hatch to the underlying editor (null until initialized). */
@@ -164,6 +167,8 @@ export interface RichComposerProps {
    * clipboard read is unavailable).
    */
   onPlainPaste?: () => boolean
+  /** Unconfirmed realtime voice text painted after the document. */
+  partialText?: string
 }
 
 /**
@@ -197,6 +202,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       onExternalMenuKeyDown,
       onPasteFiles,
       onPlainPaste,
+      partialText,
     },
     ref
   ) {
@@ -368,6 +374,11 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       onBlur: () => onBlurRef.current?.(),
     })
 
+    useEffect(() => {
+      if (!editor) return
+      setRealtimeVoicePartial(editor, partialText ?? "")
+    }, [editor, partialText])
+
     // Reflect disabled changes onto the live editor. Pass emitUpdate=false so
     // toggling editability never fires onUpdate/onChange without a real edit.
     useEffect(() => {
@@ -421,6 +432,20 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
             .focus()
             .insertContent(textToInlineContent(text))
             .run(),
+        appendText: (text) => {
+          if (!editor || !text) return
+          const existing = serializeDocToText(editor.state.doc)
+          const separator = needsVoiceSeparator(existing, text) ? " " : ""
+          const position = Math.max(1, editor.state.doc.content.size - 1)
+          editor
+            .chain()
+            .insertContentAt(
+              position,
+              textToInlineContent(`${separator}${text}`),
+              { updateSelection: false }
+            )
+            .run()
+        },
         insertReference: (attrs) => {
           editor?.chain().focus().insertReference(attrs).run()
         },
@@ -522,3 +547,11 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
     )
   }
 )
+
+function needsVoiceSeparator(existing: string, incoming: string): boolean {
+  const left = existing.at(-1)
+  const right = incoming.at(0)
+  return Boolean(
+    left && right && /[a-z0-9]/i.test(left) && /[a-z0-9]/i.test(right)
+  )
+}

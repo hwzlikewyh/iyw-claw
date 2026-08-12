@@ -164,7 +164,7 @@ fn decode_upload_files(
     Ok(decoded)
 }
 
-fn endpoint(path: &str) -> Result<Url, AppCommandError> {
+pub(crate) fn endpoint(path: &str) -> Result<Url, AppCommandError> {
     let base = std::env::var(BASE_URL_ENV)
         .ok()
         .map(|value| value.trim().trim_end_matches('/').to_string())

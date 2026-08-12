@@ -1603,6 +1603,13 @@ body {
   line-height: 1.55;
 }
 
+.iyw-claw-composer .iyw-claw-realtime-voice-partial {
+  color: var(--muted-foreground);
+  opacity: 0.72;
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
 /* Keep the text selection visible after the editor loses focus to an overlay
    that preserves it — most visibly the custom right-click menu, whose radix
    content takes focus. Browsers stop painting the active selection then
