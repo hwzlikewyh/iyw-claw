@@ -689,6 +689,17 @@
           "description": "Optional opaque target id from list_channel_targets."
         },
         "direction": { "type": "string", "enum": ["inbound", "outbound"] },
+        "status": { "type": "string", "enum": ["sent", "failed"] },
+        "since": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional RFC 3339 inclusive start time."
+        },
+        "until": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional RFC 3339 inclusive end time."
+        },
         "limit": {
           "type": "integer",
           "minimum": 1,
@@ -697,7 +708,7 @@
         },
         "cursor": {
           "type": "string",
-          "description": "Opaque next_cursor returned by a previous page."
+          "description": "Opaque stable next_cursor returned by a previous page."
         }
       },
       "additionalProperties": false

@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::prelude::DateTimeUtc;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
+    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, Condition, DatabaseConnection, EntityTrait,
     QueryFilter, QueryOrder, QuerySelect, Set,
 };
 
@@ -124,10 +124,12 @@ pub async fn list_filtered(
     channel_id: i32,
     target_id: Option<&str>,
     direction: Option<&str>,
+    status: Option<&str>,
+    since: Option<DateTimeUtc>,
+    until: Option<DateTimeUtc>,
+    before: Option<(DateTimeUtc, i32)>,
     limit: u64,
-    offset: u64,
 ) -> Result<Vec<chat_channel_message_log::Model>, DbError> {
-    use sea_orm::PaginatorTrait;
     let limit = limit.max(1);
     let mut query = chat_channel_message_log::Entity::find()
         .filter(chat_channel_message_log::Column::ChannelId.eq(channel_id));
@@ -137,10 +139,31 @@ pub async fn list_filtered(
     if let Some(direction) = direction {
         query = query.filter(chat_channel_message_log::Column::Direction.eq(direction));
     }
+    if let Some(status) = status {
+        query = query.filter(chat_channel_message_log::Column::Status.eq(status));
+    }
+    if let Some(since) = since {
+        query = query.filter(chat_channel_message_log::Column::CreatedAt.gte(since));
+    }
+    if let Some(until) = until {
+        query = query.filter(chat_channel_message_log::Column::CreatedAt.lte(until));
+    }
+    if let Some((created_at, id)) = before {
+        query = query.filter(
+            Condition::any()
+                .add(chat_channel_message_log::Column::CreatedAt.lt(created_at))
+                .add(
+                    Condition::all()
+                        .add(chat_channel_message_log::Column::CreatedAt.eq(created_at))
+                        .add(chat_channel_message_log::Column::Id.lt(id)),
+                ),
+        );
+    }
     Ok(query
         .order_by_desc(chat_channel_message_log::Column::CreatedAt)
-        .paginate(conn, limit)
-        .fetch_page(offset / limit)
+        .order_by_desc(chat_channel_message_log::Column::Id)
+        .limit(limit)
+        .all(conn)
         .await?)
 }
 
