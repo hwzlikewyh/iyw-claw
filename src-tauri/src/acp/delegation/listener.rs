@@ -44,6 +44,7 @@ use serde_json::Value;
 /// keeps running past this; the LLM simply re-issues the wait. An explicit
 /// `wait_ms = 0` opts out of the ceiling and blocks until the task is terminal.
 const STATUS_WAIT_MAX_MS: u64 = 60_000;
+const ASK_USER_QUESTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 const MAX_COMPANION_VERSION_CHARS: usize = 128;
 const MAX_COMPANION_TOOL_NAME_CHARS: usize = 128;
 const MAX_COMPANION_TOOLS: usize = 64;
@@ -735,16 +736,34 @@ impl DelegationListener {
                     return Ok(());
                 }
                 let mut probe = [0u8; 1];
-                let outcome = tokio::select! {
+                let wait_started = std::time::Instant::now();
+                let timeout = tokio::time::sleep(ASK_USER_QUESTION_TIMEOUT);
+                tokio::pin!(timeout);
+                let (outcome, timed_out) = tokio::select! {
                     biased;
-                    ans = &mut answer_rx => ans.ok(),
+                    ans = &mut answer_rx => (ans.ok(), false),
                     _ = conn.read(&mut probe) => {
                         self.questions
                             .cancel_question(&parent_conn_id, &question_id)
                             .await;
                         return Ok(());
-                    }
+                    },
+                    _ = &mut timeout => (None, true),
                 };
+                if timed_out {
+                    tracing::warn!(
+                        parent_connection_id = %parent_conn_id,
+                        question_id = %question_id,
+                        timeout_seconds = ASK_USER_QUESTION_TIMEOUT.as_secs(),
+                        elapsed_ms = wait_started.elapsed().as_millis(),
+                        "[delegation] ask_user_question timed out without an answer"
+                    );
+                    self.questions
+                        .cancel_question(&parent_conn_id, &question_id)
+                        .await;
+                    write_frame(conn, &ask_declined_response()?).await?;
+                    return Ok(());
+                }
                 let resp = match outcome {
                     Some(o) => ask_response(&o)?,
                     // Sender dropped without sending (connection teardown drain):

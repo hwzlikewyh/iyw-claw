@@ -56,6 +56,9 @@ use crate::network::proxy;
 use crate::web::event_bridge::{emit_with_state, EventEmitter};
 
 const DEFAULT_COMMAND_COLOR_ENV: [(&str, &str); 1] = [("CLICOLOR_FORCE", "1")];
+const CODEX_CONFIG_ENV: &str = "CODEX_CONFIG";
+const IYW_CLAW_MCP_SERVER_NAME: &str = "iyw-claw-mcp";
+const CODEX_COMPANION_TOOL_TIMEOUT_SECS: u64 = 660;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1008,7 +1011,7 @@ pub async fn spawn_agent_connection(
                     .to_string(),
             )
         })?;
-        let prepared = crate::acp::builtin_prompt_injection::prepare(
+        let mut prepared = crate::acp::builtin_prompt_injection::prepare(
             crate::acp::builtin_prompt_injection::PrepareRequest {
                 agent_type,
                 connection_id: &connection_id,
@@ -1018,6 +1021,25 @@ pub async fn spawn_agent_connection(
             },
         )
         .await?;
+        let companion = if agent_type == AgentType::Codex {
+            let companion = prepare_companion_launch(
+                delegation_injection.as_ref(),
+                &connection_id,
+                &launch_cwd,
+                agent_type,
+                &session_state,
+            )
+            .await;
+            if let Some(ref prepared_companion) = companion.companion {
+                merge_codex_companion_config(
+                    &mut prepared.environment,
+                    &prepared_companion.server,
+                )?;
+            }
+            Some(companion)
+        } else {
+            None
+        };
         let agent = build_agent(AgentLaunchSpec {
             agent_type,
             runtime_env: &prepared.environment,
@@ -1025,12 +1047,13 @@ pub async fn spawn_agent_connection(
             builtin_prompt: &prepared.prompt.text,
         })
         .await?;
-        Ok::<_, AcpError>((agent, prepared))
+        Ok::<_, AcpError>((agent, prepared, companion))
     }
     .await;
-    let (agent, prepared_prompt) = match launch {
+    let (agent, prepared_prompt, prepared_companion) = match launch {
         Ok(launch) => launch,
         Err(error) => {
+            cleanup_delegation_resources(delegation_injection.as_ref(), &connection_id).await;
             tracing::error!(
                 "[ACP] agent launch preparation failed connection_id={} agent={:?} cwd={} \
                  code={:?} storage_root={:?} error={error}",
@@ -1145,6 +1168,7 @@ pub async fn spawn_agent_connection(
                 delegation_injection,
                 builtin_prompt,
                 openclaw.session_key,
+                prepared_companion,
             ),
             cleanup_connection_resources(cleanup_injection.as_ref(), &conn_id, prompt_bridges),
         )
@@ -1628,7 +1652,7 @@ fn agent_supports_iyw_claw_mcp(agent_type: AgentType) -> bool {
 fn agent_reads_native_mcp_config(agent_type: AgentType) -> bool {
     matches!(
         agent_type,
-        AgentType::Hermes | AgentType::KimiCode | AgentType::Grok
+        AgentType::Codex | AgentType::Hermes | AgentType::KimiCode | AgentType::Grok
     )
 }
 
@@ -1636,10 +1660,11 @@ fn agent_reads_native_mcp_config(agent_type: AgentType) -> bool {
 /// ACP wire format. Errors and unsupported entries are logged and skipped so
 /// a single malformed entry never blocks a session from starting.
 fn load_mcp_servers_for_agent(agent_type: AgentType) -> Vec<McpServer> {
-    // Hermes, Kimi Code, and Grok read their own native MCP config at launch —
-    // Hermes from `~/.hermes/config.yaml` (`mcp_servers`, registered as
-    // `mcp-<name>` toolsets), Kimi Code from `~/.kimi-code/mcp.json`
-    // (`mcpServers`), and Grok from `config.toml` (`[mcp_servers.<name>]`).
+    // Codex, Hermes, Kimi Code, and Grok read their own native MCP config at
+    // launch. Codex reads `[mcp_servers.<name>]` from its layered config;
+    // Hermes uses `~/.hermes/config.yaml` (`mcp_servers`, registered as
+    // `mcp-<name>` toolsets), Kimi Code uses `~/.kimi-code/mcp.json`
+    // (`mcpServers`), and Grok uses `config.toml` (`[mcp_servers.<name>]`).
     // Forwarding the same entries over ACP would register every tool twice.
     // The built-in `iyw-claw-mcp` companion is injected separately below.
     if agent_reads_native_mcp_config(agent_type) {
@@ -1744,6 +1769,16 @@ struct CompanionInjection {
     token: String,
     feedback_available: bool,
     memory_tools_expected: bool,
+}
+
+struct PreparedCompanion {
+    server: McpServerStdio,
+    injection: CompanionInjection,
+}
+
+struct CompanionLaunchPreparation {
+    health: crate::user_memory::CompanionHealthSnapshot,
+    companion: Option<PreparedCompanion>,
 }
 
 struct MemoryLaunchAccess {
@@ -1866,15 +1901,14 @@ async fn finalize_user_memory_launch(
 /// The server is registered under the name `iyw-claw-mcp` (hyphens), so an
 /// agent that namespaces MCP tools sees names such as
 /// `mcp__iyw-claw-mcp__analyze_image`; callers must tolerate both forms.
-async fn inject_iyw_claw_mcp(
-    servers: &mut Vec<McpServer>,
+async fn prepare_iyw_claw_mcp(
     injection: &DelegationInjection,
     parent_connection_id: &str,
     working_dir: &Path,
     agent_type: AgentType,
     memory_access: MemoryLaunchAccess,
     health: &crate::user_memory::CompanionHealthSnapshot,
-) -> Option<CompanionInjection> {
+) -> Option<PreparedCompanion> {
     // `images` carries both display and analysis tools for every MCP-capable
     // session. Remaining feature groups stay independently settings-gated.
     let has_tool = |name: &str| health.advertised_tools.iter().any(|tool| tool == name);
@@ -1935,7 +1969,7 @@ async fn inject_iyw_claw_mcp(
             },
         )
         .await;
-    let mut server = McpServerStdio::new("iyw-claw-mcp", binary_path);
+    let mut server = McpServerStdio::new(IYW_CLAW_MCP_SERVER_NAME, binary_path);
     server = server.args(vec![
         "--parent-connection-id".to_string(),
         parent_connection_id.to_string(),
@@ -1960,12 +1994,135 @@ async fn inject_iyw_claw_mcp(
         "--working-dir".to_string(),
         working_dir.to_string_lossy().to_string(),
     ]);
-    servers.push(McpServer::Stdio(server));
-    Some(CompanionInjection {
-        token,
-        feedback_available: feedback_enabled,
-        memory_tools_expected: memory_access.confirmed_append || memory_access.candidate_proposal,
+    Some(PreparedCompanion {
+        server,
+        injection: CompanionInjection {
+            token,
+            feedback_available: feedback_enabled,
+            memory_tools_expected: memory_access.confirmed_append
+                || memory_access.candidate_proposal,
+        },
     })
+}
+
+async fn prepare_companion_launch(
+    injection: Option<&DelegationInjection>,
+    connection_id: &str,
+    working_dir: &Path,
+    agent_type: AgentType,
+    state: &Arc<RwLock<SessionState>>,
+) -> CompanionLaunchPreparation {
+    let companion_supported = agent_supports_iyw_claw_mcp(agent_type);
+    let host_bridge_available = injection.is_some_and(|value| value.tokens.listener_ready());
+    let health = if companion_supported && host_bridge_available {
+        crate::acp::companion_health::locate_healthy_companion().await
+    } else {
+        crate::user_memory::CompanionHealthSnapshot::default()
+    };
+    let memory_access = project_memory_launch_access(state, &health, host_bridge_available).await;
+    let companion = if health.status == crate::user_memory::CompanionHealthStatus::Ready {
+        match injection {
+            Some(value) if companion_supported => {
+                prepare_iyw_claw_mcp(
+                    value,
+                    connection_id,
+                    working_dir,
+                    agent_type,
+                    memory_access,
+                    &health,
+                )
+                .await
+            }
+            _ => None,
+        }
+    } else {
+        if companion_supported && host_bridge_available {
+            tracing::warn!(
+                connection_id,
+                reason = ?health.reason,
+                "[ACP] iyw-claw-mcp companion unavailable"
+            );
+        }
+        None
+    };
+    CompanionLaunchPreparation { health, companion }
+}
+
+async fn project_memory_launch_access(
+    state: &Arc<RwLock<SessionState>>,
+    health: &crate::user_memory::CompanionHealthSnapshot,
+    host_bridge_available: bool,
+) -> MemoryLaunchAccess {
+    let session = state.read().await;
+    let mut projected = session.user_memory_context.clone();
+    projected.finalize_runtime(crate::user_memory::UserMemoryRuntimeEnvironment {
+        companion_health: health.clone(),
+        host_bridge_available,
+    });
+    MemoryLaunchAccess {
+        confirmed_append: projected.capabilities.confirmed_append.available,
+        candidate_proposal: projected.capabilities.candidate_proposal.available,
+        turn_tracker: session.memory_turn_tracker.clone(),
+    }
+}
+
+fn merge_codex_companion_config(
+    environment: &mut BTreeMap<String, String>,
+    server: &McpServerStdio,
+) -> Result<(), AcpError> {
+    let mut config = match environment.get(CODEX_CONFIG_ENV) {
+        Some(raw) if !raw.trim().is_empty() => serde_json::from_str::<serde_json::Value>(raw)
+            .map_err(|error| {
+                AcpError::BuiltinPromptInjection(format!("invalid {CODEX_CONFIG_ENV}: {error}"))
+            })?
+            .as_object()
+            .cloned()
+            .ok_or_else(|| {
+                AcpError::BuiltinPromptInjection(format!(
+                    "{CODEX_CONFIG_ENV} must be a JSON object"
+                ))
+            })?,
+        _ => serde_json::Map::new(),
+    };
+    let servers = config
+        .entry("mcp_servers")
+        .or_insert_with(|| serde_json::json!({}))
+        .as_object_mut()
+        .ok_or_else(|| {
+            AcpError::BuiltinPromptInjection(format!(
+                "{CODEX_CONFIG_ENV}.mcp_servers must be a JSON object"
+            ))
+        })?;
+    if servers.contains_key(IYW_CLAW_MCP_SERVER_NAME) {
+        tracing::warn!(
+            server = IYW_CLAW_MCP_SERVER_NAME,
+            "[ACP][Codex] replacing reserved MCP server in process-local config"
+        );
+    }
+    let env = server
+        .env
+        .iter()
+        .map(|value| {
+            (
+                value.name.clone(),
+                serde_json::Value::String(value.value.clone()),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    servers.insert(
+        IYW_CLAW_MCP_SERVER_NAME.to_string(),
+        serde_json::json!({
+            "command": server.command.to_string_lossy(),
+            "args": server.args,
+            "env": env,
+            "tool_timeout_sec": CODEX_COMPANION_TOOL_TIMEOUT_SECS,
+        }),
+    );
+    let serialized = serde_json::to_string(&config).map_err(|error| {
+        AcpError::BuiltinPromptInjection(format!("failed to serialize {CODEX_CONFIG_ENV}: {error}"))
+    })?;
+    environment.insert(CODEX_CONFIG_ENV.to_string(), serialized);
+    Ok(())
 }
 
 /// Resolve an MCP server `command` to an absolute path.
@@ -2091,6 +2248,7 @@ async fn run_connection(
     delegation_injection: Option<DelegationInjection>,
     builtin_prompt: crate::acp::builtin_agent_prompt::RenderedBuiltinPrompt,
     openclaw_session_key: Option<String>,
+    prepared_companion: Option<CompanionLaunchPreparation>,
 ) -> Result<(), AcpError> {
     let pending_perms: PendingPermissions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
     // `terminal_base_env` already filtered to just the credential helper
@@ -2379,58 +2537,28 @@ async fn run_connection(
                 Vec::new()
             };
 
-            // Probe once after ACP Initialize, freeze the actual memory vector,
-            // and reuse the selected path for injection. Health failures only
-            // remove companion-backed tools; the base Agent session continues.
-            let companion_supported = agent_supports_iyw_claw_mcp(agent_type);
-            let host_bridge_available = delegation_injection
-                .as_ref()
-                .is_some_and(|injection| injection.tokens.listener_ready());
-            let companion_health = if companion_supported && host_bridge_available {
-                crate::acp::companion_health::locate_healthy_companion().await
+            // Codex needs its dynamic companion before process spawn so its
+            // process-local CODEX_CONFIG can carry the 660 s tool deadline.
+            // Other agents preserve the existing post-Initialize preparation.
+            let companion_launch = if let Some(prepared) = prepared_companion {
+                prepared
             } else {
-                crate::user_memory::CompanionHealthSnapshot::default()
+                prepare_companion_launch(
+                    delegation_injection.as_ref(),
+                    &conn_id,
+                    &cwd,
+                    agent_type,
+                    &state,
+                )
+                .await
             };
-            let memory_access = {
-                let session = state.read().await;
-                let mut projected = session.user_memory_context.clone();
-                projected.finalize_runtime(crate::user_memory::UserMemoryRuntimeEnvironment {
-                    companion_health: companion_health.clone(),
-                    host_bridge_available,
-                });
-                MemoryLaunchAccess {
-                    confirmed_append: projected.capabilities.confirmed_append.available,
-                    candidate_proposal: projected.capabilities.candidate_proposal.available,
-                    turn_tracker: session.memory_turn_tracker.clone(),
+            let companion_health = companion_launch.health;
+            let delegate_injection = companion_launch.companion.map(|prepared| {
+                if agent_type != AgentType::Codex {
+                    mcp_servers.push(McpServer::Stdio(prepared.server));
                 }
-            };
-            let delegate_injection = if companion_supported
-                && companion_health.status
-                    == crate::user_memory::CompanionHealthStatus::Ready
-            {
-                if let Some(inj) = delegation_injection.as_ref() {
-                    inject_iyw_claw_mcp(
-                        &mut mcp_servers,
-                        inj,
-                        &conn_id,
-                        &cwd,
-                        agent_type,
-                        memory_access,
-                        &companion_health,
-                    )
-                    .await
-                } else {
-                    None
-                }
-            } else {
-                if companion_supported && host_bridge_available {
-                    tracing::warn!(
-                        "[ACP] iyw-claw-mcp unavailable for {conn_id}: {:?}",
-                        companion_health.reason
-                    );
-                }
-                None
-            };
+                prepared.injection
+            });
             if let Some(ref injected) = delegate_injection {
                 let mut s = state.write().await;
                 s.delegation_token = Some(injected.token.clone());
