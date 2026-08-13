@@ -1,5 +1,6 @@
 use crate::app_error::AppCommandError;
 
+use super::candidate_references;
 use super::candidate_store;
 use super::helpers::conflict;
 use super::{
@@ -56,7 +57,7 @@ impl UserMemoryService {
                 "Only terminal memory candidates can be deleted",
             ));
         }
-        ensure_not_referenced(&state, &request.candidate_id)?;
+        normalize_references_before_delete(&mut state, index)?;
         state.candidates.remove(index);
         candidate_store::write_state(root, &state)?;
         Ok(UserMemoryCandidateDeleteResult {
@@ -78,33 +79,41 @@ impl UserMemoryService {
                 ))
             }
             UserMemoryCandidateResolution::Reject => {
-                ensure_not_referenced(state, &state.candidates[index].id)?;
+                let candidate_id = state.candidates[index].id.clone();
+                let affected = candidate_references::reject_references(state, &candidate_id);
                 state.candidates[index].mark_terminal(UserMemoryCandidateStatus::Rejected);
+                log_reference_normalization(&candidate_id, "rejected", affected);
                 Ok(())
             }
             UserMemoryCandidateResolution::SupersedeByCandidate { candidate_id } => {
-                ensure_not_referenced(state, &state.candidates[index].id)?;
                 validate_candidate_target(state, index, &candidate_id)?;
+                let source_id = state.candidates[index].id.clone();
+                let affected =
+                    candidate_references::redirect_references(state, &source_id, &candidate_id);
                 state.candidates[index].mark_terminal(UserMemoryCandidateStatus::Superseded);
                 state.candidates[index].superseded_by_candidate_id = Some(candidate_id);
+                log_reference_normalization(&source_id, "candidate", affected);
                 Ok(())
             }
             UserMemoryCandidateResolution::SupersedeByMemoryEntry { entry_id } => {
-                ensure_not_referenced(state, &state.candidates[index].id)?;
-                validate_memory_entry_id(&entry_id)?;
-                let marker = format!("<!-- {entry_id} -->");
-                if !self
-                    .read_document(UserMemoryDocumentId::Memory)?
-                    .contains(&marker)
-                {
-                    return Err(AppCommandError::not_found(
-                        "Superseding memory entry was not found",
-                    ));
-                }
-                state.candidates[index].mark_terminal(UserMemoryCandidateStatus::Superseded);
-                state.candidates[index].superseded_by_memory_entry_id = Some(entry_id);
-                Ok(())
+                self.ensure_memory_entry_exists(&entry_id)?;
+                supersede_by_memory_entry(state, index, entry_id)
             }
+        }
+    }
+
+    fn ensure_memory_entry_exists(&self, entry_id: &str) -> Result<(), AppCommandError> {
+        validate_memory_entry_id(entry_id)?;
+        let marker = format!("<!-- {entry_id} -->");
+        if self
+            .read_document(UserMemoryDocumentId::Memory)?
+            .contains(&marker)
+        {
+            Ok(())
+        } else {
+            Err(AppCommandError::not_found(
+                "Superseding memory entry was not found",
+            ))
         }
     }
 }
@@ -160,19 +169,62 @@ fn validate_memory_entry_id(entry_id: &str) -> Result<(), AppCommandError> {
     }
 }
 
-fn ensure_not_referenced(
-    state: &UserMemoryLearningState,
-    candidate_id: &str,
+fn supersede_by_memory_entry(
+    state: &mut UserMemoryLearningState,
+    index: usize,
+    entry_id: String,
 ) -> Result<(), AppCommandError> {
-    if state
-        .candidates
-        .iter()
-        .any(|candidate| candidate.superseded_by_candidate_id.as_deref() == Some(candidate_id))
-    {
-        Err(AppCommandError::invalid_input(
-            "Referenced memory candidates cannot become obsolete",
-        ))
-    } else {
-        Ok(())
+    let candidate_id = state.candidates[index].id.clone();
+    let affected =
+        candidate_references::supersede_references_by_memory_entry(state, &candidate_id, &entry_id);
+    state.candidates[index].mark_terminal(UserMemoryCandidateStatus::Superseded);
+    state.candidates[index].superseded_by_memory_entry_id = Some(entry_id);
+    log_reference_normalization(&candidate_id, "memory_entry", affected);
+    Ok(())
+}
+
+fn normalize_references_before_delete(
+    state: &mut UserMemoryLearningState,
+    index: usize,
+) -> Result<(), AppCommandError> {
+    let candidate = state.candidates[index].clone();
+    let affected = match candidate.status {
+        UserMemoryCandidateStatus::Confirmed => {
+            let content = candidate.resolved_content.as_deref().ok_or_else(|| {
+                AppCommandError::configuration_invalid("Confirmed candidate content is missing")
+            })?;
+            let entry_id = candidate
+                .confirmed_memory_entry_id
+                .as_deref()
+                .ok_or_else(|| {
+                    AppCommandError::configuration_invalid("Confirmed memory entry is missing")
+                })?;
+            let propagated_at = chrono::Utc::now().to_rfc3339();
+            let confirmed = candidate_references::ConfirmedMemory {
+                content,
+                entry_id,
+                resolved_at: &propagated_at,
+            };
+            candidate_references::confirm_references(state, &candidate.id, &confirmed)
+        }
+        _ if candidate_references::references_candidate(state, &candidate.id) => {
+            return Err(AppCommandError::configuration_invalid(
+                "Terminal candidate has unresolved references",
+            ));
+        }
+        _ => 0,
+    };
+    log_reference_normalization(&candidate.id, "deleted", affected);
+    Ok(())
+}
+
+fn log_reference_normalization(candidate_id: &str, outcome: &str, affected: usize) {
+    if affected > 0 {
+        tracing::info!(
+            candidate_id,
+            outcome,
+            affected,
+            "[user-memory] normalized candidate references"
+        );
     }
 }

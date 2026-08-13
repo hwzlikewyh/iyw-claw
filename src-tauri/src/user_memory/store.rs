@@ -10,7 +10,7 @@ use super::helpers::{
 };
 use super::service::POLICY_KEY;
 use super::settings_projection::{readable_document_snapshot, unreadable_document_snapshot};
-use super::{candidate_store, fs};
+use super::{candidate_references, candidate_store, fs};
 use super::{
     UserMemoryAvailabilityDiagnostic, UserMemoryAvailabilityReason, UserMemoryCandidateDiagnostic,
     UserMemoryCandidateDiagnosticReason, UserMemoryCandidateStatus, UserMemoryDocumentId,
@@ -189,9 +189,35 @@ impl UserMemoryService {
                         "User memory document changed; reload before saving",
                     ));
                 }
+                if *id == UserMemoryDocumentId::Memory {
+                    self.validate_memory_document_references(
+                        &current.documents[id].content,
+                        content,
+                    )?;
+                }
             }
         }
         Ok(())
+    }
+
+    fn validate_memory_document_references(
+        &self,
+        current: &str,
+        next: &str,
+    ) -> Result<(), AppCommandError> {
+        if current == next {
+            return Ok(());
+        }
+        let Some(state) = candidate_store::read_optional(self.resolved_root()?)? else {
+            return Ok(());
+        };
+        if candidate_references::preserves_referenced_memory_entries(&state, current, next) {
+            Ok(())
+        } else {
+            Err(AppCommandError::invalid_input(
+                "Candidate-backed memory entries must be corrected through the dedicated API",
+            ))
+        }
     }
 }
 

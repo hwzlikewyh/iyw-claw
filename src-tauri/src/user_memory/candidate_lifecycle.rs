@@ -1,5 +1,6 @@
 use crate::app_error::AppCommandError;
 
+use super::candidate_references;
 use super::candidate_store;
 use super::helpers::normalize_candidate;
 use super::{
@@ -189,18 +190,23 @@ fn observe_existing(
 }
 
 /// Reclaim the oldest resolved (terminal) candidates so learning never stops
-/// permanently at the cap. Only candidates with a `resolved_at` timestamp are
-/// eligible; active candidates are never touched by this path.
+/// permanently at the cap. Referenced targets remain until their references
+/// are normalized; active candidates are never touched by this path.
 fn prune_terminal_oldest(state: &mut UserMemoryLearningState) {
     let mut terminal = state
         .candidates
         .iter()
         .enumerate()
         .filter_map(|(index, candidate)| {
-            candidate
-                .resolved_at
-                .as_deref()
-                .map(|resolved_at| (index, resolved_at.to_string()))
+            if candidate_references::references_candidate(state, &candidate.id) {
+                None
+            } else {
+                candidate.resolved_at.as_deref().and_then(|resolved_at| {
+                    chrono::DateTime::parse_from_rfc3339(resolved_at)
+                        .ok()
+                        .map(|resolved_at| (index, resolved_at))
+                })
+            }
         })
         .collect::<Vec<_>>();
     terminal.sort_by_key(|(_, resolved_at)| resolved_at.clone());
@@ -208,8 +214,13 @@ fn prune_terminal_oldest(state: &mut UserMemoryLearningState) {
         .candidates
         .len()
         .saturating_sub(USER_MEMORY_MAX_CANDIDATES - 1);
-    // Remove highest indexes first so earlier indexes stay valid.
-    for (index, _) in terminal.into_iter().take(reclaim).rev() {
+    let mut reclaim_indexes = terminal
+        .into_iter()
+        .take(reclaim)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    reclaim_indexes.sort_unstable_by(|left, right| right.cmp(left));
+    for index in reclaim_indexes {
         state.candidates.remove(index);
     }
 }

@@ -1,6 +1,7 @@
 mod append;
 mod candidate_api_types;
 mod candidate_lifecycle;
+mod candidate_references;
 mod candidate_resolution;
 mod candidate_store;
 mod candidate_types;

@@ -8,11 +8,11 @@ use super::helpers::{
     normalize_candidate, validate_document_content,
 };
 use super::transaction::{candidate_resource, document_resource};
-use super::{candidate_store, structured_file};
+use super::{candidate_references, candidate_store, structured_file};
 use super::{
     AgentMemoryAppend, ResourceGeneration, UserMemoryAppendResult,
-    UserMemoryCandidateResolutionResult, UserMemoryCandidateStatus, UserMemoryDocumentId,
-    UserMemoryGeneration, UserMemoryLearningState, UserMemoryService, USER_MEMORY_CANDIDATE_FILE,
+    UserMemoryCandidateResolutionResult, UserMemoryDocumentId, UserMemoryGeneration,
+    UserMemoryLearningState, UserMemoryService, USER_MEMORY_CANDIDATE_FILE,
 };
 
 struct PreparedMemoryAppend {
@@ -135,15 +135,22 @@ impl UserMemoryService {
             }
         };
         let mut next = previous.clone();
-        let mut changed = false;
-        for candidate in &mut next.candidates {
-            if candidate_matches_entry(candidate, &prepared.entry_id) {
-                mark_confirmed(candidate, content, &prepared.entry_id, &prepared.created_at);
-                changed = true;
-            }
-        }
-        if !changed {
+        let matched_ids = next
+            .candidates
+            .iter()
+            .filter(|candidate| candidate_matches_entry(candidate, &prepared.entry_id))
+            .map(|candidate| candidate.id.clone())
+            .collect::<Vec<_>>();
+        if matched_ids.is_empty() {
             return Ok(None);
+        }
+        for candidate_id in &matched_ids {
+            let confirmed = candidate_references::ConfirmedMemory {
+                content,
+                entry_id: &prepared.entry_id,
+                resolved_at: &prepared.created_at,
+            };
+            confirm_candidate_and_references(&mut next, candidate_id, &confirmed);
         }
         if let Err(error) =
             structured_file::ensure_writable_optional(root, USER_MEMORY_CANDIDATE_FILE)
@@ -176,15 +183,22 @@ impl UserMemoryService {
             .agent_type;
         let prepared = self.prepare_memory_append(&content, agent_type)?;
         let previous = state.clone();
-        for (candidate_index, candidate) in state.candidates.iter_mut().enumerate() {
-            if candidate_index == index || candidate_matches_entry(candidate, &prepared.entry_id) {
-                mark_confirmed(
-                    candidate,
-                    &content,
-                    &prepared.entry_id,
-                    &prepared.created_at,
-                );
-            }
+        let matched_ids = state
+            .candidates
+            .iter()
+            .enumerate()
+            .filter(|(candidate_index, candidate)| {
+                *candidate_index == index || candidate_matches_entry(candidate, &prepared.entry_id)
+            })
+            .map(|(_, candidate)| candidate.id.clone())
+            .collect::<Vec<_>>();
+        for candidate_id in matched_ids {
+            let confirmed = candidate_references::ConfirmedMemory {
+                content: &content,
+                entry_id: &prepared.entry_id,
+                resolved_at: &prepared.created_at,
+            };
+            confirm_candidate_and_references(&mut state, &candidate_id, &confirmed);
         }
         self.commit_prepared_append(&prepared, Some(&(previous, state.clone())))
             .await?;
@@ -231,16 +245,18 @@ fn candidate_matches_entry(candidate: &super::UserMemoryCandidate, entry_id: &st
     !candidate.status.is_terminal() && memory_entry_id(&candidate.content) == entry_id
 }
 
-fn mark_confirmed(
-    candidate: &mut super::UserMemoryCandidate,
-    content: &str,
-    entry_id: &str,
-    resolved_at: &str,
+fn confirm_candidate_and_references(
+    state: &mut UserMemoryLearningState,
+    candidate_id: &str,
+    confirmed: &candidate_references::ConfirmedMemory<'_>,
 ) {
-    candidate.status = UserMemoryCandidateStatus::Confirmed;
-    candidate.resolved_at = Some(resolved_at.to_string());
-    candidate.resolved_content = Some(content.to_string());
-    candidate.confirmed_memory_entry_id = Some(entry_id.to_string());
-    candidate.superseded_by_candidate_id = None;
-    candidate.superseded_by_memory_entry_id = None;
+    let affected =
+        candidate_references::confirm_candidate_and_references(state, candidate_id, confirmed);
+    if affected > 0 {
+        tracing::info!(
+            candidate_id,
+            affected,
+            "[user-memory] confirmed referenced candidates"
+        );
+    }
 }
