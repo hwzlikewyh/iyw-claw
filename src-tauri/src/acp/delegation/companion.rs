@@ -1465,30 +1465,32 @@ fn parse_artifact_files(arguments: &Value) -> Result<Vec<String>, String> {
     let files = arguments
         .get("files")
         .and_then(Value::as_array)
-        .ok_or("present_task_files requires a non-empty files array")?;
+        .ok_or("present_task_files requires a non-empty files array of artifact references")?;
     if files.is_empty() {
-        return Err("present_task_files requires a non-empty files array".into());
+        return Err(
+            "present_task_files requires a non-empty files array of artifact references".into(),
+        );
     }
     if files.len() > MAX_FILES {
         return Err(format!(
-            "present_task_files accepts at most {MAX_FILES} files"
+            "present_task_files accepts at most {MAX_FILES} artifacts"
         ));
     }
     let mut normalized = Vec::with_capacity(files.len());
     for value in files {
-        let path = value
+        let reference = value
             .as_str()
-            .ok_or("present_task_files files must be strings")?
+            .ok_or("present_task_files artifact references must be strings")?
             .trim();
-        if path.is_empty() {
-            return Err("present_task_files file paths must not be empty".into());
+        if reference.is_empty() {
+            return Err("present_task_files artifact references must not be empty".into());
         }
-        if path.chars().count() > MAX_PATH_CHARS {
+        if reference.chars().count() > MAX_PATH_CHARS {
             return Err(format!(
-                "present_task_files file paths must be at most {MAX_PATH_CHARS} characters"
+                "present_task_files artifact references must be at most {MAX_PATH_CHARS} characters"
             ));
         }
-        normalized.push(path.to_string());
+        normalized.push(reference.to_string());
     }
     Ok(normalized)
 }
@@ -1504,7 +1506,7 @@ pub fn render_artifacts_result(outcome: &Value) -> Value {
         .and_then(Value::as_array)
         .map_or(0, Vec::len);
     let text = error.map_or_else(
-        || format!("Registered {accepted} task artifact(s); rejected {rejected}."),
+        || format!("Presented {accepted} task artifact(s); rejected {rejected}."),
         |code| format!("Task artifact registration failed: {code}."),
     );
     json!({

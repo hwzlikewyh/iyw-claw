@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   FileText,
   Folder,
+  Link,
   MoreHorizontal,
 } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
@@ -82,6 +83,7 @@ export function TaskArtifactFileRow({
     () =>
       artifactMetadata({
         path: item.path,
+        kind: item.kind,
         createdAt: item.createdAt,
         folderPath: activeFolder?.path,
         locale,
@@ -205,6 +207,7 @@ function ArtifactMoreMenu({ actions }: { actions: TaskArtifactActions }) {
 }
 
 function openArtifact(actions: TaskArtifactActions) {
+  if (actions.canOpenExternal) return actions.openDefault()
   if (actions.canUseSystem) return actions.openDefault()
   if (actions.canOpenWorkspace) return actions.openWorkspace()
   return Promise.resolve()
@@ -212,6 +215,7 @@ function openArtifact(actions: TaskArtifactActions) {
 
 function artifactMetadata({
   path,
+  kind,
   createdAt,
   folderPath,
   locale,
@@ -219,12 +223,22 @@ function artifactMetadata({
   externalLocation,
 }: {
   path: string
+  kind: TaskArtifactInfo["kind"]
   createdAt: string
   folderPath?: string
   locale: string
   workspaceRoot: string
   externalLocation: string
 }): string {
+  if (kind === "url") {
+    const time = formatArtifactTime(locale, createdAt)
+    try {
+      const host = new URL(path).host
+      return time ? `${host} · ${time}` : host
+    } catch {
+      return time ? `${path} · ${time}` : path
+    }
+  }
   const relative = toFolderRelativePath(path, folderPath)
   const directory = artifactDirectoryLabel(
     relative,
@@ -259,6 +273,7 @@ function formatArtifactTime(locale: string, createdAt: string): string {
 function ArtifactTypeIcon({ item }: { item: TaskArtifactInfo }) {
   const className = "size-4 shrink-0 text-muted-foreground"
   if (item.kind === "directory") return <Folder className={className} />
+  if (item.kind === "url") return <Link className={className} />
   const { path } = item
   if (isImageFile(path)) return <FileImage className={className} />
   const extension = path.split(".").pop()?.toLowerCase() ?? ""

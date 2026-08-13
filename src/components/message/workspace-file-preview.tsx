@@ -2,7 +2,9 @@
 
 import { AlertCircle, FileCode2, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { Streamdown } from "streamdown"
 
+import { useStreamdownPlugins } from "@/components/ai-elements/streamdown-plugins"
 import { OfficePreview } from "@/components/files/office-preview"
 import { EditableImagePreview } from "@/components/ui/editable-image-preview"
 
@@ -12,6 +14,9 @@ export type PreviewState =
   | { status: "text"; path: string; content: string; truncated: boolean }
   | { status: "image"; path: string; content: string }
   | { status: "office"; path: string }
+  | { status: "markdown"; path: string; content: string; truncated: boolean }
+  | { status: "pdf"; path: string; src: string }
+  | { status: "url"; path: string; src: string }
   | { status: "error"; path: string; message: string }
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
@@ -97,7 +102,53 @@ export function WorkspaceFilePreview({
   if (state.status === "office") {
     return <OfficePreview rootPath={rootPath} relPath={state.path} />
   }
+  if (state.status === "pdf") {
+    const remotePdf = !state.src.startsWith("blob:")
+    return (
+      <iframe
+        title={fileName(state.path)}
+        src={state.src}
+        sandbox={
+          remotePdf ? "allow-scripts allow-forms allow-popups" : undefined
+        }
+        referrerPolicy="no-referrer"
+        className="h-full w-full border-0 bg-white"
+      />
+    )
+  }
+  if (state.status === "url") {
+    const officeOnline = state.src.startsWith(
+      "https://view.officeapps.live.com/"
+    )
+    return (
+      <iframe
+        title={fileName(state.path)}
+        src={state.src}
+        sandbox={
+          officeOnline
+            ? "allow-scripts allow-same-origin allow-forms allow-popups"
+            : "allow-scripts allow-forms allow-popups"
+        }
+        referrerPolicy="no-referrer"
+        className="h-full w-full border-0 bg-white"
+      />
+    )
+  }
+  if (state.status === "markdown") return <MarkdownPreview state={state} />
   return <TextPreview state={state} />
+}
+
+function MarkdownPreview({
+  state,
+}: {
+  state: Extract<PreviewState, { status: "markdown" }>
+}) {
+  const plugins = useStreamdownPlugins(state.content)
+  return (
+    <div className="h-full overflow-auto p-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6">
+      <Streamdown plugins={plugins}>{state.content}</Streamdown>
+    </div>
+  )
 }
 
 function TextPreview({

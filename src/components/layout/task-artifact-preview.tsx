@@ -11,18 +11,17 @@ import { TaskArtifactDirectoryPreview } from "@/components/layout/task-artifact-
 import { EmptyTaskArtifactPreview } from "@/components/layout/task-artifact-preview-empty"
 import { TaskArtifactPreviewHeader } from "@/components/layout/task-artifact-preview-header"
 import {
+  resolveArtifactPreview,
+  startArtifactPreviewLoad,
+  type ArtifactPreviewSource,
+  type LoadedArtifactPreview,
+} from "@/components/layout/task-artifact-preview-loader"
+import {
   WorkspaceFilePreview,
   type PreviewState,
 } from "@/components/message/workspace-file-preview"
-import { loadWorkspacePreview } from "@/components/message/workspace-file-preview-loader"
 import type { TaskArtifactInfo } from "@/lib/api"
-import { isOfficePreviewable } from "@/lib/language-detect"
 import { cn } from "@/lib/utils"
-
-interface LoadedPreview {
-  key: string
-  state: PreviewState
-}
 
 interface TaskArtifactPreviewProps {
   artifact: TaskArtifactInfo | null
@@ -118,87 +117,24 @@ function useArtifactPreviewState(
   target: TaskArtifactTarget | null
 ): PreviewState {
   const t = useTranslations("Folder.taskArtifacts")
-  const previewKey =
-    artifact.status === "available" && target
-      ? `${artifact.id}:${artifact.lastCheckedAt}`
-      : null
-  const loaded = useLoadedArtifactPreview(
-    previewKey,
-    target,
-    t("previewFailed")
-  )
-  return resolveArtifactPreview({
-    artifact,
-    target,
-    previewKey,
-    loaded,
+  const loaded = useLoadedArtifactPreview(artifact, target, t("previewFailed"))
+  return resolveArtifactPreview(artifact, target, loaded, {
     unavailable: t("artifactUnavailable"),
-    previewFailed: t("previewFailed"),
+    failed: t("previewFailed"),
   })
 }
 
 function useLoadedArtifactPreview(
-  previewKey: string | null,
+  artifact: TaskArtifactInfo,
   target: TaskArtifactTarget | null,
   failureMessage: string
-): LoadedPreview | null {
-  const [loaded, setLoaded] = useState<LoadedPreview | null>(null)
+): LoadedArtifactPreview | null {
+  const [loaded, setLoaded] = useState<LoadedArtifactPreview | null>(null)
+  const key = `${artifact.id}:${artifact.lastCheckedAt}`
+  const { kind, path, status } = artifact
   useEffect(() => {
-    if (!previewKey || !target || isOfficePreviewable(target.ioPath)) return
-    let active = true
-    void loadWorkspacePreview(target.rootPath, target.ioPath)
-      .then((next) => active && setLoaded({ key: previewKey, state: next }))
-      .catch(
-        () =>
-          active &&
-          setLoaded({
-            key: previewKey,
-            state: {
-              status: "error",
-              path: target.ioPath,
-              message: failureMessage,
-            },
-          })
-      )
-    return () => {
-      active = false
-    }
-  }, [failureMessage, previewKey, target])
+    const source: ArtifactPreviewSource = { key, kind, path, status }
+    return startArtifactPreviewLoad(source, target, failureMessage, setLoaded)
+  }, [failureMessage, key, kind, path, status, target])
   return loaded
-}
-
-function resolveArtifactPreview({
-  artifact,
-  target,
-  previewKey,
-  loaded,
-  unavailable,
-  previewFailed,
-}: {
-  artifact: TaskArtifactInfo
-  target: TaskArtifactTarget | null
-  previewKey: string | null
-  loaded: LoadedPreview | null
-  unavailable: string
-  previewFailed: string
-}): PreviewState {
-  if (artifact.status !== "available") {
-    return {
-      status: "error",
-      path: artifact.path,
-      message: unavailable,
-    }
-  }
-  if (!target) {
-    return {
-      status: "error",
-      path: artifact.path,
-      message: previewFailed,
-    }
-  }
-  if (isOfficePreviewable(target.ioPath)) {
-    return { status: "office", path: target.ioPath }
-  }
-  if (previewKey && loaded?.key === previewKey) return loaded.state
-  return { status: "loading", path: target.ioPath }
 }

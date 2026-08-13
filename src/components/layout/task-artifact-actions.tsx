@@ -11,6 +11,7 @@ import { splitAbsPath } from "@/lib/file-open-target"
 import {
   copyArtifactToClipboard,
   isLocalDesktop,
+  openUrl,
   openPath,
   openPathWithPicker,
   revealItemInDir,
@@ -33,6 +34,7 @@ export interface TaskArtifactActions {
   target: TaskArtifactTarget | null
   canOpenWorkspace: boolean
   canUseSystem: boolean
+  canOpenExternal: boolean
   canChooseApplication: boolean
   canCopyItem: boolean
   preview: () => void
@@ -67,7 +69,7 @@ function useArtifactTarget(
   artifact: TaskArtifactInfo
 ): TaskArtifactTarget | null {
   return useMemo(() => {
-    if (artifact.kind === "directory") return null
+    if (artifact.kind === "directory" || artifact.kind === "url") return null
     return splitAbsPath(artifact.path)
   }, [artifact.kind, artifact.path])
 }
@@ -123,7 +125,8 @@ export function useTaskArtifactActions({
   const run = useArtifactActionRunner(artifact)
   const available = artifact.status === "available"
   const directory = artifact.kind === "directory"
-  const canUseSystem = isLocalDesktop() && available
+  const canUseSystem = artifact.kind !== "url" && isLocalDesktop() && available
+  const canOpenExternal = artifact.kind === "url" && available
   const canOpenWorkspace = !directory && target !== null && available
   const canCopyItem = canUseSystem && isWindows
   return createTaskArtifactActions({
@@ -131,16 +134,17 @@ export function useTaskArtifactActions({
     target,
     run,
     canUseSystem,
+    canOpenExternal,
     canOpenWorkspace,
     canCopyItem,
     isWindows,
     onPreview,
     onOpenWorkspace,
     openFilePreview,
-    copyFailed: t("copyFailed"),
+    copyFailed: artifact.kind === "url" ? t("copyLinkFailed") : t("copyFailed"),
     copyItemFailed: directory ? t("copyFolderFailed") : t("copyFileFailed"),
     itemCopied: directory ? t("folderCopied") : t("fileCopied"),
-    pathCopied: t("pathCopied"),
+    pathCopied: artifact.kind === "url" ? t("linkCopied") : t("pathCopied"),
     openFailed: t("openFailed"),
     openWithFailed: t("openWithFailed"),
     revealFailed: t("revealFailed"),
@@ -152,6 +156,7 @@ interface ArtifactActionFactoryOptions extends UseTaskArtifactActionsOptions {
   target: TaskArtifactTarget | null
   run: ArtifactActionRunner
   canUseSystem: boolean
+  canOpenExternal: boolean
   canOpenWorkspace: boolean
   canCopyItem: boolean
   isWindows: boolean
@@ -174,6 +179,7 @@ function createTaskArtifactActions(
     kind: artifact.kind,
     target,
     canUseSystem: options.canUseSystem,
+    canOpenExternal: options.canOpenExternal,
     canOpenWorkspace: options.canOpenWorkspace,
     canChooseApplication:
       options.canUseSystem && options.isWindows && artifact.kind === "file",
@@ -214,7 +220,10 @@ function createArtifactSystemActions(
     openDefault: () =>
       run({
         action: "open",
-        task: () => openPath(artifact.path),
+        task: () =>
+          artifact.kind === "url"
+            ? openUrl(artifact.path)
+            : openPath(artifact.path),
         failure: options.openFailed,
       }),
     openWith: () =>

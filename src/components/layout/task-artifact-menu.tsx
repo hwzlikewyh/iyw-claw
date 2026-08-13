@@ -36,6 +36,7 @@ interface ArtifactMenuLabels {
   openWorkspace: string
   copyItem: string
   openDefault: string
+  openExternal: string
   openWith: string
   reveal: string
   copyPath: string
@@ -70,6 +71,17 @@ function systemMenuEntries(
   actions: TaskArtifactActions,
   labels: ArtifactMenuLabels
 ): ArtifactMenuEntry[] {
+  if (actions.canOpenExternal) {
+    return [
+      {
+        id: "open",
+        section: "system",
+        label: labels.openExternal,
+        icon: ExternalLink,
+        onSelect: () => void actions.openDefault(),
+      },
+    ]
+  }
   if (!actions.canUseSystem) return []
   const entries: ArtifactMenuEntry[] = [
     {
@@ -133,9 +145,10 @@ function useArtifactMenuEntries(
       openWorkspace: t("openWorkspace"),
       copyItem: actions.kind === "directory" ? t("copyFolder") : t("copyFile"),
       openDefault: t("openDefault"),
+      openExternal: t("openExternal"),
       openWith: t("openWith"),
       reveal: t("reveal"),
-      copyPath: t("copyPath"),
+      copyPath: actions.kind === "url" ? t("copyLink") : t("copyPath"),
     }
     return [
       ...previewMenuEntries(actions, labels),

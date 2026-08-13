@@ -3928,7 +3928,7 @@ export async function setSessionInfoSettings(
 }
 
 export type TaskArtifactStatus = "available" | "missing" | "inaccessible"
-export type TaskArtifactKind = "file" | "directory"
+export type TaskArtifactKind = "file" | "directory" | "url"
 
 export interface TaskArtifactInfo {
   id: number

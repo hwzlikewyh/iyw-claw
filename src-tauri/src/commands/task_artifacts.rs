@@ -1,5 +1,6 @@
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
@@ -93,14 +94,39 @@ pub async fn list_task_artifacts_core(
     conversation_id: Option<i32>,
     folder_id: Option<i32>,
 ) -> Result<Vec<TaskArtifactInfo>, AppCommandError> {
+    let started = Instant::now();
     if conversation_id.is_some_and(|id| id <= 0) || folder_id.is_some_and(|id| id <= 0) {
+        tracing::warn!(
+            conversation_id,
+            folder_id,
+            "[task-artifacts] invalid list filters"
+        );
         return Err(AppCommandError::invalid_input(
             "Artifact filter IDs must be positive",
         ));
     }
-    task_artifact_service::list_artifacts(conn, conversation_id, folder_id)
-        .await
-        .map_err(AppCommandError::from)
+    match task_artifact_service::list_artifacts(conn, conversation_id, folder_id).await {
+        Ok(items) => {
+            tracing::info!(
+                conversation_id,
+                folder_id,
+                count = items.len(),
+                elapsed_ms = started.elapsed().as_millis(),
+                "[task-artifacts] list completed"
+            );
+            Ok(items)
+        }
+        Err(error) => {
+            tracing::error!(
+                conversation_id,
+                folder_id,
+                elapsed_ms = started.elapsed().as_millis(),
+                error = %error,
+                "[task-artifacts] list failed"
+            );
+            Err(AppCommandError::from(error))
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

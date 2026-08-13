@@ -6,6 +6,7 @@ import {
   ExternalLink,
   Folder,
   FolderSearch,
+  Link,
   MoreHorizontal,
   PanelsTopLeft,
   Waypoints,
@@ -38,8 +39,15 @@ export function TaskArtifactPreviewHeader({
   const subtitle =
     artifact.kind === "directory"
       ? t("folderArtifact")
-      : (actions.target?.ioPath ?? artifact.displayName)
-  const TypeIcon = artifact.kind === "directory" ? Folder : PanelsTopLeft
+      : artifact.kind === "url"
+        ? artifact.path
+        : (actions.target?.ioPath ?? artifact.displayName)
+  const TypeIcon =
+    artifact.kind === "directory"
+      ? Folder
+      : artifact.kind === "url"
+        ? Link
+        : PanelsTopLeft
   return (
     <header className="flex h-12 min-w-0 items-center gap-1 border-b px-3 pr-12">
       {onBack && (
@@ -68,9 +76,9 @@ function ArtifactHeaderActions({ actions }: { actions: TaskArtifactActions }) {
   const t = useTranslations("Folder.taskArtifacts")
   return (
     <>
-      {actions.canUseSystem && (
+      {(actions.canUseSystem || actions.canOpenExternal) && (
         <ArtifactActionButton
-          label={t("openDefault")}
+          label={actions.canOpenExternal ? t("openExternal") : t("openDefault")}
           icon={<ExternalLink className="size-4" />}
           onClick={actions.openDefault}
         />

@@ -141,10 +141,10 @@ async function performTaskArtifactLoad({
     trackerRef.current.snapshotKey = filterKey
     trackerRef.current.foregroundKey = null
     setState({ items, loading: false, refreshing: false, error: false })
-  } catch {
+  } catch (error) {
     if (requestId !== requestIdRef.current) return
     if (!background) trackerRef.current.foregroundKey = null
-    console.error("[task-artifacts] list failed", filters)
+    console.error("[task-artifacts] list failed", { filters, error })
     if (background) toast.error(loadFailed)
     setState((current) => ({
       ...current,

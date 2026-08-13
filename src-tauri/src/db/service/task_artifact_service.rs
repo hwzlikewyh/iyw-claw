@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+mod source;
+
+use std::path::Path;
 
 use chrono::Utc;
 use sea_orm::sea_query::OnConflict;
@@ -11,11 +13,8 @@ use serde_json::Value;
 
 use crate::db::entities::{conversation, task_artifact};
 use crate::db::error::DbError;
+use source::{current_artifact_state, resolve_sources, ResolvedArtifact};
 
-const MAX_FILES: usize = 100;
-const MAX_PATH_CHARS: usize = 4096;
-const ARTIFACT_KIND_FILE: &str = "file";
-const ARTIFACT_KIND_DIRECTORY: &str = "directory";
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskArtifactInfo {
@@ -43,145 +42,12 @@ pub struct ArtifactItemResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
-struct ResolvedArtifact {
-    source: String,
-    path: PathBuf,
-    display_name: String,
-    kind: String,
-}
-struct CurrentArtifactState {
-    status: String,
-    kind: String,
-}
-fn artifact_kind(metadata: &std::fs::Metadata) -> Result<&'static str, String> {
-    match (metadata.is_file(), metadata.is_dir()) {
-        (true, _) => Ok(ARTIFACT_KIND_FILE),
-        (_, true) => Ok(ARTIFACT_KIND_DIRECTORY),
-        _ => Err("unsupported_type".into()),
-    }
-}
-fn validate_source_path(source: &str) -> Result<(), String> {
-    if source.is_empty() {
-        return Err("empty_path".into());
-    }
-    if source.chars().count() > MAX_PATH_CHARS
-        || source.contains('\0')
-        || is_windows_device_path(source)
-    {
-        return Err("invalid_path".into());
-    }
-    Ok(())
-}
-fn map_metadata_error(error: std::io::Error) -> String {
-    match error.kind() {
-        std::io::ErrorKind::NotFound => "missing".into(),
-        _ => "inaccessible".into(),
-    }
-}
-fn ensure_relative_path_stays_in_root(
-    working_dir: &Path,
-    canonical: &Path,
-    is_relative: bool,
-) -> Result<(), String> {
-    if !is_relative {
-        return Ok(());
-    }
-    let root = std::fs::canonicalize(working_dir).map_err(|_| "inaccessible".to_string())?;
-    if canonical.starts_with(root) {
-        return Ok(());
-    }
-    Err("path_escape".into())
-}
-fn artifact_display_name(path: &Path, fallback: &str) -> String {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(fallback)
-        .to_string()
-}
-fn resolve_path(working_dir: &Path, source: &str) -> Result<(PathBuf, String, String), String> {
-    let trimmed = source.trim();
-    validate_source_path(trimmed)?;
-    let candidate = PathBuf::from(trimmed);
-    let is_relative = !candidate.is_absolute();
-    let joined = if is_relative {
-        working_dir.join(candidate)
-    } else {
-        candidate
-    };
-    let metadata = std::fs::metadata(&joined).map_err(map_metadata_error)?;
-    let kind = artifact_kind(&metadata)?.to_string();
-    let canonical = std::fs::canonicalize(&joined).map_err(|_| "inaccessible".to_string())?;
-    ensure_relative_path_stays_in_root(working_dir, &canonical, is_relative)?;
-    let path = normalize_canonical_path(canonical);
-    let display_name = artifact_display_name(&path, trimmed);
-    Ok((path, display_name, kind))
-}
-#[cfg(windows)]
-fn is_windows_device_path(path: &str) -> bool {
-    let normalized = path.replace('/', "\\").to_ascii_lowercase();
-    normalized.starts_with(r"\\.\") || normalized.starts_with(r"\\?\globalroot\")
-}
-
-#[cfg(not(windows))]
-fn is_windows_device_path(_path: &str) -> bool {
-    false
-}
-
-#[cfg(windows)]
-fn normalize_canonical_path(path: PathBuf) -> PathBuf {
-    let value = path.to_string_lossy();
-    if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
-        return PathBuf::from(format!(r"\\{rest}"));
-    }
-    if let Some(rest) = value.strip_prefix(r"\\?\") {
-        return PathBuf::from(rest);
-    }
-    drop(value);
-    path
-}
-
-#[cfg(not(windows))]
-fn normalize_canonical_path(path: PathBuf) -> PathBuf {
-    path
-}
-
-fn resolve_files(
-    working_dir: &Path,
-    files: Vec<String>,
-) -> (Vec<ResolvedArtifact>, Vec<ArtifactItemResult>) {
-    let mut resolved = Vec::new();
-    let mut rejected = Vec::new();
-    for (index, source) in files.into_iter().enumerate() {
-        let result = if index < MAX_FILES {
-            resolve_path(working_dir, &source)
-        } else {
-            Err("too_many_files".into())
-        };
-        match result {
-            Ok((path, display_name, kind)) => resolved.push(ResolvedArtifact {
-                source,
-                path,
-                display_name,
-                kind,
-            }),
-            Err(reason) => rejected.push(ArtifactItemResult {
-                path: source,
-                display_name: None,
-                kind: None,
-                status: None,
-                reason: Some(reason),
-            }),
-        }
-    }
-    (resolved, rejected)
-}
-
 async fn upsert_artifact<C: ConnectionTrait>(
     conn: &C,
     conversation_id: i32,
     artifact: ResolvedArtifact,
 ) -> Result<ArtifactItemResult, DbError> {
-    let path = artifact.path.to_string_lossy().to_string();
+    let path = artifact.path;
     let now = Utc::now();
     task_artifact::Entity::insert(task_artifact::ActiveModel {
         conversation_id: Set(conversation_id),
@@ -224,7 +90,17 @@ pub async fn register_artifacts(
     working_dir: &Path,
     files: Vec<String>,
 ) -> Result<Value, DbError> {
-    let (resolved, rejected) = resolve_files(working_dir, files);
+    let (resolved, rejected) = resolve_sources(working_dir, files);
+    let rejected = rejected
+        .into_iter()
+        .map(|(path, reason)| ArtifactItemResult {
+            path,
+            display_name: None,
+            kind: None,
+            status: None,
+            reason: Some(reason),
+        })
+        .collect::<Vec<_>>();
     let mut accepted = Vec::new();
     let txn = conn.begin().await?;
     for artifact in resolved {
@@ -254,19 +130,8 @@ pub async fn list_artifacts(
         let Some(conversation) = conversation else {
             continue;
         };
-        let current = current_artifact_state(Path::new(&artifact.path), &artifact.kind);
-        let last_checked_at = if current.status != artifact.status || current.kind != artifact.kind
-        {
-            let now = Utc::now();
-            let mut active: task_artifact::ActiveModel = artifact.clone().into();
-            active.status = Set(current.status.clone());
-            active.kind = Set(current.kind.clone());
-            active.last_checked_at = Set(now);
-            active.update(conn).await?;
-            now
-        } else {
-            artifact.last_checked_at
-        };
+        let current = current_artifact_state(&artifact.path, &artifact.kind);
+        let last_checked_at = persist_current_state(conn, &artifact, &current).await;
         results.push(TaskArtifactInfo {
             id: artifact.id,
             conversation_id: artifact.conversation_id,
@@ -284,17 +149,29 @@ pub async fn list_artifacts(
     Ok(results)
 }
 
-fn current_artifact_state(path: &Path, stored_kind: &str) -> CurrentArtifactState {
-    let (status, kind) = match std::fs::metadata(path) {
-        Ok(metadata) => match artifact_kind(&metadata) {
-            Ok(kind) => ("available", kind),
-            Err(_) => ("inaccessible", stored_kind),
-        },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => ("missing", stored_kind),
-        Err(_) => ("inaccessible", stored_kind),
-    };
-    CurrentArtifactState {
-        status: status.into(),
-        kind: kind.into(),
+async fn persist_current_state(
+    conn: &DatabaseConnection,
+    artifact: &task_artifact::Model,
+    current: &source::CurrentArtifactState,
+) -> chrono::DateTime<Utc> {
+    if current.status == artifact.status && current.kind == artifact.kind {
+        return artifact.last_checked_at;
     }
+    let now = Utc::now();
+    let mut active: task_artifact::ActiveModel = artifact.clone().into();
+    active.status = Set(current.status.clone());
+    active.kind = Set(current.kind.clone());
+    active.last_checked_at = Set(now);
+    if let Err(error) = active.update(conn).await {
+        tracing::warn!(
+            artifact_id = artifact.id,
+            conversation_id = artifact.conversation_id,
+            status = current.status,
+            kind = current.kind,
+            error = %error,
+            "[task-artifacts] state cache update failed"
+        );
+        return artifact.last_checked_at;
+    }
+    now
 }

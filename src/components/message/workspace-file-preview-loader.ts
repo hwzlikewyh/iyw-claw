@@ -1,6 +1,10 @@
 import type { PreviewState } from "@/components/message/workspace-file-preview"
 import { toImageDataUrl } from "@/components/message/workspace-file-preview"
-import { readFilePreview, readWorkspaceFileBase64 } from "@/lib/api"
+import {
+  readFileBase64,
+  readFilePreview,
+  readWorkspaceFileBase64,
+} from "@/lib/api"
 import { isImageFile } from "@/lib/language-detect"
 
 const PREVIEW_CACHE_TTL_MS = 2_000
@@ -10,8 +14,10 @@ const TEXT_PREVIEW_MAX_BYTES = 2 * 1024 * 1024
 
 export type CacheablePreview = Extract<
   PreviewState,
-  { status: "image" | "text" }
+  { status: "image" | "text" | "markdown" }
 >
+
+const PDF_PREVIEW_MAX_BYTES = 30 * 1024 * 1024
 
 interface CachedPreview {
   expiresAt: number
@@ -35,9 +41,10 @@ function deleteCachedPreview(key: string): void {
 
 export function getCachedWorkspacePreview(
   rootPath: string,
-  path: string
+  path: string,
+  options?: { renderMarkdown?: boolean }
 ): CacheablePreview | null {
-  const key = previewKey(rootPath, path)
+  const key = previewCacheKey(rootPath, path, options?.renderMarkdown === true)
   const cached = previewCache.get(key)
   if (!cached) return null
   if (cached.expiresAt <= Date.now()) {
@@ -47,6 +54,14 @@ export function getCachedWorkspacePreview(
   previewCache.delete(key)
   previewCache.set(key, cached)
   return cached.preview
+}
+
+function previewCacheKey(
+  rootPath: string,
+  path: string,
+  renderMarkdown: boolean
+): string {
+  return `${previewKey(rootPath, path)}\0${renderMarkdown ? "markdown" : "text"}`
 }
 
 function cachePreview(key: string, preview: CacheablePreview): void {
@@ -69,7 +84,8 @@ function cachePreview(key: string, preview: CacheablePreview): void {
 
 async function fetchWorkspacePreview(
   rootPath: string,
-  path: string
+  path: string,
+  renderMarkdown: boolean
 ): Promise<CacheablePreview> {
   if (isImageFile(path)) {
     const base64 = await readWorkspaceFileBase64(rootPath, path)
@@ -81,24 +97,37 @@ async function fetchWorkspacePreview(
   }
   const result = await readFilePreview(rootPath, path, TEXT_PREVIEW_MAX_BYTES)
   return {
-    status: "text",
+    status: renderMarkdown && isMarkdownPath(path) ? "markdown" : "text",
     path,
     content: result.content,
     truncated: result.truncated,
   }
 }
 
+function isMarkdownPath(path: string): boolean {
+  return /\.(?:md|markdown)$/i.test(path)
+}
+
+export async function loadPdfPreview(path: string): Promise<string> {
+  const base64 = await readFileBase64(path, PDF_PREVIEW_MAX_BYTES)
+  const binary = atob(base64)
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+  return URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }))
+}
+
 export function loadWorkspacePreview(
   rootPath: string,
-  path: string
+  path: string,
+  options?: { renderMarkdown?: boolean }
 ): Promise<CacheablePreview> {
-  const key = previewKey(rootPath, path)
-  const cached = getCachedWorkspacePreview(rootPath, path)
+  const renderMarkdown = options?.renderMarkdown === true
+  const key = previewCacheKey(rootPath, path, renderMarkdown)
+  const cached = getCachedWorkspacePreview(rootPath, path, { renderMarkdown })
   if (cached) return Promise.resolve(cached)
   const pending = previewRequests.get(key)
   if (pending) return pending
 
-  const request = fetchWorkspacePreview(rootPath, path)
+  const request = fetchWorkspacePreview(rootPath, path, renderMarkdown)
     .then((preview) => {
       cachePreview(key, preview)
       return preview
