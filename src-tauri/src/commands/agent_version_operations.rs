@@ -5,10 +5,9 @@ use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::error::AcpError;
 use crate::acp::manager::ConnectionManager;
 use crate::acp::registry::{self, AgentDistribution};
-use crate::acp::version_center::capability::{self, RUNTIME};
-use crate::acp::version_center::types::ResolveAgentRequest;
 use crate::acp::version_center::{
-    activate_agent, list_agent_installations, recover_agent, AgentPlatformClient,
+    activate_agent, current_arch, current_target, list_agent_installations, recover_agent,
+    AgentPlatformClient, ResolveAgentRequest, RUNTIME,
 };
 use crate::app_error::AppCommandError;
 use crate::db::service::agent_setting_service;
@@ -196,8 +195,8 @@ async fn resolve(
             pinned_version: None,
             client_version: env!("CARGO_PKG_VERSION"),
             runtime: RUNTIME,
-            target: capability::current_target(),
-            arch: capability::current_arch(),
+            target: current_target(),
+            arch: current_arch(),
             channel,
             reason,
         },

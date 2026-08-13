@@ -9069,7 +9069,6 @@ fn requested_agent_version(
 ) -> Result<String, AcpError> {
     if let Some(value) = requested.filter(|value| !value.trim().is_empty()) {
         return sanitize_custom_version(value)
-            .map(str::to_string)
             .ok_or_else(|| AcpError::protocol("invalid Agent version"));
     }
     recommended
@@ -9896,7 +9895,6 @@ pub(crate) async fn acp_download_agent_binary_core(
             let requested = version_override
                 .as_deref()
                 .and_then(sanitize_custom_version)
-                .map(str::to_string)
                 .or(platform_access.recommended_version)
                 .ok_or_else(|| AcpError::protocol("Agent platform has no recommended version"))?;
             let channel = agent_setting_service::get_by_agent_type(&db.conn, agent_type)

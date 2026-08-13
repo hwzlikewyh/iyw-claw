@@ -12,7 +12,7 @@ mod npm_install;
 mod types;
 mod uvx_install;
 
-pub use capability::{known_tool, TOOL_IDS};
+pub use capability::{current_arch, current_target, known_tool, RUNTIME, TOOL_IDS};
 pub use catalog::{
     authorize_agent_launch, platform_projection, CatalogStore, CatalogView, PlatformAccess,
     PlatformProjection,
@@ -35,6 +35,7 @@ pub use inventory::{
 pub(crate) use npm_install::{
     confirm_npm_agent_install, resolve_npm_agent_install, ManagedNpmInstall,
 };
+pub(crate) use types::ResolveAgentRequest;
 pub use types::{AgentOffer, CatalogSnapshot, DownloadTicket, ToolOffer, VersionHistory};
 pub(crate) use uvx_install::{
     confirm_uvx_agent_install, resolve_uvx_agent_install, ManagedUvxInstall,
