@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react"
 import { isDesktop, openFileDialog } from "@/lib/platform"
 import Image from "next/image"
 import { useLocale, useTranslations } from "next-intl"
@@ -218,6 +225,62 @@ import { TaskCommandMenu } from "@/components/chat/task-command-menu"
 export interface ComposerInjectContent {
   text: string
   skill?: { id: string; label: string }
+}
+
+interface PendingSendSnapshot {
+  doc: JSONContent
+  attachments: InputAttachment[]
+  embeddedPayloads: Map<string, PromptInputBlock>
+  composerInstanceId: string
+  fallbackText: string
+  mutationVersion: number
+}
+
+type PendingSendRestoreListener = (snapshot: PendingSendSnapshot) => boolean
+
+const pendingSendRestoreListeners = new Map<
+  string,
+  Set<PendingSendRestoreListener>
+>()
+const PENDING_SEND_RESTORE_TTL_MS = 30_000
+const pendingSendRestores = new Map<
+  string,
+  { snapshot: PendingSendSnapshot; cleanupTimer: ReturnType<typeof setTimeout> }
+>()
+
+function publishPendingSendRestore(
+  scopeKey: string,
+  snapshot: PendingSendSnapshot
+): void {
+  const restored = Array.from(pendingSendRestoreListeners.get(scopeKey) ?? [])
+    .reverse()
+    .some((listener) => listener(snapshot))
+  if (restored) return
+  const previous = pendingSendRestores.get(scopeKey)
+  if (previous) clearTimeout(previous.cleanupTimer)
+  const cleanupTimer = setTimeout(() => {
+    const pending = pendingSendRestores.get(scopeKey)
+    if (pending?.snapshot === snapshot) pendingSendRestores.delete(scopeKey)
+  }, PENDING_SEND_RESTORE_TTL_MS)
+  pendingSendRestores.set(scopeKey, { snapshot, cleanupTimer })
+}
+
+function subscribePendingSendRestore(
+  scopeKey: string,
+  listener: PendingSendRestoreListener
+): () => void {
+  const listeners = pendingSendRestoreListeners.get(scopeKey) ?? new Set()
+  listeners.add(listener)
+  pendingSendRestoreListeners.set(scopeKey, listeners)
+  const pending = pendingSendRestores.get(scopeKey)
+  if (pending && listener(pending.snapshot)) {
+    clearTimeout(pending.cleanupTimer)
+    pendingSendRestores.delete(scopeKey)
+  }
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) pendingSendRestoreListeners.delete(scopeKey)
+  }
 }
 
 interface MessageInputProps {
@@ -742,18 +805,36 @@ export function MessageInput({
     supported: skillManagementSupported,
   } = useEnabledSkillIds(agentType ?? null)
   const editorRef = useRef<RichComposerHandle>(null)
+  const composerInstanceIdRef = useRef(randomUUID())
   // The editor owns the content now; this mirror of its empty state drives the
   // send button and `hasSendableContent`.
   const [composerEmpty, setComposerEmpty] = useState(true)
   // Flips true once the RichComposer's async (immediatelyRender:false) editor has
   // mounted, so the hydration effect can use the imperative handle.
   const [composerReady, setComposerReady] = useState(false)
+  const [composerHydrated, setComposerHydrated] = useState(false)
   // `attachments` now holds only images; non-image files live inline as editor
   // reference badges. This map carries the real bytes-bearing block for each
   // embedded/data-uri badge, keyed by its synthetic `file://` sentinel uri, and
   // is reconciled into the outgoing blocks by `buildDraft`.
-  const [attachments, setAttachments] = useState<InputAttachment[]>([])
+  const [attachments, setAttachmentState] = useState<InputAttachment[]>([])
+  const attachmentsRef = useRef<InputAttachment[]>([])
   const [sendPending, setSendPending] = useState(false)
+  const sendPendingRef = useRef(false)
+  const composerMutationVersionRef = useRef(0)
+  const programmaticResetRef = useRef(false)
+  const setAttachments = useCallback(
+    (update: SetStateAction<InputAttachment[]>) => {
+      const current = attachmentsRef.current
+      const next = typeof update === "function" ? update(current) : update
+      attachmentsRef.current = next
+      if (!programmaticResetRef.current) {
+        composerMutationVersionRef.current += 1
+      }
+      setAttachmentState(next)
+    },
+    []
+  )
   const embeddedPayloadsRef = useRef<Map<string, PromptInputBlock>>(new Map())
   const [isDragActive, setIsDragActive] = useState(false)
   // Collapsed (narrow) selectors live in a controlled Popover holding a
@@ -851,6 +932,12 @@ export function MessageInput({
   // Markdown) ~300ms after the last change so inline reference badges survive a
   // reload — a Markdown round-trip would downgrade them to plain links.
   const draftSaveTimerRef = useRef<number | null>(null)
+  const cancelPendingDraftSave = useCallback(() => {
+    if (draftSaveTimerRef.current != null && typeof window !== "undefined") {
+      window.clearTimeout(draftSaveTimerRef.current)
+    }
+    draftSaveTimerRef.current = null
+  }, [])
   const scheduleDraftSave = useCallback(() => {
     if (typeof window === "undefined") return
     if (!effectiveDraftStorageKey || isEditingQueueItem) return
@@ -876,6 +963,7 @@ export function MessageInput({
     return () => {
       if (draftSaveTimerRef.current != null && typeof window !== "undefined") {
         window.clearTimeout(draftSaveTimerRef.current)
+        draftSaveTimerRef.current = null
       }
     }
   }, [])
@@ -917,7 +1005,7 @@ export function MessageInput({
           })
       }
     },
-    [attachmentTabId, tAttach]
+    [attachmentTabId, setAttachments, tAttach]
   )
 
   // Replay a sent `PromptInputBlock[]` (a queued message being re-edited) into
@@ -933,7 +1021,7 @@ export function MessageInput({
       uploadRestoredImages(uploads)
       insertRestoredResources(editor, restored, embeddedPayloadsRef.current)
     },
-    [uploadRestoredImages]
+    [setAttachments, uploadRestoredImages]
   )
 
   // One-time hydration once the editor is ready: a queue-edit payload, else a v2
@@ -957,28 +1045,37 @@ export function MessageInput({
     }
     const raf = requestAnimationFrame(() => {
       const ed = editorRef.current
-      if (!ed) return
-      if (
-        isEditingQueueItem &&
-        (editingDraftBlocks != null || editingDraftText != null)
-      ) {
-        const editor = ed.getEditor()
-        if (editingDraftBlocks && editingDraftBlocks.length > 0 && editor) {
-          // Full fidelity: restore inline badges + images from the blocks.
-          hydrateFromBlocks(editor, editingDraftBlocks)
-        } else if (editingDraftText != null) {
-          ed.setText(editingDraftText)
+      if (!ed) {
+        setComposerHydrated(true)
+        return
+      }
+      programmaticResetRef.current = true
+      try {
+        if (
+          isEditingQueueItem &&
+          (editingDraftBlocks != null || editingDraftText != null)
+        ) {
+          const editor = ed.getEditor()
+          if (editingDraftBlocks && editingDraftBlocks.length > 0 && editor) {
+            // Full fidelity: restore inline badges + images from the blocks.
+            hydrateFromBlocks(editor, editingDraftBlocks)
+          } else if (editingDraftText != null) {
+            ed.setText(editingDraftText)
+          }
+        } else if (effectiveDraftStorageKey) {
+          const loaded = loadMessageInputDraftV2(effectiveDraftStorageKey)
+          if (loaded?.kind === "doc") {
+            ed.setDoc(loaded.doc)
+          } else if (loaded?.kind === "legacyMarkdown") {
+            ed.setText(loaded.markdown)
+          }
         }
-      } else if (effectiveDraftStorageKey) {
-        const loaded = loadMessageInputDraftV2(effectiveDraftStorageKey)
-        if (loaded?.kind === "doc") {
-          ed.setDoc(loaded.doc)
-        } else if (loaded?.kind === "legacyMarkdown") {
-          ed.setText(loaded.markdown)
-        }
+      } finally {
+        programmaticResetRef.current = false
       }
       const editor = ed.getEditor()
       setComposerEmpty(editor ? isComposerEmpty(editor) : true)
+      setComposerHydrated(true)
     })
     return () => cancelAnimationFrame(raf)
   }, [
@@ -1087,6 +1184,8 @@ export function MessageInput({
 
   const handleComposerChange = useCallback(() => {
     syncComposerEmpty()
+    if (programmaticResetRef.current) return
+    composerMutationVersionRef.current += 1
     scheduleDraftSave()
     detectSlashTriggerRef.current?.()
   }, [syncComposerEmpty, scheduleDraftSave])
@@ -1447,7 +1546,7 @@ export function MessageInput({
         },
       ])
     },
-    []
+    [setAttachments]
   )
 
   const appendImageFile = useCallback(
@@ -2694,9 +2793,12 @@ export function MessageInput({
     }
   }, [appendImagePath, appendRemoteLocalImagePath, setDragActiveIfChanged])
 
-  const removeAttachment = useCallback((id: string) => {
-    setAttachments((prev) => prev.filter((item) => item.id !== id))
-  }, [])
+  const removeAttachment = useCallback(
+    (id: string) => {
+      setAttachments((prev) => prev.filter((item) => item.id !== id))
+    },
+    [setAttachments]
+  )
 
   const retryImageStaging = useCallback(
     async (id: string) => {
@@ -2744,7 +2846,7 @@ export function MessageInput({
         toast.error(tAttach("attachUploadFailed", { names: attachment.name }))
       }
     },
-    [attachments, attachmentTabId, tAttach]
+    [attachments, attachmentTabId, setAttachments, tAttach]
   )
 
   const applyAttachmentEdit = useCallback(
@@ -2771,7 +2873,7 @@ export function MessageInput({
         )
       )
     },
-    [attachmentTabId, previewAttachmentId]
+    [attachmentTabId, previewAttachmentId, setAttachments]
   )
 
   const buildDraft = useCallback((): PromptDraft | null => {
@@ -2858,20 +2960,102 @@ export function MessageInput({
     return { blocks, displayText }
   }, [attachments, skillPrefix, tAttach])
 
-  // Clear the editor + attachments after a send / enqueue / save.
+  // Clear the accepted draft immediately. Invalidate the pre-send debounce so
+  // it cannot write the old document back after the visible composer is empty.
   const resetComposer = useCallback(() => {
-    editorRef.current?.clear()
+    cancelPendingDraftSave()
+    if (effectiveDraftStorageKey && !isEditingQueueItem) {
+      clearMessageInputDraftV2(effectiveDraftStorageKey)
+    }
+    programmaticResetRef.current = true
+    try {
+      editorRef.current?.clear()
+      setAttachments([])
+    } finally {
+      programmaticResetRef.current = false
+    }
     setComposerEmpty(true)
-    setAttachments([])
     embeddedPayloadsRef.current.clear()
     closeSlashMenu()
-  }, [closeSlashMenu])
+  }, [
+    cancelPendingDraftSave,
+    closeSlashMenu,
+    effectiveDraftStorageKey,
+    isEditingQueueItem,
+    setAttachments,
+  ])
+
+  const capturePendingSend = useCallback(
+    (draft: PromptDraft): PendingSendSnapshot => {
+      return {
+        doc: editorRef.current?.getJSON() ?? { type: "doc", content: [] },
+        attachments: attachmentsRef.current.slice(),
+        embeddedPayloads: new Map(embeddedPayloadsRef.current),
+        composerInstanceId: composerInstanceIdRef.current,
+        fallbackText: draft.displayText.trim(),
+        mutationVersion: composerMutationVersionRef.current,
+      }
+    },
+    []
+  )
+
+  const restoreRejectedSend = useCallback(
+    (snapshot: PendingSendSnapshot) => {
+      const editor = editorRef.current
+      if (!editor?.getEditor()) return false
+      const sameInstance =
+        snapshot.composerInstanceId === composerInstanceIdRef.current
+      const unchanged = sameInstance
+        ? composerMutationVersionRef.current === snapshot.mutationVersion
+        : composerMutationVersionRef.current === 0
+      const onlyFailureFallback =
+        !sameInstance &&
+        unchanged &&
+        attachmentsRef.current.length === 0 &&
+        editor.getText().trim() === snapshot.fallbackText
+      if (
+        !unchanged ||
+        (!editor.isEmpty() && !onlyFailureFallback) ||
+        attachmentsRef.current.length > 0
+      ) {
+        return true
+      }
+      embeddedPayloadsRef.current = new Map(snapshot.embeddedPayloads)
+      editor.setDoc(snapshot.doc)
+      setAttachments(snapshot.attachments)
+      setComposerEmpty(editor.isEmpty())
+      editor.focus()
+      return true
+    },
+    [setAttachments]
+  )
+
+  const pendingSendScope = attachmentTabId ?? effectiveDraftStorageKey
+  useEffect(() => {
+    if (!pendingSendScope || !composerHydrated) return
+    return subscribePendingSendRestore(pendingSendScope, restoreRejectedSend)
+  }, [composerHydrated, pendingSendScope, restoreRejectedSend])
+
+  const rejectPendingSend = useCallback(
+    (snapshot: PendingSendSnapshot) => {
+      if (pendingSendScope) {
+        requestAnimationFrame(() => {
+          publishPendingSendRestore(pendingSendScope, snapshot)
+        })
+      } else {
+        restoreRejectedSend(snapshot)
+      }
+    },
+    [pendingSendScope, restoreRejectedSend]
+  )
 
   const sendCurrentDraft = useCallback(() => {
     // The editor stays editable while `disabled` (the agent is busy) so the user
     // can keep typing, but a plain send is blocked — only enqueue / queue-edit
     // save go through. Mirrors the legacy textarea's keydown guard.
-    if (sendPending || (disabled && !isPrompting && !isEditingQueueItem)) return
+    if (disabled && !isPrompting && !isEditingQueueItem) {
+      return
+    }
     const draft = buildDraft()
     if (!draft) return
 
@@ -2889,6 +3073,10 @@ export function MessageInput({
       return
     }
 
+    // Only a direct send is single-flighted. Queue edits and prompting-time
+    // enqueue actions above remain usable while the previous send is accepted.
+    if (sendPendingRef.current) return
+
     if (
       !promptCapabilities.image &&
       draft.blocks.some((block) => block.type === "image")
@@ -2898,27 +3086,38 @@ export function MessageInput({
           .length,
       })
     }
-    const result = onSend(draft, showModeSelector ? effectiveModeId : null)
-    const finish = () => {
-      if (effectiveDraftStorageKey) {
-        clearMessageInputDraftV2(effectiveDraftStorageKey)
-      }
+    const snapshot = capturePendingSend(draft)
+    sendPendingRef.current = true
+    let result: void | Promise<boolean>
+    try {
+      result = onSend(draft, showModeSelector ? effectiveModeId : null)
+    } catch (error) {
+      console.error("[MessageInput] send failed before acceptance", { error })
+      sendPendingRef.current = false
       resetComposer()
+      rejectPendingSend(snapshot)
+      return
     }
+    resetComposer()
     if (!result || typeof result.then !== "function") {
-      finish()
+      sendPendingRef.current = false
       return
     }
     setSendPending(true)
     void result
       .then((accepted) => {
-        if (accepted !== false) finish()
+        if (accepted === false) rejectPendingSend(snapshot)
       })
-      .catch(() => {})
-      .finally(() => setSendPending(false))
+      .catch((error) => {
+        console.error("[MessageInput] send failed before acceptance", { error })
+        rejectPendingSend(snapshot)
+      })
+      .finally(() => {
+        sendPendingRef.current = false
+        setSendPending(false)
+      })
   }, [
     disabled,
-    sendPending,
     buildDraft,
     isEditingQueueItem,
     isPrompting,
@@ -2927,8 +3126,9 @@ export function MessageInput({
     onSend,
     effectiveModeId,
     showModeSelector,
-    effectiveDraftStorageKey,
     resetComposer,
+    capturePendingSend,
+    rejectPendingSend,
     promptCapabilities.image,
   ])
 
@@ -2966,16 +3166,12 @@ export function MessageInput({
     // editable window. If the fork can't run (queue non-empty / disconnected /
     // failure) the parent re-queues the draft, so it is never lost.
     onForkSend(draft, showModeSelector ? effectiveModeId : null)
-    if (effectiveDraftStorageKey) {
-      clearMessageInputDraftV2(effectiveDraftStorageKey)
-    }
     resetComposer()
   }, [
     onForkSend,
     buildDraft,
     effectiveModeId,
     showModeSelector,
-    effectiveDraftStorageKey,
     resetComposer,
     voice.status,
   ])

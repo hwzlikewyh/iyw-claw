@@ -1101,7 +1101,7 @@ const ConversationTabView = memo(function ConversationTabView({
         if (needsImageFallback) {
           return sending.then(onImageAnalysisRejected)
         }
-        return
+        return sending.then((accepted) => accepted || turnBounced)
       }
 
       // New-tab path: create the DB row first, then send with the new id
@@ -1205,7 +1205,7 @@ const ConversationTabView = memo(function ConversationTabView({
           })
           return needsImageFallback
             ? onImageAnalysisRejected(accepted)
-            : accepted
+            : accepted || turnBounced
         } catch (e) {
           console.error("[ConversationTabView] create conversation:", e)
           // A failed create (chat OR normal) must fully restore the pre-send
@@ -1236,8 +1236,7 @@ const ConversationTabView = memo(function ConversationTabView({
         }
       }
       const pending = createAndSend()
-      if (needsImageFallback) return pending
-      void pending
+      return pending
     },
     [
       appendOptimisticTurn,
