@@ -280,7 +280,7 @@ function parseJsonObject(
   return parsed
 }
 
-export function McpSettings() {
+export function McpSettings({ embedded = false }: { embedded?: boolean }) {
   const t = useTranslations("McpSettings")
   const mcpT = useMemo(() => t as unknown as McpTranslator, [t])
   const [loading, setLoading] = useState(true)
@@ -949,8 +949,22 @@ export function McpSettings() {
         </DialogContent>
       </Dialog>
 
-      <div className="h-full min-h-0 grid grid-cols-1 gap-4 px-5 py-5 lg:grid-cols-[360px_1fr]">
-        <section className="min-h-0 rounded-xl border bg-card p-3">
+      <div
+        className={cn(
+          "grid h-full min-h-0 grid-cols-1 lg:grid-cols-[360px_1fr]",
+          embedded
+            ? "grid-rows-[minmax(22rem,45%)_minmax(22rem,1fr)] gap-0 overflow-auto lg:grid-rows-1 lg:overflow-hidden"
+            : "gap-4 px-5 py-5"
+        )}
+      >
+        <section
+          className={cn(
+            "min-h-0 bg-card p-3",
+            embedded
+              ? "border-b lg:border-b-0 lg:border-r"
+              : "rounded-xl border"
+          )}
+        >
           <Tabs
             value={leftTab}
             onValueChange={(value) => {
@@ -1291,7 +1305,12 @@ export function McpSettings() {
           </Tabs>
         </section>
 
-        <section className="min-h-0 rounded-xl border bg-card p-4 overflow-auto">
+        <section
+          className={cn(
+            "min-h-0 overflow-auto bg-card p-4",
+            !embedded && "rounded-xl border"
+          )}
+        >
           {selection?.kind === "draft" ? (
             <div className="space-y-4">
               <div>

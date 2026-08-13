@@ -19,6 +19,7 @@ export interface SkillMarketInstallPanelProps {
   controller: ReturnType<typeof useSkillMarketInstall>
   pendingTarget: { name: string; version: string } | null
   onInstalled: (skillId: string, version: string) => void
+  onOpenConnectors: () => void
   onClose: () => void
 }
 
@@ -60,6 +61,10 @@ function useInstallPanelState(props: SkillMarketInstallPanelProps) {
     setSelected(new Set())
     props.onClose()
   }, [props, reset])
+  const openConnectors = useCallback(() => {
+    close()
+    props.onOpenConnectors()
+  }, [close, props])
 
   return {
     session,
@@ -69,6 +74,7 @@ function useInstallPanelState(props: SkillMarketInstallPanelProps) {
     start: () => void start([...selected]),
     retry,
     close,
+    openConnectors,
   }
 }
 
@@ -100,6 +106,7 @@ function InstallPanelDialog({
           onStart={panel.start}
           onRetry={panel.retry}
           onClose={panel.close}
+          onOpenConnectors={panel.openConnectors}
         />
       </div>
     </div>
@@ -151,6 +158,7 @@ interface InstallPanelBodyProps {
   onStart: () => void
   onRetry: () => void
   onClose: () => void
+  onOpenConnectors: () => void
 }
 
 function InstallPanelBody(props: InstallPanelBodyProps) {
@@ -189,6 +197,7 @@ function InstallPanelBody(props: InstallPanelBodyProps) {
       <InstallSuccess
         includesConnectors={includesConnectors}
         onClose={props.onClose}
+        onOpenConnectors={props.onOpenConnectors}
       />
     )
   if (session.status === "failed")

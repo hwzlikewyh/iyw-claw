@@ -1691,7 +1691,7 @@
       "noChats": "No chats",
       "newChatAction": "New chat",
       "automations": "Scheduled tasks",
-      "skillsMarket": "Skill Market",
+      "skillsMarket": "Capability Market",
       "loadingSubsessions": "Loading sub-conversations…"
     },
     "conversation": {
@@ -4702,8 +4702,107 @@
       }
     }
   },
+  "CapabilityMarket": {
+    "title": "Capability Market",
+    "subtitle": "Extend workflows with reusable capabilities",
+    "navLabel": "Capability types",
+    "preview": "Preview",
+    "sections": {
+      "skills": "Skills",
+      "connectors": "Connectors",
+      "plugins": "Plugins"
+    },
+    "sectionHints": {
+      "skills": "Discover and install reusable task methods",
+      "connectors": "Connect services and manage global availability",
+      "plugins": "Bundle skills, connectors, and bindings"
+    },
+    "featured": {
+      "title": "Featured workflows",
+      "subtitle": "Start from a development task and discover complementary capabilities",
+      "caption": "Workflows aid discovery and are not fictional installable data",
+      "openCategory": "Browse skills related to {name}",
+      "quality": {
+        "kicker": "Quality",
+        "title": "From diagnosis to verified fix",
+        "steps": { "step1": "Locate", "step2": "Fix", "step3": "Verify" }
+      },
+      "frontend": {
+        "kicker": "Interface delivery",
+        "title": "From design intent to usable UI",
+        "steps": {
+          "step1": "Understand",
+          "step2": "Build",
+          "step3": "Inspect"
+        }
+      },
+      "knowledge": {
+        "kicker": "Knowledge work",
+        "title": "From research to reliable findings",
+        "steps": {
+          "step1": "Search",
+          "step2": "Organize",
+          "step3": "Deliver"
+        }
+      },
+      "delivery": {
+        "kicker": "Engineering delivery",
+        "title": "From change review to stable release",
+        "steps": {
+          "step1": "Review",
+          "step2": "Orchestrate",
+          "step3": "Release"
+        }
+      }
+    },
+    "connectors": {
+      "eyebrow": "Global connectivity",
+      "title": "Give agents safe access to your tools and services",
+      "description": "Discover connectors, complete required configuration, then choose whether to enable them for all supported agents. Installation and global enablement remain separate actions.",
+      "points": {
+        "discover": {
+          "title": "Discover",
+          "detail": "Browse the connector market"
+        },
+        "configure": {
+          "title": "Configure",
+          "detail": "Add parameters and credentials"
+        },
+        "enable": { "title": "Enable", "detail": "Sync to supported agents" }
+      }
+    },
+    "plugins": {
+      "eyebrow": "Plugin market preview",
+      "title": "Deliver a complete way of working as one bundle",
+      "description": "A plugin is a versioned distribution unit that can be upgraded or uninstalled. It packages skills, connectors, and their bindings without copying skill implementations.",
+      "parts": {
+        "skills": "Skills",
+        "connectors": "Connectors",
+        "bindings": "Bindings"
+      },
+      "catalogTitle": "Example capability bundles",
+      "catalogSubtitle": "These cards preview the future plugin market structure",
+      "comingSoon": "Coming soon",
+      "bundles": {
+        "release": {
+          "title": "Release delivery kit",
+          "description": "Connect review, artifact checks, release notes, and publishing services."
+        },
+        "knowledge": {
+          "title": "Team knowledge kit",
+          "description": "Combine research, knowledge organization, and enterprise content access."
+        },
+        "quality": {
+          "title": "Quality assurance kit",
+          "description": "Cover diagnosis, automated checks, and quality platform connectivity."
+        }
+      }
+    }
+  },
   "SkillMarketV2": {
     "title": "Skill Market",
+    "catalogTitle": "All skills",
+    "catalogSubtitle": "Browse by source, category, and install state",
     "views": {
       "market": "Market",
       "organization": "Organization",

@@ -1691,7 +1691,7 @@
       "noChats": "没有聊天",
       "newChatAction": "新建聊天",
       "automations": "定时任务",
-      "skillsMarket": "技能市场",
+      "skillsMarket": "能力市场",
       "loadingSubsessions": "正在加载子会话…"
     },
     "conversation": {
@@ -4702,8 +4702,89 @@
       }
     }
   },
+  "CapabilityMarket": {
+    "title": "能力市场",
+    "subtitle": "为工作流扩展可复用能力",
+    "navLabel": "能力类型",
+    "preview": "预留",
+    "sections": {
+      "skills": "技能",
+      "connectors": "连接器",
+      "plugins": "插件"
+    },
+    "sectionHints": {
+      "skills": "发现并安装可复用的任务方法",
+      "connectors": "连接外部服务，并管理全局启用状态",
+      "plugins": "组合技能、连接器与绑定关系"
+    },
+    "featured": {
+      "title": "精选工作流",
+      "subtitle": "从完整开发任务出发，快速发现一组互补能力",
+      "caption": "工作流用于发现，不会作为虚构市场数据安装",
+      "openCategory": "查看与{name}相关的技能",
+      "quality": {
+        "kicker": "质量保障",
+        "title": "从问题定位到修复验证",
+        "steps": { "step1": "定位", "step2": "修复", "step3": "验证" }
+      },
+      "frontend": {
+        "kicker": "界面交付",
+        "title": "从设计意图到可用界面",
+        "steps": { "step1": "理解", "step2": "实现", "step3": "检查" }
+      },
+      "knowledge": {
+        "kicker": "知识工程",
+        "title": "从资料检索到可靠结论",
+        "steps": { "step1": "检索", "step2": "整理", "step3": "输出" }
+      },
+      "delivery": {
+        "kicker": "工程交付",
+        "title": "从变更审查到稳定发布",
+        "steps": { "step1": "审查", "step2": "编排", "step3": "发布" }
+      }
+    },
+    "connectors": {
+      "eyebrow": "全局连接能力",
+      "title": "让智能体安全访问你的工具与服务",
+      "description": "从市场发现连接器、完成必要配置，再决定是否对所有支持的智能体启用。安装和全局启用始终是两个独立动作。",
+      "points": {
+        "discover": { "title": "发现", "detail": "浏览连接器市场" },
+        "configure": { "title": "配置", "detail": "补齐参数与凭证" },
+        "enable": { "title": "启用", "detail": "同步至支持的智能体" }
+      }
+    },
+    "plugins": {
+      "eyebrow": "插件市场预览",
+      "title": "以能力包交付一整套工作方式",
+      "description": "插件是可版本化、可升级和可卸载的分发单元。它把多个技能、连接器及其绑定关系打包在一起，但不会复制技能实现。",
+      "parts": {
+        "skills": "技能",
+        "connectors": "连接器",
+        "bindings": "绑定关系"
+      },
+      "catalogTitle": "能力包示例",
+      "catalogSubtitle": "以下内容展示未来插件市场的信息结构",
+      "comingSoon": "即将上线",
+      "bundles": {
+        "release": {
+          "title": "发布交付套件",
+          "description": "串联代码审查、制品校验、变更说明与发布服务。"
+        },
+        "knowledge": {
+          "title": "团队知识套件",
+          "description": "组合资料检索、知识整理与企业内容连接能力。"
+        },
+        "quality": {
+          "title": "质量保障套件",
+          "description": "覆盖问题定位、自动化检查与质量平台连接。"
+        }
+      }
+    }
+  },
   "SkillMarketV2": {
     "title": "技能市场",
+    "catalogTitle": "全部技能",
+    "catalogSubtitle": "按来源、分类与安装状态浏览",
     "views": {
       "market": "市场",
       "organization": "组织",

@@ -4,6 +4,7 @@ import { useCallback, useState } from "react"
 import { useSkillMarket } from "@/hooks/use-skill-market"
 import { useSkillMarketInstall } from "@/hooks/use-skill-market-install"
 import { SkillMarketDetail } from "@/components/skills/market/detail"
+import { FeaturedWorkflows } from "@/components/skills/market/featured-workflows"
 import { SkillMarketInstallPanel } from "@/components/skills/market/install-panel"
 import { SkillMarketList } from "@/components/skills/market/list"
 import { SkillMarketToolbar } from "@/components/skills/market/toolbar"
@@ -20,7 +21,11 @@ import type {
 } from "@/lib/skill-market-source"
 import { cn } from "@/lib/utils"
 
-export function SkillMarketView() {
+export function SkillMarketView({
+  onOpenConnectors,
+}: {
+  onOpenConnectors: () => void
+}) {
   const market = useSkillMarket()
   const install = useSkillMarketInstall()
 
@@ -117,6 +122,16 @@ export function SkillMarketView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
+      {market.query.view === "market" ? (
+        <div className={cn(detailOpen && "hidden lg:block")}>
+          <FeaturedWorkflows
+            selectedCategory={market.query.category}
+            onSelectCategory={(category) =>
+              market.updateQuery({ category, q: "" })
+            }
+          />
+        </div>
+      ) : null}
       <SkillMarketToolbar
         query={market.query}
         categories={market.categories}
@@ -127,11 +142,17 @@ export function SkillMarketView() {
         onRefresh={market.refresh}
         onUpload={() => openUpload("publish")}
       />
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_23rem] 2xl:grid-cols-[minmax(0,1fr)_25rem]">
+      <div
+        className={cn(
+          "grid min-h-0 flex-1",
+          detailOpen &&
+            "lg:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]"
+        )}
+      >
         <section
           className={cn(
-            "min-h-0 min-w-0 border-r",
-            detailOpen && "hidden lg:block"
+            "min-h-0 min-w-0",
+            detailOpen && "hidden lg:block lg:border-r"
           )}
         >
           <SkillMarketList
@@ -152,9 +173,7 @@ export function SkillMarketView() {
             onRetry={market.refresh}
           />
         </section>
-        <aside
-          className={cn("min-h-0 min-w-0", !detailOpen && "hidden lg:block")}
-        >
+        <aside className={cn("min-h-0 min-w-0", !detailOpen && "hidden")}>
           <SkillMarketDetail
             detail={market.detail.value}
             versions={market.versions.value}
@@ -180,6 +199,7 @@ export function SkillMarketView() {
       <SkillMarketInstallPanel
         controller={install}
         pendingTarget={pendingTarget}
+        onOpenConnectors={onOpenConnectors}
         onInstalled={(skillId, version) => {
           market.applyInstalled(skillId, version)
           market.refresh()

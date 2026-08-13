@@ -1,7 +1,6 @@
 "use client"
 
 import { AlertTriangle, Check, Loader2, PlugZap, RotateCcw } from "lucide-react"
-import Link from "next/link"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import {
@@ -76,9 +75,11 @@ export function BusyPanel({
 export function InstallSuccess({
   includesConnectors,
   onClose,
+  onOpenConnectors,
 }: {
   includesConnectors: boolean
   onClose: () => void
+  onOpenConnectors: () => void
 }) {
   const t = useTranslations("SkillMarketV2")
   return (
@@ -88,11 +89,9 @@ export function InstallSuccess({
         title={t("install.done")}
       >
         {includesConnectors ? (
-          <Button size="sm" variant="outline" asChild>
-            <Link href="/settings/connectors" onClick={onClose}>
-              <PlugZap className="size-3.5" />
-              {t("install.openConnectors")}
-            </Link>
+          <Button size="sm" variant="outline" onClick={onOpenConnectors}>
+            <PlugZap className="size-3.5" />
+            {t("install.openConnectors")}
           </Button>
         ) : null}
         <Button size="sm" onClick={onClose}>

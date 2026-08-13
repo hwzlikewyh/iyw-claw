@@ -20,9 +20,9 @@ function ListState({
   const t = useTranslations("SkillMarketV2")
   if (kind === "loading") {
     return (
-      <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-3 p-4 sm:p-5">
         {Array.from({ length: 6 }, (_, index) => (
-          <Skeleton key={index} className="h-[17rem] rounded-none" />
+          <Skeleton key={index} className="h-[11.75rem] rounded-lg" />
         ))}
       </div>
     )
@@ -76,14 +76,14 @@ export function SkillMarketList(props: SkillMarketListProps) {
   }
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-8 shrink-0 items-center border-b px-4 text-[10px] text-muted-foreground">
+      <div className="flex h-8 shrink-0 items-end px-4 pb-1 text-[10px] text-muted-foreground sm:px-5">
         {t("list.count", { count: props.total })}
         {props.loading ? (
           <Loader2 className="ml-2 size-3 animate-spin" />
         ) : null}
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-3 p-4 pt-2 sm:p-5 sm:pt-2">
           {props.items.map((item) => (
             <SkillCard
               key={item.id}

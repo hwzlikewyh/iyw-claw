@@ -20,7 +20,6 @@ import {
   MessageSquareText,
   Package,
   Palette,
-  PlugZap,
   ScrollText,
   Search,
   SendHorizontal,
@@ -90,11 +89,6 @@ const NAV_AGENTS: SettingsNavItem = {
   labelKey: "agents",
   icon: Bot,
 }
-const NAV_CONNECTORS: SettingsNavItem = {
-  href: "/settings/connectors",
-  labelKey: "connectors",
-  icon: PlugZap,
-}
 const NAV_SKILLS: SettingsNavItem = {
   href: "/settings/skills",
   labelKey: "skills",
@@ -155,7 +149,7 @@ const NAV_GROUPS_BASE: SettingsNavGroup[] = [
   },
   {
     groupKey: "aiModels",
-    items: [NAV_AGENTS, NAV_CONNECTORS, NAV_SKILLS],
+    items: [NAV_AGENTS, NAV_SKILLS],
   },
   {
     groupKey: "productivity",
