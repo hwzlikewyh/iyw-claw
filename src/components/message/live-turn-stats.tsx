@@ -28,6 +28,7 @@ interface LiveTurnStatsProps {
   isStreaming?: boolean
   planEntries?: PlanEntryInfo[] | null
   subAgentControl?: ReactNode
+  trailingStatus?: ReactNode
 }
 
 interface LineChangeStats {
@@ -330,6 +331,7 @@ export function LiveTurnStats({
   isStreaming = true,
   planEntries,
   subAgentControl,
+  trailingStatus,
 }: LiveTurnStatsProps) {
   const locale = useLocale()
   const t = useTranslations("Folder.chat.liveTurnStats")
@@ -470,6 +472,7 @@ export function LiveTurnStats({
             </span>
           </>
         )}
+        {trailingStatus}
       </div>
     </div>
   )

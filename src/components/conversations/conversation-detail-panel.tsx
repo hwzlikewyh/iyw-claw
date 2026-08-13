@@ -1682,6 +1682,8 @@ const ConversationTabView = memo(function ConversationTabView({
       onNewSession={
         canShowDetailErrorActions ? handleOpenNewSession : undefined
       }
+      liveTrailingStatus={<BackgroundTasksChip contextKey={tabId} inline />}
+      standaloneStatus={<BackgroundTasksChip contextKey={tabId} />}
     />
   )
 
@@ -1711,12 +1713,7 @@ const ConversationTabView = memo(function ConversationTabView({
 
   return (
     <ConversationShell
-      topBanner={
-        <>
-          <SessionConfigStaleBanner contextKey={tabId} />
-          <BackgroundTasksChip contextKey={tabId} />
-        </>
-      }
+      topBanner={<SessionConfigStaleBanner contextKey={tabId} />}
       status={connStatus}
       promptCapabilities={conn.promptCapabilities}
       defaultPath={workingDirForConnection}

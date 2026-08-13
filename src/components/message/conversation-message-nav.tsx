@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useCallback, type RefObject } from "react"
+import { memo, useCallback, useEffect, useRef, type RefObject } from "react"
 import { ChevronDownIcon, MessageCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
 import type { MessageScrollContextValue } from "@/components/message/message-scroll-context"
@@ -45,6 +45,22 @@ export const ConversationMessageNav = memo(function ConversationMessageNav({
   scrollApiRef,
 }: ConversationMessageNavProps) {
   const t = useTranslations("Folder.chat.messageNav")
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!expanded) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node) || panelRef.current?.contains(target))
+        return
+      onToggle(false)
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown, true)
+    return () =>
+      document.removeEventListener("pointerdown", handlePointerDown, true)
+  }, [expanded, onToggle])
 
   const jump = useCallback(
     (threadIndex: number) => {
@@ -72,7 +88,10 @@ export const ConversationMessageNav = memo(function ConversationMessageNav({
   }
 
   return (
-    <div className="pointer-events-none flex max-w-[min(22rem,calc(100%-2rem))]">
+    <div
+      ref={panelRef}
+      className="pointer-events-none flex max-w-[min(22rem,calc(100%-2rem))]"
+    >
       <div className="pointer-events-auto w-72 max-w-full rounded-xl border bg-card/60 hover:bg-card/95 shadow-lg backdrop-blur transition-colors supports-[backdrop-filter]:bg-card/50 supports-[backdrop-filter]:hover:bg-card/85">
         <div className="flex items-center justify-between border-b px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">

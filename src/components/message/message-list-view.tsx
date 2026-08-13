@@ -1,6 +1,14 @@
 "use client"
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import {
   selectTimelineTurns,
   useConversationRuntimeStore,
@@ -91,6 +99,10 @@ interface MessageListViewProps {
   showMessageNav?: boolean
   /** Keep host-memory actions out of compact sub-agent transcript embeds. */
   enableUserMemoryActions?: boolean
+  /** Status appended to the live turn row while the agent is streaming. */
+  liveTrailingStatus?: ReactNode
+  /** Fallback status row used when there is no live turn row. */
+  standaloneStatus?: ReactNode
 }
 
 interface ResolvedMessageGroup {
@@ -545,6 +557,8 @@ export function MessageListView({
   onNewSession,
   showMessageNav = true,
   enableUserMemoryActions = true,
+  liveTrailingStatus,
+  standaloneStatus,
 }: MessageListViewProps) {
   const t = useTranslations("Folder.chat.messageList")
   const sharedT = useTranslations("Folder.chat.shared")
@@ -918,8 +932,10 @@ export function MessageListView({
               />
             ) : null
           }
+          trailingStatus={liveTrailingStatus}
         />
       )}
+      {(!liveMessage || connStatus !== "prompting") && standaloneStatus}
       {/* Message navigator pinned to the inline-start edge. Live plan and
           sub-agent controls live in the
           composer status row. */}

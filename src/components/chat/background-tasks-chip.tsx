@@ -8,7 +8,15 @@ import { useConnection } from "@/hooks/use-connection"
 
 const SETTLE_SYNC_DISPLAY_MS = 30_000
 
-export function BackgroundTasksChip({ contextKey }: { contextKey: string }) {
+interface BackgroundTasksChipProps {
+  contextKey: string
+  inline?: boolean
+}
+
+export function BackgroundTasksChip({
+  contextKey,
+  inline = false,
+}: BackgroundTasksChipProps) {
   const t = useTranslations("Folder.chat.backgroundTasks")
   const { backgroundOutstanding, backgroundSettleSyncingSince } =
     useConnection(contextKey)
@@ -32,16 +40,29 @@ export function BackgroundTasksChip({ contextKey }: { contextKey: string }) {
 
   if (backgroundOutstanding <= 0 && !showSyncing) return null
 
+  const status = (
+    <span className="inline-flex min-w-0 items-center gap-1 leading-none text-sky-700 dark:text-sky-300">
+      <Loader2 className="size-3 shrink-0 animate-spin" />
+      <span className="min-w-0 truncate">
+        {backgroundOutstanding > 0
+          ? t("running", { count: backgroundOutstanding })
+          : t("settling")}
+      </span>
+    </span>
+  )
+
+  if (inline) {
+    return (
+      <>
+        <span className="text-border leading-none">|</span>
+        {status}
+      </>
+    )
+  }
+
   return (
-    <div className="border-b border-sky-500/20 bg-sky-500/10 px-3 py-1.5 text-xs text-sky-700 dark:text-sky-300">
-      <div className="mx-auto flex w-full max-w-3xl items-center justify-center gap-2">
-        <Loader2 className="size-3.5 shrink-0 animate-spin" />
-        <span className="min-w-0 truncate">
-          {backgroundOutstanding > 0
-            ? t("running", { count: backgroundOutstanding })
-            : t("settling")}
-        </span>
-      </div>
+    <div className="flex min-h-8 flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-1 text-xs leading-none text-muted-foreground">
+      {status}
     </div>
   )
 }
