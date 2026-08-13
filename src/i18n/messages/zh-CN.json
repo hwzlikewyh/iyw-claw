@@ -2603,6 +2603,22 @@
         "attachServerFile": "附加服务端文件",
         "addActions": "添加",
         "referenceFolder": "引用文件夹",
+        "projectReference": {
+          "menuLabel": "引用项目内容",
+          "title": "引用项目内容",
+          "description": "从当前工作区或任务成果中选择文件或文件夹。",
+          "workspace": "工作区",
+          "artifacts": "成果",
+          "wholeWorkspace": "引用整个工作区",
+          "browseFolder": "选择其他文件夹",
+          "nothingSelected": "尚未选择",
+          "confirm": "添加引用",
+          "loading": "正在加载…",
+          "loadError": "无法加载内容",
+          "emptyArtifacts": "当前工作区暂无可引用成果",
+          "noWorkspace": "当前没有活跃工作区",
+          "untitledConversation": "未命名会话"
+        },
         "folderReferencePrompt": "请输入 Agent 可访问的绝对目录路径",
         "folderReferenceInvalid": "请输入 Agent 可访问的绝对目录路径。",
         "folderReferenceFailed": "引用文件夹失败。",
@@ -2616,8 +2632,6 @@
         "pasteUnavailable": "无法读取剪贴板，请改用 Ctrl/⌘V 粘贴。",
         "clipboardWriteFailed": "无法写入剪贴板，请改用键盘快捷键。",
         "quickMessageUntitled": "未命名",
-        "liveFeedback": "实时反馈",
-        "liveFeedbackDisabledHint": "智能体工作时可发送",
         "dropFilesToAttach": "拖拽文件到此处附加",
         "loadingSettings": "正在加载设置...",
         "loadingMode": "正在加载模式...",
@@ -2641,10 +2655,18 @@
           "microphoneUnavailable": "未找到可用麦克风，或当前设备不支持语音输入。",
           "serviceUnavailable": "语音识别暂时不可用，已保留输入框中的文字。"
         },
-        "slashCommands": "斜杠命令",
         "skills": "技能",
-        "slashSearchPlaceholder": "搜索命令...",
-        "slashSearchEmpty": "没有匹配的命令",
+        "taskCommands": {
+          "title": "任务方式",
+          "goal": {
+            "label": "目标任务",
+            "description": "围绕一个目标持续推进，直到完成或受阻"
+          },
+          "loop": {
+            "label": "循环任务",
+            "description": "按指定条件或周期重复执行任务"
+          }
+        },
         "experts": "专家",
         "office": "日常办公",
         "attachUploadTooLarge": "{names} 超过 {limit}MB 上传上限，已跳过。",

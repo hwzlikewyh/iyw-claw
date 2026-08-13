@@ -29,6 +29,12 @@ import {
  */
 export const CODEX_NATIVE_CATEGORY = "codex_native"
 
+const HIDDEN_EXPERT_IDS = new Set(["using-superpowers"])
+
+export function isVisibleExpertId(id: string): boolean {
+  return !HIDDEN_EXPERT_IDS.has(id)
+}
+
 /**
  * Lucide icons referenced by built-in expert metadata (`ExpertMetadata.icon`
  * is a bare icon name string). Shared by the experts settings page and the

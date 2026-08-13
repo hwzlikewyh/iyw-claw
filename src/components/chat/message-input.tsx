@@ -13,19 +13,15 @@ import {
   Cog,
   Copy,
   FileStack,
-  Folder,
   FolderSearch,
   GitFork,
   Lock,
   LoaderCircle,
-  MessageSquarePlus,
   MessageSquareText,
   Paperclip,
   Plus,
   Scissors,
-  Search,
   Send,
-  Command,
   Sparkles,
   Square,
   TextSelect,
@@ -149,7 +145,6 @@ import {
   type SessionConfigTranslator,
 } from "@/lib/session-config-localization"
 import { orderSessionSelectors } from "@/lib/session-selector-order"
-import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { useAgentSkills } from "@/hooks/use-agent-skills"
 import { useBuiltInExperts } from "@/hooks/use-built-in-experts"
 import { useEnabledSkillIds } from "@/hooks/use-enabled-skill-ids"
@@ -158,7 +153,11 @@ import {
   useRealtimeVoiceInput,
   type RealtimeVoiceErrorKind,
 } from "@/hooks/use-realtime-voice-input"
-import { getExpertIcon, pickLocalized } from "@/lib/expert-presentation"
+import {
+  getExpertIcon,
+  isVisibleExpertId,
+  pickLocalized,
+} from "@/lib/expert-presentation"
 import { OFFICE_ACTIONS, type OfficeAction } from "@/lib/office-actions"
 import {
   clearMessageInputDraftV2,
@@ -204,6 +203,11 @@ import type {
   InputAttachment,
   ResourceInputAttachment,
 } from "./message-input-attachments"
+import {
+  ProjectReferenceDialog,
+  type ProjectReferenceSelection,
+} from "@/components/chat/project-reference-dialog"
+import { TaskCommandMenu } from "@/components/chat/task-command-menu"
 
 /**
  * Payload pushed into the composer from outside (e.g. a welcome-page quick
@@ -679,8 +683,6 @@ export function MessageInput({
   onSaveQueueEdit,
   onCancelQueueEdit,
   onForkSend,
-  onAddFeedback,
-  feedbackAddDisabled,
   injectContent,
   onInjectConsumed,
 }: MessageInputProps) {
@@ -712,10 +714,18 @@ export function MessageInput({
   // project skills (e.g. `{folder}/.codex/skills`). Without this, users
   // only ever saw global skills in the `$` autocomplete.
   const availableSkills = useAgentSkills(skillAgentType, defaultPath ?? null)
+  const visibleAvailableSkills = useMemo(
+    () => availableSkills.filter((skill) => isVisibleExpertId(skill.id)),
+    [availableSkills]
+  )
   // The + menu exposes every skill enabled for the active agent. Source and
   // editability do not affect invocation: selecting an item only inserts its
   // reference badge into the composer.
   const enabledSkills = useAgentSkills(agentType ?? null, defaultPath ?? null)
+  const visibleEnabledSkills = useMemo(
+    () => enabledSkills.filter((skill) => isVisibleExpertId(skill.id)),
+    [enabledSkills]
+  )
   const skillPrefix = agentType === "codex" ? "$" : "/"
   const { shortcuts } = useShortcutSettings()
   const effectiveDraftStorageKey = draftStorageKey ?? null
@@ -1169,41 +1179,12 @@ export function MessageInput({
   )
   const [slashFilter, setSlashFilter] = useState("")
   const slashCommands = useMemo(
-    () => availableCommands ?? [],
+    () =>
+      (availableCommands ?? []).filter((command) =>
+        isVisibleExpertId(command.name.replace(/^\/+/, "").toLowerCase())
+      ),
     [availableCommands]
   )
-  const [slashDropdownOpen, setSlashDropdownOpen] = useState(false)
-  const [slashDropdownSearch, setSlashDropdownSearch] = useState("")
-  const slashDropdownInputRef = useRef<HTMLInputElement>(null)
-  const filteredSlashDropdownCommands = useMemo(() => {
-    const q = slashDropdownSearch.toLowerCase().trim()
-    if (!q) return slashCommands
-    const nameMatches: typeof slashCommands = []
-    const descOnlyMatches: typeof slashCommands = []
-    for (const cmd of slashCommands) {
-      if (cmd.name.toLowerCase().includes(q)) {
-        nameMatches.push(cmd)
-      } else if (cmd.description?.toLowerCase().includes(q)) {
-        descOnlyMatches.push(cmd)
-      }
-    }
-    return [...nameMatches, ...descOnlyMatches]
-  }, [slashCommands, slashDropdownSearch])
-  const handleSlashDropdownOpenChange = useCallback((open: boolean) => {
-    setSlashDropdownOpen(open)
-    if (!open) setSlashDropdownSearch("")
-  }, [])
-  // Radix's MenuSubContent hardcodes its own onOpenAutoFocus that overwrites
-  // any prop we pass in (see @radix-ui/react-menu MenuSubContent). To put the
-  // search input in focus when the slash submenu opens, defer focus to a
-  // microtask after Radix finishes its own focus dance.
-  useEffect(() => {
-    if (!slashDropdownOpen) return
-    const id = requestAnimationFrame(() => {
-      slashDropdownInputRef.current?.focus()
-    })
-    return () => cancelAnimationFrame(id)
-  }, [slashDropdownOpen])
   const filteredSlashCommands = useMemo(() => {
     if (!slashMenuOpen || slashCommands.length === 0) return []
     if (slashTriggerChar !== "/") return []
@@ -1215,13 +1196,13 @@ export function MessageInput({
   const filteredSlashSkills = useMemo(() => {
     // Skills autocomplete is Codex-only and triggered by `$`.
     if (agentType !== "codex") return []
-    if (!slashMenuOpen || availableSkills.length === 0) return []
+    if (!slashMenuOpen || visibleAvailableSkills.length === 0) return []
     if (slashTriggerChar !== "$") return []
     const filter = slashFilter.toLowerCase()
-    if (!filter) return availableSkills
-    const nameMatches: typeof availableSkills = []
-    const idOnlyMatches: typeof availableSkills = []
-    for (const skill of availableSkills) {
+    if (!filter) return visibleAvailableSkills
+    const nameMatches: typeof visibleAvailableSkills = []
+    const idOnlyMatches: typeof visibleAvailableSkills = []
+    for (const skill of visibleAvailableSkills) {
       if (skill.name.toLowerCase().includes(filter)) {
         nameMatches.push(skill)
       } else if (skill.id.toLowerCase().includes(filter)) {
@@ -1229,7 +1210,13 @@ export function MessageInput({
       }
     }
     return [...nameMatches, ...idOnlyMatches]
-  }, [slashMenuOpen, availableSkills, agentType, slashTriggerChar, slashFilter])
+  }, [
+    slashMenuOpen,
+    visibleAvailableSkills,
+    agentType,
+    slashTriggerChar,
+    slashFilter,
+  ])
   const slashAutocompleteCount =
     filteredSlashCommands.length + filteredSlashSkills.length
 
@@ -1276,7 +1263,7 @@ export function MessageInput({
   const detectSlashTrigger = useCallback(() => {
     const editor = editorRef.current?.getEditor()
     const hasSlashSource =
-      slashCommands.length > 0 || availableSkills.length > 0
+      slashCommands.length > 0 || visibleAvailableSkills.length > 0
     const close = () => {
       setSlashMenuOpen(false)
       setSlashTriggerChar(null)
@@ -1300,7 +1287,7 @@ export function MessageInput({
     setSlashFilter(match[3])
     setSlashSelectedIndex(0)
     setSlashMenuOpen(true)
-  }, [slashCommands.length, availableSkills.length, agentType])
+  }, [slashCommands.length, visibleAvailableSkills.length, agentType])
 
   useEffect(() => {
     detectSlashTriggerRef.current = detectSlashTrigger
@@ -2062,10 +2049,7 @@ export function MessageInput({
     [replaceTriggerWithReference, skillPrefix]
   )
 
-  // The "+" → Slash commands picker inserts a command badge at the current caret
-  // (no trigger token to replace), adding a leading space if the caret isn't at
-  // a boundary, and a trailing space after.
-  const handleSlashPopoverSelect = useCallback((cmd: AvailableCommandInfo) => {
+  const handleTaskCommandSelect = useCallback((reference: ReferenceAttrs) => {
     const editor = editorRef.current?.getEditor()
     if (!editor) return
     const { $from } = editor.state.selection
@@ -2078,10 +2062,11 @@ export function MessageInput({
             " "
           )
         : ""
-    const needsSpace = charBefore !== "" && !/\s/.test(charBefore)
     let chain = editor.chain().focus()
-    if (needsSpace) chain = chain.insertContent(" ")
-    chain.insertReference(commandToReference(cmd)).insertContent(" ").run()
+    if (charBefore !== "" && !/\s/.test(charBefore)) {
+      chain = chain.insertContent(" ")
+    }
+    chain.insertReference(reference).insertContent(" ").run()
   }, [])
 
   const handleSkillMenuSelect = useCallback(
@@ -2267,6 +2252,26 @@ export function MessageInput({
   }, [defaultPath, disabled, insertFileReferences, t])
 
   const [serverFilePickerOpen, setServerFilePickerOpen] = useState(false)
+  const [projectReferenceOpen, setProjectReferenceOpen] = useState(false)
+
+  const handleProjectReferenceSelect = useCallback(
+    (selection: ProjectReferenceSelection) => {
+      insertFileReferences(
+        [
+          {
+            name: selection.name,
+            uri:
+              selection.kind === "dir"
+                ? buildDirectoryUri(selection.path)
+                : buildFileUri(selection.path),
+            fileKind: selection.kind,
+          },
+        ],
+        { atCaret: true }
+      )
+    },
+    [insertFileReferences]
+  )
 
   const handleUploadLocalFiles = useCallback(async () => {
     if (disabled) return
@@ -3635,9 +3640,11 @@ export function MessageInput({
                           {t("attachServerFile")}
                         </DropdownMenuItem>
                       )}
-                      <DropdownMenuItem onClick={() => void handlePickFolder()}>
-                        <Folder className="size-4" />
-                        {t("referenceFolder")}
+                      <DropdownMenuItem
+                        onClick={() => setProjectReferenceOpen(true)}
+                      >
+                        <FolderSearch className="size-4" />
+                        {t("projectReference.menuLabel")}
                       </DropdownMenuItem>
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
@@ -3681,117 +3688,15 @@ export function MessageInput({
                           )}
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
-                      {onAddFeedback && (
-                        <DropdownMenuItem
-                          disabled={feedbackAddDisabled}
-                          onClick={onAddFeedback}
-                          title={
-                            feedbackAddDisabled
-                              ? t("liveFeedbackDisabledHint")
-                              : undefined
-                          }
-                        >
-                          <MessageSquarePlus className="size-4" />
-                          {t("liveFeedback")}
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuSub
-                        open={slashDropdownOpen}
-                        onOpenChange={handleSlashDropdownOpenChange}
-                      >
-                        <DropdownMenuSubTrigger
-                          disabled={slashCommands.length === 0}
-                        >
-                          <Command className="size-4" />
-                          {t("slashCommands")}
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent
-                          className="flex min-w-72 flex-col overflow-hidden p-0"
-                          style={{
-                            maxWidth: "min(20rem, calc(100vw - 1rem))",
-                            maxHeight:
-                              "min(32rem, var(--radix-dropdown-menu-content-available-height))",
-                          }}
-                        >
-                          <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2">
-                            <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <input
-                              ref={slashDropdownInputRef}
-                              type="text"
-                              role="searchbox"
-                              aria-label={t("slashSearchPlaceholder")}
-                              value={slashDropdownSearch}
-                              onChange={(e) =>
-                                setSlashDropdownSearch(e.target.value)
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === "ArrowDown") {
-                                  e.preventDefault()
-                                  const container = e.currentTarget.closest(
-                                    '[data-slot="dropdown-menu-sub-content"]'
-                                  )
-                                  const firstItem =
-                                    container?.querySelector<HTMLElement>(
-                                      '[role="menuitem"]'
-                                    )
-                                  firstItem?.focus()
-                                  return
-                                }
-                                if (e.key === "Enter") {
-                                  e.preventDefault()
-                                  const first = filteredSlashDropdownCommands[0]
-                                  if (first) {
-                                    handleSlashPopoverSelect(first)
-                                    setSlashDropdownOpen(false)
-                                  }
-                                  return
-                                }
-                                if (e.key === "Escape" || e.key === "Tab")
-                                  return
-                                // Prevent radix DropdownMenu's built-in typeahead
-                                // from hijacking letter keys while the user is
-                                // typing.
-                                e.stopPropagation()
-                              }}
-                              placeholder={t("slashSearchPlaceholder")}
-                              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                              autoComplete="off"
-                              spellCheck={false}
-                            />
-                          </div>
-                          <div className="flex-1 overflow-y-auto p-1">
-                            {filteredSlashDropdownCommands.length === 0 ? (
-                              <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-                                {t("slashSearchEmpty")}
-                              </div>
-                            ) : (
-                              filteredSlashDropdownCommands.map((cmd) => (
-                                <DropdownMenuItem
-                                  key={cmd.name}
-                                  onClick={() => handleSlashPopoverSelect(cmd)}
-                                  // Radix focuses the item on pointermove, which
-                                  // fires while scrolling (items slide under the
-                                  // cursor) and steals focus from the search input.
-                                  // Short-circuit that default with preventDefault
-                                  // so the search keeps focus until the user
-                                  // explicitly clicks.
-                                  onPointerMove={(e) => e.preventDefault()}
-                                  onPointerLeave={(e) => e.preventDefault()}
-                                  className="hover:bg-accent hover:text-accent-foreground"
-                                >
-                                  <DropdownRadioItemContent
-                                    label={`/${cmd.name}`}
-                                    description={cmd.description}
-                                  />
-                                </DropdownMenuItem>
-                              ))
-                            )}
-                          </div>
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
+                      <TaskCommandMenu
+                        commands={slashCommands}
+                        skills={visibleEnabledSkills}
+                        skillPrefix={skillPrefix}
+                        onSelect={handleTaskCommandSelect}
+                      />
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger
-                          disabled={enabledSkills.length === 0}
+                          disabled={visibleEnabledSkills.length === 0}
                         >
                           <BookOpenText className="size-4" />
                           {t("skills")}
@@ -3804,7 +3709,7 @@ export function MessageInput({
                               "min(32rem, var(--radix-dropdown-menu-content-available-height))",
                           }}
                         >
-                          {enabledSkills.map((skill) => (
+                          {visibleEnabledSkills.map((skill) => (
                             <DropdownMenuItem
                               key={`${skill.scope}-${skill.id}`}
                               onClick={() => handleSkillMenuSelect(skill)}
@@ -4114,6 +4019,13 @@ export function MessageInput({
           initialPath={defaultPath ?? undefined}
         />
       )}
+      <ProjectReferenceDialog
+        open={projectReferenceOpen}
+        onOpenChange={setProjectReferenceOpen}
+        rootPath={defaultPath ?? null}
+        onSelect={handleProjectReferenceSelect}
+        onBrowseFolder={handlePickFolder}
+      />
     </div>
   )
 }

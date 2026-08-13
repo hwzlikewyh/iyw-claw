@@ -2603,6 +2603,22 @@
         "attachServerFile": "Pick server file",
         "addActions": "Add",
         "referenceFolder": "Reference folder",
+        "projectReference": {
+          "menuLabel": "Reference project content",
+          "title": "Reference project content",
+          "description": "Choose a file or folder from the current workspace or task artifacts.",
+          "workspace": "Workspace",
+          "artifacts": "Artifacts",
+          "wholeWorkspace": "Reference the whole workspace",
+          "browseFolder": "Choose another folder",
+          "nothingSelected": "Nothing selected",
+          "confirm": "Add reference",
+          "loading": "Loading…",
+          "loadError": "Could not load content",
+          "emptyArtifacts": "No referenceable artifacts in this workspace",
+          "noWorkspace": "No active workspace",
+          "untitledConversation": "Untitled conversation"
+        },
         "folderReferencePrompt": "Enter an absolute folder path available to the agent",
         "folderReferenceInvalid": "Enter an absolute folder path available to the agent.",
         "folderReferenceFailed": "Failed to reference the folder.",
@@ -2616,8 +2632,6 @@
         "pasteUnavailable": "Couldn't read the clipboard. Press Ctrl/⌘V to paste instead.",
         "clipboardWriteFailed": "Couldn't write to the clipboard. Use the keyboard shortcut instead.",
         "quickMessageUntitled": "Untitled",
-        "liveFeedback": "Live feedback",
-        "liveFeedbackDisabledHint": "Available while the agent is working",
         "dropFilesToAttach": "Drop files to attach",
         "loadingSettings": "Loading settings...",
         "loadingMode": "Loading mode...",
@@ -2641,10 +2655,18 @@
           "microphoneUnavailable": "No microphone is available, or voice input is not supported on this device.",
           "serviceUnavailable": "Voice recognition is temporarily unavailable. Text already in the input was kept."
         },
-        "slashCommands": "Slash commands",
         "skills": "Skills",
-        "slashSearchPlaceholder": "Search commands...",
-        "slashSearchEmpty": "No matching commands",
+        "taskCommands": {
+          "title": "Task style",
+          "goal": {
+            "label": "Goal task",
+            "description": "Keep working toward one goal until it completes or is blocked"
+          },
+          "loop": {
+            "label": "Loop task",
+            "description": "Repeat a task on the condition or schedule you specify"
+          }
+        },
         "experts": "Experts",
         "office": "Office Work",
         "attachUploadTooLarge": "{names} exceeds the {limit}MB upload limit and was skipped.",
