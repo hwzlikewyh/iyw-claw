@@ -110,17 +110,11 @@ Read [references/cli.md](references/cli.md) for flags and
    Dry-run does not require a token or access the network.
 4. Run the live CLI. Do not automatically retry a request that may incur cost.
 5. Treat only a zero exit code plus an existing output file as success.
-6. Display every final image according to its source, preserving the requested
-   or server order:
-   - For a final public HTTPS URL, put `![Generated image](URL)` directly in
-     the final reply. Do not call `show_image` or return only a bare URL/link.
-   - For a local path, file URI, Data URI, or raw Base64, resolve a tool whose
-     name ends in `show_image` and call it once per image. Raw Base64 also
-     requires `mime_type`.
-
+6. Display every final image. Resolve the tool name once from the tools
+   actually available to you — match any name whose suffix is `show_image`.
    The server is registered as `iyw-claw-mcp`, so under MCP namespacing the
-   tool is `mcp__iyw-claw-mcp__show_image`; some runtimes expose it bare as
-   `show_image`. A local-output call looks like:
+   name is `mcp__iyw-claw-mcp__show_image`; some runtimes expose it bare as
+   `show_image`. Call it once per final image, in requested/server order:
 
 ```json
 {
@@ -130,12 +124,14 @@ Read [references/cli.md](references/cli.md) for flags and
 }
 ```
 
-Use `show_image` for a public HTTPS URL only when the current reply cannot use
-Markdown images. If a non-Markdown source needs `show_image` but no such tool
-is available, return the absolute path or source and state that inline rendering
-was unavailable. A name-not-found error means the tool is absent, not
-misspelled: take this fallback on the first failure, never guess a name variant,
-and never claim an image was displayed.
+`show_image` also accepts a final HTTPS URL. Use it instead of returning only a
+Markdown link so iyw-claw renders the image as a native conversation image.
+
+If no such tool is in your list, skip display: return each absolute path or
+final HTTPS URL and state that inline rendering was unavailable. A
+name-not-found error means the tool is absent, not misspelled — renaming never
+fixes it, so take this fallback on the first failure, not the second. Never
+guess a name variant and never claim an image was displayed.
 
 ## Output Rules
 
@@ -162,7 +158,7 @@ cannot preserve complex edges.
 - Missing Python dependency: use `uv run --with openai --with pillow`.
 - Network or API error: report the non-secret error and keep any valid prior
   output.
-- No display tool resolved for a local, file URI, Data URI, or Base64 result:
-  return the saved absolute path or source and state that inline rendering was
-  unavailable. Public HTTPS results still use Markdown images. Never retry
-  under a different name and never claim an image was displayed.
+- No display tool resolved (no available tool name ends in `show_image`):
+  return the saved absolute path or final HTTPS URL and state that inline
+  rendering was unavailable. Never retry under a different name and never claim
+  it was displayed.
