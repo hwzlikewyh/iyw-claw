@@ -2,6 +2,8 @@ import { useCallback } from "react"
 
 import { extractAppCommandError } from "@/lib/app-error"
 import {
+  requestMicrophoneStream,
+  stopMicrophoneStream,
   startMicrophonePcmCapture,
   type MicrophonePcmCapture,
 } from "@/lib/microphone-pcm-capture"
@@ -159,21 +161,39 @@ function useVoiceStart(options: VoiceStartOptions) {
     if (!options.enabled || runtime.phase !== "idle") return
     const operation = runtime.prepareStart()
     actions.setStatus("starting")
+    let microphone: MediaStream | null = null
+    let capture: MicrophonePcmCapture | null = null
     try {
+      microphone = await requestMicrophoneStream()
+      if (!isCurrentOperation(runtime, operation)) {
+        stopMicrophoneStream(microphone)
+        return
+      }
+
+      capture = await startMicrophonePcmCapture(
+        options.enqueueAudio,
+        microphone
+      )
+      microphone = null
+      if (!isCurrentOperation(runtime, operation)) {
+        await capture.stop().catch(() => {})
+        return
+      }
+      runtime.holdCapture(capture)
+      capture = null
+
       const session = await startRealtimeVoice(options.handleEvent)
       if (!isCurrentOperation(runtime, operation)) {
         await cancelRealtimeVoice(session.sessionId).catch(() => {})
         return
       }
+
       runtime.activateSession(session)
-      const capture = await startMicrophonePcmCapture(options.enqueueAudio)
-      if (!isCurrentOperation(runtime, operation)) {
-        await discardCapture(capture, session.sessionId)
-        return
-      }
-      runtime.activateCapture(capture)
+      runtime.activateCapture()
       actions.setStatus("recording")
     } catch (error) {
+      if (microphone) stopMicrophoneStream(microphone)
+      if (capture) await capture.stop().catch(() => {})
       if (!isCurrentOperation(runtime, operation)) return
       await options.fail(classifyStartError(error), true)
     }
@@ -203,14 +223,6 @@ function useVoiceStop(
 
 function isCurrentOperation(runtime: VoiceRuntime, operation: number): boolean {
   return runtime.isCurrent(operation)
-}
-
-async function discardCapture(
-  capture: MicrophonePcmCapture,
-  sessionId: string
-): Promise<void> {
-  await capture.stop().catch(() => {})
-  await cancelRealtimeVoice(sessionId).catch(() => {})
 }
 
 function classifyStartError(error: unknown): RealtimeVoiceErrorKind {

@@ -1076,6 +1076,10 @@ fn safe_audio_error(code: &str) -> (&'static str, &'static str) {
             "audio_transcription_invalid_arguments",
             "Audio transcription arguments are invalid.",
         ),
+        "audio_transcription_unsupported_format" => (
+            "audio_transcription_unsupported_format",
+            "The audio file format is not supported.",
+        ),
         "audio_transcription_auth_required" => (
             "audio_transcription_auth_required",
             "Sign in to iyw-claw before transcribing audio.",

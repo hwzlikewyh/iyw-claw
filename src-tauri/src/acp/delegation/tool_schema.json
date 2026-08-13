@@ -359,7 +359,7 @@
   },
   {
     "name": "transcribe_audio",
-    "description": "Transcribe a workspace-relative audio file. The host uploads the file directly to managed storage, submits an asynchronous transcription job, and waits briefly for a result. Returns the transcript when ready, otherwise the jobId and status. Do not pass an absolute path, URL, bucket key, provider, or credentials.",
+    "description": "Transcribe a workspace-relative audio file in MP3, WAV/WAVE, OGG/OGA/Opus, MP4/M4A/M4B, or raw PCM format. The host uploads the file directly to managed storage, submits an asynchronous transcription job, and waits briefly for a result. Returns the transcript when ready, otherwise the jobId and status. Do not pass an absolute path, URL, bucket key, provider, or credentials.",
     "inputSchema": {
       "type": "object",
       "required": ["path"],
@@ -367,7 +367,7 @@
         "path": {
           "type": "string",
           "minLength": 1,
-          "description": "Audio file path relative to the current workspace."
+          "description": "Supported audio file path relative to the current workspace."
         },
         "language": {
           "type": "string",

@@ -45,6 +45,13 @@ impl AudioToolFailure {
         }
     }
 
+    fn unsupported_format() -> Self {
+        Self {
+            code: "audio_transcription_unsupported_format",
+            message: "The audio file format is not supported.",
+        }
+    }
+
     fn invalid_arguments() -> Self {
         Self {
             code: "audio_transcription_invalid_arguments",
@@ -181,7 +188,8 @@ fn open_audio_file(
         .filter(|name| !name.is_empty())
         .ok_or_else(AudioToolFailure::invalid_path)?
         .to_string();
-    let content_type = audio_content_type(&path).ok_or_else(AudioToolFailure::invalid_path)?;
+    let content_type =
+        audio_content_type(&path).ok_or_else(AudioToolFailure::unsupported_format)?;
     Ok(PreparedAudioFile {
         file: tokio::fs::File::from_std(file),
         file_name,
@@ -205,9 +213,9 @@ fn parse_relative_path(source: &str) -> Result<PathBuf, AudioToolFailure> {
 fn audio_content_type(path: &Path) -> Option<&'static str> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "mp3" => Some("audio/mpeg"),
-        "wav" => Some("audio/wav"),
-        "ogg" => Some("audio/ogg"),
-        "mp4" => Some("audio/mp4"),
+        "wav" | "wave" => Some("audio/wav"),
+        "ogg" | "oga" | "opus" => Some("audio/ogg"),
+        "mp4" | "m4a" | "m4b" => Some("audio/mp4"),
         "pcm" => Some("audio/pcm"),
         _ => None,
     }

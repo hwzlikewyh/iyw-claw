@@ -100,8 +100,11 @@ export class VoiceRuntime {
     this.session = session
   }
 
-  activateCapture(capture: MicrophonePcmCapture): void {
+  holdCapture(capture: MicrophonePcmCapture): void {
     this.capture = capture
+  }
+
+  activateCapture(): void {
     this.phase = "recording"
   }
 

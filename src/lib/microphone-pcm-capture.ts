@@ -31,10 +31,8 @@ function requireMicrophoneSupport(): AudioContextConstructor {
   return AudioContextImpl
 }
 
-export async function startMicrophonePcmCapture(
-  onChunk: (chunk: Uint8Array) => void
-): Promise<MicrophonePcmCapture> {
-  const AudioContextImpl = requireMicrophoneSupport()
+export async function requestMicrophoneStream(): Promise<MediaStream> {
+  requireMicrophoneSupport()
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       channelCount: 1,
@@ -44,6 +42,22 @@ export async function startMicrophonePcmCapture(
     },
     video: false,
   })
+  if (stream.getAudioTracks().some((track) => track.readyState === "live")) {
+    return stream
+  }
+  stopMicrophoneStream(stream)
+  throw new DOMException("No live microphone is available", "NotFoundError")
+}
+
+export function stopMicrophoneStream(stream: MediaStream): void {
+  stream.getTracks().forEach((track) => track.stop())
+}
+
+export async function startMicrophonePcmCapture(
+  onChunk: (chunk: Uint8Array) => void,
+  stream: MediaStream
+): Promise<MicrophonePcmCapture> {
+  const AudioContextImpl = requireMicrophoneSupport()
   let context: AudioContext | null = null
   try {
     context = new AudioContextImpl()
@@ -80,7 +94,7 @@ export async function startMicrophonePcmCapture(
       },
     })
   } catch (error) {
-    stream.getTracks().forEach((track) => track.stop())
+    stopMicrophoneStream(stream)
     if (context) await context.close().catch(() => {})
     throw error
   }
@@ -103,7 +117,7 @@ function createCapture(nodes: CaptureNodes): MicrophonePcmCapture {
         processor.port.postMessage({ type: "flush" })
       })
       processor.port.onmessage = null
-      stream.getTracks().forEach((track) => track.stop())
+      stopMicrophoneStream(stream)
       source.disconnect()
       processor.disconnect()
       silentOutput.disconnect()
