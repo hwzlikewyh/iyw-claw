@@ -2117,15 +2117,13 @@ impl ConnectionManager {
     pub(crate) async fn image_analysis_state_for_connection(
         &self,
         connection_id: &str,
-    ) -> Option<(String, AgentType, bool)> {
+    ) -> Option<(Option<String>, AgentType, bool)> {
         let state = {
             let connections = self.connections.lock().await;
             connections.get(connection_id)?.state.clone()
         };
         let session = state.read().await;
-        let model = session.current_model.clone().unwrap_or_else(|| {
-            crate::acp::model_catalog::default_model_for(session.agent_type).into()
-        });
+        let model = session.current_model.clone();
         let accepts_images = session
             .prompt_capabilities
             .as_ref()

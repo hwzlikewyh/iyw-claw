@@ -6,7 +6,6 @@ use serde_json::{json, Value};
 
 use crate::acp::delegation::transport::BrokerImageAnalysisRequest;
 use crate::acp::manager::ConnectionManager;
-use crate::acp::model_catalog::{self, ImageInputMode};
 use crate::acp::types::PromptInputBlock;
 use crate::db::AppDatabase;
 
@@ -26,12 +25,6 @@ pub(crate) struct AnalysisRequest {
     pub images: Vec<AnalysisImage>,
     pub question: String,
     pub detail: String,
-}
-
-struct AnalysisSession {
-    model: String,
-    agent_type: crate::models::AgentType,
-    image_input_mode: ImageInputMode,
 }
 
 #[async_trait]
@@ -188,7 +181,7 @@ async fn analyze_for_connection(
     request: AnalysisRequest,
 ) -> Value {
     let started = Instant::now();
-    let session = match resolve_analysis_session(manager, connection_id).await {
+    let (model, agent_type) = match resolve_analysis_session(manager, connection_id).await {
         Ok(session) => session,
         Err(error) => return error,
     };
@@ -198,12 +191,11 @@ async fn analyze_for_connection(
     };
     let image_count = request.images.len();
     let image_bytes = request.images.iter().map(|image| image.image_bytes).sum();
-    let result = super::image_analysis_client::call_fusion(&token, &session.model, &request).await;
+    let result = super::image_analysis_client::call_fusion(&token, &model, &request).await;
     log_result(
         connection_id,
-        session.agent_type,
-        &session.model,
-        session.image_input_mode,
+        agent_type,
+        &model,
         image_count,
         image_bytes,
         started.elapsed(),
@@ -215,8 +207,8 @@ async fn analyze_for_connection(
 async fn resolve_analysis_session(
     manager: &ConnectionManager,
     connection_id: &str,
-) -> Result<AnalysisSession, Value> {
-    let Some((model, agent_type, _)) = manager
+) -> Result<(String, crate::models::AgentType), Value> {
+    let Some((Some(model), agent_type, _)) = manager
         .image_analysis_state_for_connection(connection_id)
         .await
     else {
@@ -225,23 +217,7 @@ async fn resolve_analysis_session(
             "The current session is unavailable.",
         ));
     };
-    let Some(capability) = model_catalog::model_capabilities(&model) else {
-        return Err(error_value(
-            "image_analysis_capability_unknown",
-            "The current model's image capability is unavailable. Refresh the model catalog.",
-        ));
-    };
-    if capability.image_input_mode == ImageInputMode::None {
-        return Err(error_value(
-            "vision_fallback_not_configured",
-            "The current model has no configured image-understanding route.",
-        ));
-    }
-    Ok(AnalysisSession {
-        model,
-        agent_type,
-        image_input_mode: capability.image_input_mode,
-    })
+    Ok((model, agent_type))
 }
 
 async fn load_account_token(
@@ -307,7 +283,6 @@ fn log_result(
     connection_id: &str,
     agent_type: crate::models::AgentType,
     model: &str,
-    mode: ImageInputMode,
     image_count: usize,
     image_bytes: usize,
     elapsed: Duration,
@@ -315,7 +290,7 @@ fn log_result(
 ) {
     let error_code = result.get("code").and_then(Value::as_str).unwrap_or("");
     tracing::info!(
-        connection_id, agent = ?agent_type, model, image_mode = ?mode,
+        connection_id, agent = ?agent_type, model,
         image_count, image_bytes, duration_ms = elapsed.as_millis() as u64,
         success = error_code.is_empty(), error_code,
         "[ImageAnalysis] host analysis completed"
