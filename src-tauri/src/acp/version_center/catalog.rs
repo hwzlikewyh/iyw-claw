@@ -6,11 +6,41 @@ use tokio::sync::RwLock;
 use crate::acp::registry;
 use crate::acp::version_center::capability::{self, CATALOG_SCHEMA_VERSION};
 use crate::acp::version_center::client::{AgentPlatformClient, CatalogFetch};
-use crate::acp::version_center::types::{CatalogPlatform, CatalogSnapshot, CatalogTool};
+use crate::acp::version_center::types::CatalogSnapshot;
 use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
+use crate::models::agent::AgentType;
 
 const CACHE_KEY: &str = "agent_version_center.catalog.v1";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlatformAccess {
+    Active,
+    Hidden,
+    Disabled,
+    Missing,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlatformProjection {
+    pub access: PlatformAccess,
+    pub recommended_version: Option<String>,
+}
+
+impl PlatformProjection {
+    pub fn visible(self, installed: bool) -> bool {
+        self.access == PlatformAccess::Active
+            || (self.access == PlatformAccess::Hidden && installed)
+    }
+
+    pub fn install_allowed(self, installed: bool) -> bool {
+        self.visible(installed)
+    }
+
+    pub fn launch_allowed(self) -> bool {
+        matches!(self.access, PlatformAccess::Active | PlatformAccess::Hidden)
+    }
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,6 +48,96 @@ pub struct CatalogView {
     pub snapshot: CatalogSnapshot,
     pub stale: bool,
     pub etag: Option<String>,
+}
+
+pub async fn platform_projection(
+    conn: &DatabaseConnection,
+    agent_type: AgentType,
+) -> PlatformProjection {
+    let raw = match app_metadata_service::get_value(conn, CACHE_KEY).await {
+        Ok(Some(raw)) => raw,
+        Ok(None) => return fallback_projection(agent_type),
+        Err(error) => {
+            tracing::warn!(%error, "[agent-version-center] catalog cache read failed");
+            return fallback_projection(agent_type);
+        }
+    };
+    let Ok(snapshot) = serde_json::from_str::<CatalogSnapshot>(&raw) else {
+        return fallback_projection(agent_type);
+    };
+    if capability::validate_catalog(&snapshot).is_err() {
+        return fallback_projection(agent_type);
+    }
+    let registry_id = registry::registry_id_for(agent_type);
+    let Some(platform) = snapshot
+        .platforms
+        .iter()
+        .find(|item| item.registry_id == registry_id)
+    else {
+        return PlatformProjection {
+            access: PlatformAccess::Missing,
+            recommended_version: None,
+        };
+    };
+    PlatformProjection {
+        access: match platform.status.as_str() {
+            "active" => PlatformAccess::Active,
+            "hidden" => PlatformAccess::Hidden,
+            "disabled" => PlatformAccess::Disabled,
+            _ => PlatformAccess::Missing,
+        },
+        recommended_version: nonempty(&platform.recommended_version),
+    }
+}
+
+fn fallback_projection(agent_type: crate::models::agent::AgentType) -> PlatformProjection {
+    tracing::warn!(
+        agent_type = ?agent_type,
+        "[agent-version-center] no trusted catalog is available; denying Agent access"
+    );
+    PlatformProjection {
+        access: PlatformAccess::Missing,
+        recommended_version: None,
+    }
+}
+
+pub async fn authorize_agent_launch(
+    conn: &DatabaseConnection,
+    agent_type: AgentType,
+) -> Result<(), AppCommandError> {
+    let setting = crate::db::service::agent_setting_service::get_by_agent_type(conn, agent_type)
+        .await
+        .map_err(AppCommandError::from)?
+        .ok_or_else(|| AppCommandError::configuration_invalid("Agent setting is unavailable"))?;
+    let version = setting
+        .installed_version
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppCommandError::configuration_invalid("Agent is not installed"))?;
+    let offer = AgentPlatformClient::resolve_agent(
+        conn,
+        crate::acp::version_center::types::ResolveAgentRequest {
+            registry_id: registry::registry_id_for(agent_type),
+            current_version: version,
+            requested_version: Some(version),
+            pinned_version: setting.pinned_version.as_deref(),
+            client_version: env!("CARGO_PKG_VERSION"),
+            runtime: capability::RUNTIME,
+            target: capability::current_target(),
+            arch: capability::current_arch(),
+            channel: &setting.update_channel,
+            reason: "manual",
+        },
+    )
+    .await?;
+    (offer.version == version)
+        .then_some(())
+        .ok_or_else(|| AppCommandError::configuration_invalid("Agent launch version was rejected"))
+}
+
+fn nonempty(value: &str) -> Option<String> {
+    (!value.trim().is_empty()).then(|| value.trim().to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -149,44 +269,11 @@ fn merge_known_entries(mut remote: CatalogSnapshot) -> CatalogSnapshot {
 }
 
 fn built_in_snapshot() -> CatalogSnapshot {
-    let platforms = registry::all_acp_agents()
-        .into_iter()
-        .enumerate()
-        .map(|(sort_order, agent_type)| {
-            let meta = registry::get_agent_meta(agent_type);
-            CatalogPlatform {
-                registry_id: registry::registry_id_for(agent_type).to_string(),
-                display_name: meta.name.to_string(),
-                description: meta.description.to_string(),
-                status: "active".to_string(),
-                sort_order: sort_order as i32,
-                channel: "stable".to_string(),
-                recommended_version: meta.registry_version().unwrap_or_default().to_string(),
-                minimum_safe_version: String::new(),
-                default_update_policy: "recommended".to_string(),
-            }
-        })
-        .collect();
-    let tools = [("git", "Git"), ("node", "Node.js/npm"), ("uv", "uv/uvx")]
-        .into_iter()
-        .enumerate()
-        .map(|(sort_order, (tool_id, display_name))| CatalogTool {
-            tool_id: tool_id.to_string(),
-            display_name: display_name.to_string(),
-            description: String::new(),
-            status: "active".to_string(),
-            sort_order: sort_order as i32,
-            channel: "stable".to_string(),
-            recommended_version: String::new(),
-            minimum_safe_version: String::new(),
-            default_update_policy: "recommended".to_string(),
-        })
-        .collect();
     CatalogSnapshot {
         schema_version: CATALOG_SCHEMA_VERSION,
         revision: 0,
         generated_at: String::new(),
-        platforms,
-        tools,
+        platforms: Vec::new(),
+        tools: Vec::new(),
     }
 }

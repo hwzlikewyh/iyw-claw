@@ -728,6 +728,18 @@ pub fn build_router(
             "/agent_version_center_install_tool",
             post(handlers::agent_version_center::install_tool),
         )
+        .route(
+            "/agent_version_center_install_agent",
+            post(handlers::agent_version_center::install_agent),
+        )
+        .route(
+            "/agent_version_center_switch_agent",
+            post(handlers::agent_version_center::switch_agent),
+        )
+        .route(
+            "/agent_version_center_rollback_agent",
+            post(handlers::agent_version_center::rollback_agent),
+        )
         .route("/acp_connect", post(handlers::acp::acp_connect))
         .route("/acp_disconnect", post(handlers::acp::acp_disconnect))
         .route(

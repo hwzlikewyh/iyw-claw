@@ -69,6 +69,9 @@ import type {
   QuestionAnswer,
   AcpAgentInfo,
   AcpAgentStatus,
+  AgentVersionCenterSnapshot,
+  AgentVersionHistory,
+  AgentVersionOperationResult,
   AgentSkillScope,
   AgentSkillLayout,
   AgentSkillSyncMode,
@@ -494,6 +497,73 @@ export async function acpFindConnectionForConversation(
 
 export async function acpListAgents(): Promise<AcpAgentInfo[]> {
   return getTransport().call("acp_list_agents")
+}
+
+const AGENT_VERSION_OPERATION_TIMEOUT_MS = 15 * 60_000
+
+function versionCenterRequest<T extends Record<string, unknown>>(
+  request: T
+): Record<string, unknown> {
+  return isDesktop() && !isRemoteDesktopMode() ? { request } : request
+}
+
+export async function agentVersionCenterSnapshot(): Promise<AgentVersionCenterSnapshot> {
+  return getTransport().call("agent_version_center_snapshot")
+}
+
+export async function refreshAgentVersionCenter(): Promise<AgentVersionCenterSnapshot> {
+  return getTransport().call("agent_version_center_refresh")
+}
+
+export async function getAgentVersionHistory(
+  agentType: AgentType,
+  channel?: string | null
+): Promise<AgentVersionHistory> {
+  return getTransport().call(
+    "agent_version_center_agent_history",
+    versionCenterRequest({ agentType, channel: channel ?? null })
+  )
+}
+
+export async function setAgentVersionPin(
+  agentType: AgentType,
+  version: string | null,
+  channel?: string | null
+): Promise<void> {
+  return getTransport().call(
+    "agent_version_center_set_agent_pin",
+    versionCenterRequest({ agentType, version, channel: channel ?? null })
+  )
+}
+
+export async function installAgentVersion(
+  agentType: AgentType,
+  version: string
+): Promise<AgentVersionOperationResult> {
+  return getTransport().call(
+    "agent_version_center_install_agent",
+    versionCenterRequest({ agentType, version }),
+    { timeoutMs: AGENT_VERSION_OPERATION_TIMEOUT_MS }
+  )
+}
+
+export async function switchAgentVersion(
+  agentType: AgentType,
+  version: string
+): Promise<AgentVersionOperationResult> {
+  return getTransport().call(
+    "agent_version_center_switch_agent",
+    versionCenterRequest({ agentType, version })
+  )
+}
+
+export async function rollbackAgentVersion(
+  agentType: AgentType
+): Promise<AgentVersionOperationResult> {
+  return getTransport().call(
+    "agent_version_center_rollback_agent",
+    versionCenterRequest({ agentType })
+  )
 }
 
 export async function getAgentStorageStatus(): Promise<AgentStorageStatus> {

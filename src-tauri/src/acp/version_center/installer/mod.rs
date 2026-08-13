@@ -1,4 +1,7 @@
 mod activation;
+mod agent_archive;
+mod agent_download;
+mod agents;
 mod archive;
 mod component;
 mod download;
@@ -12,6 +15,7 @@ mod signature;
 mod state;
 mod tools;
 
+pub(crate) use agents::install_managed_binary_agent;
 pub(crate) use archive::{extract_tool_zip, locate_payload};
 pub use init::{bootstrap_init_status, bootstrap_initialize, InitStatusReport};
 pub use manifest::digest_managed_root;

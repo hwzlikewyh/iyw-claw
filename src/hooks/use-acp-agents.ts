@@ -32,8 +32,9 @@ interface AcpAgentsStore {
 }
 
 // Reload race guards, at module scope so they're shared by the single store.
-// `latestRequestId` tracks the most recently issued reload; `latestSuccessId`
-// the most recent reload that actually wrote state. Splitting these matters
+// `latestRequestId` tracks the most recently issued reload; `latestCommitId`
+// the most recent reload that wrote either a valid list or a fail-closed empty
+// state. Splitting these matters
 // when reloads race: if #1 starts then #2 starts then #1 succeeds, a single
 // counter would discard #1's valid data (requestId(1) !== latest(2)); if #2
 // then failed or was still pending, `fresh` would stay false forever despite
@@ -41,7 +42,7 @@ interface AcpAgentsStore {
 // writes, so #1's success can latch `fresh`, and a later #2 success can still
 // overwrite #1's data (monotonic).
 let latestRequestId = 0
-let latestSuccessId = 0
+let latestCommitId = 0
 
 const useAcpAgentsStore = create<AcpAgentsStore>((set) => ({
   agents: [],
@@ -54,8 +55,8 @@ const useAcpAgentsStore = create<AcpAgentsStore>((set) => ({
       // Only bail if a strictly later success has already committed state —
       // older successes are still useful when newer requests are pending or
       // failed.
-      if (requestId <= latestSuccessId) return
-      latestSuccessId = requestId
+      if (requestId <= latestCommitId) return
+      latestCommitId = requestId
       const sorted = list
         .map((agent) => ({
           ...agent,
@@ -66,8 +67,12 @@ const useAcpAgentsStore = create<AcpAgentsStore>((set) => ({
         )
       set({ agents: sorted, fresh: true })
     } catch {
-      // Keep the previous list — clearing on transient failure would silently
-      // regress downstream defaults to AGENT_DISPLAY_ORDER[0].
+      if (requestId <= latestCommitId) return
+      latestCommitId = requestId
+      // Catalog availability is an authorization boundary. Keeping a stale
+      // list here would expose platforms after Fusion disabled them or while
+      // their current policy cannot be verified.
+      set({ agents: [], fresh: true })
     }
   },
 }))
@@ -173,7 +178,7 @@ function acquireSharedSubscription(): () => void {
       // before the fresh reload lands. In the running app TabProvider +
       // SidebarConversationList keep the refcount ≥ 1 for the whole session, so
       // this only fires on full teardown.
-      latestSuccessId = latestRequestId
+      latestCommitId = latestRequestId
       useAcpAgentsStore.setState({ agents: [], fresh: false })
     }
   }
@@ -186,9 +191,9 @@ function acquireSharedSubscription(): () => void {
  * the direct Tauri event API, bypassing the platform layer. Uses the
  * platform-agnostic `subscribe()` so the event path works in desktop and web.
  *
- * Behavior on error: the agents list is **not cleared** — keeping the last good
- * cache prevents a transient API blip from silently degrading downstream
- * defaults.
+ * Behavior on error: the list is cleared and marked fresh. Agent catalog
+ * availability is an authorization decision, so stale entries must not remain
+ * selectable when Fusion cannot be reached.
  */
 export function useAcpAgents(): UseAcpAgentsResult {
   useEffect(() => acquireSharedSubscription(), [])
@@ -205,6 +210,6 @@ export function resetAcpAgentsStore(): void {
   disposers = []
   refCount = 0
   latestRequestId = 0
-  latestSuccessId = 0
+  latestCommitId = 0
   useAcpAgentsStore.setState({ agents: [], fresh: false })
 }

@@ -26,7 +26,10 @@ use crate::acp::types::{
 };
 #[cfg(feature = "tauri-runtime")]
 use crate::acp::types::{ConnectionInfo, ForkResultInfo, PromptInputBlock};
-use crate::acp::version_center::resolve_npm_agent_install;
+use crate::acp::version_center::{
+    confirm_npm_agent_install, confirm_uvx_agent_install, resolve_npm_agent_install,
+    resolve_uvx_agent_install,
+};
 use crate::commands::experts::{
     central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, ExpertLinkState,
     RUNTIME_ENV_DIR_NAMES,
@@ -50,7 +53,7 @@ struct AcpAgentsUpdatedEventPayload {
     agent_type: Option<AgentType>,
 }
 
-fn emit_acp_agents_updated(
+pub(crate) fn emit_acp_agents_updated(
     emitter: &EventEmitter,
     reason: &'static str,
     agent_type: Option<AgentType>,
@@ -178,37 +181,6 @@ fn sanitize_custom_version(input: &str) -> Option<String> {
     all_allowed.then(|| normalized.to_string())
 }
 
-/// Build the versioned npm package spec for an agent.
-///
-/// `version_override` of `None` or all-whitespace yields the registry-pinned
-/// `package` spec unchanged (current behavior). A non-empty override is
-/// validated via [`sanitize_custom_version`] and combined with the registry
-/// package *name* (its pinned version is dropped) to form `name@<version>`. An
-/// override that fails validation is rejected with an error.
-fn build_npm_install_spec(
-    package: &str,
-    version_override: Option<&str>,
-) -> Result<String, AcpError> {
-    match version_override {
-        Some(raw) if !raw.trim().is_empty() => {
-            let version = sanitize_custom_version(raw).ok_or_else(|| {
-                AcpError::protocol(format!("invalid custom version: {}", raw.trim()))
-            })?;
-            Ok(format!("{}@{version}", package_name_from_spec(package)))
-        }
-        _ => Ok(package.to_string()),
-    }
-}
-
-/// Substitute a custom version into a registry binary download URL by replacing
-/// every occurrence of the registry version string. The registry version is
-/// embedded in the GitHub release URL (the path tag, and for some agents the
-/// asset filename), so a plain replace yields the URL for the requested version
-/// — assuming the upstream release reuses the same asset-naming convention.
-fn apply_custom_version_to_url(url: &str, registry_version: &str, custom_version: &str) -> String {
-    url.replace(registry_version, custom_version)
-}
-
 /// Check whether an NPX agent command is spawnable.
 /// Uses PATH first, then falls back to the current npm global prefix to handle
 /// GUI environments that don't inherit the user's shell PATH.
@@ -302,6 +274,21 @@ pub(crate) fn uvx_python_args(python: Option<&str>) -> Vec<String> {
     }
 }
 
+pub(crate) fn uvx_package_spec_for_version(
+    package: &str,
+    version: &str,
+) -> Result<String, AcpError> {
+    let version = sanitize_custom_version(version)
+        .ok_or_else(|| AcpError::protocol("managed uvx version is invalid"))?;
+    let base = package.split("==").next().unwrap_or(package).trim();
+    if base.is_empty() {
+        return Err(AcpError::protocol(
+            "managed uvx package capability is invalid",
+        ));
+    }
+    Ok(format!("{base}=={version}"))
+}
+
 /// Pre-fetch a `Uvx` agent's pinned package into uvx's cache by running
 /// `uvx --from <package> <cmd> --version`, so the first real connect doesn't
 /// pay the download cost. Streams progress to the install event stream.
@@ -310,6 +297,7 @@ async fn prewarm_uvx_agent(
     package: &str,
     cmd: &str,
     python: Option<&str>,
+    index_url: Option<&str>,
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
@@ -335,6 +323,9 @@ async fn prewarm_uvx_agent(
     );
     let mut command = crate::process::tokio_command(&uvx);
     command.envs(binary_cache::uv_runtime_env(&paths));
+    if let Some(index_url) = index_url {
+        command.env("UV_DEFAULT_INDEX", index_url);
+    }
     let output = command
         .args(&python_args)
         .arg("--from")
@@ -417,10 +408,16 @@ pub(crate) fn verify_agent_installed(
                     meta.name
                 )));
             }
-            // Accept any cached version — the Settings page will still
-            // surface "upgrade available" for stale caches via its own
-            // version-badge flow.
-            if binary_cache::find_best_cached_binary_for_agent(&paths, agent_type, cmd)?.is_none() {
+            let version = runtime_env
+                .get(MANAGED_AGENT_VERSION_ENV)
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty());
+            if !version.is_some_and(|version| {
+                binary_cache::find_cached_binary_for_agent(&paths, agent_type, version, cmd)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            }) {
                 // INVARIANT: see note above — "is not installed" is a
                 // stable substring the frontend matches against.
                 return Err(AcpError::SdkNotInstalled(format!(
@@ -458,9 +455,11 @@ fn detect_local_version(agent_type: AgentType, recorded_version: Option<&str>) -
         }
         registry::AgentDistribution::Binary { cmd, .. } => {
             let paths = AgentStoragePaths::active()?;
-            binary_cache::detect_installed_version(&paths, agent_type, cmd)
+            let version = recorded_version?.trim();
+            binary_cache::find_cached_binary_for_agent(&paths, agent_type, version, cmd)
                 .ok()
                 .flatten()
+                .map(|_| version.to_string())
         }
         registry::AgentDistribution::Uvx { .. } => {
             let paths = AgentStoragePaths::active()?;
@@ -953,42 +952,62 @@ fn managed_npm_install_error(error: AcpError) -> ManagedNpmSourceError {
     }
 }
 
-async fn install_managed_npm_package(
+async fn install_managed_npm_packages(
     paths: &AgentStoragePaths,
     agent_type: AgentType,
-    package_name: &str,
     version: &str,
-    registry_url: &str,
-    integrity: &str,
+    managed: &crate::acp::version_center::ManagedNpmInstall,
     required_commands: &[&str],
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<PathBuf, ManagedNpmSourceError> {
-    emit_agent_install_event(
-        emitter,
-        task_id,
-        AgentInstallEventKind::Log,
-        format!("Downloading exact managed npm archive for {package_name}@{version}"),
-    );
-    let tarball =
-        fetch_managed_npm_tarball(paths, package_name, version, registry_url, integrity).await?;
+    let mut tarballs = Vec::with_capacity(managed.packages.len());
+    for package in &managed.packages {
+        emit_agent_install_event(
+            emitter,
+            task_id,
+            AgentInstallEventKind::Log,
+            format!(
+                "Downloading exact managed npm archive for {}@{}",
+                package.package_name, package.package_version
+            ),
+        );
+        tarballs.push(
+            fetch_managed_npm_tarball(
+                paths,
+                &package.package_name,
+                &package.package_version,
+                &package.registry,
+                &package.integrity,
+            )
+            .await?,
+        );
+    }
     emit_agent_install_event(
         emitter,
         task_id,
         AgentInstallEventKind::Log,
         "Managed npm archive integrity verified",
     );
-    let package_path = tarball
-        .path
-        .to_str()
-        .ok_or_else(|| managed_npm_rejected("managed npm tarball path is not valid Unicode"))?;
+    let package_paths = tarballs
+        .iter()
+        .map(|tarball| {
+            tarball.path.to_str().ok_or_else(|| {
+                managed_npm_rejected("managed npm tarball path is not valid Unicode")
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let primary = managed
+        .packages
+        .first()
+        .ok_or_else(|| managed_npm_rejected("managed npm component list is empty"))?;
     install_private_npm_package(
         paths,
         agent_type,
         version,
-        &[package_path],
-        Some(package_name),
-        Some(registry_url),
+        &package_paths,
+        Some(&primary.package_name),
+        Some(&primary.registry),
         required_commands,
         task_id,
         emitter,
@@ -8016,6 +8035,12 @@ pub(crate) async fn build_session_runtime_env(
             "{agent_type} is not installed"
         )));
     }
+    let platform = crate::acp::version_center::platform_projection(&db.conn, agent_type).await;
+    if !platform.launch_allowed() {
+        return Err(AcpError::protocol(format!(
+            "{agent_type} is disabled by the Agent platform"
+        )));
+    }
     let disabled = setting
         .as_ref()
         .map(|model| !model.enabled)
@@ -8802,10 +8827,13 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
                 (true, "npx", cached)
             }
             registry::AgentDistribution::Binary { platforms, cmd, .. } => {
-                let detected = storage.as_ref().and_then(|paths| {
-                    binary_cache::detect_installed_version(paths, agent_type, cmd)
+                let detected = setting.and_then(|model| {
+                    let version = model.installed_version.as_deref()?;
+                    let paths = storage.as_ref()?;
+                    binary_cache::find_cached_binary_for_agent(paths, agent_type, version, cmd)
                         .ok()
                         .flatten()
+                        .map(|_| version.to_string())
                 });
                 (
                     platforms.iter().any(|p| p.platform == platform),
@@ -8821,6 +8849,10 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
                     .and_then(|paths| binary_cache::uvx_prepared_version(paths, agent_type)),
             ),
         };
+        let platform = crate::acp::version_center::platform_projection(&db.conn, agent_type).await;
+        if !platform.clone().visible(local_installed_version.is_some()) {
+            continue;
+        }
 
         let mut env = setting
             .and_then(|m| m.env_json.as_deref())
@@ -8910,7 +8942,7 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
         agents.push(AcpAgentInfo {
             agent_type,
             registry_id: registry::registry_id_for(agent_type).to_string(),
-            registry_version: meta.registry_version().map(ToString::to_string),
+            registry_version: platform.recommended_version,
             name: meta.name.to_string(),
             description: meta.description.to_string(),
             available,
@@ -8945,7 +8977,16 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn acp_list_agents(
     db: tauri::State<'_, AppDatabase>,
+    catalog: tauri::State<'_, crate::acp::version_center::CatalogStore>,
 ) -> Result<Vec<AcpAgentInfo>, AcpError> {
+    catalog.refresh(&db.conn).await.map_err(|error| {
+        tracing::warn!(
+            code = ?error.code,
+            detail = ?error.detail,
+            "[agent-version-center] Agent list refresh failed closed"
+        );
+        AcpError::protocol("Agent platform catalog is unavailable")
+    })?;
     acp_list_agents_core(&db).await
 }
 
@@ -9001,6 +9042,76 @@ async fn reconcile_installed_agent_best_effort(db: &AppDatabase, agent_type: Age
         }
     };
     reconcile_agent_enablement_best_effort(db, agent_type, enabled).await;
+}
+
+async fn ensure_agent_install_allowed(
+    conn: &sea_orm::DatabaseConnection,
+    agent_type: AgentType,
+) -> Result<crate::acp::version_center::PlatformProjection, AcpError> {
+    let installed = agent_setting_service::get_by_agent_type(conn, agent_type)
+        .await
+        .map_err(|error| AcpError::protocol(error.to_string()))?
+        .and_then(|setting| setting.installed_version)
+        .is_some_and(|version| !version.trim().is_empty());
+    let platform = crate::acp::version_center::platform_projection(conn, agent_type).await;
+    if !platform.clone().install_allowed(installed) {
+        return Err(AcpError::protocol(format!(
+            "{agent_type} installation is disabled by the Agent platform"
+        )));
+    }
+    Ok(platform)
+}
+
+fn requested_agent_version(
+    requested: Option<&str>,
+    listed: Option<&str>,
+    recommended: Option<&str>,
+) -> Result<String, AcpError> {
+    if let Some(value) = requested.filter(|value| !value.trim().is_empty()) {
+        return sanitize_custom_version(value)
+            .map(str::to_string)
+            .ok_or_else(|| AcpError::protocol("invalid Agent version"));
+    }
+    recommended
+        .and_then(normalize_version_candidate)
+        .or_else(|| listed.and_then(normalize_version_candidate))
+        .ok_or_else(|| AcpError::protocol("Agent platform has no recommended version"))
+}
+
+struct ManagedAgentRecord<'a> {
+    version: &'a str,
+    delivery_kind: &'a str,
+    source_key: Option<&'a str>,
+    revision: u64,
+    policy: &'a str,
+}
+
+async fn record_managed_agent(
+    conn: &sea_orm::DatabaseConnection,
+    agent_type: AgentType,
+    record: ManagedAgentRecord<'_>,
+) -> Result<(), AcpError> {
+    crate::acp::version_center::record_agent_ready(
+        conn,
+        crate::acp::version_center::ReadyAgentInstallation {
+            agent_type,
+            registry_id: registry::registry_id_for(agent_type),
+            version: record.version,
+            delivery_kind: record.delivery_kind,
+            artifact_id: None,
+            source_key: record.source_key,
+            expected_sha256: None,
+        },
+    )
+    .await?;
+    crate::acp::version_center::activate_agent(
+        conn,
+        agent_type,
+        record.version,
+        record.policy,
+        record.revision,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -9769,6 +9880,7 @@ pub(crate) async fn acp_download_agent_binary_core(
     let paths = active_agent_storage_paths()?;
 
     let meta = registry::get_agent_meta(agent_type);
+    let platform_access = ensure_agent_install_allowed(&db.conn, agent_type).await?;
     agent_setting_service::ensure_defaults(
         &db.conn,
         &[agent_setting_service::AgentDefaultInput {
@@ -9780,77 +9892,38 @@ pub(crate) async fn acp_download_agent_binary_core(
     .await
     .map_err(|error| AcpError::protocol(error.to_string()))?;
     let result = match meta.distribution {
-        registry::AgentDistribution::Binary {
-            version,
-            cmd,
-            platforms,
-            ..
-        } => {
-            // A custom version substitutes into the pinned download URL and the
-            // cache key; `None`/empty keeps the registry-pinned version.
-            let custom = match version_override.as_deref() {
-                Some(raw) if !raw.trim().is_empty() => {
-                    Some(sanitize_custom_version(raw).ok_or_else(|| {
-                        AcpError::protocol(format!("invalid custom version: {}", raw.trim()))
-                    })?)
-                }
-                _ => None,
-            };
-
-            let platform = registry::current_platform();
-            let fallback = platforms
-                .iter()
-                .find(|p| p.platform == platform)
-                .ok_or_else(|| {
-                    AcpError::PlatformNotSupported(format!(
-                        "{} is not available on {platform}",
-                        meta.name
-                    ))
-                })?;
-
-            let effective_version = custom.as_deref().unwrap_or(version);
-            let archive_url = match &custom {
-                Some(c) => apply_custom_version_to_url(fallback.url, version, c),
-                None => fallback.url.to_string(),
-            };
-
-            emit_agent_install_event(
-                emitter,
-                &task_id,
-                AgentInstallEventKind::Log,
-                format!(
-                    "Downloading {} v{effective_version} for {platform}",
-                    meta.name
-                ),
-            );
-
+        registry::AgentDistribution::Binary { .. } => {
+            let requested = version_override
+                .as_deref()
+                .and_then(sanitize_custom_version)
+                .map(str::to_string)
+                .or(platform_access.recommended_version)
+                .ok_or_else(|| AcpError::protocol("Agent platform has no recommended version"))?;
+            let channel = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
+                .await
+                .map_err(|error| AcpError::protocol(error.to_string()))?
+                .map(|setting| setting.update_channel)
+                .unwrap_or_else(|| "stable".to_string());
             let emitter_clone = emitter.clone();
             let task_id_clone = task_id.clone();
-            let _ = binary_cache::ensure_binary_for_agent_with_progress(
+            crate::acp::version_center::install_managed_binary_agent(
+                &db.conn,
                 &paths,
                 agent_type,
-                effective_version,
-                &archive_url,
-                cmd,
-                move |msg| {
+                &requested,
+                &channel,
+                move |message| {
                     emit_agent_install_event(
                         &emitter_clone,
                         &task_id_clone,
                         AgentInstallEventKind::Log,
-                        msg,
+                        message,
                     );
                 },
             )
             .await?;
             crate::commands::agent_storage::ensure_active_agent_profile_layout(
                 &db.conn, agent_type,
-            )
-            .await
-            .map_err(|error| AcpError::protocol(error.to_string()))?;
-            agent_setting_service::set_installed_version(
-                &db.conn,
-                agent_type,
-                Some(effective_version.to_string()),
             )
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?;
@@ -10009,32 +10082,11 @@ pub(crate) async fn acp_prepare_npx_agent_core(
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
     let paths = active_agent_storage_paths()?;
+    let platform = ensure_agent_install_allowed(&db.conn, agent_type).await?;
 
     let meta = registry::get_agent_meta(agent_type);
     let result = match meta.distribution {
-        registry::AgentDistribution::Npx {
-            package,
-            cmd,
-            version,
-            ..
-        } => {
-            // `version_override` of None/empty keeps the registry-pinned spec;
-            // a custom version installs `<name>@<version>` instead.
-            let legacy_install_spec = build_npm_install_spec(package, version_override.as_deref())?;
-            let legacy_resolved = version_from_package_spec(&legacy_install_spec)
-                .or_else(|| {
-                    registry_version
-                        .as_deref()
-                        .and_then(normalize_version_candidate)
-                })
-                .or_else(|| normalize_version_candidate(version))
-                .ok_or_else(|| {
-                    AcpError::protocol("failed to determine private npm runtime version")
-                })?;
-            let mut install_spec = legacy_install_spec.clone();
-            let mut resolved = legacy_resolved.clone();
-            let mut managed_install = None;
-
+        registry::AgentDistribution::Npx { cmd, .. } => {
             let default = agent_setting_service::AgentDefaultInput {
                 agent_type,
                 registry_id: registry::registry_id_for(agent_type).to_string(),
@@ -10053,142 +10105,99 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 );
             }
 
-            if agent_type == AgentType::Codex {
-                match resolve_npm_agent_install(&db.conn, agent_type, &resolved).await {
-                    Ok(managed) => {
-                        emit_agent_install_event(
-                            emitter,
-                            &task_id,
-                            AgentInstallEventKind::Log,
-                            format!(
-                                "Codex source resolved by version center ({})",
-                                managed.registry
-                            ),
-                        );
-                        install_spec = managed.install_spec.clone();
-                        resolved = managed.version.clone();
-                        managed_install = Some(managed);
-                    }
-                    Err(error) => {
-                        let unavailable = error.is_unavailable();
-                        let error = error.into_error();
-                        if !unavailable {
-                            return Err(error);
-                        }
-                        tracing::warn!(
-                            agent_type = ?agent_type,
-                            requested_version = %resolved,
-                            error = %error,
-                            "[agent-version-center] Codex npm resolve failed; using legacy source"
-                        );
-                        emit_agent_install_event(
-                            emitter,
-                            &task_id,
-                            AgentInstallEventKind::Log,
-                            format!(
-                                "Version center unavailable ({error}); using the legacy npm source"
-                            ),
-                        );
-                    }
-                }
-            }
+            let requested = requested_agent_version(
+                version_override.as_deref(),
+                registry_version.as_deref(),
+                platform.recommended_version.as_deref(),
+            )?;
+            let current_version = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
+                .await
+                .map_err(|error| AcpError::protocol(error.to_string()))?
+                .and_then(|setting| setting.installed_version);
+            let mut managed = resolve_npm_agent_install(
+                &db.conn,
+                agent_type,
+                current_version.as_deref(),
+                &requested,
+            )
+            .await
+            .map_err(|error| error.into_error())?;
+            let sources = managed
+                .packages
+                .iter()
+                .map(|package| package.registry.as_str())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join(", ");
             emit_agent_install_event(
                 emitter,
                 &task_id,
                 AgentInstallEventKind::Log,
-                format!("Installing {} ({install_spec})", meta.name),
+                format!("Agent source resolved by version center ({sources})"),
             );
-            let mut packages = vec![install_spec.as_str()];
+            let resolved = managed.version.clone();
+            emit_agent_install_event(
+                emitter,
+                &task_id,
+                AgentInstallEventKind::Log,
+                format!("Installing {} v{resolved}", meta.name),
+            );
             let mut required_commands = vec![cmd];
             if agent_type == AgentType::Pi {
-                packages.push(PI_CODING_AGENT_PACKAGE_SPEC);
                 required_commands.push("pi");
             }
-            if let Some(managed) = managed_install.as_ref() {
-                let install_result = install_managed_npm_package(
-                    &paths,
-                    agent_type,
-                    &managed.package_name,
-                    &managed.version,
-                    &managed.registry,
-                    &managed.integrity,
-                    &required_commands,
-                    &task_id,
-                    emitter,
-                )
-                .await;
-                match install_result {
-                    Ok(_) => {}
-                    Err(ManagedNpmSourceError::Rejected(error)) => return Err(error),
-                    Err(ManagedNpmSourceError::Unavailable(error)) => {
-                        tracing::warn!(
-                            agent_type = ?agent_type,
-                            managed_error = %error,
-                            "[agent-version-center] managed npm source unavailable; using legacy source"
-                        );
-                        emit_agent_install_event(
-                            emitter,
-                            &task_id,
-                            AgentInstallEventKind::Log,
-                            format!(
-                                "Managed npm source unavailable ({error}); using the legacy npm source"
-                            ),
-                        );
-                        install_private_npm_package(
-                            &paths,
-                            agent_type,
-                            &legacy_resolved,
-                            &[legacy_install_spec.as_str()],
-                            None,
-                            None,
-                            &[cmd],
-                            &task_id,
-                            emitter,
-                        )
-                        .await?;
-                        resolved = legacy_resolved;
-                    }
-                }
-            } else {
-                install_private_npm_package(
-                    &paths,
-                    agent_type,
-                    &resolved,
-                    &packages,
-                    None,
-                    None,
-                    &required_commands,
-                    &task_id,
-                    emitter,
-                )
-                .await?;
-            }
+            install_managed_npm_packages(
+                &paths,
+                agent_type,
+                &managed.version,
+                &managed,
+                &required_commands,
+                &task_id,
+                emitter,
+            )
+            .await
+            .map_err(|error| match error {
+                ManagedNpmSourceError::Unavailable(error)
+                | ManagedNpmSourceError::Rejected(error) => error,
+            })?;
+            managed = confirm_npm_agent_install(
+                &db.conn,
+                agent_type,
+                current_version.as_deref(),
+                &managed,
+            )
+            .await
+            .map_err(|error| error.into_error())?;
 
             crate::commands::agent_storage::ensure_active_agent_profile_layout(
                 &db.conn, agent_type,
             )
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?;
-            agent_setting_service::set_installed_version(
+            let source = managed
+                .packages
+                .first()
+                .map(|package| package.source_key.as_str());
+            record_managed_agent(
                 &db.conn,
                 agent_type,
-                Some(resolved.clone()),
+                ManagedAgentRecord {
+                    version: &resolved,
+                    delivery_kind: "npm",
+                    source_key: source,
+                    revision: managed.revision,
+                    policy: &managed.effective_policy,
+                },
             )
-            .await
-            .map_err(|e| AcpError::protocol(e.to_string()))?;
+            .await?;
             emit_acp_agents_updated(emitter, "npx_prepared", Some(agent_type));
             Ok(resolved)
         }
         registry::AgentDistribution::Binary { .. } => Err(AcpError::protocol(
             "prepare is only supported for npx agents",
         )),
-        registry::AgentDistribution::Uvx {
-            package,
-            cmd,
-            version,
-            python,
-            ..
-        } => {
+        registry::AgentDistribution::Uvx { cmd, python, .. } => {
             let default = agent_setting_service::AgentDefaultInput {
                 agent_type,
                 registry_id: registry::registry_id_for(agent_type).to_string(),
@@ -10198,25 +10207,61 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 .await
                 .map_err(|e| AcpError::protocol(e.to_string()))?;
 
-            // Pre-fetch the pinned package into uvx's cache so the first
-            // connect doesn't pay the download cost. The version is pinned in
-            // the package spec, so `version_override` does not apply here.
-            prewarm_uvx_agent(meta.name, package, cmd, python, &task_id, emitter).await?;
+            let requested = requested_agent_version(
+                version_override.as_deref(),
+                registry_version.as_deref(),
+                platform.recommended_version.as_deref(),
+            )?;
+            let current_version = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
+                .await
+                .map_err(|error| AcpError::protocol(error.to_string()))?
+                .and_then(|setting| setting.installed_version);
+            let mut managed = resolve_uvx_agent_install(
+                &db.conn,
+                agent_type,
+                current_version.as_deref(),
+                &requested,
+            )
+            .await
+            .map_err(|error| error.into_error())?;
+            prewarm_uvx_agent(
+                meta.name,
+                &managed.package_spec,
+                cmd,
+                python,
+                Some(&managed.index_url),
+                &task_id,
+                emitter,
+            )
+            .await?;
 
-            let resolved = version.to_string();
+            managed = confirm_uvx_agent_install(
+                &db.conn,
+                agent_type,
+                current_version.as_deref(),
+                &managed,
+            )
+            .await
+            .map_err(|error| error.into_error())?;
+            let resolved = managed.version.clone();
             binary_cache::mark_uvx_agent_prepared(&paths, agent_type, &resolved)?;
             crate::commands::agent_storage::ensure_active_agent_profile_layout(
                 &db.conn, agent_type,
             )
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?;
-            agent_setting_service::set_installed_version(
+            record_managed_agent(
                 &db.conn,
                 agent_type,
-                Some(resolved.clone()),
+                ManagedAgentRecord {
+                    version: &resolved,
+                    delivery_kind: "uvx",
+                    source_key: Some(&managed.source_key),
+                    revision: managed.revision,
+                    policy: &managed.effective_policy,
+                },
             )
-            .await
-            .map_err(|e| AcpError::protocol(e.to_string()))?;
+            .await?;
             emit_acp_agents_updated(emitter, "uvx_prepared", Some(agent_type));
             Ok(resolved)
         }

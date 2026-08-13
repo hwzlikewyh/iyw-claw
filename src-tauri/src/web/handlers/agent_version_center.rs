@@ -5,8 +5,12 @@ use axum::{extract::Extension, Json};
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::agent_version_center::{
-    self, AgentHistoryRequest, AgentPinRequest, ToolHistoryRequest, ToolInstallRequest,
-    ToolPinRequest,
+    self, AgentHistoryRequest, AgentPinRequest, AgentRollbackRequest, AgentVersionRequest,
+    ToolHistoryRequest, ToolInstallRequest, ToolPinRequest,
+};
+use crate::commands::agent_version_operations::{
+    install_agent_version_core, rollback_agent_version_core, switch_agent_version_core,
+    AgentVersionOperationResult,
 };
 
 pub async fn snapshot(
@@ -91,6 +95,53 @@ pub async fn install_tool(
             request.channel,
             None, // no task_id in server mode
             None, // no emitter in server mode
+        )
+        .await?,
+    ))
+}
+
+pub async fn install_agent(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(request): Json<AgentVersionRequest>,
+) -> Result<Json<AgentVersionOperationResult>, AppCommandError> {
+    Ok(Json(
+        install_agent_version_core(
+            &state.db,
+            &state.connection_manager,
+            &state.emitter,
+            request.agent_type,
+            request.version,
+        )
+        .await?,
+    ))
+}
+
+pub async fn switch_agent(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(request): Json<AgentVersionRequest>,
+) -> Result<Json<AgentVersionOperationResult>, AppCommandError> {
+    Ok(Json(
+        switch_agent_version_core(
+            &state.db.conn,
+            &state.connection_manager,
+            &state.emitter,
+            request.agent_type,
+            request.version,
+        )
+        .await?,
+    ))
+}
+
+pub async fn rollback_agent(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(request): Json<AgentRollbackRequest>,
+) -> Result<Json<AgentVersionOperationResult>, AppCommandError> {
+    Ok(Json(
+        rollback_agent_version_core(
+            &state.db.conn,
+            &state.connection_manager,
+            &state.emitter,
+            request.agent_type,
         )
         .await?,
     ))

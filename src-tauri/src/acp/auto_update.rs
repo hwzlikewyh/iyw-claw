@@ -7,6 +7,7 @@ use crate::acp::registry::{self, AgentDistribution};
 use crate::commands::acp::{
     acp_download_agent_binary_core, acp_list_agents_core, acp_prepare_npx_agent_core,
 };
+use crate::db::service::agent_setting_service;
 use crate::db::AppDatabase;
 use crate::models::agent::AgentType;
 use crate::web::event_bridge::EventEmitter;
@@ -48,15 +49,16 @@ async fn run_auto_update_pass(
             return;
         }
     };
-    let candidates = agents.into_iter().filter_map(|agent| {
-        let installed = agent.installed_version?;
-        let registry = agent.registry_version?;
-        (agent.available && !versions_match(&installed, &registry)).then_some(AutoUpdateCandidate {
-            agent_type: agent.agent_type,
-            installed_version: installed,
-            registry_version: registry,
-        })
-    });
+    let settings = match agent_setting_service::list_map_by_agent_type(&db.conn).await {
+        Ok(settings) => settings,
+        Err(error) => {
+            tracing::warn!(%error, "[ACP] automatic Agent SDK settings inventory failed");
+            return;
+        }
+    };
+    let candidates = agents
+        .into_iter()
+        .filter_map(|agent| update_candidate_from(agent, &settings));
     for candidate in candidates {
         if !is_update_window_open(manager).await {
             tracing::info!(
@@ -66,6 +68,30 @@ async fn run_auto_update_pass(
         }
         update_candidate(candidate, db, emitter).await;
     }
+}
+
+fn update_candidate_from(
+    agent: crate::acp::types::AcpAgentInfo,
+    settings: &std::collections::HashMap<AgentType, crate::db::entities::agent_setting::Model>,
+) -> Option<AutoUpdateCandidate> {
+    let pinned = settings
+        .get(&agent.agent_type)
+        .and_then(|setting| setting.pinned_version.as_deref())
+        .is_some();
+    if pinned {
+        tracing::debug!(
+            agent = %agent.agent_type,
+            "[ACP] automatic Agent SDK update skipped because the version is pinned"
+        );
+        return None;
+    }
+    let installed = agent.installed_version?;
+    let registry = agent.registry_version?;
+    (agent.available && is_strictly_newer(&installed, &registry)).then_some(AutoUpdateCandidate {
+        agent_type: agent.agent_type,
+        installed_version: installed,
+        registry_version: registry,
+    })
 }
 
 async fn is_update_window_open(manager: &ConnectionManager) -> bool {
@@ -139,8 +165,14 @@ async fn install_registry_version(
     }
 }
 
-fn versions_match(installed: &str, registry: &str) -> bool {
-    normalize_version(installed).eq_ignore_ascii_case(normalize_version(registry))
+fn is_strictly_newer(installed: &str, registry: &str) -> bool {
+    let Ok(installed) = semver::Version::parse(normalize_version(installed)) else {
+        return false;
+    };
+    let Ok(registry) = semver::Version::parse(normalize_version(registry)) else {
+        return false;
+    };
+    registry > installed
 }
 
 fn normalize_version(version: &str) -> &str {

@@ -694,7 +694,7 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                 })
         }
         AgentDistribution::Binary {
-            version: registry_version,
+            version: _,
             cmd,
             args,
             env,
@@ -717,34 +717,37 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                     ))
                 })?;
 
-            // Session-page connect must never trigger a download. Use
-            // the best cached version available (tolerates users on
-            // older-but-still-working binaries); return SdkNotInstalled
-            // only when nothing is cached, so the frontend can prompt
-            // the user to install it from the Agent Settings page.
+            // Session-page connect must never trigger a download. Resolve only
+            // the explicitly active version so pin/switch/rollback decisions
+            // cannot be bypassed by a newer directory left in the cache.
             //
             // INVARIANT: the substring "is not installed" is matched
             // verbatim by the frontend catch block in
             // `src/contexts/acp-connections-context.tsx` to surface a
             // localized install prompt. Do not change the wording.
-            let (binary_path, cached_version) =
-                crate::acp::binary_cache::find_best_cached_binary_for_agent(
-                    &storage, agent_type, cmd,
-                )?
+            let active_version = runtime_env
+                .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty())
                 .ok_or_else(|| {
                     AcpError::SdkNotInstalled(format!(
                         "{} is not installed. Please install it in Agent Settings.",
                         meta.name
                     ))
                 })?;
-            if cached_version == registry_version {
-                tracing::info!("[ACP][{}] Using cached binary {cached_version}", meta.name);
-            } else {
-                tracing::info!(
-                    "[ACP][{}] Using cached binary {cached_version} (registry recommends {registry_version})",
+            let binary_path = crate::acp::binary_cache::find_cached_binary_for_agent(
+                &storage,
+                agent_type,
+                active_version,
+                cmd,
+            )?
+            .ok_or_else(|| {
+                AcpError::SdkNotInstalled(format!(
+                    "{} is not installed. Please install it in Agent Settings.",
                     meta.name
-                );
-            }
+                ))
+            })?;
+            tracing::info!("[ACP][{}] Using active binary {active_version}", meta.name);
 
             let binary_str = binary_path.to_string_lossy().to_string();
             let binary_size = std::fs::metadata(&binary_path)
@@ -845,8 +848,32 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                 // supports (see the registry `python` field).
                 parts.push(uvx_path.to_string_lossy().to_string());
                 parts.extend(crate::commands::acp::uvx_python_args(python));
+                parts.push("--offline".into());
                 parts.push("--from".into());
-                parts.push(package.to_string());
+                let active_version = runtime_env
+                    .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
+                    .map(String::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or_else(|| {
+                        AcpError::SdkNotInstalled(format!(
+                            "{} is not installed. Please install it in Agent Settings.",
+                            meta.name
+                        ))
+                    })?;
+                if !crate::acp::binary_cache::is_uvx_agent_version_prepared(
+                    &storage,
+                    agent_type,
+                    active_version,
+                ) {
+                    return Err(AcpError::SdkNotInstalled(format!(
+                        "{} is not installed. Please install it in Agent Settings.",
+                        meta.name
+                    )));
+                }
+                parts.push(crate::commands::acp::uvx_package_spec_for_version(
+                    package,
+                    active_version,
+                )?);
                 parts.push(cmd.to_string());
                 for a in args {
                     parts.push((*a).into());
@@ -918,6 +945,7 @@ pub async fn spawn_agent_connection(
     preferred_config_values: BTreeMap<String, String>,
     user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
     delegation_injection: Option<DelegationInjection>,
+    version_center_db: Option<sea_orm::DatabaseConnection>,
 ) -> Result<tokio::sync::oneshot::Receiver<()>, AcpError> {
     // 恢复会话（session_id 为 Some）走 reconcile_resumed_session：保持策略
     // 代际，只刷新允许热更新的安全字段；新建会话走完整 reconcile。两种路径
@@ -1180,6 +1208,7 @@ pub async fn spawn_agent_connection(
                 builtin_prompt,
                 openclaw.session_key,
                 prepared_companion,
+                version_center_db,
             ),
             cleanup_connection_resources(cleanup_injection.as_ref(), &conn_id, prompt_bridges),
         )
@@ -1860,6 +1889,7 @@ async fn finalize_user_memory_launch(
     state: &Arc<RwLock<SessionState>>,
     emitter: &EventEmitter,
     launch: UserMemoryLaunchFinalization<'_>,
+    version_center_db: Option<&sea_orm::DatabaseConnection>,
 ) {
     let runtime = user_memory_runtime_after_companion_ready(
         launch.injection,
@@ -1897,6 +1927,16 @@ async fn finalize_user_memory_launch(
         },
     )
     .await;
+    if let Some(conn) = version_center_db {
+        let agent_type = state.read().await.agent_type;
+        if let Err(error) = crate::acp::version_center::promote_agent_lkg(conn, agent_type).await {
+            tracing::warn!(
+                agent_type = ?agent_type,
+                error = %error,
+                "[agent-version-center] failed to promote successful Agent version to LKG"
+            );
+        }
+    }
 }
 
 /// Append the built-in `iyw-claw-mcp` MCP entry when its binary is present.
@@ -2263,6 +2303,7 @@ async fn run_connection(
     builtin_prompt: crate::acp::builtin_agent_prompt::RenderedBuiltinPrompt,
     openclaw_session_key: Option<String>,
     prepared_companion: Option<CompanionLaunchPreparation>,
+    version_center_db: Option<sea_orm::DatabaseConnection>,
 ) -> Result<(), AcpError> {
     let pending_perms: PendingPermissions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
     // `terminal_base_env` already filtered to just the credential helper
@@ -2642,6 +2683,7 @@ async fn run_connection(
                                     health: &companion_health,
                                     resumed: true,
                                 },
+                                version_center_db.as_ref(),
                             )
                             .await;
 
@@ -2761,6 +2803,7 @@ async fn run_connection(
                                 health: &companion_health,
                                 resumed: true,
                             },
+                            version_center_db.as_ref(),
                         )
                         .await;
 
@@ -2928,6 +2971,7 @@ async fn run_connection(
                         health: &companion_health,
                         resumed: false,
                     },
+                    version_center_db.as_ref(),
                 )
                 .await;
                 emit_with_state(

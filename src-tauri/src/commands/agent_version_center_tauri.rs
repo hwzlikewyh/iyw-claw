@@ -3,8 +3,12 @@ use crate::acp::version_center::{CatalogStore, ManagedToolInstallResult};
 use crate::app_error::AppCommandError;
 use crate::commands::agent_version_center::{
     agent_history_core, install_tool_core, refresh_core, set_agent_pin_core, set_tool_pin_core,
-    snapshot_core, tool_history_core, AgentHistoryRequest, AgentPinRequest, ToolHistoryRequest,
-    ToolInstallRequest, ToolPinRequest,
+    snapshot_core, tool_history_core, AgentHistoryRequest, AgentPinRequest, AgentRollbackRequest,
+    AgentVersionRequest, ToolHistoryRequest, ToolInstallRequest, ToolPinRequest,
+};
+use crate::commands::agent_version_operations::{
+    install_agent_version_core, rollback_agent_version_core, switch_agent_version_core,
+    AgentVersionOperationResult,
 };
 use crate::db::AppDatabase;
 use crate::web::event_bridge::EventEmitter;
@@ -121,4 +125,54 @@ pub async fn agent_version_center_install_tool(
         ),
     }
     result
+}
+
+#[tauri::command]
+pub async fn agent_version_center_install_agent(
+    request: AgentVersionRequest,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+    connection_manager: tauri::State<'_, ConnectionManager>,
+) -> Result<AgentVersionOperationResult, AppCommandError> {
+    install_agent_version_core(
+        &db,
+        &connection_manager,
+        &EventEmitter::Tauri(app),
+        request.agent_type,
+        request.version,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn agent_version_center_switch_agent(
+    request: AgentVersionRequest,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+    connection_manager: tauri::State<'_, ConnectionManager>,
+) -> Result<AgentVersionOperationResult, AppCommandError> {
+    switch_agent_version_core(
+        &db.conn,
+        &connection_manager,
+        &EventEmitter::Tauri(app),
+        request.agent_type,
+        request.version,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn agent_version_center_rollback_agent(
+    request: AgentRollbackRequest,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+    connection_manager: tauri::State<'_, ConnectionManager>,
+) -> Result<AgentVersionOperationResult, AppCommandError> {
+    rollback_agent_version_core(
+        &db.conn,
+        &connection_manager,
+        &EventEmitter::Tauri(app),
+        request.agent_type,
+    )
+    .await
 }

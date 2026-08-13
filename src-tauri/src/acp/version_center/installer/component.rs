@@ -129,6 +129,7 @@ pub(super) async fn install_tool_component(
             version_id: &offer.version_id,
             artifact_id: &offer.artifact.id,
             catalog_revision: offer.revision,
+            current_version: &current_version,
             client_version: env!("CARGO_PKG_VERSION"),
             runtime: capability::RUNTIME,
             target: capability::current_target(),

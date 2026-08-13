@@ -5,7 +5,8 @@ use serde::Serialize;
 mod requests;
 
 pub use requests::{
-    AgentHistoryRequest, AgentPinRequest, ToolHistoryRequest, ToolInstallRequest, ToolPinRequest,
+    AgentHistoryRequest, AgentPinRequest, AgentRollbackRequest, AgentVersionRequest,
+    ToolHistoryRequest, ToolInstallRequest, ToolPinRequest,
 };
 
 use crate::acp::error::AcpError;
@@ -180,6 +181,16 @@ async fn validate_agent_pin(
     let Some(version) = normalize_version(version) else {
         return Ok(None);
     };
+    let active_version = agent_setting_service::get_by_agent_type(conn, agent_type)
+        .await
+        .map_err(AppCommandError::from)?
+        .and_then(|setting| setting.installed_version)
+        .filter(|value| !value.trim().is_empty());
+    if active_version.as_deref().map(str::trim) != Some(version.as_str()) {
+        return Err(AppCommandError::invalid_input(
+            "Only the active Agent version can be pinned",
+        ));
+    }
     let history = agent_history_core(conn, agent_type, channel).await?;
     Ok(history
         .items

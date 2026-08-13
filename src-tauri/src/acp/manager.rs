@@ -260,6 +260,7 @@ pub struct ConnectionManager {
     /// every shallow manager clone so all session entry points capture context
     /// from the same backend-owned store.
     user_memory_service: Arc<std::sync::OnceLock<Arc<crate::user_memory::UserMemoryService>>>,
+    version_center_db: Arc<std::sync::OnceLock<DatabaseConnection>>,
     /// Per-agent-type serialization for `probe_agent_options`. Without
     /// this, rapid agent-tab clicks in the settings UI would fan out one
     /// real CLI process per click — each one running up to 60s. The
@@ -312,6 +313,7 @@ impl ConnectionManager {
             spawn_handshake_timeout: spawn_handshake_timeout_from_env(),
             delegation_injection: Arc::new(std::sync::OnceLock::new()),
             user_memory_service: Arc::new(std::sync::OnceLock::new()),
+            version_center_db: Arc::new(std::sync::OnceLock::new()),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
             pending_channel_confirmations: Arc::new(Mutex::new(HashMap::new())),
@@ -327,6 +329,7 @@ impl ConnectionManager {
             spawn_handshake_timeout: self.spawn_handshake_timeout,
             delegation_injection: self.delegation_injection.clone(),
             user_memory_service: self.user_memory_service.clone(),
+            version_center_db: self.version_center_db.clone(),
             probe_locks: self.probe_locks.clone(),
             pending_questions: self.pending_questions.clone(),
             pending_channel_confirmations: self.pending_channel_confirmations.clone(),
@@ -343,6 +346,10 @@ impl ConnectionManager {
 
     pub fn install_user_memory(&self, service: Arc<crate::user_memory::UserMemoryService>) {
         let _ = self.user_memory_service.set(service);
+    }
+
+    pub fn install_version_center_db(&self, conn: DatabaseConnection) {
+        let _ = self.version_center_db.set(conn);
     }
 
     async fn user_memory_context_for(
@@ -459,6 +466,21 @@ impl ConnectionManager {
             return Ok(existing);
         }
 
+        let version_center_db = self.version_center_db.get().ok_or_else(|| {
+            AcpError::protocol("Agent platform authorization is not initialized")
+        })?;
+        crate::acp::version_center::authorize_agent_launch(version_center_db, agent_type)
+            .await
+            .map_err(|error| {
+                tracing::warn!(
+                    agent_type = ?agent_type,
+                    code = ?error.code,
+                    detail = ?error.detail,
+                    "[agent-version-center] rejected Agent launch"
+                );
+                AcpError::protocol(error.message)
+            })?;
+
         let user_memory_context = self
             .user_memory_context_for(agent_type, user_memory_origin)
             .await;
@@ -488,6 +510,7 @@ impl ConnectionManager {
             preferred_config_values,
             user_memory_context,
             self.delegation_snapshot(),
+            Some(version_center_db.clone()),
         )
         .await?;
 
@@ -553,8 +576,9 @@ impl ConnectionManager {
                 Some(now + chrono::Duration::seconds(Self::VISIBLE_LEASE_SECS));
         }
         if pending_input {
-            state.pending_input_lease_until =
-                Some(now + chrono::Duration::seconds(Self::PENDING_INPUT_LEASE_SECS));
+            state.pending_input_lease_until = Some(
+                now + chrono::Duration::seconds(Self::PENDING_INPUT_LEASE_SECS),
+            );
         }
         true
     }
@@ -689,9 +713,11 @@ impl ConnectionManager {
                 return 0;
             }
             idle.sort_by(|left, right| {
-                left.1.cmp(&right.1).then_with(|| {
-                    crate::acp::resource_governor::compare_reclaim_memory(left.2, right.2)
-                })
+                left.1
+                    .cmp(&right.1)
+                    .then_with(|| {
+                        crate::acp::resource_governor::compare_reclaim_memory(left.2, right.2)
+                    })
             });
             idle.first()
                 .map(|(id, _, _)| vec![id.clone()])
@@ -2291,6 +2317,16 @@ impl ConnectionManager {
                 item.status,
                 ConnectionStatus::Disconnected | ConnectionStatus::Error
             )
+        })
+    }
+
+    pub async fn has_live_agent_session(&self, agent_type: AgentType) -> bool {
+        self.list_connections().await.iter().any(|item| {
+            item.agent_type == agent_type
+                && !matches!(
+                    item.status,
+                    ConnectionStatus::Disconnected | ConnectionStatus::Error
+                )
         })
     }
 

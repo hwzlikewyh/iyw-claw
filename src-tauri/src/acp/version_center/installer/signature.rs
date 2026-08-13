@@ -7,6 +7,7 @@ use crate::app_error::AppCommandError;
 // updater and Agent artifact keys. Signed artifacts still fail closed when the
 // release key is unavailable; unsigned artifacts rely on size and SHA-256.
 const TOOLCHAIN_RELEASE_PUBLIC_KEY: Option<&str> = option_env!("IYW_TOOLCHAIN_RELEASE_PUBLIC_KEY");
+const AGENT_RELEASE_PUBLIC_KEY: Option<&str> = option_env!("IYW_AGENT_RELEASE_PUBLIC_KEY");
 
 pub fn verify_tool_signature(bytes: &[u8], signature_text: &str) -> Result<(), AppCommandError> {
     if signature_text.trim().is_empty() {
@@ -20,6 +21,26 @@ pub fn verify_tool_signature(bytes: &[u8], signature_text: &str) -> Result<(), A
     })?;
     public_key.verify(bytes, &signature, true).map_err(|error| {
         AppCommandError::invalid_input("Managed tool signature verification failed")
+            .with_detail(error.to_string())
+    })
+}
+
+pub fn verify_agent_signature(bytes: &[u8], signature_text: &str) -> Result<(), AppCommandError> {
+    let key = AGENT_RELEASE_PUBLIC_KEY
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AppCommandError::configuration_invalid(
+                "Agent release signing key is not compiled into this build",
+            )
+        })?;
+    let public_key = parse_public_key(key)?;
+    let signature = Signature::decode(signature_text.trim()).map_err(|error| {
+        AppCommandError::invalid_input("Agent release signature is invalid")
+            .with_detail(error.to_string())
+    })?;
+    public_key.verify(bytes, &signature, true).map_err(|error| {
+        AppCommandError::invalid_input("Agent release signature verification failed")
             .with_detail(error.to_string())
     })
 }

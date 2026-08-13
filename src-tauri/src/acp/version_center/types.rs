@@ -233,6 +233,7 @@ pub struct DownloadRequest<'a> {
     pub version_id: &'a str,
     pub artifact_id: &'a str,
     pub catalog_revision: u64,
+    pub current_version: &'a str,
     pub client_version: &'a str,
     pub runtime: &'a str,
     pub target: &'a str,

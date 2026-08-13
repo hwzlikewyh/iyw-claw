@@ -94,6 +94,7 @@ pub async fn install_managed_tool(
         conn,
         data_dir,
         &offer,
+        Some(current_version),
         channel,
         defer_while_active,
         task_id,
@@ -106,6 +107,7 @@ async fn install_offer(
     conn: &DatabaseConnection,
     data_dir: &Path,
     offer: &ToolOffer,
+    current_version: Option<&str>,
     channel: &str,
     defer_while_active: bool,
     task_id: Option<&str>,
@@ -117,6 +119,7 @@ async fn install_offer(
         data_dir,
         &stage,
         offer,
+        current_version,
         channel,
         defer_while_active,
         task_id,
@@ -142,6 +145,7 @@ async fn install_offer_inner(
     data_dir: &Path,
     stage: &Path,
     offer: &ToolOffer,
+    current_version: Option<&str>,
     channel: &str,
     defer_while_active: bool,
     task_id: Option<&str>,
@@ -214,6 +218,7 @@ async fn install_offer_inner(
             version_id: &offer.version_id,
             artifact_id: &offer.artifact.id,
             catalog_revision: offer.revision,
+            current_version,
             client_version: env!("CARGO_PKG_VERSION"),
             runtime: RUNTIME,
             target: capability::current_target(),
@@ -287,6 +292,7 @@ async fn install_offer_inner(
                         version_id: &offer.version_id,
                         artifact_id: &offer.artifact.id,
                         catalog_revision: offer.revision,
+                        current_version,
                         client_version: env!("CARGO_PKG_VERSION"),
                         runtime: RUNTIME,
                         target: capability::current_target(),
@@ -321,7 +327,7 @@ async fn install_offer_inner(
         .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))??;
     let payload = locate_payload(&extract_root, &offer.tool_id)?;
     probe_payload(&payload, &offer.tool_id, &offer.version).await?;
-    let confirmed = confirm_offer(conn, offer, channel).await?;
+    let confirmed = confirm_offer(conn, offer, current_version, channel).await?;
 
     if final_dir.exists() {
         // 同版本目录已存在但 marker 不匹配 → 隔离后重建，绝不直接覆盖。
@@ -472,13 +478,14 @@ fn managed_marker(offer: &ToolOffer) -> OwnershipMarker {
 async fn confirm_offer(
     conn: &DatabaseConnection,
     offer: &ToolOffer,
+    current_version: Option<&str>,
     channel: &str,
 ) -> Result<ToolOffer, AppCommandError> {
     let confirmed = AgentPlatformClient::resolve_tool(
         conn,
         ResolveToolRequest {
             tool_id: &offer.tool_id,
-            current_version: "",
+            current_version: current_version.unwrap_or_default(),
             requested_version: Some(&offer.version),
             pinned_version: None,
             client_version: env!("CARGO_PKG_VERSION"),

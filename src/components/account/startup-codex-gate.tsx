@@ -119,9 +119,24 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     // Which step is in flight, so the catch below can name it. Four different
     // backend calls funnel into one `catch`; without this the dialog cannot say
     // which of them broke.
-    let step: BootstrapStep = "runtime"
+    let step: BootstrapStep = "registry"
     try {
+      const agents = await acpListAgents().catch((error) => {
+        console.warn(
+          "[StartupCodexGate] Agent registry unavailable; continuing fail-closed:",
+          error
+        )
+        return []
+      })
+      const codex = agents.find((agent) => agent.agent_type === "codex")
+      if (!codex) {
+        await refreshAgents()
+        setState("ready")
+        return
+      }
+
       // Node/Git must exist before the Codex npx install below can run.
+      step = "runtime"
       setState("runtime")
       const runtimeReport = await runtimeBootstrap(runtimeTaskIdRef.current)
       const failures = (
@@ -142,12 +157,6 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
             .join("\n")
         )
       }
-
-      setState("checking")
-      step = "registry"
-      const agents = await acpListAgents()
-      const codex = agents.find((agent) => agent.agent_type === "codex")
-      if (!codex) throw new Error("Codex is missing from the Agent registry")
       step = "detect"
       const installed = await acpDetectAgentLocalVersion("codex")
       if (installed) {

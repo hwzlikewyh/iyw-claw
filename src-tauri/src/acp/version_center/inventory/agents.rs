@@ -6,7 +6,8 @@ use sea_orm::{
 
 use crate::acp::error::AcpError;
 use crate::acp::version_center::inventory::{
-    database_error, serialize_agent_type, AgentInstallation, STATUS_ACTIVE, STATUS_READY,
+    database_error, serialize_agent_type, AgentInstallation, ReadyAgentInstallation, STATUS_ACTIVE,
+    STATUS_READY,
 };
 use crate::db::entities::{agent_installation, agent_setting};
 use crate::models::agent::AgentType;
@@ -23,6 +24,56 @@ pub async fn list_agent_installations(
         .map_err(database_error)
 }
 
+pub async fn record_agent_ready(
+    conn: &DatabaseConnection,
+    input: ReadyAgentInstallation<'_>,
+) -> Result<(), AcpError> {
+    let encoded = serialize_agent_type(input.agent_type)?;
+    let existing = agent_installation::Entity::find()
+        .filter(agent_installation::Column::AgentType.eq(encoded.clone()))
+        .filter(agent_installation::Column::Version.eq(input.version))
+        .filter(agent_installation::Column::Platform.eq(crate::acp::registry::current_platform()))
+        .one(conn)
+        .await
+        .map_err(database_error)?;
+    let now = Utc::now();
+    let mut active = existing.map(IntoActiveModel::into_active_model).unwrap_or(
+        agent_installation::ActiveModel {
+            id: sea_orm::ActiveValue::NotSet,
+            agent_type: Set(encoded),
+            registry_id: Set(input.registry_id.to_string()),
+            version: Set(input.version.to_string()),
+            platform: Set(crate::acp::registry::current_platform().to_string()),
+            status: Set(STATUS_READY.to_string()),
+            delivery_kind: Set(input.delivery_kind.to_string()),
+            artifact_id: Set(None),
+            source_key: Set(None),
+            expected_sha256: Set(None),
+            verified: Set(true),
+            failure_code: Set(None),
+            installed_at: Set(Some(now)),
+            verified_at: Set(Some(now)),
+            activated_at: Set(None),
+            last_successful_launch_at: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+        },
+    );
+    active.registry_id = Set(input.registry_id.to_string());
+    active.status = Set(STATUS_READY.to_string());
+    active.delivery_kind = Set(input.delivery_kind.to_string());
+    active.artifact_id = Set(input.artifact_id.map(ToString::to_string));
+    active.source_key = Set(input.source_key.map(ToString::to_string));
+    active.expected_sha256 = Set(input.expected_sha256.map(ToString::to_string));
+    active.verified = Set(true);
+    active.failure_code = Set(None);
+    active.installed_at = Set(Some(now));
+    active.verified_at = Set(Some(now));
+    active.updated_at = Set(now);
+    active.save(conn).await.map_err(database_error)?;
+    Ok(())
+}
+
 pub async fn activate_agent(
     conn: &DatabaseConnection,
     agent_type: AgentType,
@@ -35,6 +86,21 @@ pub async fn activate_agent(
     mark_inactive(&transaction, &encoded).await?;
     mark_active(&transaction, &encoded, version).await?;
     update_pointer(&transaction, &encoded, version, policy, revision).await?;
+    transaction.commit().await.map_err(database_error)
+}
+
+pub async fn recover_agent(
+    conn: &DatabaseConnection,
+    agent_type: AgentType,
+    version: &str,
+    policy: &str,
+    revision: u64,
+) -> Result<(), AcpError> {
+    let encoded = serialize_agent_type(agent_type)?;
+    let transaction = conn.begin().await.map_err(database_error)?;
+    mark_inactive(&transaction, &encoded).await?;
+    mark_active(&transaction, &encoded, version).await?;
+    update_recovery_pointer(&transaction, &encoded, version, policy, revision).await?;
     transaction.commit().await.map_err(database_error)
 }
 
@@ -54,6 +120,38 @@ pub async fn set_agent_pin(
     active.pinned_version = Set(version);
     active.updated_at = Set(Utc::now());
     active.update(conn).await.map_err(database_error)?;
+    Ok(())
+}
+
+pub async fn promote_agent_lkg(
+    conn: &DatabaseConnection,
+    agent_type: AgentType,
+) -> Result<(), AcpError> {
+    let encoded = serialize_agent_type(agent_type)?;
+    let model = agent_setting::Entity::find()
+        .filter(agent_setting::Column::AgentType.eq(encoded.clone()))
+        .one(conn)
+        .await
+        .map_err(database_error)?
+        .ok_or_else(|| AcpError::protocol("Agent setting is unavailable"))?;
+    let Some(version) = model.installed_version.clone() else {
+        return Ok(());
+    };
+    let now = Utc::now();
+    let mut setting = model.into_active_model();
+    setting.last_known_good_version = Set(Some(version.clone()));
+    setting.updated_at = Set(now);
+    setting.update(conn).await.map_err(database_error)?;
+    agent_installation::Entity::update_many()
+        .col_expr(
+            agent_installation::Column::LastSuccessfulLaunchAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(agent_installation::Column::AgentType.eq(encoded))
+        .filter(agent_installation::Column::Version.eq(version))
+        .exec(conn)
+        .await
+        .map_err(database_error)?;
     Ok(())
 }
 
@@ -115,6 +213,31 @@ async fn update_pointer<C: sea_orm::ConnectionTrait>(
     let next_generation = model.activation_generation + 1;
     let mut active = model.into_active_model();
     active.installed_version = Set(Some(version.to_string()));
+    active.update_policy = Set(policy.to_string());
+    active.catalog_revision = Set(revision as i64);
+    active.activation_generation = Set(next_generation);
+    active.updated_at = Set(Utc::now());
+    active.update(conn).await.map_err(database_error)?;
+    Ok(())
+}
+
+async fn update_recovery_pointer<C: sea_orm::ConnectionTrait>(
+    conn: &C,
+    agent_type: &str,
+    version: &str,
+    policy: &str,
+    revision: u64,
+) -> Result<(), AcpError> {
+    let model = agent_setting::Entity::find()
+        .filter(agent_setting::Column::AgentType.eq(agent_type))
+        .one(conn)
+        .await
+        .map_err(database_error)?
+        .ok_or_else(|| AcpError::protocol("Agent setting is unavailable"))?;
+    let next_generation = model.activation_generation + 1;
+    let mut active = model.into_active_model();
+    active.installed_version = Set(Some(version.to_string()));
+    active.last_known_good_version = Set(Some(version.to_string()));
     active.update_policy = Set(policy.to_string());
     active.catalog_revision = Set(revision as i64);
     active.activation_generation = Set(next_generation);

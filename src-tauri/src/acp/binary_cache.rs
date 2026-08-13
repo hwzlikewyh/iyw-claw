@@ -153,6 +153,31 @@ fn uvx_prepared_marker_for(paths: &AgentStoragePaths, registry_id: &str) -> Path
     paths.uv_runtime_dir().join("prepared").join(registry_id)
 }
 
+fn uvx_version_marker_for(
+    paths: &AgentStoragePaths,
+    registry_id: &str,
+    version: &str,
+) -> Option<PathBuf> {
+    let version = sanitize_version(version)?;
+    Some(
+        paths
+            .uv_runtime_dir()
+            .join("prepared-versions")
+            .join(registry_id)
+            .join(version),
+    )
+}
+
+fn sanitize_version(version: &str) -> Option<&str> {
+    let version = version.trim();
+    (!version.is_empty()
+        && !matches!(version, "." | "..")
+        && version
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '+')))
+    .then_some(version)
+}
+
 /// Return the prepared version for a Uvx agent, or `None` if it has not been
 /// prepared yet.
 pub fn uvx_prepared_version(paths: &AgentStoragePaths, agent_type: AgentType) -> Option<String> {
@@ -162,13 +187,32 @@ pub fn uvx_prepared_version(paths: &AgentStoragePaths, agent_type: AgentType) ->
     (!v.is_empty()).then(|| v.to_string())
 }
 
+pub fn is_uvx_agent_version_prepared(
+    paths: &AgentStoragePaths,
+    agent_type: AgentType,
+    version: &str,
+) -> bool {
+    let registry_id = registry::registry_id_for(agent_type);
+    uvx_version_marker_for(paths, registry_id, version).is_some_and(|path| path.is_file())
+        || uvx_prepared_version(paths, agent_type).as_deref() == Some(version.trim())
+}
+
 /// Record that a Uvx agent's package (at `version`) has been pre-fetched.
 pub fn mark_uvx_agent_prepared(
     paths: &AgentStoragePaths,
     agent_type: AgentType,
     version: &str,
 ) -> Result<(), AcpError> {
-    let path = uvx_prepared_marker_for(paths, registry::registry_id_for(agent_type));
+    let registry_id = registry::registry_id_for(agent_type);
+    let version_path = uvx_version_marker_for(paths, registry_id, version)
+        .ok_or_else(|| AcpError::DownloadFailed("uvx version is invalid".to_string()))?;
+    if let Some(parent) = version_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| AcpError::DownloadFailed(format!("create uvx marker dir failed: {e}")))?;
+    }
+    std::fs::write(&version_path, version.as_bytes())
+        .map_err(|e| AcpError::DownloadFailed(format!("write uvx marker failed: {e}")))?;
+    let path = uvx_prepared_marker_for(paths, registry_id);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| AcpError::DownloadFailed(format!("create uvx marker dir failed: {e}")))?;
@@ -182,12 +226,24 @@ pub fn clear_uvx_agent_prepared(
     paths: &AgentStoragePaths,
     agent_type: AgentType,
 ) -> Result<(), AcpError> {
-    let path = uvx_prepared_marker_for(paths, registry::registry_id_for(agent_type));
+    let registry_id = registry::registry_id_for(agent_type);
+    let path = uvx_prepared_marker_for(paths, registry_id);
     match std::fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => Err(AcpError::DownloadFailed(format!(
+            "remove uvx marker failed: {e}"
+        )))?,
+    }
+    let versions = paths
+        .uv_runtime_dir()
+        .join("prepared-versions")
+        .join(registry_id);
+    match std::fs::remove_dir_all(versions) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(AcpError::DownloadFailed(format!(
-            "remove uvx marker failed: {e}"
+            "remove uvx version markers failed: {e}"
         ))),
     }
 }
@@ -208,7 +264,7 @@ pub(crate) fn agent_cache_key(agent_type: AgentType) -> String {
     registry::registry_id_for(agent_type).to_string()
 }
 
-fn binary_dir_for(
+pub(crate) fn binary_dir_for(
     paths: &AgentStoragePaths,
     agent_id: &str,
     version: &str,
@@ -288,7 +344,7 @@ fn activate_staged_directory(
     Ok(())
 }
 
-fn activate_staged_binary(
+pub(crate) fn activate_staged_binary(
     paths: &AgentStoragePaths,
     agent_id: &str,
     version: &str,

@@ -532,6 +532,8 @@ mod tauri_app {
                 }
                 app.state::<ConnectionManager>()
                     .install_user_memory(user_memory.clone());
+                app.state::<ConnectionManager>()
+                    .install_version_center_db(app.state::<db::AppDatabase>().conn.clone());
                 app.manage(user_memory);
 
                 // Restore and apply saved system proxy settings before any network operation.
@@ -1358,6 +1360,9 @@ mod tauri_app {
                 agent_version_center_tauri::agent_version_center_set_agent_pin,
                 agent_version_center_tauri::agent_version_center_set_tool_pin,
                 agent_version_center_tauri::agent_version_center_install_tool,
+                agent_version_center_tauri::agent_version_center_install_agent,
+                agent_version_center_tauri::agent_version_center_switch_agent,
+                agent_version_center_tauri::agent_version_center_rollback_agent,
                 acp_commands::acp_get_agent_status,
                 acp_commands::acp_clear_binary_cache,
                 acp_commands::acp_download_agent_binary,

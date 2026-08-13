@@ -39,6 +39,9 @@ pub fn validate_catalog(snapshot: &CatalogSnapshot) -> Result<(), String> {
         if registry::from_registry_id(&platform.registry_id).is_none() {
             continue;
         }
+        if !matches!(platform.status.as_str(), "active" | "hidden" | "disabled") {
+            return Err("invalid Agent platform status".to_string());
+        }
         validate_catalog_version(&platform.recommended_version)?;
         validate_catalog_version(&platform.minimum_safe_version)?;
     }
@@ -150,10 +153,16 @@ fn validate_npm_components(
     components: &[crate::acp::version_center::types::DeliveryComponent],
 ) -> Result<(), String> {
     let package_name = npm_package_name(package);
-    let matches = components
+    let primary = components
         .iter()
-        .any(|component| component.package_name == package_name);
-    (matches && !components.is_empty())
+        .filter(|component| component.package_name == package_name)
+        .count();
+    let secondary = components
+        .iter()
+        .filter(|component| component.component_key == "pi-coding-agent")
+        .all(|component| component.package_name == "@earendil-works/pi-coding-agent");
+    let expected_len = if package_name == "pi-acp" { 2 } else { 1 };
+    (primary == 1 && secondary && components.len() == expected_len)
         .then_some(())
         .ok_or_else(|| "npm component is outside the compiled allowlist".to_string())
 }
@@ -176,8 +185,9 @@ fn validate_uvx_components(
     let package_name = package.split(['[', '=']).next().unwrap_or_default();
     let matches = components
         .iter()
-        .any(|component| component.package_name == package_name);
-    (matches && !components.is_empty())
+        .filter(|component| component.package_name == package_name)
+        .count();
+    (matches == 1 && components.len() == 1)
         .then_some(())
         .ok_or_else(|| "uvx component is outside the compiled allowlist".to_string())
 }

@@ -26,6 +26,19 @@ pub struct AgentPinRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentVersionRequest {
+    pub agent_type: AgentType,
+    pub version: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRollbackRequest {
+    pub agent_type: AgentType,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolPinRequest {
     pub tool_id: String,
     pub version: Option<String>,

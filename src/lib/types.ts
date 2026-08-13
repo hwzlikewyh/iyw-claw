@@ -1717,6 +1717,101 @@ export interface AcpAgentStatus {
   installed_version: string | null
 }
 
+export interface AgentCatalogPlatform {
+  registryId: string
+  displayName: string
+  description: string
+  status: "active" | "hidden" | "disabled" | string
+  sortOrder: number
+  channel: string
+  recommendedVersion: string
+  minimumSafeVersion: string
+  defaultUpdatePolicy: string
+}
+
+export interface AgentCatalogSnapshot {
+  schemaVersion: number
+  revision: number
+  generatedAt: string
+  platforms: AgentCatalogPlatform[]
+  tools: unknown[]
+}
+
+export interface AgentCatalogView {
+  snapshot: AgentCatalogSnapshot
+  stale: boolean
+  etag: string | null
+}
+
+export interface AgentInstallation {
+  id: number
+  agent_type: string
+  registry_id: string
+  version: string
+  platform: string
+  status: string
+  delivery_kind: string
+  artifact_id: string | null
+  source_key: string | null
+  expected_sha256: string | null
+  verified: boolean
+  failure_code: string | null
+  installed_at: string | null
+  verified_at: string | null
+  activated_at: string | null
+  last_successful_launch_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentVersionInventory {
+  agentType: AgentType
+  registryId: string
+  activeVersion: string | null
+  pinnedVersion: string | null
+  lastKnownGoodVersion: string | null
+  updateChannel: string
+  updatePolicy: string
+  catalogRevision: number
+  activationGeneration: number
+  installations: AgentInstallation[]
+}
+
+export interface AgentVersionCenterSnapshot {
+  catalog: AgentCatalogView
+  agents: AgentVersionInventory[]
+  toolSettings: unknown[]
+  toolInstallations: unknown[]
+}
+
+export interface AgentVersionHistoryItem {
+  id: string
+  version: string
+  title: string
+  notesMarkdown: string
+  channel: string
+  lifecycleStatus: string
+  securityStatus: string
+  updatePolicy: string
+  publishedAt: string | null
+  rolloutEligible: boolean
+  recommended: boolean
+  minimumSafe: boolean
+  pinnable: boolean
+  deliveryKind: string
+  artifactId: string
+}
+
+export interface AgentVersionHistory {
+  items: AgentVersionHistoryItem[]
+}
+
+export interface AgentVersionOperationResult {
+  agentType: AgentType
+  version: string
+  catalogRevision: number
+}
+
 export type AgentSkillScope = "global" | "project"
 export type AgentSkillLayout = "markdown_file" | "skill_directory"
 export type AgentSkillSyncMode = "symlink" | "copy"

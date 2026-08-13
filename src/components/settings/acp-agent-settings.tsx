@@ -142,6 +142,7 @@ import { OpencodePluginsModal } from "./opencode-plugins-modal"
 import { CodeBuddyConfigPanel } from "./codebuddy-config-panel"
 import { PiConfigPanel } from "./pi-config-panel"
 import { AgentStorageSettings } from "./agent-storage-settings"
+import { AgentVersionCenter } from "./agent-version-center"
 
 interface AgentCheckState {
   result?: PreflightResult
@@ -4207,6 +4208,8 @@ export function AcpAgentSettings({
       })
     } catch (err) {
       const message = toErrorMessage(err)
+      setAgents([])
+      setSelectedAgentType(null)
       setLoadingError(message)
     } finally {
       setLoadingAgents(false)
@@ -7523,6 +7526,12 @@ export function AcpAgentSettings({
               </div>
 
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <AgentVersionCenter
+                  key={selectedAgent.agent_type}
+                  agentType={selectedAgent.agent_type}
+                  onChanged={refreshAgents}
+                />
+
                 <div className="border-b pb-3">
                   <h4 className="text-sm font-medium">
                     {t("overview.configuration")}
