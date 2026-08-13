@@ -806,7 +806,17 @@ export function buildStreamingTurnsFromLiveMessage(
         // Skip child tool calls — they are nested inside Agent cards
         if (childToolCallIds.has(block.info.tool_call_id)) break
 
-        const displayedImage = parseDisplayImageMetadata(block.info.content)
+        // ACP adapters may expose MCP results either as content text or as
+        // SDK raw_output. Keep image recognition aligned with the generic tool
+        // result card so Codex's `{ error, result }` envelope is not missed.
+        const rawOutput =
+          block.info.raw_output_chunks.length > 0
+            ? getJoinedChunks(block.info.raw_output_chunks)
+            : null
+        const resolvedOutput = rawOutput ?? block.info.content
+        const displayedImage =
+          parseDisplayImageMetadata(rawOutput) ??
+          parseDisplayImageMetadata(block.info.content)
         if (displayedImage) {
           currentBlocks.push({
             type: "display_image",
@@ -919,15 +929,6 @@ export function buildStreamingTurnsFromLiveMessage(
         })
         const isFinalState =
           block.info.status === "completed" || block.info.status === "failed"
-        // Output precedence: raw_output_chunks (terminal polling / SDK
-        // raw_output field) wins over content. Some agents stream bash output
-        // via raw_output with raw_output_append, others via content-only
-        // tool_call_update notifications — we support both.
-        const resolvedOutput =
-          block.info.raw_output_chunks.length > 0
-            ? getJoinedChunks(block.info.raw_output_chunks)
-            : block.info.content
-
         // For agent tool calls, build agent_stats from collected children
         const isAgent = toolName === "agent"
         const children = isAgent

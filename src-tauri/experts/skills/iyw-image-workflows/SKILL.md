@@ -310,14 +310,13 @@ uv run --project $skillDir --python 3.13 python $knowledgeCli `
 - 只把 `ok: true` 视为 CLI 成功。
 - `queued` 和 `running` 都不是最终成功。
 - 只在状态为 `succeeded` 且存在图片 URL 时声明任务完成。
-- 生成完成后，先在当前可用工具中解析展示工具：匹配后缀为 `show_image` 的名称
-  （裸名，或命名空间形式 `mcp__<server>__show_image`；server 注册名为
-  `iyw-claw-mcp`，即 `mcp__iyw-claw-mcp__show_image`）。
-- 解析到：按服务端顺序对每个最终 HTTPS URL 调用一次，让结果以原生图片块显示在
-  爱原物对话框中；该工具自己读取 URL，不要为了展示手动下载。
-- 工具列表中没有：跳过展示，返回每个最终 HTTPS URL 并说明无法内联渲染。不要猜测
-  名称变体，也不要声称已经展示。名称找不到的报错表示工具不存在，而非拼写错误，
-  改名永远无效——第一次失败就走兜底。
+- 按服务端顺序把每个最终公开 HTTPS URL 以 Markdown 图片语法
+  `![生成图片](URL)` 直接放入最终回复；不得只返回裸 URL 或普通链接。
+- 最终公开 HTTPS URL 可用时不要调用 `show_image`。只有当前回复无法使用
+  Markdown 图片，或待展示来源不是公开 HTTPS URL 时，才在工具列表中匹配
+  后缀为 `show_image` 的工具并按顺序调用。
+- `show_image` 不存在或首次调用失败时，保留原始公开 URL 或路径并说明无法
+  内联渲染；不要猜测名称变体，也不要声称已经展示。
 - 只有用户明确要求保存到本地，或后续操作必须使用本地文件时，才下载结果图片。
 - 创建请求超时或结果不确定时，只查询原 task ID，不要重建任务。
 - 仅重试 `retryable: true` 的只读请求；不要自动重试收费创建请求。

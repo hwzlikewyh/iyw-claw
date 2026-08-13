@@ -65,6 +65,9 @@ function findMetadata(value: unknown): unknown {
   }
   if (isRecord(value)) {
     for (const key of [
+      "result",
+      "Ok",
+      "ok",
       "structuredContent",
       "structured_content",
       "content",
