@@ -45,7 +45,7 @@ function MarketNavigation({
   const t = useTranslations("CapabilityMarket")
   return (
     <nav
-      className="flex min-w-0 flex-1 items-center justify-start gap-1 overflow-x-auto pl-1 sm:pl-5 lg:pl-10"
+      className="flex min-w-0 flex-1 items-center justify-start gap-1 overflow-x-auto overflow-y-hidden pl-1 [scrollbar-width:none] sm:pl-5 lg:pl-10 [&::-webkit-scrollbar]:hidden"
       aria-label={t("navLabel")}
     >
       {SECTIONS.map(({ id, icon: Icon }) => {

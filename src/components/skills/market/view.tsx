@@ -3,8 +3,7 @@
 import { useCallback, useState } from "react"
 import { useSkillMarket } from "@/hooks/use-skill-market"
 import { useSkillMarketInstall } from "@/hooks/use-skill-market-install"
-import { SkillMarketDetail } from "@/components/skills/market/detail"
-import { FeaturedWorkflows } from "@/components/skills/market/featured-workflows"
+import { SkillMarketDetailDialog } from "@/components/skills/market/detail-dialog"
 import { SkillMarketInstallPanel } from "@/components/skills/market/install-panel"
 import { SkillMarketList } from "@/components/skills/market/list"
 import { SkillMarketToolbar } from "@/components/skills/market/toolbar"
@@ -19,7 +18,6 @@ import type {
   SkillMarketMetadataRequestV2,
   SkillMarketPublishRequestV2,
 } from "@/lib/skill-market-source"
-import { cn } from "@/lib/utils"
 
 export function SkillMarketView({
   onOpenConnectors,
@@ -47,6 +45,7 @@ export function SkillMarketView({
 
   const handlePrimaryAction = useCallback(
     (item: SkillMarketV2Item, version: string) => {
+      setDetailOpen(false)
       setPendingTarget({ name: item.displayName, version })
       void install.beginResolve(item, version)
     },
@@ -122,16 +121,6 @@ export function SkillMarketView({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      {market.query.view === "market" ? (
-        <div className={cn(detailOpen && "hidden lg:block")}>
-          <FeaturedWorkflows
-            selectedCategory={market.query.category}
-            onSelectCategory={(category) =>
-              market.updateQuery({ category, q: "" })
-            }
-          />
-        </div>
-      ) : null}
       <SkillMarketToolbar
         query={market.query}
         categories={market.categories}
@@ -142,60 +131,55 @@ export function SkillMarketView({
         onRefresh={market.refresh}
         onUpload={() => openUpload("publish")}
       />
-      <div
-        className={cn(
-          "grid min-h-0 flex-1",
-          detailOpen &&
-            "lg:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_24rem]"
-        )}
-      >
-        <section
-          className={cn(
-            "min-h-0 min-w-0",
-            detailOpen && "hidden lg:block lg:border-r"
-          )}
-        >
-          <SkillMarketList
-            items={market.list.items}
-            selectedId={market.selectedId}
-            loading={market.list.loading}
-            error={market.list.error}
-            total={market.list.total}
-            nextCursor={market.list.nextCursor}
-            onSelect={(item) => {
-              market.selectItem(item)
-              setDetailOpen(true)
-            }}
-            onPrimaryAction={(item) =>
-              handlePrimaryAction(item, item.currentVersion.version)
-            }
-            onLoadMore={market.loadMore}
-            onRetry={market.refresh}
-          />
-        </section>
-        <aside className={cn("min-h-0 min-w-0", !detailOpen && "hidden")}>
-          <SkillMarketDetail
-            detail={market.detail.value}
-            versions={market.versions.value}
-            versionsLoading={market.versions.loading}
-            selectedVersion={market.selectedVersion}
-            loading={market.detail.loading}
-            error={market.detail.error}
-            files={market.files}
-            onSelectVersion={market.selectVersion}
-            onOpenFiles={market.openFiles}
-            onRetry={market.retryDetail}
-            onBack={() => setDetailOpen(false)}
-            onPrimaryAction={handlePrimaryAction}
-            onEditMetadata={setEditTarget}
-            onDelete={setDeleteTarget}
-            onUninstall={setUninstallTarget}
-            onRebuildArtifact={(detail, version) => {
-              void market.rebuildArtifact(detail.id, version)
-            }}
-          />
-        </aside>
-      </div>
+      <section className="min-h-0 min-w-0 flex-1">
+        <SkillMarketList
+          items={market.list.items}
+          selectedId={market.selectedId}
+          loading={market.list.loading}
+          error={market.list.error}
+          total={market.list.total}
+          nextCursor={market.list.nextCursor}
+          onSelect={(item) => {
+            market.selectItem(item)
+            setDetailOpen(true)
+          }}
+          onPrimaryAction={(item) =>
+            handlePrimaryAction(item, item.currentVersion.version)
+          }
+          onLoadMore={market.loadMore}
+          onRetry={market.refresh}
+        />
+      </section>
+      <SkillMarketDetailDialog
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        detail={market.detail.value}
+        versions={market.versions.value}
+        versionsLoading={market.versions.loading}
+        selectedVersion={market.selectedVersion}
+        loading={market.detail.loading}
+        error={market.detail.error}
+        files={market.files}
+        onSelectVersion={market.selectVersion}
+        onOpenFiles={market.openFiles}
+        onRetry={market.retryDetail}
+        onPrimaryAction={handlePrimaryAction}
+        onEditMetadata={(detail) => {
+          setDetailOpen(false)
+          setEditTarget(detail)
+        }}
+        onDelete={(detail) => {
+          setDetailOpen(false)
+          setDeleteTarget(detail)
+        }}
+        onUninstall={(detail) => {
+          setDetailOpen(false)
+          setUninstallTarget(detail)
+        }}
+        onRebuildArtifact={(detail, version) => {
+          void market.rebuildArtifact(detail.id, version)
+        }}
+      />
       <SkillMarketInstallPanel
         controller={install}
         pendingTarget={pendingTarget}

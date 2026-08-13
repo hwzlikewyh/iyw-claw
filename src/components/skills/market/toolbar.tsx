@@ -1,15 +1,10 @@
 "use client"
 
-import { RefreshCw, Search, SlidersHorizontal, Upload, X } from "lucide-react"
+import { RefreshCw, Search, Upload, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -23,12 +18,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { FilterPopover } from "@/components/skills/market/filter-popover"
 import type { SkillMarketQueryState } from "@/hooks/use-skill-market"
-import type {
-  SkillMarketCategory,
-  SkillMarketTranslator,
-  SkillMarketViewV2,
-} from "@/lib/skill-market"
+import type { SkillMarketCategory, SkillMarketViewV2 } from "@/lib/skill-market"
 import { cn } from "@/lib/utils"
 
 const VIEW_ORDER: SkillMarketViewV2[] = [
@@ -62,7 +54,7 @@ function ViewTabs({
     <Tabs
       value={view}
       onValueChange={(value) => onChange(value as SkillMarketViewV2)}
-      className="min-w-0 flex-1 overflow-x-auto"
+      className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       <TabsList
         variant="line"
@@ -78,174 +70,17 @@ function ViewTabs({
   )
 }
 
-function FilterPopover({
-  query,
-  categories,
-  onQueryChange,
-}: {
-  query: SkillMarketQueryState
-  categories: SkillMarketCategory[]
-  onQueryChange: (patch: Partial<SkillMarketQueryState>) => void
-}) {
-  const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
-  const activeCount =
-    (query.publisher !== "all" ? 1 : 0) +
-    (query.distribution !== "all" ? 1 : 0) +
-    (query.compatibility !== "all" ? 1 : 0) +
-    (query.category ? 1 : 0)
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          size="sm"
-          variant="outline"
-          className={cn(
-            "h-8",
-            activeCount > 0 && "border-primary/40 text-primary"
-          )}
-          aria-label={t("filters.label")}
-        >
-          <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-          {t("filters.label")}
-          {activeCount > 0 ? (
-            <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 px-1">
-              {activeCount}
-            </Badge>
-          ) : null}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 gap-3">
-        <div className="grid gap-2">
-          <label className="text-xs font-medium text-muted-foreground">
-            {t("filters.publisher")}
-          </label>
-          <Select
-            value={query.publisher}
-            onValueChange={(value) =>
-              onQueryChange({
-                publisher: value as SkillMarketQueryState["publisher"],
-              })
-            }
-          >
-            <SelectTrigger className="w-full rounded-md">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("filters.all")}</SelectItem>
-              <SelectItem value="official">{t("filters.official")}</SelectItem>
-              <SelectItem value="user">{t("filters.user")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-2">
-          <label className="text-xs font-medium text-muted-foreground">
-            {t("filters.distribution")}
-          </label>
-          <Select
-            value={query.distribution}
-            onValueChange={(value) =>
-              onQueryChange({
-                distribution: value as SkillMarketQueryState["distribution"],
-              })
-            }
-          >
-            <SelectTrigger className="w-full rounded-md">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("filters.all")}</SelectItem>
-              <SelectItem value="mandatory">
-                {t("filters.mandatory")}
-              </SelectItem>
-              <SelectItem value="optional">{t("filters.optional")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-2">
-          <label className="text-xs font-medium text-muted-foreground">
-            {t("filters.compatibility")}
-          </label>
-          <Select
-            value={query.compatibility}
-            onValueChange={(value) =>
-              onQueryChange({
-                compatibility: value as SkillMarketQueryState["compatibility"],
-              })
-            }
-          >
-            <SelectTrigger className="w-full rounded-md">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("filters.all")}</SelectItem>
-              <SelectItem value="compatible">
-                {t("filters.compatible")}
-              </SelectItem>
-              <SelectItem value="incompatible">
-                {t("filters.incompatible")}
-              </SelectItem>
-              <SelectItem value="unknown">{t("filters.unknown")}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-2">
-          <label className="text-xs font-medium text-muted-foreground">
-            {t("filters.category")}
-          </label>
-          <Select
-            value={query.category ?? "all"}
-            onValueChange={(value) =>
-              onQueryChange({ category: value === "all" ? null : value })
-            }
-          >
-            <SelectTrigger className="w-full rounded-md">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("filters.categoryAll")}</SelectItem>
-              {categories.map((category) => (
-                <SelectItem key={category.key} value={category.key}>
-                  {t(`categories.${category.key}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-full"
-          disabled={activeCount === 0}
-          onClick={() =>
-            onQueryChange({
-              publisher: "all",
-              distribution: "all",
-              compatibility: "all",
-              category: null,
-            })
-          }
-        >
-          {t("filters.reset")}
-        </Button>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
 export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
   const t = useTranslations("SkillMarketV2")
   const { query, onQueryChange } = props
   return (
-    <header className="shrink-0 border-b bg-background px-4 py-3 sm:px-5">
+    <header className="shrink-0 border-b bg-background px-4 py-2.5 sm:px-5">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="hidden shrink-0 lg:block">
-          <h2 className="text-sm font-semibold">{t("catalogTitle")}</h2>
-          <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
-            {t("catalogSubtitle")}
-          </p>
-        </div>
+        <h2 className="hidden shrink-0 text-sm font-semibold lg:block">
+          {t("catalogTitle")}
+        </h2>
         <span
-          className="hidden h-7 w-px shrink-0 bg-border lg:block"
+          className="hidden h-5 w-px shrink-0 bg-border lg:block"
           aria-hidden="true"
         />
         <ViewTabs
@@ -291,7 +126,7 @@ export function SkillMarketToolbar(props: SkillMarketToolbarProps) {
           </Tooltip>
         </div>
       </div>
-      <div className="mt-2.5 flex flex-col gap-2 sm:flex-row sm:items-center">
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative min-w-0 flex-1">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"

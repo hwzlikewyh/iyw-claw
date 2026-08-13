@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowLeft, Package, Pencil, RotateCcw, Trash2 } from "lucide-react"
+import { Package, Pencil, RotateCcw, Trash2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -43,7 +43,6 @@ export interface SkillMarketDetailProps {
   onSelectVersion: (version: string) => void
   onOpenFiles: () => void
   onRetry: () => void
-  onBack: () => void
   onPrimaryAction: (detail: SkillMarketV2Detail, version: string) => void
   onEditMetadata: (detail: SkillMarketV2Detail) => void
   onDelete: (detail: SkillMarketV2Detail) => void
@@ -135,19 +134,9 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-muted/10">
-      <div className="border-b bg-background p-4">
+      <div className="shrink-0 border-b bg-background px-5 py-4 pr-14 sm:px-6 sm:pr-16">
         <div className="flex items-start gap-3">
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            className="lg:hidden"
-            aria-label={t("a11y.backToList")}
-            title={t("a11y.backToList")}
-            onClick={props.onBack}
-          >
-            <ArrowLeft className="size-4" aria-hidden="true" />
-          </Button>
-          <Avatar className="size-10 shrink-0 rounded-md">
+          <Avatar className="size-11 shrink-0 rounded-md">
             {detail.iconUrl ? (
               <AvatarImage className="rounded-md" src={detail.iconUrl} alt="" />
             ) : null}
@@ -156,7 +145,7 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-sm font-semibold">
+            <h2 className="truncate text-base font-semibold">
               {detail.displayName}
             </h2>
             <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
@@ -164,15 +153,40 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
             </p>
             <MarketBadgeGroup badges={badges} limit={4} className="mt-2" />
           </div>
+          <div className="flex shrink-0 gap-1">
+            {detail.canManage ? (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label={t("manage.editMetadata")}
+                title={t("manage.editMetadata")}
+                onClick={() => props.onEditMetadata(detail)}
+              >
+                <Pencil className="size-3.5" />
+              </Button>
+            ) : null}
+            {detail.installState !== "not_installed" ? (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="text-destructive"
+                aria-label={t("manage.uninstall")}
+                title={t("manage.uninstall")}
+                onClick={() => props.onUninstall(detail)}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            ) : null}
+          </div>
         </div>
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
           <Select
             value={activeVersion.version}
             onValueChange={props.onSelectVersion}
             disabled={props.versionsLoading}
           >
-            <SelectTrigger className="w-full rounded-md">
+            <SelectTrigger className="w-full rounded-md sm:max-w-72">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -188,37 +202,12 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
             </SelectContent>
           </Select>
           <Button
+            className="sm:min-w-24"
             disabled={primaryDisabled}
             onClick={() => props.onPrimaryAction(detail, activeVersion.version)}
           >
             {t(`list.primary.${primaryKey}`)}
           </Button>
-        </div>
-
-        <div className="mt-2 flex justify-end gap-1">
-          {detail.canManage ? (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={t("manage.editMetadata")}
-              title={t("manage.editMetadata")}
-              onClick={() => props.onEditMetadata(detail)}
-            >
-              <Pencil className="size-3.5" />
-            </Button>
-          ) : null}
-          {detail.installState !== "not_installed" ? (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className="text-destructive"
-              aria-label={t("manage.uninstall")}
-              title={t("manage.uninstall")}
-              onClick={() => props.onUninstall(detail)}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          ) : null}
         </div>
       </div>
 

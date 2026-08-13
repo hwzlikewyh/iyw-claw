@@ -79,7 +79,7 @@ export function DetailInspectorTabs(props: Props) {
     <Tabs defaultValue="overview" className="min-h-0 flex-1 gap-0">
       <TabsList
         variant="line"
-        className="h-10 w-full shrink-0 justify-start overflow-x-auto border-b bg-background px-3"
+        className="h-10 w-full shrink-0 justify-start overflow-x-auto overflow-y-hidden border-b bg-background px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {tabs.map((tab) => (
           <TabsTrigger key={tab} value={tab} className="h-9 text-xs">
@@ -87,7 +87,7 @@ export function DetailInspectorTabs(props: Props) {
           </TabsTrigger>
         ))}
       </TabsList>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
         <TabsContent value="overview" className="space-y-4">
           <p className="text-xs leading-5 text-muted-foreground">
             {props.detail.summary}
