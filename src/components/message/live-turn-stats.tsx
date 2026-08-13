@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { useLocale, useTranslations } from "next-intl"
+import { useTranslations } from "next-intl"
 import type {
   LiveContentBlock,
   LiveMessage,
@@ -12,7 +12,7 @@ import {
   countUnifiedDiffLineChanges,
   estimateChangedLineStats,
 } from "@/lib/line-change-stats"
-import { FilePenLine, ListTodoIcon, Timer, Wrench } from "lucide-react"
+import { ListTodoIcon, Timer, Wrench } from "lucide-react"
 import type { AgentType, PlanEntryInfo } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -49,11 +49,6 @@ function getLatestPlanEntries(message: LiveMessage): PlanEntryInfo[] {
   }
 
   return EMPTY_PLAN_ENTRIES
-}
-
-function formatCompactInt(n: number, formatter: Intl.NumberFormat): string {
-  if (n < 1000) return String(n)
-  return formatter.format(n)
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -333,11 +328,9 @@ export function LiveTurnStats({
   subAgentControl,
   trailingStatus,
 }: LiveTurnStatsProps) {
-  const locale = useLocale()
   const t = useTranslations("Folder.chat.liveTurnStats")
   const tPlan = useTranslations("Folder.chat.agentPlanOverlay")
   const [elapsed, setElapsed] = useState(() => Date.now() - message.startedAt)
-  const editStats = useMemo(() => extractLiveEditStats(message), [message])
   const resolvedPlanEntries = useMemo(
     () => planEntries ?? getLatestPlanEntries(message),
     [message, planEntries]
@@ -348,15 +341,6 @@ export function LiveTurnStats({
         .length,
     [resolvedPlanEntries]
   )
-  const compactNumberFormatter = useMemo(
-    () =>
-      new Intl.NumberFormat(locale, {
-        notation: "compact",
-        maximumFractionDigits: 1,
-      }),
-    [locale]
-  )
-
   useEffect(() => {
     const timer = setInterval(() => {
       setElapsed(Date.now() - message.startedAt)
@@ -448,19 +432,6 @@ export function LiveTurnStats({
           <Timer className="h-3 w-3 shrink-0" />
           {elapsedLabel}
         </span>
-        {editStats.files > 0 && (
-          <>
-            <span className="hidden text-border leading-none @[24rem]/turnstats:inline">
-              |
-            </span>
-            <span className="hidden items-center gap-1 leading-none @[24rem]/turnstats:inline-flex">
-              <FilePenLine className="h-3 w-3 shrink-0" />
-              {editStats.files}F +
-              {formatCompactInt(editStats.additions, compactNumberFormatter)}/-
-              {formatCompactInt(editStats.deletions, compactNumberFormatter)}
-            </span>
-          </>
-        )}
         {toolCallCount > 0 && (
           <>
             <span className="hidden text-border leading-none @[30rem]/turnstats:inline">
