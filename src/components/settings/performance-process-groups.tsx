@@ -2,6 +2,8 @@
 
 import { useState } from "react"
 import { ProcessGroupSection } from "@/components/settings/performance-process-group-section"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
+import type { AgentType } from "@/lib/types"
 
 export interface AppProcessInfo {
   pid: number
@@ -57,6 +59,10 @@ function fallbackGroup(
   return { id: "other", displayName: "其他附属进程" }
 }
 
+function agentDisplayName(agentType: string): string {
+  return getAgentDisplayName(agentType as AgentType) || agentType
+}
+
 function groupRank(group: ProcessGroup): number {
   if (group.id === "main") return 0
   if (group.id.startsWith("webview2-")) return 1
@@ -77,7 +83,9 @@ export function buildProcessGroups(
     const id = proc.groupId ?? fallback.id
     const existing = groups.get(id) ?? {
       id,
-      displayName: proc.groupDisplayName ?? fallback.displayName,
+      displayName: proc.agentType
+        ? agentDisplayName(proc.agentType)
+        : (proc.groupDisplayName ?? fallback.displayName),
       rootPid: proc.pid,
       cpuUsage: 0,
       memoryBytes: 0,
@@ -109,7 +117,7 @@ export function buildProcessGroups(
     if (groups.has(id)) continue
     groups.set(id, {
       id,
-      displayName: session.agentType,
+      displayName: agentDisplayName(session.agentType),
       rootPid: session.launcherPid ?? 0,
       cpuUsage: 0,
       memoryBytes: session.memoryBytes,

@@ -180,6 +180,7 @@ export function ProcessGroupSection({
   onEndSession?: (connectionId: string) => void
 }) {
   const session = group.session
+  const showProcesses = !group.isAgentSession
   return (
     <section className="border-b last:border-b-0">
       <ProcessGroupHeader {...{ group, expanded, onToggle }} />
@@ -188,9 +189,13 @@ export function ProcessGroupSection({
           {session && (
             <AgentSessionDetail {...{ session, ending, onEndSession }} />
           )}
-          {group.processes.map((proc) => (
-            <ProcessRow key={proc.pid} proc={proc} />
-          ))}
+          {showProcesses && group.processes.length > 0 && (
+            <div className="divide-y">
+              {group.processes.map((proc) => (
+                <ProcessRow key={proc.pid} proc={proc} />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </section>
