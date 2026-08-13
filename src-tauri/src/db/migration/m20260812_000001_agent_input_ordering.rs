@@ -16,34 +16,55 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         drop_indexes(manager).await?;
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(AgentInputOutbox::Table)
-                    .drop_column(AgentInputOutbox::ForceRequestedAt)
-                    .drop_column(AgentInputOutbox::ForceBatchId)
-                    .drop_column(AgentInputOutbox::SortIndex)
-                    .to_owned(),
-            )
-            .await
+        drop_column(manager, AgentInputOutbox::ForceRequestedAt).await?;
+        drop_column(manager, AgentInputOutbox::ForceBatchId).await?;
+        drop_column(manager, AgentInputOutbox::SortIndex).await
     }
 }
 
 async fn add_columns(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    add_column(
+        manager,
+        ColumnDef::new(AgentInputOutbox::SortIndex)
+            .big_integer()
+            .not_null()
+            .default(0)
+            .to_owned(),
+    )
+    .await?;
+    add_column(
+        manager,
+        ColumnDef::new(AgentInputOutbox::ForceBatchId)
+            .string()
+            .to_owned(),
+    )
+    .await?;
+    add_column(
+        manager,
+        ColumnDef::new(AgentInputOutbox::ForceRequestedAt)
+            .timestamp_with_time_zone()
+            .to_owned(),
+    )
+    .await
+}
+
+async fn add_column(manager: &SchemaManager<'_>, column: ColumnDef) -> Result<(), DbErr> {
     manager
         .alter_table(
             Table::alter()
                 .table(AgentInputOutbox::Table)
-                .add_column(
-                    ColumnDef::new(AgentInputOutbox::SortIndex)
-                        .big_integer()
-                        .not_null()
-                        .default(0),
-                )
-                .add_column(ColumnDef::new(AgentInputOutbox::ForceBatchId).string())
-                .add_column(
-                    ColumnDef::new(AgentInputOutbox::ForceRequestedAt).timestamp_with_time_zone(),
-                )
+                .add_column(column)
+                .to_owned(),
+        )
+        .await
+}
+
+async fn drop_column<T: IntoIden>(manager: &SchemaManager<'_>, column: T) -> Result<(), DbErr> {
+    manager
+        .alter_table(
+            Table::alter()
+                .table(AgentInputOutbox::Table)
+                .drop_column(column)
                 .to_owned(),
         )
         .await
