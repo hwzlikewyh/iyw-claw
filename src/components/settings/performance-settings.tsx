@@ -18,10 +18,7 @@ import {
   type AppProcessInfo,
   type ProcessGroup,
 } from "@/components/settings/performance-process-groups"
-import {
-  MemoryGovernanceStatus,
-  type AppSystemMemoryInfo,
-} from "@/components/settings/performance-memory-status"
+import type { AppSystemMemoryInfo } from "@/components/settings/performance-memory-status"
 
 const AUTO_REFRESH_INTERVAL_MS = 3000
 
@@ -279,7 +276,6 @@ export function PerformanceSettings() {
         </div>
       )}
       <PerformanceSummary data={data} />
-      <MemoryGovernanceStatus memory={data.stats?.systemMemory} />
       <PerformanceProcessPanel data={data} />
     </SettingsPageLayout>
   )
