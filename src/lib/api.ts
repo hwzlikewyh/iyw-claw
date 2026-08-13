@@ -1376,8 +1376,8 @@ export async function listLogFiles(): Promise<LogFileInfo[]> {
   return getTransport().call("list_log_files")
 }
 
-/** Ensure the logs dir exists and return its absolute path (desktop only). */
-export async function openLogsDir(): Promise<string> {
+/** Ensure the logs dir exists and open it in the system file manager. */
+export async function openLogsDir(): Promise<void> {
   return getTransport().call("open_logs_dir")
 }
 

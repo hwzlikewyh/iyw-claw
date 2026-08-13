@@ -185,10 +185,7 @@ pub fn list_log_files_core() -> Vec<LogFileInfo> {
     files
 }
 
-/// Ensure the logs dir exists and return its absolute path. The caller (desktop
-/// frontend) reveals it via the opener — mirrors `experts_open_central_dir`, so
-/// no opener dependency or cfg-gating is needed here, and it compiles in server
-/// mode too.
+/// Ensure the logs dir exists and return its absolute path.
 pub fn open_logs_dir_core() -> Result<String, AppCommandError> {
     let dir = crate::paths::iyw_claw_logs_root();
     std::fs::create_dir_all(&dir).map_err(|e| {
@@ -300,6 +297,12 @@ pub async fn list_log_files() -> Result<Vec<LogFileInfo>, AppCommandError> {
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn open_logs_dir() -> Result<String, AppCommandError> {
-    open_logs_dir_core()
+pub async fn open_logs_dir() -> Result<(), AppCommandError> {
+    let directory = open_logs_dir_core()?;
+    tauri_plugin_opener::open_path(&directory, None::<&str>).map_err(|error| {
+        tracing::error!(error = %error, "[logs] failed to open log directory");
+        AppCommandError::external_command("Failed to open log directory", error.to_string())
+    })?;
+    tracing::info!("[logs] opened log directory in system file manager");
+    Ok(())
 }

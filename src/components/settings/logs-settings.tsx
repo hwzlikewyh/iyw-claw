@@ -44,7 +44,7 @@ import {
   subscribeLogAppended,
   subscribeLogSettingsChanged,
 } from "@/lib/api"
-import { isDesktop, revealItemInDir } from "@/lib/platform"
+import { isDesktop } from "@/lib/platform"
 import { toErrorMessage } from "@/lib/app-error"
 import type {
   LogFileInfo,
@@ -605,11 +605,7 @@ export function LogsSettings() {
 
   const handleOpenFolder = useCallback(async () => {
     try {
-      const path = await openLogsDir()
-      // `revealItemInDir` (not `openPath`): the opener plugin's path scope
-      // rejects the hidden `~/.iyw-claw/logs` path under its require-literal-
-      // leading-dot Unix default, whereas reveal is not scope-checked.
-      await revealItemInDir(path)
+      await openLogsDir()
     } catch (err) {
       toast.error(t("openFolderFailed"), { description: toErrorMessage(err) })
     }
