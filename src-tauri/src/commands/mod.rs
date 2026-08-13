@@ -56,6 +56,7 @@ pub mod runtime_bootstrap;
 pub mod session_config;
 pub mod session_info;
 pub mod skill_market;
+mod skill_metadata;
 pub mod system_settings;
 pub mod system_skills;
 pub mod task_artifacts;

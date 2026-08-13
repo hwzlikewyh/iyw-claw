@@ -31,6 +31,7 @@ use crate::commands::experts::{
     central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, ExpertLinkState,
     RUNTIME_ENV_DIR_NAMES,
 };
+use crate::commands::skill_metadata::read_skill_display_name;
 use crate::db::service::agent_setting_service;
 use crate::db::AppDatabase;
 use crate::models::agent::AgentType;
@@ -5146,12 +5147,15 @@ fn build_skill_item(
     path: PathBuf,
     enabled: bool,
 ) -> AgentSkillItem {
-    let description = read_skill_description(&skill_content_path(layout, &path));
+    let content_path = skill_content_path(layout, &path);
+    let description = read_skill_description(&content_path);
+    let name =
+        read_skill_display_name(&path, &content_path).unwrap_or_else(|| skill_name_from_id(&id));
     let market = read_market_skill_marker(&path);
     let market_managed = is_market_skill_source(&path);
     let official = is_official_skill_source(&path);
     AgentSkillItem {
-        name: skill_name_from_id(&id),
+        name,
         id,
         scope,
         layout,
