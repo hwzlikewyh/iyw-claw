@@ -8522,9 +8522,17 @@ pub async fn acp_disconnect(
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn acp_touch_connection(
     connection_id: String,
+    visible: Option<bool>,
+    pending_input: Option<bool>,
     manager: State<'_, ConnectionManager>,
 ) -> Result<bool, AcpError> {
-    Ok(manager.touch(&connection_id).await)
+    Ok(manager
+        .touch_with_leases(
+            &connection_id,
+            visible.unwrap_or(true),
+            pending_input.unwrap_or(false),
+        )
+        .await)
 }
 
 #[cfg(feature = "tauri-runtime")]

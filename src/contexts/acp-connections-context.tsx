@@ -16,7 +16,6 @@ import type {
   EventStreamSubscription,
 } from "@/lib/transport/types"
 import { randomUUID } from "@/lib/utils"
-import { TurnBusyError } from "@/lib/turn-busy"
 import { inferLiveToolName } from "@/lib/tool-call-normalization"
 import {
   acpConnect,
@@ -61,16 +60,7 @@ import type {
   UserMessageBlock,
 } from "@/lib/types"
 import { AGENT_LABELS } from "@/lib/types"
-import {
-  CONNECTION_KEEPALIVE_INTERVAL_MS,
-  IDLE_SWEEP_INTERVAL_MS,
-} from "@/lib/constants"
-import {
-  isVisibleActiveConversation,
-  shouldKeepConnectionAlive,
-  shouldReclaimConnection,
-  type DocumentVisibilityState,
-} from "@/lib/connection-retention"
+import { CONNECTION_KEEPALIVE_INTERVAL_MS } from "@/lib/constants"
 import { sendSystemNotification } from "@/lib/notification"
 import {
   formatAgentRuntimeError,
@@ -294,9 +284,16 @@ type ConnectRequest = {
   // (sessionId already distinguishes), but carried so a re-fired pending
   // request still runs discovery.
   conversationId?: number
+  attachOnly?: boolean
 }
 
 function sameConnectRequest(a: ConnectRequest, b: ConnectRequest) {
+  return (
+    sameConnectTarget(a, b) && Boolean(a.attachOnly) === Boolean(b.attachOnly)
+  )
+}
+
+function sameConnectTarget(a: ConnectRequest, b: ConnectRequest) {
   return (
     a.agentType === b.agentType &&
     (a.workingDir ?? null) === (b.workingDir ?? null) &&
@@ -2296,7 +2293,8 @@ export interface AcpActionsValue {
     agentType: AgentType,
     workingDir?: string,
     sessionId?: string,
-    conversationId?: number
+    conversationId?: number,
+    options?: { attachOnly?: boolean }
   ): Promise<void>
   disconnect(contextKey: string): Promise<void>
   disconnectAll(): Promise<void>
@@ -2333,7 +2331,8 @@ export interface AcpActionsValue {
   ): Promise<void>
   setActiveKey(key: string | null): void
   touchActivity(contextKey: string): void
-  registerOpenTabKeys(keys: Set<string>): void
+  registerVisibleTabKeys(keys: Set<string>): void
+  setPendingInputProtection(contextKey: string, protectedState: boolean): void
   /**
    * Register a sink that mirrors this contextKey's `liveMessage` into the
    * conversation-runtime store from `dispatch` (outside React), replacing the
@@ -2488,36 +2487,6 @@ function isAlertedError(error: unknown): error is AlertedError {
   return (error as { alerted?: unknown }).alerted === true
 }
 
-function getDocumentVisibilityState(): DocumentVisibilityState {
-  return document.visibilityState === "visible" ? "visible" : "hidden"
-}
-
-function coldReleaseMode(
-  connection: ConnectionState
-): "detach" | "disconnect" | "forget" {
-  if (connection.isViewer) return "detach"
-  if (connection.status === "disconnected") return "forget"
-  return "disconnect"
-}
-
-async function backendConnectionIsMissing(connectionId: string) {
-  try {
-    return !(await acpTouchConnection(connectionId))
-  } catch {
-    return false
-  }
-}
-
-async function disconnectColdBackend(connection: ConnectionState) {
-  if (connection.isViewer || connection.status === "disconnected") return
-  try {
-    await acpDisconnect(connection.connectionId)
-  } catch (error) {
-    if (await backendConnectionIsMissing(connection.connectionId)) return
-    throw error
-  }
-}
-
 // ── Provider ──
 
 export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
@@ -2572,15 +2541,16 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     new Map<string, EventStreamSubscription>()
   )
 
-  // Open tab keys — updated by child TabProvider via registerOpenTabKeys
-  const openTabKeysRef = useRef(new Set<string>())
+  // Conversation surfaces currently visible in this renderer.
+  const visibleTabKeysRef = useRef(new Set<string>())
+  const pendingInputKeysRef = useRef(new Set<string>())
 
   // Guard against concurrent connect() calls
   const connectingKeysRef = useRef(new Set<string>())
+  const activeConnectRequestsRef = useRef(new Map<string, ConnectRequest>())
   const pendingConnectRequestsRef = useRef(new Map<string, ConnectRequest>())
   // Keys whose disconnect was requested while connect was still in flight
   const abandonedKeysRef = useRef(new Set<string>())
-  const coldDisconnectingKeysRef = useRef(new Set<string>())
   const connectRef = useRef<AcpActionsValue["connect"] | null>(null)
 
   type ConnectBlockState =
@@ -2787,9 +2757,41 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     lastActivityRef.current.set(contextKey, Date.now())
   }, [])
 
-  const registerOpenTabKeys = useCallback((keys: Set<string>) => {
-    openTabKeysRef.current = keys
+  const registerVisibleTabKeys = useCallback((keys: Set<string>) => {
+    visibleTabKeysRef.current = keys
+    if (document.visibilityState !== "visible") return
+    for (const contextKey of keys) {
+      const connectionId =
+        storeRef.current.connections.get(contextKey)?.connectionId
+      if (connectionId) acpTouchConnection(connectionId).catch(() => {})
+    }
   }, [])
+
+  const touchConnectionLeases = useCallback(
+    async (contextKey: string, connectionId: string) => {
+      const visible =
+        document.visibilityState === "visible" &&
+        visibleTabKeysRef.current.has(contextKey)
+      const pendingInput = pendingInputKeysRef.current.has(contextKey)
+      if (!visible && !pendingInput) return
+      await acpTouchConnection(connectionId, { visible, pendingInput }).catch(
+        () => false
+      )
+    },
+    []
+  )
+
+  const setPendingInputProtection = useCallback(
+    (contextKey: string, protectedState: boolean) => {
+      if (protectedState) pendingInputKeysRef.current.add(contextKey)
+      else pendingInputKeysRef.current.delete(contextKey)
+      if (!protectedState) return
+      const connectionId =
+        storeRef.current.connections.get(contextKey)?.connectionId
+      if (connectionId) void touchConnectionLeases(contextKey, connectionId)
+    },
+    [touchConnectionLeases]
+  )
 
   const registerLiveMessageSink = useCallback(
     (contextKey: string, conversationId: number, sink: LiveMessageSink) => {
@@ -3751,155 +3753,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     resolveListenerReadyWaiters,
   ])
 
-  const forgetColdConnection = useCallback(
-    (contextKey: string, connectionId: string): boolean => {
-      const current = storeRef.current.connections.get(contextKey)
-      if (current?.connectionId !== connectionId) return false
-      reverseMapRef.current.delete(connectionId)
-      teardownAttachSubscription(contextKey)
-      lastActivityRef.current.delete(contextKey)
-      pendingUnmappedEventsRef.current.delete(connectionId)
-      dispatch({ type: "CONNECTION_REMOVED", contextKey })
-      return true
-    },
-    [dispatch, teardownAttachSubscription]
-  )
-
-  const resolveColdReconnectRequest = useCallback(
-    (
-      contextKey: string,
-      conn: ConnectionState,
-      runtimeId: number | undefined
-    ): ConnectRequest | null => {
-      const pendingRequest = pendingConnectRequestsRef.current.get(contextKey)
-      const visibleAgain = isVisibleActiveConversation(
-        contextKey,
-        storeRef.current.activeKey,
-        getDocumentVisibilityState()
-      )
-      if (!pendingRequest && !visibleAgain) return null
-      return (
-        pendingRequest ?? {
-          agentType: conn.agentType,
-          workingDir: conn.workingDir ?? undefined,
-          sessionId: conn.sessionId ?? undefined,
-          conversationId:
-            runtimeId != null && runtimeId > 0 ? runtimeId : undefined,
-        }
-      )
-    },
-    []
-  )
-
-  const finalizeColdRelease = useCallback(
-    (args: {
-      contextKey: string
-      connectionId: string
-      idleMs: number
-      conn: ConnectionState
-    }): ConnectRequest | null => {
-      const { contextKey, connectionId, idleMs, conn } = args
-      const runtimeId = runtimeConversationIdsRef.current.get(contextKey)
-      const reconnectRequest = resolveColdReconnectRequest(
-        contextKey,
-        conn,
-        runtimeId
-      )
-      if (!forgetColdConnection(contextKey, connectionId)) {
-        return reconnectRequest
-      }
-      pendingConnectRequestsRef.current.delete(contextKey)
-      if (!reconnectRequest && runtimeId != null) {
-        useConversationRuntimeStore
-          .getState()
-          .actions.evictConversationContent(runtimeId)
-      }
-      console.info("[acp-context] reclaimed cold conversation", {
-        connectionIdSuffix: connectionId.slice(-8),
-        contextKey,
-        reason: "ttl",
-        connectionStatus: conn.status,
-        backgroundOutstanding: conn.backgroundOutstanding,
-        idleSeconds: Math.floor(idleMs / 1000),
-        openTab: openTabKeysRef.current.has(contextKey),
-        release: coldReleaseMode(conn),
-      })
-      return reconnectRequest
-    },
-    [forgetColdConnection, resolveColdReconnectRequest]
-  )
-
-  const queueColdReconnect = useCallback(
-    (contextKey: string, request: ConnectRequest) => {
-      queueMicrotask(() => {
-        connectRef.current?.(
-          contextKey,
-          request.agentType,
-          request.workingDir,
-          request.sessionId,
-          request.conversationId
-        )
-      })
-    },
-    []
-  )
-
-  const releaseColdConnection = useCallback(
-    async (contextKey: string, connectionId: string, idleMs: number) => {
-      if (coldDisconnectingKeysRef.current.has(contextKey)) return
-      const conn = storeRef.current.connections.get(contextKey)
-      if (!conn || conn.connectionId !== connectionId) return
-      const now = Date.now()
-      if (
-        !shouldReclaimConnection({
-          connection: conn,
-          contextKey,
-          activeKey: storeRef.current.activeKey,
-          visibilityState: getDocumentVisibilityState(),
-          lastActiveAt: lastActivityRef.current.get(contextKey),
-          now,
-        })
-      ) {
-        return
-      }
-
-      coldDisconnectingKeysRef.current.add(contextKey)
-      let reconnectRequest: ConnectRequest | null = null
-      try {
-        await disconnectColdBackend(conn)
-        reconnectRequest = finalizeColdRelease({
-          contextKey,
-          connectionId,
-          idleMs,
-          conn,
-        })
-      } catch (error) {
-        pendingConnectRequestsRef.current.delete(contextKey)
-        console.warn("[acp-context] cold conversation release failed", {
-          connectionIdSuffix: connectionId.slice(-8),
-          contextKey,
-          reason: "ttl",
-          connectionStatus: conn.status,
-          backgroundOutstanding: conn.backgroundOutstanding,
-          idleSeconds: Math.floor(idleMs / 1000),
-          error,
-        })
-      } finally {
-        coldDisconnectingKeysRef.current.delete(contextKey)
-        if (reconnectRequest) {
-          queueColdReconnect(contextKey, reconnectRequest)
-        }
-      }
-    },
-    [finalizeColdRelease, queueColdReconnect]
-  )
-
   useEffect(() => {
     const handleVisibilityChange = () => {
       const contextKey = storeRef.current.activeKey
       if (!contextKey) return
       lastActivityRef.current.set(contextKey, Date.now())
-      if (getDocumentVisibilityState() !== "visible") return
+      if (document.visibilityState !== "visible") return
       const conn = storeRef.current.connections.get(contextKey)
       if (conn?.status === "connected") {
         acpTouchConnection(conn.connectionId).catch(() => {})
@@ -3911,69 +3770,23 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Keep only protected, visible-active, and not-yet-cold connections alive.
+  // Renew short leases only for surfaces this renderer is actually showing.
   useEffect(() => {
     const timer = setInterval(() => {
-      const now = Date.now()
-      const toTouch: string[] = []
-      for (const [contextKey, conn] of storeRef.current.connections) {
-        if (coldDisconnectingKeysRef.current.has(contextKey)) continue
-        if (
-          shouldKeepConnectionAlive({
-            connection: conn,
-            contextKey,
-            activeKey: storeRef.current.activeKey,
-            visibilityState: getDocumentVisibilityState(),
-            lastActiveAt: lastActivityRef.current.get(contextKey),
-            now,
-          })
-        ) {
-          toTouch.push(conn.connectionId)
-        }
-      }
-      for (const connectionId of toTouch) {
-        acpTouchConnection(connectionId).catch(() => {})
+      const keys = new Set([
+        ...visibleTabKeysRef.current,
+        ...pendingInputKeysRef.current,
+      ])
+      for (const contextKey of keys) {
+        const connectionId =
+          storeRef.current.connections.get(contextKey)?.connectionId
+        if (!connectionId) continue
+        void touchConnectionLeases(contextKey, connectionId)
       }
     }, CONNECTION_KEEPALIVE_INTERVAL_MS)
 
     return () => clearInterval(timer)
-  }, [])
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const now = Date.now()
-      const toRelease: Array<{
-        contextKey: string
-        connectionId: string
-        idleMs: number
-      }> = []
-      for (const [contextKey, conn] of storeRef.current.connections) {
-        const lastActiveAt = lastActivityRef.current.get(contextKey)
-        if (
-          shouldReclaimConnection({
-            connection: conn,
-            contextKey,
-            activeKey: storeRef.current.activeKey,
-            visibilityState: getDocumentVisibilityState(),
-            lastActiveAt,
-            now,
-          })
-        ) {
-          toRelease.push({
-            contextKey,
-            connectionId: conn.connectionId,
-            idleMs: now - (lastActiveAt ?? now),
-          })
-        }
-      }
-
-      for (const { contextKey, connectionId, idleMs } of toRelease) {
-        void releaseColdConnection(contextKey, connectionId, idleMs)
-      }
-    }, IDLE_SWEEP_INTERVAL_MS)
-
-    return () => clearInterval(timer)
-  }, [releaseColdConnection])
+  }, [touchConnectionLeases])
 
   // Disconnect all on unmount
   useEffect(() => {
@@ -4055,6 +3868,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         isViewer: true,
       })
       lastActivityRef.current.set(contextKey, Date.now())
+      await touchConnectionLeases(contextKey, connectionId)
 
       const stream = getEventStream()
       if (stream) {
@@ -4111,6 +3925,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       dispatch,
       seedDelegationsFromSnapshot,
       setupAttachSubscription,
+      touchConnectionLeases,
     ]
   )
 
@@ -4120,71 +3935,80 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       agentType: AgentType,
       workingDir?: string,
       sessionId?: string,
-      conversationId?: number
+      conversationId?: number,
+      options?: { attachOnly?: boolean }
     ) => {
       const request: ConnectRequest = {
         agentType,
         workingDir,
         sessionId,
         conversationId,
-      }
-      if (coldDisconnectingKeysRef.current.has(contextKey)) {
-        pendingConnectRequestsRef.current.set(contextKey, request)
-        lastActivityRef.current.set(contextKey, Date.now())
-        return
+        attachOnly: options?.attachOnly,
       }
       if (connectingKeysRef.current.has(contextKey)) {
+        const activeRequest = activeConnectRequestsRef.current.get(contextKey)
+        const pendingRequest = pendingConnectRequestsRef.current.get(contextKey)
+        const fullConnectAlreadyQueued = [activeRequest, pendingRequest].some(
+          (candidate) =>
+            candidate != null &&
+            sameConnectTarget(candidate, request) &&
+            !candidate.attachOnly
+        )
+        if (request.attachOnly && fullConnectAlreadyQueued) return
         pendingConnectRequestsRef.current.set(contextKey, request)
         return
       }
       connectingKeysRef.current.add(contextKey)
+      activeConnectRequestsRef.current.set(contextKey, request)
 
       try {
         // Preflight: read agent status and block if the SDK / binary is
         // not installed. The session page must never trigger a download
         // or install — if the agent is not ready, prompt the user to
         // install it from Agent Settings instead.
-        let configuredAgent: AcpAgentStatus | null = null
-        try {
-          configuredAgent = await acpGetAgentStatus(agentType)
-        } catch (error) {
-          const rawMessage = normalizeErrorMessage(error)
-          const reason = t("unableReadAgentConfig", {
-            message:
-              formatAgentRuntimeError(rawMessage, runtimeErrorMessages) ??
-              rawMessage,
-          })
-          const failedTitle = t("connectFailedTitle", {
-            agent: AGENT_LABELS[agentType],
-          })
-          pushAlertRef.current(
-            "error",
-            failedTitle,
-            `${reason}\n${t("agentsSetupHint")}`,
-            [buildOpenAgentsSettingsAction(agentType)]
-          )
-          throw createAlertedError(reason)
-        }
+        if (!request.attachOnly) {
+          let configuredAgent: AcpAgentStatus | null = null
+          try {
+            configuredAgent = await acpGetAgentStatus(agentType)
+          } catch (error) {
+            const rawMessage = normalizeErrorMessage(error)
+            const reason = t("unableReadAgentConfig", {
+              message:
+                formatAgentRuntimeError(rawMessage, runtimeErrorMessages) ??
+                rawMessage,
+            })
+            const failedTitle = t("connectFailedTitle", {
+              agent: AGENT_LABELS[agentType],
+            })
+            pushAlertRef.current(
+              "error",
+              failedTitle,
+              `${reason}\n${t("agentsSetupHint")}`,
+              [buildOpenAgentsSettingsAction(agentType)]
+            )
+            throw createAlertedError(reason)
+          }
 
-        const blocked = resolveConnectBlockState(configuredAgent)
-        if (blocked.kind !== "none") {
-          const failedTitle = t("connectFailedTitle", {
-            agent: AGENT_LABELS[agentType],
-          })
-          const detail =
-            blocked.kind === "sdk_missing"
-              ? t("withSetupHint", {
-                  message: blocked.reason,
-                  hint: t("agentsSetupHint"),
-                })
-              : `${blocked.reason}\n${t("agentsSetupHint")}`
-          pushAlertRef.current(
-            "error",
-            blocked.kind === "sdk_missing" ? blocked.reason : failedTitle,
-            detail,
-            [buildOpenAgentsSettingsAction(agentType)]
-          )
-          throw createAlertedError(blocked.reason)
+          const blocked = resolveConnectBlockState(configuredAgent)
+          if (blocked.kind !== "none") {
+            const failedTitle = t("connectFailedTitle", {
+              agent: AGENT_LABELS[agentType],
+            })
+            const detail =
+              blocked.kind === "sdk_missing"
+                ? t("withSetupHint", {
+                    message: blocked.reason,
+                    hint: t("agentsSetupHint"),
+                  })
+                : `${blocked.reason}\n${t("agentsSetupHint")}`
+            pushAlertRef.current(
+              "error",
+              blocked.kind === "sdk_missing" ? blocked.reason : failedTitle,
+              detail,
+              [buildOpenAgentsSettingsAction(agentType)]
+            )
+            throw createAlertedError(blocked.reason)
+          }
         }
 
         const nextWorkingDir = workingDir ?? null
@@ -4196,6 +4020,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             existing.status !== "disconnected" &&
             existing.status !== "error"
           ) {
+            await touchConnectionLeases(contextKey, existing.connectionId)
             return
           }
           if (
@@ -4329,6 +4154,15 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           }
         }
 
+        if (request.attachOnly) return
+        if (conversationId != null && conversationId > 0 && !sessionId) {
+          const message = t("backendErrors.sessionLoadUnavailable", {
+            agent: AGENT_LABELS[agentType],
+          })
+          dispatch({ type: "ACP_LOAD_ERROR", contextKey, message })
+          throw createAlertedError(message)
+        }
+
         // Wait for the legacy global listener to register so Tauri's drain
         // path picks up any events emitted between acpConnect returning
         // and reverseMap.set below. Web/remote use attach which doesn't
@@ -4384,6 +4218,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           agentType,
           workingDir: nextWorkingDir,
         })
+        await touchConnectionLeases(contextKey, connectionId)
 
         // Subscribe-with-Snapshot path. When the active transport supports
         // the attach protocol (currently web mode), the per-connection WS
@@ -4491,6 +4326,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         }
       } finally {
         connectingKeysRef.current.delete(contextKey)
+        activeConnectRequestsRef.current.delete(contextKey)
         abandonedKeysRef.current.delete(contextKey)
         const pendingRequest = pendingConnectRequestsRef.current.get(contextKey)
         if (pendingRequest) {
@@ -4503,7 +4339,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                   pendingRequest.agentType,
                   pendingRequest.workingDir,
                   pendingRequest.sessionId,
-                  pendingRequest.conversationId
+                  pendingRequest.conversationId,
+                  { attachOnly: pendingRequest.attachOnly }
                 )
                 .catch(() => {})
             })
@@ -4525,6 +4362,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       setupAttachSubscription,
       t,
       teardownAttachSubscription,
+      touchConnectionLeases,
       waitForListenerReady,
     ]
   )
@@ -4624,9 +4462,6 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         clientMessageId?: string | null
       }
     ) => {
-      if (coldDisconnectingKeysRef.current.has(contextKey)) {
-        throw new TurnBusyError()
-      }
       const conn = storeRef.current.connections.get(contextKey)
       if (!conn) return
       lastActivityRef.current.set(contextKey, Date.now())
@@ -4642,9 +4477,6 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   )
 
   const setMode = useCallback(async (contextKey: string, modeId: string) => {
-    if (coldDisconnectingKeysRef.current.has(contextKey)) {
-      throw new TurnBusyError()
-    }
     const conn = storeRef.current.connections.get(contextKey)
     if (!conn) return
     // Persist user's mode selection to localStorage
@@ -4848,7 +4680,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       respondChannelConfirmation,
       setActiveKey,
       touchActivity,
-      registerOpenTabKeys,
+      registerVisibleTabKeys,
+      setPendingInputProtection,
       registerLiveMessageSink,
       clearAcpLoadError,
       attachDelegationChild,
@@ -4869,7 +4702,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       respondChannelConfirmation,
       setActiveKey,
       touchActivity,
-      registerOpenTabKeys,
+      registerVisibleTabKeys,
+      setPendingInputProtection,
       registerLiveMessageSink,
       clearAcpLoadError,
       attachDelegationChild,

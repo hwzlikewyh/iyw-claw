@@ -303,6 +303,8 @@ impl Default for ConnectionManager {
 }
 
 impl ConnectionManager {
+    const VISIBLE_LEASE_SECS: i64 = 45;
+    const PENDING_INPUT_LEASE_SECS: i64 = 120;
     pub fn new() -> Self {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
@@ -516,14 +518,21 @@ impl ConnectionManager {
         Ok(connection_id)
     }
 
-    /// Bump `last_activity_at` for a live connection so the idle sweep
-    /// won't reap it. Used by the frontend keepalive loop to protect
-    /// connections backing currently-open conversation tabs (the
-    /// frontend is the only side that knows which tabs the user has
-    /// open). Silently no-ops if the connection is missing or already
-    /// in a terminal state — touch must never resurrect a dead
-    /// connection or contend with the spawn/disconnect paths.
+    /// Renew frontend-owned protection leases for a live connection.
+    /// Lease renewal intentionally does not change `last_activity_at`: an open
+    /// tab must stay protected while its short lease is alive without making
+    /// the session look recently used forever after the renderer disappears.
+    /// Silently no-ops if the connection is missing or already terminal.
     pub async fn touch(&self, conn_id: &str) -> bool {
+        self.touch_with_leases(conn_id, true, false).await
+    }
+
+    pub async fn touch_with_leases(
+        &self,
+        conn_id: &str,
+        visible: bool,
+        pending_input: bool,
+    ) -> bool {
         let state_arc = {
             let connections = self.connections.lock().await;
             match connections.get(conn_id) {
@@ -538,7 +547,15 @@ impl ConnectionManager {
         ) {
             return false;
         }
-        state.last_activity_at = chrono::Utc::now();
+        let now = chrono::Utc::now();
+        if visible {
+            state.visible_lease_until =
+                Some(now + chrono::Duration::seconds(Self::VISIBLE_LEASE_SECS));
+        }
+        if pending_input {
+            state.pending_input_lease_until =
+                Some(now + chrono::Duration::seconds(Self::PENDING_INPUT_LEASE_SECS));
+        }
         true
     }
 
@@ -584,7 +601,7 @@ impl ConnectionManager {
             Ok(d) => d,
             Err(_) => return 0,
         };
-        let to_disconnect: Vec<String> = {
+        let to_disconnect: Option<String> = {
             let connections = self.connections.lock().await;
             let mut victims = Vec::new();
             for (id, conn) in connections.iter() {
@@ -594,86 +611,116 @@ impl ConnectionManager {
                     // mutex on it.
                     continue;
                 };
-                if state.status != ConnectionStatus::Connected {
-                    continue;
-                }
-                if state.pending_permission.is_some() {
-                    continue;
-                }
-                if state.has_active_background_work(now) {
+                if crate::acp::resource_governor::reclaim_block_reason(
+                    &state,
+                    now,
+                    Duration::ZERO,
+                    false,
+                )
+                .is_some()
+                {
                     continue;
                 }
                 let elapsed = now.signed_duration_since(state.last_activity_at);
                 if elapsed >= timeout {
-                    victims.push(id.clone());
+                    victims.push((id.clone(), state.last_activity_at));
                 }
             }
-            victims
+            victims.sort_by(|left, right| left.1.cmp(&right.1));
+            victims.into_iter().next().map(|(id, _)| id)
         };
         let mut disconnected = 0;
-        for id in to_disconnect {
-            tracing::info!("[ACP] idle sweep disconnecting connection={}", id);
-            if self.disconnect(&id).await.is_ok() {
+        if let Some(id) = to_disconnect {
+            if self
+                .disconnect_if_reclaimable(&id, Duration::ZERO, false, "idle_timeout")
+                .await
+                .unwrap_or(false)
+            {
                 disconnected += 1;
             }
         }
         disconnected
     }
 
-    /// Cap the number of idle resident agent processes. Finished
-    /// conversations keep their ACP process alive (frontend keepalives stop
-    /// the time-based idle sweep from ever firing while any surface is
-    /// attached), so memory grows with every conversation ever opened.
-    /// Keep only the `max_keep` most recently active idle connections and
-    /// disconnect the rest — re-entering such a conversation reconnects via
-    /// the fast `session/load` path.
-    ///
-    /// Eligibility mirrors `sweep_idle` (Connected, no pending
-    /// permission/question, no live background work) with a 90-second grace
-    /// on `last_agent_event_at` so a turn that JUST finished — or is being
-    /// read right now — is never yanked out from under the user mid-glance.
-    /// Prompting connections are never candidates ("对话中的不算").
+    /// Reclaim at most one recoverable idle session per tick. System pressure
+    /// tightens the configured cap from 2 to 1 or 0; private commit is the
+    /// primary budget signal. Active work and unreliable sessions are excluded.
     pub async fn sweep_excess_idle(&self, max_keep: usize) -> usize {
-        const JUST_FINISHED_GRACE_SECS: i64 = 90;
         let now = chrono::Utc::now();
+        let resources = crate::acp::resource_governor::ResourceSnapshot::capture();
+        let pressure_limit =
+            crate::acp::resource_governor::idle_keep_limit(resources.memory.pressure);
+        let keep_limit = pressure_limit.map_or(max_keep, |limit| max_keep.min(limit));
+        let private_budget =
+            crate::acp::resource_governor::idle_private_budget(resources.memory.total_bytes);
+        let allow_recent_activity = matches!(
+            resources.memory.pressure,
+            crate::acp::resource_governor::MemoryPressure::Emergency
+        );
         let to_disconnect: Vec<String> = {
             let connections = self.connections.lock().await;
-            let mut idle: Vec<(String, chrono::DateTime<chrono::Utc>)> = Vec::new();
+            let mut idle = Vec::new();
             for (id, conn) in connections.iter() {
                 let Ok(state) = conn.state.try_read() else {
                     continue;
                 };
-                if state.status != ConnectionStatus::Connected {
-                    continue;
-                }
-                if state.pending_permission.is_some() || state.pending_question.is_some() {
-                    continue;
-                }
-                if state.has_active_background_work(now) {
-                    continue;
-                }
-                if now.signed_duration_since(state.last_agent_event_at)
-                    < chrono::Duration::seconds(JUST_FINISHED_GRACE_SECS)
+                if crate::acp::resource_governor::reclaim_block_reason(
+                    &state,
+                    now,
+                    crate::acp::resource_governor::completion_grace(),
+                    allow_recent_activity,
+                )
+                .is_some()
                 {
                     continue;
                 }
-                idle.push((id.clone(), state.last_agent_event_at));
+                let memory = resources.connection_memory(&state);
+                idle.push((id.clone(), state.last_activity_at, memory.private_bytes));
             }
-            if idle.len() <= max_keep {
+            let private_total = idle
+                .iter()
+                .map(|(_, _, bytes)| *bytes)
+                .collect::<Option<Vec<_>>>()
+                .map(|values| values.iter().sum::<u64>());
+            let private_budget_exceeded = resources.memory.pressure
+                != crate::acp::resource_governor::MemoryPressure::Unknown
+                && private_total.is_some_and(|total| total > private_budget);
+            if idle.len() <= keep_limit && !private_budget_exceeded {
                 return 0;
             }
-            // Most recently finished first; disconnect everything past the cap.
-            idle.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
-            idle.split_off(max_keep)
-                .into_iter()
-                .map(|(id, _)| id)
-                .collect()
+            idle.sort_by(|left, right| {
+                left.1.cmp(&right.1).then_with(|| {
+                    crate::acp::resource_governor::compare_reclaim_memory(left.2, right.2)
+                })
+            });
+            idle.first()
+                .map(|(id, _, _)| vec![id.clone()])
+                .unwrap_or_default()
         };
 
         let mut disconnected = 0;
         for id in to_disconnect {
-            tracing::info!("[ACP] idle-capacity sweep disconnecting connection={id}");
-            if self.disconnect(&id).await.is_ok() {
+            tracing::info!(
+                connection_id = id,
+                pressure = resources.memory.pressure.as_str(),
+                available_bytes = resources.memory.available_bytes,
+                total_bytes = resources.memory.total_bytes,
+                shrinking_reserve_bytes = resources.memory.shrinking_reserve_bytes,
+                emergency_reserve_bytes = resources.memory.emergency_reserve_bytes,
+                keep_limit,
+                private_budget,
+                "[ACP] resource governor disconnecting idle connection"
+            );
+            if self
+                .disconnect_if_reclaimable(
+                    &id,
+                    crate::acp::resource_governor::completion_grace(),
+                    allow_recent_activity,
+                    "memory_governor",
+                )
+                .await
+                .unwrap_or(false)
+            {
                 disconnected += 1;
             }
         }
@@ -1876,6 +1923,69 @@ impl ConnectionManager {
         }
     }
 
+    pub(crate) async fn disconnect_if_reclaimable(
+        &self,
+        conn_id: &str,
+        grace: Duration,
+        allow_recent_activity: bool,
+        source: &'static str,
+    ) -> Result<bool, AcpError> {
+        let prompt_lock = {
+            let connections = self.connections.lock().await;
+            let Some(connection) = connections.get(conn_id) else {
+                return Ok(false);
+            };
+            Arc::clone(&connection.prompt_lock)
+        };
+        let Ok(_prompt_guard) = prompt_lock.try_lock_owned() else {
+            tracing::info!(
+                connection_id = conn_id,
+                source,
+                "[ACP] reclaim skipped: prompt path busy"
+            );
+            return Ok(false);
+        };
+        let cmd_tx = {
+            let mut connections = self.connections.lock().await;
+            let Some(state) = connections.get(conn_id).map(|conn| Arc::clone(&conn.state)) else {
+                return Ok(false);
+            };
+            let Ok(state) = state.try_read() else {
+                tracing::info!(
+                    connection_id = conn_id,
+                    source,
+                    "[ACP] reclaim skipped: state busy"
+                );
+                return Ok(false);
+            };
+            if let Some(reason) = crate::acp::resource_governor::reclaim_block_reason(
+                &state,
+                chrono::Utc::now(),
+                grace,
+                allow_recent_activity,
+            ) {
+                tracing::info!(
+                    connection_id = conn_id,
+                    source,
+                    reason,
+                    "[ACP] reclaim skipped: connection protected"
+                );
+                return Ok(false);
+            }
+            connections.remove(conn_id).map(|conn| conn.cmd_tx)
+        };
+        let Some(cmd_tx) = cmd_tx else {
+            return Ok(false);
+        };
+        tracing::info!(
+            connection_id = conn_id,
+            source,
+            "[ACP] reclaiming idle connection"
+        );
+        let _ = cmd_tx.send(ConnectionCommand::Disconnect).await;
+        Ok(true)
+    }
+
     /// Probe an agent for the modes / config_options it advertises on a fresh
     /// session, then immediately disconnect. The probe runs with
     /// `EventEmitter::Noop` so no event reaches the desktop webview, the
@@ -2112,6 +2222,44 @@ impl ConnectionManager {
     pub async fn list_connections(&self) -> Vec<ConnectionInfo> {
         let connections = self.connections.lock().await;
         connections.values().map(|c| c.info()).collect()
+    }
+
+    pub(crate) async fn runtime_session_snapshots(
+        &self,
+    ) -> Vec<crate::acp::resource_governor::RuntimeSessionSnapshot> {
+        let candidates = {
+            let connections = self.connections.lock().await;
+            connections
+                .iter()
+                .map(|(id, connection)| (id.clone(), Arc::clone(&connection.state)))
+                .collect::<Vec<_>>()
+        };
+        let now = chrono::Utc::now();
+        let mut snapshots = Vec::with_capacity(candidates.len());
+        for (connection_id, state) in candidates {
+            let Ok(state) = state.try_read() else {
+                continue;
+            };
+            let protection_reason = crate::acp::resource_governor::reclaim_block_reason(
+                &state,
+                now,
+                crate::acp::resource_governor::completion_grace(),
+                false,
+            );
+            snapshots.push(crate::acp::resource_governor::RuntimeSessionSnapshot {
+                connection_id,
+                conversation_id: state.conversation_id,
+                agent_type: state.agent_type,
+                status: state.status.clone(),
+                launcher_pid: state.agent_pid,
+                last_activity_at: state.last_activity_at.max(state.last_agent_event_at),
+                recoverable: state.external_id.is_some()
+                    && state.recoverable_session
+                    && !state.recovery_failed,
+                protection_reason,
+            });
+        }
+        snapshots
     }
 
     pub(crate) async fn image_analysis_state_for_connection(

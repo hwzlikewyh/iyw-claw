@@ -35,6 +35,7 @@ import { useDocumentVisibility } from "@/hooks/use-document-visibility"
 import { useMessageQueue, type QueuedMessage } from "@/hooks/use-message-queue"
 import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
 import { MessageListView } from "@/components/message/message-list-view"
+import type { MessageScrollPosition } from "@/components/message/virtualized-message-thread"
 import { ConversationShell } from "@/components/chat/conversation-shell"
 import { SessionConfigStaleBanner } from "@/components/chat/session-config-stale-banner"
 import { BackgroundTasksChip } from "@/components/chat/background-tasks-chip"
@@ -113,6 +114,7 @@ import {
   buildNewConversationDraftStorageKey,
   clearMessageInputDraft,
   saveMessageInputDraft,
+  subscribeMessageInputDraftPresence,
 } from "@/lib/message-input-draft"
 import {
   ContextMenu,
@@ -402,6 +404,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const prepareChatDirPendingRef = useRef(false)
   const sessionIdRef = useRef<string | null>(null)
   const syncCancelRef = useRef<(() => void) | null>(null)
+  const messageScrollPositionRef = useRef<MessageScrollPosition | null>(null)
 
   useEffect(() => {
     dbConvIdRef.current = dbConversationId
@@ -544,10 +547,10 @@ const ConversationTabView = memo(function ConversationTabView({
   // session's external_id has been resolved before auto-connecting.
   // Otherwise the auto-connect effect fires with sessionId=undefined and
   // the backend falls back to session/new, orphaning the historical
-  // context. cline doesn't support session resume, so it connects
-  // immediately regardless.
-  const awaitingHistoricalSessionId =
-    hasPersistedConversation && selectedAgent !== "cline" && detailLoading
+  // context. This applies to every Agent: a non-resumable Agent may still have
+  // a live connection to attach to, but must never receive session/new as a
+  // silent replacement for historical context.
+  const awaitingHistoricalSessionId = hasPersistedConversation && detailLoading
   const canAutoConnect =
     (hasPersistedConversation || (agentsLoaded && usableAgentCount > 0)) &&
     !awaitingHistoricalSessionId &&
@@ -559,6 +562,13 @@ const ConversationTabView = memo(function ConversationTabView({
     }
     return buildNewConversationDraftStorageKey()
   }, [dbConversationId])
+  const [hasUnsavedDraft, setHasUnsavedDraft] = useState(false)
+  const [hasEphemeralDraft, setHasEphemeralDraft] = useState(false)
+  useEffect(
+    () =>
+      subscribeMessageInputDraftPresence(draftStorageKey, setHasUnsavedDraft),
+    [draftStorageKey]
+  )
   // Use the per-tab workingDir (derived from the tab's own folderId by the
   // parent) rather than the active folder's path — otherwise switching tabs
   // briefly exposes the previous folder's path to the ACP auto-connect
@@ -568,6 +578,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const {
     conn,
     autoConnectError,
+    ensureConnected,
     handleFocus,
     handleSend: lifecycleSend,
     handleSetConfigOption,
@@ -578,13 +589,11 @@ const ConversationTabView = memo(function ConversationTabView({
     agentType: selectedAgent,
     isActive: isActive && isDocumentVisible && canAutoConnect,
     workingDir: workingDirForConnection,
-    sessionId:
-      dbConversationId != null && selectedAgent !== "cline"
-        ? externalId
-        : undefined,
+    sessionId: dbConversationId != null ? externalId : undefined,
     // Drives cross-client viewer discovery: when another client is already
     // live on this conversation, attach to its connection instead of spawning.
     conversationId: dbConversationId ?? undefined,
+    attachOnlyOnActivate: hasPersistedConversation,
   })
   const { status: connStatus, sessionId: connSessionId } = conn
   const messageQueue = useMessageQueue()
@@ -962,6 +971,9 @@ const ConversationTabView = memo(function ConversationTabView({
       if (shouldQueueBeforeConnection(connectionReady, fromQueueFlush)) {
         mqEnqueue(draft, selectedModeIdArg ?? null)
         setHasSentMessage(true)
+        void ensureConnected().catch((error) => {
+          console.error("[ConversationTabView] restore before send:", error)
+        })
         return
       }
       if (!connectionReady) return
@@ -1248,6 +1260,7 @@ const ConversationTabView = memo(function ConversationTabView({
       agentsLoaded,
       connectionReady,
       effectiveConversationId,
+      ensureConnected,
       folderId,
       hasPersistedConversation,
       lifecycleSend,
@@ -1683,6 +1696,7 @@ const ConversationTabView = memo(function ConversationTabView({
       }
       liveTrailingStatus={<BackgroundTasksChip contextKey={tabId} inline />}
       standaloneStatus={<BackgroundTasksChip contextKey={tabId} />}
+      scrollPositionRef={messageScrollPositionRef}
     />
   )
 
@@ -1709,6 +1723,18 @@ const ConversationTabView = memo(function ConversationTabView({
     enabled: feedbackEnabled,
     onResendAsPrompt: resendFeedbackAsPrompt,
   })
+
+  useEffect(() => {
+    const protectedState =
+      hasUnsavedDraft || msgQueue.length > 0 || mqEditingItemId != null
+    acpActions.setPendingInputProtection(tabId, protectedState)
+    return () => acpActions.setPendingInputProtection(tabId, false)
+  }, [acpActions, hasUnsavedDraft, mqEditingItemId, msgQueue.length, tabId])
+
+  const retainHiddenInput = hasEphemeralDraft || mqEditingItemId != null
+  if (!isVisible && !retainHiddenInput) {
+    return <div className="h-full" aria-hidden="true" />
+  }
 
   return (
     <ConversationShell
@@ -1740,6 +1766,7 @@ const ConversationTabView = memo(function ConversationTabView({
       attachmentTabId={tabId}
       stageAttachmentsInWorkingDir={ownTab?.isChat === true}
       draftStorageKey={draftStorageKey}
+      onEphemeralDraftChange={setHasEphemeralDraft}
       hideInput={isWelcomeMode || Boolean(acpLoadError)}
       feedbackList={
         feedback.showList ? (
@@ -1825,6 +1852,7 @@ const ConversationTabView = memo(function ConversationTabView({
               attachmentTabId={tabId}
               stageAttachmentsInWorkingDir={ownTab?.isChat === true}
               draftStorageKey={draftStorageKey}
+              onEphemeralDraftChange={setHasEphemeralDraft}
               isActive={isActive}
               showActiveFlow={showActiveFlow}
               queue={msgQueue}

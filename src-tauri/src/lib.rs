@@ -1282,6 +1282,7 @@ mod tauri_app {
                 system_settings::get_system_rendering_settings,
                 system_settings::update_system_rendering_settings,
                 performance_commands::get_performance_stats,
+                performance_commands::end_agent_runtime_session,
                 agent_storage_commands::get_agent_storage_status,
                 agent_storage_commands::validate_agent_storage_root,
                 agent_storage_commands::initialize_agent_storage,

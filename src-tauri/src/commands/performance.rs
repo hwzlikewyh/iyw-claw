@@ -1,56 +1,33 @@
-use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use sysinfo::{Pid, Process, System};
 
+use crate::acp::manager::ConnectionManager;
+use crate::acp::resource_governor::RuntimeSessionSnapshot;
+#[cfg(feature = "tauri-runtime")]
+use crate::app_error::AppCommandError;
+use crate::db::service::conversation_service;
+#[cfg(feature = "tauri-runtime")]
+use crate::db::AppDatabase;
+#[cfg(feature = "tauri-runtime")]
+use tauri::State;
+
+#[path = "performance_models.rs"]
+mod performance_models;
 #[path = "performance_processes.rs"]
 mod performance_processes;
+#[path = "performance_sessions.rs"]
+mod performance_sessions;
 #[cfg(target_os = "windows")]
 #[path = "performance_windows.rs"]
-mod performance_windows;
+pub(crate) mod performance_windows;
 
+pub use performance_models::{
+    AppAgentSessionInfo, AppPerformanceStats, AppProcessInfo, AppSystemMemoryInfo, OsInfo,
+};
 use performance_processes::{classify_processes, ProcessClassification, ProcessRecord};
+use performance_sessions::{apply_runtime_classifications, collect_agent_sessions};
 
 const PERFORMANCE_SAMPLE_INTERVAL_MS: u64 = 200;
-
-#[derive(Debug, Serialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct AppPerformanceStats {
-    pub cpu_usage: f32,
-    pub memory_used_bytes: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub private_memory_used_bytes: Option<u64>,
-    pub os_info: OsInfo,
-    pub processes: Vec<AppProcessInfo>,
-}
-
-#[derive(Debug, Serialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct OsInfo {
-    pub os_name: String,
-    pub arch: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct AppProcessInfo {
-    pub pid: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_pid: Option<u32>,
-    pub display_name: String,
-    pub agent_type: Option<String>,
-    pub is_main_process: bool,
-    pub cpu_usage: f32,
-    pub memory_bytes: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub private_memory_bytes: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_display_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub process_role: Option<String>,
-    pub status: String,
-}
 
 struct PerformanceScope<'a> {
     root_pid: Pid,
@@ -148,7 +125,57 @@ fn sort_processes(processes: &mut [AppProcessInfo]) {
     );
 }
 
-fn collect_stats() -> AppPerformanceStats {
+pub(super) fn complete_private_memory<'a>(
+    processes: impl Iterator<Item = &'a AppProcessInfo>,
+) -> Option<u64> {
+    let mut total = 0;
+    let mut sampled = false;
+    for process in processes {
+        sampled = true;
+        total += process.private_memory_bytes?;
+    }
+    sampled.then_some(total)
+}
+
+fn system_memory_info(sys: &System) -> AppSystemMemoryInfo {
+    let memory = crate::acp::resource_governor::system_memory_snapshot(
+        sys.total_memory(),
+        sys.available_memory(),
+    );
+    AppSystemMemoryInfo {
+        total_bytes: memory.total_bytes,
+        available_bytes: memory.available_bytes,
+        pressure: memory.pressure.as_str().to_string(),
+        shrinking_reserve_bytes: memory.shrinking_reserve_bytes,
+        emergency_reserve_bytes: memory.emergency_reserve_bytes,
+        idle_agent_budget_bytes: crate::acp::resource_governor::idle_private_budget(
+            memory.total_bytes,
+        ),
+    }
+}
+
+fn collect_processes(sys: &System, sessions: &[RuntimeSessionSnapshot]) -> Vec<AppProcessInfo> {
+    let root_pid = Pid::from_u32(std::process::id());
+    let scoped_pids = collect_descendant_pids(sys, root_pid);
+    let records = collect_records(sys, &scoped_pids);
+    let mut classifications = classify_processes(&records, root_pid.as_u32());
+    apply_runtime_classifications(&records, sessions, &mut classifications);
+    let scope = PerformanceScope {
+        root_pid,
+        cpu_count: sys.cpus().len().max(1) as f32,
+        classifications: &classifications,
+    };
+    let mut processes = sys
+        .processes()
+        .iter()
+        .filter(|(pid, _)| scoped_pids.contains(pid))
+        .map(|(pid, process)| process_info(*pid, process, &scope))
+        .collect::<Vec<_>>();
+    sort_processes(&mut processes);
+    processes
+}
+
+fn collect_stats(sessions: Vec<RuntimeSessionSnapshot>) -> AppPerformanceStats {
     let mut sys = System::new_all();
     sys.refresh_all();
     std::thread::sleep(std::time::Duration::from_millis(
@@ -156,47 +183,71 @@ fn collect_stats() -> AppPerformanceStats {
     ));
     sys.refresh_all();
 
-    let root_pid = Pid::from_u32(std::process::id());
-    let scoped_pids = collect_descendant_pids(&sys, root_pid);
-    let records = collect_records(&sys, &scoped_pids);
-    let classifications = classify_processes(&records, root_pid.as_u32());
-    let scope = PerformanceScope {
-        root_pid,
-        cpu_count: sys.cpus().len().max(1) as f32,
-        classifications: &classifications,
-    };
-    let mut processes: Vec<_> = sys
-        .processes()
-        .iter()
-        .filter(|(pid, _)| scoped_pids.contains(pid))
-        .map(|(pid, process)| process_info(*pid, process, &scope))
-        .collect();
-    sort_processes(&mut processes);
-
-    let private_values: Vec<u64> = processes
-        .iter()
-        .filter_map(|process| process.private_memory_bytes)
-        .collect();
+    let system_memory = Some(system_memory_info(&sys));
+    let processes = collect_processes(&sys, &sessions);
+    let private_memory_used_bytes = complete_private_memory(processes.iter());
+    let agent_sessions = collect_agent_sessions(&processes, sessions);
     AppPerformanceStats {
         cpu_usage: processes.iter().map(|process| process.cpu_usage).sum(),
         memory_used_bytes: processes.iter().map(|process| process.memory_bytes).sum(),
-        private_memory_used_bytes: (!private_values.is_empty())
-            .then(|| private_values.iter().sum()),
+        private_memory_used_bytes,
         os_info: OsInfo {
             os_name: System::os_version().unwrap_or_else(|| "Unknown".to_string()),
             arch: std::env::consts::ARCH.to_string(),
         },
         processes,
+        agent_sessions,
+        system_memory,
     }
 }
 
-pub async fn get_performance_stats_core() -> AppPerformanceStats {
-    tokio::task::spawn_blocking(collect_stats)
+pub async fn get_performance_stats_core(
+    manager: &ConnectionManager,
+    db: &sea_orm::DatabaseConnection,
+) -> AppPerformanceStats {
+    let sessions = manager.runtime_session_snapshots().await;
+    let mut stats = tokio::task::spawn_blocking(move || collect_stats(sessions))
         .await
-        .unwrap_or_default()
+        .unwrap_or_default();
+    for session in &mut stats.agent_sessions {
+        let Some(conversation_id) = session.conversation_id else {
+            continue;
+        };
+        if let Ok(conversation) = conversation_service::get_by_id(db, conversation_id).await {
+            session.conversation_title = conversation.title;
+        }
+    }
+    stats
+}
+
+pub async fn end_agent_runtime_session_core(
+    manager: &ConnectionManager,
+    connection_id: &str,
+) -> Result<bool, crate::acp::error::AcpError> {
+    manager
+        .disconnect_if_reclaimable(
+            connection_id,
+            crate::acp::resource_governor::completion_grace(),
+            false,
+            "performance_page",
+        )
+        .await
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn get_performance_stats() -> AppPerformanceStats {
-    get_performance_stats_core().await
+#[cfg(feature = "tauri-runtime")]
+pub async fn get_performance_stats(
+    manager: State<'_, ConnectionManager>,
+    db: State<'_, AppDatabase>,
+) -> Result<AppPerformanceStats, AppCommandError> {
+    Ok(get_performance_stats_core(&manager, &db.conn).await)
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[cfg(feature = "tauri-runtime")]
+pub async fn end_agent_runtime_session(
+    connection_id: String,
+    manager: State<'_, ConnectionManager>,
+) -> Result<bool, crate::acp::error::AcpError> {
+    end_agent_runtime_session_core(&manager, &connection_id).await
 }

@@ -124,11 +124,23 @@ const PANEL_RESIZE_KEYS = new Set([
 
 function TabKeysSync() {
   const tabs = useTabStore((s) => s.tabs)
-  const { registerOpenTabKeys } = useAcpActions()
-  const keys = useMemo(() => new Set(tabs.map((t) => t.id)), [tabs])
+  const activeTabId = useTabStore((s) => s.activeTabId)
+  const isTileMode = useTabStore((s) => s.isTileMode)
+  const { registerVisibleTabKeys } = useAcpActions()
+  const keys = useMemo(
+    () =>
+      new Set(
+        isTileMode && tabs.length > 1
+          ? tabs.map((tab) => tab.id)
+          : activeTabId
+            ? [activeTabId]
+            : []
+      ),
+    [activeTabId, isTileMode, tabs]
+  )
   useEffect(() => {
-    registerOpenTabKeys(keys)
-  }, [keys, registerOpenTabKeys])
+    registerVisibleTabKeys(keys)
+  }, [keys, registerVisibleTabKeys])
   return null
 }
 

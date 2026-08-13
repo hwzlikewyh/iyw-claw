@@ -65,6 +65,7 @@ mod provider_overlay_files;
 mod provider_overlay_formats;
 pub mod question;
 pub mod registry;
+pub(crate) mod resource_governor;
 pub mod runtime_context;
 mod session_config_compat;
 pub mod session_config_reconciler;

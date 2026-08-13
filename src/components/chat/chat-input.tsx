@@ -43,6 +43,7 @@ interface ChatInputProps {
   attachmentTabId?: string | null
   stageAttachmentsInWorkingDir?: boolean
   draftStorageKey?: string | null
+  onEphemeralDraftChange?: (hasEphemeralDraft: boolean) => void
   isActive?: boolean
   /** Show the composer's flowing active-session border. Set only for the active
    *  tab when tiled across multiple sessions; passed through to MessageInput. */
@@ -94,6 +95,7 @@ export const ChatInput = memo(function ChatInput({
   attachmentTabId,
   stageAttachmentsInWorkingDir,
   draftStorageKey,
+  onEphemeralDraftChange,
   isActive,
   showActiveFlow,
   queue,
@@ -158,6 +160,7 @@ export const ChatInput = memo(function ChatInput({
         attachmentTabId={attachmentTabId}
         stageAttachmentsInWorkingDir={stageAttachmentsInWorkingDir}
         draftStorageKey={draftStorageKey}
+        onEphemeralDraftChange={onEphemeralDraftChange}
         isActive={isActive}
         showActiveFlow={showActiveFlow}
         onEnqueue={onEnqueue}

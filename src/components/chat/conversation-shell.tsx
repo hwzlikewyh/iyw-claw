@@ -69,6 +69,7 @@ interface ConversationShellProps {
   attachmentTabId?: string | null
   stageAttachmentsInWorkingDir?: boolean
   draftStorageKey?: string | null
+  onEphemeralDraftChange?: (hasEphemeralDraft: boolean) => void
   hideInput?: boolean
   /** Optional read-only live-feedback notes list rendered just above the
    *  composer (see `FeedbackNotesDisplay`). Renders nothing when there are no
@@ -140,6 +141,7 @@ export function ConversationShell({
   attachmentTabId,
   stageAttachmentsInWorkingDir,
   draftStorageKey,
+  onEphemeralDraftChange,
   hideInput = false,
   feedbackList,
   onAddFeedback,
@@ -293,6 +295,7 @@ export function ConversationShell({
               attachmentTabId={attachmentTabId}
               stageAttachmentsInWorkingDir={stageAttachmentsInWorkingDir}
               draftStorageKey={draftStorageKey}
+              onEphemeralDraftChange={onEphemeralDraftChange}
               isActive={isActive}
               showActiveFlow={showActiveFlow}
               queue={queue}

@@ -29,6 +29,7 @@ interface UseConnectionLifecycleOptions {
    * (cross-client viewing) instead of always spawning a fresh agent.
    */
   conversationId?: number
+  attachOnlyOnActivate?: boolean
 }
 
 export interface UseConnectionLifecycleReturn {
@@ -37,6 +38,7 @@ export interface UseConnectionLifecycleReturn {
   configOptionsLoading: boolean
   selectorsLoading: boolean
   autoConnectError: string | null
+  ensureConnected: () => Promise<void>
   handleFocus: () => void
   handleSend: (
     draft: PromptDraft,
@@ -76,6 +78,7 @@ export function useConnectionLifecycle({
   workingDir,
   sessionId,
   conversationId,
+  attachOnlyOnActivate = false,
 }: UseConnectionLifecycleOptions): UseConnectionLifecycleReturn {
   const t = useTranslations("Folder.chat.connectionLifecycle")
   const { setActiveKey, touchActivity } = useAcpActions()
@@ -184,7 +187,8 @@ export function useConnectionLifecycle({
         agentType,
         workingDir,
         sessionIdRef.current,
-        conversationIdRef.current
+        conversationIdRef.current,
+        { attachOnly: attachOnlyOnActivate }
       )
       .then(() => {
         if (!cancelled) {
@@ -206,7 +210,7 @@ export function useConnectionLifecycle({
     return () => {
       cancelled = true
     }
-  }, [isActive, workingDir, agentType])
+  }, [isActive, workingDir, agentType, attachOnlyOnActivate])
 
   // Manage task status for connection progress
   const taskIdRef = useRef<string | null>(null)
@@ -321,7 +325,7 @@ export function useConnectionLifecycle({
     }
   }, [removeTask, clearSelectorTask])
 
-  const handleFocus = useCallback(() => {
+  const ensureConnected = useCallback(async () => {
     // Respect the caller's readiness gate — e.g. historical conversations
     // set isActive=false until the session's external_id resolves, to
     // avoid connecting with sessionId=undefined and orphaning context.
@@ -329,13 +333,7 @@ export function useConnectionLifecycle({
     touchActivity(contextKey)
     if (!status || status === "disconnected" || status === "error") {
       setLastAutoConnectError(null)
-      connConnect(agentType, workingDir, sessionId, conversationId).catch(
-        (e: unknown) => {
-          if (!isExpectedConnectError(e)) {
-            console.error("[ConnLifecycle] connect:", e)
-          }
-        }
-      )
+      await connConnect(agentType, workingDir, sessionId, conversationId)
     }
   }, [
     isActive,
@@ -348,6 +346,14 @@ export function useConnectionLifecycle({
     contextKey,
     touchActivity,
   ])
+
+  const handleFocus = useCallback(() => {
+    ensureConnected().catch((e: unknown) => {
+      if (!isExpectedConnectError(e)) {
+        console.error("[ConnLifecycle] connect:", e)
+      }
+    })
+  }, [ensureConnected])
 
   const autoConnectError =
     status === "connected" || status === "prompting"
@@ -374,6 +380,7 @@ export function useConnectionLifecycle({
       touchActivity(contextKey)
       const onTurnInProgress = opts?.onTurnInProgress
       return (async () => {
+        await ensureConnected()
         const currentModeId = modeIdRef.current
         if (modeId && modeId !== currentModeId) {
           await connSetMode(modeId)
@@ -397,7 +404,7 @@ export function useConnectionLifecycle({
         return false
       })
     },
-    [connSetMode, sendPrompt, contextKey, touchActivity]
+    [connSetMode, ensureConnected, sendPrompt, contextKey, touchActivity]
   )
 
   const handleCancel = useCallback(() => {
@@ -409,11 +416,13 @@ export function useConnectionLifecycle({
   const handleSetConfigOption = useCallback(
     (configId: string, valueId: string) => {
       touchActivity(contextKey)
-      connSetConfigOption(configId, valueId).catch((e: unknown) =>
-        console.error("[ConnLifecycle] setConfigOption:", e)
-      )
+      ensureConnected()
+        .then(() => connSetConfigOption(configId, valueId))
+        .catch((e: unknown) =>
+          console.error("[ConnLifecycle] setConfigOption:", e)
+        )
     },
-    [connSetConfigOption, contextKey, touchActivity]
+    [connSetConfigOption, contextKey, ensureConnected, touchActivity]
   )
 
   const handleRespondPermission = useCallback(
@@ -432,6 +441,7 @@ export function useConnectionLifecycle({
     configOptionsLoading,
     selectorsLoading,
     autoConnectError,
+    ensureConnected,
     handleFocus,
     handleSend,
     handleSetConfigOption,

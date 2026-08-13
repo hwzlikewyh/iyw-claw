@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -361,6 +362,26 @@ pub struct SessionState {
     /// spin "生成中" forever without intervention).
     pub last_agent_event_at: DateTime<Utc>,
 
+    /// Launcher PID for this connection's ACP process tree. Runtime-only;
+    /// process inspection uses it to calculate private memory without guessing
+    /// from executable names.
+    pub(crate) agent_pid: Option<u32>,
+    /// Whether the agent advertised a recoverable session operation during
+    /// initialization. Unknown stays false so idle eviction is conservative.
+    pub recoverable_session: bool,
+    /// Set after a resume/load failure proves the advertised capability unusable.
+    pub recovery_failed: bool,
+    /// Shared counter for ACP terminal processes that have not exited yet.
+    /// A terminal may outlive the turn that created it, so tool-call state alone
+    /// is not sufficient to decide whether this connection is reclaimable.
+    pub(crate) active_terminal_count: Arc<AtomicUsize>,
+    /// Short lease refreshed only by a currently visible conversation surface.
+    /// It naturally expires after a renderer crash or navigation away.
+    pub(crate) visible_lease_until: Option<DateTime<Utc>>,
+    /// Short lease for a client-side draft or local outbound queue. The payload
+    /// never leaves the renderer; only this boolean lease reaches the backend.
+    pub(crate) pending_input_lease_until: Option<DateTime<Utc>>,
+
     /// Per-connection event broadcaster used by the WS attach protocol.
     /// New subscribers register receivers here while holding the SessionState
     /// read lock; `emit_with_state` broadcasts after releasing the write
@@ -479,6 +500,23 @@ pub struct SessionState {
 }
 
 impl SessionState {
+    pub(crate) fn set_agent_pid(&mut self, pid: u32) {
+        self.agent_pid = Some(pid);
+    }
+
+    pub(crate) fn set_recovery_capability(&mut self, advertised: bool) {
+        self.recoverable_session = advertised;
+        self.recovery_failed = false;
+    }
+
+    pub(crate) fn mark_recovery_failed(&mut self) {
+        self.recovery_failed = true;
+    }
+
+    pub(crate) fn mark_recovery_succeeded(&mut self) {
+        self.recovery_failed = false;
+    }
+
     pub fn mark_launch_finalized(&mut self) {
         self.launch_finalized = true;
         self.launch_ready.notify_one();
@@ -531,6 +569,12 @@ impl SessionState {
             event_seq: 0,
             last_activity_at: Utc::now(),
             last_agent_event_at: Utc::now(),
+            agent_pid: None,
+            recoverable_session: false,
+            recovery_failed: false,
+            active_terminal_count: Arc::new(AtomicUsize::new(0)),
+            visible_lease_until: None,
+            pending_input_lease_until: None,
             event_stream: Arc::new(ConnectionEventStream::new()),
             recent_events: RecentEventsBuffer::new(),
             delegation_token: None,

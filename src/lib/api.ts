@@ -453,9 +453,13 @@ export async function acpDisconnect(connectionId: string): Promise<void> {
 }
 
 export async function acpTouchConnection(
-  connectionId: string
+  connectionId: string,
+  options: { visible?: boolean; pendingInput?: boolean } = {}
 ): Promise<boolean> {
-  return getTransport().call("acp_touch_connection", { connectionId })
+  return getTransport().call("acp_touch_connection", {
+    connectionId,
+    ...options,
+  })
 }
 
 export async function acpListConnections(): Promise<ConnectionInfo[]> {

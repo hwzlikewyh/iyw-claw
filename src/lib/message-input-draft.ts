@@ -20,8 +20,30 @@ const draftTextCache = new Map<string, string>()
 const draftDocCache = new Map<string, JSONContent>()
 const pendingPersistDrafts = new Map<string, string>()
 const pendingPersistDocs = new Map<string, JSONContent>()
+const liveDraftPresence = new Set<string>()
+const draftPresenceListeners = new Map<
+  string,
+  Set<(hasDraft: boolean) => void>
+>()
 let idlePersistHandle: number | null = null
 let persistenceListenersBound = false
+
+function cachedDraftPresence(draftKey: string): boolean {
+  return (
+    draftTextCache.has(draftKey) ||
+    draftDocCache.has(draftKey) ||
+    pendingPersistDrafts.has(draftKey) ||
+    pendingPersistDocs.has(draftKey) ||
+    liveDraftPresence.has(draftKey)
+  )
+}
+
+function notifyDraftPresence(draftKey: string): void {
+  const hasDraft = cachedDraftPresence(draftKey)
+  for (const listener of draftPresenceListeners.get(draftKey) ?? []) {
+    listener(hasDraft)
+  }
+}
 
 function storageKeyForDraftKey(draftKey: string): string {
   return `${STORAGE_PREFIX}:${draftKey}`
@@ -162,6 +184,7 @@ export function saveMessageInputDraft(draftKey: string, text: string): void {
 
   if (draftTextCache.get(draftKey) === text) return
   draftTextCache.set(draftKey, text)
+  notifyDraftPresence(draftKey)
   if (typeof window === "undefined") return
 
   pendingPersistDrafts.set(draftKey, text)
@@ -171,6 +194,8 @@ export function saveMessageInputDraft(draftKey: string, text: string): void {
 export function clearMessageInputDraft(draftKey: string): void {
   draftTextCache.delete(draftKey)
   pendingPersistDrafts.delete(draftKey)
+  liveDraftPresence.delete(draftKey)
+  notifyDraftPresence(draftKey)
   if (typeof window === "undefined") return
 
   try {
@@ -237,6 +262,7 @@ export function saveMessageInputDraftV2(
   doc: JSONContent
 ): void {
   draftDocCache.set(draftKey, doc)
+  notifyDraftPresence(draftKey)
   if (typeof window === "undefined") return
 
   pendingPersistDocs.set(draftKey, doc)
@@ -254,5 +280,32 @@ export function clearMessageInputDraftV2(draftKey: string): void {
     localStorage.removeItem(storageKeyForDraftKeyV2(draftKey))
   } catch {
     /* ignore */
+  }
+}
+
+export function setLiveMessageInputDraftPresence(
+  draftKey: string,
+  hasDraft: boolean
+): void {
+  if (hasDraft) liveDraftPresence.add(draftKey)
+  else liveDraftPresence.delete(draftKey)
+  notifyDraftPresence(draftKey)
+}
+
+export function subscribeMessageInputDraftPresence(
+  draftKey: string,
+  listener: (hasDraft: boolean) => void
+): () => void {
+  let listeners = draftPresenceListeners.get(draftKey)
+  if (!listeners) {
+    listeners = new Set()
+    draftPresenceListeners.set(draftKey, listeners)
+  }
+  listeners.add(listener)
+  loadMessageInputDraftV2(draftKey)
+  listener(cachedDraftPresence(draftKey))
+  return () => {
+    listeners!.delete(listener)
+    if (listeners!.size === 0) draftPresenceListeners.delete(draftKey)
   }
 }

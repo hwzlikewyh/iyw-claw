@@ -10,10 +10,10 @@ pub(super) struct ProcessRecord {
 
 #[derive(Debug, Clone)]
 pub(super) struct ProcessClassification {
-    pub agent_type: Option<String>,
-    pub group_id: String,
-    pub group_display_name: String,
-    pub process_role: String,
+    pub(crate) agent_type: Option<String>,
+    pub(crate) group_id: String,
+    pub(crate) group_display_name: String,
+    pub(crate) process_role: String,
 }
 
 #[derive(Clone, Copy)]

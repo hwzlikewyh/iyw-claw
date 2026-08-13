@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Activity, RefreshCw } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
@@ -13,16 +14,24 @@ import {
 import {
   buildProcessGroups,
   ProcessGroupList,
+  type AppAgentSessionInfo,
   type AppProcessInfo,
   type ProcessGroup,
 } from "@/components/settings/performance-process-groups"
+import {
+  MemoryGovernanceStatus,
+  type AppSystemMemoryInfo,
+} from "@/components/settings/performance-memory-status"
 
 const AUTO_REFRESH_INTERVAL_MS = 3000
 
 interface AppPerformanceStats {
   cpuUsage: number
   memoryUsedBytes: number
+  privateMemoryUsedBytes?: number
   processes: AppProcessInfo[]
+  agentSessions: AppAgentSessionInfo[]
+  systemMemory?: AppSystemMemoryInfo
 }
 
 interface PerformanceData {
@@ -34,6 +43,8 @@ interface PerformanceData {
   lastUpdate: Date | null
   fetchStats: () => Promise<void>
   setAutoRefresh: (enabled: boolean) => void
+  endingConnectionIds: ReadonlySet<string>
+  endSession: (connectionId: string) => Promise<void>
 }
 
 function formatBytes(bytes: number | undefined): string {
@@ -59,11 +70,10 @@ function useAutoRefresh(enabled: boolean, fetchStats: () => Promise<void>) {
   }, [enabled, fetchStats])
 }
 
-function usePerformanceData(): PerformanceData {
+function usePerformanceStats() {
   const [stats, setStats] = useState<AppPerformanceStats | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [autoRefresh, setAutoRefresh] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const fetchStats = useCallback(async () => {
     setLoading(true)
@@ -83,12 +93,67 @@ function usePerformanceData(): PerformanceData {
       setLoading(false)
     }
   }, [])
+  return { stats, loading, error, lastUpdate, setError, fetchStats }
+}
+
+function removeConnectionId(current: Set<string>, connectionId: string) {
+  const next = new Set(current)
+  next.delete(connectionId)
+  return next
+}
+
+function useEndAgentSession(
+  fetchStats: () => Promise<void>,
+  setError: (message: string | null) => void
+) {
+  const [endingConnectionIds, setEndingConnectionIds] = useState<Set<string>>(
+    new Set()
+  )
+  const endSession = useCallback(
+    async (connectionId: string) => {
+      setEndingConnectionIds((current) => new Set(current).add(connectionId))
+      try {
+        const ended = await getShellTransport().call<boolean>(
+          "end_agent_runtime_session",
+          { connectionId }
+        )
+        await fetchStats()
+        if (ended) toast.success("运行会话已结束，对话历史仍保留")
+        else {
+          setError("会话状态已变化，未结束")
+          toast.info("会话状态已变化，未结束")
+        }
+      } catch (endError) {
+        const message =
+          endError instanceof Error ? endError.message : "结束运行会话失败"
+        setError(message)
+        toast.error(message)
+      } finally {
+        setEndingConnectionIds((current) =>
+          removeConnectionId(current, connectionId)
+        )
+      }
+    },
+    [fetchStats, setError]
+  )
+  return { endingConnectionIds, endSession }
+}
+
+function usePerformanceData(): PerformanceData {
+  const { stats, loading, error, lastUpdate, setError, fetchStats } =
+    usePerformanceStats()
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const { endingConnectionIds, endSession } = useEndAgentSession(
+    fetchStats,
+    setError
+  )
   useEffect(() => {
     void fetchStats()
   }, [fetchStats])
   const groups = useMemo(
-    () => buildProcessGroups(stats?.processes ?? []),
-    [stats?.processes]
+    () =>
+      buildProcessGroups(stats?.processes ?? [], stats?.agentSessions ?? []),
+    [stats?.agentSessions, stats?.processes]
   )
   useAutoRefresh(autoRefresh, fetchStats)
   return {
@@ -100,6 +165,8 @@ function usePerformanceData(): PerformanceData {
     lastUpdate,
     fetchStats,
     setAutoRefresh,
+    endingConnectionIds,
+    endSession,
   }
 }
 
@@ -149,10 +216,18 @@ function PerformanceHeader({ data }: { data: PerformanceData }) {
 function PerformanceSummary({ data }: { data: PerformanceData }) {
   const { stats } = data
   return (
-    <div className="grid grid-cols-3 divide-x border-y py-3">
+    <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-y py-3 sm:grid-cols-4">
       <SummaryMetric
-        label="内存占用"
-        value={stats ? formatBytes(stats.memoryUsedBytes) : "不可用"}
+        label="私有内存"
+        value={stats ? formatBytes(stats.privateMemoryUsedBytes) : "不可用"}
+      />
+      <SummaryMetric
+        label="系统可用内存"
+        value={
+          stats?.systemMemory
+            ? formatBytes(stats.systemMemory.availableBytes)
+            : "不可用"
+        }
       />
       <SummaryMetric
         label="CPU 使用率"
@@ -183,7 +258,11 @@ function PerformanceProcessPanel({ data }: { data: PerformanceData }) {
           {loading ? "加载中..." : "暂无进程数据"}
         </div>
       ) : (
-        <ProcessGroupList groups={groups} />
+        <ProcessGroupList
+          groups={groups}
+          endingConnectionIds={data.endingConnectionIds}
+          onEndSession={data.endSession}
+        />
       )}
     </div>
   )
@@ -200,6 +279,7 @@ export function PerformanceSettings() {
         </div>
       )}
       <PerformanceSummary data={data} />
+      <MemoryGovernanceStatus memory={data.stats?.systemMemory} />
       <PerformanceProcessPanel data={data} />
     </SettingsPageLayout>
   )

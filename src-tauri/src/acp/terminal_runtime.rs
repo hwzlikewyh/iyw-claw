@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -51,16 +52,32 @@ struct TerminalInstance {
     child: Mutex<Option<tokio::process::Child>>,
     snapshot: Mutex<TerminalSnapshot>,
     reader_handles: Mutex<Vec<JoinHandle<()>>>,
+    active_count: Arc<AtomicUsize>,
+    counted_as_active: AtomicBool,
 }
 
 impl TerminalInstance {
-    fn new(session_id: String, output_limit: Option<u64>, child: tokio::process::Child) -> Self {
+    fn new(
+        session_id: String,
+        output_limit: Option<u64>,
+        child: tokio::process::Child,
+        active_count: Arc<AtomicUsize>,
+    ) -> Self {
+        active_count.fetch_add(1, Ordering::AcqRel);
         Self {
             session_id,
             output_limit: output_limit.and_then(|v| usize::try_from(v).ok()),
             child: Mutex::new(Some(child)),
             snapshot: Mutex::new(TerminalSnapshot::default()),
             reader_handles: Mutex::new(Vec::new()),
+            active_count,
+            counted_as_active: AtomicBool::new(true),
+        }
+    }
+
+    fn mark_exited(&self) {
+        if self.counted_as_active.swap(false, Ordering::AcqRel) {
+            self.active_count.fetch_sub(1, Ordering::AcqRel);
         }
     }
 
@@ -135,6 +152,7 @@ impl TerminalInstance {
             self.drain_readers().await;
             let mut snapshot = self.snapshot.lock().await;
             snapshot.exit_status = Some(map_exit_status(status));
+            self.mark_exited();
         }
 
         Ok(())
@@ -168,6 +186,7 @@ impl TerminalInstance {
 
         let mut snapshot = self.snapshot.lock().await;
         snapshot.exit_status = Some(exit_status.clone());
+        self.mark_exited();
         Ok(exit_status)
     }
 
@@ -204,6 +223,7 @@ impl TerminalInstance {
 
         let mut snapshot = self.snapshot.lock().await;
         snapshot.exit_status = Some(exit_status);
+        self.mark_exited();
         Ok(())
     }
 
@@ -212,8 +232,15 @@ impl TerminalInstance {
     }
 }
 
+impl Drop for TerminalInstance {
+    fn drop(&mut self) {
+        self.mark_exited();
+    }
+}
+
 pub struct TerminalRuntime {
     terminals: Mutex<TerminalMap>,
+    active_count: Arc<AtomicUsize>,
     /// Base environment merged into every spawned terminal command before
     /// the agent's per-request `env` is applied. This is where the iyw-claw
     /// git credential helper (`GIT_CONFIG_*`) lives so an agent that runs
@@ -245,9 +272,13 @@ impl TerminalRuntime {
     /// applied, before the agent's per-request env overrides are layered on
     /// top. Use this to propagate process-level invariants like the git
     /// credential helper across `terminal/create` invocations.
-    pub fn with_base_env(base_env: BTreeMap<String, String>) -> Self {
+    pub fn with_base_env(
+        base_env: BTreeMap<String, String>,
+        active_count: Arc<AtomicUsize>,
+    ) -> Self {
         Self {
             terminals: Mutex::new(HashMap::new()),
+            active_count,
             base_env,
             default_cwd: None,
         }
@@ -376,6 +407,7 @@ impl TerminalRuntime {
             request.session_id.to_string(),
             Some(output_byte_limit),
             child,
+            Arc::clone(&self.active_count),
         ));
 
         let mut handles: Vec<JoinHandle<()>> = Vec::new();
@@ -400,7 +432,8 @@ impl TerminalRuntime {
         self.terminals
             .lock()
             .await
-            .insert(terminal_id.clone(), terminal);
+            .insert(terminal_id.clone(), Arc::clone(&terminal));
+        tokio::spawn(monitor_terminal_exit(terminal));
 
         Ok(CreateTerminalResponse::new(terminal_id))
     }
@@ -553,6 +586,20 @@ impl TerminalRuntime {
         }
 
         Ok(terminal)
+    }
+}
+
+async fn monitor_terminal_exit(terminal: Arc<TerminalInstance>) {
+    const EXIT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+    loop {
+        tokio::time::sleep(EXIT_POLL_INTERVAL).await;
+        if let Err(error) = terminal.refresh_exit_status().await {
+            tracing::warn!(error = ?error, "[ACP] terminal exit monitor failed");
+            return;
+        }
+        if terminal.snapshot().await.exit_status.is_some() {
+            return;
+        }
     }
 }
 

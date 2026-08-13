@@ -170,6 +170,7 @@ import {
   clearMessageInputDraftV2,
   loadMessageInputDraftV2,
   saveMessageInputDraftV2,
+  setLiveMessageInputDraftPresence,
 } from "@/lib/message-input-draft"
 import {
   RichComposer,
@@ -309,6 +310,7 @@ interface MessageInputProps {
   attachmentTabId?: string | null
   stageAttachmentsInWorkingDir?: boolean
   draftStorageKey?: string | null
+  onEphemeralDraftChange?: (hasEphemeralDraft: boolean) => void
   isActive?: boolean
   /** Paint the flowing active-session gradient on the composer border. Set only
    *  for the active tab while tiled across multiple sessions; a lone or
@@ -689,6 +691,17 @@ function stripEmbeddedReferences(doc: JSONContent): JSONContent {
   return { ...doc, content }
 }
 
+function hasEmbeddedReference(doc: JSONContent): boolean {
+  if (
+    doc.type === "reference" &&
+    typeof doc.attrs?.uri === "string" &&
+    isEmbeddedReferenceUri(doc.attrs.uri)
+  ) {
+    return true
+  }
+  return doc.content?.some(hasEmbeddedReference) ?? false
+}
+
 function SelectorLoadingChip({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
@@ -736,6 +749,7 @@ export function MessageInput({
   attachmentTabId,
   stageAttachmentsInWorkingDir = false,
   draftStorageKey,
+  onEphemeralDraftChange,
   isActive = false,
   showActiveFlow = false,
   onEnqueue,
@@ -831,9 +845,20 @@ export function MessageInput({
       if (!programmaticResetRef.current) {
         composerMutationVersionRef.current += 1
       }
+      if (effectiveDraftStorageKey && !isEditingQueueItem) {
+        setLiveMessageInputDraftPresence(
+          effectiveDraftStorageKey,
+          next.length > 0 || !(editorRef.current?.isEmpty() ?? true)
+        )
+      }
+      const editorDoc = editorRef.current?.getJSON()
+      onEphemeralDraftChange?.(
+        next.length > 0 ||
+          (editorDoc != null && hasEmbeddedReference(editorDoc))
+      )
       setAttachmentState(next)
     },
-    []
+    [effectiveDraftStorageKey, isEditingQueueItem, onEphemeralDraftChange]
   )
   const embeddedPayloadsRef = useRef<Map<string, PromptInputBlock>>(new Map())
   const [isDragActive, setIsDragActive] = useState(false)
@@ -932,41 +957,69 @@ export function MessageInput({
   // Markdown) ~300ms after the last change so inline reference badges survive a
   // reload — a Markdown round-trip would downgrade them to plain links.
   const draftSaveTimerRef = useRef<number | null>(null)
+  const pendingDraftDocRef = useRef<JSONContent | null>(null)
   const cancelPendingDraftSave = useCallback(() => {
     if (draftSaveTimerRef.current != null && typeof window !== "undefined") {
       window.clearTimeout(draftSaveTimerRef.current)
     }
     draftSaveTimerRef.current = null
+    pendingDraftDocRef.current = null
   }, [])
+  const persistPendingDraft = useCallback(() => {
+    if (!effectiveDraftStorageKey || isEditingQueueItem) return
+    const doc = pendingDraftDocRef.current
+    pendingDraftDocRef.current = null
+    if (doc) saveMessageInputDraftV2(effectiveDraftStorageKey, doc)
+    else clearMessageInputDraftV2(effectiveDraftStorageKey)
+    setLiveMessageInputDraftPresence(
+      effectiveDraftStorageKey,
+      doc != null || attachmentsRef.current.length > 0
+    )
+  }, [effectiveDraftStorageKey, isEditingQueueItem])
   const scheduleDraftSave = useCallback(() => {
     if (typeof window === "undefined") return
     if (!effectiveDraftStorageKey || isEditingQueueItem) return
+    const ed = editorRef.current
+    const editorDoc = ed?.getJSON()
+    pendingDraftDocRef.current =
+      !ed || ed.isEmpty() || !editorDoc
+        ? null
+        : stripEmbeddedReferences(editorDoc)
+    onEphemeralDraftChange?.(
+      attachmentsRef.current.length > 0 ||
+        (editorDoc != null && hasEmbeddedReference(editorDoc))
+    )
+    setLiveMessageInputDraftPresence(
+      effectiveDraftStorageKey,
+      pendingDraftDocRef.current != null || attachmentsRef.current.length > 0
+    )
     if (draftSaveTimerRef.current != null) {
       window.clearTimeout(draftSaveTimerRef.current)
     }
     draftSaveTimerRef.current = window.setTimeout(() => {
       draftSaveTimerRef.current = null
-      const ed = editorRef.current
-      if (!ed || !effectiveDraftStorageKey) return
-      if (ed.isEmpty()) {
-        clearMessageInputDraftV2(effectiveDraftStorageKey)
-      } else {
-        saveMessageInputDraftV2(
-          effectiveDraftStorageKey,
-          stripEmbeddedReferences(ed.getJSON())
-        )
-      }
+      persistPendingDraft()
     }, 300)
-  }, [effectiveDraftStorageKey, isEditingQueueItem])
+  }, [
+    effectiveDraftStorageKey,
+    isEditingQueueItem,
+    onEphemeralDraftChange,
+    persistPendingDraft,
+  ])
 
   useEffect(() => {
     return () => {
       if (draftSaveTimerRef.current != null && typeof window !== "undefined") {
         window.clearTimeout(draftSaveTimerRef.current)
         draftSaveTimerRef.current = null
+        persistPendingDraft()
       }
+      if (effectiveDraftStorageKey) {
+        setLiveMessageInputDraftPresence(effectiveDraftStorageKey, false)
+      }
+      onEphemeralDraftChange?.(false)
     }
-  }, [])
+  }, [effectiveDraftStorageKey, onEphemeralDraftChange, persistPendingDraft])
 
   const uploadRestoredImages = useCallback(
     (uploads: RestoredImageUpload[]) => {

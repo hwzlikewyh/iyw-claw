@@ -123,13 +123,24 @@ pub async fn acp_disconnect(
 #[serde(rename_all = "camelCase")]
 pub struct AcpTouchConnectionParams {
     pub connection_id: String,
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default)]
+    pub pending_input: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 pub async fn acp_touch_connection(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<AcpTouchConnectionParams>,
 ) -> Result<Json<bool>, AppCommandError> {
-    let touched = state.connection_manager.touch(&params.connection_id).await;
+    let touched = state
+        .connection_manager
+        .touch_with_leases(&params.connection_id, params.visible, params.pending_input)
+        .await;
     Ok(Json(touched))
 }
 

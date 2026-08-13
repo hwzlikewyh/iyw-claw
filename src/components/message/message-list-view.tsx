@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type RefObject,
   type ReactNode,
 } from "react"
 import {
@@ -60,6 +61,7 @@ import { useTranslations } from "next-intl"
 import type { AgentType, ConnectionStatus, SessionStats } from "@/lib/types"
 import { copyTextToClipboard } from "@/lib/utils"
 import { VirtualizedMessageThread } from "@/components/message/virtualized-message-thread"
+import type { MessageScrollPosition } from "@/components/message/virtualized-message-thread"
 import { SubAgentDelegationsPopover } from "@/components/message/sub-agent-delegations-popover"
 import {
   ConversationMessageNav,
@@ -103,6 +105,7 @@ interface MessageListViewProps {
   liveTrailingStatus?: ReactNode
   /** Fallback status row used when there is no live turn row. */
   standaloneStatus?: ReactNode
+  scrollPositionRef?: RefObject<MessageScrollPosition | null>
 }
 
 interface ResolvedMessageGroup {
@@ -559,6 +562,7 @@ export function MessageListView({
   enableUserMemoryActions = true,
   liveTrailingStatus,
   standaloneStatus,
+  scrollPositionRef,
 }: MessageListViewProps) {
   const t = useTranslations("Folder.chat.messageList")
   const sharedT = useTranslations("Folder.chat.shared")
@@ -917,6 +921,7 @@ export function MessageListView({
           renderItem={renderThreadItem}
           emptyState={emptyState}
           scrollApiRef={scrollApiRef}
+          scrollPositionRef={scrollPositionRef}
         />
         <MessageThreadScrollButton />
       </MessageThread>

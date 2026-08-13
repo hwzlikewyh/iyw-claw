@@ -92,6 +92,10 @@ pub fn build_router(
             post(handlers::performance::get_performance_stats),
         )
         .route(
+            "/end_agent_runtime_session",
+            post(handlers::performance::end_agent_runtime_session),
+        )
+        .route(
             "/get_usage_dashboard",
             post(handlers::usage::get_usage_dashboard),
         )

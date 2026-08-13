@@ -51,6 +51,13 @@ interface VirtualizedMessageThreadProps<T> {
    * message navigator) can drive `scrollToIndex`.
    */
   scrollApiRef?: RefObject<MessageScrollContextValue | null>
+  /** Preserves the viewport when a hidden conversation releases its DOM. */
+  scrollPositionRef?: RefObject<MessageScrollPosition | null>
+}
+
+export interface MessageScrollPosition {
+  scrollTop: number
+  wasAtBottom: boolean
 }
 
 function VirtualizedMessageThreadImpl<T>({
@@ -66,6 +73,7 @@ function VirtualizedMessageThreadImpl<T>({
   contentClassName,
   contentProps,
   scrollApiRef,
+  scrollPositionRef,
 }: VirtualizedMessageThreadProps<T>) {
   const { scrollRef } = useStickToBottomContext()
   const virtualizerHandleRef = useRef<VirtualizerHandle>(null)
@@ -122,6 +130,40 @@ function VirtualizedMessageThreadImpl<T>({
     el.addEventListener("pointerdown", onPointerDown)
     return () => el.removeEventListener("pointerdown", onPointerDown)
   }, [scrollRef])
+
+  useEffect(() => {
+    if (!scrollPositionRef) return
+    const viewport = scrollRef.current
+    if (!viewport) return
+    const previous = scrollPositionRef.current
+    let restoreFrame = 0
+    let settleFrame = 0
+    if (previous && !previous.wasAtBottom) {
+      restoreFrame = requestAnimationFrame(() => {
+        settleFrame = requestAnimationFrame(() => {
+          viewport.scrollTop = Math.min(
+            previous.scrollTop,
+            Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+          )
+        })
+      })
+    }
+    const savePosition = () => {
+      const distanceFromBottom =
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop
+      scrollPositionRef.current = {
+        scrollTop: viewport.scrollTop,
+        wasAtBottom: distanceFromBottom <= 8,
+      }
+    }
+    viewport.addEventListener("scroll", savePosition, { passive: true })
+    return () => {
+      cancelAnimationFrame(restoreFrame)
+      cancelAnimationFrame(settleFrame)
+      viewport.removeEventListener("scroll", savePosition)
+      savePosition()
+    }
+  }, [scrollPositionRef, scrollRef])
 
   // Pre-compute the three possible padding styles so every render reuses
   // the same object references (avoids allocating per-item on each frame).

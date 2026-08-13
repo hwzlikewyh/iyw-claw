@@ -7,7 +7,7 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
 };
 
-pub(super) fn private_commit_bytes(pid: u32) -> Option<u64> {
+pub(crate) fn private_commit_bytes(pid: u32) -> Option<u64> {
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid);
         if handle.is_null() {

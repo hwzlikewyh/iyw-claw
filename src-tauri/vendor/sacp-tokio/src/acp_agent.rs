@@ -86,6 +86,7 @@ pub enum LineDirection {
 pub struct AcpAgent {
     server: sacp::schema::McpServer,
     debug_callback: Option<Arc<dyn Fn(&str, LineDirection) + Send + Sync + 'static>>,
+    spawned_pid_callback: Option<Arc<dyn Fn(u32) + Send + Sync + 'static>>,
     current_dir: Option<PathBuf>,
     removed_envs: Vec<OsString>,
 }
@@ -110,6 +111,7 @@ impl AcpAgent {
         Self {
             server,
             debug_callback: None,
+            spawned_pid_callback: None,
             current_dir: None,
             removed_envs: Vec::new(),
         }
@@ -168,6 +170,18 @@ impl AcpAgent {
         self
     }
 
+    /// Notify the owner after the child process has been spawned.
+    ///
+    /// The callback receives the real launcher PID, allowing callers to map
+    /// descendants to one logical ACP connection without guessing by name.
+    pub fn with_spawned_pid<F>(mut self, callback: F) -> Self
+    where
+        F: Fn(u32) + Send + Sync + 'static,
+    {
+        self.spawned_pid_callback = Some(Arc::new(callback));
+        self
+    }
+
     /// Set the working directory for the spawned agent process.
     ///
     /// Without this the child inherits the parent process's cwd. Agents that
@@ -192,10 +206,7 @@ impl AcpAgent {
         self
     }
 
-    fn command_for_stdio(
-        &self,
-        stdio: &sacp::schema::McpServerStdio,
-    ) -> tokio::process::Command {
+    fn command_for_stdio(&self, stdio: &sacp::schema::McpServerStdio) -> tokio::process::Command {
         let mut cmd = tokio::process::Command::new(&stdio.command);
         cmd.args(&stdio.args);
         for env_var in &stdio.env {
@@ -234,6 +245,9 @@ impl AcpAgent {
             sacp::schema::McpServer::Stdio(stdio) => {
                 let mut cmd = self.command_for_stdio(stdio);
                 let mut child = cmd.spawn().map_err(sacp::Error::into_internal_error)?;
+                if let (Some(callback), Some(pid)) = (&self.spawned_pid_callback, child.id()) {
+                    callback(pid);
+                }
 
                 let child_stdin = child
                     .stdin
@@ -341,10 +355,10 @@ impl<Counterpart: AcpAgentCounterpartRole> sacp::ConnectTo<Counterpart> for AcpA
         self,
         client: impl sacp::ConnectTo<Counterpart::Counterpart>,
     ) -> Result<(), sacp::Error> {
+        use futures::io::BufReader;
         use futures::AsyncBufReadExt;
         use futures::AsyncWriteExt;
         use futures::StreamExt;
-        use futures::io::BufReader;
 
         let (child_stdin, child_stdout, child_stderr, child) = self.spawn_process()?;
 
@@ -366,11 +380,8 @@ impl<Counterpart: AcpAgentCounterpartRole> sacp::ConnectTo<Counterpart> for AcpA
                     }
                     // Always collect for error reporting
                     if !collected.is_empty() {
-                        truncated |= append_limited_utf8(
-                            &mut collected,
-                            "\n",
-                            MAX_STDERR_CAPTURE_BYTES,
-                        );
+                        truncated |=
+                            append_limited_utf8(&mut collected, "\n", MAX_STDERR_CAPTURE_BYTES);
                     }
                     truncated |=
                         append_limited_utf8(&mut collected, &line, MAX_STDERR_CAPTURE_BYTES);
@@ -509,6 +520,7 @@ impl AcpAgent {
                     .env(env),
             ),
             debug_callback: None,
+            spawned_pid_callback: None,
             current_dir: None,
             removed_envs: Vec::new(),
         })
@@ -554,6 +566,7 @@ impl FromStr for AcpAgent {
             return Ok(Self {
                 server,
                 debug_callback: None,
+                spawned_pid_callback: None,
                 current_dir: None,
                 removed_envs: Vec::new(),
             });
@@ -712,8 +725,7 @@ mod tests {
             .with_current_dir(&dir);
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
         let out = rt.block_on(async {
-            let (_stdin, mut stdout, _stderr, mut child) =
-                agent.spawn_process().expect("spawn");
+            let (_stdin, mut stdout, _stderr, mut child) = agent.spawn_process().expect("spawn");
             let mut out = String::new();
             stdout.read_to_string(&mut out).await.expect("read stdout");
             let _ = child.wait().await;
