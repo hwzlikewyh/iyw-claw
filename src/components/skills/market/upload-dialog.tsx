@@ -106,13 +106,15 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
   const [form, setForm] = useState<PublishForm>(EMPTY_PUBLISH)
   const [invalid, setInvalid] = useState(false)
 
+  const reset = () => {
+    setStep(1)
+    setFolder(null)
+    setForm(EMPTY_PUBLISH)
+    setInvalid(false)
+  }
+
   const close = (nextOpen: boolean) => {
-    if (!nextOpen && !props.busy) {
-      setStep(1)
-      setFolder(null)
-      setForm(EMPTY_PUBLISH)
-      setInvalid(false)
-    }
+    if (!nextOpen && !props.busy) reset()
     props.onOpenChange(nextOpen)
   }
 
@@ -168,7 +170,7 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
         files: folder.files,
       })
     }
-    close(false)
+    reset()
   }
 
   const isPublish = props.mode === "publish"

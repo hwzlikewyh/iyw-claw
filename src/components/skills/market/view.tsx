@@ -26,6 +26,7 @@ export function SkillMarketView() {
 
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadMode, setUploadMode] = useState<SkillMarketUploadMode>("publish")
+  const [uploadBusy, setUploadBusy] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   const [pendingTarget, setPendingTarget] = useState<{
     name: string
@@ -54,14 +55,26 @@ export function SkillMarketView() {
 
   const publish = useCallback(
     async (request: SkillMarketPublishRequestV2) => {
-      await market.publish(request)
+      setUploadBusy(true)
+      try {
+        await market.publish(request)
+        setUploadOpen(false)
+      } finally {
+        setUploadBusy(false)
+      }
     },
     [market]
   )
 
   const addVersion = useCallback(
     async (request: SkillMarketAddVersionRequestV2) => {
-      await market.addVersion(request)
+      setUploadBusy(true)
+      try {
+        await market.addVersion(request)
+        setUploadOpen(false)
+      } finally {
+        setUploadBusy(false)
+      }
     },
     [market]
   )
@@ -178,7 +191,7 @@ export function SkillMarketView() {
         mode={uploadMode}
         categories={market.categories}
         targetSkillId={market.selectedId}
-        busy={false}
+        busy={uploadBusy}
         onOpenChange={setUploadOpen}
         onPublish={publish}
         onAddVersion={addVersion}
