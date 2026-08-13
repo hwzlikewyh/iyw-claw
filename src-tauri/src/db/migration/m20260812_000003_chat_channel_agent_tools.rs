@@ -9,17 +9,11 @@ impl MigrationTrait for Migration {
         create_targets(manager).await?;
         create_audit(manager).await?;
         create_requests(manager).await?;
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(ChatChannelMessageLog::Table)
-                    .add_column(ColumnDef::new(ChatChannelMessageLog::TargetId).string())
-                    .to_owned(),
-            )
-            .await?;
+        add_target_column(manager).await?;
         manager
             .create_index(
                 Index::create()
+                    .if_not_exists()
                     .name("idx_chat_channel_message_log_target")
                     .table(ChatChannelMessageLog::Table)
                     .col(ChatChannelMessageLog::ChannelId)
@@ -63,6 +57,29 @@ impl MigrationTrait for Migration {
     }
 }
 
+async fn add_target_column(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    if manager
+        .has_column("chat_channel_message_log", "target_id")
+        .await?
+    {
+        tracing::info!(
+            table = "chat_channel_message_log",
+            column = "target_id",
+            "skipping existing migration column"
+        );
+        return Ok(());
+    }
+
+    manager
+        .alter_table(
+            Table::alter()
+                .table(ChatChannelMessageLog::Table)
+                .add_column(ColumnDef::new(ChatChannelMessageLog::TargetId).string())
+                .to_owned(),
+        )
+        .await
+}
+
 async fn create_targets(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .create_table(
@@ -94,6 +111,7 @@ async fn create_targets(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .create_index(
             Index::create()
+                .if_not_exists()
                 .name("idx_chat_channel_target_public_id")
                 .table(ChatChannelTarget::Table)
                 .col(ChatChannelTarget::TargetId)
@@ -104,6 +122,7 @@ async fn create_targets(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .create_index(
             Index::create()
+                .if_not_exists()
                 .name("idx_chat_channel_target_identity")
                 .table(ChatChannelTarget::Table)
                 .col(ChatChannelTarget::ChannelId)
@@ -138,6 +157,7 @@ async fn create_audit(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .create_index(
             Index::create()
+                .if_not_exists()
                 .name("idx_chat_channel_agent_audit_created")
                 .table(ChatChannelAgentAudit::Table)
                 .col(ChatChannelAgentAudit::CreatedAt)
@@ -167,6 +187,7 @@ async fn create_requests(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .create_index(
             Index::create()
+                .if_not_exists()
                 .name("idx_chat_channel_tool_request_key")
                 .table(ChatChannelToolRequest::Table)
                 .col(ChatChannelToolRequest::CallerScope)

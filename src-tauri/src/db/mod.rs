@@ -103,9 +103,7 @@ async fn init_database_inner(
         .sqlx_logging(false);
     let migrate_conn = Database::connect(migrate_opts).await?;
     apply_sqlite_pragmas(&migrate_conn).await?;
-    Migrator::up(&migrate_conn, None)
-        .await
-        .map_err(|e| DbError::Migration(e.to_string()))?;
+    apply_migrations(&migrate_conn).await?;
     migrate_conn.close().await?;
 
     // Runtime connection pool. Migrations are already applied above, so the
@@ -122,6 +120,36 @@ async fn init_database_inner(
     service::app_metadata_service::update_app_version(&conn, app_version).await?;
 
     Ok(AppDatabase { conn })
+}
+
+async fn apply_migrations(conn: &DatabaseConnection) -> Result<(), DbError> {
+    execute_sql(conn, "BEGIN IMMEDIATE;").await?;
+    if let Err(error) = Migrator::up(conn, None).await {
+        rollback_migration(conn, &error.to_string()).await;
+        return Err(DbError::Migration(error.to_string()));
+    }
+
+    if let Err(error) = execute_sql(conn, "COMMIT;").await {
+        rollback_migration(conn, &error.to_string()).await;
+        return Err(DbError::Migration(format!("commit failed: {error}")));
+    }
+    Ok(())
+}
+
+async fn rollback_migration(conn: &DatabaseConnection, cause: &str) {
+    if let Err(error) = execute_sql(conn, "ROLLBACK;").await {
+        tracing::error!(
+            cause,
+            rollback_error = %error,
+            "failed to roll back SQLite migration transaction"
+        );
+    }
+}
+
+async fn execute_sql(conn: &DatabaseConnection, sql: &str) -> Result<(), sea_orm::DbErr> {
+    conn.execute(Statement::from_string(DbBackend::Sqlite, sql.to_owned()))
+        .await
+        .map(|_| ())
 }
 
 /// Apply SQLite performance and reliability pragmas to a freshly opened
