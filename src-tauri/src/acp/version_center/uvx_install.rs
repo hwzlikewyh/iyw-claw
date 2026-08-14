@@ -23,6 +23,7 @@ pub(crate) async fn resolve_uvx_agent_install(
     agent_type: AgentType,
     current_version: Option<&str>,
     requested_version: &str,
+    reason: &str,
 ) -> Result<ManagedUvxInstall, ManagedNpmInstallError> {
     let preferences = crate::update::preferences::load(conn)
         .await
@@ -39,7 +40,7 @@ pub(crate) async fn resolve_uvx_agent_install(
             target: current_target(),
             arch: current_arch(),
             channel: preferences.channel.as_str(),
-            reason: "manual",
+            reason,
         },
     )
     .await
@@ -52,9 +53,16 @@ pub(crate) async fn confirm_uvx_agent_install(
     agent_type: AgentType,
     current_version: Option<&str>,
     installed: &ManagedUvxInstall,
+    reason: &str,
 ) -> Result<ManagedUvxInstall, ManagedNpmInstallError> {
-    let confirmed =
-        resolve_uvx_agent_install(conn, agent_type, current_version, &installed.version).await?;
+    let confirmed = resolve_uvx_agent_install(
+        conn,
+        agent_type,
+        current_version,
+        &installed.version,
+        reason,
+    )
+    .await?;
     let unchanged = confirmed.version == installed.version
         && confirmed.package_spec == installed.package_spec
         && confirmed.index_url == installed.index_url

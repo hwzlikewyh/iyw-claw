@@ -233,7 +233,12 @@ async fn attempt_once(
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(AttemptError::TicketExpired);
         }
-        if status.is_server_error() {
+        if status.is_server_error()
+            || matches!(
+                status,
+                reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::TOO_MANY_REQUESTS
+            )
+        {
             return Err(AttemptError::Transient(format!(
                 "server returned HTTP {status}"
             )));
@@ -265,7 +270,7 @@ async fn attempt_once(
         }
         if !status.is_success() {
             return Err(AttemptError::Fatal(
-                AppCommandError::network("Managed artifact download was rejected")
+                AppCommandError::invalid_input("Managed artifact download was rejected")
                     .with_detail(status.to_string()),
             ));
         }
@@ -528,6 +533,11 @@ fn part_meta_path(final_path: &Path) -> PathBuf {
         .unwrap_or_else(|| "artifact".to_string());
     name.push_str(".part.meta.json");
     final_path.with_file_name(name)
+}
+
+pub(super) async fn cleanup_resumable_files(final_path: &Path) {
+    let _ = tokio::fs::remove_file(part_path_for(final_path)).await;
+    let _ = tokio::fs::remove_file(part_meta_path(final_path)).await;
 }
 
 fn resume_meta(

@@ -895,12 +895,30 @@ pub async fn acp_download_agent_binary(
     Json(params): Json<AcpDownloadAgentBinaryParams>,
 ) -> Result<Json<()>, AppCommandError> {
     let emitter = state.emitter.clone();
+    let _activation_guard = state
+        .connection_manager
+        .begin_agent_activation(params.agent_type)
+        .await;
+    let reason = if params
+        .version
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        "manual"
+    } else {
+        "automatic"
+    };
     acp_commands::acp_download_agent_binary_core(
         params.agent_type,
         params.version,
         params.task_id,
         &state.db,
         &emitter,
+        state
+            .connection_manager
+            .has_live_agent_session(params.agent_type)
+            .await,
+        reason,
     )
     .await
     .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
@@ -953,6 +971,10 @@ pub async fn acp_prepare_npx_agent(
 ) -> Result<Json<String>, AppCommandError> {
     let db = &state.db;
     let emitter = state.emitter.clone();
+    let _activation_guard = state
+        .connection_manager
+        .begin_agent_activation(params.agent_type)
+        .await;
     let result = acp_commands::acp_prepare_npx_agent_core(
         params.agent_type,
         params.registry_version,
@@ -961,6 +983,10 @@ pub async fn acp_prepare_npx_agent(
         params.task_id,
         db,
         &emitter,
+        state
+            .connection_manager
+            .has_live_agent_session(params.agent_type)
+            .await,
     )
     .await
     .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;

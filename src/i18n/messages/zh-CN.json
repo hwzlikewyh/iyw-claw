@@ -962,13 +962,16 @@
       "policy": "策略：{value}",
       "catalogStale": "策略缓存已过期",
       "platformDisabled": "平台已关闭",
+      "historyFallback": "版本历史暂不可用，已显示本地候选",
+      "pendingActivation": "{version} 将在下一次新建 Agent 连接时启用",
       "operationFailed": "版本操作失败",
       "success": {
         "install": "{name} {version} 已安装并激活",
         "switch": "{name} 已切换到 {version}",
         "pin": "{name} 的固定版本已更新",
         "rollback": "{name} 已回退到最近可用版本",
-        "refresh": "版本策略已刷新"
+        "refresh": "版本策略已刷新",
+        "pendingActivation": "{name} {version} 已安装，将在下一次新建 Agent 连接时启用"
       }
     },
     "configManagement": "配置管理",

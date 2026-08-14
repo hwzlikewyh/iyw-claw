@@ -103,6 +103,7 @@ pub fn private_npm_install_args_with_registry(
     let mut args = vec![
         OsString::from("install"),
         OsString::from("--global"),
+        OsString::from("--json"),
         OsString::from("--include=optional"),
         OsString::from(format!("--registry={registry}")),
         path_arg("--prefix=", prefix),
@@ -112,7 +113,7 @@ pub fn private_npm_install_args_with_registry(
     Ok(args)
 }
 
-fn path_arg(name: &str, path: &Path) -> OsString {
+pub(crate) fn path_arg(name: &str, path: &Path) -> OsString {
     let mut value = OsString::from(name);
     value.push(path.as_os_str());
     value

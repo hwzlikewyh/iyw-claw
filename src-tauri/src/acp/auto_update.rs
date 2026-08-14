@@ -66,7 +66,7 @@ async fn run_auto_update_pass(
             );
             break;
         }
-        update_candidate(candidate, db, emitter).await;
+        update_candidate(candidate, manager, db, emitter).await;
     }
 }
 
@@ -103,6 +103,7 @@ async fn is_update_window_open(manager: &ConnectionManager) -> bool {
 
 async fn update_candidate(
     candidate: AutoUpdateCandidate,
+    manager: &ConnectionManager,
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) {
@@ -112,7 +113,7 @@ async fn update_candidate(
         registry_version = %candidate.registry_version,
         "[ACP] automatic Agent SDK update started"
     );
-    let result = install_registry_version(&candidate, db, emitter).await;
+    let result = install_registry_version(&candidate, manager, db, emitter).await;
     match result {
         Ok(()) => tracing::info!(
             agent = %candidate.agent_type,
@@ -130,9 +131,16 @@ async fn update_candidate(
 
 async fn install_registry_version(
     candidate: &AutoUpdateCandidate,
+    manager: &ConnectionManager,
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    let _activation_guard = manager.begin_agent_activation(candidate.agent_type).await;
+    if manager.has_live_agent_session(candidate.agent_type).await {
+        return Err(AcpError::protocol(
+            "automatic Agent SDK update paused because Agent activity resumed",
+        ));
+    }
     let task_id = format!(
         "agent-auto-update-{}-{}",
         registry::registry_id_for(candidate.agent_type),
@@ -146,6 +154,8 @@ async fn install_registry_version(
                 task_id,
                 db,
                 emitter,
+                false,
+                "automatic",
             )
             .await
         }
@@ -158,6 +168,7 @@ async fn install_registry_version(
                 task_id,
                 db,
                 emitter,
+                false,
             )
             .await
             .map(|_| ())

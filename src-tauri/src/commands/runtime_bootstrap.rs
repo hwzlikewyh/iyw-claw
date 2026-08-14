@@ -261,6 +261,7 @@ pub async fn bootstrap_initialize(
     db: tauri::State<'_, crate::db::AppDatabase>,
     connection_manager: tauri::State<'_, ConnectionManager>,
 ) -> Result<crate::acp::version_center::InitStatusReport, String> {
+    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     let emitter = EventEmitter::Tauri(app);
     let conn = db.conn.clone();
     let data_dir = crate::system_skills::data_dir_from_env();

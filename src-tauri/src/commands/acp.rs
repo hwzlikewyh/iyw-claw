@@ -27,8 +27,9 @@ use crate::acp::types::{
 #[cfg(feature = "tauri-runtime")]
 use crate::acp::types::{ConnectionInfo, ForkResultInfo, PromptInputBlock};
 use crate::acp::version_center::{
-    confirm_npm_agent_install, confirm_uvx_agent_install, resolve_npm_agent_install,
-    resolve_uvx_agent_install,
+    confirm_npm_agent_install, confirm_uvx_agent_install, fallback_npm_agent_install,
+    fallback_uvx_agent_install, push_pending_activation, resolve_npm_agent_install,
+    resolve_uvx_agent_install, PendingActivation,
 };
 use crate::commands::experts::{
     central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, ExpertLinkState,
@@ -300,14 +301,16 @@ async fn prewarm_uvx_agent(
     index_url: Option<&str>,
     task_id: &str,
     emitter: &EventEmitter,
-) -> Result<(), AcpError> {
+) -> Result<(), UvxPrewarmError> {
     // uv must already be installed; provision it separately via the "Install
     // uv" preflight action. We deliberately do NOT auto-install it here so the
     // two steps stay separate — the Settings UI disables this agent-install
     // action until uv is ready, so a normal user never reaches this error.
-    let paths = active_agent_storage_paths()?;
+    let paths = active_agent_storage_paths().map_err(UvxPrewarmError::Rejected)?;
     let uvx = crate::acp::binary_cache::find_cached_uv_tool(&paths, "uvx").ok_or_else(|| {
-        AcpError::SdkNotInstalled("uv is not installed; install the uv runtime first".to_string())
+        UvxPrewarmError::Rejected(AcpError::SdkNotInstalled(
+            "uv is not installed; install the uv runtime first".to_string(),
+        ))
     })?;
     let python_args = uvx_python_args(python);
     let python_display = if python_args.is_empty() {
@@ -319,14 +322,32 @@ async fn prewarm_uvx_agent(
         emitter,
         task_id,
         AgentInstallEventKind::Log,
-        format!("$ uvx {python_display}--from {package} {cmd} --version"),
+        format!("$ uvx --no-config {python_display}--from {package} {cmd} --version"),
     );
+    if let Some(index_url) = index_url {
+        probe_uvx_index(index_url, package).await?;
+    }
     let mut command = crate::process::tokio_command(&uvx);
     command.envs(binary_cache::uv_runtime_env(&paths));
+    for key in [
+        "UV_DEFAULT_INDEX",
+        "UV_INDEX",
+        "UV_INDEX_URL",
+        "UV_EXTRA_INDEX_URL",
+        "UV_FIND_LINKS",
+        "UV_NO_INDEX",
+        "PIP_INDEX_URL",
+        "PIP_EXTRA_INDEX_URL",
+        "PIP_FIND_LINKS",
+        "PIP_NO_INDEX",
+    ] {
+        command.env_remove(key);
+    }
     if let Some(index_url) = index_url {
         command.env("UV_DEFAULT_INDEX", index_url);
     }
     let output = command
+        .arg("--no-config")
         .args(&python_args)
         .arg("--from")
         .arg(package)
@@ -334,7 +355,9 @@ async fn prewarm_uvx_agent(
         .arg("--version")
         .output()
         .await
-        .map_err(|e| AcpError::SpawnFailed(format!("failed to run uvx: {e}")))?;
+        .map_err(|e| {
+            UvxPrewarmError::Rejected(AcpError::SpawnFailed(format!("failed to run uvx: {e}")))
+        })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     for line in stderr.lines().chain(stdout.lines()) {
@@ -348,12 +371,108 @@ async fn prewarm_uvx_agent(
         }
     }
     if !output.status.success() {
-        return Err(AcpError::protocol(format!(
+        return Err(UvxPrewarmError::Rejected(AcpError::protocol(format!(
             "uvx prepare for {agent_name} failed: {}",
             stderr.lines().last().unwrap_or("unknown error")
-        )));
+        ))));
     }
     Ok(())
+}
+
+async fn probe_uvx_index(index_url: &str, package: &str) -> Result<(), UvxPrewarmError> {
+    let mut url = reqwest::Url::parse(index_url).map_err(|_| {
+        UvxPrewarmError::Rejected(AcpError::protocol("managed Python index URL is invalid"))
+    })?;
+    let project = normalized_python_project(package)?;
+    url.path_segments_mut()
+        .map_err(|_| {
+            UvxPrewarmError::Rejected(AcpError::protocol(
+                "managed Python index cannot be a base URL",
+            ))
+        })?
+        .pop_if_empty()
+        .push(&project)
+        .push("");
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| {
+            UvxPrewarmError::Rejected(AcpError::protocol(
+                "failed to initialize Python index probe",
+            ))
+        })?;
+    let response = client.get(url).send().await.map_err(|request_error| {
+        let unavailable = source_network_unavailable(&request_error);
+        let error = AcpError::DownloadFailed("Python index probe failed".to_string());
+        if unavailable {
+            UvxPrewarmError::Unavailable(error)
+        } else {
+            UvxPrewarmError::Rejected(error)
+        }
+    })?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let error = AcpError::DownloadFailed(format!("Python index probe failed: HTTP {status}"));
+    if matches!(
+        status,
+        reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::TOO_MANY_REQUESTS
+    ) || status.is_server_error()
+    {
+        Err(UvxPrewarmError::Unavailable(error))
+    } else {
+        Err(UvxPrewarmError::Rejected(error))
+    }
+}
+
+fn normalized_python_project(package: &str) -> Result<String, UvxPrewarmError> {
+    let name = package
+        .split("==")
+        .next()
+        .unwrap_or_default()
+        .split('[')
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if name.is_empty() {
+        return Err(UvxPrewarmError::Rejected(AcpError::protocol(
+            "managed Python package name is invalid",
+        )));
+    }
+    let mut normalized = String::with_capacity(name.len());
+    let mut separator = false;
+    for character in name.chars() {
+        if matches!(character, '-' | '_' | '.') {
+            separator = true;
+        } else {
+            if separator && !normalized.is_empty() {
+                normalized.push('-');
+            }
+            separator = false;
+            normalized.extend(character.to_lowercase());
+        }
+    }
+    (!normalized.is_empty())
+        .then_some(normalized)
+        .ok_or_else(|| {
+            UvxPrewarmError::Rejected(AcpError::protocol("managed Python package name is invalid"))
+        })
+}
+
+enum UvxPrewarmError {
+    Unavailable(AcpError),
+    Rejected(AcpError),
+}
+
+impl UvxPrewarmError {
+    fn into_error(self) -> AcpError {
+        match self {
+            Self::Unavailable(error) | Self::Rejected(error) => error,
+        }
+    }
 }
 
 pub(crate) fn resolve_npx_command(
@@ -504,20 +623,34 @@ async fn verify_private_npm_package_version(
     )))
 }
 
-/// Run an npm command with piped stdout/stderr, streaming each line as a log event.
-/// Returns (success: bool, collected_stderr: String) so callers can inspect errors.
+struct NpmCommandOutput {
+    success: bool,
+    stdout: String,
+    stderr: String,
+}
+
+/// Run npm with isolated config, streaming and collecting both output pipes.
 async fn run_npm_streaming(
     args: &[OsString],
+    working_dir: &Path,
     task_id: &str,
     emitter: &EventEmitter,
-) -> Result<(bool, String), AcpError> {
-    use tokio::io::{AsyncBufReadExt, BufReader};
-
+) -> Result<NpmCommandOutput, AcpError> {
     let mut cmd = crate::process::tokio_command("npm");
+    for (key, _) in std::env::vars_os() {
+        if key
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("NPM_CONFIG_")
+        {
+            cmd.env_remove(key);
+        }
+    }
     for arg in args {
         cmd.arg(arg);
     }
-    cmd.stdout(std::process::Stdio::piped())
+    cmd.current_dir(working_dir)
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
     let mut child = cmd
@@ -526,52 +659,48 @@ async fn run_npm_streaming(
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    let emitter_clone = emitter.clone();
-    let task_id_owned = task_id.to_string();
-
-    let stdout_handle = tokio::spawn({
-        let emitter = emitter_clone.clone();
-        let task_id = task_id_owned.clone();
-        async move {
-            if let Some(out) = stdout {
-                let reader = BufReader::new(out);
-                let mut lines = reader.lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    emit_agent_install_event(&emitter, &task_id, AgentInstallEventKind::Log, &line);
-                }
-            }
-        }
-    });
-
-    let stderr_handle = tokio::spawn({
-        let emitter = emitter_clone;
-        let task_id = task_id_owned;
-        async move {
-            let mut collected = String::new();
-            if let Some(err) = stderr {
-                let reader = BufReader::new(err);
-                let mut lines = reader.lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    emit_agent_install_event(&emitter, &task_id, AgentInstallEventKind::Log, &line);
-                    if !collected.is_empty() {
-                        collected.push('\n');
-                    }
-                    collected.push_str(&line);
-                }
-            }
-            collected
-        }
-    });
-
-    let (_, stderr_result) = tokio::join!(stdout_handle, stderr_handle);
-    let collected_stderr = stderr_result.unwrap_or_default();
-
+    let stdout_handle = tokio::spawn(collect_npm_output(
+        stdout,
+        emitter.clone(),
+        task_id.to_string(),
+    ));
+    let stderr_handle = tokio::spawn(collect_npm_output(
+        stderr,
+        emitter.clone(),
+        task_id.to_string(),
+    ));
+    let (stdout_result, stderr_result) = tokio::join!(stdout_handle, stderr_handle);
     let status = child
         .wait()
         .await
         .map_err(|e| AcpError::protocol(format!("failed to wait for npm process: {e}")))?;
 
-    Ok((status.success(), collected_stderr))
+    Ok(NpmCommandOutput {
+        success: status.success(),
+        stdout: stdout_result.unwrap_or_default(),
+        stderr: stderr_result.unwrap_or_default(),
+    })
+}
+
+async fn collect_npm_output<R>(output: Option<R>, emitter: EventEmitter, task_id: String) -> String
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    let mut collected = String::new();
+    let Some(output) = output else {
+        return collected;
+    };
+    let mut lines = BufReader::new(output).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        emit_agent_install_event(&emitter, &task_id, AgentInstallEventKind::Log, &line);
+        if !collected.is_empty() {
+            collected.push('\n');
+        }
+        collected.push_str(&line);
+    }
+    collected
 }
 
 const MAX_MANAGED_NPM_METADATA_BYTES: u64 = 2 * 1024 * 1024;
@@ -650,7 +779,7 @@ fn managed_npm_rejected(message: impl Into<String>) -> ManagedNpmSourceError {
     ManagedNpmSourceError::Rejected(AcpError::DownloadFailed(message.into()))
 }
 
-fn managed_npm_network_unavailable(error: &reqwest::Error) -> bool {
+fn source_network_unavailable(error: &reqwest::Error) -> bool {
     if error.is_connect() || error.is_timeout() {
         return true;
     }
@@ -674,7 +803,7 @@ fn managed_npm_network_unavailable(error: &reqwest::Error) -> bool {
 
 fn managed_npm_reqwest_error(context: &str, error: reqwest::Error) -> ManagedNpmSourceError {
     let message = format!("{context}: {error}");
-    if managed_npm_network_unavailable(&error) {
+    if source_network_unavailable(&error) {
         ManagedNpmSourceError::Unavailable(AcpError::DownloadFailed(message))
     } else {
         managed_npm_rejected(message)
@@ -685,10 +814,7 @@ fn managed_npm_http_error(context: &str, status: reqwest::StatusCode) -> Managed
     let error = AcpError::DownloadFailed(format!("{context}: HTTP {status}"));
     if matches!(
         status,
-        reqwest::StatusCode::NOT_FOUND
-            | reqwest::StatusCode::GONE
-            | reqwest::StatusCode::REQUEST_TIMEOUT
-            | reqwest::StatusCode::TOO_MANY_REQUESTS
+        reqwest::StatusCode::REQUEST_TIMEOUT | reqwest::StatusCode::TOO_MANY_REQUESTS
     ) || status.is_server_error()
     {
         ManagedNpmSourceError::Unavailable(error)
@@ -907,48 +1033,13 @@ async fn fetch_managed_npm_tarball(
 }
 
 fn managed_npm_install_error(error: AcpError) -> ManagedNpmSourceError {
-    let explicitly_unavailable = match &error {
-        AcpError::Protocol(message) if message.contains("private npm install failed:") => {
-            let message = message
-                .strip_prefix("private npm install failed:")
-                .unwrap_or(message)
-                .to_ascii_lowercase();
-            message.lines().any(|line| {
-                let line = line.trim();
-                let code = line
-                    .strip_prefix("npm error code ")
-                    .or_else(|| line.strip_prefix("npm err! code "));
-                code.is_some_and(|code| {
-                    matches!(
-                        code.split_whitespace().next(),
-                        Some(
-                            "enetunreach"
-                                | "ehostunreach"
-                                | "econnrefused"
-                                | "econnreset"
-                                | "etimedout"
-                                | "eai_again"
-                                | "enotfound"
-                                | "e408"
-                                | "e429"
-                                | "e500"
-                                | "e502"
-                                | "e503"
-                                | "e504"
-                        )
-                    )
-                })
-            })
+    match error {
+        AcpError::DownloadFailed(ref message)
+            if message.starts_with(NPM_REGISTRY_UNAVAILABLE_PREFIX) =>
+        {
+            ManagedNpmSourceError::Unavailable(error)
         }
-        AcpError::DownloadFailed(message) => {
-            message.starts_with("npm skipped the platform binary '")
-        }
-        _ => false,
-    };
-    if explicitly_unavailable {
-        ManagedNpmSourceError::Unavailable(error)
-    } else {
-        ManagedNpmSourceError::Rejected(error)
+        _ => ManagedNpmSourceError::Rejected(error),
     }
 }
 
@@ -961,6 +1052,34 @@ async fn install_managed_npm_packages(
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<PathBuf, ManagedNpmSourceError> {
+    if managed
+        .packages
+        .iter()
+        .any(|package| package.integrity.is_empty())
+    {
+        let specs = managed
+            .packages
+            .iter()
+            .map(|package| package.install_spec.as_str())
+            .collect::<Vec<_>>();
+        let primary = managed
+            .packages
+            .first()
+            .ok_or_else(|| managed_npm_rejected("managed npm component list is empty"))?;
+        return install_private_npm_package(
+            paths,
+            agent_type,
+            version,
+            &specs,
+            Some(&primary.package_name),
+            Some(&primary.registry),
+            required_commands,
+            task_id,
+            emitter,
+        )
+        .await
+        .map_err(managed_npm_install_error);
+    }
     let mut tarballs = Vec::with_capacity(managed.packages.len());
     for package in &managed.packages {
         emit_agent_install_event(
@@ -1019,6 +1138,7 @@ async fn install_managed_npm_packages(
 /// How many times a managed npm install is attempted before giving up. See the
 /// retry comment in [`install_private_npm_package`].
 const NPM_INSTALL_ATTEMPTS: u32 = 3;
+const NPM_REGISTRY_UNAVAILABLE_PREFIX: &str = "private npm registry request failed (";
 
 /// One `npm install` attempt plus the checks that decide whether it produced a
 /// *usable* tree.
@@ -1032,23 +1152,68 @@ const NPM_INSTALL_ATTEMPTS: u32 = 3;
 /// process exiting 1 during ACP `initialize`).
 async fn run_private_npm_install_attempt(
     staging: &Path,
+    working_dir: &Path,
     args: &[OsString],
     package_name: &str,
     version: &str,
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
-    let (success, stderr) = run_npm_streaming(args, task_id, emitter).await?;
-    if !success {
-        let detail = stderr.trim();
-        return Err(AcpError::protocol(if detail.is_empty() {
-            "private npm install failed".to_string()
-        } else {
-            format!("private npm install failed: {detail}")
-        }));
+    let output = run_npm_streaming(args, working_dir, task_id, emitter).await?;
+    if !output.success {
+        return Err(npm_install_failure(&output));
     }
     verify_private_npm_package_version(staging, package_name, version).await?;
     npm_runtime::verify_host_platform_optional_deps(staging)
+}
+
+fn npm_install_failure(output: &NpmCommandOutput) -> AcpError {
+    let code = npm_error_code(output);
+    if code.as_deref().is_some_and(npm_network_error_code) {
+        return AcpError::DownloadFailed(format!(
+            "{NPM_REGISTRY_UNAVAILABLE_PREFIX}{})",
+            code.as_deref().unwrap_or("network_error")
+        ));
+    }
+    match code {
+        Some(code) => AcpError::protocol(format!("private npm install failed ({code})")),
+        None => AcpError::protocol("private npm install failed"),
+    }
+}
+
+fn npm_error_code(output: &NpmCommandOutput) -> Option<String> {
+    [&output.stdout, &output.stderr]
+        .into_iter()
+        .find_map(|raw| {
+            serde_json::from_str::<serde_json::Value>(raw)
+                .ok()?
+                .pointer("/error/code")?
+                .as_str()
+                .map(|value| value.to_ascii_uppercase())
+        })
+}
+
+fn npm_network_error_code(code: &str) -> bool {
+    matches!(
+        code,
+        "EAI_AGAIN"
+            | "ECONNABORTED"
+            | "ECONNREFUSED"
+            | "ECONNRESET"
+            | "EHOSTUNREACH"
+            | "ENETDOWN"
+            | "ENETUNREACH"
+            | "EPIPE"
+            | "ESOCKETTIMEDOUT"
+            | "ETIMEDOUT"
+            | "ERR_SOCKET_TIMEOUT"
+            | "E408"
+            | "E429"
+            | "E500"
+            | "E502"
+            | "E503"
+            | "E504"
+    )
 }
 
 async fn install_private_npm_package(
@@ -1111,6 +1276,25 @@ async fn install_private_npm_package(
         packages,
         registry_url,
     )?;
+    let npm_config = tempfile::Builder::new()
+        .prefix("managed-npm-config-")
+        .tempdir_in(paths.staging_dir())
+        .map_err(|error| {
+            AcpError::protocol(format!("create npm config staging failed: {error}"))
+        })?;
+    let user_config = npm_config.path().join("user.npmrc");
+    let global_config = npm_config.path().join("global.npmrc");
+    tokio::fs::write(&user_config, b"").await.map_err(|error| {
+        AcpError::protocol(format!("create isolated npm config failed: {error}"))
+    })?;
+    tokio::fs::write(&global_config, b"")
+        .await
+        .map_err(|error| {
+            AcpError::protocol(format!("create isolated npm config failed: {error}"))
+        })?;
+    let mut args = args;
+    args.push(npm_runtime::path_arg("--userconfig=", &user_config));
+    args.push(npm_runtime::path_arg("--globalconfig=", &global_config));
     let package_name = expected_package_name
         .map(str::to_string)
         .or_else(|| {
@@ -1143,6 +1327,7 @@ async fn install_private_npm_package(
             attempt += 1;
             let outcome = run_private_npm_install_attempt(
                 &staging,
+                npm_config.path(),
                 &args,
                 &package_name,
                 version,
@@ -9054,7 +9239,9 @@ async fn ensure_agent_install_allowed(
         .and_then(|setting| setting.installed_version)
         .is_some_and(|version| !version.trim().is_empty());
     let platform = crate::acp::version_center::platform_projection(conn, agent_type).await;
-    if !platform.clone().install_allowed(installed) {
+    if !platform.clone().install_allowed(installed)
+        && platform.access != crate::acp::version_center::PlatformAccess::Missing
+    {
         return Err(AcpError::protocol(format!(
             "{agent_type} installation is disabled by the Agent platform"
         )));
@@ -9066,6 +9253,7 @@ fn requested_agent_version(
     requested: Option<&str>,
     listed: Option<&str>,
     recommended: Option<&str>,
+    registry_version: Option<&str>,
 ) -> Result<String, AcpError> {
     if let Some(value) = requested.filter(|value| !value.trim().is_empty()) {
         return sanitize_custom_version(value)
@@ -9074,6 +9262,7 @@ fn requested_agent_version(
     recommended
         .and_then(normalize_version_candidate)
         .or_else(|| listed.and_then(normalize_version_candidate))
+        .or_else(|| registry_version.and_then(normalize_version_candidate))
         .ok_or_else(|| AcpError::protocol("Agent platform has no recommended version"))
 }
 
@@ -9089,6 +9278,7 @@ async fn record_managed_agent(
     conn: &sea_orm::DatabaseConnection,
     agent_type: AgentType,
     record: ManagedAgentRecord<'_>,
+    defer_while_active: bool,
 ) -> Result<(), AcpError> {
     crate::acp::version_center::record_agent_ready(
         conn,
@@ -9103,14 +9293,32 @@ async fn record_managed_agent(
         },
     )
     .await?;
-    crate::acp::version_center::activate_agent(
-        conn,
-        agent_type,
-        record.version,
-        record.policy,
-        record.revision,
-    )
-    .await
+    if defer_while_active {
+        let data_dir = crate::system_skills::data_dir_from_env();
+        push_pending_activation(
+            &data_dir,
+            PendingActivation {
+                component_id: serde_json::to_string(&agent_type)
+                    .map_err(|error| AcpError::protocol(error.to_string()))?,
+                component_kind: "agent".to_string(),
+                version: record.version.to_string(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                policy: Some(record.policy.to_string()),
+                revision: Some(record.revision),
+            },
+        )
+        .await
+        .map_err(|error| AcpError::protocol(error.message))
+    } else {
+        crate::acp::version_center::activate_agent(
+            conn,
+            agent_type,
+            record.version,
+            record.policy,
+            record.revision,
+        )
+        .await
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -9873,6 +10081,8 @@ pub(crate) async fn acp_download_agent_binary_core(
     task_id: String,
     db: &AppDatabase,
     emitter: &EventEmitter,
+    defer_while_active: bool,
+    reason: &str,
 ) -> Result<(), AcpError> {
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
@@ -9892,11 +10102,12 @@ pub(crate) async fn acp_download_agent_binary_core(
     .map_err(|error| AcpError::protocol(error.to_string()))?;
     let result = match meta.distribution {
         registry::AgentDistribution::Binary { .. } => {
-            let requested = version_override
-                .as_deref()
-                .and_then(sanitize_custom_version)
-                .or(platform_access.recommended_version)
-                .ok_or_else(|| AcpError::protocol("Agent platform has no recommended version"))?;
+            let requested = requested_agent_version(
+                version_override.as_deref(),
+                None,
+                platform_access.recommended_version.as_deref(),
+                meta.registry_version(),
+            )?;
             let channel = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
                 .await
                 .map_err(|error| AcpError::protocol(error.to_string()))?
@@ -9905,18 +10116,22 @@ pub(crate) async fn acp_download_agent_binary_core(
             let emitter_clone = emitter.clone();
             let task_id_clone = task_id.clone();
             crate::acp::version_center::install_managed_binary_agent(
-                &db.conn,
-                &paths,
-                agent_type,
-                &requested,
-                &channel,
-                move |message| {
-                    emit_agent_install_event(
-                        &emitter_clone,
-                        &task_id_clone,
-                        AgentInstallEventKind::Log,
-                        message,
-                    );
+                crate::acp::version_center::ManagedBinaryAgentRequest {
+                    conn: &db.conn,
+                    paths: &paths,
+                    agent_type,
+                    requested_version: &requested,
+                    channel: &channel,
+                    on_progress: move |message| {
+                        emit_agent_install_event(
+                            &emitter_clone,
+                            &task_id_clone,
+                            AgentInstallEventKind::Log,
+                            message,
+                        );
+                    },
+                    defer_while_active,
+                    reason,
                 },
             )
             .await?;
@@ -9975,10 +10190,24 @@ pub async fn acp_download_agent_binary(
     version: Option<String>,
     task_id: String,
     db: State<'_, AppDatabase>,
+    connection_manager: State<'_, ConnectionManager>,
     app: tauri::AppHandle,
 ) -> Result<(), AcpError> {
     let emitter = EventEmitter::Tauri(app);
-    acp_download_agent_binary_core(agent_type, version, task_id, &db, &emitter).await
+    let _activation_guard = connection_manager.begin_agent_activation(agent_type).await;
+    let deferred = connection_manager.has_live_agent_session(agent_type).await;
+    let reason = if version
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        "manual"
+    } else {
+        "automatic"
+    };
+    acp_download_agent_binary_core(
+        agent_type, version, task_id, &db, &emitter, deferred, reason,
+    )
+    .await
 }
 
 /// Provision ONLY the uv toolchain (uvx) into iyw-claw's cache — independent of
@@ -10076,11 +10305,15 @@ pub(crate) async fn acp_prepare_npx_agent_core(
     task_id: String,
     db: &AppDatabase,
     emitter: &EventEmitter,
+    defer_while_active: bool,
 ) -> Result<String, AcpError> {
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
     let paths = active_agent_storage_paths()?;
     let platform = ensure_agent_install_allowed(&db.conn, agent_type).await?;
+    let explicit_version = version_override
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty());
 
     let meta = registry::get_agent_meta(agent_type);
     let result = match meta.distribution {
@@ -10107,19 +10340,40 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 version_override.as_deref(),
                 registry_version.as_deref(),
                 platform.recommended_version.as_deref(),
+                meta.registry_version(),
             )?;
             let current_version = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
                 .await
                 .map_err(|error| AcpError::protocol(error.to_string()))?
                 .and_then(|setting| setting.installed_version);
-            let mut managed = resolve_npm_agent_install(
+            let resolve_reason = if explicit_version {
+                "manual"
+            } else {
+                "automatic"
+            };
+            let (mut managed, mut fallback) = match resolve_npm_agent_install(
                 &db.conn,
                 agent_type,
                 current_version.as_deref(),
                 &requested,
+                resolve_reason,
             )
             .await
-            .map_err(|error| error.into_error())?;
+            {
+                Ok(value) => (value, false),
+                Err(error)
+                    if resolve_reason == "manual"
+                        && error.is_unavailable()
+                        && (!error.is_policy_missing() || explicit_version) =>
+                {
+                    (
+                        fallback_npm_agent_install(agent_type, &requested)
+                            .map_err(|fallback| fallback.into_error())?,
+                        true,
+                    )
+                }
+                Err(error) => return Err(error.into_error()),
+            };
             let sources = managed
                 .packages
                 .iter()
@@ -10132,7 +10386,11 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 emitter,
                 &task_id,
                 AgentInstallEventKind::Log,
-                format!("Agent source resolved by version center ({sources})"),
+                if fallback {
+                    "Fusion unavailable; using the official npm registry".to_string()
+                } else {
+                    format!("Agent source resolved by version center ({sources})")
+                },
             );
             let resolved = managed.version.clone();
             emit_agent_install_event(
@@ -10145,7 +10403,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             if agent_type == AgentType::Pi {
                 required_commands.push("pi");
             }
-            install_managed_npm_packages(
+            let install_result = install_managed_npm_packages(
                 &paths,
                 agent_type,
                 &managed.version,
@@ -10154,19 +10412,47 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 &task_id,
                 emitter,
             )
-            .await
-            .map_err(|error| match error {
-                ManagedNpmSourceError::Unavailable(error)
-                | ManagedNpmSourceError::Rejected(error) => error,
-            })?;
-            managed = confirm_npm_agent_install(
-                &db.conn,
-                agent_type,
-                current_version.as_deref(),
-                &managed,
-            )
-            .await
-            .map_err(|error| error.into_error())?;
+            .await;
+            match install_result {
+                Ok(_) => {}
+                Err(ManagedNpmSourceError::Unavailable(_))
+                    if resolve_reason == "manual" && !fallback =>
+                {
+                    fallback = true;
+                    emit_agent_install_event(
+                        emitter,
+                        &task_id,
+                        AgentInstallEventKind::Log,
+                        "Fusion npm source unavailable; using the official npm registry",
+                    );
+                    let authorized_version = managed.version.clone();
+                    managed = fallback_npm_agent_install(agent_type, &authorized_version)
+                        .map_err(|error| error.into_error())?;
+                    install_managed_npm_packages(
+                        &paths,
+                        agent_type,
+                        &managed.version,
+                        &managed,
+                        &required_commands,
+                        &task_id,
+                        emitter,
+                    )
+                    .await
+                    .map_err(managed_source_error)?;
+                }
+                Err(error) => return Err(managed_source_error(error)),
+            }
+            if !fallback {
+                managed = confirm_npm_agent_install(
+                    &db.conn,
+                    agent_type,
+                    current_version.as_deref(),
+                    &managed,
+                    resolve_reason,
+                )
+                .await
+                .map_err(|error| error.into_error())?;
+            }
 
             crate::commands::agent_storage::ensure_active_agent_profile_layout(
                 &db.conn, agent_type,
@@ -10187,6 +10473,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                     revision: managed.revision,
                     policy: &managed.effective_policy,
                 },
+                defer_while_active,
             )
             .await?;
             emit_acp_agents_updated(emitter, "npx_prepared", Some(agent_type));
@@ -10209,20 +10496,49 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 version_override.as_deref(),
                 registry_version.as_deref(),
                 platform.recommended_version.as_deref(),
+                meta.registry_version(),
             )?;
             let current_version = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
                 .await
                 .map_err(|error| AcpError::protocol(error.to_string()))?
                 .and_then(|setting| setting.installed_version);
-            let mut managed = resolve_uvx_agent_install(
+            let resolve_reason = if explicit_version {
+                "manual"
+            } else {
+                "automatic"
+            };
+            let (mut managed, mut fallback) = match resolve_uvx_agent_install(
                 &db.conn,
                 agent_type,
                 current_version.as_deref(),
                 &requested,
+                resolve_reason,
             )
             .await
-            .map_err(|error| error.into_error())?;
-            prewarm_uvx_agent(
+            {
+                Ok(value) => (value, false),
+                Err(error)
+                    if resolve_reason == "manual"
+                        && error.is_unavailable()
+                        && (!error.is_policy_missing() || explicit_version) =>
+                {
+                    (
+                        fallback_uvx_agent_install(agent_type, &requested)
+                            .map_err(|fallback| fallback.into_error())?,
+                        true,
+                    )
+                }
+                Err(error) => return Err(error.into_error()),
+            };
+            if fallback {
+                emit_agent_install_event(
+                    emitter,
+                    &task_id,
+                    AgentInstallEventKind::Log,
+                    "Fusion unavailable; using the official Python index",
+                );
+            }
+            let prewarm = prewarm_uvx_agent(
                 meta.name,
                 &managed.package_spec,
                 cmd,
@@ -10231,16 +10547,46 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 &task_id,
                 emitter,
             )
-            .await?;
+            .await;
+            match prewarm {
+                Ok(()) => {}
+                Err(UvxPrewarmError::Unavailable(_)) if resolve_reason == "manual" && !fallback => {
+                    fallback = true;
+                    emit_agent_install_event(
+                        emitter,
+                        &task_id,
+                        AgentInstallEventKind::Log,
+                        "Fusion Python source unavailable; using the official Python index",
+                    );
+                    let authorized_version = managed.version.clone();
+                    managed = fallback_uvx_agent_install(agent_type, &authorized_version)
+                        .map_err(|error| error.into_error())?;
+                    prewarm_uvx_agent(
+                        meta.name,
+                        &managed.package_spec,
+                        cmd,
+                        python,
+                        Some(&managed.index_url),
+                        &task_id,
+                        emitter,
+                    )
+                    .await
+                    .map_err(UvxPrewarmError::into_error)?;
+                }
+                Err(error) => return Err(error.into_error()),
+            }
 
-            managed = confirm_uvx_agent_install(
-                &db.conn,
-                agent_type,
-                current_version.as_deref(),
-                &managed,
-            )
-            .await
-            .map_err(|error| error.into_error())?;
+            if !fallback {
+                managed = confirm_uvx_agent_install(
+                    &db.conn,
+                    agent_type,
+                    current_version.as_deref(),
+                    &managed,
+                    resolve_reason,
+                )
+                .await
+                .map_err(|error| error.into_error())?;
+            }
             let resolved = managed.version.clone();
             binary_cache::mark_uvx_agent_prepared(&paths, agent_type, &resolved)?;
             crate::commands::agent_storage::ensure_active_agent_profile_layout(
@@ -10258,6 +10604,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                     revision: managed.revision,
                     policy: &managed.effective_policy,
                 },
+                defer_while_active,
             )
             .await?;
             emit_acp_agents_updated(emitter, "uvx_prepared", Some(agent_type));
@@ -10297,6 +10644,12 @@ pub(crate) async fn acp_prepare_npx_agent_core(
     result
 }
 
+fn managed_source_error(error: ManagedNpmSourceError) -> AcpError {
+    match error {
+        ManagedNpmSourceError::Unavailable(error) | ManagedNpmSourceError::Rejected(error) => error,
+    }
+}
+
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn acp_prepare_npx_agent(
@@ -10306,9 +10659,12 @@ pub async fn acp_prepare_npx_agent(
     clean_first: Option<bool>,
     task_id: String,
     db: State<'_, AppDatabase>,
+    connection_manager: State<'_, ConnectionManager>,
     app: tauri::AppHandle,
 ) -> Result<String, AcpError> {
     let emitter = EventEmitter::Tauri(app);
+    let _activation_guard = connection_manager.begin_agent_activation(agent_type).await;
+    let deferred = connection_manager.has_live_agent_session(agent_type).await;
     acp_prepare_npx_agent_core(
         agent_type,
         registry_version,
@@ -10317,6 +10673,7 @@ pub async fn acp_prepare_npx_agent(
         task_id,
         &db,
         &emitter,
+        deferred,
     )
     .await
 }

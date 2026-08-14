@@ -11,6 +11,23 @@ use crate::app_error::{AppCommandError, AppErrorCode};
 
 const MAX_TICKET_REFRESHES: u8 = 2;
 
+pub(super) enum AgentDownloadError {
+    Unavailable(AcpError),
+    Rejected(AcpError),
+}
+
+impl AgentDownloadError {
+    pub(super) fn is_unavailable(&self) -> bool {
+        matches!(self, Self::Unavailable(_))
+    }
+
+    pub(super) fn into_error(self) -> AcpError {
+        match self {
+            Self::Unavailable(error) | Self::Rejected(error) => error,
+        }
+    }
+}
+
 pub(super) async fn download_archive(
     conn: &DatabaseConnection,
     offer: &AgentOffer,
@@ -18,8 +35,10 @@ pub(super) async fn download_archive(
     channel: &str,
     archive: &Path,
     on_progress: &impl Fn(&str),
-) -> Result<DownloadTicket, AcpError> {
-    let mut ticket = request_ticket(conn, offer, current_version, channel).await?;
+    allow_policy_missing: bool,
+) -> Result<DownloadTicket, AgentDownloadError> {
+    let mut ticket =
+        request_ticket(conn, offer, current_version, channel, allow_policy_missing).await?;
     on_progress("Downloading Agent artifact from version center");
     for refreshes in 0..=MAX_TICKET_REFRESHES {
         let result = download_resumable(
@@ -37,17 +56,19 @@ pub(super) async fn download_archive(
                 if error.code == AppErrorCode::AuthenticationFailed
                     && refreshes < MAX_TICKET_REFRESHES =>
             {
-                let refreshed = request_ticket(conn, offer, current_version, channel).await?;
-                validate_unchanged(&ticket, &refreshed)?;
+                let refreshed =
+                    request_ticket(conn, offer, current_version, channel, allow_policy_missing)
+                        .await?;
+                validate_unchanged(&ticket, &refreshed).map_err(AgentDownloadError::Rejected)?;
                 ticket = refreshed;
                 on_progress("Agent download ticket refreshed");
             }
-            Err(error) => return Err(map_error(error)),
+            Err(error) => return Err(classify_error(error, allow_policy_missing)),
         }
     }
-    Err(AcpError::DownloadFailed(
+    Err(AgentDownloadError::Rejected(AcpError::DownloadFailed(
         "Agent download ticket refresh limit reached".into(),
-    ))
+    )))
 }
 
 async fn request_ticket(
@@ -55,12 +76,13 @@ async fn request_ticket(
     offer: &AgentOffer,
     current_version: Option<&str>,
     channel: &str,
-) -> Result<DownloadTicket, AcpError> {
-    let artifact_id = offer
-        .delivery
-        .artifact_id
-        .as_deref()
-        .ok_or_else(|| AcpError::DownloadFailed("binary Agent offer has no artifact".into()))?;
+    allow_policy_missing: bool,
+) -> Result<DownloadTicket, AgentDownloadError> {
+    let artifact_id = offer.delivery.artifact_id.as_deref().ok_or_else(|| {
+        AgentDownloadError::Rejected(AcpError::DownloadFailed(
+            "binary Agent offer has no artifact".into(),
+        ))
+    })?;
     let ticket = AgentPlatformClient::download_agent(
         conn,
         DownloadRequest {
@@ -78,8 +100,8 @@ async fn request_ticket(
         },
     )
     .await
-    .map_err(map_error)?;
-    validate_ticket(&ticket).map_err(map_error)?;
+    .map_err(|error| classify_error(error, allow_policy_missing))?;
+    validate_ticket(&ticket).map_err(rejected_error)?;
     Ok(ticket)
 }
 
@@ -115,7 +137,25 @@ fn validate_unchanged(
     Ok(())
 }
 
-fn map_error(error: AppCommandError) -> AcpError {
+fn classify_error(error: AppCommandError, allow_policy_missing: bool) -> AgentDownloadError {
+    let unavailable = fallback_allowed(&error, allow_policy_missing);
+    let error = app_error(error);
+    if unavailable {
+        AgentDownloadError::Unavailable(error)
+    } else {
+        AgentDownloadError::Rejected(error)
+    }
+}
+
+fn rejected_error(error: AppCommandError) -> AgentDownloadError {
+    AgentDownloadError::Rejected(app_error(error))
+}
+
+fn fallback_allowed(error: &AppCommandError, allow_policy_missing: bool) -> bool {
+    crate::acp::version_center::fallback::allowed(error, allow_policy_missing)
+}
+
+fn app_error(error: AppCommandError) -> AcpError {
     let detail = error
         .detail
         .map(|detail| format!("{}: {detail}", error.message))

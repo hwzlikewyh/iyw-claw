@@ -534,7 +534,10 @@ mod tauri_app {
                 app.state::<ConnectionManager>()
                     .install_user_memory(user_memory.clone());
                 app.state::<ConnectionManager>()
-                    .install_version_center_db(app.state::<db::AppDatabase>().conn.clone());
+                    .install_version_center(
+                        app.state::<db::AppDatabase>().conn.clone(),
+                        effective_data_dir.clone(),
+                    );
                 app.manage(user_memory);
 
                 // Restore and apply saved system proxy settings before any network operation.

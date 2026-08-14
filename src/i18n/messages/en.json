@@ -962,13 +962,16 @@
       "policy": "Policy: {value}",
       "catalogStale": "Policy cache is stale",
       "platformDisabled": "Platform disabled",
+      "historyFallback": "Version history is unavailable; local candidates are shown",
+      "pendingActivation": "{version} will activate for the next new Agent connection",
       "operationFailed": "Version operation failed",
       "success": {
         "install": "Installed and activated {name} {version}",
         "switch": "Switched {name} to {version}",
         "pin": "Updated the pinned version for {name}",
         "rollback": "Rolled {name} back to its last known good version",
-        "refresh": "Version policy refreshed"
+        "refresh": "Version policy refreshed",
+        "pendingActivation": "Installed {name} {version}; it will activate for the next new Agent connection"
       }
     },
     "configManagement": "Config Management",

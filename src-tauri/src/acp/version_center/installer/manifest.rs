@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -19,6 +20,7 @@ pub const INVENTORY_SCHEMA_VERSION: u32 = 1;
 const MANIFEST_FILE: &str = "manifest.json";
 const MARKER_FILE: &str = ".iyw-claw-marker.json";
 const PENDING_ACTIVATIONS_FILE: &str = "pending-activations.json";
+static PENDING_ACTIVATIONS_LOCK: OnceLock<Arc<tokio::sync::Mutex<()>>> = OnceLock::new();
 
 /// 受管目录 ownership marker。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -252,7 +254,7 @@ pub async fn write_pending_activations(
         .map_err(AppCommandError::io)
 }
 
-/// 追加一条待激活记录（同组件同版本去重）。
+/// 追加一条待激活记录；同一组件只保留最后一次目标版本。
 ///
 /// IR-005：活跃会话存活时不切换版本，先在此记录，会话结束后的首次启动
 /// 由 `bootstrap_initialize` 消费并激活。
@@ -260,15 +262,22 @@ pub async fn push_pending_activation(
     data_dir: &Path,
     pending: PendingActivation,
 ) -> Result<(), AppCommandError> {
+    let _guard = lock_pending_activations().await;
     let mut items = read_pending_activations(data_dir).await?;
-    if !items
-        .iter()
-        .any(|item| item.component_id == pending.component_id && item.version == pending.version)
-    {
-        items.push(pending);
-        write_pending_activations(data_dir, &items).await?;
-    }
+    items.retain(|item| {
+        item.component_kind != pending.component_kind || item.component_id != pending.component_id
+    });
+    items.push(pending);
+    write_pending_activations(data_dir, &items).await?;
     Ok(())
+}
+
+pub(super) async fn lock_pending_activations() -> tokio::sync::OwnedMutexGuard<()> {
+    PENDING_ACTIVATIONS_LOCK
+        .get_or_init(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+        .lock_owned()
+        .await
 }
 
 /// 更新 manifest 中的单个条目并递增 generation。

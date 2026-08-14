@@ -1,19 +1,13 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useTranslations } from "next-intl"
-import { toast } from "sonner"
 
 import {
+  acpListAgents,
   agentVersionCenterSnapshot,
   getAgentVersionHistory,
-  installAgentVersion,
   refreshAgentVersionCenter,
-  rollbackAgentVersion,
-  setAgentVersionPin,
-  switchAgentVersion,
 } from "@/lib/api"
-import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { toErrorMessage } from "@/lib/app-error"
 import type {
   AgentType,
@@ -22,10 +16,13 @@ import type {
   AgentVersionInventory,
 } from "@/lib/types"
 
-type Operation = "install" | "switch" | "pin" | "rollback" | "refresh"
+import { mergeVersionHistory } from "./agent-version-candidates"
+import { useVersionOperations } from "./use-agent-version-operations"
+
 type CenterData = {
   snapshot: AgentVersionCenterSnapshot
   history: AgentVersionHistory
+  historyError: string | null
 }
 
 async function fetchCenterData(
@@ -36,11 +33,28 @@ async function fetchCenterData(
     ? await refreshAgentVersionCenter()
     : await agentVersionCenterSnapshot()
   const inventory = snapshot.agents.find((item) => item.agentType === agentType)
-  const history = await getAgentVersionHistory(
-    agentType,
-    inventory?.updateChannel
-  )
-  return { snapshot, history }
+  const [registryAgents, historyResult] = await Promise.all([
+    acpListAgents().catch(() => []),
+    getAgentVersionHistory(agentType, inventory?.updateChannel)
+      .then((history) => ({ history, error: null }))
+      .catch((reason) => ({
+        history: { items: [] },
+        error: toErrorMessage(reason),
+      })),
+  ])
+  const registryVersion = registryAgents.find(
+    (agent) => agent.agent_type === agentType
+  )?.registry_version
+  return {
+    snapshot,
+    history: mergeVersionHistory(
+      historyResult.history,
+      agentType,
+      inventory,
+      registryVersion
+    ),
+    historyError: historyResult.error,
+  }
 }
 
 function useCenterData(agentType: AgentType) {
@@ -89,86 +103,22 @@ function useVersionSelection(
   inventory?: AgentVersionInventory
 ) {
   const [requestedVersion, selectVersion] = useState("")
+  const recommendedVersion = versions.some(
+    (item) => item.version === recommended
+  )
+    ? recommended
+    : null
+  const activeVersion = versions.some(
+    (item) => item.version === inventory?.activeVersion
+  )
+    ? inventory?.activeVersion
+    : null
   const selectedVersion = versions.some(
     (item) => item.version === requestedVersion
   )
     ? requestedVersion
-    : recommended || inventory?.activeVersion || versions[0]?.version || ""
+    : recommendedVersion || activeVersion || versions[0]?.version || ""
   return { selectedVersion, selectVersion }
-}
-
-function useVersionOperations(args: {
-  agentType: AgentType
-  selectedVersion: string
-  inventory?: AgentVersionInventory
-  isPinned: boolean
-  load: (refresh: boolean) => Promise<void>
-  setError: (error: string | null) => void
-  onChanged: () => Promise<void>
-}) {
-  const { agentType, selectedVersion, load, setError, onChanged } = args
-  const t = useTranslations("AcpAgentSettings.versionCenter")
-  const [busy, setBusy] = useState<Operation | null>(null)
-  const run = useCallback(
-    async (operation: Operation, action: () => Promise<unknown>) => {
-      setBusy(operation)
-      setError(null)
-      try {
-        await action()
-        await Promise.all([load(false), onChanged()])
-        toast.success(
-          t(`success.${operation}`, {
-            name: getAgentDisplayName(agentType),
-            version: selectedVersion,
-          })
-        )
-      } catch (reason) {
-        const message = toErrorMessage(reason)
-        setError(message)
-        toast.error(t("operationFailed"), { description: message })
-      } finally {
-        setBusy(null)
-      }
-    },
-    [agentType, load, onChanged, selectedVersion, setError, t]
-  )
-  return buildOperations(args, busy, setBusy, run, t)
-}
-
-function buildOperations(
-  args: Parameters<typeof useVersionOperations>[0],
-  busy: Operation | null,
-  setBusy: (value: Operation | null) => void,
-  run: (operation: Operation, action: () => Promise<unknown>) => Promise<void>,
-  t: ReturnType<typeof useTranslations>
-) {
-  const { agentType, selectedVersion, inventory, isPinned, load } = args
-  const refresh = () => {
-    setBusy("refresh")
-    void Promise.all([load(true), args.onChanged()])
-      .then(() => toast.success(t("success.refresh")))
-      .catch(() => {})
-      .finally(() => setBusy(null))
-  }
-  return {
-    busy,
-    refresh,
-    install: () =>
-      void run("install", () =>
-        installAgentVersion(agentType, selectedVersion)
-      ),
-    switchVersion: () =>
-      void run("switch", () => switchAgentVersion(agentType, selectedVersion)),
-    togglePin: () =>
-      void run("pin", () =>
-        setAgentVersionPin(
-          agentType,
-          isPinned ? null : selectedVersion,
-          inventory?.updateChannel
-        )
-      ),
-    rollback: () => void run("rollback", () => rollbackAgentVersion(agentType)),
-  }
 }
 
 export function useAgentVersionCenter({
@@ -215,6 +165,7 @@ export function useAgentVersionCenter({
     onChanged,
   })
   const catalogStale = data?.snapshot.catalog.stale ?? true
+  const historyError = data?.historyError ?? null
   return buildCenterState({
     data,
     error,
@@ -227,6 +178,7 @@ export function useAgentVersionCenter({
     installedVersions,
     isPinned,
     catalogStale,
+    historyError,
     operations,
   })
 }
@@ -243,6 +195,7 @@ function buildCenterState(args: {
   installedVersions: Set<string>
   isPinned: boolean
   catalogStale: boolean
+  historyError: string | null
   operations: ReturnType<typeof useVersionOperations>
 }) {
   const { inventory, versions, selectedVersion, installedVersions } = args
@@ -255,10 +208,8 @@ function buildCenterState(args: {
     versions,
     recommended: args.recommended,
     catalogStale: args.catalogStale,
-    accessDenied:
-      args.catalogStale ||
-      !args.platform ||
-      !["active", "hidden"].includes(args.platform.status),
+    historyError: args.historyError,
+    accessDenied: args.platform?.status === "disabled",
     isInstalled: installedVersions.has(selectedVersion),
     isActive: inventory?.activeVersion === selectedVersion,
     isPinned: args.isPinned,

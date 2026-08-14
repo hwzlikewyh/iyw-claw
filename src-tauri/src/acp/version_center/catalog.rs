@@ -31,6 +31,7 @@ impl PlatformProjection {
     pub fn visible(self, installed: bool) -> bool {
         self.access == PlatformAccess::Active
             || (self.access == PlatformAccess::Hidden && installed)
+            || self.access == PlatformAccess::Missing
     }
 
     pub fn install_allowed(self, installed: bool) -> bool {
@@ -38,7 +39,7 @@ impl PlatformProjection {
     }
 
     pub fn launch_allowed(self) -> bool {
-        matches!(self.access, PlatformAccess::Active | PlatformAccess::Hidden)
+        self.access != PlatformAccess::Disabled
     }
 }
 
@@ -93,47 +94,12 @@ pub async fn platform_projection(
 fn fallback_projection(agent_type: crate::models::agent::AgentType) -> PlatformProjection {
     tracing::warn!(
         agent_type = ?agent_type,
-        "[agent-version-center] no trusted catalog is available; denying Agent access"
+        "[agent-version-center] no trusted catalog is available; online authorization required"
     );
     PlatformProjection {
         access: PlatformAccess::Missing,
         recommended_version: None,
     }
-}
-
-pub async fn authorize_agent_launch(
-    conn: &DatabaseConnection,
-    agent_type: AgentType,
-) -> Result<(), AppCommandError> {
-    let setting = crate::db::service::agent_setting_service::get_by_agent_type(conn, agent_type)
-        .await
-        .map_err(AppCommandError::from)?
-        .ok_or_else(|| AppCommandError::configuration_invalid("Agent setting is unavailable"))?;
-    let version = setting
-        .installed_version
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| AppCommandError::configuration_invalid("Agent is not installed"))?;
-    let offer = AgentPlatformClient::resolve_agent(
-        conn,
-        crate::acp::version_center::types::ResolveAgentRequest {
-            registry_id: registry::registry_id_for(agent_type),
-            current_version: version,
-            requested_version: Some(version),
-            pinned_version: setting.pinned_version.as_deref(),
-            client_version: env!("CARGO_PKG_VERSION"),
-            runtime: capability::RUNTIME,
-            target: capability::current_target(),
-            arch: capability::current_arch(),
-            channel: &setting.update_channel,
-            reason: "manual",
-        },
-    )
-    .await?;
-    (offer.version == version)
-        .then_some(())
-        .ok_or_else(|| AppCommandError::configuration_invalid("Agent launch version was rejected"))
 }
 
 fn nonempty(value: &str) -> Option<String> {

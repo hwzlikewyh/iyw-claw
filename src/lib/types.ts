@@ -1821,6 +1821,7 @@ export interface AgentVersionOperationResult {
   agentType: AgentType
   version: string
   catalogRevision: number
+  activationState?: "active" | "pending"
 }
 
 export type AgentSkillScope = "global" | "project"

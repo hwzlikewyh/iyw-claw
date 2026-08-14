@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -261,6 +261,8 @@ pub struct ConnectionManager {
     /// from the same backend-owned store.
     user_memory_service: Arc<std::sync::OnceLock<Arc<crate::user_memory::UserMemoryService>>>,
     version_center_db: Arc<std::sync::OnceLock<DatabaseConnection>>,
+    version_center_data_dir: Arc<std::sync::OnceLock<PathBuf>>,
+    agent_activation_locks: Arc<Mutex<HashMap<AgentType, Arc<Mutex<()>>>>>,
     /// Per-agent-type serialization for `probe_agent_options`. Without
     /// this, rapid agent-tab clicks in the settings UI would fan out one
     /// real CLI process per click — each one running up to 60s. The
@@ -303,6 +305,30 @@ impl Default for ConnectionManager {
     }
 }
 
+async fn consume_pending_for_new_connection(
+    conn: &DatabaseConnection,
+    data_dir: &Path,
+    agent_type: AgentType,
+    session_id: Option<&str>,
+) -> bool {
+    if session_id.is_some() {
+        return false;
+    }
+    match crate::acp::version_center::consume_pending_agent_activation(conn, data_dir, agent_type)
+        .await
+    {
+        Ok(consumed) => consumed,
+        Err(error) => {
+            tracing::warn!(
+                agent_type = ?agent_type,
+                error = %error,
+                "[agent-version-center] pending activation deferred; using active version"
+            );
+            false
+        }
+    }
+}
+
 impl ConnectionManager {
     const VISIBLE_LEASE_SECS: i64 = 45;
     const PENDING_INPUT_LEASE_SECS: i64 = 120;
@@ -314,6 +340,8 @@ impl ConnectionManager {
             delegation_injection: Arc::new(std::sync::OnceLock::new()),
             user_memory_service: Arc::new(std::sync::OnceLock::new()),
             version_center_db: Arc::new(std::sync::OnceLock::new()),
+            version_center_data_dir: Arc::new(std::sync::OnceLock::new()),
+            agent_activation_locks: Arc::new(Mutex::new(HashMap::new())),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
             pending_channel_confirmations: Arc::new(Mutex::new(HashMap::new())),
@@ -330,6 +358,8 @@ impl ConnectionManager {
             delegation_injection: self.delegation_injection.clone(),
             user_memory_service: self.user_memory_service.clone(),
             version_center_db: self.version_center_db.clone(),
+            version_center_data_dir: self.version_center_data_dir.clone(),
+            agent_activation_locks: self.agent_activation_locks.clone(),
             probe_locks: self.probe_locks.clone(),
             pending_questions: self.pending_questions.clone(),
             pending_channel_confirmations: self.pending_channel_confirmations.clone(),
@@ -348,8 +378,60 @@ impl ConnectionManager {
         let _ = self.user_memory_service.set(service);
     }
 
-    pub fn install_version_center_db(&self, conn: DatabaseConnection) {
+    pub fn install_version_center(&self, conn: DatabaseConnection, data_dir: PathBuf) {
         let _ = self.version_center_db.set(conn);
+        let _ = self.version_center_data_dir.set(data_dir);
+    }
+
+    pub(crate) async fn begin_agent_activation(
+        &self,
+        agent_type: AgentType,
+    ) -> tokio::sync::OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self.agent_activation_locks.lock().await;
+            locks
+                .entry(agent_type)
+                .or_insert_with(|| Arc::new(Mutex::new(())))
+                .clone()
+        };
+        lock.lock_owned().await
+    }
+
+    async fn refresh_runtime_for_pending_activation(
+        &self,
+        agent_type: AgentType,
+        session_id: Option<&str>,
+        runtime_env: BTreeMap<String, String>,
+    ) -> Result<(BTreeMap<String, String>, bool), AcpError> {
+        let conn = self
+            .version_center_db
+            .get()
+            .ok_or_else(|| AcpError::protocol("Agent platform authorization is not initialized"))?;
+        let data_dir = self.version_center_data_dir.get().ok_or_else(|| {
+            AcpError::protocol("Agent platform data directory is not initialized")
+        })?;
+        let consumed =
+            consume_pending_for_new_connection(conn, data_dir, agent_type, session_id).await;
+        let active_version =
+            crate::db::service::agent_setting_service::get_by_agent_type(conn, agent_type)
+                .await
+                .map_err(|error| AcpError::protocol(error.to_string()))?
+                .and_then(|setting| setting.installed_version);
+        let caller_version = runtime_env
+            .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
+            .map(String::as_str);
+        if !consumed && active_version.as_deref() == caller_version {
+            return Ok((runtime_env, false));
+        }
+        let runtime_env = crate::commands::acp::build_session_runtime_env(
+            &AppDatabase { conn: conn.clone() },
+            agent_type,
+            session_id,
+            data_dir,
+        )
+        .await?;
+        crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)?;
+        Ok((runtime_env, consumed))
     }
 
     async fn user_memory_context_for(
@@ -466,20 +548,39 @@ impl ConnectionManager {
             return Ok(existing);
         }
 
-        let version_center_db = self.version_center_db.get().ok_or_else(|| {
-            AcpError::protocol("Agent platform authorization is not initialized")
-        })?;
-        crate::acp::version_center::authorize_agent_launch(version_center_db, agent_type)
+        let activation_guard = self.begin_agent_activation(agent_type).await;
+        if let Some(existing) = self
+            .find_connection_for_reuse(agent_type, working_dir_path.as_ref(), session_id.as_deref())
             .await
-            .map_err(|error| {
-                tracing::warn!(
-                    agent_type = ?agent_type,
-                    code = ?error.code,
-                    detail = ?error.detail,
-                    "[agent-version-center] rejected Agent launch"
-                );
-                AcpError::protocol(error.message)
-            })?;
+        {
+            return Ok(existing);
+        }
+
+        // Freeze the managed Agent inventory until the process has been
+        // inserted. A concurrent install then observes this live connection
+        // and records a pending activation instead of switching beneath it.
+        let storage_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
+
+        let version_center_db = self
+            .version_center_db
+            .get()
+            .ok_or_else(|| AcpError::protocol("Agent platform authorization is not initialized"))?;
+        let (runtime_env, pending_authorized) = self
+            .refresh_runtime_for_pending_activation(agent_type, session_id.as_deref(), runtime_env)
+            .await?;
+        if !pending_authorized {
+            crate::acp::version_center::authorize_agent_launch(version_center_db, agent_type)
+                .await
+                .map_err(|error| {
+                    tracing::warn!(
+                        agent_type = ?agent_type,
+                        code = ?error.code,
+                        detail = ?error.detail,
+                        "[agent-version-center] rejected Agent launch"
+                    );
+                    AcpError::protocol(error.message)
+                })?;
+        }
 
         let user_memory_context = self
             .user_memory_context_for(agent_type, user_memory_origin)
@@ -513,6 +614,8 @@ impl ConnectionManager {
             Some(version_center_db.clone()),
         )
         .await?;
+        drop(storage_guard);
+        drop(activation_guard);
 
         // When dedup is active, hold the lock until the agent's
         // SessionStarted has applied (so external_id is populated for the
@@ -2317,8 +2420,8 @@ impl ConnectionManager {
     /// 是否存在会话存活的 Agent 连接（未断开且非错误状态）。
     ///
     /// IR-005：受管组件版本切换/激活前用它判断是否应延迟——会话存活时不
-    /// 切换 active pointer，而是写入 pending activations，待会话结束后
-    /// 的首次启动再消费激活。判定口径与旧 `install_tool_core` 的
+    /// 切换 active pointer，而是写入 pending activations，由下一次新建
+    /// Agent 连接在 spawn 前消费激活。判定口径与旧 `install_tool_core` 的
     /// "Disconnect active Agents" 门禁一致（任何未断开连接都视为活跃）。
     pub async fn has_live_agent_sessions(&self) -> bool {
         self.list_connections().await.iter().any(|item| {

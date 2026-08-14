@@ -7,7 +7,7 @@ use super::types::{AgentOffer, ResolveAgentRequest};
 use crate::acp::error::AcpError;
 use crate::acp::npm_runtime;
 use crate::acp::registry;
-use crate::app_error::AppErrorCode;
+use crate::acp::version_center::fallback::{self, AgentFallbackReason};
 use crate::models::agent::AgentType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,13 +31,24 @@ pub(crate) struct ManagedNpmInstall {
 
 pub(crate) enum ManagedNpmInstallError {
     Unavailable(AcpError),
+    PolicyMissing(AcpError),
     Rejected(AcpError),
+}
+
+impl ManagedNpmInstallError {
+    pub(crate) fn is_unavailable(&self) -> bool {
+        matches!(self, Self::Unavailable(_) | Self::PolicyMissing(_))
+    }
+
+    pub(crate) fn is_policy_missing(&self) -> bool {
+        matches!(self, Self::PolicyMissing(_))
+    }
 }
 
 impl ManagedNpmInstallError {
     pub(crate) fn into_error(self) -> AcpError {
         match self {
-            Self::Unavailable(error) | Self::Rejected(error) => error,
+            Self::Unavailable(error) | Self::PolicyMissing(error) | Self::Rejected(error) => error,
         }
     }
 }
@@ -47,6 +58,7 @@ pub(crate) async fn resolve_npm_agent_install(
     agent_type: AgentType,
     current_version: Option<&str>,
     requested_version: &str,
+    reason: &str,
 ) -> Result<ManagedNpmInstall, ManagedNpmInstallError> {
     let preferences = crate::update::preferences::load(conn)
         .await
@@ -63,7 +75,7 @@ pub(crate) async fn resolve_npm_agent_install(
             target: current_target(),
             arch: current_arch(),
             channel: preferences.channel.as_str(),
-            reason: "manual",
+            reason,
         },
     )
     .await
@@ -76,9 +88,16 @@ pub(crate) async fn confirm_npm_agent_install(
     agent_type: AgentType,
     current_version: Option<&str>,
     installed: &ManagedNpmInstall,
+    reason: &str,
 ) -> Result<ManagedNpmInstall, ManagedNpmInstallError> {
-    let confirmed =
-        resolve_npm_agent_install(conn, agent_type, current_version, &installed.version).await?;
+    let confirmed = resolve_npm_agent_install(
+        conn,
+        agent_type,
+        current_version,
+        &installed.version,
+        reason,
+    )
+    .await?;
     if confirmed.version != installed.version || confirmed.packages != installed.packages {
         return Err(ManagedNpmInstallError::Rejected(contract_error(
             "version center npm offer changed before activation",
@@ -222,28 +241,15 @@ fn managed_integrity(value: &str) -> Result<String, AcpError> {
 pub(super) fn version_center_error(
     error: crate::app_error::AppCommandError,
 ) -> ManagedNpmInstallError {
-    let unavailable = error.code == AppErrorCode::NetworkError
-        || (error.code == AppErrorCode::InvalidInput
-            && matches!(
-                error.detail.as_deref(),
-                Some(
-                    "AGENT_VERSION_NOT_FOUND"
-                        | "AGENT_VERSION_PAUSED"
-                        | "AGENT_DISTRIBUTION_NOT_FOUND"
-                        | "AGENT_DISTRIBUTION_INCOMPLETE"
-                        | "AGENT_ARTIFACT_NOT_FOUND"
-                        | "AGENT_ARTIFACT_NOT_READY"
-                        | "AGENT_STORAGE_UNAVAILABLE"
-                        | "AGENT_DOWNLOAD_UNAVAILABLE"
-                        | "AGENT_RATE_LIMITED"
-                )
-            ));
+    let fallback_reason = fallback::classify(&error);
     let detail = error
         .detail
         .map(|detail| format!("{}: {detail}", error.message))
         .unwrap_or(error.message);
     let error = AcpError::DownloadFailed(detail);
-    if unavailable {
+    if fallback_reason == Some(AgentFallbackReason::PolicyMissing) {
+        ManagedNpmInstallError::PolicyMissing(error)
+    } else if fallback_reason.is_some() {
         ManagedNpmInstallError::Unavailable(error)
     } else {
         ManagedNpmInstallError::Rejected(error)

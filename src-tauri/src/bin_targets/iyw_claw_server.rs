@@ -338,7 +338,7 @@ async fn async_main() -> ExitCode {
         ),
     );
     connection_manager.install_user_memory(user_memory.clone());
-    connection_manager.install_version_center_db(db.conn.clone());
+    connection_manager.install_version_center(db.conn.clone(), data_dir.clone());
     let (
         delegation_broker,
         delegation_tokens,

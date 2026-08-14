@@ -86,6 +86,16 @@ function VersionCenterContent({
         {state.accessDenied ? (
           <Badge variant="destructive">{t("platformDisabled")}</Badge>
         ) : null}
+        {state.historyError ? (
+          <Badge variant="outline">{t("historyFallback")}</Badge>
+        ) : null}
+        {state.pendingActivationVersion ? (
+          <Badge variant="outline">
+            {t("pendingActivation", {
+              version: state.pendingActivationVersion,
+            })}
+          </Badge>
+        ) : null}
       </div>
       {state.error ? (
         <p className="break-words text-xs text-destructive">{state.error}</p>
