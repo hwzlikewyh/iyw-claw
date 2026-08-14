@@ -274,7 +274,7 @@ pub async fn iyw_account_list_models_core(
         .header("token", token.expose())
         .header("Content-Type", "application/json");
     if let Some(agent_type) = agent_type {
-        let sdk_id = crate::acp::version_center::catalog::platform_id(conn, agent_type).await?;
+        let sdk_id = crate::acp::version_center::platform_id(conn, agent_type).await?;
         request = request.query(&[("sdk_id", sdk_id)]);
     }
     let response = request.send().await.map_err(|error| {

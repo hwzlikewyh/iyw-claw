@@ -16,6 +16,7 @@ mod types;
 mod uvx_install;
 
 pub use capability::{current_arch, current_target, known_tool, RUNTIME, TOOL_IDS};
+pub(crate) use catalog::platform_id;
 pub use catalog::{
     platform_projection, CatalogStore, CatalogView, PlatformAccess, PlatformProjection,
 };
