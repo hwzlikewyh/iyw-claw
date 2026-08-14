@@ -223,9 +223,11 @@ pub struct AcpListAgentSkillsParams {
 }
 
 pub async fn acp_list_agent_skills(
+    Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<AcpListAgentSkillsParams>,
 ) -> Result<Json<AgentSkillsListResult>, AppCommandError> {
-    let result = acp_commands::acp_list_agent_skills(
+    let result = acp_commands::acp_list_agent_skills_core(
+        &state.db.conn,
         params.agent_type,
         params.workspace_path,
         params.include_disabled,

@@ -34,6 +34,7 @@ mod m20260811_000001_task_artifact_kind;
 mod m20260811_000002_plugin_installation;
 mod m20260812_000001_agent_input_ordering;
 mod m20260812_000003_chat_channel_agent_tools;
+mod m20260814_000001_skill_activation_policy;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -74,6 +75,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260811_000002_plugin_installation::Migration),
             Box::new(m20260812_000001_agent_input_ordering::Migration),
             Box::new(m20260812_000003_chat_channel_agent_tools::Migration),
+            Box::new(m20260814_000001_skill_activation_policy::Migration),
         ]
     }
 }

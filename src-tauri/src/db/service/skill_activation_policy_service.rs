@@ -1,0 +1,120 @@
+use chrono::Utc;
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{
+    ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
+};
+
+use crate::acp::types::AgentSkillScope;
+use crate::db::entities::skill_activation_policy;
+use crate::db::error::DbError;
+use crate::models::agent::AgentType;
+
+#[derive(Debug, Clone)]
+pub struct SkillActivationPolicyInput {
+    pub skill_id: String,
+    pub scope: AgentSkillScope,
+    pub workspace_key: String,
+    pub agent_type: AgentType,
+    pub requested_enabled: bool,
+    pub policy_source: String,
+}
+
+pub async fn list_for_workspace(
+    conn: &DatabaseConnection,
+    workspace_key: &str,
+) -> Result<Vec<skill_activation_policy::Model>, DbError> {
+    skill_activation_policy::Entity::find()
+        .filter(
+            skill_activation_policy::Column::WorkspaceKey
+                .is_in([String::new(), workspace_key.to_string()]),
+        )
+        .all(conn)
+        .await
+        .map_err(Into::into)
+}
+
+pub async fn list_global_for_agent(
+    conn: &DatabaseConnection,
+    agent_type: AgentType,
+) -> Result<Vec<skill_activation_policy::Model>, DbError> {
+    let agent_type = serde_json::to_string(&agent_type)
+        .map_err(|error| DbError::Migration(error.to_string()))?;
+    skill_activation_policy::Entity::find()
+        .filter(skill_activation_policy::Column::Scope.eq("global"))
+        .filter(skill_activation_policy::Column::WorkspaceKey.eq(""))
+        .filter(skill_activation_policy::Column::AgentType.eq(agent_type))
+        .all(conn)
+        .await
+        .map_err(Into::into)
+}
+
+pub async fn upsert(
+    conn: &DatabaseConnection,
+    input: SkillActivationPolicyInput,
+) -> Result<skill_activation_policy::Model, DbError> {
+    let now = Utc::now();
+    let agent_type = serde_json::to_string(&input.agent_type)
+        .map_err(|error| DbError::Migration(error.to_string()))?;
+    let scope = scope_key(input.scope).to_string();
+    let active = skill_activation_policy::ActiveModel {
+        id: NotSet,
+        skill_id: Set(input.skill_id.clone()),
+        scope: Set(scope.clone()),
+        workspace_key: Set(input.workspace_key.clone()),
+        agent_type: Set(agent_type.clone()),
+        requested_enabled: Set(input.requested_enabled),
+        policy_source: Set(input.policy_source),
+        created_at: Set(now),
+        updated_at: Set(now),
+    };
+    skill_activation_policy::Entity::insert(active)
+        .on_conflict(
+            OnConflict::columns([
+                skill_activation_policy::Column::SkillId,
+                skill_activation_policy::Column::Scope,
+                skill_activation_policy::Column::WorkspaceKey,
+                skill_activation_policy::Column::AgentType,
+            ])
+            .update_columns([
+                skill_activation_policy::Column::RequestedEnabled,
+                skill_activation_policy::Column::PolicySource,
+                skill_activation_policy::Column::UpdatedAt,
+            ])
+            .to_owned(),
+        )
+        .exec(conn)
+        .await?;
+    find_one(
+        conn,
+        &input.skill_id,
+        &scope,
+        &input.workspace_key,
+        &agent_type,
+    )
+    .await?
+    .ok_or_else(|| DbError::Migration("Skill activation policy upsert disappeared".into()))
+}
+
+async fn find_one(
+    conn: &DatabaseConnection,
+    skill_id: &str,
+    scope: &str,
+    workspace_key: &str,
+    agent_type: &str,
+) -> Result<Option<skill_activation_policy::Model>, DbError> {
+    skill_activation_policy::Entity::find()
+        .filter(skill_activation_policy::Column::SkillId.eq(skill_id))
+        .filter(skill_activation_policy::Column::Scope.eq(scope))
+        .filter(skill_activation_policy::Column::WorkspaceKey.eq(workspace_key))
+        .filter(skill_activation_policy::Column::AgentType.eq(agent_type))
+        .one(conn)
+        .await
+        .map_err(Into::into)
+}
+
+pub fn scope_key(scope: AgentSkillScope) -> &'static str {
+    match scope {
+        AgentSkillScope::Global => "global",
+        AgentSkillScope::Project => "project",
+    }
+}

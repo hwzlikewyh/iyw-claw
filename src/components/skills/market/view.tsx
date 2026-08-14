@@ -6,12 +6,14 @@ import { useSkillMarketInstall } from "@/hooks/use-skill-market-install"
 import { SkillMarketDetailDialog } from "@/components/skills/market/detail-dialog"
 import { SkillMarketInstallPanel } from "@/components/skills/market/install-panel"
 import { SkillMarketList } from "@/components/skills/market/list"
+import { InstalledInventoryView } from "@/components/skills/market/installed-inventory"
 import { SkillMarketToolbar } from "@/components/skills/market/toolbar"
 import {
   SkillMarketUploadDialog,
   type SkillMarketUploadMode,
 } from "@/components/skills/market/upload-dialog"
 import { ManagementDialogs } from "@/components/skills/market/management-dialogs"
+import { useSkillInventory } from "@/hooks/use-skill-inventory"
 import type { SkillMarketV2Detail, SkillMarketV2Item } from "@/lib/skill-market"
 import type {
   SkillMarketAddVersionRequestV2,
@@ -26,6 +28,7 @@ export function SkillMarketView({
 }) {
   const market = useSkillMarket()
   const install = useSkillMarketInstall()
+  const inventory = useSkillInventory(market.query.view === "installed")
 
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadMode, setUploadMode] = useState<SkillMarketUploadMode>("publish")
@@ -124,31 +127,56 @@ export function SkillMarketView({
       <SkillMarketToolbar
         query={market.query}
         categories={market.categories}
-        revision={market.list.revision}
+        revision={
+          market.query.view === "installed"
+            ? (inventory.snapshot?.revision ?? "")
+            : market.list.revision
+        }
         offline={market.list.offline}
-        loading={market.list.loading}
+        loading={
+          market.query.view === "installed"
+            ? inventory.loading
+            : market.list.loading
+        }
         onQueryChange={market.updateQuery}
-        onRefresh={market.refresh}
+        onRefresh={() => {
+          if (market.query.view === "installed") void inventory.refresh()
+          else market.refresh()
+        }}
         onUpload={() => openUpload("publish")}
       />
       <section className="min-h-0 min-w-0 flex-1">
-        <SkillMarketList
-          items={market.list.items}
-          selectedId={market.selectedId}
-          loading={market.list.loading}
-          error={market.list.error}
-          total={market.list.total}
-          nextCursor={market.list.nextCursor}
-          onSelect={(item) => {
-            market.selectItem(item)
-            setDetailOpen(true)
-          }}
-          onPrimaryAction={(item) =>
-            handlePrimaryAction(item, item.currentVersion.version)
-          }
-          onLoadMore={market.loadMore}
-          onRetry={market.refresh}
-        />
+        {market.query.view === "installed" ? (
+          <InstalledInventoryView
+            snapshot={inventory.snapshot}
+            query={market.query.q}
+            loading={inventory.loading}
+            error={inventory.error}
+            busyKey={inventory.busyKey}
+            onRetry={() => void inventory.refresh()}
+            onToggle={inventory.setActivation}
+            onTakeOver={inventory.takeOver}
+            onReconcile={inventory.reconcile}
+          />
+        ) : (
+          <SkillMarketList
+            items={market.list.items}
+            selectedId={market.selectedId}
+            loading={market.list.loading}
+            error={market.list.error}
+            total={market.list.total}
+            nextCursor={market.list.nextCursor}
+            onSelect={(item) => {
+              market.selectItem(item)
+              setDetailOpen(true)
+            }}
+            onPrimaryAction={(item) =>
+              handlePrimaryAction(item, item.currentVersion.version)
+            }
+            onLoadMore={market.loadMore}
+            onRetry={market.refresh}
+          />
+        )}
       </section>
       <SkillMarketDetailDialog
         open={detailOpen}

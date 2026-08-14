@@ -6,9 +6,9 @@ mod agent_storage_profile;
 #[cfg(feature = "tauri-runtime")]
 mod agent_storage_tauri;
 pub mod agent_version_center;
-pub(crate) mod agent_version_operations;
 #[cfg(feature = "tauri-runtime")]
 pub mod agent_version_center_tauri;
+pub(crate) mod agent_version_operations;
 #[cfg(feature = "tauri-runtime")]
 pub mod app_update;
 pub mod automation;
@@ -60,6 +60,7 @@ pub mod remote_workspace;
 pub mod runtime_bootstrap;
 pub mod session_config;
 pub mod session_info;
+pub mod skill_inventory;
 pub mod skill_market;
 mod skill_metadata;
 pub mod system_settings;

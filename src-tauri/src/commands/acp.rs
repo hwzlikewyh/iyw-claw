@@ -5344,7 +5344,7 @@ fn parse_frontmatter_scalar(rest: &str) -> Option<String> {
     }
 }
 
-fn build_skill_item(
+pub(crate) fn build_skill_item(
     id: String,
     scope: AgentSkillScope,
     layout: AgentSkillLayout,
@@ -5390,11 +5390,11 @@ const SHARED_SKILL_PUBLISH_STATE_MARKER: &str = ".iyw-claw-publish-state.json";
 const OFFICIAL_SKILL_MARKER: &str = ".iyw-claw-official-skill.json";
 const MARKET_SKILL_MARKER: &str = ".iyw-claw-market-skill.json";
 
-fn disabled_skills_dir(dir: &Path) -> PathBuf {
+pub(crate) fn disabled_skills_dir(dir: &Path) -> PathBuf {
     dir.join(DISABLED_SKILLS_DIR)
 }
 
-fn shared_skills_dir() -> PathBuf {
+pub(crate) fn shared_skills_dir() -> PathBuf {
     central_experts_dir()
 }
 
@@ -5509,7 +5509,7 @@ fn write_official_skill_marker(source: &Path, skill_id: &str) -> Result<(), AcpE
         .map_err(|e| AcpError::protocol(format!("failed to write official marker: {e}")))
 }
 
-fn read_market_skill_marker(source: &Path) -> Option<MarketSkillMarker> {
+pub(crate) fn read_market_skill_marker(source: &Path) -> Option<MarketSkillMarker> {
     let value = fs::read_to_string(source.join(MARKET_SKILL_MARKER)).ok()?;
     serde_json::from_str(&value).ok()
 }
@@ -5569,6 +5569,36 @@ fn ensure_market_dependency_not_in_use(skill_id: &str) -> Result<(), AcpError> {
         if shared_skill_publish_enabled(&source, &marker.slug)? {
             return Err(AcpError::protocol(format!(
                 "skill '{skill_id}' is required by enabled expert package '{}'",
+                marker.slug
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn ensure_market_dependency_not_in_use_for_agent(
+    agent_type: AgentType,
+    skill_id: &str,
+) -> Result<(), AcpError> {
+    let Ok(entries) = fs::read_dir(shared_skills_dir()) else {
+        return Ok(());
+    };
+    for entry in entries.flatten() {
+        let source = entry.path();
+        let Some(marker) = read_market_skill_marker(&source) else {
+            continue;
+        };
+        if marker.slug == skill_id
+            || !marker
+                .dependencies
+                .iter()
+                .any(|dependency| dependency.slug == skill_id)
+        {
+            continue;
+        }
+        if shared_skill_publish_status(agent_type, &source, &marker.slug)?.0 {
+            return Err(AcpError::protocol(format!(
+                "skill '{skill_id}' is required by '{}' for {agent_type}",
                 marker.slug
             )));
         }
@@ -6963,13 +6993,20 @@ pub async fn reconcile_shared_market_skills(
                 .map_err(|error| AcpError::protocol(error.to_string()))?;
         }
     }
+    let mut reconcile_inputs = Vec::with_capacity(agent_states.len());
+    for (agent_type, enabled) in agent_states {
+        let policies = requested_global_skill_states(conn, agent_type).await?;
+        reconcile_inputs.push((agent_type, enabled, policies));
+    }
     let _guard = shared_skill_mutation_guard();
     let mut errors = Vec::new();
     if let Err(error) = repair_market_target_references_locked() {
         errors.push(format!("market reference repair: {error}"));
     }
-    for (agent_type, enabled) in agent_states {
-        if let Err(error) = reconcile_shared_skills_for_agent_state_locked(agent_type, enabled) {
+    for (agent_type, enabled, policies) in reconcile_inputs {
+        if let Err(error) =
+            reconcile_shared_skills_for_agent_state_locked(agent_type, enabled, &policies)
+        {
             errors.push(format!("{agent_type}: {error}"));
         }
     }
@@ -6984,29 +7021,34 @@ pub async fn reconcile_shared_market_skills(
     }
 }
 
-pub(crate) fn reconcile_shared_market_skills_for_agent(
+pub(crate) async fn reconcile_shared_market_skills_for_agent(
+    conn: &sea_orm::DatabaseConnection,
     agent_type: AgentType,
 ) -> Result<(), AcpError> {
     require_private_agent_storage_for_write()?;
+    let policies = requested_global_skill_states(conn, agent_type).await?;
     let _guard = shared_skill_mutation_guard();
-    reconcile_shared_market_skills_for_agent_locked(agent_type)
+    reconcile_shared_market_skills_for_agent_locked(agent_type, &policies)
 }
 
-pub(crate) fn reconcile_shared_skills_for_agent_state(
+pub(crate) async fn reconcile_shared_skills_for_agent_state(
+    conn: &sea_orm::DatabaseConnection,
     agent_type: AgentType,
     enabled: bool,
 ) -> Result<(), AcpError> {
     require_private_agent_storage_for_write()?;
+    let policies = requested_global_skill_states(conn, agent_type).await?;
     let _guard = shared_skill_mutation_guard();
-    reconcile_shared_skills_for_agent_state_locked(agent_type, enabled)
+    reconcile_shared_skills_for_agent_state_locked(agent_type, enabled, &policies)
 }
 
 fn reconcile_shared_skills_for_agent_state_locked(
     agent_type: AgentType,
     enabled: bool,
+    policies: &BTreeMap<String, bool>,
 ) -> Result<(), AcpError> {
     if enabled {
-        return reconcile_shared_market_skills_for_agent_locked(agent_type);
+        return reconcile_shared_market_skills_for_agent_locked(agent_type, policies);
     }
     let skills = list_skills_from_dir(
         AgentSkillScope::Global,
@@ -7022,7 +7064,10 @@ fn reconcile_shared_skills_for_agent_state_locked(
     Ok(())
 }
 
-fn reconcile_shared_market_skills_for_agent_locked(agent_type: AgentType) -> Result<(), AcpError> {
+fn reconcile_shared_market_skills_for_agent_locked(
+    agent_type: AgentType,
+    policies: &BTreeMap<String, bool>,
+) -> Result<(), AcpError> {
     if skill_storage_spec(agent_type).is_none() {
         return Ok(());
     }
@@ -7037,7 +7082,11 @@ fn reconcile_shared_market_skills_for_agent_locked(agent_type: AgentType) -> Res
         if is_reserved_shared_skill_id(&skill.id) {
             continue;
         }
-        if let Err(error) = reconcile_shared_market_skill_for_agent(agent_type, &skill) {
+        if let Err(error) = reconcile_shared_market_skill_for_agent(
+            agent_type,
+            &skill,
+            policies.get(&skill.id).copied(),
+        ) {
             tracing::warn!(
                 agent_type = %agent_type,
                 skill_id = %skill.id,
@@ -7061,8 +7110,21 @@ fn reconcile_shared_market_skills_for_agent_locked(agent_type: AgentType) -> Res
 fn reconcile_shared_market_skill_for_agent(
     agent_type: AgentType,
     skill: &AgentSkillItem,
+    requested_enabled: Option<bool>,
 ) -> Result<(), AcpError> {
     let source = Path::new(&skill.path);
+    if requested_enabled == Some(false) {
+        remove_shared_skill_publication_from_agent(agent_type, &skill.id)?;
+        return Ok(());
+    }
+    if requested_enabled == Some(true) {
+        let (published, copy_mode) = shared_skill_publish_status(agent_type, source, &skill.id)?;
+        if published && !copy_mode {
+            return Ok(());
+        }
+        publish_shared_skill_to_agent(agent_type, &skill.id, AgentSkillSyncMode::default())?;
+        return Ok(());
+    }
     if read_market_skill_marker(source).is_some_and(|marker| {
         marker
             .agent_types
@@ -7094,6 +7156,24 @@ fn reconcile_shared_market_skill_for_agent(
         "[skills] published central skill to agent profile"
     );
     Ok(())
+}
+
+async fn requested_global_skill_states(
+    conn: &sea_orm::DatabaseConnection,
+    agent_type: AgentType,
+) -> Result<BTreeMap<String, bool>, AcpError> {
+    let snapshot = crate::commands::skill_inventory::skill_inventory_list_core(conn, None).await?;
+    Ok(snapshot
+        .skills
+        .into_iter()
+        .filter_map(|skill| {
+            skill
+                .agent_states
+                .into_iter()
+                .find(|state| state.agent_type == agent_type)
+                .map(|state| (skill.skill_id, state.effective_enabled))
+        })
+        .collect())
 }
 
 fn remove_shared_skill_publication_from_agent(
@@ -7571,7 +7651,7 @@ fn locate_disabled_skill_across_dirs(
     None
 }
 
-fn set_skill_read_only(agent_type: AgentType, skill: &mut AgentSkillItem) {
+pub(crate) fn set_skill_read_only(agent_type: AgentType, skill: &mut AgentSkillItem) {
     if is_read_only_skill_path(agent_type, Path::new(&skill.path)) {
         skill.read_only = true;
     }
@@ -8151,7 +8231,7 @@ async fn reconcile_agent_skills_before_launch(db: &AppDatabase, agent_type: Agen
             "[skills] managed skill reconcile before Agent launch failed"
         );
     }
-    if let Err(error) = reconcile_shared_market_skills_for_agent(agent_type) {
+    if let Err(error) = reconcile_shared_market_skills_for_agent(&db.conn, agent_type).await {
         tracing::warn!(
             agent_type = %agent_type,
             error = %error,
@@ -9202,7 +9282,8 @@ async fn reconcile_agent_enablement_best_effort(
     {
         tracing::warn!("[ACP] managed skills reconcile failed for {agent_type}: {error}");
     }
-    if let Err(error) = reconcile_shared_skills_for_agent_state(agent_type, enabled) {
+    if let Err(error) = reconcile_shared_skills_for_agent_state(&db.conn, agent_type, enabled).await
+    {
         tracing::warn!("[ACP] shared skills reconcile failed for {agent_type}: {error}");
     }
     if let Err(error) =
@@ -10938,8 +11019,115 @@ pub async fn acp_reorder_agents(
     acp_reorder_agents_core(&agent_types, &db, &emitter).await
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn acp_list_agent_skills_core(
+    conn: &sea_orm::DatabaseConnection,
+    agent_type: AgentType,
+    workspace_path: Option<String>,
+    include_disabled: Option<bool>,
+) -> Result<AgentSkillsListResult, AcpError> {
+    let snapshot = crate::commands::skill_inventory::skill_inventory_list_core(
+        conn,
+        workspace_path.as_deref(),
+    )
+    .await?;
+    let include_disabled = include_disabled.unwrap_or(false);
+    let skills = snapshot
+        .skills
+        .into_iter()
+        .filter_map(|skill| inventory_skill_for_agent(skill, agent_type, include_disabled))
+        .collect();
+    Ok(AgentSkillsListResult {
+        supported: skill_storage_spec(agent_type).is_some(),
+        message: None,
+        locations: inventory_skill_locations(agent_type, workspace_path.as_deref()),
+        skills,
+    })
+}
+
+fn inventory_skill_for_agent(
+    skill: crate::commands::skill_inventory::LogicalSkillInventoryItem,
+    agent_type: AgentType,
+    include_disabled: bool,
+) -> Option<AgentSkillItem> {
+    let state = skill
+        .agent_states
+        .iter()
+        .find(|state| state.agent_type == agent_type)?;
+    if !include_disabled && !state.actual_enabled {
+        return None;
+    }
+    let observation = skill.observations.iter().find(|observation| {
+        observation
+            .locations
+            .iter()
+            .any(|location| location.agent_types.contains(&agent_type))
+    })?;
+    let location = observation
+        .locations
+        .iter()
+        .find(|location| location.agent_types.contains(&agent_type))?;
+    let market_managed = matches!(
+        observation.ownership,
+        crate::commands::skill_inventory::SkillInventoryOwnership::Market
+    );
+    Some(AgentSkillItem {
+        id: skill.skill_id,
+        name: skill.name,
+        scope: skill.scope,
+        layout: observation.layout,
+        path: observation.canonical_path.clone(),
+        description: skill.description,
+        enabled: state.actual_enabled,
+        copy_mode: location.projection_source.is_some(),
+        read_only: observation.read_only,
+        official: market_managed,
+        market_managed,
+        market_skill_id: observation.market_skill_id.clone(),
+        installed_version: observation.installed_version.clone(),
+        market_visibility: None,
+        publisher_type: None,
+        market_content_sha256: observation.market_content_sha256.clone(),
+    })
+}
+
+fn inventory_skill_locations(
+    agent_type: AgentType,
+    workspace_path: Option<&str>,
+) -> Vec<AgentSkillLocation> {
+    let Some(spec) = skill_storage_spec(agent_type) else {
+        return Vec::new();
+    };
+    let shared_dir = shared_skills_dir();
+    let mut locations = vec![AgentSkillLocation {
+        scope: AgentSkillScope::Global,
+        path: shared_dir.to_string_lossy().to_string(),
+        exists: shared_dir.exists(),
+    }];
+    if let Some(workspace) = workspace_path.filter(|value| !value.trim().is_empty()) {
+        locations.extend(spec.project_rel_dirs.iter().map(|relative| {
+            let path = PathBuf::from(workspace).join(relative);
+            AgentSkillLocation {
+                scope: AgentSkillScope::Project,
+                path: path.to_string_lossy().to_string(),
+                exists: path.exists(),
+            }
+        }));
+    }
+    locations
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
 pub async fn acp_list_agent_skills(
+    agent_type: AgentType,
+    workspace_path: Option<String>,
+    include_disabled: Option<bool>,
+    db: State<'_, AppDatabase>,
+) -> Result<AgentSkillsListResult, AcpError> {
+    acp_list_agent_skills_core(&db.conn, agent_type, workspace_path, include_disabled).await
+}
+
+async fn acp_list_agent_skills_legacy(
     agent_type: AgentType,
     workspace_path: Option<String>,
     include_disabled: Option<bool>,
@@ -11065,6 +11253,67 @@ pub async fn acp_take_over_agent_skill_core(
         sync_mode.unwrap_or_default(),
         &targets,
     )
+}
+
+pub(crate) async fn take_over_skill_source_for_agent_core(
+    conn: &sea_orm::DatabaseConnection,
+    agent_type: AgentType,
+    skill_id: &str,
+    source_path: &Path,
+    layout: AgentSkillLayout,
+    sync_mode: AgentSkillSyncMode,
+) -> Result<AgentSkillItem, AcpError> {
+    let id = validate_skill_id(skill_id)?;
+    let _paths = require_private_agent_storage_for_write()?;
+    let targets = installed_enabled_skill_agent_types(conn, agent_type).await?;
+    if !targets.contains(&agent_type) {
+        return Err(AcpError::protocol(format!(
+            "{agent_type} is not installed and enabled"
+        )));
+    }
+    ensure_shared_skill_writable(&id)?;
+    let source = build_skill_item(
+        id.clone(),
+        AgentSkillScope::Global,
+        layout,
+        source_path.to_path_buf(),
+        true,
+    );
+    ensure_take_over_source_matches(&source, &id)?;
+    import_native_skill_to_shared_source(&source, &id)?;
+    let shared = shared_skill_path(&id);
+    write_shared_skill_publish_state(&shared, &id, true)?;
+    let _guard = shared_skill_mutation_guard();
+    publish_shared_skill_to_agent(agent_type, &id, sync_mode)
+}
+
+fn ensure_take_over_source_matches(
+    source: &AgentSkillItem,
+    skill_id: &str,
+) -> Result<(), AcpError> {
+    let source_path = Path::new(&source.path);
+    let source_entry = skill_content_path(source.layout, source_path);
+    if !source_entry.is_file() {
+        return Err(AcpError::protocol(
+            "selected Skill source is missing SKILL.md",
+        ));
+    }
+    let target = shared_skill_path(skill_id);
+    if !target.join("SKILL.md").is_file() {
+        return Ok(());
+    }
+    let source_hash = crate::acp::skill_tree_hash::hash_skill_path(source.layout, source_path)
+        .map_err(AcpError::protocol)?;
+    let target_hash =
+        crate::acp::skill_tree_hash::hash_skill_path(AgentSkillLayout::SkillDirectory, &target)
+            .map_err(AcpError::protocol)?;
+    if source_hash.eq_ignore_ascii_case(&target_hash) {
+        Ok(())
+    } else {
+        Err(AcpError::protocol(
+            "the selected source conflicts with the existing iyw-managed source",
+        ))
+    }
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -11264,72 +11513,120 @@ pub async fn acp_set_agent_skill_enabled_core(
     enabled: bool,
     sync_mode: Option<AgentSkillSyncMode>,
 ) -> Result<AgentSkillItem, AcpError> {
-    let Some(spec) = skill_storage_spec(agent_type) else {
-        return Err(AcpError::protocol(format!(
-            "{agent_type} skills are not supported in Settings yet"
-        )));
+    let request = crate::commands::skill_inventory::SkillActivationSetRequest {
+        skill_id: skill_id.clone(),
+        scope,
+        workspace_path: workspace_path.clone(),
+        agent_type,
+        enabled,
+        sync_mode,
+        expected_revision: None,
     };
-    let id = validate_skill_id(&skill_id)?;
-
-    if scope == AgentSkillScope::Global {
-        let targets = if enabled {
-            Some(installed_enabled_skill_agent_types(conn, agent_type).await?)
-        } else {
-            None
-        };
-        let _paths = require_private_agent_storage_for_write()?;
-        ensure_shared_skill_writable(&id)?;
-        let _guard = shared_skill_mutation_guard();
-        let source = shared_skill_path(&id);
-        if enabled {
-            write_shared_skill_publish_state(&source, &id, true)?;
-            return publish_shared_skill_to_active_agents_locked(
-                agent_type,
-                targets.as_deref().unwrap_or_default(),
-                &id,
-                sync_mode.unwrap_or_default(),
-            );
-        }
-        ensure_market_dependency_not_in_use(&id)?;
-        write_shared_skill_publish_state(&source, &id, false)?;
-        remove_shared_skill_publications_locked(&id)?;
-        return build_shared_skill_item_for_agent(agent_type, id);
+    let result = crate::commands::skill_inventory::skill_activation_set_core(conn, request).await?;
+    if let Some(error) = result.error {
+        return Err(AcpError::protocol(error));
     }
+    Ok(
+        acp_read_agent_skill(agent_type, scope, skill_id, workspace_path)
+            .await?
+            .skill,
+    )
+}
 
-    let dirs = scoped_skill_dirs(agent_type, scope, workspace_path.as_deref())?;
-    let active = locate_existing_skill_across_dirs(&dirs, spec.kind, &id, scope, false);
-
+pub(crate) fn set_skill_projection_for_agent(
+    agent_type: AgentType,
+    scope: AgentSkillScope,
+    skill_id: &str,
+    workspace_path: Option<&str>,
+    enabled: bool,
+    sync_mode: AgentSkillSyncMode,
+) -> Result<AgentSkillItem, AcpError> {
+    let spec = skill_storage_spec(agent_type).ok_or_else(|| {
+        AcpError::protocol(format!(
+            "{agent_type} skills are not supported in Settings yet"
+        ))
+    })?;
+    if scope == AgentSkillScope::Global && shared_skill_path(skill_id).join("SKILL.md").is_file() {
+        return set_shared_projection_for_agent(agent_type, skill_id, enabled, sync_mode);
+    }
+    let dirs = scoped_skill_dirs(agent_type, scope, workspace_path)?;
+    let active = locate_existing_skill_across_dirs(&dirs, spec.kind, skill_id, scope, false);
     if enabled {
         if let Some(mut skill) = active {
             set_skill_read_only(agent_type, &mut skill);
             return Ok(skill);
         }
-        let disabled_skill = locate_disabled_skill_across_dirs(&dirs, spec.kind, &id, scope)
-            .ok_or_else(|| AcpError::protocol(format!("skill not found: {id}")))?;
-        let target = active_path_for_disabled_skill(&disabled_skill)?;
-        move_skill_entry(Path::new(&disabled_skill.path), &target)?;
-        let mut skill = build_skill_item(id, scope, disabled_skill.layout, target, true);
+        let disabled = locate_disabled_skill_across_dirs(&dirs, spec.kind, skill_id, scope)
+            .ok_or_else(|| AcpError::protocol(format!("skill not found: {skill_id}")))?;
+        let target = active_path_for_disabled_skill(&disabled)?;
+        move_skill_entry(Path::new(&disabled.path), &target)?;
+        let mut skill =
+            build_skill_item(skill_id.to_string(), scope, disabled.layout, target, true);
         set_skill_read_only(agent_type, &mut skill);
         return Ok(skill);
     }
-
-    if active.is_none() {
-        let mut skill = locate_disabled_skill_across_dirs(&dirs, spec.kind, &id, scope)
-            .ok_or_else(|| AcpError::protocol(format!("skill not found: {id}")))?;
-        set_skill_read_only(agent_type, &mut skill);
-        return Ok(skill);
-    }
-
-    let mut skill = active.expect("active checked above");
+    let mut skill = active
+        .or_else(|| locate_disabled_skill_across_dirs(&dirs, spec.kind, skill_id, scope))
+        .ok_or_else(|| AcpError::protocol(format!("skill not found: {skill_id}")))?;
     set_skill_read_only(agent_type, &mut skill);
-    if skill.read_only {
-        return Err(AcpError::protocol(format!(
-            "skill '{id}' is a built-in system skill and cannot be disabled"
-        )));
+    if !skill.enabled || skill.read_only {
+        return if skill.read_only {
+            Err(AcpError::protocol("built-in system skills are read-only"))
+        } else {
+            Ok(skill)
+        };
     }
     let target = disabled_path_for_active_skill(&skill)?;
     move_skill_entry(Path::new(&skill.path), &target)?;
-    Ok(build_skill_item(id, scope, skill.layout, target, false))
+    Ok(build_skill_item(
+        skill_id.to_string(),
+        scope,
+        skill.layout,
+        target,
+        false,
+    ))
+}
+
+fn set_shared_projection_for_agent(
+    agent_type: AgentType,
+    skill_id: &str,
+    enabled: bool,
+    sync_mode: AgentSkillSyncMode,
+) -> Result<AgentSkillItem, AcpError> {
+    require_private_agent_storage_for_write()?;
+    ensure_shared_skill_writable(skill_id)?;
+    let _guard = shared_skill_mutation_guard();
+    if enabled {
+        publish_shared_dependency_closure(agent_type, skill_id, sync_mode)?;
+        return publish_shared_skill_to_agent(agent_type, skill_id, sync_mode);
+    }
+    ensure_market_dependency_not_in_use_for_agent(agent_type, skill_id)?;
+    remove_shared_skill_publication_from_agent(agent_type, skill_id)?;
+    let mut skill = build_shared_skill_item_for_agent(agent_type, skill_id.to_string())?;
+    skill.enabled = false;
+    Ok(skill)
+}
+
+fn publish_shared_dependency_closure(
+    agent_type: AgentType,
+    skill_id: &str,
+    sync_mode: AgentSkillSyncMode,
+) -> Result<(), AcpError> {
+    let mut pending = vec![skill_id.to_string()];
+    let mut visited = BTreeSet::new();
+    while let Some(current) = pending.pop() {
+        let Some(marker) = read_market_skill_marker(&shared_skill_path(&current)) else {
+            continue;
+        };
+        for dependency in marker.dependencies {
+            if !visited.insert(dependency.slug.clone()) {
+                continue;
+            }
+            pending.push(dependency.slug.clone());
+            publish_shared_skill_to_agent(agent_type, &dependency.slug, sync_mode)?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(feature = "tauri-runtime")]

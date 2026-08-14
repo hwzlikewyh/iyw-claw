@@ -23,4 +23,5 @@ pub mod plugin_installation;
 pub mod prelude;
 pub mod quick_message;
 pub mod remote_workspace_connection;
+pub mod skill_activation_policy;
 pub mod task_artifact;

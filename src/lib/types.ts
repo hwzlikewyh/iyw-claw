@@ -1869,6 +1869,139 @@ export interface AgentSkillContent {
   content: string
 }
 
+export type SkillInventoryOwnership =
+  | "iyw_managed"
+  | "market"
+  | "plugin"
+  | "agent_builtin"
+  | "manual"
+
+export type SkillInventoryStatus =
+  | "installed_active"
+  | "installed_inactive"
+  | "partial"
+  | "agent_builtin"
+  | "duplicate"
+  | "conflict"
+  | "stale_market_record"
+  | "blocked"
+  | "out_of_sync"
+  | "unreadable"
+
+export interface SkillObservedLocation {
+  root: string
+  path: string
+  agentTypes: AgentType[]
+  enabled: boolean
+  projectionSource: string | null
+}
+
+export interface SkillObservation {
+  skillId: string
+  name: string
+  description: string | null
+  scope: AgentSkillScope
+  layout: AgentSkillLayout
+  canonicalPath: string
+  contentTreeHash: string | null
+  hashError: string | null
+  ownership: SkillInventoryOwnership
+  readOnly: boolean
+  marketSkillId: string | null
+  installedVersion: string | null
+  marketContentSha256: string | null
+  marketContentMatches: boolean | null
+  pluginSlug: string | null
+  pluginComponentKey: string | null
+  dependencies: string[]
+  locations: SkillObservedLocation[]
+}
+
+export interface SkillAgentState {
+  agentType: AgentType
+  requestedEnabled: boolean | null
+  effectiveEnabled: boolean
+  actualEnabled: boolean
+  requiredBy: string[]
+  blockedReasons: string[]
+  locationCount: number
+}
+
+export interface LogicalSkillInventoryItem {
+  skillId: string
+  scope: AgentSkillScope
+  name: string
+  description: string | null
+  routingDescriptionChars: number
+  routingDescriptionOverLimit: boolean
+  status: SkillInventoryStatus
+  duplicate: boolean
+  conflict: boolean
+  localOnly: boolean
+  pluginAvailable: boolean
+  staleMarketRecord: boolean
+  dependencies: string[]
+  observations: SkillObservation[]
+  agentStates: SkillAgentState[]
+}
+
+export interface SkillAgentDescriptionBudget {
+  agentType: AgentType
+  skillCount: number
+  usedChars: number
+  softLimitChars: number
+  overSoftLimit: boolean
+}
+
+export interface SkillInventorySnapshot {
+  revision: string
+  workspacePath: string | null
+  skills: LogicalSkillInventoryItem[]
+  descriptionBudgets: SkillAgentDescriptionBudget[]
+}
+
+export interface SkillActivationSetRequest {
+  skillId: string
+  scope: AgentSkillScope
+  workspacePath?: string | null
+  agentType: AgentType
+  enabled: boolean
+  syncMode?: AgentSkillSyncMode | null
+  expectedRevision?: string | null
+}
+
+export interface SkillActivationSetResult {
+  skillId: string
+  scope: AgentSkillScope
+  agentType: AgentType
+  requestedEnabled: boolean
+  effectiveEnabled: boolean
+  actualEnabled: boolean
+  status: "in_sync" | "out_of_sync"
+  error: string | null
+  revision: string
+}
+
+export interface SkillTakeOverRequest {
+  skillId: string
+  sourcePath: string
+  workspacePath?: string | null
+  agentType: AgentType
+  syncMode?: AgentSkillSyncMode | null
+  expectedRevision?: string | null
+}
+
+export interface SkillReconcileRequest {
+  workspacePath?: string | null
+  agentType?: AgentType | null
+}
+
+export interface SkillMutationResult {
+  status: "in_sync" | "out_of_sync"
+  error: string | null
+  snapshot: SkillInventorySnapshot
+}
+
 /**
  * Built-in expert skills, sourced from obra/superpowers and bundled into
  * the iyw-claw binary. Experts live in a central store at `~/.iyw-claw/skills/`

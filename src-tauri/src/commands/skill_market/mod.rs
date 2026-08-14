@@ -9,6 +9,7 @@ mod plugin_install_rollback;
 mod plugin_manifest;
 mod plugin_storage;
 mod plugin_types;
+mod routing_description;
 mod types;
 
 pub use install::{install_core, revalidate_artifact_core};
@@ -126,6 +127,7 @@ pub async fn publish_core(
     conn: &DatabaseConnection,
     request: SkillMarketPublishRequest,
 ) -> Result<SkillMarketDetail, AppCommandError> {
+    routing_description::validate_routing_descriptions(&request.files, request.package_type)?;
     let dependencies = serialize_dependencies(&request.dependencies)?;
     let form = client::upload_form(
         vec![
@@ -165,6 +167,7 @@ pub async fn add_version_core(
     conn: &DatabaseConnection,
     request: SkillMarketAddVersionRequest,
 ) -> Result<SkillMarketDetail, AppCommandError> {
+    routing_description::validate_routing_descriptions(&request.files, request.package_type)?;
     let id = request.id;
     let dependencies = serialize_dependencies(&request.dependencies)?;
     let mut fallback = detail_core(conn, id.clone(), None).await?;

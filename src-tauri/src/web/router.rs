@@ -894,6 +894,22 @@ pub fn build_router(
             post(handlers::acp::acp_set_agent_skill_enabled),
         )
         .route(
+            "/skill_inventory_list",
+            post(handlers::skill_inventory::list),
+        )
+        .route(
+            "/skill_activation_set",
+            post(handlers::skill_inventory::set_activation),
+        )
+        .route(
+            "/skill_take_over",
+            post(handlers::skill_inventory::take_over),
+        )
+        .route(
+            "/skill_reconcile",
+            post(handlers::skill_inventory::reconcile),
+        )
+        .route(
             "/acp_delete_agent_skill",
             post(handlers::acp::acp_delete_agent_skill),
         )

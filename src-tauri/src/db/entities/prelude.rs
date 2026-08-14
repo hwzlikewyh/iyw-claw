@@ -23,4 +23,5 @@ pub use super::opened_tab::Entity as OpenedTab;
 pub use super::plugin_component_ownership::Entity as PluginComponentOwnership;
 pub use super::plugin_installation::Entity as PluginInstallation;
 pub use super::quick_message::Entity as QuickMessage;
+pub use super::skill_activation_policy::Entity as SkillActivationPolicy;
 pub use super::task_artifact::Entity as TaskArtifact;

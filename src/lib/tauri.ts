@@ -24,6 +24,12 @@ import type {
   AgentSkillFile,
   AgentSkillsListResult,
   AgentSkillContent,
+  SkillInventorySnapshot,
+  SkillActivationSetRequest,
+  SkillActivationSetResult,
+  SkillMutationResult,
+  SkillReconcileRequest,
+  SkillTakeOverRequest,
   ManagedSkillFamily,
   ManagedSkillFamilyState,
   ManagedSkillSyncReport,
@@ -349,6 +355,51 @@ export async function acpSetAgentSkillEnabled(params: {
     workspacePath: params.workspacePath ?? null,
     enabled: params.enabled,
     syncMode: params.syncMode ?? null,
+  })
+}
+
+export async function skillInventoryList(
+  workspacePath?: string | null
+): Promise<SkillInventorySnapshot> {
+  return invoke("skill_inventory_list", {
+    workspacePath: workspacePath ?? null,
+  })
+}
+
+export async function skillActivationSet(
+  request: SkillActivationSetRequest
+): Promise<SkillActivationSetResult> {
+  return invoke("skill_activation_set", {
+    request: {
+      ...request,
+      workspacePath: request.workspacePath ?? null,
+      syncMode: request.syncMode ?? null,
+      expectedRevision: request.expectedRevision ?? null,
+    },
+  })
+}
+
+export async function skillTakeOver(
+  request: SkillTakeOverRequest
+): Promise<SkillMutationResult> {
+  return invoke("skill_take_over", {
+    request: {
+      ...request,
+      workspacePath: request.workspacePath ?? null,
+      syncMode: request.syncMode ?? null,
+      expectedRevision: request.expectedRevision ?? null,
+    },
+  })
+}
+
+export async function skillReconcile(
+  request: SkillReconcileRequest
+): Promise<SkillMutationResult> {
+  return invoke("skill_reconcile", {
+    request: {
+      workspacePath: request.workspacePath ?? null,
+      agentType: request.agentType ?? null,
+    },
   })
 }
 
