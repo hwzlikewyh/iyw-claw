@@ -2193,11 +2193,14 @@ async fn prepare_iyw_claw_mcp(
         );
         return None;
     };
+    let companion_data_dir =
+        std::env::var_os("IYW_CLAW_DATA_DIR").filter(|value| !value.is_empty());
     tracing::info!(
         connection_id = parent_connection_id,
         agent = ?agent_type,
         features = %features_arg,
         binary = %binary_path.display(),
+        data_dir = ?companion_data_dir,
         "[ACP] injecting iyw-claw-mcp companion"
     );
     let token = uuid::Uuid::new_v4().to_string();
@@ -2219,6 +2222,12 @@ async fn prepare_iyw_claw_mcp(
         )
         .await;
     let mut server = McpServerStdio::new(IYW_CLAW_MCP_SERVER_NAME, binary_path);
+    if let Some(data_dir) = companion_data_dir {
+        server = server.env(vec![sacp::schema::EnvVariable::new(
+            "IYW_CLAW_DATA_DIR",
+            data_dir.to_string_lossy().into_owned(),
+        )]);
+    }
     server = server.args(vec![
         "--parent-connection-id".to_string(),
         parent_connection_id.to_string(),
