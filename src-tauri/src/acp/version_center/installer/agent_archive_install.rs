@@ -25,7 +25,7 @@ pub(super) struct ResolvedBinaryInstall<'a> {
     pub archive: &'a Path,
     pub stage: &'a Path,
     pub channel: &'a str,
-    pub on_progress: &'a dyn Fn(&str),
+    pub on_progress: &'a (dyn Fn(&str) + Send + Sync),
     pub defer_while_active: bool,
     pub reason: &'a str,
 }

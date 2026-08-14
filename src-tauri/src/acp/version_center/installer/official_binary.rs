@@ -25,14 +25,14 @@ struct OfficialBinaryInstall<'a> {
     file_name: &'a str,
     archive: &'a Path,
     stage: &'a Path,
-    on_progress: &'a dyn Fn(&str),
+    on_progress: &'a (dyn Fn(&str) + Send + Sync),
 }
 
 pub(super) async fn install_official_binary(
     paths: &AgentStoragePaths,
     agent_type: AgentType,
     version: &str,
-    on_progress: &impl Fn(&str),
+    on_progress: &(impl Fn(&str) + Send + Sync),
 ) -> Result<(), AcpError> {
     let (cmd, url, file_name) = official_spec(agent_type, version)?;
     let operation = uuid::Uuid::new_v4();

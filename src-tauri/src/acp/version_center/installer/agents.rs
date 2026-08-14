@@ -18,7 +18,7 @@ use super::agent_download::download_archive;
 use super::official_binary::install_official_binary;
 use super::resumable::cleanup_resumable_files;
 
-pub(crate) struct ManagedBinaryAgentRequest<'a, F: Fn(&str)> {
+pub(crate) struct ManagedBinaryAgentRequest<'a, F: Fn(&str) + Send + Sync> {
     pub conn: &'a DatabaseConnection,
     pub paths: &'a AgentStoragePaths,
     pub agent_type: AgentType,
@@ -29,7 +29,7 @@ pub(crate) struct ManagedBinaryAgentRequest<'a, F: Fn(&str)> {
     pub reason: &'a str,
 }
 
-struct BinaryInstallContext<'a, F: Fn(&str)> {
+struct BinaryInstallContext<'a, F: Fn(&str) + Send + Sync> {
     conn: &'a DatabaseConnection,
     paths: &'a AgentStoragePaths,
     agent_type: AgentType,
@@ -49,7 +49,7 @@ pub(crate) async fn install_managed_binary_agent<F>(
     request: ManagedBinaryAgentRequest<'_, F>,
 ) -> Result<String, AcpError>
 where
-    F: Fn(&str),
+    F: Fn(&str) + Send + Sync,
 {
     let setting = crate::db::service::agent_setting_service::get_by_agent_type(
         request.conn,
@@ -83,7 +83,7 @@ where
 }
 
 async fn prepare_workspace(
-    context: &BinaryInstallContext<'_, impl Fn(&str)>,
+    context: &BinaryInstallContext<'_, impl Fn(&str) + Send + Sync>,
 ) -> Result<InstallWorkspace, AcpError> {
     let operation = uuid::Uuid::new_v4();
     let stage = context.paths.staging_dir().join(format!(
@@ -106,7 +106,7 @@ async fn prepare_workspace(
     Ok(InstallWorkspace { stage, archive })
 }
 
-async fn install_resolved_binary<F: Fn(&str)>(
+async fn install_resolved_binary<F: Fn(&str) + Send + Sync>(
     context: &BinaryInstallContext<'_, F>,
     offer: &AgentOffer,
     workspace: &InstallWorkspace,
@@ -153,7 +153,7 @@ async fn cleanup_workspace(workspace: &InstallWorkspace) {
     let _ = tokio::fs::remove_dir_all(&workspace.stage).await;
 }
 
-async fn install_official_binary_agent<F: Fn(&str)>(
+async fn install_official_binary_agent<F: Fn(&str) + Send + Sync>(
     context: &BinaryInstallContext<'_, F>,
     version: &str,
 ) -> Result<String, AcpError> {
@@ -194,7 +194,7 @@ fn fallback_allowed(error: &AppCommandError, allow_policy_missing: bool) -> bool
 }
 
 async fn resolve_offer(
-    context: &BinaryInstallContext<'_, impl Fn(&str)>,
+    context: &BinaryInstallContext<'_, impl Fn(&str) + Send + Sync>,
     requested_version: &str,
 ) -> Result<AgentOffer, AppCommandError> {
     AgentPlatformClient::resolve_agent(

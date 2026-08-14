@@ -34,7 +34,7 @@ pub(super) async fn download_archive(
     current_version: Option<&str>,
     channel: &str,
     archive: &Path,
-    on_progress: &impl Fn(&str),
+    on_progress: &(impl Fn(&str) + Send + Sync),
     allow_policy_missing: bool,
 ) -> Result<DownloadTicket, AgentDownloadError> {
     let mut ticket =
