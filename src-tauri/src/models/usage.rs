@@ -46,13 +46,14 @@ impl UsageBreakdown {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageModelRow {
-    pub model: String,
+    #[serde(default, alias = "model")]
+    pub model_alias: String,
+    #[serde(default)]
+    pub model_display_name: String,
     pub sessions: u64,
     pub total: u64,
     #[serde(default)]
-    pub total_cost: f64,
-    #[serde(default)]
-    pub currency: String,
+    pub total_points: u64,
     #[serde(flatten)]
     pub usage: UsageBreakdown,
 }
@@ -65,9 +66,7 @@ pub struct UsageDailyRow {
     pub total: u64,
     pub cache_hit_rate: f64,
     #[serde(default)]
-    pub total_cost: f64,
-    #[serde(default)]
-    pub currency: String,
+    pub total_points: u64,
     #[serde(flatten)]
     pub usage: UsageBreakdown,
 }
@@ -81,9 +80,7 @@ pub struct UsageDashboardStats {
     pub cache_hit_rate: f64,
     pub average_daily_sessions: f64,
     #[serde(default)]
-    pub total_cost: f64,
-    #[serde(default = "default_currency")]
-    pub currency: String,
+    pub total_points: u64,
     pub first_date: Option<String>,
     pub last_date: Option<String>,
     pub model_rows: Vec<UsageModelRow>,
@@ -98,18 +95,13 @@ impl Default for UsageDashboardStats {
             session_count: 0,
             cache_hit_rate: 0.0,
             average_daily_sessions: 0.0,
-            total_cost: 0.0,
-            currency: "CNY".to_string(),
+            total_points: 0,
             first_date: None,
             last_date: None,
             model_rows: Vec::new(),
             daily_rows: Vec::new(),
         }
     }
-}
-
-fn default_currency() -> String {
-    "CNY".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,8 +151,11 @@ impl UsageDashboardStats {
     fn refresh_derived(&mut self) {
         self.total_tokens = self.total.total();
         self.cache_hit_rate = cache_hit_rate(&self.total);
-        self.model_rows
-            .sort_by(|a, b| b.total.cmp(&a.total).then_with(|| a.model.cmp(&b.model)));
+        self.model_rows.sort_by(|a, b| {
+            b.total
+                .cmp(&a.total)
+                .then_with(|| a.model_alias.cmp(&b.model_alias))
+        });
         self.daily_rows = normalized_daily_rows(
             std::mem::take(&mut self.daily_rows),
             self.first_date.as_deref(),
@@ -180,14 +175,16 @@ fn apply_model_row(
     usage: &UsageBreakdown,
     add: bool,
 ) {
-    let index = rows.iter().position(|row| row.model == snapshot.model);
+    let index = rows
+        .iter()
+        .position(|row| row.model_alias == snapshot.model);
     if index.is_none() && add {
         rows.push(UsageModelRow {
-            model: snapshot.model.clone(),
+            model_alias: snapshot.model.clone(),
+            model_display_name: snapshot.model.clone(),
             sessions: 0,
             total: 0,
-            total_cost: 0.0,
-            currency: String::new(),
+            total_points: 0,
             usage: UsageBreakdown::default(),
         });
     }
@@ -248,8 +245,7 @@ fn empty_daily_row(date: String) -> UsageDailyRow {
         sessions: 0,
         total: 0,
         cache_hit_rate: 0.0,
-        total_cost: 0.0,
-        currency: String::new(),
+        total_points: 0,
         usage: UsageBreakdown::default(),
     }
 }

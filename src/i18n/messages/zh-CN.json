@@ -4574,7 +4574,7 @@
   "UsageSettings": {
     "loading": "正在加载用量...",
     "title": "用量",
-    "description": "查看近 30 日的实际 Token 用量和消费。",
+    "description": "查看近 30 日的 Token 用量和已结算点数。",
     "refresh": "刷新",
     "loadFailed": "用量加载失败：{message}",
     "coverage": "已加载 {loaded} / {total} 个请求，失败 {failed} 个。",
@@ -4588,8 +4588,8 @@
       "totalTokensHint": "{input} 输入 / {output} 输出",
       "sessions": "总请求数",
       "sessionsHint": "日均 ~{average}",
-      "actualCost": "实际消费",
-      "actualCostHint": "服务端账单 · {currency}",
+      "pointsUsed": "已用点数",
+      "pointsUsedHint": "账户实际结算点数",
       "cacheHitRate": "缓存命中率",
       "cacheHitRateHint": "{tokens} Token"
     },
@@ -4607,7 +4607,7 @@
       "cacheWrite": "缓存写入",
       "cacheHitRate": "缓存命中率",
       "sessions": "请求",
-      "cost": "费用"
+      "points": "点数"
     },
     "empty": {
       "title": "暂无用量",

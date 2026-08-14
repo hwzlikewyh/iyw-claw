@@ -4574,7 +4574,7 @@
   "UsageSettings": {
     "loading": "Loading usage...",
     "title": "Usage",
-    "description": "View actual token usage and spend from the last 30 days.",
+    "description": "View token usage and settled points from the last 30 days.",
     "refresh": "Refresh",
     "loadFailed": "Failed to load usage: {message}",
     "coverage": "Loaded {loaded} of {total} requests. Failed requests: {failed}.",
@@ -4588,8 +4588,8 @@
       "totalTokensHint": "{input} input / {output} output",
       "sessions": "Requests",
       "sessionsHint": "Daily average ~{average}",
-      "actualCost": "Actual spend",
-      "actualCostHint": "Server billing · {currency}",
+      "pointsUsed": "Points used",
+      "pointsUsedHint": "Settled account points",
       "cacheHitRate": "Cache hit rate",
       "cacheHitRateHint": "{tokens} tokens"
     },
@@ -4607,7 +4607,7 @@
       "cacheWrite": "Cache write",
       "cacheHitRate": "Cache hit rate",
       "sessions": "Requests",
-      "cost": "Cost"
+      "points": "Points"
     },
     "empty": {
       "title": "No usage yet",

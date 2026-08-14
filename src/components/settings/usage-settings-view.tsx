@@ -19,20 +19,9 @@ function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`
 }
 
-function formatCost(value: number, currency: string): string {
-  const normalizedCurrency = /^[A-Z]{3}$/.test(currency) ? currency : "CNY"
-  const formatter = new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: normalizedCurrency,
-    currencyDisplay: "narrowSymbol",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 9,
-  })
-  if (!Number.isFinite(value)) return formatter.format(0)
-  if (value > 0 && value < 0.000000001) {
-    return `<${formatter.format(0.000000001)}`
-  }
-  return formatter.format(value)
+function formatPoints(value: number): string {
+  const points = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0
+  return points.toLocaleString()
 }
 
 function chartValue(row: UsageDailyRow | UsageModelRow): number {
@@ -159,9 +148,9 @@ export function UsageSummary({ snapshot }: { snapshot: UsageSnapshot }) {
         })}
       />
       <StatCard
-        label={t("cards.actualCost")}
-        value={formatCost(stats.totalCost, stats.currency)}
-        hint={t("cards.actualCostHint", { currency: stats.currency })}
+        label={t("cards.pointsUsed")}
+        value={formatPoints(stats.totalPoints)}
+        hint={t("cards.pointsUsedHint")}
       />
       <StatCard
         label={t("cards.cacheHitRate")}
@@ -187,11 +176,11 @@ export function ModelDistribution({ rows }: { rows: UsageModelRow[] }) {
       <div className="space-y-3">
         {rows.slice(0, 8).map((row) => (
           <div
-            key={row.model}
+            key={row.modelAlias}
             className="grid grid-cols-[minmax(8rem,12rem)_1fr_auto] items-center gap-3 text-xs"
           >
             <span className="truncate font-mono text-foreground">
-              {row.model}
+              {row.modelDisplayName}
             </span>
             <SegmentBar row={row} max={max} />
             <span className="w-20 text-right tabular-nums text-muted-foreground">
@@ -214,10 +203,10 @@ export function DailyUsage({ rows }: { rows: UsageDailyRow[] }) {
     t("table.cacheWrite"),
     t("table.cacheHitRate"),
     t("table.sessions"),
-    t("table.cost"),
+    t("table.points"),
   ]
   const visibleRows = rows
-    .filter((row) => row.total > 0 || row.sessions > 0 || row.totalCost !== 0)
+    .filter((row) => row.total > 0 || row.sessions > 0 || row.totalPoints !== 0)
     .slice(-10)
     .reverse()
   const max = Math.max(...rows.map(chartValue), 1)
@@ -272,7 +261,7 @@ export function DailyUsage({ rows }: { rows: UsageDailyRow[] }) {
                 </td>
                 <td className="py-2 text-right tabular-nums">{row.sessions}</td>
                 <td className="py-2 text-right tabular-nums">
-                  {formatCost(row.totalCost, row.currency)}
+                  {formatPoints(row.totalPoints)}
                 </td>
               </tr>
             ))}
@@ -303,6 +292,6 @@ export function isUsageSnapshotEmpty(snapshot: UsageSnapshot | null): boolean {
     snapshot !== null &&
     usageTotal(snapshot.stats.total) === 0 &&
     snapshot.stats.sessionCount === 0 &&
-    snapshot.stats.totalCost === 0
+    snapshot.stats.totalPoints === 0
   )
 }

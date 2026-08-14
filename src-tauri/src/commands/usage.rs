@@ -9,7 +9,6 @@ use crate::app_error::AppCommandError;
 use crate::db::AppDatabase;
 use crate::models::{AgentType, UsageBreakdown, UsageDailyRow, UsageDashboardStats, UsageModelRow};
 
-const USAGE_CURRENCY: &str = "CNY";
 const USAGE_LIMIT: usize = 30;
 const USAGE_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -22,6 +21,7 @@ struct FusionResponse<T> {
 
 #[derive(Debug, Deserialize)]
 struct FusionUsageData {
+    unit: String,
     #[serde(default)]
     items: Vec<FusionDailyUsage>,
     #[serde(default)]
@@ -41,8 +41,8 @@ struct FusionUsageSummary {
     average_daily_sessions: f64,
     first_date: String,
     last_date: String,
-    total_cost: f64,
-    currency: String,
+    total_points: u64,
+    unit: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,21 +55,20 @@ struct FusionDailyUsage {
     cache_write_tokens: u64,
     total_tokens: u64,
     cache_hit_rate: f64,
-    total_cost: f64,
-    currency: String,
+    total_points: u64,
 }
 
 #[derive(Debug, Deserialize)]
 struct FusionModelUsage {
-    model: String,
+    model_alias: String,
+    model_display_name: String,
     sessions: u64,
     input_tokens: u64,
     output_tokens: u64,
     cache_read_tokens: u64,
     cache_write_tokens: u64,
     total_tokens: u64,
-    total_cost: f64,
-    currency: String,
+    total_points: u64,
 }
 
 impl From<FusionDailyUsage> for UsageDailyRow {
@@ -79,8 +78,7 @@ impl From<FusionDailyUsage> for UsageDailyRow {
             sessions: value.sessions,
             total: value.total_tokens,
             cache_hit_rate: value.cache_hit_rate,
-            total_cost: value.total_cost,
-            currency: value.currency,
+            total_points: value.total_points,
             usage: usage_breakdown(
                 value.input_tokens,
                 value.output_tokens,
@@ -93,12 +91,17 @@ impl From<FusionDailyUsage> for UsageDailyRow {
 
 impl From<FusionModelUsage> for UsageModelRow {
     fn from(value: FusionModelUsage) -> Self {
+        let display_name = if value.model_display_name.trim().is_empty() {
+            value.model_alias.clone()
+        } else {
+            value.model_display_name
+        };
         Self {
-            model: value.model,
+            model_alias: value.model_alias,
+            model_display_name: display_name,
             sessions: value.sessions,
             total: value.total_tokens,
-            total_cost: value.total_cost,
-            currency: value.currency,
+            total_points: value.total_points,
             usage: usage_breakdown(
                 value.input_tokens,
                 value.output_tokens,
@@ -129,8 +132,7 @@ impl FusionUsageData {
             session_count: summary.sessions,
             cache_hit_rate: summary.cache_hit_rate,
             average_daily_sessions: summary.average_daily_sessions,
-            total_cost: summary.total_cost,
-            currency: summary.currency,
+            total_points: summary.total_points,
             first_date: non_empty(summary.first_date),
             last_date: non_empty(summary.last_date),
             model_rows: self
@@ -160,9 +162,9 @@ fn usage_url() -> String {
     let base = crate::acp::provider_overlay::model_gateway_base_url_for(AgentType::Codex);
     let base = base.trim_end_matches('/');
     if base.ends_with("/v1") {
-        format!("{base}/usage/recent?limit={USAGE_LIMIT}&currency={USAGE_CURRENCY}")
+        format!("{base}/usage/recent?limit={USAGE_LIMIT}")
     } else {
-        format!("{base}/v1/usage/recent?limit={USAGE_LIMIT}&currency={USAGE_CURRENCY}")
+        format!("{base}/v1/usage/recent?limit={USAGE_LIMIT}")
     }
 }
 
@@ -179,7 +181,7 @@ pub async fn get_usage_dashboard_core(
         .ok_or_else(|| AppCommandError::authentication_failed("Sign in to view usage"))?;
     tracing::debug!(
         limit = USAGE_LIMIT,
-        currency = USAGE_CURRENCY,
+        unit = "points",
         "requesting actual usage dashboard"
     );
     let response = http_client()
@@ -216,6 +218,11 @@ pub async fn get_usage_dashboard_core(
     let data = payload
         .data
         .ok_or_else(|| AppCommandError::network("Usage response did not contain data"))?;
+    if data.unit != "points" || data.summary.unit != "points" {
+        return Err(AppCommandError::network(
+            "Usage response used an unsupported unit",
+        ));
+    }
     tracing::info!(
         daily_rows = data.items.len(),
         model_rows = data.model_items.len(),
