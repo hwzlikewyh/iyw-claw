@@ -1,31 +1,20 @@
 "use client"
 
-import { Package, Pencil, RotateCcw, Trash2 } from "lucide-react"
+import { RotateCcw } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { MarketBadgeGroup } from "@/components/skills/market/badges"
+import { DetailHeader } from "@/components/skills/market/detail-header"
 import { DetailInspectorTabs } from "@/components/skills/market/detail-inspector-tabs"
-import type {
-  SkillMarketTranslator,
-  SkillMarketV2Detail,
-  SkillMarketV2FileNode,
-  SkillMarketV2Version,
-} from "@/lib/skill-market"
+import { DetailSidePanel } from "@/components/skills/market/detail-side-panel"
 import {
-  audienceBadgeInfo,
-  compatibilityBadgeInfo,
-  installStateBadgeInfo,
   primaryInstallAction,
+  type SkillMarketTranslator,
+  type SkillMarketV2Detail,
+  type SkillMarketV2FileNode,
+  type SkillMarketV2Version,
 } from "@/lib/skill-market"
+import type { SkillMarketActivationSummary } from "@/lib/skill-market-activation"
 
 export interface SkillMarketDetailProps {
   detail: SkillMarketV2Detail | null
@@ -40,10 +29,17 @@ export interface SkillMarketDetailProps {
     error: string | null
     requested: boolean
   }
+  activation: SkillMarketActivationSummary
+  activationBusy: boolean
+  activationError: string | null
   onSelectVersion: (version: string) => void
   onOpenFiles: () => void
   onRetry: () => void
   onPrimaryAction: (detail: SkillMarketV2Detail, version: string) => void
+  onToggleActivation: (enabled: boolean) => void
+  onOpenInventory: () => void
+  onOpenConnectors: () => void
+  onRetryActivation: () => void
   onEditMetadata: (detail: SkillMarketV2Detail) => void
   onDelete: (detail: SkillMarketV2Detail) => void
   onUninstall: (detail: SkillMarketV2Detail) => void
@@ -62,10 +58,10 @@ function DetailState({
   const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
   if (loading) {
     return (
-      <div className="space-y-3 p-4">
-        <Skeleton className="h-9 w-2/3" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-52 w-full" />
+      <div className="space-y-3 p-5">
+        <Skeleton className="h-12 w-2/3" />
+        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-72 w-full" />
       </div>
     )
   }
@@ -75,21 +71,20 @@ function DetailState({
         <p className="text-sm font-medium">{t("detail.error")}</p>
         <p className="break-words text-xs text-muted-foreground">{error}</p>
         <Button size="sm" variant="outline" onClick={onRetry}>
-          <RotateCcw className="size-3.5" aria-hidden="true" />
+          <RotateCcw className="size-3.5" />
           {t("detail.retry")}
         </Button>
       </div>
     )
   }
   return (
-    <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+    <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
       {t("detail.selectHint")}
     </div>
   )
 }
 
 export function SkillMarketDetail(props: SkillMarketDetailProps) {
-  const t = useTranslations("SkillMarketV2")
   if (props.loading || props.error || !props.detail) {
     return (
       <DetailState
@@ -104,9 +99,15 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
     ? (props.versions.find((item) => item.version === props.selectedVersion) ??
       detail.currentVersion)
     : detail.currentVersion
+  const versions = props.versions.some(
+    (item) => item.version === detail.currentVersion.version
+  )
+    ? props.versions
+    : [detail.currentVersion, ...props.versions]
   const action = primaryInstallAction(detail.installState, detail.compatibility)
   const artifactReady = activeVersion.status === "ready"
   const primaryDisabled =
+    props.activationBusy ||
     action === "none" ||
     !artifactReady ||
     detail.compatibility === "incompatible"
@@ -115,113 +116,50 @@ export function SkillMarketDetail(props: SkillMarketDetailProps) {
       ? "waitingArtifact"
       : "buildFailed"
     : action
-  const badges = [
-    ...(activeVersion.packageType === "plugin"
-      ? [
-          {
-            key: "package.plugin",
-            tone: "primary" as const,
-            icon: "package" as const,
-          },
-        ]
-      : []),
-    installStateBadgeInfo(detail.installState),
-    audienceBadgeInfo(detail.audience),
-    ...(detail.compatibility !== "compatible"
-      ? [compatibilityBadgeInfo(detail.compatibility)]
-      : []),
-  ]
-
   return (
-    <div className="flex h-full min-h-0 flex-col bg-muted/10">
-      <div className="shrink-0 border-b bg-background px-5 py-4 pr-14 sm:px-6 sm:pr-16">
-        <div className="flex items-start gap-3">
-          <Avatar className="size-11 shrink-0 rounded-md">
-            {detail.iconUrl ? (
-              <AvatarImage className="rounded-md" src={detail.iconUrl} alt="" />
-            ) : null}
-            <AvatarFallback className="rounded-md">
-              <Package className="size-4" aria-hidden="true" />
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-base font-semibold">
-              {detail.displayName}
-            </h2>
-            <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
-              {detail.slug}
-            </p>
-            <MarketBadgeGroup badges={badges} limit={4} className="mt-2" />
-          </div>
-          <div className="flex shrink-0 gap-1">
-            {detail.canManage ? (
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label={t("manage.editMetadata")}
-                title={t("manage.editMetadata")}
-                onClick={() => props.onEditMetadata(detail)}
-              >
-                <Pencil className="size-3.5" />
-              </Button>
-            ) : null}
-            {detail.installState !== "not_installed" ? (
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                className="text-destructive"
-                aria-label={t("manage.uninstall")}
-                title={t("manage.uninstall")}
-                onClick={() => props.onUninstall(detail)}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Select
-            value={activeVersion.version}
-            onValueChange={props.onSelectVersion}
-            disabled={props.versionsLoading}
-          >
-            <SelectTrigger className="w-full rounded-md sm:max-w-72">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {props.versions.map((item) => (
-                <SelectItem
-                  key={item.id}
-                  value={item.version}
-                  disabled={item.status !== "ready"}
-                >
-                  v{item.version}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button
-            className="sm:min-w-24"
-            disabled={primaryDisabled}
-            onClick={() => props.onPrimaryAction(detail, activeVersion.version)}
-          >
-            {t(`list.primary.${primaryKey}`)}
-          </Button>
-        </div>
-      </div>
-
-      <DetailInspectorTabs
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <DetailHeader
         detail={detail}
         activeVersion={activeVersion}
-        versions={props.versions}
-        files={props.files}
-        onOpenFiles={props.onOpenFiles}
+        versions={versions}
+        versionsLoading={props.versionsLoading}
+        activation={props.activation}
+        activationBusy={props.activationBusy}
+        primaryKey={primaryKey}
+        primaryDisabled={primaryDisabled}
         onSelectVersion={props.onSelectVersion}
-        onRebuildArtifact={(version) =>
-          props.onRebuildArtifact(detail, version)
+        onPrimaryAction={() =>
+          props.onPrimaryAction(detail, activeVersion.version)
         }
+        onToggleActivation={props.onToggleActivation}
+        onEditMetadata={() => props.onEditMetadata(detail)}
+        onDelete={() => props.onDelete(detail)}
       />
+      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_19rem] lg:overflow-hidden">
+        <DetailInspectorTabs
+          detail={detail}
+          activeVersion={activeVersion}
+          versions={versions}
+          files={props.files}
+          onOpenFiles={props.onOpenFiles}
+          onSelectVersion={props.onSelectVersion}
+          onRebuildArtifact={(version) =>
+            props.onRebuildArtifact(detail, version)
+          }
+        />
+        <DetailSidePanel
+          detail={detail}
+          version={activeVersion}
+          activation={props.activation}
+          activationBusy={props.activationBusy}
+          activationError={props.activationError}
+          onEnableAll={() => props.onToggleActivation(true)}
+          onOpenInventory={props.onOpenInventory}
+          onOpenConnectors={props.onOpenConnectors}
+          onRetryActivation={props.onRetryActivation}
+          onUninstall={() => props.onUninstall(detail)}
+        />
+      </div>
     </div>
   )
 }

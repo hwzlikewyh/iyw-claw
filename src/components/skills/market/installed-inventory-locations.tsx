@@ -52,7 +52,7 @@ function LocationRow({
             size="sm"
             variant="outline"
             className="h-7"
-            disabled={busy}
+            disabled={Boolean(busyKey)}
             onClick={takeOver}
           >
             {busy ? (

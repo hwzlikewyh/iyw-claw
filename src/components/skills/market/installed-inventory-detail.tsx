@@ -152,7 +152,7 @@ function InventorySummary({
           <Button
             size="icon-sm"
             variant="outline"
-            disabled={busyKey === "reconcile"}
+            disabled={Boolean(busyKey)}
             title={t("repair")}
             onClick={() => void onReconcile()}
           >

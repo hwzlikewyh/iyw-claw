@@ -25,7 +25,7 @@ export function SkillMarketDetailDialog({
   const t = useTranslations("SkillMarketV2")
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[min(46rem,calc(100dvh-2rem))] w-[min(60rem,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden rounded-lg p-0">
+      <DialogContent className="flex h-[min(52rem,calc(100dvh-2rem))] w-[min(76rem,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden rounded-lg p-0">
         <DialogTitle className="sr-only">
           {detailProps.detail?.displayName ?? t("catalogTitle")}
         </DialogTitle>

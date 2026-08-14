@@ -38,7 +38,7 @@ function AgentToggle({
       {busy ? <Loader2 className="size-4 animate-spin" /> : null}
       <Switch
         checked={state?.effectiveEnabled ?? false}
-        disabled={blocked || busy || required}
+        disabled={blocked || Boolean(busyKey) || required}
         onCheckedChange={(value) => void onToggle(skill, agentType, value)}
       />
     </label>

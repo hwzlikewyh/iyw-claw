@@ -1,29 +1,24 @@
 "use client"
 
-import {
-  Bot,
-  Building2,
-  FolderTree,
-  Loader2,
-  ShieldAlert,
-  Wrench,
-} from "lucide-react"
-import { useLocale, useTranslations } from "next-intl"
+import { Bot, Building2, FolderTree, Loader2, Wrench } from "lucide-react"
+import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MarketBadge } from "@/components/skills/market/badges"
+import { DetailOverview } from "@/components/skills/market/detail-overview"
 import { SkillMarketFilesTree } from "@/components/skills/market/files-tree"
 import { PluginComponents } from "@/components/skills/market/plugin-components"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
 import {
   artifactStatusBadgeInfo,
   formatSkillBytes,
+  type SkillMarketTranslator,
   type SkillMarketV2Detail,
   type SkillMarketV2FileNode,
   type SkillMarketV2Version,
 } from "@/lib/skill-market"
-import { cn } from "@/lib/utils"
 import { AGENT_LABELS } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 interface Props {
   detail: SkillMarketV2Detail
@@ -40,104 +35,193 @@ interface Props {
   onRebuildArtifact: (version: string) => void
 }
 
-function formatDate(locale: string, value: string | null): string {
-  if (!value) return "-"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "-"
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date)
+function TabLabel({ label, count }: { label: string; count?: number }) {
+  return (
+    <span className="flex w-full items-center justify-between gap-3">
+      <span>{label}</span>
+      {count !== undefined ? (
+        <span className="rounded-full bg-background px-1.5 py-0.5 text-[9px] text-muted-foreground">
+          {count}
+        </span>
+      ) : null}
+    </span>
+  )
 }
 
-function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+function VersionList({
+  versions,
+  activeVersion,
+  onSelect,
+  onRebuild,
+}: {
+  versions: SkillMarketV2Version[]
+  activeVersion: SkillMarketV2Version
+  onSelect: (version: string) => void
+  onRebuild: (version: string) => void
+}) {
+  const t = useTranslations("SkillMarketV2")
   return (
-    <div className="flex items-start justify-between gap-3 border-b py-2 text-xs last:border-b-0">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="min-w-0 break-words text-right">{value}</span>
+    <div className="space-y-2">
+      {versions.map((item) => (
+        <div
+          key={item.id}
+          className={cn(
+            "flex items-center gap-2 border bg-background px-3 py-2",
+            item.version === activeVersion.version &&
+              "border-primary/40 bg-primary/5"
+          )}
+        >
+          <button
+            type="button"
+            disabled={item.status !== "ready"}
+            className="min-w-0 flex-1 truncate text-left font-mono text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            onClick={() => onSelect(item.version)}
+          >
+            v{item.version}
+          </button>
+          <MarketBadge info={artifactStatusBadgeInfo(item.status)} />
+          <span className="text-[10px] text-muted-foreground">
+            {formatSkillBytes(item.artifactSize)}
+          </span>
+          {item.status === "failed" ? (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-label={t("manage.rebuildArtifact")}
+              title={t("manage.rebuildArtifact")}
+              onClick={() => onRebuild(item.version)}
+            >
+              <Wrench className="size-3" />
+            </Button>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Dependencies({ version }: { version: SkillMarketV2Version }) {
+  const t = useTranslations("SkillMarketV2")
+  if (!version.dependencies.length) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t("detail.noDependencies")}
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      {version.dependencies.map((dependency) => (
+        <div
+          key={dependency.skillId}
+          className="flex items-center gap-2 border bg-background px-3 py-2"
+        >
+          <Building2 className="size-3.5 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate font-mono text-xs">
+            {dependency.slug}
+          </span>
+          <span className="font-mono text-[10px] text-muted-foreground">
+            v{dependency.version}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function InstallTargets({ detail }: { detail: SkillMarketV2Detail }) {
+  const t = useTranslations("SkillMarketV2")
+  const { agents, fresh } = useAcpAgents()
+  if (!fresh) {
+    return (
+      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="size-3.5 animate-spin" />
+        {t("install.targetsLoading")}
+      </p>
+    )
+  }
+  if (!detail.installTargets.length) {
+    return (
+      <p className="text-xs text-muted-foreground">{t("install.noTargets")}</p>
+    )
+  }
+  return (
+    <div className="divide-y border-y">
+      {detail.installTargets.map((agentType) => {
+        const agent = agents.find((item) => item.agent_type === agentType)
+        return (
+          <div
+            key={agentType}
+            className="flex min-h-12 items-center gap-3 py-2"
+          >
+            <Bot className="size-4 text-muted-foreground" />
+            <span className="min-w-0 flex-1 text-xs font-medium">
+              {AGENT_LABELS[agentType]}
+            </span>
+            <span className="text-right text-[10px] text-muted-foreground">
+              {t("install.targetVersion", {
+                version: agent?.installed_version ?? "-",
+              })}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
 
 export function DetailInspectorTabs(props: Props) {
-  const t = useTranslations("SkillMarketV2")
-  const locale = useLocale()
-  const { agents, fresh } = useAcpAgents()
-  const targets = props.detail.installTargets.map((agentType) => ({
-    agentType,
-    agent: agents.find((item) => item.agent_type === agentType),
-  }))
-  const tabs =
-    props.activeVersion.packageType === "plugin"
-      ? ([
-          "overview",
-          "components",
-          "files",
-          "versions",
-          "dependencies",
-          "targets",
-        ] as const)
-      : (["overview", "files", "versions", "dependencies", "targets"] as const)
+  const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
+  const tabs = [
+    { id: "overview", count: undefined },
+    { id: "versions", count: props.versions.length },
+    { id: "files", count: props.activeVersion.fileCount },
+    { id: "dependencies", count: props.activeVersion.dependencies.length },
+    ...(props.activeVersion.packageType === "plugin"
+      ? [
+          {
+            id: "components",
+            count: props.activeVersion.plugin?.components.length ?? 0,
+          },
+        ]
+      : []),
+    { id: "targets", count: props.detail.installTargets.length },
+  ]
   return (
-    <Tabs defaultValue="overview" className="min-h-0 flex-1 gap-0">
+    <Tabs
+      defaultValue="overview"
+      orientation="vertical"
+      className="min-h-0 min-w-0 flex-1 flex-col gap-0 md:grid md:grid-cols-[11rem_minmax(0,1fr)]"
+      onValueChange={(value) => {
+        if (value === "files" && !props.files.requested) props.onOpenFiles()
+      }}
+    >
       <TabsList
         variant="line"
-        className="h-10 w-full shrink-0 justify-start overflow-x-auto overflow-y-hidden border-b bg-background px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="!h-11 !w-full shrink-0 !flex-row justify-start overflow-x-auto border-b bg-muted/10 px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:!h-full md:!w-44 md:!flex-col md:items-stretch md:justify-start md:overflow-visible md:border-r md:border-b-0 md:p-3"
       >
         {tabs.map((tab) => (
-          <TabsTrigger key={tab} value={tab} className="h-9 text-xs">
-            {t(`detail.${tab}`)}
+          <TabsTrigger
+            key={tab.id}
+            value={tab.id}
+            className="!h-9 !w-auto flex-none rounded-md px-3 text-xs md:!w-full"
+          >
+            <TabLabel label={t(`detail.${tab.id}`)} count={tab.count} />
           </TabsTrigger>
         ))}
       </TabsList>
-      <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6">
-        <TabsContent value="overview" className="space-y-4">
-          <p className="text-xs leading-5 text-muted-foreground">
-            {props.detail.summary}
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {props.detail.tags.map((tag) => (
-              <span
-                key={tag}
-                className="border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-          <div>
-            <InfoRow
-              label={t("detail.updated")}
-              value={formatDate(locale, props.detail.updatedAt)}
-            />
-            <InfoRow
-              label={t("detail.compatibility")}
-              value={t(`compatibility.${props.detail.compatibility}`)}
-            />
-            <InfoRow
-              label={t("detail.clientVersion")}
-              value={props.detail.compatibilityDetail.minClientVersion ?? "-"}
-            />
-            <InfoRow
-              label={t("detail.osArch")}
-              value={props.detail.compatibilityDetail.osArch ?? "-"}
-            />
-            <InfoRow
-              label={t("detail.ownership")}
-              value={t(
-                `detail.ownershipSourceValue.${props.detail.ownership.source}`
-              )}
-            />
-          </div>
-          <p className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <ShieldAlert className="size-3" aria-hidden="true" />
-            {t("install.profileRule")}
-          </p>
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-5 sm:p-6">
+        <TabsContent value="overview">
+          <DetailOverview detail={props.detail} version={props.activeVersion} />
         </TabsContent>
-
-        {props.activeVersion.packageType === "plugin" ? (
-          <TabsContent value="components">
-            <PluginComponents plugin={props.activeVersion.plugin} />
-          </TabsContent>
-        ) : null}
-
+        <TabsContent value="versions">
+          <VersionList
+            versions={props.versions}
+            activeVersion={props.activeVersion}
+            onSelect={props.onSelectVersion}
+            onRebuild={props.onRebuildArtifact}
+          />
+        </TabsContent>
         <TabsContent value="files">
           {props.files.requested ? (
             <SkillMarketFilesTree
@@ -148,107 +232,21 @@ export function DetailInspectorTabs(props: Props) {
             />
           ) : (
             <Button size="sm" variant="outline" onClick={props.onOpenFiles}>
-              <FolderTree className="size-3.5" aria-hidden="true" />
+              <FolderTree className="size-3.5" />
               {t("detail.loadFiles")}
             </Button>
           )}
         </TabsContent>
-
-        <TabsContent value="versions" className="space-y-2">
-          {props.versions.map((item) => (
-            <div
-              key={item.id}
-              className={cn(
-                "flex w-full items-center gap-2 border bg-background px-3 py-2 text-left",
-                item.version === props.activeVersion.version &&
-                  "border-primary/50 bg-primary/5"
-              )}
-            >
-              <button
-                type="button"
-                disabled={item.status !== "ready"}
-                onClick={() => props.onSelectVersion(item.version)}
-                className="min-w-0 flex-1 truncate text-left font-mono text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              >
-                v{item.version}
-              </button>
-              <MarketBadge info={artifactStatusBadgeInfo(item.status)} />
-              <span className="text-[10px] text-muted-foreground">
-                {formatSkillBytes(item.artifactSize)}
-              </span>
-              {item.status === "failed" ? (
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-label={t("manage.rebuildArtifact")}
-                  title={t("manage.rebuildArtifact")}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    props.onRebuildArtifact(item.version)
-                  }}
-                >
-                  <Wrench className="size-3" />
-                </Button>
-              ) : null}
-            </div>
-          ))}
+        <TabsContent value="dependencies">
+          <Dependencies version={props.activeVersion} />
         </TabsContent>
-
-        <TabsContent value="dependencies" className="space-y-2">
-          {props.activeVersion.dependencies.length ? (
-            props.activeVersion.dependencies.map((dependency) => (
-              <div
-                key={dependency.skillId}
-                className="flex items-center gap-2 border bg-background px-3 py-2"
-              >
-                <Building2 className="size-3.5 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                  {dependency.slug}
-                </span>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  v{dependency.version}
-                </span>
-              </div>
-            ))
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              {t("detail.noDependencies")}
-            </p>
-          )}
-        </TabsContent>
-
-        <TabsContent value="targets" className="space-y-2">
-          {!fresh ? (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-              {t("install.targetsLoading")}
-            </p>
-          ) : targets.length ? (
-            <div className="divide-y border-y">
-              {targets.map(({ agentType, agent }) => (
-                <div
-                  key={agentType}
-                  className="flex min-h-12 items-center gap-3 py-2"
-                >
-                  <Bot className="size-4 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 text-xs font-medium">
-                    {AGENT_LABELS[agentType]}
-                  </span>
-                  <span className="text-right text-[10px] text-muted-foreground">
-                    {t("install.targetVersion", {
-                      version: agent?.installed_version ?? "-",
-                    })}
-                    <br />
-                    {t("install.defaultMode")}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              {t("install.noTargets")}
-            </p>
-          )}
+        {props.activeVersion.packageType === "plugin" ? (
+          <TabsContent value="components">
+            <PluginComponents plugin={props.activeVersion.plugin} />
+          </TabsContent>
+        ) : null}
+        <TabsContent value="targets">
+          <InstallTargets detail={props.detail} />
         </TabsContent>
       </div>
     </Tabs>

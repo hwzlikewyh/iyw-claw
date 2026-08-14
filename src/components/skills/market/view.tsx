@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react"
 import { useSkillMarket } from "@/hooks/use-skill-market"
+import { useSkillMarketActivation } from "@/hooks/use-skill-market-activation"
 import { useSkillMarketInstall } from "@/hooks/use-skill-market-install"
 import { SkillMarketDetailDialog } from "@/components/skills/market/detail-dialog"
 import { SkillMarketInstallPanel } from "@/components/skills/market/install-panel"
@@ -13,7 +14,6 @@ import {
   type SkillMarketUploadMode,
 } from "@/components/skills/market/upload-dialog"
 import { ManagementDialogs } from "@/components/skills/market/management-dialogs"
-import { useSkillInventory } from "@/hooks/use-skill-inventory"
 import type { SkillMarketV2Detail, SkillMarketV2Item } from "@/lib/skill-market"
 import type {
   SkillMarketAddVersionRequestV2,
@@ -28,7 +28,6 @@ export function SkillMarketView({
 }) {
   const market = useSkillMarket()
   const install = useSkillMarketInstall()
-  const inventory = useSkillInventory(market.query.view === "installed")
 
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadMode, setUploadMode] = useState<SkillMarketUploadMode>("publish")
@@ -45,6 +44,12 @@ export function SkillMarketView({
   const [uninstallTarget, setUninstallTarget] =
     useState<SkillMarketV2Detail | null>(null)
   const [manageBusy, setManageBusy] = useState(false)
+  const detailActivation = useSkillMarketActivation({
+    view: market.query.view,
+    detailOpen,
+    detail: market.detail.value,
+  })
+  const inventory = detailActivation.inventory
 
   const handlePrimaryAction = useCallback(
     (item: SkillMarketV2Item, version: string) => {
@@ -188,10 +193,25 @@ export function SkillMarketView({
         loading={market.detail.loading}
         error={market.detail.error}
         files={market.files}
+        activation={detailActivation.activation}
+        activationBusy={detailActivation.activationBusy}
+        activationError={detailActivation.activationError}
         onSelectVersion={market.selectVersion}
         onOpenFiles={market.openFiles}
         onRetry={market.retryDetail}
         onPrimaryAction={handlePrimaryAction}
+        onToggleActivation={(enabled) => {
+          void detailActivation.setEnabled(enabled).finally(market.retryDetail)
+        }}
+        onOpenInventory={() => {
+          setDetailOpen(false)
+          market.updateQuery({ view: "installed" })
+        }}
+        onOpenConnectors={() => {
+          setDetailOpen(false)
+          onOpenConnectors()
+        }}
+        onRetryActivation={() => void inventory.refresh()}
         onEditMetadata={(detail) => {
           setDetailOpen(false)
           setEditTarget(detail)
