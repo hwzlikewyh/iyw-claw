@@ -70,8 +70,8 @@ pub(crate) fn patch_codex_toml(raw: &str, base_url: &str) -> Result<String, Stri
         .unwrap_or(default_model)
         .to_string();
     root.insert("model".into(), toml::Value::String(model));
-    root.insert("request_max_retries".into(), toml::Value::Integer(10));
-    root.insert("stream_max_retries".into(), toml::Value::Integer(10));
+    root.remove("request_max_retries");
+    root.remove("stream_max_retries");
 
     let providers = table_entry(root, "model_providers")?;
     providers.retain(|name, _| name == MANAGED_PROVIDER_ID);
@@ -83,6 +83,8 @@ pub(crate) fn patch_codex_toml(raw: &str, base_url: &str) -> Result<String, Stri
     provider.insert("base_url".into(), toml::Value::String(base_url.into()));
     provider.insert("wire_api".into(), toml::Value::String("responses".into()));
     provider.insert("requires_openai_auth".into(), toml::Value::Boolean(true));
+    provider.insert("request_max_retries".into(), toml::Value::Integer(10));
+    provider.insert("stream_max_retries".into(), toml::Value::Integer(10));
     toml::to_string_pretty(&value).map_err(|error| error.to_string())
 }
 

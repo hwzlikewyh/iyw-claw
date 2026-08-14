@@ -4158,6 +4158,150 @@ fn stop_reason_to_str(reason: StopReason) -> &'static str {
     }
 }
 
+#[derive(Default)]
+struct PromptInputStats {
+    block_count: usize,
+    text_blocks: usize,
+    image_blocks: usize,
+    resource_blocks: usize,
+    resource_link_blocks: usize,
+    payload_bytes: usize,
+    context_bytes: usize,
+}
+
+struct PromptLogContext<'a> {
+    connection_id: &'a str,
+    session_id: String,
+    agent_type: AgentType,
+    is_compaction: bool,
+    stats: PromptInputStats,
+    started_at: std::time::Instant,
+}
+
+impl PromptLogContext<'_> {
+    fn started(&self) {
+        tracing::info!(
+            connection_id = self.connection_id,
+            session_id = %self.session_id,
+            agent_type = %self.agent_type,
+            input_block_count = self.stats.block_count,
+            text_block_count = self.stats.text_blocks,
+            image_block_count = self.stats.image_blocks,
+            resource_block_count = self.stats.resource_blocks,
+            resource_link_block_count = self.stats.resource_link_blocks,
+            payload_bytes = self.stats.payload_bytes,
+            injected_context_bytes = self.stats.context_bytes,
+            is_compaction = self.is_compaction,
+            "[ACP] prompt started"
+        );
+    }
+
+    fn completed(&self, stop_reason: &str, had_output: bool, tool_call_count: usize) {
+        tracing::info!(
+            connection_id = self.connection_id,
+            session_id = %self.session_id,
+            agent_type = %self.agent_type,
+            stop_reason,
+            elapsed_ms = self.started_at.elapsed().as_millis(),
+            had_output,
+            tool_call_count,
+            is_compaction = self.is_compaction,
+            "[ACP] prompt completed"
+        );
+    }
+
+    fn failed(&self, error: &impl std::fmt::Display) {
+        let detail = safe_prompt_error_detail(&error.to_string());
+        tracing::error!(
+            connection_id = self.connection_id,
+            session_id = %self.session_id,
+            agent_type = %self.agent_type,
+            error_kind = prompt_error_kind(&detail),
+            error = %detail,
+            elapsed_ms = self.started_at.elapsed().as_millis(),
+            is_compaction = self.is_compaction,
+            "[ACP] prompt failed"
+        );
+    }
+
+    fn interrupted(&self, reason: &str, had_output: bool, tool_call_count: usize) {
+        tracing::warn!(
+            connection_id = self.connection_id,
+            session_id = %self.session_id,
+            agent_type = %self.agent_type,
+            reason,
+            elapsed_ms = self.started_at.elapsed().as_millis(),
+            had_output,
+            tool_call_count,
+            is_compaction = self.is_compaction,
+            "[ACP] prompt interrupted"
+        );
+    }
+}
+
+fn prompt_input_stats(blocks: &[PromptInputBlock]) -> PromptInputStats {
+    let mut stats = PromptInputStats {
+        block_count: blocks.len(),
+        ..Default::default()
+    };
+    for block in blocks {
+        match block {
+            PromptInputBlock::Text { text } => {
+                stats.text_blocks += 1;
+                stats.payload_bytes += text.len();
+            }
+            PromptInputBlock::Image { data, .. } => {
+                stats.image_blocks += 1;
+                stats.payload_bytes += data.len();
+            }
+            PromptInputBlock::Resource { text, blob, .. } => {
+                stats.resource_blocks += 1;
+                stats.payload_bytes += text.as_ref().map_or(0, String::len);
+                stats.payload_bytes += blob.as_ref().map_or(0, String::len);
+            }
+            PromptInputBlock::ResourceLink { .. } => stats.resource_link_blocks += 1,
+        }
+    }
+    stats
+}
+
+fn safe_prompt_error_detail(value: &str) -> String {
+    const MAX_CHARS: usize = 2_048;
+    const SENSITIVE_MARKERS: &[&str] = &[
+        "authorization:",
+        "bearer ",
+        "api_key=",
+        "api-key=",
+        "token=",
+        "secret=",
+    ];
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let lower = normalized.to_ascii_lowercase();
+    if SENSITIVE_MARKERS
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        return "<sensitive error detail redacted>".to_string();
+    }
+    normalized.chars().take(MAX_CHARS).collect()
+}
+
+fn prompt_error_kind(detail: &str) -> &'static str {
+    if detail.starts_with("stream disconnected before completion:") {
+        "stream_disconnected"
+    } else {
+        "acp_prompt_request_failed"
+    }
+}
+
+fn agent_runtime_error_kind(agent_type: AgentType, text: &str) -> Option<&'static str> {
+    let text = text.trim();
+    (agent_type == AgentType::Codex
+        && text.starts_with("stream disconnected before completion:")
+        && text.contains("Incomplete response returned"))
+    .then_some("codex_stream_incomplete")
+}
+
 fn classify_session_load_failure(
     code: sacp::schema::ErrorCode,
     message: &str,
@@ -4427,6 +4571,18 @@ async fn run_conversation_loop<'a>(
             }) => {
                 prompt_ledger.record_prompt_blocks(&blocks);
                 let is_compaction = is_codex_compaction_prompt(agent_type, &blocks);
+                let sid = session.session_id().clone();
+                let mut stats = prompt_input_stats(&blocks);
+                stats.context_bytes = user_context.as_ref().map_or(0, |value| value.len());
+                let prompt_log = PromptLogContext {
+                    connection_id: conn_id,
+                    session_id: sid.0.to_string(),
+                    agent_type,
+                    is_compaction,
+                    stats,
+                    started_at: std::time::Instant::now(),
+                };
+                prompt_log.started();
                 let compaction_marker = if is_compaction {
                     Some(
                         crate::acp::codex_rollout_migration::compaction_marker(
@@ -4462,6 +4618,7 @@ async fn run_conversation_loop<'a>(
                         },
                     )
                     .await;
+                    prompt_log.interrupted("empty_prompt_rejected", false, 0);
                     continue;
                 }
                 emit_with_state(
@@ -4491,7 +4648,6 @@ async fn run_conversation_loop<'a>(
                 // select loop so we can send CancelNotification without
                 // conflicting with session.read_update()'s mutable borrow.
                 let cx = session.connection();
-                let sid = session.session_id().clone();
                 let prompt_request = PromptRequest::new(sid.clone(), prompt_blocks);
                 // Use Box::pin (heap) instead of tokio::pin! (stack) so the
                 // future can be moved into a background task on cancel.
@@ -4518,6 +4674,7 @@ async fn run_conversation_loop<'a>(
                 // reason so the user gets an error toast instead of a
                 // confusing `PendingReview` on a blank conversation.
                 let mut turn_had_agent_output = false;
+                let mut tool_call_count = 0usize;
                 // `startedNewTurn` may let the wrapper begin producing the next
                 // turn before the old prompt response has unwound locally. Hold
                 // those updates until lifecycle settlement adopts the turn and
@@ -4591,6 +4748,9 @@ async fn run_conversation_loop<'a>(
                                                 if is_agent_output_update(agent_type, &notif.update) {
                                                     turn_had_agent_output = true;
                                                 }
+                                                if matches!(&notif.update, SessionUpdate::ToolCall(_)) {
+                                                    tool_call_count += 1;
+                                                }
                                                 emit_conversation_update(&st, &h, agent_type, notif.update, cwd_opt, &mut raw_output_cache, &mut cb_state).await;
                                                 if let Some(status) = background_status {
                                                     finish_native_background_turn(
@@ -4651,6 +4811,11 @@ async fn run_conversation_loop<'a>(
                                         sid.0.as_ref(),
                                     )
                                     .await;
+                                    prompt_log.completed(
+                                        reason_str,
+                                        turn_had_agent_output,
+                                        tool_call_count,
+                                    );
                                     if let Some(err_event) =
                                         turn_failure_error_event(reason_str, agent_type)
                                     {
@@ -4703,7 +4868,13 @@ async fn run_conversation_loop<'a>(
                             }
                         }
                         prompt_result = &mut prompt_response => {
-                            let reason = prompt_result?.stop_reason;
+                            let reason = match prompt_result {
+                                Ok(response) => response.stop_reason,
+                                Err(error) => {
+                                    prompt_log.failed(&error);
+                                    return Err(error);
+                                }
+                            };
                             if !tracked_terminal_tool_calls.is_empty() {
                                 poll_tracked_terminal_tool_calls(
                                     terminal_runtime.as_ref(),
@@ -4729,6 +4900,11 @@ async fn run_conversation_loop<'a>(
                                 sid.0.as_ref(),
                             )
                             .await;
+                            prompt_log.completed(
+                                reason_str,
+                                turn_had_agent_output,
+                                tool_call_count,
+                            );
                             if let Some(err_event) =
                                 turn_failure_error_event(reason_str, agent_type)
                             {
@@ -4866,6 +5042,11 @@ async fn run_conversation_loop<'a>(
                                         ));
                                     }
                                     drop(locked);
+                                    prompt_log.completed(
+                                        "cancelled",
+                                        turn_had_agent_output,
+                                        tool_call_count,
+                                    );
                                     // Immediately emit TurnComplete so the frontend
                                     // transitions out of "prompting" and the user can
                                     // send new messages.  Don't wait for the agent --
@@ -5028,6 +5209,11 @@ async fn run_conversation_loop<'a>(
                                             RequestPermissionOutcome::Cancelled,
                                         ));
                                     }
+                                    prompt_log.interrupted(
+                                        "disconnect_requested",
+                                        turn_had_agent_output,
+                                        tool_call_count,
+                                    );
                                     disconnect_requested = true;
                                     break;
                                 }
@@ -5963,6 +6149,14 @@ async fn emit_conversation_update(
             meta,
             ..
         }) => {
+            if let Some(error_kind) = agent_runtime_error_kind(agent_type, &text.text) {
+                tracing::error!(
+                    agent_type = %agent_type,
+                    error_kind,
+                    error = %safe_prompt_error_detail(&text.text),
+                    "[ACP] agent runtime error"
+                );
+            }
             // Drop a CodeBuddy sub-agent's interleaved message text — it belongs
             // to the Agent pill, not the main thread (see
             // `should_suppress_subagent_chunk`). No-op for every other agent.
