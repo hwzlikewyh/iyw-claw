@@ -1889,6 +1889,8 @@
       "open": "Artifacts",
       "title": "Task artifacts",
       "description": "Browse and preview task artifacts from the current session or workspace",
+      "currentReplyTitle": "Artifacts from this reply",
+      "currentReplyCount": "{count, plural, one {# item} other {# items}}",
       "current": "Current session",
       "all": "All artifacts",
       "refresh": "Refresh artifacts",

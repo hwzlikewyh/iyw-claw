@@ -74,6 +74,7 @@ import type { MessageScrollContextValue } from "@/components/message/message-scr
 import { unescapeComposerText } from "@/lib/composer-copy-text"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { UserMemoryMessageActions } from "@/components/message/user-memory-message-actions"
+import { CurrentReplyArtifacts } from "@/components/message/current-reply-artifacts"
 
 interface MessageListViewProps {
   conversationId: number
@@ -437,20 +438,24 @@ const UserMessageCopyButton = memo(function UserMessageCopyButton({
 
 const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   group,
+  conversationId,
   agentType,
   enableUserMemoryActions,
   dimmed = false,
   showStats = true,
   previousUserIndex = null,
   isResponseComplete = true,
+  showCurrentReplyArtifacts = false,
 }: {
   group: ResolvedMessageGroup
+  conversationId: number
   agentType: AgentType
   enableUserMemoryActions: boolean
   dimmed?: boolean
   showStats?: boolean
   previousUserIndex?: number | null
   isResponseComplete?: boolean
+  showCurrentReplyArtifacts?: boolean
 }) {
   if (group.role === "system") {
     return <CollapsibleSystemMessage group={group} />
@@ -506,6 +511,12 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
           isResponseComplete={isResponseComplete}
           copyText={extractTextFromParts(group.parts)}
           completedAt={group.completed_at}
+        />
+      )}
+      {showCurrentReplyArtifacts && group.role === "assistant" && (
+        <CurrentReplyArtifacts
+          conversationId={conversationId}
+          parts={group.parts}
         />
       )}
     </div>
@@ -749,6 +760,14 @@ export function MessageListView({
     session?.detail?.history_start,
   ])
 
+  const lastAssistantItem = useMemo(() => {
+    for (let i = threadItems.length - 1; i >= 0; i -= 1) {
+      const item = threadItems[i]
+      if (item.kind === "turn" && item.group.role === "assistant") return item
+    }
+    return null
+  }, [threadItems])
+
   const renderThreadItem = useCallback(
     (item: ThreadRenderItem) => {
       switch (item.kind) {
@@ -758,12 +777,16 @@ export function MessageListView({
             <div style={pt > 0 ? { paddingTop: pt } : undefined}>
               <HistoricalMessageGroup
                 group={item.group}
+                conversationId={conversationId}
                 agentType={agentType}
                 enableUserMemoryActions={enableUserMemoryActions}
                 dimmed={item.phase === "optimistic"}
                 showStats={item.showStats}
                 previousUserIndex={item.previousUserIndex}
                 isResponseComplete={item.phase === "persisted"}
+                showCurrentReplyArtifacts={
+                  item === lastAssistantItem && item.phase === "persisted"
+                }
               />
             </div>
           )
@@ -797,6 +820,7 @@ export function MessageListView({
       conversationId,
       detailLoading,
       enableUserMemoryActions,
+      lastAssistantItem,
       loadEarlierHistory,
       t,
     ]
@@ -819,17 +843,7 @@ export function MessageListView({
   // merged in too, so this covers both live and historical), and pull its
   // `delegate_to_agent` tool calls. The status-row popover shows only while the
   // last reply carries delegation cards — a newer non-delegating reply clears it.
-  const lastAssistantGroup = useMemo(() => {
-    let group: ResolvedMessageGroup | null = null
-    for (let i = threadItems.length - 1; i >= 0; i -= 1) {
-      const item = threadItems[i]
-      if (item.kind === "turn" && item.group.role === "assistant") {
-        group = item.group
-        break
-      }
-    }
-    return group
-  }, [threadItems])
+  const lastAssistantGroup = lastAssistantItem?.group ?? null
   const lastAssistantDelegations = useMemo(
     () =>
       lastAssistantGroup

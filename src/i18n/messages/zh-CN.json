@@ -1889,6 +1889,8 @@
       "open": "成果",
       "title": "任务成果",
       "description": "浏览和预览当前会话或工作区中的任务成果",
+      "currentReplyTitle": "本轮成果文件",
+      "currentReplyCount": "{count} 项",
       "current": "当前会话",
       "all": "全部成果",
       "refresh": "刷新成果",
