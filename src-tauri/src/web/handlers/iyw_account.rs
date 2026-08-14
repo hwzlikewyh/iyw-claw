@@ -10,11 +10,21 @@ use crate::commands::iyw_account::{
     iyw_account_login_with_password_core, iyw_account_logout_core,
     iyw_account_poll_wechat_login_core, IywAccountProfile, IywWechatPollingResult, IywWechatQrcode,
 };
+use crate::models::agent::AgentType;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListModelsParams {
+    pub agent_type: Option<AgentType>,
+}
 
 pub async fn list_models(
     Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<ListModelsParams>,
 ) -> Result<Json<serde_json::Value>, AppCommandError> {
-    Ok(Json(iyw_account_list_models_core(&state.db.conn).await?))
+    Ok(Json(
+        iyw_account_list_models_core(&state.db.conn, params.agent_type).await?,
+    ))
 }
 
 #[derive(Deserialize)]

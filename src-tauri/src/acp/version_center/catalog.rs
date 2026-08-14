@@ -91,6 +91,37 @@ pub async fn platform_projection(
     }
 }
 
+pub async fn platform_id(
+    conn: &DatabaseConnection,
+    agent_type: AgentType,
+) -> Result<String, AppCommandError> {
+    let raw = app_metadata_service::get_value(conn, CACHE_KEY)
+        .await
+        .map_err(AppCommandError::from)?
+        .ok_or_else(|| {
+            AppCommandError::configuration_missing("Agent platform catalog is unavailable")
+        })?;
+    let snapshot = serde_json::from_str::<CatalogSnapshot>(&raw).map_err(|error| {
+        AppCommandError::configuration_invalid("Agent platform catalog is invalid")
+            .with_detail(error.to_string())
+    })?;
+    capability::validate_catalog(&snapshot).map_err(|error| {
+        AppCommandError::configuration_invalid("Agent platform catalog was rejected")
+            .with_detail(error)
+    })?;
+    let registry_id = registry::registry_id_for(agent_type);
+    let id = snapshot
+        .platforms
+        .iter()
+        .find(|item| item.registry_id == registry_id)
+        .map(|item| item.id.trim())
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| {
+            AppCommandError::configuration_missing("Agent platform id is unavailable")
+        })?;
+    Ok(id.to_string())
+}
+
 fn fallback_projection(agent_type: crate::models::agent::AgentType) -> PlatformProjection {
     tracing::warn!(
         agent_type = ?agent_type,

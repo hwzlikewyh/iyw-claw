@@ -1742,6 +1742,7 @@ export interface AcpAgentStatus {
 }
 
 export interface AgentCatalogPlatform {
+  id: string
   registryId: string
   displayName: string
   description: string

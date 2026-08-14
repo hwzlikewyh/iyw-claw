@@ -6,10 +6,12 @@ import type {
   SessionConfigOptionInfo,
   SessionConfigSelectOptionInfo,
 } from "@/lib/types"
+import type { GatewayModel } from "@/lib/gateway-model-parser"
 import {
-  parseGatewayModels,
-  type GatewayModel,
-} from "@/lib/gateway-model-parser"
+  browserPayloadCache,
+  createGatewayModelCatalog,
+  type GatewayModelCatalog,
+} from "@/lib/gateway-model-store"
 
 export { parseGatewayModels } from "@/lib/gateway-model-parser"
 export type {
@@ -17,81 +19,13 @@ export type {
   GatewayModel,
   GatewayModelCapabilities,
 } from "@/lib/gateway-model-parser"
+export {
+  createGatewayModelCatalog,
+  type GatewayModelCatalog,
+  type GatewayModelPayloadCache,
+} from "@/lib/gateway-model-store"
 
 const GATEWAY_MODEL_CACHE_KEY = "iyw-claw.gateway-model-catalog.v1"
-
-export interface GatewayModelPayloadCache {
-  read: () => unknown | null
-  write: (payload: unknown) => void
-}
-
-interface GatewayModelCatalogOptions {
-  fetchModels: () => Promise<unknown>
-  cache: GatewayModelPayloadCache
-}
-
-export interface GatewayModelCatalog {
-  getCached: () => GatewayModel[]
-  load: () => Promise<GatewayModel[]>
-  refresh: () => Promise<GatewayModel[]>
-}
-
-function browserPayloadCache(): GatewayModelPayloadCache {
-  return {
-    read: () => {
-      try {
-        const raw = globalThis.localStorage?.getItem(GATEWAY_MODEL_CACHE_KEY)
-        return raw ? JSON.parse(raw) : null
-      } catch {
-        return null
-      }
-    },
-    write: (payload) => {
-      try {
-        globalThis.localStorage?.setItem(
-          GATEWAY_MODEL_CACHE_KEY,
-          JSON.stringify(payload)
-        )
-      } catch {
-        // The in-memory online cache remains available for this app session.
-      }
-    },
-  }
-}
-
-export function createGatewayModelCatalog({
-  fetchModels,
-  cache,
-}: GatewayModelCatalogOptions): GatewayModelCatalog {
-  let cached = parseGatewayModels(cache.read())
-  let loaded = false
-  let pending: Promise<GatewayModel[]> | null = null
-
-  const refresh = (): Promise<GatewayModel[]> => {
-    if (pending) return pending
-    pending = fetchModels()
-      .then((payload) => {
-        const online = parseGatewayModels(payload)
-        if (online.length > 0) {
-          cached = online
-          cache.write(payload)
-        }
-        return [...cached]
-      })
-      .catch(() => [...cached])
-      .finally(() => {
-        loaded = true
-        pending = null
-      })
-    return pending
-  }
-
-  return {
-    getCached: () => [...cached],
-    load: () => (loaded ? Promise.resolve([...cached]) : refresh()),
-    refresh,
-  }
-}
 
 function selectOption(
   value: string,
@@ -216,27 +150,38 @@ export function buildAgentOptionsSnapshot(
   }
 }
 
+const MODEL_CONFIG_IDS = [
+  "model",
+  "reasoning_effort",
+  "fast-mode",
+  "fast",
+  "fast_mode",
+]
+
+export function hasModelConfigValues(
+  configValues: Record<string, string>
+): boolean {
+  return MODEL_CONFIG_IDS.some((id) => id in configValues)
+}
+
 export function reconcileModelConfigValues(
   snapshot: AgentOptionsSnapshot,
   configValues: Record<string, string>
 ): Record<string, string> {
   const model = snapshot.config_options.find((option) => option.id === "model")
-  if (!model) return configValues
   const next = { ...configValues }
-  for (const id of [
-    "model",
-    "reasoning_effort",
-    "fast-mode",
-    "fast",
-    "fast_mode",
-  ]) {
-    const option = snapshot.config_options.find((item) => item.id === id)
-    if (!option) {
-      delete next[id]
-      continue
-    }
-    if (!option.kind.options.some((item) => item.value === next[id])) {
-      next[id] = option.kind.current_value
+  if (!model) {
+    for (const id of MODEL_CONFIG_IDS) delete next[id]
+  } else {
+    for (const id of MODEL_CONFIG_IDS) {
+      const option = snapshot.config_options.find((item) => item.id === id)
+      if (!option) {
+        delete next[id]
+        continue
+      }
+      if (!option.kind.options.some((item) => item.value === next[id])) {
+        next[id] = option.kind.current_value
+      }
     }
   }
   const keys = Object.keys(configValues)
@@ -248,8 +193,22 @@ export function reconcileModelConfigValues(
 
 const gatewayModelCatalog = createGatewayModelCatalog({
   fetchModels: listGatewayModels,
-  cache: browserPayloadCache(),
+  cache: browserPayloadCache(GATEWAY_MODEL_CACHE_KEY),
 })
+const agentModelCatalogs = new Map<AgentType, GatewayModelCatalog>()
+
+function catalogFor(agentType?: AgentType): GatewayModelCatalog {
+  if (!agentType) return gatewayModelCatalog
+  const existing = agentModelCatalogs.get(agentType)
+  if (existing) return existing
+  const catalog = createGatewayModelCatalog({
+    fetchModels: () => listGatewayModels(agentType),
+    cache: browserPayloadCache(`${GATEWAY_MODEL_CACHE_KEY}.sdk.${agentType}`),
+    replaceWithEmpty: true,
+  })
+  agentModelCatalogs.set(agentType, catalog)
+  return catalog
+}
 
 // ── Periodic auto-refresh ───
 //
@@ -266,19 +225,28 @@ function ensureAutoRefresh(): void {
   if (autoRefreshTimer !== null || typeof window === "undefined") return
   autoRefreshTimer = setInterval(() => {
     void gatewayModelCatalog.refresh()
+    for (const catalog of agentModelCatalogs.values()) void catalog.refresh()
   }, AUTO_REFRESH_INTERVAL_MS)
 }
 
-export function getCachedGatewayModels(): GatewayModel[] {
-  return gatewayModelCatalog.getCached()
+export function getCachedGatewayModels(agentType?: AgentType): GatewayModel[] {
+  return catalogFor(agentType).getCached()
 }
 
-export function getGatewayModels(): Promise<GatewayModel[]> {
-  ensureAutoRefresh()
-  return gatewayModelCatalog.load()
+export function hasAuthoritativeGatewayModels(agentType?: AgentType): boolean {
+  return catalogFor(agentType).hasAuthoritativeData()
 }
 
-export function refreshGatewayModels(): Promise<GatewayModel[]> {
+export function getGatewayModels(
+  agentType?: AgentType
+): Promise<GatewayModel[]> {
   ensureAutoRefresh()
-  return gatewayModelCatalog.refresh()
+  return catalogFor(agentType).load()
+}
+
+export function refreshGatewayModels(
+  agentType?: AgentType
+): Promise<GatewayModel[]> {
+  ensureAutoRefresh()
+  return catalogFor(agentType).refresh()
 }

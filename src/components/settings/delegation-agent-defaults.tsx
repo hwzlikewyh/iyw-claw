@@ -24,14 +24,21 @@ import {
 } from "@/lib/types"
 import {
   getFixedAgentOptions,
+  hasAuthoritativeFixedAgentOptions,
   loadFixedAgentOptions,
 } from "@/lib/fixed-agent-options"
+import {
+  hasModelConfigValues,
+  reconcileModelConfigValues,
+} from "@/lib/gateway-model-catalog"
 import { automaticAgentMode } from "@/lib/automatic-agent-mode"
 import {
   localizeSessionConfigOption,
   type SessionConfigTranslator,
 } from "@/lib/session-config-localization"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
+
+const EMPTY_CONFIG_VALUES: Record<string, string> = {}
 
 export interface DelegationAgentDefaultsPanelProps {
   value: Partial<Record<AgentType, AgentDelegationDefaults>>
@@ -63,26 +70,14 @@ export function DelegationAgentDefaultsPanel({
   useEffect(() => {
     if (accountStatus !== "authenticated") return
     let active = true
-    void loadFixedAgentOptions().then(() => {
+    if (!selectedAgent) return
+    void loadFixedAgentOptions(selectedAgent).then(() => {
       if (active) setCatalogVersion((version) => version + 1)
     })
     return () => {
       active = false
     }
-  }, [accountStatus])
-  void catalogVersion
-  const fixedSnapshot = selectedAgent
-    ? getFixedAgentOptions(selectedAgent)
-    : null
-  const snapshot = fixedSnapshot
-    ? {
-        ...fixedSnapshot,
-        config_options: fixedSnapshot.config_options.map((option) =>
-          localizeSessionConfigOption(option, translator)
-        ),
-      }
-    : null
-
+  }, [accountStatus, selectedAgent])
   const updateAgentDefaults = useCallback(
     (agent: AgentType, next: AgentDelegationDefaults | null) => {
       const updated: Partial<Record<AgentType, AgentDelegationDefaults>> = {
@@ -104,10 +99,46 @@ export function DelegationAgentDefaultsPanel({
 
   const current = selectedAgent ? (value[selectedAgent] ?? null) : null
   const currentModeId = current?.mode_id ?? null
-  const currentConfigValues = current?.config_values ?? {}
+  const currentConfigValues = current?.config_values ?? EMPTY_CONFIG_VALUES
+  void catalogVersion
+  const fixedSnapshot = selectedAgent
+    ? getFixedAgentOptions(selectedAgent, currentConfigValues)
+    : null
+  const authoritative = selectedAgent
+    ? hasAuthoritativeFixedAgentOptions(selectedAgent)
+    : false
+  const snapshot = fixedSnapshot
+    ? {
+        ...fixedSnapshot,
+        config_options: fixedSnapshot.config_options.map((option) =>
+          localizeSessionConfigOption(option, translator)
+        ),
+      }
+    : null
   const automaticModeId = selectedAgent
     ? (automaticAgentMode(selectedAgent)?.id ?? null)
     : null
+
+  useEffect(() => {
+    if (!selectedAgent || !fixedSnapshot || !authoritative) return
+    if (!hasModelConfigValues(currentConfigValues)) return
+    const nextConfigValues = reconcileModelConfigValues(
+      fixedSnapshot,
+      currentConfigValues
+    )
+    if (nextConfigValues === currentConfigValues) return
+    updateAgentDefaults(selectedAgent, {
+      mode_id: currentModeId ?? undefined,
+      config_values: nextConfigValues,
+    })
+  }, [
+    authoritative,
+    currentConfigValues,
+    currentModeId,
+    fixedSnapshot,
+    selectedAgent,
+    updateAgentDefaults,
+  ])
 
   const setMode = (modeId: string | null) => {
     if (!selectedAgent) return

@@ -134,3 +134,14 @@ export function saveConfigPreference(
     configValues: { ...prefs.configValues, [configId]: valueId },
   }))
 }
+
+export function replaceConfigPreferences(
+  agentType: string,
+  configValues: Record<string, string>
+) {
+  updatePrefs(agentType, (prefs) => ({
+    ...prefs,
+    configValues:
+      Object.keys(configValues).length > 0 ? { ...configValues } : undefined,
+  }))
+}

@@ -1,9 +1,10 @@
 import {
   buildAgentOptionsSnapshot,
   getCachedGatewayModels,
+  getGatewayModels,
+  hasAuthoritativeGatewayModels,
   refreshGatewayModels,
 } from "@/lib/gateway-model-catalog"
-import { deriveAgentModels } from "@/lib/agent-option-definitions"
 import {
   localizeSessionConfigOption,
   type SessionConfigTranslator,
@@ -15,11 +16,9 @@ export function getFixedAgentOptions(
   configValues: Record<string, string> = {},
   translator?: SessionConfigTranslator
 ): AgentOptionsSnapshot {
-  // Preserve the gateway response exactly. The fusion layer owns protocol
-  // conversion and the response has no per-agent field to filter on here.
   const snapshot = buildAgentOptionsSnapshot(
     agentType,
-    deriveAgentModels(agentType, getCachedGatewayModels()),
+    getCachedGatewayModels(agentType),
     configValues
   )
   return translator
@@ -32,14 +31,22 @@ export function getFixedAgentOptions(
     : snapshot
 }
 
-export function loadFixedAgentOptions(): Promise<unknown> {
-  return refreshGatewayModels()
+export function loadFixedAgentOptions(agentType: AgentType): Promise<unknown> {
+  return getGatewayModels(agentType)
 }
 
-export function refreshFixedAgentOptions(): Promise<unknown> {
-  return refreshGatewayModels()
+export function refreshFixedAgentOptions(
+  agentType: AgentType
+): Promise<unknown> {
+  return refreshGatewayModels(agentType)
 }
 
-export function hasCachedFixedAgentOptions(): boolean {
-  return getCachedGatewayModels().length > 0
+export function hasCachedFixedAgentOptions(agentType: AgentType): boolean {
+  return getCachedGatewayModels(agentType).length > 0
+}
+
+export function hasAuthoritativeFixedAgentOptions(
+  agentType: AgentType
+): boolean {
+  return hasAuthoritativeGatewayModels(agentType)
 }

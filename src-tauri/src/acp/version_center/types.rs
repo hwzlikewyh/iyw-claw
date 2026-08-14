@@ -31,6 +31,8 @@ pub struct CatalogSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogPlatform {
+    #[serde(default)]
+    pub id: String,
     pub registry_id: String,
     pub display_name: String,
     #[serde(default)]

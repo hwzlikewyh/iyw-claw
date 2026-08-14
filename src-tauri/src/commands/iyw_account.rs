@@ -9,6 +9,7 @@ use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
+use crate::models::agent::AgentType;
 
 mod token_file;
 
@@ -263,20 +264,22 @@ pub(crate) async fn iyw_account_access_token_core(
 
 pub async fn iyw_account_list_models_core(
     conn: &DatabaseConnection,
+    agent_type: Option<AgentType>,
 ) -> Result<serde_json::Value, AppCommandError> {
     let token = iyw_account_access_token_core(conn)
         .await?
         .ok_or_else(|| AppCommandError::authentication_failed("Sign in to iyw-claw first"))?;
-    let response = http_client()?
+    let mut request = http_client()?
         .get(crate::acp::provider_overlay::model_gateway_models_url())
         .header("token", token.expose())
-        .header("Content-Type", "application/json")
-        .send()
-        .await
-        .map_err(|error| {
-            AppCommandError::network("Failed to fetch gateway models")
-                .with_detail(error.to_string())
-        })?;
+        .header("Content-Type", "application/json");
+    if let Some(agent_type) = agent_type {
+        let sdk_id = crate::acp::version_center::catalog::platform_id(conn, agent_type).await?;
+        request = request.query(&[("sdk_id", sdk_id)]);
+    }
+    let response = request.send().await.map_err(|error| {
+        AppCommandError::network("Failed to fetch gateway models").with_detail(error.to_string())
+    })?;
     if !response.status().is_success() {
         return Err(AppCommandError::network("Gateway model request failed")
             .with_detail(response.status().to_string()));
@@ -288,10 +291,10 @@ pub async fn iyw_account_list_models_core(
             AppCommandError::network("Gateway model response was invalid")
                 .with_detail(error.to_string())
         })?;
-    // Every successful fetch (login, the UI's periodic refresh) also updates
-    // the Rust-side catalog that drives agent spawn env and native config
-    // rewrites — the hardcoded list is only a seed (see acp::model_catalog).
-    crate::acp::model_catalog::update_from_payload(&payload);
+    if agent_type.is_none() {
+        // Only the complete catalog can update agent spawn env and native config.
+        crate::acp::model_catalog::update_from_payload(&payload);
+    }
     Ok(payload)
 }
 
@@ -611,9 +614,10 @@ pub async fn iyw_account_get_profile(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn iyw_account_list_models(
+    agent_type: Option<AgentType>,
     db: State<'_, AppDatabase>,
 ) -> Result<serde_json::Value, AppCommandError> {
-    iyw_account_list_models_core(&db.conn).await
+    iyw_account_list_models_core(&db.conn, agent_type).await
 }
 
 #[cfg(feature = "tauri-runtime")]

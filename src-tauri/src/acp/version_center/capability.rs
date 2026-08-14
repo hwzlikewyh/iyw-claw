@@ -39,6 +39,9 @@ pub fn validate_catalog(snapshot: &CatalogSnapshot) -> Result<(), String> {
         if registry::from_registry_id(&platform.registry_id).is_none() {
             continue;
         }
+        if !platform.id.is_empty() && !valid_platform_id(&platform.id) {
+            return Err("invalid Agent platform id".to_string());
+        }
         if !matches!(platform.status.as_str(), "active" | "hidden" | "disabled") {
             return Err("invalid Agent platform status".to_string());
         }
@@ -53,6 +56,10 @@ pub fn validate_catalog(snapshot: &CatalogSnapshot) -> Result<(), String> {
         validate_catalog_version(&tool.minimum_safe_version)?;
     }
     Ok(())
+}
+
+fn valid_platform_id(value: &str) -> bool {
+    !value.is_empty() && !value.starts_with('0') && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 pub fn validate_agent_offer(offer: &AgentOffer) -> Result<(), String> {

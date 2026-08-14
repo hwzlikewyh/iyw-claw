@@ -97,17 +97,17 @@ import {
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import {
   getFixedAgentOptions,
+  hasAuthoritativeFixedAgentOptions,
   loadFixedAgentOptions,
+  refreshFixedAgentOptions,
 } from "@/lib/fixed-agent-options"
-import {
-  reconcileModelConfigValues,
-  refreshGatewayModels,
-} from "@/lib/gateway-model-catalog"
+import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
 import { planSessionConfigSync } from "@/lib/session-config-compat"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
 import {
   getSavedModeId,
   getSavedPrefsForConnect,
+  replaceConfigPreferences,
   saveConfigPreference,
   saveModePreference,
 } from "@/lib/selector-prefs-storage"
@@ -245,22 +245,6 @@ const ConversationTabView = memo(function ConversationTabView({
   const isDocumentVisible = useDocumentVisibility()
   const { status: accountStatus } = useIywAccount()
   const [catalogVersion, setCatalogVersion] = useState(0)
-  useEffect(() => {
-    if (accountStatus !== "authenticated") return
-    let active = true
-    void loadFixedAgentOptions().then(() => {
-      if (active) setCatalogVersion((version) => version + 1)
-    })
-    return () => {
-      active = false
-    }
-  }, [accountStatus])
-  // Refresh model catalog in the background when a new (unsaved) conversation
-  // tab is active — conversationId is null until the first message is saved.
-  useEffect(() => {
-    if (conversationId !== null || accountStatus !== "authenticated") return
-    void refreshGatewayModels()
-  }, [conversationId, accountStatus])
   const t = useTranslations("Folder.conversation")
   const tWelcome = useTranslations("Folder.chat.welcomeInputPanel")
   const tAgentInput = useTranslations("Folder.chat.agentInput")
@@ -339,6 +323,22 @@ const ConversationTabView = memo(function ConversationTabView({
       : agentsLoaded && !usableAgentTypes.includes(draftAgentType)
         ? (usableAgentTypes[0] ?? draftAgentType)
         : draftAgentType
+  useEffect(() => {
+    if (accountStatus !== "authenticated") return
+    let active = true
+    void loadFixedAgentOptions(selectedAgent).then(() => {
+      if (active) setCatalogVersion((version) => version + 1)
+    })
+    return () => {
+      active = false
+    }
+  }, [accountStatus, selectedAgent])
+  useEffect(() => {
+    if (conversationId !== null || accountStatus !== "authenticated") return
+    void refreshFixedAgentOptions(selectedAgent).then(() =>
+      setCatalogVersion((version) => version + 1)
+    )
+  }, [conversationId, accountStatus, selectedAgent])
   // Seed from localStorage so the React state reflects the user's saved
   // mode for this agent immediately on mount. Without this seed, a reuse-
   // path connect (idle window after a refresh, before the agent is GC'd)
@@ -660,11 +660,15 @@ const ConversationTabView = memo(function ConversationTabView({
     [fixedOptions.modes]
   )
   const connectionConfigOptions = fixedOptions.config_options
+  const canReconcileModelConfig =
+    hasAuthoritativeFixedAgentOptions(selectedAgent)
   useEffect(() => {
-    setDraftConfigValues((current) =>
-      reconcileModelConfigValues(fixedOptions, current)
-    )
-  }, [fixedOptions])
+    if (!canReconcileModelConfig) return
+    const next = reconcileModelConfigValues(fixedOptions, draftConfigValues)
+    if (next === draftConfigValues) return
+    setDraftConfigValues(next)
+    replaceConfigPreferences(selectedAgent, next)
+  }, [canReconcileModelConfig, draftConfigValues, fixedOptions, selectedAgent])
   const connectionCommands = useMemo(
     () => conn.availableCommands ?? [],
     [conn.availableCommands]

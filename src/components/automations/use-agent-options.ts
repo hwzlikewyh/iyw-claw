@@ -6,6 +6,7 @@ import { useIywAccount } from "@/contexts/iyw-account-context"
 
 import {
   getFixedAgentOptions,
+  hasAuthoritativeFixedAgentOptions,
   loadFixedAgentOptions,
   refreshFixedAgentOptions,
 } from "@/lib/fixed-agent-options"
@@ -16,6 +17,7 @@ export interface AgentOptionsState {
   snapshot: AgentOptionsSnapshot
   loading: false
   error: null
+  authoritative: boolean
   reload: () => void
   ensure: () => Promise<AgentOptionsSnapshot>
 }
@@ -23,7 +25,8 @@ export interface AgentOptionsState {
 /** Return the product-owned option catalog without launching an Agent. */
 export function useAgentOptions(
   agentType: AgentType,
-  _folderPath: string | null = null
+  _folderPath: string | null = null,
+  configValues: Record<string, string> = {}
 ): AgentOptionsState {
   void _folderPath
   const t = useTranslations("Folder.chat.messageInput")
@@ -33,23 +36,31 @@ export function useAgentOptions(
   useEffect(() => {
     if (accountStatus !== "authenticated") return
     let active = true
-    void loadFixedAgentOptions().then(() => {
+    void loadFixedAgentOptions(agentType).then(() => {
       if (active) setCatalogVersion((version) => version + 1)
     })
     return () => {
       active = false
     }
-  }, [accountStatus])
+  }, [accountStatus, agentType])
   const snapshot = useMemo(() => {
     void catalogVersion
-    return getFixedAgentOptions(agentType, {}, translator)
-  }, [agentType, translator, catalogVersion])
+    return getFixedAgentOptions(agentType, configValues, translator)
+  }, [agentType, configValues, translator, catalogVersion])
+  const authoritative = hasAuthoritativeFixedAgentOptions(agentType)
   const reload = useCallback(() => {
-    void refreshFixedAgentOptions().then(() =>
+    void refreshFixedAgentOptions(agentType).then(() =>
       setCatalogVersion((version) => version + 1)
     )
-  }, [])
+  }, [agentType])
   const ensure = useCallback(async () => snapshot, [snapshot])
 
-  return { snapshot, loading: false, error: null, reload, ensure }
+  return {
+    snapshot,
+    loading: false,
+    error: null,
+    authoritative,
+    reload,
+    ensure,
+  }
 }

@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/popover"
 import { ModelOptionList } from "@/components/chat/model-option-list"
 import { useScrollbarSafeDismiss } from "@/hooks/use-scrollbar-safe-dismiss"
-import { refreshGatewayModels } from "@/lib/gateway-model-catalog"
 import type { ModelOptionGroup } from "@/lib/model-config-groups"
 import type { SessionConfigOptionInfo } from "@/lib/types"
 
@@ -56,7 +55,6 @@ export function ModelOptionPicker({
     <Popover
       open={open}
       onOpenChange={(next) => {
-        if (next) void refreshGatewayModels()
         setOpen(next)
       }}
     >

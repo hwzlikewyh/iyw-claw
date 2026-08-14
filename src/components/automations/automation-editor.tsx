@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { automationComputeNextRun } from "@/lib/api"
+import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
 import { AGENT_LABELS } from "@/lib/types"
 import type {
   AgentType,
@@ -146,13 +147,20 @@ export function AutomationEditor({
 
   // The product-owned catalog feeds the config selectors and any fixed slash
   // commands. `$` Codex skills load separately from the filesystem.
-  const agentOptions = useAgentOptions(agentType, folderPath)
+  const agentOptions = useAgentOptions(agentType, folderPath, configValues)
   const invocations = useComposerInvocations({
     editorRef,
     agentType,
     folderPath,
     availableCommands: agentOptions.snapshot?.available_commands ?? [],
   })
+
+  useEffect(() => {
+    if (!agentOptions.authoritative) return
+    setConfigValues((current) =>
+      reconcileModelConfigValues(agentOptions.snapshot, current)
+    )
+  }, [agentOptions.authoritative, agentOptions.snapshot])
 
   // Authoritative "next run" preview — same backend evaluator the scheduler
   // uses, so the previewed time can never diverge from the actual fire.
@@ -198,10 +206,13 @@ export function AutomationEditor({
       // shows. An untouched selector displays the catalog's current value (no
       // "inherit" here), so persist it instead of a future default.
       const snapshot = await agentOptions.ensure()
+      const reconciledConfigValues = agentOptions.authoritative
+        ? reconcileModelConfigValues(snapshot, configValues)
+        : configValues
       const { config_values } = effectiveSelections(
         snapshot,
         null,
-        configValues
+        reconciledConfigValues
       )
       // Capture friendly labels for the chosen agent/folder/mode/options so the
       // detail page renders names, not raw value ids — and keeps doing so if the
