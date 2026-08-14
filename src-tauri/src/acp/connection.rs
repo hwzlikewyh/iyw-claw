@@ -3276,34 +3276,72 @@ async fn apply_preferred_session_config_options(
     options
 }
 
+fn validate_requested_session_mode(
+    modes: Option<&SessionModeState>,
+    agent_type: AgentType,
+    requested_mode_id: &str,
+    mode_source: &str,
+) -> Option<String> {
+    let Some(modes) = modes else {
+        tracing::debug!(
+            agent = ?agent_type,
+            mode_id = requested_mode_id,
+            mode_source,
+            "[ACP] Agent did not advertise session modes; preserving Agent default"
+        );
+        return None;
+    };
+    let current_mode_id = modes.current_mode_id.to_string();
+    let is_advertised = modes
+        .available_modes
+        .iter()
+        .any(|mode| mode.id.to_string() == requested_mode_id);
+    if !is_advertised {
+        tracing::warn!(
+            agent = ?agent_type,
+            mode_id = requested_mode_id,
+            mode_source,
+            current_mode_id,
+            available_mode_count = modes.available_modes.len(),
+            "[ACP] skipped unsupported session mode on connect"
+        );
+        return None;
+    }
+    Some(current_mode_id)
+}
+
 async fn apply_preferred_session_mode(
     session: &mut sacp::ActiveSession<'_, Agent>,
     context: (&Arc<RwLock<SessionState>>, &EventEmitter),
     agent_type: AgentType,
     preferred_mode_id: Option<&str>,
 ) {
-    let (resolved_mode_id, mode_source) = match preferred_mode_id {
+    let (requested_mode_id, mode_source) = match preferred_mode_id {
         Some(mode_id) => (mode_id, "user_or_caller"),
         None => (automatic_mode_id(agent_type), "product_default"),
     };
+    let Some(current_mode_id) = validate_requested_session_mode(
+        session.modes().as_ref(),
+        agent_type,
+        requested_mode_id,
+        mode_source,
+    ) else {
+        return;
+    };
     tracing::info!(
         agent = ?agent_type,
-        mode_id = resolved_mode_id,
+        mode_id = requested_mode_id,
         mode_source,
         "[ACP] resolved session mode on connect"
     );
     let (state, emitter) = context;
-    let needs_apply = session
-        .modes()
-        .as_ref()
-        .is_some_and(|modes| modes.current_mode_id.to_string() != resolved_mode_id);
-    if needs_apply {
+    if current_mode_id != requested_mode_id {
         if let Err(error) =
-            set_session_mode(session, state, emitter, resolved_mode_id.to_string()).await
+            set_session_mode(session, state, emitter, requested_mode_id.to_string()).await
         {
             tracing::error!(
                 agent = ?agent_type,
-                mode_id = resolved_mode_id,
+                mode_id = requested_mode_id,
                 mode_source,
                 error = %error,
                 "[ACP] failed to apply resolved session mode on connect"

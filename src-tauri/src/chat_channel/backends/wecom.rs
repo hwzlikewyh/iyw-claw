@@ -23,10 +23,14 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Local, NaiveDateTime, TimeZone};
 use tokio::sync::{mpsc, watch, Mutex};
+use tokio::task::JoinHandle;
 
 use crate::chat_channel::error::ChatChannelError;
 use crate::chat_channel::traits::ChatChannelBackend;
 use crate::chat_channel::types::*;
+
+mod cli_error;
+mod poll_runtime;
 
 pub const WECOM_CHAT_THREAD_KIND: &str = "wecom_chat";
 pub const WECOM_CLI_PACKAGE: &str = "@wecom/cli@0.1.9";
@@ -52,6 +56,7 @@ pub struct WecomBackend {
 struct State {
     status: Mutex<ChannelConnectionStatus>,
     stop_tx: Mutex<Option<watch::Sender<bool>>>,
+    poll_task: Mutex<Option<JoinHandle<()>>>,
     /// Message keys already forwarded (bounded FIFO of hashes).
     seen: Mutex<SeenKeys>,
     /// Userids observed sending in direct chats that are not the peer — us.
@@ -98,6 +103,7 @@ impl WecomBackend {
             state: Arc::new(State {
                 status: Mutex::new(ChannelConnectionStatus::Disconnected),
                 stop_tx: Mutex::new(None),
+                poll_task: Mutex::new(None),
                 seen: Mutex::new(SeenKeys::new()),
                 self_userids: Mutex::new(HashSet::new()),
                 recently_sent: Mutex::new(VecDeque::new()),
@@ -111,7 +117,7 @@ impl WecomBackend {
             self.config
                 .poll_interval_secs
                 .unwrap_or(DEFAULT_POLL_INTERVAL_SECS)
-                .clamp(2, 300),
+                .clamp(2, 60),
         )
     }
 
@@ -173,9 +179,12 @@ impl ChatChannelBackend for WecomBackend {
     async fn start(
         &self,
         command_tx: mpsc::Sender<IncomingCommand>,
+        runtime_tx: mpsc::Sender<ChannelRuntimeEvent>,
+        generation: u64,
     ) -> Result<(), ChatChannelError> {
         ensure_cli_installed().await?;
         ensure_authorized().await?;
+        probe_message_access().await?;
 
         let (stop_tx, stop_rx) = watch::channel(false);
         {
@@ -186,14 +195,21 @@ impl ChatChannelBackend for WecomBackend {
             *guard = Some(stop_tx);
         }
 
+        if let Some(previous) = self.state.poll_task.lock().await.take() {
+            let _ = previous.await;
+        }
+
         *self.state.status.lock().await = ChannelConnectionStatus::Connected;
-        tokio::spawn(poll_loop(
+        let poll_task = tokio::spawn(poll_runtime::poll_loop(
             self.channel_id,
+            generation,
             self.poll_interval(),
             Arc::clone(&self.state),
             command_tx,
+            runtime_tx,
             stop_rx,
         ));
+        *self.state.poll_task.lock().await = Some(poll_task);
         tracing::info!(
             "[WeCom] channel {} connected (poll interval {:?})",
             self.channel_id,
@@ -205,6 +221,9 @@ impl ChatChannelBackend for WecomBackend {
     async fn stop(&self) -> Result<(), ChatChannelError> {
         if let Some(stop_tx) = self.state.stop_tx.lock().await.take() {
             let _ = stop_tx.send(true);
+        }
+        if let Some(poll_task) = self.state.poll_task.lock().await.take() {
+            let _ = poll_task.await;
         }
         *self.state.status.lock().await = ChannelConnectionStatus::Disconnected;
         Ok(())
@@ -238,51 +257,22 @@ impl ChatChannelBackend for WecomBackend {
 
     async fn test_connection(&self) -> Result<(), ChatChannelError> {
         ensure_cli_installed().await?;
-        ensure_authorized().await
+        ensure_authorized().await?;
+        probe_message_access().await
     }
 }
 
-// ── Poll loop ──
+// ── Polling ──
 
-async fn poll_loop(
-    channel_id: i32,
-    interval: Duration,
-    state: Arc<State>,
-    command_tx: mpsc::Sender<IncomingCommand>,
-    mut stop_rx: watch::Receiver<bool>,
-) {
-    // Only messages after connect are forwarded — replaying history into the
-    // dispatcher would fire tasks for week-old texts.
-    let mut window_start = Local::now();
-    let mut ticker = tokio::time::interval(interval);
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-    loop {
-        tokio::select! {
-            _ = ticker.tick() => {}
-            _ = stop_rx.changed() => {
-                if *stop_rx.borrow() {
-                    tracing::info!("[WeCom] channel {channel_id} poll loop stopped");
-                    return;
-                }
-            }
-        }
-
-        let now = Local::now();
-        let begin = window_start - ChronoDuration::seconds(POLL_OVERLAP_SECS);
-        match poll_once(channel_id, &state, &command_tx, begin, now).await {
-            Ok(()) => {
-                window_start = now;
-                if *state.status.lock().await != ChannelConnectionStatus::Connected {
-                    *state.status.lock().await = ChannelConnectionStatus::Connected;
-                }
-            }
-            Err(error) => {
-                tracing::warn!("[WeCom] channel {channel_id} poll failed: {error}");
-                *state.status.lock().await = ChannelConnectionStatus::Error;
-            }
-        }
-    }
+async fn probe_message_access() -> Result<(), ChatChannelError> {
+    let end = Local::now();
+    let begin = end - ChronoDuration::seconds(1);
+    let payload = serde_json::json!({
+        "begin_time": begin.format(WECOM_TIME_FORMAT).to_string(),
+        "end_time": end.format(WECOM_TIME_FORMAT).to_string(),
+    });
+    run_cli_json(&["msg", "get_msg_chat_list", &payload.to_string()]).await?;
+    Ok(())
 }
 
 async fn poll_once(
@@ -340,6 +330,7 @@ async fn poll_once(
         .await
         {
             tracing::warn!(channel_id, error = %error, "[WeCom] failed to poll chat");
+            return Err(error);
         }
     }
     Ok(())
@@ -597,10 +588,13 @@ async fn run_cli_raw(args: &[&str]) -> Result<String, ChatChannelError> {
         })?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     if !output.status.success() {
-        return Err(ChatChannelError::ConnectionFailed(format!(
-            "wecom-cli exited with {}",
-            output.status
-        )));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(cli_error::from_process_failure(
+            output.status,
+            &stdout,
+            &stderr,
+            args,
+        ));
     }
     Ok(stdout)
 }
@@ -616,9 +610,11 @@ async fn run_cli_json(args: &[&str]) -> Result<serde_json::Value, ChatChannelErr
         })?;
     let errcode = value.get("errcode").and_then(|value| value.as_i64());
     if let Some(code) = errcode.filter(|code| *code != 0) {
-        return Err(ChatChannelError::ConnectionFailed(format!(
-            "wecom-cli provider code {code}"
-        )));
+        let message = value
+            .get("errmsg")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        return Err(cli_error::from_provider_failure(code, message, args));
     }
     Ok(value)
 }

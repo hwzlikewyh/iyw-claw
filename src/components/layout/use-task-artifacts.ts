@@ -178,6 +178,12 @@ async function fetchTaskArtifacts(
   filters: TaskArtifactFilters
 ): Promise<TaskArtifactInfo[]> {
   if (filters.scope === "all" && filters.folderId == null) return []
+  if (
+    filters.scope === "current" &&
+    (filters.conversationId == null || filters.conversationId <= 0)
+  ) {
+    return []
+  }
   return listTaskArtifacts(
     filters.scope === "current"
       ? { conversationId: filters.conversationId }

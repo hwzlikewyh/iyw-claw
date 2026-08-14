@@ -568,18 +568,22 @@ impl ConnectionManager {
         let (runtime_env, pending_authorized) = self
             .refresh_runtime_for_pending_activation(agent_type, session_id.as_deref(), runtime_env)
             .await?;
+        crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)?;
         if !pending_authorized {
-            crate::acp::version_center::authorize_agent_launch(version_center_db, agent_type)
-                .await
-                .map_err(|error| {
-                    tracing::warn!(
-                        agent_type = ?agent_type,
-                        code = ?error.code,
-                        detail = ?error.detail,
-                        "[agent-version-center] rejected Agent launch"
-                    );
-                    AcpError::protocol(error.message)
-                })?;
+            crate::acp::version_center::authorize_verified_agent_launch(
+                version_center_db,
+                agent_type,
+            )
+            .await
+            .map_err(|error| {
+                tracing::warn!(
+                    agent_type = ?agent_type,
+                    code = ?error.code,
+                    detail = ?error.detail,
+                    "[agent-version-center] rejected Agent launch"
+                );
+                AcpError::protocol(error.message)
+            })?;
         }
 
         let user_memory_context = self
@@ -1336,6 +1340,25 @@ impl ConnectionManager {
 
         let image_context =
             crate::acp::image_analysis::prepare_prompt_images(self, db, conn_id, &blocks).await?;
+        let prepared_agent_blocks = if image_context.is_some() {
+            Some(
+                blocks
+                    .iter()
+                    .filter(|block| !matches!(block, PromptInputBlock::Image { .. }))
+                    .cloned()
+                    .collect(),
+            )
+        } else if blocks
+            .iter()
+            .any(|block| matches!(block, PromptInputBlock::Image { uri: Some(_), .. }))
+        {
+            Some(
+                crate::acp::image_analysis::normalize_prompt_images_for_agent(blocks.clone())
+                    .await?,
+            )
+        } else {
+            None
+        };
 
         if !already_linked {
             match (conversation_id, folder_id) {
@@ -1549,14 +1572,7 @@ impl ConnectionManager {
         // for a prompt that never reached the agent, so without this the
         // lifecycle subscriber's PendingReview write also never fires and the
         // row would be stuck until a follow-up `send_prompt_linked` re-flipped it.
-        let agent_blocks = if image_context.is_some() {
-            blocks
-                .into_iter()
-                .filter(|block| !matches!(block, PromptInputBlock::Image { .. }))
-                .collect()
-        } else {
-            blocks
-        };
+        let agent_blocks = prepared_agent_blocks.unwrap_or(blocks);
         match self
             .send_prompt_inner(
                 conn_id,

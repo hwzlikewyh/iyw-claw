@@ -36,8 +36,8 @@ pub use inventory::{
     promote_agent_lkg, record_agent_ready, recover_agent, set_agent_pin, set_tool_pin,
     AgentInstallation, ManagedToolInstallation, ManagedToolSetting, ReadyAgentInstallation,
 };
-pub use launch_authorization::authorize_agent_launch;
 pub(crate) use launch_authorization::authorize_agent_version_launch;
+pub use launch_authorization::authorize_verified_agent_launch;
 pub(crate) use npm_install::{
     confirm_npm_agent_install, resolve_npm_agent_install, ManagedNpmInstall,
 };

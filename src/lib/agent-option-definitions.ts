@@ -205,7 +205,14 @@ const AGENT_MODES: Record<AgentType, SessionModeInfo[]> = {
   hermes: [defaultMode("按 Agent 默认策略执行")],
   open_claw: [defaultMode("按 Agent 默认策略执行")],
   kimi_code: [defaultMode("按 Agent 默认策略执行")],
-  pi: [defaultMode("按 Agent 默认策略执行")],
+  pi: [
+    { id: "medium", name: "默认模式", description: "使用中等推理强度" },
+    { id: "off", name: "关闭思考", description: "不使用额外推理" },
+    { id: "minimal", name: "极简思考", description: "使用极少推理" },
+    { id: "low", name: "低强度", description: "使用较低推理强度" },
+    { id: "high", name: "高强度", description: "使用较高推理强度" },
+    { id: "xhigh", name: "极高强度", description: "使用最高推理强度" },
+  ],
 }
 
 export function getLocalAgentModelIds(agentType: AgentType): string[] {

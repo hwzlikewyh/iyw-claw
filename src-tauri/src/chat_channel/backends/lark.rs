@@ -678,6 +678,8 @@ impl ChatChannelBackend for LarkBackend {
     async fn start(
         &self,
         command_tx: mpsc::Sender<IncomingCommand>,
+        _runtime_tx: mpsc::Sender<ChannelRuntimeEvent>,
+        _generation: u64,
     ) -> Result<(), ChatChannelError> {
         *self.status.lock().await = ChannelConnectionStatus::Connecting;
         self.get_tenant_access_token().await?;

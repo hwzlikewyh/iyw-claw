@@ -97,6 +97,19 @@ pub enum ChannelConnectionStatus {
 }
 
 #[derive(Debug, Clone)]
+pub enum ChannelRuntimeEvent {
+    Connected {
+        channel_id: i32,
+        generation: u64,
+    },
+    Error {
+        channel_id: i32,
+        generation: u64,
+        error: String,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct SentMessageId(pub String);
 
 pub struct IncomingCommand {

@@ -14,6 +14,8 @@ pub trait ChatChannelBackend: Send + Sync + 'static {
     async fn start(
         &self,
         command_tx: mpsc::Sender<IncomingCommand>,
+        runtime_tx: mpsc::Sender<ChannelRuntimeEvent>,
+        generation: u64,
     ) -> Result<(), ChatChannelError>;
 
     /// Stop the backend connection gracefully.

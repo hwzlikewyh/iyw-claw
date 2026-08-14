@@ -9,6 +9,10 @@ use crate::acp::manager::ConnectionManager;
 use crate::acp::types::PromptInputBlock;
 use crate::db::AppDatabase;
 
+mod agent_prompt;
+
+pub(crate) use agent_prompt::normalize_prompt_images_for_agent;
+
 const MAX_ANALYSIS_IMAGES: usize = 8;
 pub const ANALYZE_IMAGE_TOOL: &str = "analyze_image";
 const DEFAULT_IMAGE_QUESTION: &str =

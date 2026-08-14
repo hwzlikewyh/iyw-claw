@@ -17,6 +17,7 @@ pub mod natural_router;
 pub mod natural_router_config;
 pub mod readiness;
 pub mod reconcile;
+mod runtime_status;
 pub mod scheduler;
 pub mod session_bridge;
 pub mod session_commands;

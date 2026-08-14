@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -15,6 +16,7 @@ use crate::web::event_bridge::{EventEmitter, WebEventBroadcaster};
 
 struct ActiveChannel {
     id: i32,
+    generation: u64,
     name: String,
     channel_type: ChannelType,
     backend: Arc<dyn ChatChannelBackend>,
@@ -30,6 +32,9 @@ struct Inner {
     channels: Mutex<HashMap<i32, ActiveChannel>>,
     command_tx: mpsc::Sender<IncomingCommand>,
     command_rx: Mutex<Option<mpsc::Receiver<IncomingCommand>>>,
+    runtime_tx: mpsc::Sender<ChannelRuntimeEvent>,
+    runtime_rx: Mutex<Option<mpsc::Receiver<ChannelRuntimeEvent>>>,
+    next_generation: AtomicU64,
     broadcaster: Mutex<Option<Arc<WebEventBroadcaster>>>,
 }
 
@@ -46,11 +51,15 @@ impl Default for ChatChannelManager {
 impl ChatChannelManager {
     pub fn new() -> Self {
         let (command_tx, command_rx) = mpsc::channel(256);
+        let (runtime_tx, runtime_rx) = mpsc::channel(64);
         Self {
             inner: Arc::new(Inner {
                 channels: Mutex::new(HashMap::new()),
                 command_tx,
                 command_rx: Mutex::new(Some(command_rx)),
+                runtime_tx,
+                runtime_rx: Mutex::new(Some(runtime_rx)),
+                next_generation: AtomicU64::new(0),
                 broadcaster: Mutex::new(None),
             }),
         }
@@ -70,6 +79,14 @@ impl ChatChannelManager {
     /// Take the command receiver (can only be called once, at startup).
     pub async fn take_command_receiver(&self) -> Option<mpsc::Receiver<IncomingCommand>> {
         self.inner.command_rx.lock().await.take()
+    }
+
+    async fn take_runtime_receiver(&self) -> Option<mpsc::Receiver<ChannelRuntimeEvent>> {
+        self.inner.runtime_rx.lock().await.take()
+    }
+
+    fn next_generation(&self) -> u64 {
+        self.inner.next_generation.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     /// Emit a status change event to the frontend via broadcaster.
@@ -111,16 +128,19 @@ impl ChatChannelManager {
         channel_type: ChannelType,
         backend: Arc<dyn ChatChannelBackend>,
     ) -> Result<(), ChatChannelError> {
+        let generation = self.next_generation();
         let old = self.inner.channels.lock().await.remove(&id);
         if let Some(existing) = old {
             let _ = existing.backend.stop().await;
         }
 
         let command_tx = self.inner.command_tx.clone();
-        backend.start(command_tx).await?;
+        let runtime_tx = self.inner.runtime_tx.clone();
+        backend.start(command_tx, runtime_tx, generation).await?;
 
         let channel = ActiveChannel {
             id,
+            generation,
             name,
             channel_type,
             backend,
@@ -153,16 +173,19 @@ impl ChatChannelManager {
         channel_type: ChannelType,
         backend: Arc<dyn ChatChannelBackend>,
     ) -> Result<(), ChatChannelError> {
+        let generation = self.next_generation();
         let old = self.inner.channels.lock().await.remove(&id);
         if let Some(existing) = old {
             let _ = existing.backend.stop().await;
         }
         let command_tx = self.inner.command_tx.clone();
-        backend.start(command_tx).await?;
+        let runtime_tx = self.inner.runtime_tx.clone();
+        backend.start(command_tx, runtime_tx, generation).await?;
         self.inner.channels.lock().await.insert(
             id,
             ActiveChannel {
                 id,
+                generation,
                 name,
                 channel_type,
                 backend,
@@ -294,14 +317,35 @@ impl ChatChannelManager {
     }
 
     pub async fn is_connected(&self, id: i32) -> bool {
+        self.connection_status(id).await == Some(ChannelConnectionStatus::Connected)
+    }
+
+    pub async fn connection_status(&self, id: i32) -> Option<ChannelConnectionStatus> {
         let backend = {
             let channels = self.inner.channels.lock().await;
             channels.get(&id).map(|ch| ch.backend.clone())
         };
-        if let Some(b) = backend {
-            b.status().await == ChannelConnectionStatus::Connected
-        } else {
-            false
+        match backend {
+            Some(backend) => Some(backend.status().await),
+            None => None,
+        }
+    }
+
+    pub async fn connection_status_for_generation(
+        &self,
+        id: i32,
+        generation: u64,
+    ) -> Option<ChannelConnectionStatus> {
+        let backend = {
+            let channels = self.inner.channels.lock().await;
+            channels
+                .get(&id)
+                .filter(|channel| channel.generation == generation)
+                .map(|channel| channel.backend.clone())
+        };
+        match backend {
+            Some(backend) => Some(backend.status().await),
+            None => None,
         }
     }
 
@@ -326,6 +370,12 @@ impl ChatChannelManager {
     ) {
         // Store broadcaster for status event emission
         *self.inner.broadcaster.lock().await = Some(broadcaster.clone());
+
+        super::runtime_status::spawn_runtime_status_listener(
+            self.take_runtime_receiver().await,
+            self.clone_ref(),
+            db_conn.clone(),
+        );
 
         let db_conn2 = db_conn.clone();
 

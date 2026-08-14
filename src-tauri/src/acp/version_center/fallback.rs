@@ -7,6 +7,7 @@ pub(crate) enum AgentFallbackReason {
     StorageUnavailable,
     DownloadUnavailable,
     RateLimited,
+    VersionNotFound,
 }
 
 pub(crate) fn classify(error: &AppCommandError) -> Option<AgentFallbackReason> {
@@ -21,11 +22,29 @@ pub(crate) fn classify(error: &AppCommandError) -> Option<AgentFallbackReason> {
         Some("AGENT_STORAGE_UNAVAILABLE") => Some(AgentFallbackReason::StorageUnavailable),
         Some("AGENT_DOWNLOAD_UNAVAILABLE") => Some(AgentFallbackReason::DownloadUnavailable),
         Some("AGENT_RATE_LIMITED") => Some(AgentFallbackReason::RateLimited),
+        Some("AGENT_VERSION_NOT_FOUND") => Some(AgentFallbackReason::VersionNotFound),
         _ => None,
     }
 }
 
 pub(crate) fn allowed(error: &AppCommandError, allow_policy_missing: bool) -> bool {
-    classify(error)
-        .is_some_and(|reason| reason != AgentFallbackReason::PolicyMissing || allow_policy_missing)
+    classify(error).is_some_and(|reason| match reason {
+        AgentFallbackReason::PolicyMissing => allow_policy_missing,
+        AgentFallbackReason::VersionNotFound => false,
+        _ => true,
+    })
+}
+
+pub(crate) fn launch_allowed(error: &AppCommandError) -> bool {
+    matches!(
+        classify(error),
+        Some(
+            AgentFallbackReason::Network
+                | AgentFallbackReason::PolicyMissing
+                | AgentFallbackReason::StorageUnavailable
+                | AgentFallbackReason::DownloadUnavailable
+                | AgentFallbackReason::RateLimited
+                | AgentFallbackReason::VersionNotFound
+        )
+    )
 }

@@ -353,9 +353,9 @@ pub struct BrokerResponse {
     pub outcome: Value,
 }
 
-/// Maximum allowed frame size, 16 MiB. Guards against a misbehaving peer
-/// allocating gigabytes when reading the length prefix.
-pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
+/// Maximum allowed frame size, 32 MiB. This accommodates the Base64 expansion
+/// of the 20 MiB image-analysis limit while still bounding peer allocations.
+pub const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 /// Write one length-prefixed JSON frame.
 pub async fn write_frame<W, T>(stream: &mut W, value: &T) -> io::Result<()>
@@ -365,6 +365,12 @@ where
 {
     let bytes = serde_json::to_vec(value)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("encode: {e}")))?;
+    if bytes.len() > MAX_FRAME_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("frame {} bytes exceeds cap {MAX_FRAME_BYTES}", bytes.len()),
+        ));
+    }
     let len: u32 = bytes
         .len()
         .try_into()

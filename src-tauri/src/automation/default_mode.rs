@@ -30,6 +30,7 @@ fn automatic_mode_id(raw: &str) -> Option<&'static str> {
         AgentType::Gemini => "yolo",
         AgentType::OpenCode => "build",
         AgentType::Cline => "act",
-        AgentType::OpenClaw | AgentType::Hermes | AgentType::KimiCode | AgentType::Pi => "default",
+        AgentType::OpenClaw | AgentType::Hermes | AgentType::KimiCode => "default",
+        AgentType::Pi => "medium",
     })
 }
