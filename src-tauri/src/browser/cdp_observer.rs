@@ -1,0 +1,277 @@
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures_util::{SinkExt, StreamExt};
+use serde_json::{json, Value};
+use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::task::JoinHandle;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_util::sync::CancellationToken;
+
+use super::cdp_errors::{command_rejected, timeout, unavailable};
+use super::cdp_maps::update_protocol_maps;
+use super::error::BrowserError;
+use super::manager::BrowserSessionManager;
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
+
+struct CdpRequest {
+    method: String,
+    params: Value,
+    session_id: Option<String>,
+    response: oneshot::Sender<Result<Value, BrowserError>>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct CdpObserverHandle {
+    commands: mpsc::Sender<CdpRequest>,
+    cancellation: CancellationToken,
+    task: Arc<Mutex<Option<JoinHandle<()>>>>,
+}
+
+impl CdpObserverHandle {
+    pub async fn start(
+        url: &str,
+        download_path: &Path,
+        manager: BrowserSessionManager,
+        generation: u64,
+    ) -> Result<Self, BrowserError> {
+        let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+            .max_message_size(Some(MAX_MESSAGE_SIZE))
+            .max_frame_size(Some(MAX_MESSAGE_SIZE));
+        let connection = tokio::time::timeout(
+            CONNECT_TIMEOUT,
+            tokio_tungstenite::connect_async_with_config(url, Some(config), false),
+        )
+        .await
+        .map_err(|_| unavailable())?
+        .map_err(|_| unavailable())?;
+        let (commands, receiver) = mpsc::channel(32);
+        let cancellation = CancellationToken::new();
+        let task = tokio::spawn(run_observer(
+            connection.0,
+            receiver,
+            cancellation.clone(),
+            manager,
+            generation,
+        ));
+        let handle = Self {
+            commands,
+            cancellation,
+            task: Arc::new(Mutex::new(Some(task))),
+        };
+        if let Err(error) = handle.initialize(download_path).await {
+            handle.stop().await;
+            return Err(error);
+        }
+        Ok(handle)
+    }
+
+    pub async fn call(
+        &self,
+        method: &str,
+        params: Value,
+        session_id: Option<String>,
+    ) -> Result<Value, BrowserError> {
+        let (response, result) = oneshot::channel();
+        self.commands
+            .send(CdpRequest {
+                method: method.to_string(),
+                params,
+                session_id,
+                response,
+            })
+            .await
+            .map_err(|_| unavailable())?;
+        tokio::time::timeout(COMMAND_TIMEOUT, result)
+            .await
+            .map_err(|_| timeout())?
+            .map_err(|_| unavailable())?
+    }
+
+    pub async fn stop(&self) {
+        self.cancellation.cancel();
+        if let Some(mut task) = self.task.lock().await.take() {
+            if tokio::time::timeout(Duration::from_secs(2), &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+                let _ = task.await;
+            }
+        }
+    }
+
+    async fn initialize(&self, download_path: &Path) -> Result<(), BrowserError> {
+        self.call(
+            "Target.setDiscoverTargets",
+            json!({ "discover": true }),
+            None,
+        )
+        .await?;
+        self.call(
+            "Target.setAutoAttach",
+            json!({ "autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true }),
+            None,
+        )
+        .await?;
+        self.call(
+            "Browser.setDownloadBehavior",
+            json!({
+                "behavior": "allowAndName",
+                "downloadPath": download_path.to_string_lossy(),
+                "eventsEnabled": true
+            }),
+            None,
+        )
+        .await?;
+        Ok(())
+    }
+}
+
+async fn run_observer<S>(
+    socket: tokio_tungstenite::WebSocketStream<S>,
+    mut commands: mpsc::Receiver<CdpRequest>,
+    cancellation: CancellationToken,
+    manager: BrowserSessionManager,
+    generation: u64,
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut sink, mut source) = socket.split();
+    let mut pending = HashMap::new();
+    let mut sessions = HashMap::new();
+    let mut frames = HashMap::new();
+    let mut next_id = 1_u64;
+    let mut disconnected = false;
+    loop {
+        tokio::select! {
+            _ = cancellation.cancelled() => {
+                let _ = sink.send(Message::Close(None)).await;
+                break;
+            }
+            request = commands.recv() => {
+                let Some(request) = request else { break; };
+                let id = next_id;
+                next_id = next_id.saturating_add(1);
+                let message = command_message(id, &request);
+                if sink.send(Message::Text(message.to_string().into())).await.is_err() {
+                    let _ = request.response.send(Err(unavailable()));
+                    disconnected = true;
+                    break;
+                }
+                pending.insert(id, request.response);
+            }
+            incoming = source.next() => {
+                let Some(result) = incoming else { disconnected = true; break; };
+                let Ok(message) = result else { disconnected = true; break; };
+                if let Message::Text(text) = message {
+                    handle_message(
+                        &text, &mut pending, &mut sessions, &mut frames,
+                        &manager, generation, &mut sink, &mut next_id,
+                    ).await;
+                }
+            }
+        }
+    }
+    for (_, response) in pending {
+        let _ = response.send(Err(unavailable()));
+    }
+    if disconnected && !cancellation.is_cancelled() {
+        manager.handle_cdp_disconnect(generation).await;
+    }
+}
+
+fn command_message(id: u64, request: &CdpRequest) -> Value {
+    let mut message = json!({
+        "id": id,
+        "method": request.method,
+        "params": request.params,
+    });
+    if let Some(session_id) = &request.session_id {
+        message["sessionId"] = Value::String(session_id.clone());
+    }
+    message
+}
+
+async fn handle_message<S>(
+    text: &str,
+    pending: &mut HashMap<u64, oneshot::Sender<Result<Value, BrowserError>>>,
+    sessions: &mut HashMap<String, String>,
+    frames: &mut HashMap<String, String>,
+    manager: &BrowserSessionManager,
+    generation: u64,
+    sink: &mut S,
+    next_id: &mut u64,
+) where
+    S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    let Ok(message) = serde_json::from_str::<Value>(text) else {
+        return;
+    };
+    if let Some(id) = message.get("id").and_then(Value::as_u64) {
+        if let Some(response) = pending.remove(&id) {
+            let result = if message.get("error").is_some() {
+                Err(command_rejected())
+            } else {
+                Ok(message.get("result").cloned().unwrap_or(Value::Null))
+            };
+            let _ = response.send(result);
+        }
+        return;
+    }
+    let Some(method) = message.get("method").and_then(Value::as_str) else {
+        return;
+    };
+    let params = message.get("params").cloned().unwrap_or(Value::Null);
+    let session_id = message.get("sessionId").and_then(Value::as_str);
+    update_protocol_maps(method, &params, session_id, sessions, frames);
+    if method == "Target.attachedToTarget" {
+        if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
+            enable_page_events(sink, next_id, session).await;
+        }
+    }
+    let target_id = session_id.and_then(|id| sessions.get(id)).cloned();
+    let frame_target = params
+        .get("frameId")
+        .and_then(Value::as_str)
+        .and_then(|id| frames.get(id))
+        .cloned();
+    manager
+        .handle_cdp_event(
+            generation,
+            method,
+            params,
+            session_id,
+            target_id,
+            frame_target,
+        )
+        .await;
+}
+
+async fn enable_page_events<S>(sink: &mut S, next_id: &mut u64, session_id: &str)
+where
+    S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    for (method, params) in [
+        ("Page.enable", json!({})),
+        ("Page.setLifecycleEventsEnabled", json!({ "enabled": true })),
+        (
+            "Page.setInterceptFileChooserDialog",
+            json!({ "enabled": true }),
+        ),
+    ] {
+        let message = json!({
+            "id": *next_id,
+            "method": method,
+            "params": params,
+            "sessionId": session_id,
+        });
+        *next_id = (*next_id).saturating_add(1);
+        let _ = sink.send(Message::Text(message.to_string().into())).await;
+    }
+}

@@ -65,7 +65,9 @@ jobs:
             node scripts/set-version.mjs "$version"
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+            git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
+              src-tauri/tauri.conf.json src-tauri/tauri.windows.conf.json \
+              src-tauri/tauri.windows-x86.conf.json
             if ! git diff --cached --quiet; then
               git commit -m "chore(release): v$version"
             fi

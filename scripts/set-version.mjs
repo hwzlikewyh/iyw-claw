@@ -33,6 +33,10 @@ function jsonWithVersion(path, version) {
 
 function tauriConfigWithVersion(path, version) {
   const source = jsonWithVersion(path, version)
+  return externalBinConfigWithVersion(path, source, version)
+}
+
+function externalBinConfigWithVersion(path, source, version) {
   const pattern =
     /"binaries\/iyw-claw-mcp-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)"/g
   const matches = [...source.matchAll(pattern)]
@@ -101,6 +105,10 @@ const updates = [
     "src-tauri/tauri.conf.json",
     tauriConfigWithVersion("src-tauri/tauri.conf.json", version),
   ],
+  ...["tauri.windows.conf.json", "tauri.windows-x86.conf.json"].map((name) => {
+    const path = `src-tauri/${name}`
+    return [path, externalBinConfigWithVersion(path, read(path), version)]
+  }),
   [
     "src-tauri/Cargo.toml",
     cargoManifestWithVersion("src-tauri/Cargo.toml", version),

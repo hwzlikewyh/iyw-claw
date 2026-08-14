@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import {
   EllipsisVertical,
+  Globe2,
   Menu,
   PanelRight,
   Search,
@@ -13,7 +14,7 @@ import { useTranslations } from "next-intl"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
-import { isDesktop, openFileDialog } from "@/lib/platform"
+import { isDesktop, isLocalDesktop, openFileDialog } from "@/lib/platform"
 import { openSettingsWindow } from "@/lib/api"
 import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { Button } from "@/components/ui/button"
@@ -37,6 +38,7 @@ import { TitleBarUpdateControl } from "./title-bar-update-control"
 import { SearchCommandDialog } from "@/components/conversations/search-command-dialog"
 import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useBrowser } from "@/contexts/browser-context"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -62,7 +64,12 @@ export function FolderTitleBar() {
   // Search open-state is shared (see search-dialog-context): this always-mounted
   // title bar owns the trigger, dialog, and the ⌘K shortcut.
   const { open: searchOpen, setOpen: setSearchOpen } = useSearchDialog()
-  const [browserOpen, setBrowserOpen] = useState(false)
+  const [directoryBrowserOpen, setDirectoryBrowserOpen] = useState(false)
+  const {
+    isOpen: sharedBrowserOpen,
+    state: browserState,
+    toggleBrowser,
+  } = useBrowser()
   const searchLabel = tTitleBar("withShortcut", {
     label: tTitleBar("search"),
     shortcut: formatShortcutLabel(shortcuts.toggle_search, isMac),
@@ -87,7 +94,7 @@ export function FolderTitleBar() {
         console.error("[FolderTitleBar] failed to open folder:", err)
       }
     } else {
-      setBrowserOpen(true)
+      setDirectoryBrowserOpen(true)
     }
   }, [openFolder])
 
@@ -187,6 +194,15 @@ export function FolderTitleBar() {
           isMobile ? (
             <div className="flex items-center gap-1">
               <TitleBarUpdateControl mobile />
+              {isLocalDesktop() && browserState?.capability.supported ? (
+                <BrowserTitleButton
+                  active={sharedBrowserOpen}
+                  status={browserState?.runtime.status}
+                  label={tTitleBar("browser")}
+                  onClick={() => void toggleBrowser()}
+                  mobile
+                />
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon"
@@ -250,6 +266,14 @@ export function FolderTitleBar() {
                 </Button>
               )}
               <TitleBarUpdateControl />
+              {isLocalDesktop() && browserState?.capability.supported ? (
+                <BrowserTitleButton
+                  active={sharedBrowserOpen}
+                  status={browserState?.runtime.status}
+                  label={tTitleBar("browser")}
+                  onClick={() => void toggleBrowser()}
+                />
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon"
@@ -266,8 +290,8 @@ export function FolderTitleBar() {
       />
       <SearchCommandDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <DirectoryBrowserDialog
-        open={browserOpen}
-        onOpenChange={setBrowserOpen}
+        open={directoryBrowserOpen}
+        onOpenChange={setDirectoryBrowserOpen}
         onSelect={(path) => {
           openFolder(path).catch((err) => {
             console.error("[FolderTitleBar] failed to open folder:", err)
@@ -275,5 +299,36 @@ export function FolderTitleBar() {
         }}
       />
     </>
+  )
+}
+
+function BrowserTitleButton({
+  active,
+  status,
+  label,
+  onClick,
+  mobile = false,
+}: {
+  active: boolean
+  status?: string
+  label: string
+  onClick: () => void
+  mobile?: boolean
+}) {
+  const alert = status === "failed" || status === "missing"
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className={`${mobile ? "h-8 w-8" : "h-6 w-6"} relative hover:text-foreground/80 ${active ? "bg-accent" : ""}`}
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+    >
+      <Globe2 className={mobile ? "h-4 w-4" : "h-3.5 w-3.5"} />
+      {alert ? (
+        <span className="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-destructive" />
+      ) : null}
+    </Button>
   )
 }

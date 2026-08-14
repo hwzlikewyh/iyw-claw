@@ -39,6 +39,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 
+import { prepareAgentBrowserSidecar } from "./prepare-agent-browser-sidecar.mjs"
 import { resolveSignMode, signFiles } from "./sign-windows.mjs"
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
@@ -217,6 +218,8 @@ async function main() {
       `bundle compatibility alias ${aliasChanged ? "staged" : "unchanged"} at ${compatPath}`
     )
   }
+
+  await prepareAgentBrowserSidecar(target, buildEnv)
 }
 
 if (

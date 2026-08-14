@@ -12,6 +12,67 @@
     "portuguese": "葡萄牙语",
     "arabic": "阿拉伯语"
   },
+  "Browser": {
+    "canvasInput": "浏览器输入",
+    "emptyTab": "暂无浏览器页签",
+    "connecting": "正在连接浏览器",
+    "streamDisconnected": "浏览器画面已断开",
+    "newTab": "新建页签",
+    "closeTab": "关闭页签",
+    "downloads": "下载内容",
+    "noDownloads": "暂无下载内容",
+    "cancelDownload": "取消下载",
+    "openDownload": "打开下载文件",
+    "revealDownload": "在文件夹中显示",
+    "back": "后退",
+    "forward": "前进",
+    "reload": "刷新",
+    "address": "地址和搜索",
+    "holdControl": "暂停 Agent 控制",
+    "releaseControl": "恢复 Agent 控制",
+    "shareWithAgent": "向当前 Agent 共享页签和浏览器登录态",
+    "keepPrivate": "仅自己使用此页签",
+    "detachTab": "将页签移到新窗口",
+    "dockTab": "将页签移回主窗口",
+    "closeBrowser": "关闭浏览器面板",
+    "chooseFiles": "选择要上传到网页的文件",
+    "cancel": "取消",
+    "confirm": "确定",
+    "retry": "重试",
+    "runtimeUnavailable": "请检查 Chrome 或 Edge 后重试。",
+    "tabStatus": {
+      "creating": "正在创建页签",
+      "live": "已就绪",
+      "navigating": "正在加载",
+      "crashed": "页签已崩溃",
+      "gone": "页签已关闭",
+      "closing": "正在关闭页签",
+      "closed": "页签已关闭"
+    },
+    "runtime": {
+      "unsupported": "当前环境不支持共享浏览器",
+      "missing": "浏览器组件不可用",
+      "verifying": "正在检查浏览器组件",
+      "ready": "浏览器已就绪",
+      "starting": "正在启动浏览器",
+      "running": "浏览器运行中",
+      "recovering": "正在恢复浏览器会话",
+      "stopping": "正在停止浏览器",
+      "failed": "浏览器会话已停止"
+    },
+    "dialog": {
+      "alert": "网页消息",
+      "confirm": "网页确认",
+      "prompt": "网页输入",
+      "before_unload": "要离开此页面吗？"
+    },
+    "downloadStatus": {
+      "in_progress": "下载中",
+      "completed": "已完成",
+      "cancelled": "已取消",
+      "failed": "下载失败"
+    }
+  },
   "GitCredentialDialog": {
     "title": "需要身份验证",
     "description": "远程服务器要求输入凭据。请输入用户名和密码（或个人访问令牌）。",
@@ -1840,6 +1901,7 @@
       "toggleAuxPanel": "切换辅助面板",
       "search": "搜索",
       "openSettings": "打开设置",
+      "browser": "共享浏览器",
       "withShortcut": "{label}（{shortcut}）"
     },
     "statusBar": {

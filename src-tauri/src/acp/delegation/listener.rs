@@ -15,17 +15,19 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{watch, RwLock};
+use tokio_util::sync::CancellationToken;
 
 use crate::acp::audio_transcription::AudioTranscriptionAccess;
 use crate::acp::automation_tools::{AutomationAgentService, LIST_SCHEDULED_TASK_PROJECTS_TOOL};
 use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::transport::{
     read_frame, write_frame, BrokerArtifactsRequest, BrokerAskRequest,
-    BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerCancelRequest,
-    BrokerCancelTaskRequest, BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest,
-    BrokerFeedbackRequest, BrokerImageAnalysisRequest, BrokerMemoryAppendRequest,
-    BrokerMemoryProposalRequest, BrokerMemoryProposalResult, BrokerMessage, BrokerRequest,
-    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
+    BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerBrowserRequest,
+    BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
+    BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
+    BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerMemoryProposalResult,
+    BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
+    COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
@@ -454,6 +456,17 @@ fn log_memory_append_result(
     }
 }
 
+fn browser_unavailable(code: &str) -> Value {
+    serde_json::json!({
+        "error": {
+            "code": code,
+            "message": "The shared browser is unavailable for this Agent session.",
+            "retryable": true,
+            "effectMayHaveOccurred": false,
+        }
+    })
+}
+
 fn log_memory_proposal_result(
     entry: &TokenEntry,
     content_chars: usize,
@@ -526,6 +539,7 @@ pub struct DelegationListener {
     /// tokenless because every local Agent already has terminal authority.
     pub automation: Arc<AutomationAgentService>,
     pub channel_tools: Arc<crate::acp::channel_tools::ChannelToolService>,
+    pub browser: Option<crate::browser::BrowserSessionManager>,
     pub confirmations:
         Arc<dyn crate::acp::channel_tools::confirmation::SessionChannelConfirmationAccess>,
 }
@@ -568,6 +582,7 @@ impl DelegationListener {
         audio_transcription: Arc<dyn AudioTranscriptionAccess>,
         automation: Arc<AutomationAgentService>,
         channel_tools: Arc<crate::acp::channel_tools::ChannelToolService>,
+        browser: Option<crate::browser::BrowserSessionManager>,
         confirmations: Arc<
             dyn crate::acp::channel_tools::confirmation::SessionChannelConfirmationAccess,
         >,
@@ -585,6 +600,7 @@ impl DelegationListener {
             audio_transcription,
             automation,
             channel_tools,
+            browser,
             confirmations,
         })
     }
@@ -816,6 +832,23 @@ impl DelegationListener {
                 self.serve_channel(conn, req).await?;
                 return Ok(());
             }
+            BrokerMessage::Browser(req) => {
+                let cancellation = CancellationToken::new();
+                let operation = self.process_browser(req, cancellation.clone());
+                tokio::pin!(operation);
+                let mut probe = [0u8; 1];
+                let outcome = tokio::select! {
+                    biased;
+                    outcome = &mut operation => Some(outcome),
+                    _ = conn.read(&mut probe) => None,
+                };
+                let Some(outcome) = outcome else {
+                    cancellation.cancel();
+                    let _ = operation.await;
+                    return Ok(());
+                };
+                BrokerResponse { outcome }
+            }
             BrokerMessage::AudioTranscription(req) => {
                 // Upload and bounded polling may take minutes. The companion
                 // closes this one-shot socket when MCP cancellation wins, which
@@ -930,6 +963,43 @@ impl DelegationListener {
         self.image_analysis
             .analyze(&entry.parent_connection_id, req)
             .await
+    }
+
+    async fn process_browser(
+        &self,
+        req: BrokerBrowserRequest,
+        request_cancellation: CancellationToken,
+    ) -> Value {
+        let Some(browser) = &self.browser else {
+            return browser_unavailable("BROWSER_UNSUPPORTED_RUNTIME");
+        };
+        let Some(entry) = self.tokens.lookup(&req.token).await else {
+            return browser_unavailable("BROWSER_SESSION_UNAVAILABLE");
+        };
+        let conversation_id = self
+            .parent_lookup
+            .current_conversation_id(&entry.parent_connection_id)
+            .await;
+        let cancellation = request_cancellation.child_token();
+        let bridged = cancellation.clone();
+        let session_cancellation = entry.cancellation.clone();
+        let bridge = tokio::spawn(async move {
+            session_cancellation.cancelled().await;
+            bridged.cancel();
+        });
+        let outcome = browser
+            .execute_agent_tool(crate::browser::BrowserAgentToolCall {
+                identity: crate::browser::BrowserAgentIdentity {
+                    connection_id: entry.parent_connection_id,
+                    conversation_id,
+                },
+                tool: req.tool,
+                input: req.input,
+                cancellation,
+            })
+            .await;
+        bridge.abort();
+        outcome
     }
 
     async fn process_audio_transcription(&self, req: BrokerAudioTranscriptionRequest) -> Value {

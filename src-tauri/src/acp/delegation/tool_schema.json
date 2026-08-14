@@ -184,6 +184,171 @@
     }
   },
   {
+    "name": "browser_list_tabs",
+    "description": "List browser tabs shared with this Agent connection or conversation. Returns tab ids, URLs, titles, runtime state, and current human/Agent control state. Use the returned browser_tab_id with the other browser tools.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_open",
+    "description": "Open an HTTP/HTTPS URL in the shared visible browser. Pass an accessible tab_id to navigate it. Omit tab_id to create another shared tab only after the user has shared at least one tab with this Agent conversation. New tabs use the same persistent browser profile and may inherit its sign-in state. The user can see and take over the same tab.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "HTTP/HTTPS URL, or about:blank."
+        },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Optional browser_tab_id from browser_list_tabs."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_snapshot",
+    "description": "Read a fresh accessibility snapshot for one shared browser tab. The snapshot contains stable @eN references for browser_click and browser_fill; take another snapshot after navigation or material page changes.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["tab_id"],
+      "properties": {
+        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "interactive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Return interactive elements only."
+        },
+        "compact": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove empty structural nodes."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_click",
+    "description": "Click an element in a shared browser tab using an @eN reference from the latest browser_snapshot or a CSS selector. Human input preempts this operation.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["tab_id", "selector"],
+      "properties": {
+        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "selector": { "type": "string", "minLength": 1, "maxLength": 2048 }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_fill",
+    "description": "Clear and fill an input in a shared browser tab using an @eN reference from the latest snapshot or a CSS selector. Never enter secrets unless the user explicitly supplied them for this task. Human input preempts this operation.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["tab_id", "selector", "text"],
+      "properties": {
+        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "selector": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "text": { "type": "string", "maxLength": 32768 }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_press",
+    "description": "Press a keyboard key or chord in a shared browser tab, for example Enter, Tab, Escape, or Control+a. Human input preempts this operation.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["tab_id", "key"],
+      "properties": {
+        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "key": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_scroll",
+    "description": "Scroll a shared browser tab in one direction. Human input preempts this operation.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["tab_id", "direction"],
+      "properties": {
+        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "direction": {
+          "type": "string",
+          "enum": ["up", "down", "left", "right"]
+        },
+        "pixels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 600
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_wait",
+    "description": "Wait for a selector to appear in a shared browser tab, or wait for a bounded number of milliseconds. Prefer a selector for deterministic page readiness.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["tab_id"],
+      "properties": {
+        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "selector": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "milliseconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30000,
+          "default": 1000
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_screenshot",
+    "description": "Capture a screenshot of a shared browser tab into iyw-claw's managed browser screenshot directory. Returns the generated local path; use analyze_image when visual inspection is needed.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["tab_id"],
+      "properties": {
+        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "full_page": { "type": "boolean", "default": false },
+        "annotate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Overlay labels that correspond to snapshot references."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_close_tab",
+    "description": "Close one browser tab accessible to the current Agent. This closes the same visible tab for the user, so use it only when the tab is no longer needed.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["tab_id"],
+      "properties": {
+        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "present_task_files",
     "description": "Call this after creating task deliverables and before the final response. Register every produced file, directory, or HTTP/HTTPS URL so iyw-claw can show and preview it in the workspace Artifacts panel. Accepts working-directory-relative paths, absolute paths, and web URLs.",
     "inputSchema": {

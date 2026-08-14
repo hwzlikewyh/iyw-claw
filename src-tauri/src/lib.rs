@@ -66,7 +66,7 @@ mod tauri_app {
         acp as acp_commands, agent_input as agent_input_commands,
         agent_storage as agent_storage_commands, agent_version_center_tauri,
         app_update as app_update_commands, automation as automation_commands,
-        automation_draft as automation_draft_commands, backup,
+        automation_draft as automation_draft_commands, backup, browser as browser_commands,
         chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
         chat_image as chat_image_commands, conversations, delegation as delegation_commands,
         display_assets as display_asset_commands, experts as experts_commands,
@@ -361,6 +361,9 @@ mod tauri_app {
                 unsafe {
                     std::env::set_var("IYW_CLAW_DATA_DIR", &effective_data_dir);
                 }
+                app.manage(crate::browser::BrowserSessionManager::new_desktop(
+                    effective_data_dir.clone(),
+                ));
 
                 // IR-006：更新后的首次启动对比持久区摘要（一次性记录）。
                 // 更新只替换 `app`，不触碰受管组件/用户数据；摘要变化意味着
@@ -845,6 +848,11 @@ mod tauri_app {
                                 app.state::<ChatChannelManager>().clone_ref(),
                             ),
                         ),
+                        Some(
+                            app.state::<crate::browser::BrowserSessionManager>()
+                                .inner()
+                                .clone(),
+                        ),
                         std::sync::Arc::new(
                             crate::acp::ConnectionManagerChannelConfirmationLookup {
                                 manager: std::sync::Arc::new(cm_state.clone_ref()),
@@ -983,7 +991,7 @@ mod tauri_app {
                     }
                     Ok::<(), tauri::Error>(())
                 })?;
-                windows::consume_pending_main_window_show(app);
+                windows::consume_pending_main_window_show(app.handle());
 
                 crate::logging::emergency::write_event(
                     "startup_ready",
@@ -1060,6 +1068,17 @@ mod tauri_app {
                         tauri::async_runtime::spawn(async move {
                             windows::cleanup_dangling_merge(&app_clone, &label_clone).await;
                         });
+                    }
+                }
+
+                if label.starts_with("browser-") {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        browser_commands::handle_browser_window_close(
+                            window.app_handle().clone(),
+                            label.clone(),
+                        );
+                        return;
                     }
                 }
 
@@ -1501,6 +1520,41 @@ mod tauri_app {
                 file_io::open_local_path,
                 remote_image_commands::fetch_remote_image,
                 display_asset_commands::read_display_asset,
+                browser_commands::browser_get_state,
+                browser_commands::browser_refresh_capability,
+                browser_commands::browser_start_runtime,
+                browser_commands::browser_stop_runtime,
+                browser_commands::browser_create_tab,
+                browser_commands::browser_close_tab,
+                browser_commands::browser_navigate_tab,
+                browser_commands::browser_back,
+                browser_commands::browser_forward,
+                browser_commands::browser_reload_tab,
+                browser_commands::browser_resize_viewport,
+                browser_commands::browser_subscribe_frames,
+                browser_commands::browser_ack_frame,
+                browser_commands::browser_get_frame_subscription,
+                browser_commands::browser_send_input,
+                browser_commands::browser_unsubscribe_frames,
+                browser_commands::browser_register_host,
+                browser_commands::browser_create_window,
+                browser_commands::browser_close_window,
+                browser_commands::browser_heartbeat_host,
+                browser_commands::browser_unregister_host,
+                browser_commands::browser_set_host_visible,
+                browser_commands::browser_activate_tab,
+                browser_commands::browser_begin_view_claim,
+                browser_commands::browser_subscribe_claim_frames,
+                browser_commands::browser_ack_claim_frame,
+                browser_commands::browser_commit_view_claim,
+                browser_commands::browser_abort_view_claim,
+                browser_commands::browser_set_user_held,
+                browser_commands::browser_set_tab_agent_access,
+                browser_commands::browser_answer_dialog,
+                browser_commands::browser_choose_files,
+                browser_commands::browser_cancel_download,
+                browser_commands::browser_open_download,
+                browser_commands::browser_reveal_download,
                 backup::backup_create,
                 backup::backup_inspect,
                 backup::backup_scan_external_conflicts,
@@ -1564,6 +1618,15 @@ mod tauri_app {
             tauri::RunEvent::ExitRequested { .. } => {
                 crate::logging::emergency::write_event("exit_requested", "begin", "shutdown", None);
                 APP_QUITTING.store(true, Ordering::Relaxed);
+                if let Some(browser) = app.try_state::<crate::browser::BrowserSessionManager>() {
+                    if let Err(error) = tauri::async_runtime::block_on(browser.shutdown()) {
+                        tracing::error!(
+                            target: "iyw_claw_browser",
+                            error_code = ?error.code,
+                            "browser shutdown did not complete cleanly"
+                        );
+                    }
+                }
                 if let Some(ws) = app.try_state::<web::WebServerState>() {
                     tauri::async_runtime::block_on(web::do_stop_web_server(&ws));
                 }

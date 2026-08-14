@@ -489,6 +489,7 @@ async fn async_main() -> ExitCode {
                 }),
                 state.chat_channel_manager.clone_ref(),
             )),
+            None,
             Arc::new(
                 iyw_claw_lib::acp::ConnectionManagerChannelConfirmationLookup {
                     manager: Arc::new(state.connection_manager.clone_ref()),

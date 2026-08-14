@@ -32,6 +32,8 @@
 //!   * `cancel` — fire-and-forget [`BrokerCancelRequest`] from MCP
 //!     `notifications/cancelled`, targeting an in-flight `delegate_to_agent`
 //!     call by `external_handle`; gets a `Value::Null` ack.
+//!   * `browser` — authenticated shared-browser operations. The listener derives
+//!     Agent identity from the launch token and cancels work on peer close.
 //!   * `automation` — global scheduled-task CRUD shared by MCP and the host CLI.
 //!
 //! Session-scoped arms are authenticated by the same per-launch `token`.
@@ -60,7 +62,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::acp::automation_tools::ScheduledTaskRequest;
 use crate::acp::question::QuestionSpec;
 
-pub const COMPANION_PROTOCOL_VERSION: u32 = 4;
+pub const COMPANION_PROTOCOL_VERSION: u32 = 5;
 
 const fn default_companion_protocol_version() -> u32 {
     COMPANION_PROTOCOL_VERSION
@@ -244,6 +246,18 @@ pub struct BrokerChannelRequest {
     pub input: Value,
 }
 
+/// Run one allow-listed shared-browser operation for the authenticated parent
+/// Agent. The listener derives connection and conversation identity from the
+/// launch token; the model cannot choose either scope.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerBrowserRequest {
+    pub token: String,
+    pub tool: String,
+    #[serde(default)]
+    pub input: Value,
+}
+
 /// Provider-neutral options accepted by the audio transcription MCP tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -337,6 +351,7 @@ pub enum BrokerMessage {
     Artifacts(BrokerArtifactsRequest),
     ImageAnalysis(BrokerImageAnalysisRequest),
     Channel(BrokerChannelRequest),
+    Browser(BrokerBrowserRequest),
     AudioTranscription(BrokerAudioTranscriptionRequest),
     AudioTranscriptionQuery(BrokerAudioTranscriptionQueryRequest),
     Automation(ScheduledTaskRequest),
@@ -449,6 +464,13 @@ pub async fn client_channel_round_trip(
     req: &BrokerChannelRequest,
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::Channel(req.clone())).await
+}
+
+pub async fn client_browser_round_trip(
+    socket_path: &str,
+    req: &BrokerBrowserRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::Browser(req.clone())).await
 }
 
 /// Dispatch a `cancel_delegation` request and read back the task report.

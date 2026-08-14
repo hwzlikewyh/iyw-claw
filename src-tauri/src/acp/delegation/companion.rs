@@ -48,16 +48,18 @@ use crate::acp::automation_tools::{ScheduledTaskOperation, ScheduledTaskRequest}
 use crate::acp::delegation::transport::{
     client_artifacts_round_trip, client_ask_round_trip,
     client_audio_transcription_query_round_trip, client_audio_transcription_round_trip,
-    client_automation_round_trip, client_cancel, client_cancel_task_round_trip,
-    client_channel_round_trip, client_commit_feedback, client_companion_ready_round_trip,
-    client_feedback_round_trip, client_image_analysis_round_trip, client_memory_append_round_trip,
+    client_automation_round_trip, client_browser_round_trip, client_cancel,
+    client_cancel_task_round_trip, client_channel_round_trip, client_commit_feedback,
+    client_companion_ready_round_trip, client_feedback_round_trip,
+    client_image_analysis_round_trip, client_memory_append_round_trip,
     client_memory_proposal_round_trip, client_round_trip, client_session_round_trip,
     client_status_round_trip, BrokerArtifactsRequest, BrokerAskRequest,
-    BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerCancelRequest,
-    BrokerCancelTaskRequest, BrokerChannelRequest, BrokerCommitFeedbackRequest,
-    BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
-    BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerRequest, BrokerResponse,
-    BrokerSessionRequest, BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
+    BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerBrowserRequest,
+    BrokerCancelRequest, BrokerCancelTaskRequest, BrokerChannelRequest,
+    BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest, BrokerFeedbackRequest,
+    BrokerImageAnalysisRequest, BrokerMemoryAppendRequest, BrokerMemoryProposalRequest,
+    BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
+    COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -173,6 +175,7 @@ pub struct CompanionFeatures {
     pub memory_proposal: bool,
     pub artifacts: bool,
     pub channels: bool,
+    pub browser: bool,
 }
 
 impl CompanionFeatures {
@@ -193,6 +196,7 @@ impl CompanionFeatures {
                 memory_proposal: false,
                 artifacts: false,
                 channels: false,
+                browser: false,
             };
         };
         let mut f = Self {
@@ -205,6 +209,7 @@ impl CompanionFeatures {
             memory_proposal: false,
             artifacts: false,
             channels: false,
+            browser: false,
         };
         for tok in s.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             match tok {
@@ -217,6 +222,7 @@ impl CompanionFeatures {
                 "memory-proposal" => f.memory_proposal = true,
                 "artifacts" => f.artifacts = true,
                 "channels" => f.channels = true,
+                "browser" => f.browser = true,
                 _ => {}
             }
         }
@@ -235,6 +241,7 @@ impl CompanionFeatures {
             "propose_user_memory" => self.memory_proposal,
             "present_task_files" => self.artifacts,
             name if crate::acp::channel_tools::CHANNEL_TOOL_NAMES.contains(&name) => self.channels,
+            name if crate::browser::BROWSER_AGENT_TOOL_NAMES.contains(&name) => self.browser,
             "list_scheduled_task_projects"
             | "list_scheduled_tasks"
             | "create_scheduled_task"
@@ -548,6 +555,16 @@ async fn build_tools_call_spawn(
             let round_trip =
                 Box::pin(async move { client_channel_round_trip(&socket, &req).await });
             register_and_spawn(inflight, id, None, round_trip, render_channel_result).await
+        }
+        browser_tool if crate::browser::BROWSER_AGENT_TOOL_NAMES.contains(&browser_tool) => {
+            let req = BrokerBrowserRequest {
+                token: ctx.token.clone(),
+                tool: browser_tool.to_string(),
+                input: arguments,
+            };
+            let round_trip =
+                Box::pin(async move { client_browser_round_trip(&socket, &req).await });
+            register_and_spawn(inflight, id, None, round_trip, render_browser_result).await
         }
         "present_task_files" => {
             let files = match parse_artifact_files(&arguments) {
@@ -1535,6 +1552,17 @@ pub fn render_channel_result(outcome: &Value) -> Value {
     let is_error = outcome.get("error").is_some();
     let text = serde_json::to_string(outcome)
         .unwrap_or_else(|_| String::from("{\"error\":\"CHANNEL_RESULT_INVALID\"}"));
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": is_error,
+        "structuredContent": outcome.clone(),
+    })
+}
+
+pub fn render_browser_result(outcome: &Value) -> Value {
+    let is_error = outcome.get("error").is_some();
+    let text = serde_json::to_string(outcome)
+        .unwrap_or_else(|_| String::from("{\"error\":\"BROWSER_RESULT_INVALID\"}"));
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": is_error,

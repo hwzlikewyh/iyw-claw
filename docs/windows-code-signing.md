@@ -31,7 +31,7 @@ $env:IYW_CLAW_SIGN_MODE = "signtool"
 $env:IYW_CLAW_SIGN_THUMBPRINT = "<证书 SHA-1 指纹>"
 pnpm tauri:build:signed
 
-# 构建后校验所有产物都带签名
+# 构建后校验所有第一方可执行产物都带签名
 pnpm sign:verify
 ```
 
@@ -61,7 +61,7 @@ Get-ChildItem Cert:\CurrentUser\My | Select-Object Thumbprint, Subject
 
 三个环节，缺一个就等于没签：
 
-1. **sidecar** —— `prepare-sidecars.mjs` 在 cargo 产出后、拷贝到各处之前签名一次。
+1. **第一方 sidecar** —— `prepare-sidecars.mjs` 在 cargo 产出后、拷贝到各处之前签名一次。
    之后 `binaries/` 和 bundle 兼容别名都是这个已签名文件的副本，不存在某个布局漏签。
    这一步必须在这里做:默认构建路径下该脚本跑在 `tauri build` 的 `beforeBuildCommand` 内部，
    外层脚本没有插入点。
@@ -70,6 +70,9 @@ Get-ChildItem Cert:\CurrentUser\My | Select-Object Thumbprint, Subject
 
 顺序不能颠倒：如果在 bundler 之后再补签 Authenticode，会改动安装器字节从而使 `.sig` 失效，
 自更新校验就会失败。所以签名必须由 bundler 驱动，不能作为构建后的独立步骤。
+
+`agent-browser` 是例外：它保持上游发布字节不变，由构建脚本和运行时共同校验固定大小与
+SHA-256，不加入宽泛的 Authenticode 信任边界，也不计入第一方签名扫描。
 
 ## 为什么用 signCommand 而不是 certificateThumbprint
 
@@ -105,7 +108,7 @@ USB token 无法在 GitHub 托管 runner 上使用（需要物理设备），只
 ## 校验产物
 
 ```powershell
-pnpm sign:verify              # 任一产物无签名则 exit 1
+pnpm sign:verify              # 任一第一方产物无签名则 exit 1
 pnpm sign:verify -- --warn    # 只报告
 node src-tauri/scripts/verify-signatures.mjs path\to\one.exe   # 指定文件
 ```

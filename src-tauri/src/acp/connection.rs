@@ -558,7 +558,7 @@ impl AgentConnection {
         let command_queued = match self.cmd_tx.try_send(ConnectionCommand::Disconnect) {
             Ok(()) => true,
             Err(error) => {
-                if !error.is_closed() {
+                if matches!(error, tokio::sync::mpsc::error::TrySendError::Full(_)) {
                     tracing::info!(
                         connection_id = self.id,
                         "[ACP] disconnect command queue busy; using cancellation fallback"
@@ -2179,6 +2179,16 @@ async fn prepare_iyw_claw_mcp(
         sessions_enabled,
         memory_access.confirmed_append,
     );
+    let browser_enabled = cfg!(all(
+        feature = "tauri-runtime",
+        target_os = "windows",
+        target_arch = "x86_64"
+    )) && crate::browser::BROWSER_AGENT_TOOL_NAMES
+        .iter()
+        .all(|tool| has_tool(tool));
+    if browser_enabled {
+        features_arg.push_str(",browser");
+    }
     if memory_access.candidate_proposal {
         features_arg.push_str(",memory-proposal");
     }
@@ -2218,6 +2228,7 @@ async fn prepare_iyw_claw_mcp(
                 memory_proposal_enabled: memory_access.candidate_proposal,
                 opaque_source_id,
                 memory_turn_tracker: memory_access.turn_tracker,
+                cancellation: tokio_util::sync::CancellationToken::new(),
             },
         )
         .await;

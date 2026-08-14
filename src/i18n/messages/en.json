@@ -12,6 +12,67 @@
     "portuguese": "Portuguese",
     "arabic": "Arabic"
   },
+  "Browser": {
+    "canvasInput": "Browser input",
+    "emptyTab": "No browser tab",
+    "connecting": "Connecting to browser",
+    "streamDisconnected": "Browser view disconnected",
+    "newTab": "New tab",
+    "closeTab": "Close tab",
+    "downloads": "Downloads",
+    "noDownloads": "No downloads",
+    "cancelDownload": "Cancel download",
+    "openDownload": "Open download",
+    "revealDownload": "Show in folder",
+    "back": "Back",
+    "forward": "Forward",
+    "reload": "Reload",
+    "address": "Address and search",
+    "holdControl": "Pause Agent control",
+    "releaseControl": "Resume Agent control",
+    "shareWithAgent": "Share tab and browser sign-ins with current Agent",
+    "keepPrivate": "Keep tab private",
+    "detachTab": "Move tab to a new window",
+    "dockTab": "Move tab to main window",
+    "closeBrowser": "Close browser panel",
+    "chooseFiles": "Choose files for browser upload",
+    "cancel": "Cancel",
+    "confirm": "OK",
+    "retry": "Retry",
+    "runtimeUnavailable": "Check Chrome or Edge and try again.",
+    "tabStatus": {
+      "creating": "Creating tab",
+      "live": "Ready",
+      "navigating": "Loading",
+      "crashed": "Tab crashed",
+      "gone": "Tab was closed",
+      "closing": "Closing tab",
+      "closed": "Tab closed"
+    },
+    "runtime": {
+      "unsupported": "Shared browser is not supported here",
+      "missing": "Browser components are unavailable",
+      "verifying": "Checking browser components",
+      "ready": "Browser is ready",
+      "starting": "Starting browser",
+      "running": "Browser is running",
+      "recovering": "Recovering browser session",
+      "stopping": "Stopping browser",
+      "failed": "Browser session stopped"
+    },
+    "dialog": {
+      "alert": "Website message",
+      "confirm": "Website confirmation",
+      "prompt": "Website input",
+      "before_unload": "Leave this page?"
+    },
+    "downloadStatus": {
+      "in_progress": "Downloading",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "failed": "Failed"
+    }
+  },
   "GitCredentialDialog": {
     "title": "Authentication Required",
     "description": "The remote server requires credentials. Enter your username and password (or personal access token).",
@@ -1840,6 +1901,7 @@
       "toggleAuxPanel": "Toggle Auxiliary Panel",
       "search": "Search",
       "openSettings": "Open Settings",
+      "browser": "Shared browser",
       "withShortcut": "{label} ({shortcut})"
     },
     "statusBar": {

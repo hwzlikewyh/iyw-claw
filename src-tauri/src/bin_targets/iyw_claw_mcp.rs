@@ -4,7 +4,7 @@
 //! steering notes), `ask_user_question` (block on a multiple-choice card), and
 //! `get_session_info` (resolve a referenced session by id), gated by the
 //! `--features` groups (`delegation` / `feedback` / `ask` / `sessions` /
-//! `images` / `memory` / `memory-proposal`).
+//! `images` / `memory` / `memory-proposal` / `browser`).
 //!
 //! The agent's MCP config (injected by iyw-claw via `load_mcp_servers_for_agent`)
 //! spawns this binary with three required flags:

@@ -11100,7 +11100,7 @@ fn inventory_skill_for_agent(
     if !include_disabled && !actual_enabled {
         return None;
     }
-    let observation = inventory_observation_for_agent(&skill, agent_type)?;
+    let observation = inventory_observation_for_agent(&skill, agent_type).cloned()?;
     let location = observation
         .locations
         .iter()

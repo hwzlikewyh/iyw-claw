@@ -14,6 +14,8 @@ pub mod app_update;
 pub mod automation;
 pub mod automation_draft;
 pub mod backup;
+#[cfg(feature = "tauri-runtime")]
+pub mod browser;
 pub mod chat_attachments;
 pub mod chat_channel;
 pub mod chat_image;

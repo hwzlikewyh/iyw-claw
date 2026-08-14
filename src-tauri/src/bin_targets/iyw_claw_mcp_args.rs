@@ -80,7 +80,7 @@ fn required(value: Option<String>, flag: &str) -> Result<String, String> {
 
 fn print_help() {
     println!(
-        "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--agent-type <type>] [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images,memory,memory-proposal,artifacts] [--working-dir <path>]\n\
+        "iyw-claw-mcp --parent-connection-id <uuid> --socket-path <path> --token <secret> [--agent-type <type>] [--parent-pid <pid>] [--features delegation,feedback,ask,sessions,images,memory,memory-proposal,artifacts,browser] [--working-dir <path>]\n\
          iyw-claw-mcp tool scheduled-task <list|create|update|delete> [--input <json>|--stdin] [--socket-path <path>] [--agent-type <type>]"
     );
     std::process::exit(0);

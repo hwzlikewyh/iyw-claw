@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Verify Authenticode signatures on the artifacts a Windows release ships.
+ * Verify Authenticode signatures on first-party Windows release executables.
  *
  * A signed build can still emit unsigned files: `signCommand` only covers what
  * the bundler hands it, and the sidecars are signed by prepare-sidecars.mjs on
@@ -73,12 +73,13 @@ export function collectArtifacts(srcTauri = SRC_TAURI) {
     }
   }
 
-  // Sidecars staged for externalBin. Zero-length files are stale placeholders
-  // from earlier releases; they never ship, and signtool would fail on them.
+  // First-party sidecars staged for externalBin. agent-browser stays as exact
+  // upstream bytes and is gated separately by a pinned size and SHA-256.
   const binaries = join(srcTauri, "binaries")
   if (existsSync(binaries)) {
     for (const name of readdirSync(binaries)) {
       if (!name.toLowerCase().endsWith(".exe")) continue
+      if (name.toLowerCase().startsWith("agent-browser-")) continue
       const file = join(binaries, name)
       if (statSync(file).size > 0) artifacts.push(file)
     }

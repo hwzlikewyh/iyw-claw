@@ -28,7 +28,7 @@ fn link_windows_test_manifest() {
 }
 
 /// Tauri's bundler validates that every `bundle.externalBin` path resolves
-/// to an existing file at build.rs time. The real `iyw-claw-mcp` sidecar is
+/// to an existing file at build.rs time. The real application sidecars are
 /// produced by `pnpm tauri:prepare-sidecars` (invoked from
 /// `beforeBuildCommand` / `beforeDevCommand` and the CI release matrix) —
 /// but plain `cargo check --features tauri-runtime` doesn't go through that
@@ -39,7 +39,7 @@ fn link_windows_test_manifest() {
 /// `cargo check` / clippy / rust-analyzer succeed. Production paths
 /// overwrite the placeholder with the real binary before Tauri bundles it:
 ///   * `pnpm tauri build`  → `beforeBuildCommand` → `prepare-sidecars.mjs`
-///   * release.yml         → explicit "Stage iyw-claw-mcp sidecar" step
+///   * release.yml         → explicit sidecar staging step
 ///   * `pnpm tauri dev`    → `beforeDevCommand` → `prepare-sidecars.mjs`
 ///
 /// If you ever bypass those wrappers (e.g. invoking the Tauri CLI directly
@@ -62,6 +62,9 @@ fn ensure_sidecar_placeholders() {
     let versioned_mcp = format!("iyw-claw-mcp-{}", env!("CARGO_PKG_VERSION"));
     for name in ["iyw-claw-mcp", versioned_mcp.as_str(), "uv", "uvx"] {
         ensure_sidecar_placeholder(&dir, name, &triple, ext);
+    }
+    if triple.contains("windows") {
+        ensure_sidecar_placeholder(&dir, "agent-browser", &triple, ext);
     }
 }
 
