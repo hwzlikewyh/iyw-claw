@@ -40,8 +40,8 @@ async fn apply_plugin_availability(
         .map(|value| value.slug)
         .collect::<BTreeSet<_>>();
     for skill in skills {
-        let plugin_slugs = skill
-            .observations
+        let primary = super::group::primary_observations(&skill.observations);
+        let plugin_slugs = primary
             .iter()
             .filter_map(|value| value.plugin_slug.as_ref())
             .collect::<BTreeSet<_>>();
@@ -182,8 +182,7 @@ fn blocked_reason(skill: &LogicalSkillInventoryItem, agent_type: AgentType) -> O
         Some(format!("plugin_unavailable:{}", skill.skill_id))
     } else if skill.stale_market_record {
         Some(format!("stale_market_record:{}", skill.skill_id))
-    } else if skill
-        .observations
+    } else if super::group::primary_observations(&skill.observations)
         .iter()
         .all(|value| value.content_tree_hash.is_none())
     {
@@ -194,17 +193,19 @@ fn blocked_reason(skill: &LogicalSkillInventoryItem, agent_type: AgentType) -> O
 }
 
 fn agent_eligible(skill: &LogicalSkillInventoryItem, agent_type: AgentType) -> bool {
-    skill.observations.iter().any(|observation| {
-        observation.locations.iter().any(|location| {
-            location.agent_types.contains(&agent_type)
-                || matches!(
-                    observation.ownership,
-                    super::types::SkillInventoryOwnership::IywManaged
-                        | super::types::SkillInventoryOwnership::Market
-                        | super::types::SkillInventoryOwnership::Plugin
-                )
+    super::group::primary_observations(&skill.observations)
+        .iter()
+        .any(|observation| {
+            observation.locations.iter().any(|location| {
+                location.agent_types.contains(&agent_type)
+                    || matches!(
+                        observation.ownership,
+                        super::types::SkillInventoryOwnership::IywManaged
+                            | super::types::SkillInventoryOwnership::Market
+                            | super::types::SkillInventoryOwnership::Plugin
+                    )
+            })
         })
-    })
 }
 
 fn enable_closure(

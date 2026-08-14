@@ -327,61 +327,7 @@ fn load_bundled_metadata_inner() -> Result<Vec<ExpertMetadata>, ExpertsError> {
 }
 
 fn active_metadata() -> Vec<ExpertMetadata> {
-    let repo = crate::system_skills::repository_dir();
-    let manifest = repo.join(EXPERTS_TOML);
-    if manifest.is_file() {
-        match load_disk_metadata(&manifest, &repo) {
-            Ok(metadata) => return metadata,
-            Err(error) => tracing::warn!(
-                target: "system_skills",
-                "remote expert metadata is invalid; using embedded metadata: {error}"
-            ),
-        }
-    }
-    if repo.join(".git").is_dir() {
-        return bundled_metadata()
-            .iter()
-            .filter(|metadata| repo.join(&metadata.id).join("SKILL.md").is_file())
-            .cloned()
-            .collect();
-    }
     bundled_metadata().to_vec()
-}
-
-fn load_disk_metadata(path: &Path, root: &Path) -> Result<Vec<ExpertMetadata>, ExpertsError> {
-    let content = fs::read_to_string(path)?;
-    let parsed: ExpertsTomlRoot =
-        toml::from_str(&content).map_err(|error| ExpertsError::Metadata(error.to_string()))?;
-    validate_expert_entries(&parsed.expert)?;
-    let mut metadata = Vec::with_capacity(parsed.expert.len());
-    for entry in parsed.expert {
-        crate::commands::acp::validate_skill_id(&entry.id)
-            .map_err(|error| ExpertsError::Metadata(error.to_string()))?;
-        if !root.join(&entry.id).join("SKILL.md").is_file() {
-            return Err(ExpertsError::Metadata(format!(
-                "system skill '{}' is missing SKILL.md",
-                entry.id
-            )));
-        }
-        let package_type = package_type(&entry.dependencies).to_string();
-        metadata.push(ExpertMetadata {
-            id: entry.id,
-            category: entry.category,
-            package_type,
-            dependencies: entry.dependencies,
-            icon: entry.icon,
-            sort_order: entry.sort_order,
-            display_name: entry.display_name,
-            description: entry.description,
-            bundled_hash: String::new(),
-        });
-    }
-    metadata.sort_by(|left, right| {
-        left.sort_order
-            .cmp(&right.sort_order)
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    Ok(metadata)
 }
 
 fn package_type(dependencies: &[String]) -> &'static str {
@@ -626,6 +572,12 @@ fn collect_disk_files(
         let file_type = entry.file_type()?;
         let child = entry.path();
         if file_type.is_dir() {
+            if RUNTIME_ENV_DIR_NAMES
+                .iter()
+                .any(|name| child.file_name().is_some_and(|value| value == *name))
+            {
+                continue;
+            }
             collect_disk_files(base, &child, out)?;
         } else if file_type.is_file() {
             let rel = child
@@ -990,6 +942,7 @@ pub async fn ensure_central_experts_installed() -> InstallReport {
 }
 
 fn ensure_central_experts_installed_blocking() -> InstallReport {
+    let _shared_guard = crate::commands::acp::shared_skill_mutation_guard();
     let mut report = InstallReport::default();
 
     let central = central_experts_dir();
@@ -997,17 +950,6 @@ fn ensure_central_experts_installed_blocking() -> InstallReport {
         report
             .errors
             .push(format!("failed to create central dir: {e}"));
-        return report;
-    }
-
-    if crate::system_skills::repository_dir().join(".git").is_dir() {
-        let ids = active_metadata()
-            .into_iter()
-            .map(|metadata| metadata.id)
-            .collect::<Vec<_>>();
-        if let Err(error) = reconcile_system_repo_links_locked(&ids) {
-            report.errors.push(error.to_string());
-        }
         return report;
     }
 
@@ -1049,12 +991,25 @@ fn install_or_refresh_expert(
     manifest: &mut Manifest,
 ) -> Result<InstallAction, ExpertsError> {
     let central_path = expert_central_path(&meta.id);
+    if crate::commands::acp::read_market_skill_marker(&central_path).is_some() {
+        tracing::debug!(
+            target: "system_skills",
+            skill_id = %meta.id,
+            "keeping market override for bundled Skill"
+        );
+        return Ok(InstallAction::Skipped);
+    }
     let bundled_hash = &meta.bundled_hash;
     let manifest_entry = manifest.experts.get(&meta.id).cloned().unwrap_or_default();
+    let path_exists = fs::symlink_metadata(&central_path).is_ok();
+    let legacy_source = crate::system_skills::repository_dir().join(&meta.id);
+    let legacy_copy = managed_copy_is_owned(&legacy_source, &central_path);
+    let legacy_link = !legacy_copy && managed_link_is_owned(&legacy_source, &central_path);
 
-    if central_path.exists() {
+    if path_exists {
         let on_disk_hash = hash_disk_directory(&central_path).unwrap_or_default();
-        if &on_disk_hash == bundled_hash {
+        if &on_disk_hash == bundled_hash && !legacy_link && !legacy_copy {
+            migrate_runtime_envs(&central_path, &legacy_source, &meta.id)?;
             // Up-to-date and pristine. Ensure manifest matches.
             if manifest_entry.hash != *bundled_hash {
                 manifest.experts.insert(
@@ -1068,31 +1023,157 @@ fn install_or_refresh_expert(
             }
             return Ok(InstallAction::Skipped);
         }
-
-        // Pristine or user-modified but outdated → overwrite.
-        remove_skill_entry(&central_path)
-            .map_err(|e| ExpertsError::Io(format!("remove stale expert: {e}")))?;
-        extract_expert_to_disk(meta, &central_path)?;
-        manifest.experts.insert(
-            meta.id.clone(),
-            ManifestEntry {
-                hash: bundled_hash.clone(),
-                installed_at: Utc::now().to_rfc3339(),
-                pending_user_review: false,
-            },
-        );
-        Ok(InstallAction::Updated)
+    }
+    refresh_bundled_expert(meta, &central_path, &legacy_source, legacy_link)?;
+    manifest.experts.insert(
+        meta.id.clone(),
+        ManifestEntry {
+            hash: bundled_hash.clone(),
+            installed_at: Utc::now().to_rfc3339(),
+            pending_user_review: false,
+        },
+    );
+    Ok(if path_exists {
+        InstallAction::Updated
     } else {
-        extract_expert_to_disk(meta, &central_path)?;
-        manifest.experts.insert(
-            meta.id.clone(),
-            ManifestEntry {
-                hash: bundled_hash.clone(),
-                installed_at: Utc::now().to_rfc3339(),
-                pending_user_review: false,
-            },
-        );
-        Ok(InstallAction::Installed)
+        InstallAction::Installed
+    })
+}
+
+fn refresh_bundled_expert(
+    meta: &ExpertMetadata,
+    target: &Path,
+    legacy_source: &Path,
+    legacy_link: bool,
+) -> Result<(), ExpertsError> {
+    if legacy_link {
+        return refresh_bundled_from_legacy_link(meta, target, legacy_source);
+    }
+    let backup = stage_bundled_runtime_envs(target, &meta.id)?;
+    if let Err(error) = replace_bundled_directory(meta, target) {
+        return Err(restore_runtime_backup(&backup, target, &meta.id, error));
+    }
+    if let Err(error) = migrate_runtime_envs(target, &backup, &meta.id) {
+        return Err(restore_runtime_backup(&backup, target, &meta.id, error));
+    }
+    remove_runtime_backup(&backup, &meta.id)?;
+    migrate_runtime_envs(target, legacy_source, &meta.id)
+}
+
+fn refresh_bundled_from_legacy_link(
+    meta: &ExpertMetadata,
+    target: &Path,
+    legacy_source: &Path,
+) -> Result<(), ExpertsError> {
+    remove_skill_entry(target)
+        .map_err(|error| superseded_skill_dir_error(&meta.id, target, error))?;
+    if let Err(error) = extract_expert_to_disk(meta, target) {
+        return Err(restore_legacy_link(legacy_source, target, &meta.id, error));
+    }
+    if let Err(error) = migrate_runtime_envs(target, legacy_source, &meta.id) {
+        return Err(rollback_legacy_runtime_migration(
+            legacy_source,
+            target,
+            &meta.id,
+            error,
+        ));
+    }
+    Ok(())
+}
+
+fn rollback_legacy_runtime_migration(
+    legacy_source: &Path,
+    target: &Path,
+    id: &str,
+    original_error: ExpertsError,
+) -> ExpertsError {
+    let restored = restore_runtime_envs(target, legacy_source, id, original_error);
+    if retained_runtime_env_dir(target).is_some() {
+        return ExpertsError::Io(format!(
+            "{restored}; partial bundled Skill for '{id}' was retained for a later migration retry"
+        ));
+    }
+    restore_legacy_link(legacy_source, target, id, restored)
+}
+
+fn replace_bundled_directory(meta: &ExpertMetadata, target: &Path) -> Result<(), ExpertsError> {
+    if fs::symlink_metadata(target).is_ok() {
+        remove_superseded_skill_dir(target, &meta.id)?;
+    }
+    extract_expert_to_disk(meta, target)
+}
+
+fn stage_bundled_runtime_envs(target: &Path, id: &str) -> Result<PathBuf, ExpertsError> {
+    let backup = target.with_file_name(format!(".{id}.bundled-runtime-backup"));
+    if fs::symlink_metadata(&backup)
+        .is_ok_and(|metadata| !metadata.is_dir() || metadata.file_type().is_symlink())
+    {
+        return Err(ExpertsError::Io(format!(
+            "runtime environment backup for '{id}' is not a directory: {}",
+            backup.display()
+        )));
+    }
+    if let Some(blocked) = blocking_runtime_env_dir(&backup, target) {
+        return Err(ExpertsError::Io(format!(
+            "cannot stage runtime environment for '{id}': {} already exists",
+            blocked.display()
+        )));
+    }
+    if retained_runtime_env_dir(target).is_none() {
+        return Ok(backup);
+    }
+    fs::create_dir_all(&backup)?;
+    if let Err(error) = migrate_runtime_envs(&backup, target, id) {
+        return Err(restore_runtime_backup(&backup, target, id, error));
+    }
+    Ok(backup)
+}
+
+fn remove_runtime_backup(backup: &Path, id: &str) -> Result<(), ExpertsError> {
+    if fs::symlink_metadata(backup).is_err() {
+        return Ok(());
+    }
+    fs::remove_dir(backup).map_err(|error| {
+        ExpertsError::Io(format!(
+            "remove runtime environment backup for '{id}' at {}: {error}",
+            backup.display()
+        ))
+    })
+}
+
+fn restore_runtime_backup(
+    backup: &Path,
+    target: &Path,
+    id: &str,
+    original_error: ExpertsError,
+) -> ExpertsError {
+    let restored = restore_runtime_envs(backup, target, id, original_error);
+    match remove_runtime_backup(backup, id) {
+        Ok(()) => restored,
+        Err(cleanup_error) => ExpertsError::Io(format!("{restored}; {cleanup_error}")),
+    }
+}
+
+fn restore_legacy_link(
+    source: &Path,
+    target: &Path,
+    id: &str,
+    original_error: ExpertsError,
+) -> ExpertsError {
+    let cleanup = fs::symlink_metadata(target)
+        .is_ok()
+        .then(|| remove_skill_entry(target))
+        .transpose();
+    if let Err(error) = cleanup {
+        return ExpertsError::Io(format!(
+            "{original_error}; failed to clear partial bundled Skill for '{id}': {error}"
+        ));
+    }
+    match create_link_raw(source, target) {
+        Ok(_) => original_error,
+        Err(error) => ExpertsError::Io(format!(
+            "{original_error}; failed to restore legacy link for '{id}': {error}"
+        )),
     }
 }
 
@@ -1734,12 +1815,11 @@ fn prepare_system_skill_target(
     Ok(SystemSkillTarget::Ready)
 }
 
-/// Delete the directory that the repository checkout supersedes.
+/// Delete a directory that a managed bundled or repository source supersedes.
 ///
 /// Unlike the rename this replaced, there is no copy left behind to fall back
-/// to. That is deliberate: the content lives in the system repository, so a
-/// failed link is recovered by the next reconcile rather than from a sibling
-/// directory, and the skill never picks up a second name on disk.
+/// to. Recovery comes from the managed source or the next bundled extraction,
+/// so the skill never picks up a second name on disk.
 fn remove_superseded_skill_dir(target: &Path, id: &str) -> Result<(), ExpertsError> {
     // Runtime environments are moved out before this point; refuse to delete if
     // one is somehow still here rather than destroy an installed environment.
@@ -1781,6 +1861,14 @@ fn restore_runtime_envs(
     original_error: ExpertsError,
 ) -> ExpertsError {
     let mut failures = Vec::new();
+    if retained_runtime_env_dir(source).is_some() && !target.is_dir() {
+        if let Err(error) = fs::create_dir_all(target) {
+            return ExpertsError::Io(format!(
+                "{original_error}; failed to recreate {} for runtime restoration: {error}",
+                target.display()
+            ));
+        }
+    }
     for name in RUNTIME_ENV_DIR_NAMES {
         let moved = source.join(name);
         let original = target.join(name);
@@ -1892,9 +1980,8 @@ fn refresh_runtime_venv_from_copy(
     Ok(())
 }
 
-/// Move every runtime environment directory out of the skill directory at
-/// `target` and into the system repository checkout at `source`, so installed
-/// dependencies survive the switch to a managed link instead of being rebuilt.
+/// Move every runtime environment directory out of `target` and into `source`,
+/// so installed dependencies survive managed source replacement.
 ///
 /// Callers must clear this with [`blocking_runtime_env_dir`] first: this moves
 /// only what `source` has room for, so a collision it did not screen out would

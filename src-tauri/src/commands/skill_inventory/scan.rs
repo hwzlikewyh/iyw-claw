@@ -277,9 +277,7 @@ fn classify_ownership(
     central: &str,
     market: Option<&crate::commands::acp::MarketSkillMarker>,
 ) -> SkillInventoryOwnership {
-    if item.read_only {
-        SkillInventoryOwnership::AgentBuiltin
-    } else if market.is_some_and(|value| value.plugin_slug.is_some()) {
+    if market.is_some_and(|value| value.plugin_slug.is_some()) {
         SkillInventoryOwnership::Plugin
     } else if item.market_managed {
         SkillInventoryOwnership::Market
@@ -289,6 +287,8 @@ fn classify_ownership(
             .is_some_and(|suffix| suffix.starts_with('/'))
     {
         SkillInventoryOwnership::IywManaged
+    } else if item.read_only {
+        SkillInventoryOwnership::AgentBuiltin
     } else {
         SkillInventoryOwnership::Manual
     }

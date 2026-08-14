@@ -28,12 +28,18 @@ function inventoryKey(skill: LogicalSkillInventoryItem) {
   return `${skill.scope}:${skill.skillId}`
 }
 
+function isPureBuiltin(skill: LogicalSkillInventoryItem) {
+  return skill.observations.every((observation) => observation.readOnly)
+}
+
 export function InstalledInventoryView(props: InstalledInventoryProps) {
   const t = useTranslations("SkillMarketV2.inventory")
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const skills = useMemo(() => {
     const query = props.query.trim().toLocaleLowerCase()
-    const all = props.snapshot?.skills ?? []
+    const all = (props.snapshot?.skills ?? []).filter(
+      (skill) => !isPureBuiltin(skill)
+    )
     if (!query) return all
     return all.filter((skill) =>
       `${skill.name} ${skill.skillId} ${skill.description ?? ""}`

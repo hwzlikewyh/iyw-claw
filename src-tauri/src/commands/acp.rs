@@ -5358,6 +5358,8 @@ pub(crate) fn build_skill_item(
     let market = read_market_skill_marker(&path);
     let market_managed = is_market_skill_source(&path);
     let official = is_official_skill_source(&path);
+    let bundled_read_only =
+        !market_managed && is_bundled_expert_id(&id) && path.starts_with(shared_skills_dir());
     AgentSkillItem {
         name,
         id,
@@ -5367,7 +5369,7 @@ pub(crate) fn build_skill_item(
         description,
         enabled,
         copy_mode: false,
-        read_only: false,
+        read_only: bundled_read_only,
         official,
         market_managed,
         market_skill_id: market.as_ref().map(|value| value.skill_id.to_string()),
@@ -5415,6 +5417,25 @@ fn ensure_shared_skill_writable(skill_id: &str) -> Result<(), AcpError> {
         )));
     }
     Ok(())
+}
+
+fn ensure_market_install_source_writable(skill_id: &str) -> Result<(), AcpError> {
+    if is_bundled_expert_id(skill_id) {
+        return Ok(());
+    }
+    ensure_shared_skill_writable(skill_id)
+}
+
+fn is_bundled_market_override(skill_id: &str) -> bool {
+    is_bundled_expert_id(skill_id)
+        && read_market_skill_marker(&shared_skill_path(skill_id)).is_some()
+}
+
+fn ensure_shared_skill_projection_writable(skill_id: &str) -> Result<(), AcpError> {
+    if is_bundled_market_override(skill_id) {
+        return Ok(());
+    }
+    ensure_shared_skill_writable(skill_id)
 }
 
 fn is_official_skill_source(source: &Path) -> bool {
@@ -5992,7 +6013,7 @@ fn prepare_market_skill_installs(
     let mut prepared = Vec::with_capacity(installs.len());
     for mut install in installs {
         let skill_id = validate_skill_id(&install.marker.slug)?;
-        ensure_shared_skill_writable(&skill_id)?;
+        ensure_market_install_source_writable(&skill_id)?;
         if !slugs.insert(skill_id.clone()) {
             return Err(AcpError::protocol(
                 "market Skill install plan contains duplicate packages",
@@ -6432,7 +6453,7 @@ fn shared_skill_publish_state_path(source: &Path) -> PathBuf {
     source.join(SHARED_SKILL_PUBLISH_STATE_MARKER)
 }
 
-fn shared_skill_mutation_guard() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn shared_skill_mutation_guard() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
     LOCK.get_or_init(|| std::sync::Mutex::new(()))
         .lock()
@@ -6580,7 +6601,8 @@ fn build_shared_skill_item_for_agent(
     let (enabled, copy_mode) = shared_skill_publish_status(agent_type, &source, &skill_id)?;
     skill.enabled = enabled;
     skill.copy_mode = copy_mode;
-    skill.read_only = is_reserved_shared_skill_id(&skill_id);
+    skill.read_only =
+        is_reserved_shared_skill_id(&skill_id) && !is_bundled_market_override(&skill_id);
     skill.official = is_official_shared_skill(&skill_id);
     Ok(skill)
 }
@@ -6603,7 +6625,10 @@ fn list_market_skills_from_dir(
         SkillStorageKind::SkillDirectoryOnly,
         false,
     )?;
-    skills.retain(|skill| !is_reserved_shared_skill_id(&skill.id));
+    skills.retain(|skill| {
+        !is_reserved_shared_skill_id(&skill.id)
+            || (is_bundled_expert_id(&skill.id) && skill.market_managed)
+    });
     for skill in &mut skills {
         let source = PathBuf::from(&skill.path);
         let (enabled, copy_mode) = shared_skill_publish_status(agent_type, &source, &skill.id)?;
@@ -7057,7 +7082,9 @@ fn reconcile_shared_skills_for_agent_state_locked(
         false,
     )?;
     for skill in skills {
-        if !is_reserved_shared_skill_id(&skill.id) {
+        if !is_reserved_shared_skill_id(&skill.id)
+            || (is_bundled_expert_id(&skill.id) && skill.market_managed)
+        {
             remove_shared_skill_publication_from_agent(agent_type, &skill.id)?;
         }
     }
@@ -7079,7 +7106,9 @@ fn reconcile_shared_market_skills_for_agent_locked(
     )?;
     let mut errors = Vec::new();
     for skill in skills {
-        if is_reserved_shared_skill_id(&skill.id) {
+        if is_reserved_shared_skill_id(&skill.id)
+            && !(is_bundled_expert_id(&skill.id) && skill.market_managed)
+        {
             continue;
         }
         if let Err(error) = reconcile_shared_market_skill_for_agent(
@@ -11071,20 +11100,7 @@ fn inventory_skill_for_agent(
     if !include_disabled && !actual_enabled {
         return None;
     }
-    let observation = skill
-        .observations
-        .iter()
-        .find(|observation| {
-            observation
-                .locations
-                .iter()
-                .any(|location| location.agent_types.contains(&agent_type))
-        })
-        .or_else(|| {
-            (skill.scope == AgentSkillScope::Global)
-                .then(|| skill.observations.first())
-                .flatten()
-        })?;
+    let observation = inventory_observation_for_agent(&skill, agent_type)?;
     let location = observation
         .locations
         .iter()
@@ -11113,6 +11129,59 @@ fn inventory_skill_for_agent(
         publisher_type: None,
         market_content_sha256: observation.market_content_sha256.clone(),
     })
+}
+
+fn inventory_observation_for_agent(
+    skill: &crate::commands::skill_inventory::LogicalSkillInventoryItem,
+    agent_type: AgentType,
+) -> Option<&crate::commands::skill_inventory::SkillObservation> {
+    let belongs_to_agent = |observation: &&crate::commands::skill_inventory::SkillObservation| {
+        observation
+            .locations
+            .iter()
+            .any(|location| location.agent_types.contains(&agent_type))
+    };
+    let writable = skill
+        .observations
+        .iter()
+        .filter(|observation| !observation.read_only)
+        .collect::<Vec<_>>();
+    let global = skill.scope == AgentSkillScope::Global;
+    if let Some(observation) = preferred_observation_for_agent(&writable, belongs_to_agent, global)
+    {
+        return Some(observation);
+    }
+    let managed = skill
+        .observations
+        .iter()
+        .filter(|observation| {
+            observation.ownership
+                != crate::commands::skill_inventory::SkillInventoryOwnership::AgentBuiltin
+        })
+        .collect::<Vec<_>>();
+    preferred_observation_for_agent(&managed, belongs_to_agent, global)
+        .or_else(|| skill.observations.iter().find(belongs_to_agent))
+        .or_else(|| {
+            (skill.scope == AgentSkillScope::Global)
+                .then(|| skill.observations.first())
+                .flatten()
+        })
+}
+
+fn preferred_observation_for_agent<'a>(
+    observations: &[&'a crate::commands::skill_inventory::SkillObservation],
+    belongs_to_agent: impl Fn(&&crate::commands::skill_inventory::SkillObservation) -> bool,
+    allow_fallback: bool,
+) -> Option<&'a crate::commands::skill_inventory::SkillObservation> {
+    observations
+        .iter()
+        .copied()
+        .find(belongs_to_agent)
+        .or_else(|| {
+            allow_fallback
+                .then(|| observations.first().copied())
+                .flatten()
+        })
 }
 
 fn inventory_skill_locations(
@@ -11619,7 +11688,7 @@ fn set_shared_projection_for_agent(
     sync_mode: AgentSkillSyncMode,
 ) -> Result<AgentSkillItem, AcpError> {
     require_private_agent_storage_for_write()?;
-    ensure_shared_skill_writable(skill_id)?;
+    ensure_shared_skill_projection_writable(skill_id)?;
     let _guard = shared_skill_mutation_guard();
     if enabled {
         publish_shared_dependency_closure(agent_type, skill_id, sync_mode)?;

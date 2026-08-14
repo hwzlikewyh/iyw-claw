@@ -861,12 +861,14 @@ export function MessageInput({
     () => availableSkills.filter((skill) => isVisibleExpertId(skill.id)),
     [availableSkills]
   )
-  // The + menu exposes every skill enabled for the active agent. Source and
-  // editability do not affect invocation: selecting an item only inserts its
-  // reference badge into the composer.
+  // The + menu exposes editable skills enabled for the active agent. Read-only
+  // built-ins stay available through their dedicated product entry points.
   const enabledSkills = useAgentSkills(agentType ?? null, defaultPath ?? null)
   const visibleEnabledSkills = useMemo(
-    () => enabledSkills.filter((skill) => isVisibleExpertId(skill.id)),
+    () =>
+      enabledSkills.filter(
+        (skill) => !skill.read_only && isVisibleExpertId(skill.id)
+      ),
     [enabledSkills]
   )
   const skillPrefix = agentType === "codex" ? "$" : "/"

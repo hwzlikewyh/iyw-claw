@@ -3,10 +3,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::models::agent::AgentType;
 
 use super::types::{
-    LogicalSkillInventoryItem, SkillAgentState, SkillInventoryStatus, SkillObservation,
+    LogicalSkillInventoryItem, SkillAgentState, SkillInventoryOwnership, SkillInventoryStatus,
+    SkillObservation,
 };
 
 const ROUTING_DESCRIPTION_MAX_CHARS: usize = 240;
+
+struct LogicalAnalysis {
+    conflict: bool,
+    duplicate: bool,
+    stale_market_record: bool,
+    status: SkillInventoryStatus,
+    agent_states: Vec<SkillAgentState>,
+}
 
 pub(super) fn group_logical_skills(
     observations: Vec<SkillObservation>,
@@ -29,39 +38,10 @@ pub(super) fn group_logical_skills(
 }
 
 fn build_logical(observations: Vec<SkillObservation>) -> LogicalSkillInventoryItem {
-    let hashes = observations
-        .iter()
-        .filter_map(|value| value.content_tree_hash.as_ref())
-        .collect::<BTreeSet<_>>();
-    let conflict = hashes.len() > 1;
-    let sources = observations
-        .iter()
-        .filter(|value| {
-            value
-                .locations
-                .iter()
-                .all(|location| location.projection_source.is_none())
-        })
-        .count();
-    let duplicate = !conflict && hashes.len() == 1 && sources > 1;
-    let agent_states = collect_agent_states(&observations);
-    let read_only = observations.iter().all(|value| value.read_only);
-    let unreadable = observations
-        .iter()
-        .all(|value| value.content_tree_hash.is_none());
-    let stale_market_record = observations
-        .iter()
-        .any(|value| value.market_content_matches == Some(false));
-    let status = inventory_status(
-        conflict,
-        duplicate,
-        read_only,
-        stale_market_record,
-        unreadable,
-        &agent_states,
-    );
-    let first = &observations[0];
-    let dependencies = observations
+    let primary = primary_observations(&observations);
+    let analysis = analyze_primary_observations(&primary);
+    let first = primary[0];
+    let dependencies = primary
         .iter()
         .flat_map(|value| value.dependencies.iter().cloned())
         .collect::<BTreeSet<_>>()
@@ -79,21 +59,78 @@ fn build_logical(observations: Vec<SkillObservation>) -> LogicalSkillInventoryIt
         description: first.description.clone(),
         routing_description_chars,
         routing_description_over_limit: routing_description_chars > ROUTING_DESCRIPTION_MAX_CHARS,
-        status,
-        duplicate,
-        conflict,
-        local_only: observations
-            .iter()
-            .all(|value| value.market_skill_id.is_none()),
+        status: analysis.status,
+        duplicate: analysis.duplicate,
+        conflict: analysis.conflict,
+        local_only: primary.iter().all(|value| value.market_skill_id.is_none()),
         plugin_available: true,
-        stale_market_record,
+        stale_market_record: analysis.stale_market_record,
         dependencies,
         observations,
+        agent_states: analysis.agent_states,
+    }
+}
+
+fn analyze_primary_observations(primary: &[&SkillObservation]) -> LogicalAnalysis {
+    let hashes = primary
+        .iter()
+        .filter_map(|value| value.content_tree_hash.as_ref())
+        .collect::<BTreeSet<_>>();
+    let conflict = hashes.len() > 1;
+    let sources = primary
+        .iter()
+        .filter(|value| {
+            value
+                .locations
+                .iter()
+                .all(|location| location.projection_source.is_none())
+        })
+        .count();
+    let duplicate = !conflict && hashes.len() == 1 && sources > 1;
+    let agent_states = collect_agent_states(&primary);
+    let read_only = primary.iter().all(|value| value.read_only);
+    let unreadable = primary
+        .iter()
+        .all(|value| value.content_tree_hash.is_none());
+    let stale_market_record = primary
+        .iter()
+        .any(|value| value.market_content_matches == Some(false));
+    LogicalAnalysis {
+        duplicate,
+        conflict,
+        stale_market_record,
+        status: inventory_status(
+            conflict,
+            duplicate,
+            read_only,
+            stale_market_record,
+            unreadable,
+            &agent_states,
+        ),
         agent_states,
     }
 }
 
-fn collect_agent_states(observations: &[SkillObservation]) -> Vec<SkillAgentState> {
+pub(super) fn primary_observations(observations: &[SkillObservation]) -> Vec<&SkillObservation> {
+    let writable = observations
+        .iter()
+        .filter(|value| !value.read_only)
+        .collect::<Vec<_>>();
+    if !writable.is_empty() {
+        return writable;
+    }
+    let managed = observations
+        .iter()
+        .filter(|value| value.ownership != SkillInventoryOwnership::AgentBuiltin)
+        .collect::<Vec<_>>();
+    if managed.is_empty() {
+        observations.iter().collect()
+    } else {
+        managed
+    }
+}
+
+fn collect_agent_states(observations: &[&SkillObservation]) -> Vec<SkillAgentState> {
     let mut states: BTreeMap<AgentType, (bool, usize)> = BTreeMap::new();
     for location in observations.iter().flat_map(|value| &value.locations) {
         for agent_type in &location.agent_types {
@@ -159,13 +196,13 @@ fn inventory_status(
 }
 
 pub(super) fn refresh_inventory_status(skill: &mut LogicalSkillInventoryItem) {
+    let primary = primary_observations(&skill.observations);
     skill.status = inventory_status(
         skill.conflict,
         skill.duplicate,
-        skill.observations.iter().all(|value| value.read_only),
+        primary.iter().all(|value| value.read_only),
         skill.stale_market_record,
-        skill
-            .observations
+        primary
             .iter()
             .all(|value| value.content_tree_hash.is_none()),
         &skill.agent_states,

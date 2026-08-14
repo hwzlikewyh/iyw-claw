@@ -261,28 +261,86 @@ pub async fn uninstall_core(conn: &DatabaseConnection, id: String) -> Result<(),
     let skill_id = parse_id(&id)?;
     if plugin_install::uninstall_plugin(conn, skill_id).await? {
         tracing::info!(skill_id, "[skill-market] Plugin uninstalled");
+    } else {
+        let removed =
+            crate::commands::acp::uninstall_market_skill_by_id(skill_id).map_err(|error| {
+                tracing::error!(
+                    skill_id = %skill_id,
+                    error = %error,
+                    "[skill-market] local uninstall failed"
+                );
+                AppCommandError::io_error("Failed to uninstall Skill")
+                    .with_detail(error.to_string())
+            })?;
+        if removed == 0 {
+            tracing::info!(
+                skill_id,
+                "[skill-market] no local install found for uninstall"
+            );
+        } else {
+            tracing::info!(skill_id, removed, "[skill-market] Skill uninstalled");
+        }
+    }
+    restore_bundled_skills_after_uninstall(conn, skill_id).await?;
+    Ok(())
+}
+
+async fn restore_bundled_skills_after_uninstall(
+    conn: &DatabaseConnection,
+    market_skill_id: i64,
+) -> Result<(), AppCommandError> {
+    let install = crate::commands::experts::ensure_central_experts_installed().await;
+    if !install.errors.is_empty() {
+        tracing::error!(
+            market_skill_id,
+            errors = ?install.errors,
+            "[skill-market] bundled Skill restore failed after uninstall"
+        );
+        return Err(AppCommandError::task_execution_failed(
+            "Market Skill was removed but bundled Skill restore failed",
+        )
+        .with_detail(install.errors.join("\n")));
+    }
+    if install.installed_count + install.updated_count == 0 {
         return Ok(());
     }
-    let removed =
-        crate::commands::acp::uninstall_market_skill_by_id(skill_id).map_err(|error| {
-            tracing::error!(
-                skill_id = %skill_id,
-                error = %error,
-                "[skill-market] local uninstall failed"
-            );
-            AppCommandError::io_error("Failed to uninstall Skill").with_detail(error.to_string())
-        })?;
-    if removed == 0 {
-        tracing::info!(
-            skill_id = %skill_id,
-            "[skill-market] no local install found for uninstall (idempotent)"
-        );
-    } else {
-        tracing::info!(
-            skill_id = %skill_id,
-            removed,
-            "[skill-market] Skill uninstalled"
-        );
+    reconcile_restored_bundled_skills(conn).await?;
+    tracing::info!(
+        market_skill_id,
+        installed = install.installed_count,
+        updated = install.updated_count,
+        "[skill-market] bundled Skills restored after uninstall"
+    );
+    Ok(())
+}
+
+async fn reconcile_restored_bundled_skills(
+    conn: &DatabaseConnection,
+) -> Result<(), AppCommandError> {
+    for family in [
+        crate::commands::managed_skills::ManagedSkillFamily::Experts,
+        crate::commands::managed_skills::ManagedSkillFamily::CodexNative,
+        crate::commands::managed_skills::ManagedSkillFamily::ComputerUse,
+    ] {
+        let report =
+            crate::commands::managed_skills::reconcile_persisted_family_core(conn, family).await?;
+        let failures = report
+            .results
+            .iter()
+            .filter(|result| !result.ok)
+            .map(|result| {
+                result
+                    .error
+                    .as_deref()
+                    .unwrap_or("Skill publication failed")
+            })
+            .collect::<Vec<_>>();
+        if !failures.is_empty() {
+            return Err(AppCommandError::task_execution_failed(
+                "Bundled Skill restore is out of sync",
+            )
+            .with_detail(failures.join("\n")));
+        }
     }
     Ok(())
 }
