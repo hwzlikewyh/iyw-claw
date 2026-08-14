@@ -16,11 +16,19 @@ import type { Automation } from "@/lib/types"
 
 const AUTOMATION_CHANGED_EVENT = "automation://changed"
 
+interface AutomationCreateRequest {
+  conversationId: number
+  nonce: number
+}
+
 interface AutomationsViewContextValue {
   automations: Automation[]
   /** Sum of unseen failed runs — drives the sidebar badge. */
   unseenFailures: number
   refetch: () => Promise<void>
+  createRequest: AutomationCreateRequest | null
+  requestCreateFromConversation: (conversationId: number) => void
+  clearCreateRequest: (nonce: number) => void
 }
 
 const AutomationsViewContext =
@@ -47,7 +55,22 @@ export function useAutomationsView() {
 
 export function AutomationsViewProvider({ children }: { children: ReactNode }) {
   const [automations, setAutomations] = useState<Automation[]>([])
+  const [createRequest, setCreateRequest] =
+    useState<AutomationCreateRequest | null>(null)
   const reqRef = useRef(0)
+  const createNonceRef = useRef(0)
+
+  const requestCreateFromConversation = useCallback(
+    (conversationId: number) => {
+      createNonceRef.current += 1
+      setCreateRequest({ conversationId, nonce: createNonceRef.current })
+    },
+    []
+  )
+
+  const clearCreateRequest = useCallback((nonce: number) => {
+    setCreateRequest((current) => (current?.nonce === nonce ? null : current))
+  }, [])
 
   const refetch = useCallback(async () => {
     const id = ++reqRef.current
@@ -97,8 +120,22 @@ export function AutomationsViewProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo<AutomationsViewContextValue>(
-    () => ({ automations, unseenFailures, refetch }),
-    [automations, unseenFailures, refetch]
+    () => ({
+      automations,
+      unseenFailures,
+      refetch,
+      createRequest,
+      requestCreateFromConversation,
+      clearCreateRequest,
+    }),
+    [
+      automations,
+      unseenFailures,
+      refetch,
+      createRequest,
+      requestCreateFromConversation,
+      clearCreateRequest,
+    ]
   )
 
   return (

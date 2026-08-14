@@ -101,6 +101,7 @@ import { onTransportReconnect, subscribe } from "@/lib/platform"
 import { cn } from "@/lib/utils"
 import { AGENT_LABELS } from "@/lib/types"
 import type { Automation, AutomationDraft, AutomationRun } from "@/lib/types"
+import { useConversationAutomationDraft } from "./use-conversation-automation-draft"
 
 const AUTOMATION_CHANGED_EVENT = "automation://changed"
 
@@ -211,7 +212,7 @@ function formatDateTime(iso: string | null): string {
  *  starting a new automation; "editor" hosts the form, seeded from a template
  *  (create) or an existing automation (edit). */
 type EditingState =
-  | { kind: "create"; seed: AutomationDraft | null }
+  | { kind: "create"; seed: AutomationDraft | null; key: number }
   | { kind: "edit"; automation: Automation }
 
 export function AutomationsPage() {
@@ -221,6 +222,7 @@ export function AutomationsPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [mode, setMode] = useState<"detail" | "gallery" | "editor">("detail")
   const [editing, setEditing] = useState<EditingState | null>(null)
+  const createKeyRef = useRef(0)
   const [templates, setTemplates] =
     useState<AutomationTemplate[]>(AUTOMATION_TEMPLATES)
 
@@ -240,6 +242,13 @@ export function AutomationsPage() {
       active = false
     }
   }, [])
+
+  const openConversationDraft = useCallback((seed: AutomationDraft) => {
+    createKeyRef.current += 1
+    setEditing({ kind: "create", seed, key: createKeyRef.current })
+    setMode("editor")
+  }, [])
+  useConversationAutomationDraft(openConversationDraft)
 
   // Clear the unseen-failure badges while the page is open — on entry and again
   // whenever a new failure arrives live (the failed run is already on screen, so
@@ -301,7 +310,8 @@ export function AutomationsPage() {
           folderId: null,
         })
       : null
-    setEditing({ kind: "create", seed })
+    createKeyRef.current += 1
+    setEditing({ kind: "create", seed, key: createKeyRef.current })
     setMode("editor")
   }
   const startEdit = (a: Automation) => {
@@ -349,7 +359,7 @@ export function AutomationsPage() {
             key={
               editing.kind === "edit"
                 ? `edit-${editing.automation.id}`
-                : "create"
+                : `create-${editing.key}`
             }
             automation={
               editing.kind === "edit" ? editing.automation : editing.seed

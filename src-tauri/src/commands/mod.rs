@@ -12,6 +12,7 @@ pub mod agent_version_center_tauri;
 #[cfg(feature = "tauri-runtime")]
 pub mod app_update;
 pub mod automation;
+pub mod automation_draft;
 pub mod backup;
 pub mod chat_attachments;
 pub mod chat_channel;

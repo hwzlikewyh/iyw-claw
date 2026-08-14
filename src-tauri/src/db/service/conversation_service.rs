@@ -1,16 +1,16 @@
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
-    QueryFilter, QueryOrder, QuerySelect, Set,
+    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection,
+    EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait, Set,
 };
 
 use crate::db::entities::conversation::ConversationKind;
-use crate::db::entities::{conversation, folder};
+use crate::db::entities::{automation_run, conversation, folder};
 use crate::db::error::DbError;
 use crate::models::{AgentType, DbConversationSummary};
 
-pub async fn create(
-    conn: &DatabaseConnection,
+pub async fn create<C: ConnectionTrait>(
+    conn: &C,
     folder_id: i32,
     agent_type: AgentType,
     title: Option<String>,
@@ -76,8 +76,8 @@ pub async fn create_with_delegation(
     .await
 }
 
-async fn create_inner(
-    conn: &DatabaseConnection,
+async fn create_inner<C: ConnectionTrait>(
+    conn: &C,
     folder_id: i32,
     agent_type: AgentType,
     title: Option<String>,
@@ -415,6 +415,20 @@ pub async fn list_by_folder(
         .filter(conversation::Column::FolderId.eq(folder_id))
         .filter(conversation::Column::DeletedAt.is_null());
 
+    // Keep automation-owned run conversations out of every ordinary history
+    // query, including folder-scoped callers. The automation detail view loads
+    // them explicitly by id from the run record.
+    let automation_conversations = automation_run::Entity::find()
+        .select_only()
+        .column(automation_run::Column::ConversationId)
+        .filter(automation_run::Column::ConversationId.is_not_null())
+        .into_query();
+    query = query.filter(
+        conversation::Column::Id
+            .into_expr()
+            .not_in_subquery(automation_conversations),
+    );
+
     // Filter by agent_type
     if let Some(ref at) = agent_type {
         let at_str = serde_json::to_value(at)
@@ -477,6 +491,20 @@ pub async fn list_all(
     // Loop-engineering runs never surface in the workspace conversation list —
     // their entry point is the loops workbench.
     query = query.filter(conversation::Column::Kind.ne(ConversationKind::Loop));
+
+    // Automation runs are intentionally reachable only from the automation
+    // detail view. Keep them out of the normal workspace history even when
+    // their generated conversation uses a regular folder.
+    let automation_conversations = automation_run::Entity::find()
+        .select_only()
+        .column(automation_run::Column::ConversationId)
+        .filter(automation_run::Column::ConversationId.is_not_null())
+        .into_query();
+    query = query.filter(
+        conversation::Column::Id
+            .into_expr()
+            .not_in_subquery(automation_conversations),
+    );
 
     if !include_children {
         query = query.filter(conversation::Column::ParentId.is_null());

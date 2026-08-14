@@ -3,8 +3,8 @@
 //!
 //! Design (see docs/automations-spec.md §6/§9):
 //! - Completion is correlated by `connection_id` (the `TurnComplete` event has no
-//!   conversation_id), via an in-memory `connection_id -> (run_id, automation_id)`
-//!   index. `stop_reason` is the settle authority.
+//!   conversation_id), via an in-memory index that retains the launched
+//!   automation snapshot. `stop_reason` is the settle authority.
 //! - A per-tick reconcile backstop settles runs whose `TurnComplete` was dropped
 //!   (broadcast lag) by reading the produced conversation's terminal status, and
 //!   fails runs this process is not tracking that exceeded a generous deadline.
@@ -27,7 +27,9 @@ use crate::acp::types::{AcpEvent, EventEnvelope, PromptInputBlock};
 use crate::acp::InternalEventBus;
 use crate::automation::default_folder::ensure_default_folder;
 use crate::commands::acp::{build_session_runtime_env, verify_agent_installed};
-use crate::commands::conversations::{create_conversation_core, emit_conversation_upsert};
+use crate::commands::conversations::{
+    create_automation_conversation_core, emit_conversation_upsert,
+};
 use crate::commands::folders::{
     emit_folder_upsert, get_folder_core, git_checkout, git_is_clean, git_list_branches,
     git_worktree_add, open_worktree_folder_core, resolve_worktree_folder_core,
@@ -36,7 +38,8 @@ use crate::db::entities::conversation::{self, ConversationStatus};
 use crate::db::service::automation_service;
 use crate::db::AppDatabase;
 use crate::models::{
-    AgentType, AutomationConfig, AutomationInfo, AutomationRunStatus, IsolationMode,
+    AgentType, AutomationConfig, AutomationInfo, AutomationRunStatus, ContentBlock, IsolationMode,
+    TurnRole,
 };
 use crate::web::event_bridge::{
     emit_event, AutomationChange, EventEmitter, AUTOMATION_CHANGED_EVENT,
@@ -71,11 +74,9 @@ pub struct AutomationEngine {
     emitter: EventEmitter,
     bus: Arc<InternalEventBus>,
     data_dir: PathBuf,
-    /// Live automation runs: `connection_id -> (run_id, automation_id)`. The only
-    /// way `TurnComplete` (keyed by connection_id) maps back to a run. Lost on
-    /// restart — which is why boot reconcile + the conversation-status backstop
-    /// exist.
-    index: Arc<Mutex<HashMap<String, (i32, i32)>>>,
+    /// Live automation runs keyed by connection id. The source snapshot ensures
+    /// an edit made during the run is not persisted before that revision succeeds.
+    index: Arc<Mutex<HashMap<String, LiveRun>>>,
     /// Per-automation fire lock. Serializes the overlap-check + run-row insert (and
     /// the whole launch) so a manual run-now, a scheduled fire, and a double-click
     /// can't all pass `has_active_run` and start duplicate concurrent runs.
@@ -93,9 +94,16 @@ pub struct AutomationEngine {
 }
 
 struct ResolvedCwd {
+    root_folder_id: i32,
     folder_id: i32,
     working_dir: String,
     worktree_folder_id: Option<i32>,
+}
+
+#[derive(Clone)]
+struct LiveRun {
+    run_id: i32,
+    automation: AutomationInfo,
 }
 
 /// Build the engine and publish it to the process global, then return the handle
@@ -365,12 +373,21 @@ impl AutomationEngine {
         let cfg: AutomationConfig =
             serde_json::from_value(auto.config.clone()).map_err(|e| format!("bad config: {e}"))?;
         let agent_type = parse_agent_type(&auto.agent_type)?;
-        let blocks = cfg
-            .prompt_blocks
-            .iter()
-            .map(|v| serde_json::from_value::<PromptInputBlock>(v.clone()))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("bad prompt blocks: {e}"))?;
+        let prompt_text = automation_prompt_text(&cfg);
+        if prompt_text.trim().is_empty() && cfg.prompt_blocks.is_empty() {
+            return Err("prompt is empty".to_string());
+        }
+        let blocks = if cfg.prompt_blocks.is_empty() {
+            vec![PromptInputBlock::Text {
+                text: prompt_text.clone(),
+            }]
+        } else {
+            cfg.prompt_blocks
+                .iter()
+                .map(|v| serde_json::from_value::<PromptInputBlock>(v.clone()))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("bad prompt blocks: {e}"))?
+        };
         if blocks.is_empty() {
             return Err("prompt is empty".to_string());
         }
@@ -433,39 +450,42 @@ impl AutomationEngine {
             .map_err(|e| e.to_string())?;
 
         // Create the conversation row, then adopt it in send_prompt (Branch A).
-        let title = first_chars(&cfg.display_text, 80);
-        let conversation_id =
-            match create_conversation_core(&self.db.conn, cwd.folder_id, agent_type, Some(title))
-                .await
-            {
-                Ok(id) => id,
-                Err(e) => {
-                    let _ = self.manager.disconnect(&conn_id).await;
-                    return Err(e.to_string());
-                }
-            };
-
-        // Surface the produced conversation in every client's sidebar the instant
-        // it exists (InProgress) — independent of the implicit upsert inside
-        // send_prompt_linked. Its folder was announced just above, so it can be
-        // grouped/rendered right away; live status then rides the existing
-        // ConversationStatusChanged → conversation://changed bridge.
-        emit_conversation_upsert(&self.emitter, &self.db.conn, conversation_id).await;
-
-        // Register for completion correlation BEFORE prompting, so a fast
-        // TurnComplete can't race ahead of the index entry.
-        self.index
-            .lock()
-            .await
-            .insert(conn_id.clone(), (run_id, auto.id));
-        let _ = automation_service::attach_run_runtime(
+        let title = first_chars(&prompt_text, 80);
+        let mut launched = auto.clone();
+        launched.root_folder_id = Some(cwd.root_folder_id);
+        let conversation_id = match create_automation_conversation_core(
             &self.db.conn,
             run_id,
-            Some(conversation_id),
-            Some(conn_id.clone()),
+            cwd.folder_id,
+            agent_type,
+            Some(title),
+            conn_id.clone(),
             cwd.worktree_folder_id,
         )
-        .await;
+        .await
+        {
+            Ok(id) => id,
+            Err(error) => {
+                let _ = self.manager.disconnect(&conn_id).await;
+                return Err(format!("failed to create automation conversation: {error}"));
+            }
+        };
+
+        // Register for completion correlation BEFORE prompting, so a fast
+        // TurnComplete can't race ahead of the index entry. The conversation
+        // and run binding are already committed atomically at this point.
+        self.index.lock().await.insert(
+            conn_id.clone(),
+            LiveRun {
+                run_id,
+                automation: launched,
+            },
+        );
+
+        // Automation conversations are intentionally hidden from the ordinary
+        // sidebar. Keep the upsert after the run binding so the shared helper
+        // can reliably suppress it for both desktop and web clients.
+        emit_conversation_upsert(&self.emitter, &self.db.conn, conversation_id).await;
 
         // Re-emit now that the run carries its connection + conversation, so the
         // running row's "View conversation" link goes live during the run (the
@@ -553,6 +573,7 @@ impl AutomationEngine {
                     .await
                     .map_err(|e| e.to_string())?;
                 Ok(ResolvedCwd {
+                    root_folder_id,
                     folder_id: wt.id,
                     working_dir: wt.path,
                     worktree_folder_id: Some(wt.id),
@@ -562,6 +583,7 @@ impl AutomationEngine {
                 let Some(branch) = auto.branch.clone() else {
                     // No branch pinned: run in the root tree as-is.
                     return Ok(ResolvedCwd {
+                        root_folder_id,
                         folder_id: root_folder_id,
                         working_dir: root.path,
                         worktree_folder_id: None,
@@ -579,6 +601,7 @@ impl AutomationEngine {
                         .map_err(|e| e.to_string())?;
                 match resolution.path {
                     Some(path) => Ok(ResolvedCwd {
+                        root_folder_id,
                         folder_id: resolution.folder_id.unwrap_or(root_folder_id),
                         working_dir: path,
                         worktree_folder_id: resolution.folder_id,
@@ -622,6 +645,7 @@ impl AutomationEngine {
                             .await
                             .map_err(|e| e.to_string())?;
                         Ok(ResolvedCwd {
+                            root_folder_id,
                             folder_id: root_folder_id,
                             working_dir: root.path,
                             worktree_folder_id: None,
@@ -655,13 +679,34 @@ impl AutomationEngine {
             return;
         };
         let conn_id = env.connection_id.clone();
-        let entry = { self.index.lock().await.get(&conn_id).copied() };
-        let Some((run_id, automation_id)) = entry else {
+        let entry = { self.index.lock().await.get(&conn_id).cloned() };
+        let Some(entry) = entry else {
             return; // not an automation run
         };
+        let run_id = entry.run_id;
+        let automation_id = entry.automation.id;
 
         let (status, status_str) = classify_stop_reason(stop_reason);
         let summary = self.capture_summary(&conn_id).await;
+        if let Ok(Some(run)) = run_by_id(&self.db.conn, run_id).await {
+            if let Some(conversation_id) = run.conversation_id {
+                if let Err(error) = automation_service::record_stop_reason(
+                    &self.db.conn,
+                    conversation_id,
+                    stop_reason,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        automation_id,
+                        run_id,
+                        conversation_id,
+                        error = %error,
+                        "[automation] failed to persist stop reason"
+                    );
+                }
+            }
+        }
         let error = if status == AutomationRunStatus::Failed {
             Some(format!("agent stopped: {stop_reason}"))
         } else {
@@ -671,10 +716,10 @@ impl AutomationEngine {
         let settled = automation_service::settle_run(
             &self.db.conn,
             run_id,
-            status,
+            status.clone(),
             Some(stop_reason.clone()),
             error,
-            summary,
+            summary.clone(),
         )
         .await;
 
@@ -684,6 +729,10 @@ impl AutomationEngine {
         let _ = self.manager.disconnect(&conn_id).await;
 
         if let Ok(true) = settled {
+            if status == AutomationRunStatus::Succeeded {
+                self.persist_project_skill(&entry.automation, run_id, summary.as_deref())
+                    .await;
+            }
             self.emit(AutomationChange::RunSettled {
                 automation_id,
                 run_id,
@@ -719,7 +768,7 @@ impl AutomationEngine {
                 .lock()
                 .await
                 .iter()
-                .map(|(conn_id, (run_id, _))| (*run_id, conn_id.clone()))
+                .map(|(conn_id, live)| (live.run_id, conn_id.clone()))
                 .collect()
         };
         let now = Utc::now();
@@ -791,21 +840,55 @@ impl AutomationEngine {
         let Some(status) = self.conversation_status(conv_id).await else {
             return false;
         };
-        let (run_status, status_str, error) = match status {
-            ConversationStatus::PendingReview | ConversationStatus::Completed => {
-                (AutomationRunStatus::Succeeded, "succeeded", None)
+        let (run_status, status_str, error, can_persist_skill) = match status {
+            ConversationStatus::PendingReview if run.stop_reason.as_deref() == Some("end_turn") => {
+                (AutomationRunStatus::Succeeded, "succeeded", None, true)
+            }
+            ConversationStatus::PendingReview if run.stop_reason.is_none() => return false,
+            ConversationStatus::PendingReview => (
+                AutomationRunStatus::Failed,
+                "failed",
+                Some(
+                    "conversation reached pending_review with a non-success stop reason"
+                        .to_string(),
+                ),
+                false,
+            ),
+            ConversationStatus::Completed => {
+                (AutomationRunStatus::Succeeded, "succeeded", None, false)
             }
             ConversationStatus::Cancelled => (
                 AutomationRunStatus::Failed,
                 "failed",
                 Some("agent cancelled or refused".to_string()),
+                false,
             ),
             ConversationStatus::InProgress => return false,
         };
-        if automation_service::settle_run(&self.db.conn, run.id, run_status, None, error, None)
-            .await
-            .unwrap_or(false)
+        let recovered_summary = if run_status == AutomationRunStatus::Succeeded {
+            self.conversation_summary(conv_id)
+                .await
+                .or_else(|| run.summary.clone())
+        } else {
+            None
+        };
+        if automation_service::settle_run(
+            &self.db.conn,
+            run.id,
+            run_status.clone(),
+            run.stop_reason.clone(),
+            error,
+            recovered_summary.clone(),
+        )
+        .await
+        .unwrap_or(false)
         {
+            // PendingReview plus the durable stop reason proves `end_turn`.
+            // Completed remains user-driven and never updates a skill.
+            if can_persist_skill {
+                self.persist_recovered_project_skill(run, recovered_summary.as_deref())
+                    .await;
+            }
             self.emit_settled(run, status_str);
         }
         true
@@ -818,6 +901,81 @@ impl AutomationEngine {
             .ok()
             .flatten()
             .map(|m| m.status)
+    }
+
+    async fn conversation_summary(&self, conv_id: i32) -> Option<String> {
+        let (detail, _) =
+            crate::commands::conversations::get_folder_conversation_core(&self.db.conn, conv_id)
+                .await
+                .ok()?;
+        detail
+            .turns
+            .iter()
+            .rev()
+            .find(|turn| matches!(turn.role, TurnRole::Assistant))
+            .map(|turn| {
+                turn.blocks
+                    .iter()
+                    .filter_map(|block| match block {
+                        ContentBlock::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .filter(|text| !text.trim().is_empty())
+    }
+
+    /// Persist one automation-owned project skill after a successful run. The
+    /// marker prevents repeated successful runs from rewriting the file until
+    /// the automation itself has been edited.
+    async fn persist_project_skill(
+        &self,
+        launched: &AutomationInfo,
+        run_id: i32,
+        result_summary: Option<&str>,
+    ) {
+        let current = match automation_service::get(&self.db.conn, launched.id).await {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(automation_id = launched.id, run_id, error = %error, "[automation] skill load failed");
+                return;
+            }
+        };
+        if !same_skill_source(launched, &current) {
+            tracing::info!(
+                automation_id = launched.id,
+                run_id,
+                "[automation] skill write deferred until edited automation succeeds"
+            );
+            return;
+        }
+        if let Err(error) =
+            crate::automation::project_skill::persist(&self.db, launched, run_id, result_summary)
+                .await
+        {
+            tracing::warn!(automation_id = launched.id, run_id, error = %error, "[automation] skill write skipped");
+        }
+    }
+
+    async fn persist_recovered_project_skill(
+        &self,
+        run: &crate::models::AutomationRunInfo,
+        result_summary: Option<&str>,
+    ) {
+        let Ok(automation) = automation_service::get(&self.db.conn, run.automation_id).await else {
+            return;
+        };
+        if automation.updated_at > run.created_at {
+            tracing::info!(
+                automation_id = run.automation_id,
+                run_id = run.id,
+                "[automation] recovered skill write skipped after automation edit"
+            );
+            return;
+        }
+        self.persist_project_skill(&automation, run.id, result_summary)
+            .await;
     }
 
     // ── cancel ────────────────────────────────────────────────────────────────
@@ -881,7 +1039,7 @@ impl AutomationEngine {
                 .lock()
                 .await
                 .iter()
-                .find(|(_, (rid, _))| *rid == run_id)
+                .find(|(_, live)| live.run_id == run_id)
                 .map(|(c, _)| c.clone())
         };
         if let Some(conn_id) = conn_id {
@@ -957,6 +1115,25 @@ async fn run_no_longer_running(conn: &sea_orm::DatabaseConnection, run_id: i32) 
 fn parse_agent_type(s: &str) -> Result<AgentType, String> {
     serde_json::from_value(serde_json::Value::String(s.to_string()))
         .map_err(|_| format!("unknown agent type: {s}"))
+}
+
+fn same_skill_source(launched: &AutomationInfo, current: &AutomationInfo) -> bool {
+    launched.name == current.name
+        && launched.agent_type == current.agent_type
+        && launched.root_folder_id == current.root_folder_id
+        && launched.config == current.config
+}
+
+fn automation_prompt_text(config: &AutomationConfig) -> String {
+    if !config.display_text.trim().is_empty() {
+        return config.display_text.clone();
+    }
+    config
+        .prompt_blocks
+        .iter()
+        .filter_map(|block| block.get("text").and_then(serde_json::Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// `end_turn` → succeeded; explicit cancel → cancelled; everything else

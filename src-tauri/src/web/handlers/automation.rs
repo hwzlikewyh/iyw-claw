@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
-use crate::commands::automation as core;
+use crate::commands::{automation as core, automation_draft};
 use crate::models::{AutomationDraft, AutomationInfo, AutomationRunInfo, AutomationTemplateInfo};
 
 fn default_run_limit() -> u64 {
@@ -70,6 +70,12 @@ pub struct RunNowParams {
 #[serde(rename_all = "camelCase")]
 pub struct CancelRunParams {
     pub run_id: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftFromConversationParams {
+    pub conversation_id: i32,
 }
 
 pub async fn automation_list(
@@ -172,6 +178,24 @@ pub async fn automation_compute_next_run(
 ) -> Result<Json<Option<DateTime<Utc>>>, AppCommandError> {
     let result = core::automation_compute_next_run_core(&params.cron, &params.timezone)
         .map_err(AppCommandError::from)?;
+    Ok(Json(result))
+}
+
+pub async fn automation_draft_from_conversation(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<DraftFromConversationParams>,
+) -> Result<Json<crate::automation::draft::AutomationDraftSource>, AppCommandError> {
+    let result = automation_draft::automation_draft_from_conversation_core(
+        crate::automation::draft::DraftRuntime {
+            db: &state.db,
+            manager: &state.connection_manager,
+            bus: state.acp_event_bus.as_ref(),
+            emitter: state.emitter.clone(),
+            data_dir: &state.data_dir,
+        },
+        params.conversation_id,
+    )
+    .await?;
     Ok(Json(result))
 }
 

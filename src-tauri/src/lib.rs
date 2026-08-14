@@ -64,7 +64,8 @@ mod tauri_app {
     use crate::commands::{
         acp as acp_commands, agent_input as agent_input_commands,
         agent_storage as agent_storage_commands, agent_version_center_tauri,
-        app_update as app_update_commands, automation as automation_commands, backup,
+        app_update as app_update_commands, automation as automation_commands,
+        automation_draft as automation_draft_commands, backup,
         chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
         chat_image as chat_image_commands, conversations, delegation as delegation_commands,
         display_assets as display_asset_commands, experts as experts_commands,
@@ -1463,6 +1464,7 @@ mod tauri_app {
                 automation_commands::automation_delete,
                 automation_commands::automation_mark_seen,
                 automation_commands::automation_compute_next_run,
+                automation_draft_commands::automation_draft_from_conversation,
                 automation_commands::automation_run_now,
                 automation_commands::automation_cancel_run,
                 terminal_commands::terminal_spawn,

@@ -1383,6 +1383,10 @@ pub fn build_router(
             post(handlers::automation::automation_compute_next_run),
         )
         .route(
+            "/automation_draft_from_conversation",
+            post(handlers::automation::automation_draft_from_conversation),
+        )
+        .route(
             "/automation_run_now",
             post(handlers::automation::automation_run_now),
         )

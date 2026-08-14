@@ -1,8 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+
 use crate::app_error::AppCommandError;
-use crate::db::entities::conversation;
 use crate::db::entities::folder::FolderKind;
+use crate::db::entities::{automation_run, conversation};
+use crate::db::error::DbError;
 use crate::db::service::{conversation_service, folder_service, import_service, tab_service};
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
@@ -905,6 +908,19 @@ pub(crate) async fn emit_conversation_upsert(
     conn: &sea_orm::DatabaseConnection,
     conversation_id: i32,
 ) {
+    // Automation run conversations are intentionally private to the
+    // automation detail view. The run-history link can still load them by id,
+    // while ordinary sidebar clients never receive an upsert for the row.
+    if automation_run::Entity::find()
+        .filter(automation_run::Column::ConversationId.eq(conversation_id))
+        .one(conn)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return;
+    }
     match conversation_service::get_by_id(conn, conversation_id).await {
         Ok(summary) => {
             // Broadcast EVERY conversation, root or delegation child. The
@@ -994,19 +1010,58 @@ pub async fn create_conversation_core(
     agent_type: AgentType,
     title: Option<String>,
 ) -> Result<i32, AppCommandError> {
-    let git_branch = if let Some(folder) = folder_service::get_folder_by_id(conn, folder_id)
-        .await
-        .map_err(AppCommandError::from)?
-    {
-        detect_git_branch(&folder.path).await
-    } else {
-        None
-    };
-
+    let git_branch = detect_conversation_branch(conn, folder_id).await?;
     let model = conversation_service::create(conn, folder_id, agent_type, title, git_branch)
         .await
         .map_err(AppCommandError::from)?;
     Ok(model.id)
+}
+
+pub async fn create_automation_conversation_core(
+    conn: &sea_orm::DatabaseConnection,
+    run_id: i32,
+    folder_id: i32,
+    agent_type: AgentType,
+    title: Option<String>,
+    connection_id: String,
+    worktree_folder_id: Option<i32>,
+) -> Result<i32, AppCommandError> {
+    use sea_orm::TransactionTrait;
+
+    let git_branch = detect_conversation_branch(conn, folder_id).await?;
+    let txn = conn
+        .begin()
+        .await
+        .map_err(|error| AppCommandError::from(DbError::Database(error)))?;
+    let model = conversation_service::create(&txn, folder_id, agent_type, title, git_branch)
+        .await
+        .map_err(AppCommandError::from)?;
+    crate::db::service::automation_service::attach_run_runtime(
+        &txn,
+        run_id,
+        Some(model.id),
+        Some(connection_id),
+        worktree_folder_id,
+    )
+    .await
+    .map_err(AppCommandError::from)?;
+    txn.commit()
+        .await
+        .map_err(|error| AppCommandError::from(DbError::Database(error)))?;
+    Ok(model.id)
+}
+
+async fn detect_conversation_branch(
+    conn: &sea_orm::DatabaseConnection,
+    folder_id: i32,
+) -> Result<Option<String>, AppCommandError> {
+    let folder = folder_service::get_folder_by_id(conn, folder_id)
+        .await
+        .map_err(AppCommandError::from)?;
+    Ok(match folder {
+        Some(folder) => detect_git_branch(&folder.path).await,
+        None => None,
+    })
 }
 
 #[cfg(feature = "tauri-runtime")]

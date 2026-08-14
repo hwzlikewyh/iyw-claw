@@ -1797,6 +1797,7 @@
     "conversationCard": {
       "untitledConversation": "未命名会话",
       "newConversation": "新建会话",
+      "addToAutomation": "加入自动化任务",
       "rename": "重命名",
       "status": "状态",
       "delete": "删除",
@@ -4360,6 +4361,7 @@
   "Automations": {
     "title": "定时任务",
     "new": "新建自动化",
+    "drafting": "正在将会话整理为自动化草稿...",
     "empty": "暂无自动化",
     "emptyHint": "创建一个，让智能体按计划或手动执行任务。",
     "name": "名称",

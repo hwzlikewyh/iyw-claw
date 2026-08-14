@@ -9,12 +9,12 @@ use chrono_tz::Tz;
 use cron::Schedule;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
-    IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection,
+    EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 
 use crate::db::entities::automation::{IsolationMode, TriggerKind};
-use crate::db::entities::{automation, automation_run};
+use crate::db::entities::{automation, automation_run, conversation};
 use crate::db::error::DbError;
 use crate::models::{
     AutomationConfig, AutomationDraft, AutomationInfo, AutomationRunInfo, AutomationRunStatus,
@@ -505,8 +505,8 @@ pub async fn record_skipped_run(
 
 /// Bind the produced conversation + live connection + worktree to a run after
 /// launch. Only sets the provided fields (None leaves the column unchanged).
-pub async fn attach_run_runtime(
-    conn: &DatabaseConnection,
+pub async fn attach_run_runtime<C: ConnectionTrait>(
+    conn: &C,
     run_id: i32,
     conversation_id: Option<i32>,
     connection_id: Option<String>,
@@ -528,6 +528,26 @@ pub async fn attach_run_runtime(
     }
     active.update(conn).await?;
     Ok(())
+}
+
+/// Persist the observed ACP stop reason before run settlement. The reconcile
+/// path uses this as durable proof that `PendingReview` came from `end_turn`,
+/// rather than from a user-driven conversation status update.
+pub async fn record_stop_reason(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+    stop_reason: &str,
+) -> Result<u64, DbError> {
+    let result = automation_run::Entity::update_many()
+        .col_expr(
+            automation_run::Column::StopReason,
+            Expr::value(stop_reason.to_string()),
+        )
+        .filter(automation_run::Column::ConversationId.eq(conversation_id))
+        .filter(automation_run::Column::StopReason.is_null())
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected)
 }
 
 /// Settle a run to a terminal state. CAS on `status = running` so an event-driven
@@ -697,9 +717,11 @@ pub async fn claim_due(
     Ok(Some(slot))
 }
 
-/// Best-effort retention: delete run rows older than `keep_days`. Spawned
-/// conversations / worktrees are the user's artifacts and are NOT touched.
+/// Best-effort retention: soft-hide conversations owned by expired terminal
+/// runs, then delete those run rows. Session files and worktrees are untouched.
 pub async fn prune_old_runs(conn: &DatabaseConnection, keep_days: i64) -> Result<u64, DbError> {
+    use sea_orm::TransactionTrait;
+
     let cutoff = Utc::now() - chrono::Duration::days(keep_days);
     // Only prune terminal rows. A still-`running` row must survive regardless of
     // age: deleting it would defeat the one-active-run unique index (letting a
@@ -710,10 +732,32 @@ pub async fn prune_old_runs(conn: &DatabaseConnection, keep_days: i64) -> Result
     // (`automation/<id>/run-<id>`) created for `worktree_per_run` are not yet
     // garbage-collected here — tracked as a follow-up (bounded GC of those
     // artifacts keyed on the run's worktree_folder_id + name signature).
+    let txn = conn.begin().await?;
+    let conversation_ids = automation_run::Entity::find()
+        .select_only()
+        .column(automation_run::Column::ConversationId)
+        .filter(automation_run::Column::CreatedAt.lt(cutoff))
+        .filter(automation_run::Column::Status.ne(AutomationRunStatus::Running))
+        .filter(automation_run::Column::ConversationId.is_not_null())
+        .into_tuple::<Option<i32>>()
+        .all(&txn)
+        .await?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    if !conversation_ids.is_empty() {
+        conversation::Entity::update_many()
+            .col_expr(conversation::Column::DeletedAt, Expr::value(Utc::now()))
+            .filter(conversation::Column::Id.is_in(conversation_ids))
+            .filter(conversation::Column::DeletedAt.is_null())
+            .exec(&txn)
+            .await?;
+    }
     let res = automation_run::Entity::delete_many()
         .filter(automation_run::Column::CreatedAt.lt(cutoff))
         .filter(automation_run::Column::Status.ne(AutomationRunStatus::Running))
-        .exec(conn)
+        .exec(&txn)
         .await?;
+    txn.commit().await?;
     Ok(res.rows_affected)
 }

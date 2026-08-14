@@ -1797,6 +1797,7 @@
     "conversationCard": {
       "untitledConversation": "Untitled conversation",
       "newConversation": "New Conversation",
+      "addToAutomation": "Add to automation",
       "rename": "Rename",
       "status": "Status",
       "delete": "Delete",
@@ -4360,6 +4361,7 @@
   "Automations": {
     "title": "Scheduled tasks",
     "new": "New automation",
+    "drafting": "Summarizing conversation into an automation draft...",
     "empty": "No automations yet",
     "emptyHint": "Create one to run an agent task on a schedule or on demand.",
     "name": "Name",

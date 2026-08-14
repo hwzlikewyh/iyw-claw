@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Info,
   ChevronRight,
+  CalendarClock,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import type { DbConversationSummary, ConversationStatus } from "@/lib/types"
@@ -120,6 +121,7 @@ interface SidebarConversationCardProps {
   expanded?: boolean
   /** Toggle this conversation's sub-session subtree (lazily loads on expand). */
   onToggleExpand?: (id: number) => void
+  onAddToAutomation?: (conversationId: number) => void
 }
 
 export const SidebarConversationCard = memo(function SidebarConversationCard({
@@ -140,6 +142,7 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
   hasChildren = false,
   expanded = false,
   onToggleExpand,
+  onAddToAutomation,
 }: SidebarConversationCardProps) {
   const t = useTranslations("Folder.conversationCard")
   const tSidebar = useTranslations("Folder.sidebar")
@@ -497,6 +500,14 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
             <Info className="h-4 w-4" />
             {tDetails("menuLabel")}
           </ContextMenuItem>
+          {onAddToAutomation && !isSubsession ? (
+            <ContextMenuItem
+              onSelect={() => onAddToAutomation(conversation.id)}
+            >
+              <CalendarClock className="h-4 w-4" />
+              {t("addToAutomation")}
+            </ContextMenuItem>
+          ) : null}
           <ContextMenuSeparator />
           <ContextMenuSub>
             <ContextMenuSubTrigger>

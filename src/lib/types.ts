@@ -1115,6 +1115,13 @@ export interface AutomationDraft {
   config: AutomationConfig
 }
 
+export interface AutomationDraftSource {
+  name: string
+  agentType: AgentType
+  rootFolderId: number
+  prompt: string
+}
+
 export interface AutomationTemplateInfo {
   id: string
   template_key: string

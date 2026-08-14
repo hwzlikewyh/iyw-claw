@@ -56,6 +56,7 @@ import type {
   AutomationRun,
   AutomationDraft,
   AutomationTemplateInfo,
+  AutomationDraftSource,
   ConversationSummary,
   ConversationDetail,
   DbConversationDetail,
@@ -2448,6 +2449,19 @@ export async function automationComputeNextRun(
   timezone: string
 ): Promise<string | null> {
   return getTransport().call("automation_compute_next_run", { cron, timezone })
+}
+
+export async function automationDraftFromConversation(
+  conversationId: number,
+  options?: { timeoutMs?: number }
+): Promise<AutomationDraftSource> {
+  return getTransport().call(
+    "automation_draft_from_conversation",
+    {
+      conversationId,
+    },
+    options
+  )
 }
 
 /** Fire an automation immediately, bypassing its schedule. Returns the run id. */

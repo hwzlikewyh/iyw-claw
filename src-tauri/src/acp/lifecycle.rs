@@ -26,7 +26,7 @@ use crate::acp::session_state::SessionState;
 use crate::acp::types::{AcpEvent, ConnectionStatus, EventEnvelope};
 use crate::db::entities::conversation::ConversationStatus;
 use crate::db::error::DbError;
-use crate::db::service::conversation_service;
+use crate::db::service::{automation_service, conversation_service};
 use crate::models::AgentType;
 use crate::user_memory::UserMemoryService;
 use crate::web::event_bridge::{emit_with_state, EventEmitter};
@@ -265,6 +265,11 @@ pub(crate) async fn handle_event(
                 return Ok(());
             };
             let mut completion_error = None;
+            if let Err(error) =
+                automation_service::record_stop_reason(db_conn, cid, stop_reason).await
+            {
+                completion_error = Some(error);
+            }
             if let Some(ts) = target_status.clone() {
                 // DB write before emit so any downstream subscriber that observes
                 // the ConversationStatusChanged event can assume the row is
@@ -281,7 +286,17 @@ pub(crate) async fn handle_event(
                         )
                         .await;
                     }
-                    Err(error) => completion_error = Some(error),
+                    Err(error) => {
+                        if completion_error.is_none() {
+                            completion_error = Some(error);
+                        } else {
+                            tracing::error!(
+                                conversation_id = cid,
+                                error = %error,
+                                "[lifecycle] conversation status write also failed"
+                            );
+                        }
+                    }
                 }
             }
 

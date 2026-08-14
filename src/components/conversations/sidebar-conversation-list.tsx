@@ -35,6 +35,7 @@ import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabActions, useTabStore } from "@/contexts/tab-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
+import { useAutomationsView } from "@/contexts/automations-view-context"
 import { useTaskContext } from "@/contexts/task-context"
 import { useTerminalContext } from "@/contexts/terminal-context"
 import { useThemeColor, useZoomLevel } from "@/hooks/use-appearance"
@@ -597,7 +598,8 @@ export function SidebarConversationList({
     openNewConversationTab,
     openChatModeTab,
   } = useTabActions()
-  const { openConversations } = useWorkbenchRoute()
+  const { setRoute, openConversations } = useWorkbenchRoute()
+  const { requestCreateFromConversation } = useAutomationsView()
   const { addTask, updateTask } = useTaskContext()
 
   const folderIndex = useMemo(() => {
@@ -1478,6 +1480,14 @@ export function SidebarConversationList({
     [folderIndex, openNewConversationTab, openConversations]
   )
 
+  const handleAddToAutomation = useCallback(
+    (conversationId: number) => {
+      requestCreateFromConversation(conversationId)
+      setRoute("automations")
+    },
+    [requestCreateFromConversation, setRoute]
+  )
+
   const handleImportForFolder = useCallback(
     async (folderId: number) => {
       if (importing) return
@@ -1966,6 +1976,7 @@ export function SidebarConversationList({
         onStatusChange={handleStatusChange}
         onNewConversation={handleNewConversationForFolder}
         onTogglePin={handleTogglePin}
+        onAddToAutomation={handleAddToAutomation}
         depth={row.depth}
         hasChildren={conv.child_count > 0}
         expanded={conversationExpanded.has(conv.id)}
