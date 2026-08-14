@@ -57,6 +57,7 @@ import {
   deleteAgentInput,
   forceAgentInputsThrough,
   openSettingsWindow,
+  queueAgentInput,
   reorderAgentInputs,
   retryAgentInput,
   submitAgentInput,
@@ -969,7 +970,29 @@ const ConversationTabView = memo(function ConversationTabView({
       }
       const fromQueueFlush = opts?.fromQueueFlush ?? false
       if (shouldQueueBeforeConnection(connectionReady, fromQueueFlush)) {
-        mqEnqueue(draft, selectedModeIdArg ?? null)
+        const conversationId = dbConvIdRef.current
+        if (conversationId != null) {
+          const messageId = `agent-input-${randomUUID()}`
+          mqEnqueueAgentInput(messageId, draft, selectedModeIdArg ?? null)
+          void queueAgentInput(conversationId, messageId, {
+            blocks: draft.blocks,
+            display_text: draft.displayText,
+            mode_id: selectedModeIdArg ?? null,
+          }).catch((error) => {
+            console.error("[agent-input] durable recovery queue failed", {
+              conversationId,
+              messageId,
+              error,
+            })
+            saveMessageInputDraft(
+              buildConversationDraftStorageKey(conversationId),
+              draft.displayText
+            )
+            toast.error(tAgentInput("durableQueueFailed"))
+          })
+        } else {
+          mqEnqueue(draft, selectedModeIdArg ?? null)
+        }
         setHasSentMessage(true)
         void ensureConnected().catch((error) => {
           console.error("[ConversationTabView] restore before send:", error)
@@ -1254,6 +1277,7 @@ const ConversationTabView = memo(function ConversationTabView({
       appendOptimisticTurn,
       removeOptimisticTurn,
       mqEnqueue,
+      mqEnqueueAgentInput,
       mqRequeueItemFront,
       mqGetQueueLength,
       bindConversationTab,
@@ -1274,6 +1298,7 @@ const ConversationTabView = memo(function ConversationTabView({
       sharedT,
       ownTab,
       tWelcome,
+      tAgentInput,
       tabId,
       upsertFolder,
       usableAgentCount,
@@ -1284,29 +1309,33 @@ const ConversationTabView = memo(function ConversationTabView({
   const handlePromptingSubmit = useCallback(
     (draft: PromptDraft, selectedModeIdArg: string | null) => {
       const messageId = `agent-input-${randomUUID()}`
-      const connectionId = conn.connectionId
       const conversationId = dbConvIdRef.current
       const fallbackToLocalQueue = () =>
         mqEnqueueAgentInput(messageId, draft, selectedModeIdArg)
 
-      if (mqGetQueueLength() > 0 || !connectionId || conversationId == null) {
+      if (conversationId == null) {
         fallbackToLocalQueue()
         return
       }
 
-      void submitAgentInput(connectionId, conversationId, messageId, {
+      fallbackToLocalQueue()
+      void queueAgentInput(conversationId, messageId, {
         blocks: draft.blocks,
         display_text: draft.displayText,
         mode_id: selectedModeIdArg,
       }).catch((error) => {
-        console.error("[agent-input] live submission failed", {
+        console.error("[agent-input] durable submission failed", {
           messageId,
           error,
         })
-        fallbackToLocalQueue()
+        saveMessageInputDraft(
+          buildConversationDraftStorageKey(conversationId),
+          draft.displayText
+        )
+        toast.error(tAgentInput("durableQueueFailed"))
       })
     },
-    [conn.connectionId, mqEnqueueAgentInput, mqGetQueueLength]
+    [mqEnqueueAgentInput, tAgentInput]
   )
 
   const handleDeleteAgentInput = useCallback(

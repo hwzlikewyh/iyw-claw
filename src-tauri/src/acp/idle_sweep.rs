@@ -11,34 +11,35 @@ use std::time::Duration;
 use sea_orm::DatabaseConnection;
 
 use crate::acp::manager::ConnectionManager;
+use crate::commands::idle_agent_settings::{
+    get_idle_agent_settings_core, DEFAULT_MAX_IDLE_CONNECTIONS,
+};
 
-/// Abandoned-connection fallback (30 minutes). Normal memory governance is
-/// handled by pressure/budget sweeps; this longer timeout avoids needless cold
-/// starts when only one or two sessions are resident.
-/// `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`. The sweep only runs against
-/// recoverable `Connected` sessions with no protected work. Agent events bump
-/// `last_activity_at`; frontend visibility and pending-input keepalives renew
-/// separate short leases, so they protect a live surface without corrupting LRU.
+/// Optional abandoned-connection timeout. It is disabled unless the operator
+/// explicitly sets `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`; normal memory governance
+/// and the user-selected idle count are handled separately. The sweep only
+/// runs against recoverable `Connected` sessions with no protected work.
+/// Agent events bump `last_activity_at`; frontend visibility and pending-input
+/// keepalives renew separate short leases, so they protect a live surface
+/// without corrupting LRU.
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 1800;
 /// Default prompt-stall threshold (10 minutes without a single agent event
 /// while `Prompting`). Long enough for slow model turns and silent tool runs;
 /// short enough that a hung upstream doesn't spin "generating" for hours.
 /// Override via `IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS` (`0` disables).
 pub const DEFAULT_PROMPT_STALL_TIMEOUT_SECS: u64 = 600;
-/// Default cap on idle resident agent processes (finished conversations).
-/// Prompting sessions never count. Override via
-/// `IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS` (`0` disables the cap).
-pub const DEFAULT_MAX_IDLE_CONNECTIONS: usize = 2;
 /// Sweep cadence — runs once per minute. Each tick is a brief lock on the
 /// connections map plus per-state `try_read`s, so a 1-minute interval is
 /// trivially cheap relative to the wall-clock idle threshold.
 pub const SWEEP_INTERVAL_SECS: u64 = 30;
 
-/// Read the idle timeout from `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`, falling back
-/// to `DEFAULT_IDLE_TIMEOUT_SECS`. A `0` value disables the sweep
-/// (returns `None`); any unparseable value is treated as "use default".
+/// Read the optional idle timeout from `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`.
+/// Absence or `0` disables time-based reclaim; an unparseable explicit value
+/// enables the 30-minute fallback.
 pub fn idle_timeout_from_env() -> Option<Duration> {
-    duration_from_env("IYW_CLAW_ACP_IDLE_TIMEOUT_SECS", DEFAULT_IDLE_TIMEOUT_SECS)
+    let raw = std::env::var("IYW_CLAW_ACP_IDLE_TIMEOUT_SECS").ok()?;
+    let secs = raw.parse::<u64>().unwrap_or(DEFAULT_IDLE_TIMEOUT_SECS);
+    (secs > 0).then_some(Duration::from_secs(secs))
 }
 
 /// Read the prompt-stall timeout from `IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS`,
@@ -61,8 +62,8 @@ fn duration_from_env(key: &str, default_secs: u64) -> Option<Duration> {
     Some(Duration::from_secs(secs))
 }
 
-/// Read the idle-process cap from `IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS`;
-/// `0` disables capping, unparseable values fall back to the default.
+/// Read the idle-process fallback from `IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS`.
+/// `0` disables the count cap; absence defaults to four.
 pub fn max_idle_connections_from_env() -> Option<usize> {
     let count = match std::env::var("IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS") {
         Ok(raw) => raw.parse::<usize>().unwrap_or(DEFAULT_MAX_IDLE_CONNECTIONS),
@@ -84,7 +85,7 @@ pub async fn idle_sweep_task(
     db: DatabaseConnection,
     idle_timeout: Option<Duration>,
     stall_timeout: Option<Duration>,
-    max_idle: Option<usize>,
+    fallback_max_idle: Option<usize>,
     interval: Duration,
 ) {
     let mut ticker = tokio::time::interval(interval);
@@ -103,13 +104,19 @@ pub async fn idle_sweep_task(
             }
         }
         if reclaimed == 0 {
-            if let Some(max_idle) = max_idle {
-                let n = manager.sweep_excess_idle(max_idle).await;
-                if n > 0 {
-                    tracing::info!(
-                        "[ACP] idle-capacity sweep disconnected {n} connection(s) (cap {max_idle})"
-                    );
+            let max_idle = match get_idle_agent_settings_core(&db).await {
+                Ok(settings) => settings.max_idle_connections,
+                Err(error) => {
+                    tracing::warn!(error = %error, "[ACP] idle agent preference unavailable; using environment fallback");
+                    fallback_max_idle
                 }
+            };
+            let n = manager.sweep_excess_idle(max_idle).await;
+            if n > 0 {
+                tracing::info!(
+                    max_idle = ?max_idle,
+                    "[ACP] idle-capacity sweep disconnected {n} connection(s)"
+                );
             }
         }
         if let Some(stall_timeout) = stall_timeout {

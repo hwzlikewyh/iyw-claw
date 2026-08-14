@@ -2820,7 +2820,8 @@
         "deleteFailed": "无法删除这条等待消息",
         "retryFailed": "无法重试这条消息",
         "reorderFailed": "无法调整等待消息顺序",
-        "safeForceFailed": "无法安全强制发送所选消息"
+        "safeForceFailed": "无法安全强制发送所选消息",
+        "durableQueueFailed": "消息已保留在当前队列，但持久化失败；请保持此页面打开并重试"
       },
       "welcomeInputPanel": {
         "agentsSettingsPath": "设置 > Agents",
@@ -2978,6 +2979,7 @@
       "messageList": {
         "attachedResources": "附加资源",
         "loading": "加载中...",
+        "loadEarlier": "加载更早消息",
         "error": "错误：{message}",
         "errorTitle": "会话加载失败",
         "errorActionReload": "重新加载",

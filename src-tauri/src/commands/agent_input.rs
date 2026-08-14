@@ -6,6 +6,7 @@ use crate::acp::types::PromptInputBlock;
 use crate::acp::{AgentInputItem, AgentInputPayload};
 use crate::app_error::AppCommandError;
 use crate::db::service::agent_input_outbox_service;
+use crate::db::service::conversation_service;
 use crate::db::AppDatabase;
 
 const MAX_MESSAGE_ID_CHARS: usize = 160;
@@ -53,6 +54,36 @@ pub async fn submit_agent_input_core(
     manager
         .submit_agent_input(db, &connection_id, conversation_id, message_id, payload)
         .await
+}
+
+pub async fn queue_agent_input_core(
+    db: &AppDatabase,
+    manager: &ConnectionManager,
+    conversation_id: i32,
+    message_id: String,
+    payload: AgentInputPayload,
+) -> Result<AgentInputItem, AcpError> {
+    validate_submit(conversation_id, &message_id, &payload)?;
+    let started_at = std::time::Instant::now();
+    let conversation = conversation_service::get_by_id(&db.conn, conversation_id)
+        .await
+        .map_err(|error| AcpError::protocol(error.to_string()))?;
+    let item = manager
+        .queue_agent_input(
+            db,
+            conversation_id,
+            conversation.agent_type,
+            message_id,
+            payload,
+        )
+        .await?;
+    tracing::info!(
+        conversation_id,
+        input_id = %item.id,
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "[agent-input] durable input queued"
+    );
+    Ok(item)
 }
 
 pub async fn list_agent_inputs_core(
@@ -159,6 +190,25 @@ pub async fn submit_agent_input(
     #[cfg(not(feature = "tauri-runtime"))]
     {
         let _ = (connection_id, conversation_id, message_id, payload);
+        Err(AcpError::protocol("tauri-only command"))
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn queue_agent_input(
+    conversation_id: i32,
+    message_id: String,
+    payload: AgentInputPayload,
+    #[cfg(feature = "tauri-runtime")] db: tauri::State<'_, AppDatabase>,
+    #[cfg(feature = "tauri-runtime")] manager: tauri::State<'_, ConnectionManager>,
+) -> Result<AgentInputItem, AcpError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        queue_agent_input_core(&db, &manager, conversation_id, message_id, payload).await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let _ = (conversation_id, message_id, payload);
         Err(AcpError::protocol("tauri-only command"))
     }
 }

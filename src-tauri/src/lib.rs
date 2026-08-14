@@ -69,7 +69,7 @@ mod tauri_app {
         chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
         chat_image as chat_image_commands, conversations, delegation as delegation_commands,
         display_assets as display_asset_commands, experts as experts_commands,
-        feedback as feedback_commands, file_io, folder_commands, folders,
+        feedback as feedback_commands, file_io, folder_commands, folders, idle_agent_settings,
         internet_tools as internet_tools_commands, iyw_account as iyw_account_commands,
         logging as logging_commands, managed_skills as managed_skills_commands,
         mcp as mcp_commands, model_provider as model_provider_commands, notification,
@@ -904,25 +904,23 @@ mod tauri_app {
                 // Spawn the idle/stall/capacity sweep: connections abandoned
                 // without an explicit disconnect are reaped, prompting sessions
                 // whose agent went silent are cancelled, and idle resident
-                // agent processes are capped (finished conversations reconnect
-                // on re-entry). Overrides: `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`,
-                // `IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS`,
-                // `IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS` (`0` disables each).
+                // agent processes follow the persisted idle preference (finished
+                // conversations reconnect on re-entry). The count preference is
+                // read on every sweep, so settings changes apply without restart.
+                // Environment values remain a fallback when metadata is unavailable.
                 let idle_timeout = crate::acp::idle_timeout_from_env();
                 let stall_timeout = crate::acp::prompt_stall_timeout_from_env();
                 let max_idle = crate::acp::max_idle_connections_from_env();
-                if idle_timeout.is_some() || stall_timeout.is_some() || max_idle.is_some() {
-                    let cm = app.state::<ConnectionManager>().clone_ref();
-                    let sweep_db = app.state::<db::AppDatabase>().conn.clone();
-                    tauri::async_runtime::spawn(crate::acp::idle_sweep_task(
-                        cm,
-                        sweep_db,
-                        idle_timeout,
-                        stall_timeout,
-                        max_idle,
-                        std::time::Duration::from_secs(crate::acp::SWEEP_INTERVAL_SECS),
-                    ));
-                }
+                let cm = app.state::<ConnectionManager>().clone_ref();
+                let sweep_db = app.state::<db::AppDatabase>().conn.clone();
+                tauri::async_runtime::spawn(crate::acp::idle_sweep_task(
+                    cm,
+                    sweep_db,
+                    idle_timeout,
+                    stall_timeout,
+                    max_idle,
+                    std::time::Duration::from_secs(crate::acp::SWEEP_INTERVAL_SECS),
+                ));
 
                 // Keep installed Agent SDKs aligned with the registry while
                 // every live Agent is idle. The shared storage lock serializes
@@ -1286,6 +1284,8 @@ mod tauri_app {
                 system_settings::update_system_rendering_settings,
                 performance_commands::get_performance_stats,
                 performance_commands::end_agent_runtime_session,
+                idle_agent_settings::get_idle_agent_settings,
+                idle_agent_settings::set_idle_agent_settings,
                 agent_storage_commands::get_agent_storage_status,
                 agent_storage_commands::validate_agent_storage_root,
                 agent_storage_commands::initialize_agent_storage,
@@ -1302,6 +1302,7 @@ mod tauri_app {
                 feedback_commands::set_feedback_settings,
                 feedback_commands::submit_session_feedback,
                 agent_input_commands::submit_agent_input,
+                agent_input_commands::queue_agent_input,
                 agent_input_commands::list_agent_inputs,
                 agent_input_commands::delete_agent_input,
                 agent_input_commands::retry_agent_input,

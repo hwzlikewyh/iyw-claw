@@ -666,15 +666,19 @@ impl ConnectionManager {
         disconnected
     }
 
-    /// Reclaim at most one recoverable idle session per tick. System pressure
-    /// tightens the configured cap from 2 to 1 or 0; private commit is the
-    /// primary budget signal. Active work and unreliable sessions are excluded.
-    pub async fn sweep_excess_idle(&self, max_keep: usize) -> usize {
+    /// Reclaim at most one recoverable idle session per tick. A user-selected
+    /// count cap applies in normal conditions; pressure overrides it to 1 or 0.
+    /// Active work, pending input, and unreliable sessions are excluded.
+    pub async fn sweep_excess_idle(&self, max_keep: Option<usize>) -> usize {
         let now = chrono::Utc::now();
         let resources = crate::acp::resource_governor::ResourceSnapshot::capture();
         let pressure_limit =
             crate::acp::resource_governor::idle_keep_limit(resources.memory.pressure);
-        let keep_limit = pressure_limit.map_or(max_keep, |limit| max_keep.min(limit));
+        let keep_limit = match (max_keep, pressure_limit) {
+            (Some(user_limit), Some(pressure_limit)) => Some(user_limit.min(pressure_limit)),
+            (None, pressure_limit) => pressure_limit,
+            (user_limit, None) => user_limit,
+        };
         let private_budget =
             crate::acp::resource_governor::idle_private_budget(resources.memory.total_bytes);
         let allow_recent_activity = matches!(
@@ -706,18 +710,23 @@ impl ConnectionManager {
                 .map(|(_, _, bytes)| *bytes)
                 .collect::<Option<Vec<_>>>()
                 .map(|values| values.iter().sum::<u64>());
-            let private_budget_exceeded = resources.memory.pressure
-                != crate::acp::resource_governor::MemoryPressure::Unknown
-                && private_total.is_some_and(|total| total > private_budget);
-            if idle.len() <= keep_limit && !private_budget_exceeded {
+            let count_limit_exceeded = keep_limit.is_some_and(|limit| idle.len() > limit);
+            // An unlimited preference must remain unlimited while the system is
+            // comfortable. Under pressure, private memory becomes a second
+            // reclaim signal even when the count has not exceeded its cap.
+            let private_budget_exceeded = matches!(
+                resources.memory.pressure,
+                crate::acp::resource_governor::MemoryPressure::Shrinking
+                    | crate::acp::resource_governor::MemoryPressure::Emergency
+            ) && private_total
+                .is_some_and(|total| total > private_budget);
+            if !count_limit_exceeded && !private_budget_exceeded {
                 return 0;
             }
             idle.sort_by(|left, right| {
-                left.1
-                    .cmp(&right.1)
-                    .then_with(|| {
-                        crate::acp::resource_governor::compare_reclaim_memory(left.2, right.2)
-                    })
+                left.1.cmp(&right.1).then_with(|| {
+                    crate::acp::resource_governor::compare_reclaim_memory(left.2, right.2)
+                })
             });
             idle.first()
                 .map(|(id, _, _)| vec![id.clone()])
@@ -733,7 +742,7 @@ impl ConnectionManager {
                 total_bytes = resources.memory.total_bytes,
                 shrinking_reserve_bytes = resources.memory.shrinking_reserve_bytes,
                 emergency_reserve_bytes = resources.memory.emergency_reserve_bytes,
-                keep_limit,
+                keep_limit = ?keep_limit,
                 private_budget,
                 "[ACP] resource governor disconnecting idle connection"
             );

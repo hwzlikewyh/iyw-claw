@@ -591,24 +591,21 @@ async fn async_main() -> ExitCode {
         Some(state.user_memory.clone()),
     ));
 
-    // Spawn the idle/stall/capacity sweep: abandoned connections are reaped,
-    // silent prompting sessions are cancelled, idle resident agent processes
-    // are capped. Overrides: `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`,
-    // `IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS`,
-    // `IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS` (`0` disables each).
+    // Spawn the idle/stall/capacity sweep. The persisted preference controls
+    // normal idle retention, while memory pressure can still reclaim safe
+    // sessions. Time-based reclaim is opt-in through
+    // `IYW_CLAW_ACP_IDLE_TIMEOUT_SECS`; environment count is only a fallback.
     let idle_timeout = iyw_claw_lib::idle_timeout_from_env();
     let stall_timeout = iyw_claw_lib::prompt_stall_timeout_from_env();
     let max_idle = iyw_claw_lib::max_idle_connections_from_env();
-    if idle_timeout.is_some() || stall_timeout.is_some() || max_idle.is_some() {
-        tokio::spawn(iyw_claw_lib::idle_sweep_task(
-            state.connection_manager.clone_ref(),
-            state.db.conn.clone(),
-            idle_timeout,
-            stall_timeout,
-            max_idle,
-            std::time::Duration::from_secs(iyw_claw_lib::SWEEP_INTERVAL_SECS),
-        ));
-    }
+    tokio::spawn(iyw_claw_lib::idle_sweep_task(
+        state.connection_manager.clone_ref(),
+        state.db.conn.clone(),
+        idle_timeout,
+        stall_timeout,
+        max_idle,
+        std::time::Duration::from_secs(iyw_claw_lib::SWEEP_INTERVAL_SECS),
+    ));
 
     // Keep installed Agent SDKs aligned with the registry while every live
     // Agent is idle. Manual and automatic storage mutations share one lock.

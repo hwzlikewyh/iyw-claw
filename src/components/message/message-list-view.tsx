@@ -12,6 +12,7 @@ import {
 } from "react"
 import {
   selectTimelineTurns,
+  useConversationRuntimeActions,
   useConversationRuntimeStore,
 } from "@/stores/conversation-runtime-store"
 import { ContentPartsRenderer } from "./content-parts-renderer"
@@ -141,6 +142,10 @@ type ThreadRenderItem =
   | {
       key: string
       kind: "typing"
+    }
+  | {
+      key: string
+      kind: "history"
     }
 
 // Module-scope so the reference is stable across renders — lets the memoized
@@ -577,6 +582,7 @@ export function MessageListView({
     (s) => s.byConversationId.get(conversationId) ?? null
   )
   const liveMessage = session?.liveMessage ?? null
+  const { loadEarlierHistory } = useConversationRuntimeActions()
   const timelineTurns = useConversationRuntimeStore((s) =>
     selectTimelineTurns(s, conversationId)
   )
@@ -729,6 +735,9 @@ export function MessageListView({
       items.push({ key: "pending-typing", kind: "typing" })
     }
 
+    if ((session?.detail?.history_start ?? 0) > 0) {
+      items.unshift({ key: "load-earlier-history", kind: "history" })
+    }
     return { threadItems: items }
   }, [
     adapterText,
@@ -737,6 +746,7 @@ export function MessageListView({
     timelineTurns,
     turnAdapter,
     groupCache,
+    session?.detail?.history_start,
   ])
 
   const renderThreadItem = useCallback(
@@ -760,11 +770,36 @@ export function MessageListView({
         }
         case "typing":
           return <PendingTypingIndicator />
+        case "history":
+          return (
+            <div className="flex justify-center">
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={detailLoading}
+                onClick={() => loadEarlierHistory(conversationId)}
+              >
+                {detailLoading ? (
+                  <Loader2 className="me-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <ChevronDown className="me-1.5 h-4 w-4 rotate-180" />
+                )}
+                {t("loadEarlier")}
+              </Button>
+            </div>
+          )
         default:
           return null
       }
     },
-    [agentType, enableUserMemoryActions]
+    [
+      agentType,
+      conversationId,
+      detailLoading,
+      enableUserMemoryActions,
+      loadEarlierHistory,
+      t,
+    ]
   )
 
   const emptyState = useMemo(

@@ -125,6 +125,8 @@ pub async fn get_conversation(
 #[serde(rename_all = "camelCase")]
 pub struct GetFolderConversationParams {
     pub conversation_id: i32,
+    pub before: Option<usize>,
+    pub force_refresh: Option<bool>,
 }
 
 pub async fn get_folder_conversation(
@@ -132,12 +134,14 @@ pub async fn get_folder_conversation(
     Json(params): Json<GetFolderConversationParams>,
 ) -> Result<Json<DbConversationDetail>, AppCommandError> {
     let db = &state.db;
-    let result = conv_commands::get_folder_conversation_with_live_core(
+    let result = conv_commands::get_folder_conversation_page_core(
         &db.conn,
         &state.connection_manager,
         &state.chat_channel_manager,
         &state.emitter,
         params.conversation_id,
+        params.before,
+        params.force_refresh.unwrap_or(false),
     )
     .await?;
     Ok(Json(result))

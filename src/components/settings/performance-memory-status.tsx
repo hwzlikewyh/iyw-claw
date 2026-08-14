@@ -24,7 +24,7 @@ function pressureCopy(pressure: AppSystemMemoryInfo["pressure"]) {
     case "comfortable":
       return {
         label: "工具空间充足",
-        detail: "空闲 Agent 按常规数量和内存预算保留。",
+        detail: "空闲 Agent 按用户设置保留；选择不限时不按数量回收。",
         color: "text-emerald-600 dark:text-emerald-400",
       }
     case "shrinking":

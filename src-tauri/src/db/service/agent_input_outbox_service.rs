@@ -17,6 +17,8 @@ use crate::db::entities::agent_input_outbox;
 use crate::db::error::DbError;
 use crate::models::AgentType;
 
+const DEFERRED_HISTORY_GRACE_SECS: i64 = 5 * 60;
+
 struct SerializedInput {
     id: String,
     conversation_id: i32,
@@ -177,6 +179,7 @@ pub async fn list_visible(
     conn: &DatabaseConnection,
     conversation_id: i32,
 ) -> Result<Vec<AgentInputItem>, DbError> {
+    let deferred_cutoff = Utc::now() - chrono::Duration::seconds(DEFERRED_HISTORY_GRACE_SECS);
     let rows = agent_input_outbox::Entity::find()
         .filter(agent_input_outbox::Column::ConversationId.eq(conversation_id))
         .filter(agent_input_outbox::Column::DeletedAt.is_null())
@@ -186,6 +189,18 @@ pub async fn list_visible(
                 .add(
                     agent_input_outbox::Column::Strategy
                         .eq(AgentInputStrategy::CooperativeFeedback.as_str()),
+                )
+                .add(
+                    Condition::all()
+                        .add(
+                            agent_input_outbox::Column::Status
+                                .eq(AgentInputStatus::Consumed.as_str()),
+                        )
+                        .add(
+                            agent_input_outbox::Column::Strategy
+                                .eq(AgentInputStrategy::DeferredNext.as_str()),
+                        )
+                        .add(agent_input_outbox::Column::ConsumedAt.gte(deferred_cutoff)),
                 ),
         )
         .order_by_asc(agent_input_outbox::Column::SortIndex)

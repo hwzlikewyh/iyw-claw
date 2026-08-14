@@ -24,9 +24,13 @@ export function computeTurnMetadataPatches(params: {
   localAssistantIndices: number[]
   parsedAssistantTurns: MessageTurn[]
   persistedAssistantCount: number
+  parsedAssistantTurnsBefore?: number
 }): TurnMetadataPatch[] {
   const historyBoundary = Math.min(
-    Math.max(params.persistedAssistantCount, 0),
+    Math.max(
+      params.persistedAssistantCount - (params.parsedAssistantTurnsBefore ?? 0),
+      0
+    ),
     params.parsedAssistantTurns.length
   )
   const sessionTurns = params.parsedAssistantTurns.slice(historyBoundary)

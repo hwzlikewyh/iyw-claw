@@ -140,6 +140,36 @@ impl ConnectionManager {
             .await
     }
 
+    pub async fn queue_agent_input(
+        &self,
+        db: &AppDatabase,
+        conversation_id: i32,
+        agent_type: crate::models::AgentType,
+        id: String,
+        payload: AgentInputPayload,
+    ) -> Result<AgentInputItem, AcpError> {
+        self.agent_input_runtime.install_db(Arc::new(AppDatabase {
+            conn: db.conn.clone(),
+        }));
+        let item =
+            agent_input_outbox_service::create(&db.conn, id, conversation_id, agent_type, payload)
+                .await
+                .map_err(|error| AcpError::protocol(error.to_string()))?;
+        let Some(conn_id) = self
+            .find_connection_by_conversation_id(conversation_id)
+            .await
+        else {
+            return Ok(item);
+        };
+        if let Some((state, emitter)) = self.get_state_and_emitter(&conn_id).await {
+            emit_input(&state, &emitter, item.clone()).await;
+            self.agent_input_runtime
+                .ensure_worker(self.clone_ref(), conn_id)
+                .await;
+        }
+        Ok(item)
+    }
+
     pub async fn request_safe_cancel(
         &self,
         conn_id: &str,

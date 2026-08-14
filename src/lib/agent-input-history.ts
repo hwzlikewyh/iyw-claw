@@ -3,6 +3,10 @@ import {
   type FeedbackEntry,
 } from "@/lib/feedback-check"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
+import {
+  appendPendingAgentInputs,
+  buildAgentInputUserTurn,
+} from "@/lib/agent-input-history-pending"
 import type {
   AgentInputItem,
   ContentBlock,
@@ -200,16 +204,6 @@ function buildHistoryPatches(
   return patches
 }
 
-function buildUserTurn(item: AgentInputItem): MessageTurn {
-  const text = item.payload.display_text.trim() || feedbackText(item) || ""
-  return {
-    id: item.id,
-    role: "user",
-    blocks: [{ type: "text", text }],
-    timestamp: item.consumed_at ?? item.created_at,
-  }
-}
-
 function buildAssistantSegment(
   turn: MessageTurn,
   blocks: ContentBlock[],
@@ -267,7 +261,7 @@ function applyTurnPatches(
     const inserted = patches.insertAfter.get(key)
     if (!inserted) return
     flush()
-    for (const item of inserted) output.push(buildUserTurn(item))
+    for (const item of inserted) output.push(buildAgentInputUserTurn(item))
     const lastInserted = inserted[inserted.length - 1]
     timestamp =
       lastInserted?.consumed_at ?? lastInserted?.created_at ?? timestamp
@@ -282,16 +276,20 @@ export function mergeAgentInputHistory(
 ): DbConversationDetail {
   const existingTurnIds = new Set(detail.turns.map((turn) => turn.id))
   const candidates = buildCandidates(inputs, existingTurnIds)
-  if (candidates.length === 0) return detail
   const patches = buildHistoryPatches(
     findFeedbackCalls(detail.turns),
     candidates
   )
-  if (patches.insertAfter.size === 0) return detail
+  const patchedTurns =
+    patches.insertAfter.size === 0
+      ? detail.turns
+      : detail.turns.flatMap((turn, index) =>
+          applyTurnPatches(turn, index, patches)
+        )
+  const turns = appendPendingAgentInputs(patchedTurns, inputs)
+  if (turns === detail.turns) return detail
   return {
     ...detail,
-    turns: detail.turns.flatMap((turn, index) =>
-      applyTurnPatches(turn, index, patches)
-    ),
+    turns,
   }
 }

@@ -295,6 +295,21 @@ export async function submitAgentInput(
   })
 }
 
+export async function queueAgentInput(
+  conversationId: number,
+  messageId: string,
+  payload: AgentInputPayload
+): Promise<AgentInputItem> {
+  return getTransport().call("queue_agent_input", {
+    conversationId,
+    messageId,
+    payload: {
+      ...payload,
+      blocks: normalizeAgentInputBlocks(payload.blocks),
+    },
+  })
+}
+
 export async function listAgentInputs(
   conversationId: number
 ): Promise<AgentInputItem[]> {
@@ -1714,13 +1729,19 @@ export async function importLocalConversations(
 }
 
 export async function getFolderConversation(
-  conversationId: number
+  conversationId: number,
+  before?: number,
+  forceRefresh: boolean = false
 ): Promise<DbConversationDetail> {
   const [detail, inputs] = await Promise.all([
     getTransport().call<DbConversationDetail>("get_folder_conversation", {
       conversationId,
+      before: before ?? null,
+      forceRefresh,
     }),
-    listAgentInputs(conversationId),
+    before === undefined
+      ? listAgentInputs(conversationId)
+      : Promise.resolve([]),
   ])
   return mergeAgentInputHistory(detail, inputs)
 }
@@ -3906,6 +3927,22 @@ export interface DelegationSettings {
   agent_defaults?: Partial<Record<AgentType, AgentDelegationDefaults>>
   /** Read-only effective state (kill switch / org policy / user / default). */
   effective?: EffectiveState | null
+}
+
+/** Number of completed agent processes retained for quick conversation resume.
+ * `null` means unlimited while the system has sufficient memory. */
+export interface IdleAgentSettings {
+  max_idle_connections: number | null
+}
+
+export async function getIdleAgentSettings(): Promise<IdleAgentSettings> {
+  return getShellTransport().call("get_idle_agent_settings")
+}
+
+export async function setIdleAgentSettings(
+  settings: IdleAgentSettings
+): Promise<IdleAgentSettings> {
+  return getShellTransport().call("set_idle_agent_settings", { settings })
 }
 
 export async function getDelegationSettings(): Promise<DelegationSettings> {

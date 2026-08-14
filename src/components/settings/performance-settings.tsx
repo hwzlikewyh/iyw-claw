@@ -19,6 +19,7 @@ import {
   type ProcessGroup,
 } from "@/components/settings/performance-process-groups"
 import type { AppSystemMemoryInfo } from "@/components/settings/performance-memory-status"
+import { IdleAgentSettingsPanel } from "@/components/settings/idle-agent-settings-panel"
 
 const AUTO_REFRESH_INTERVAL_MS = 3000
 
@@ -276,6 +277,7 @@ export function PerformanceSettings() {
         </div>
       )}
       <PerformanceSummary data={data} />
+      <IdleAgentSettingsPanel />
       <PerformanceProcessPanel data={data} />
     </SettingsPageLayout>
   )

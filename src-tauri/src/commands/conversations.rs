@@ -632,6 +632,10 @@ pub async fn get_folder_conversation_core(
             session_stats,
             transcript_watermark,
             in_flight_user_turn_id: None,
+            history_total_turns: 0,
+            history_start: 0,
+            history_assistant_turns_before: 0,
+            history_stale: false,
         },
         parsed_title,
     ))
@@ -874,6 +878,71 @@ pub async fn get_folder_conversation_with_live_core(
     Ok(detail)
 }
 
+pub async fn get_folder_conversation_page_core(
+    conn: &sea_orm::DatabaseConnection,
+    manager: &crate::acp::manager::ConnectionManager,
+    chat_channel_manager: &crate::chat_channel::manager::ChatChannelManager,
+    emitter: &EventEmitter,
+    conversation_id: i32,
+    before: Option<usize>,
+    force_refresh: bool,
+) -> Result<DbConversationDetail, AppCommandError> {
+    let summary = conversation_service::get_by_id(conn, conversation_id)
+        .await
+        .map_err(AppCommandError::from)?;
+    let cache_revision = crate::commands::conversation_history_cache::revision(
+        summary.external_id.as_deref(),
+        summary.updated_at,
+    );
+    let started_at = std::time::Instant::now();
+    let cached = (!force_refresh)
+        .then(|| {
+            crate::commands::conversation_history_cache::load(
+                conversation_id,
+                &cache_revision,
+                before,
+            )
+        })
+        .flatten();
+    let mut detail = if let Some((cached, fresh)) = cached {
+        tracing::info!(
+            conversation_id,
+            fresh,
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "[conversation-history] cache hit"
+        );
+        let mut cached = cached;
+        cached.history_stale = !fresh;
+        cached
+    } else {
+        let parsed = get_folder_conversation_with_live_core(
+            conn,
+            manager,
+            chat_channel_manager,
+            emitter,
+            conversation_id,
+        )
+        .await?;
+        tracing::info!(
+            conversation_id,
+            turns = parsed.turns.len(),
+            elapsed_ms = started_at.elapsed().as_millis(),
+            "[conversation-history] transcript parsed"
+        );
+        let page = crate::commands::conversation_history_cache::page(&parsed, before);
+        tokio::task::spawn_blocking(move || {
+            crate::commands::conversation_history_cache::store(
+                conversation_id,
+                cache_revision,
+                parsed,
+            );
+        });
+        return Ok(page);
+    };
+    detail.history_stale = detail.history_stale && !force_refresh;
+    Ok(detail)
+}
+
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn get_folder_conversation(
@@ -882,13 +951,17 @@ pub async fn get_folder_conversation(
     manager: tauri::State<'_, crate::acp::manager::ConnectionManager>,
     chat_channel_manager: tauri::State<'_, crate::chat_channel::manager::ChatChannelManager>,
     conversation_id: i32,
+    before: Option<usize>,
+    force_refresh: Option<bool>,
 ) -> Result<DbConversationDetail, AppCommandError> {
-    get_folder_conversation_with_live_core(
+    get_folder_conversation_page_core(
         &db.conn,
         &manager,
         &chat_channel_manager,
         &EventEmitter::Tauri(app),
         conversation_id,
+        before,
+        force_refresh.unwrap_or(false),
     )
     .await
 }

@@ -188,6 +188,11 @@ type Action =
       error: string
     }
   | {
+      type: "PREPEND_HISTORY_SUCCESS"
+      conversationId: number
+      detail: DbConversationDetail
+    }
+  | {
       type: "COMPLETE_TURN"
       conversationId: number
       /**
@@ -339,7 +344,10 @@ function batchStartHistoryBaseline(
       ? turns.findIndex((turn) => turn.role === "user" && turn.id === promptId)
       : -1
   const history = cutoff === -1 ? turns : turns.slice(0, cutoff + 1)
-  return history.filter((turn) => turn.role === "assistant").length
+  return (
+    (current.detail?.history_assistant_turns_before ?? 0) +
+    history.filter((turn) => turn.role === "assistant").length
+  )
 }
 
 interface BuiltStreamingTurns {
@@ -1243,6 +1251,26 @@ function reducer(
         detailError: action.error,
       }))
 
+    case "PREPEND_HISTORY_SUCCESS":
+      return updateSessionInState(state, action.conversationId, (current) => {
+        if (!current.detail) return current
+        const known = new Set(current.detail.turns.map((turn) => turn.id))
+        const older = action.detail.turns.filter((turn) => !known.has(turn.id))
+        return {
+          ...current,
+          detail: {
+            ...current.detail,
+            turns: [...older, ...current.detail.turns],
+            history_start: action.detail.history_start,
+            history_total_turns: action.detail.history_total_turns,
+            history_assistant_turns_before:
+              action.detail.history_assistant_turns_before,
+          },
+          detailLoading: false,
+          detailError: null,
+        }
+      })
+
     case "COMPLETE_TURN": {
       const current = state.byConversationId.get(action.conversationId)
       if (!current) return state
@@ -1735,6 +1763,7 @@ function reducer(
 
 export interface RuntimeActions {
   fetchDetail: (conversationId: number) => void
+  loadEarlierHistory: (conversationId: number) => void
   refetchDetail: (
     conversationId: number,
     options?: { preserveLive?: boolean }
@@ -2126,6 +2155,17 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
       .then((detail) => {
         if (!isLatestGeneration(conversationId, generation)) return
         dispatch({ type: "FETCH_DETAIL_SUCCESS", conversationId, detail })
+        if (!detail.history_stale) return
+        getFolderConversation(conversationId, undefined, true)
+          .then((fresh) => {
+            if (!isLatestGeneration(conversationId, generation)) return
+            dispatch({
+              type: "FETCH_DETAIL_SUCCESS",
+              conversationId,
+              detail: fresh,
+            })
+          })
+          .catch(() => {})
       })
       .catch((error: unknown) => {
         if (!isLatestGeneration(conversationId, generation)) return
@@ -2146,7 +2186,7 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
       conversationId
     const generation = bumpFetchGeneration(conversationId)
     dispatch({ type: "FETCH_DETAIL_START", conversationId })
-    getFolderConversation(fetchId)
+    getFolderConversation(fetchId, undefined, true)
       .then((detail) => {
         if (!isLatestGeneration(conversationId, generation)) return
         dispatch({
@@ -2154,6 +2194,38 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
           conversationId,
           detail,
           preserveLive: options?.preserveLive ?? false,
+        })
+      })
+      .catch((error: unknown) => {
+        if (!isLatestGeneration(conversationId, generation)) return
+        dispatch({
+          type: "FETCH_DETAIL_ERROR",
+          conversationId,
+          error: toErrorMessage(error),
+        })
+      })
+  }
+
+  const loadEarlierHistory = (conversationId: number): void => {
+    const session = get().byConversationId.get(conversationId)
+    const before = session?.detail?.history_start ?? 0
+    if (!session?.detail || before <= 0 || session.detailLoading) return
+    const fetchId = session.dbConversationId ?? conversationId
+    dispatch({ type: "FETCH_DETAIL_START", conversationId })
+    const generation = bumpFetchGeneration(conversationId)
+    getFolderConversation(fetchId, before)
+      .then((detail) => {
+        if (!isLatestGeneration(conversationId, generation)) return null
+        return detail.history_stale
+          ? getFolderConversation(fetchId, before, true)
+          : detail
+      })
+      .then((detail) => {
+        if (!detail || !isLatestGeneration(conversationId, generation)) return
+        dispatch({
+          type: "PREPEND_HISTORY_SUCCESS",
+          conversationId,
+          detail,
         })
       })
       .catch((error: unknown) => {
@@ -2182,7 +2254,7 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
         if (!session || session.localTurns.length === 0) return
         if (session.syncState === "awaiting_persist") return
 
-        getFolderConversation(dbConversationId)
+        getFolderConversation(dbConversationId, undefined, true)
           .then((parsed) => {
             if (cancelled) return
             const cur = get().byConversationId.get(runtimeId)
@@ -2203,6 +2275,7 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
               localAssistantIndices,
               parsedAssistantTurns,
               persistedAssistantCount: cur.historyAssistantBaseline ?? 0,
+              parsedAssistantTurnsBefore: parsed.history_assistant_turns_before,
             })
 
             if (patches.length > 0 || parsed.session_stats) {
@@ -2242,6 +2315,7 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
   }
 
   const actions: RuntimeActions = {
+    loadEarlierHistory,
     fetchDetail,
     refetchDetail,
     syncTurnMetadata,

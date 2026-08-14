@@ -92,6 +92,14 @@ pub fn build_router(
             post(handlers::performance::get_performance_stats),
         )
         .route(
+            "/get_idle_agent_settings",
+            post(handlers::performance::get_idle_agent_settings),
+        )
+        .route(
+            "/set_idle_agent_settings",
+            post(handlers::performance::set_idle_agent_settings),
+        )
+        .route(
             "/end_agent_runtime_session",
             post(handlers::performance::end_agent_runtime_session),
         )
@@ -163,6 +171,10 @@ pub fn build_router(
         .route(
             "/submit_agent_input",
             post(handlers::agent_input::submit_agent_input),
+        )
+        .route(
+            "/queue_agent_input",
+            post(handlers::agent_input::queue_agent_input),
         )
         .route(
             "/list_agent_inputs",

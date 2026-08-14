@@ -22,7 +22,6 @@ const SHRINKING_MAX_BYTES: u64 = 12 * GIB;
 const EMERGENCY_TARGET_PERCENT: u64 = 25;
 const EMERGENCY_TARGET_BYTES: u64 = 5 * GIB;
 const EMERGENCY_MAX_BYTES: u64 = 8 * GIB;
-const DEFAULT_IDLE_KEEP: usize = 2;
 const SHRINK_IDLE_KEEP: usize = 1;
 const COMPLETION_GRACE: i64 = 90;
 
@@ -163,7 +162,9 @@ pub fn classify_pressure(total: u64, available: u64) -> MemoryPressure {
 
 pub fn idle_keep_limit(pressure: MemoryPressure) -> Option<usize> {
     match pressure {
-        MemoryPressure::Comfortable => Some(DEFAULT_IDLE_KEEP),
+        // In normal conditions the user's setting owns the count cap. `None`
+        // deliberately stays unbounded here, while pressure still overrides it.
+        MemoryPressure::Comfortable => None,
         MemoryPressure::Shrinking => Some(SHRINK_IDLE_KEEP),
         MemoryPressure::Emergency => Some(0),
         MemoryPressure::Unknown => None,

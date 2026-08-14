@@ -25,7 +25,7 @@ pub struct ConversationSummary {
     pub delegation_call_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DbConversationSummary {
     pub id: i32,
     pub folder_id: i32,
@@ -88,7 +88,7 @@ pub struct ConversationDetail {
     pub transcript_watermark: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DbConversationDetail {
     pub summary: DbConversationSummary,
     pub turns: Vec<MessageTurn>,
@@ -104,6 +104,17 @@ pub struct DbConversationDetail {
     /// mid-stream, which would otherwise double-render against the live reply.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_flight_user_turn_id: Option<String>,
+    #[serde(default)]
+    pub history_total_turns: usize,
+    #[serde(default)]
+    pub history_start: usize,
+    /// Number of assistant turns before the loaded page. This lets the
+    /// frontend align metadata sync with a tail page without loading the
+    /// complete transcript.
+    #[serde(default)]
+    pub history_assistant_turns_before: usize,
+    #[serde(default)]
+    pub history_stale: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

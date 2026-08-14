@@ -434,6 +434,10 @@ export interface DbConversationDetail {
   turns: MessageTurn[]
   session_stats?: SessionStats | null
   transcript_watermark?: number | null
+  history_total_turns: number
+  history_start: number
+  history_assistant_turns_before?: number
+  history_stale: boolean
   /**
    * Id of the persisted user turn the backend identified as the in-flight prompt
    * (present only while a turn is running on this conversation's connection). The

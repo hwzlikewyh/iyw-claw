@@ -8,8 +8,8 @@ use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::agent_input::{
     delete_agent_input_core, force_agent_inputs_through_core, list_agent_inputs_core,
-    reorder_agent_inputs_core, resume_agent_inputs_core, retry_agent_input_core,
-    submit_agent_input_core,
+    queue_agent_input_core, reorder_agent_inputs_core, resume_agent_inputs_core,
+    retry_agent_input_core, submit_agent_input_core,
 };
 
 #[derive(Deserialize)]
@@ -29,6 +29,30 @@ pub async fn submit_agent_input(
         &state.db,
         &state.connection_manager,
         params.connection_id,
+        params.conversation_id,
+        params.message_id,
+        params.payload,
+    )
+    .await
+    .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
+    Ok(Json(item))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueAgentInputParams {
+    pub conversation_id: i32,
+    pub message_id: String,
+    pub payload: AgentInputPayload,
+}
+
+pub async fn queue_agent_input(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<QueueAgentInputParams>,
+) -> Result<Json<AgentInputItem>, AppCommandError> {
+    let item = queue_agent_input_core(
+        &state.db,
+        &state.connection_manager,
         params.conversation_id,
         params.message_id,
         params.payload,

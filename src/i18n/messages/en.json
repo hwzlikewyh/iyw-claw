@@ -2820,7 +2820,8 @@
         "deleteFailed": "Couldn't remove this waiting message",
         "retryFailed": "Couldn't retry this message",
         "reorderFailed": "Couldn't reorder waiting messages",
-        "safeForceFailed": "Couldn't safely force send the selected messages"
+        "safeForceFailed": "Couldn't safely force send the selected messages",
+        "durableQueueFailed": "The message remains in this queue, but durable saving failed. Keep this page open and retry"
       },
       "welcomeInputPanel": {
         "agentsSettingsPath": "Settings > Agents",
@@ -2978,6 +2979,7 @@
       "messageList": {
         "attachedResources": "Attached resources",
         "loading": "Loading...",
+        "loadEarlier": "Load earlier messages",
         "error": "Error: {message}",
         "errorTitle": "Session load failed",
         "errorActionReload": "Reload",
