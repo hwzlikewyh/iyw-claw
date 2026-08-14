@@ -92,8 +92,12 @@ async fn ensure_legacy_policy_migrated(conn: &DatabaseConnection) -> Result<(), 
     {
         return Ok(());
     }
+    let mut found_legacy_policy = false;
     for spec in legacy_policy_specs() {
-        migrate_legacy_family(conn, &spec).await?;
+        found_legacy_policy |= migrate_legacy_family(conn, &spec).await?;
+    }
+    if !found_legacy_policy {
+        return Ok(());
     }
     app_metadata_service::upsert_value(conn, LEGACY_POLICY_MIGRATION_KEY, "true")
         .await
@@ -139,13 +143,13 @@ fn legacy_policy_specs() -> Vec<LegacyPolicySpec> {
 async fn migrate_legacy_family(
     conn: &DatabaseConnection,
     spec: &LegacyPolicySpec,
-) -> Result<(), AcpError> {
+) -> Result<bool, AcpError> {
     let default_raw = app_metadata_service::get_value(conn, spec.policy_key)
         .await
         .map_err(|error| AcpError::protocol(error.to_string()))?;
     let overrides = load_legacy_overrides(conn, spec.overrides_key).await?;
     if default_raw.is_none() && overrides.is_none() {
-        return Ok(());
+        return Ok(false);
     }
     let default_enabled = default_raw
         .as_deref()
@@ -172,7 +176,7 @@ async fn migrate_legacy_family(
             .map_err(|error| AcpError::protocol(error.to_string()))?;
         }
     }
-    Ok(())
+    Ok(true)
 }
 
 async fn load_legacy_overrides(

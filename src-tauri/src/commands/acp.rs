@@ -11052,20 +11052,29 @@ fn inventory_skill_for_agent(
     let state = skill
         .agent_states
         .iter()
-        .find(|state| state.agent_type == agent_type)?;
-    if !include_disabled && !state.actual_enabled {
+        .find(|state| state.agent_type == agent_type);
+    let actual_enabled = state.is_some_and(|value| value.actual_enabled);
+    if !include_disabled && !actual_enabled {
         return None;
     }
-    let observation = skill.observations.iter().find(|observation| {
-        observation
-            .locations
-            .iter()
-            .any(|location| location.agent_types.contains(&agent_type))
-    })?;
+    let observation = skill
+        .observations
+        .iter()
+        .find(|observation| {
+            observation
+                .locations
+                .iter()
+                .any(|location| location.agent_types.contains(&agent_type))
+        })
+        .or_else(|| {
+            (skill.scope == AgentSkillScope::Global)
+                .then(|| skill.observations.first())
+                .flatten()
+        })?;
     let location = observation
         .locations
         .iter()
-        .find(|location| location.agent_types.contains(&agent_type))?;
+        .find(|location| location.agent_types.contains(&agent_type));
     let market_managed = matches!(
         observation.ownership,
         crate::commands::skill_inventory::SkillInventoryOwnership::Market
@@ -11075,10 +11084,12 @@ fn inventory_skill_for_agent(
         name: skill.name,
         scope: skill.scope,
         layout: observation.layout,
-        path: observation.canonical_path.clone(),
+        path: location
+            .map(|value| value.path.clone())
+            .unwrap_or_else(|| observation.canonical_path.clone()),
         description: skill.description,
-        enabled: state.actual_enabled,
-        copy_mode: location.projection_source.is_some(),
+        enabled: actual_enabled,
+        copy_mode: location.is_some_and(|value| value.projection_source.is_some()),
         read_only: observation.read_only,
         official: market_managed,
         market_managed,

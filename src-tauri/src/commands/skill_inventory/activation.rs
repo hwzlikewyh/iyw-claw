@@ -47,16 +47,12 @@ pub async fn skill_activation_set_core(
         ensure_dependency_policy_defaults(conn, &request).await?;
     }
 
-    let mut apply_error = crate::commands::acp::set_skill_projection_for_agent(
-        request.agent_type,
-        request.scope,
-        &request.skill_id,
-        request.workspace_path.as_deref(),
-        request.enabled,
-        request.sync_mode.unwrap_or_default(),
-    )
-    .err()
-    .map(|error| error.to_string());
+    let policy_snapshot =
+        skill_inventory_list_core(conn, request.workspace_path.as_deref()).await?;
+    let effective_target =
+        activation_state(&request, &policy_snapshot).is_some_and(|value| value.effective_enabled);
+    let desired_projection = request.enabled && effective_target;
+    let mut apply_error = None;
     if request.scope == crate::acp::types::AgentSkillScope::Global {
         match crate::commands::acp::reconcile_shared_market_skills_for_agent(
             conn,
@@ -67,6 +63,15 @@ pub async fn skill_activation_set_core(
             Ok(()) => apply_error = None,
             Err(error) => merge_error(&mut apply_error, error.to_string()),
         }
+    } else if let Err(error) = crate::commands::acp::set_skill_projection_for_agent(
+        request.agent_type,
+        request.scope,
+        &request.skill_id,
+        request.workspace_path.as_deref(),
+        desired_projection,
+        request.sync_mode.unwrap_or_default(),
+    ) {
+        apply_error = Some(error.to_string());
     }
     let after = skill_inventory_list_core(conn, request.workspace_path.as_deref()).await?;
     let state = activation_state(&request, &after);

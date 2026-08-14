@@ -73,6 +73,7 @@ pub mod session_config_reconciler;
 pub mod session_info;
 pub mod session_state;
 pub mod skill_package;
+pub(crate) mod skill_tree_hash;
 pub mod terminal_runtime;
 pub mod types;
 pub mod version_center;
