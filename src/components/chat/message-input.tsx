@@ -411,19 +411,9 @@ function imageMimeTypeForFile(file: File): string | null {
   return byName && SUPPORTED_IMAGE_MIME_TYPES.has(byName) ? byName : null
 }
 
-function isImageCandidateFile(file: File): boolean {
-  const declared = file.type.trim().toLowerCase()
-  const byName = mimeTypeFromPath(file.name)
-  return declared.startsWith("image/") || byName?.startsWith("image/") === true
-}
-
 function imageMimeTypeFromPath(path: string): string | null {
   const mime = mimeTypeFromPath(path)
   return mime && SUPPORTED_IMAGE_MIME_TYPES.has(mime) ? mime : null
-}
-
-function isImageCandidatePath(path: string): boolean {
-  return mimeTypeFromPath(path)?.startsWith("image/") ?? false
 }
 
 function bytesFromBase64(data: string): number {
@@ -1726,12 +1716,8 @@ export function MessageInput({
 
   const appendImageFile = useCallback(
     async (file: File): Promise<boolean> => {
-      if (!isImageCandidateFile(file)) return false
       const mimeType = imageMimeTypeForFile(file)
-      if (!mimeType) {
-        toast.error(tAttach("attachImageUnsupported", { name: file.name }))
-        return false
-      }
+      if (!mimeType) return false
       if (file.size > CHAT_IMAGE_SOURCE_MAX_BYTES) {
         toast.error(
           tAttach("attachImageTooLarge", {
@@ -1786,14 +1772,8 @@ export function MessageInput({
       source: "local" | "workspace" = "local",
       opts: { sourceMimeType?: string } = {}
     ) => {
-      if (!isImageCandidatePath(path)) return false
       const mimeType = imageMimeTypeFromPath(path)
-      if (!mimeType) {
-        toast.error(
-          tAttach("attachImageUnsupported", { name: fileNameFromPath(path) })
-        )
-        return false
-      }
+      if (!mimeType) return false
       const name = fileNameFromPath(path)
       const stagingSource: ImageAttachmentStaging["source"] = {
         kind: "local-path",
@@ -1858,7 +1838,7 @@ export function MessageInput({
     (reference: ReferenceAttrs) => {
       if (reference.refType !== "file" || !reference.uri) return false
       const path = fileUriToPath(reference.uri)
-      if (!path || !isImageCandidatePath(path)) return false
+      if (!path || !imageMimeTypeFromPath(path)) return false
       const source = showNativePaperclip ? "local" : "workspace"
       void appendImagePath(path, source).then((isImage) => {
         if (!isImage) editorRef.current?.insertReference(reference)
@@ -1870,7 +1850,6 @@ export function MessageInput({
 
   const appendRemoteLocalImagePath = useCallback(
     async (path: string): Promise<boolean> => {
-      if (!isImageCandidatePath(path)) return false
       const sourceMimeType = imageMimeTypeFromPath(path)
       if (!sourceMimeType) return false
       const name = fileNameFromPath(path)
