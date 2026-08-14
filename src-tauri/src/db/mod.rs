@@ -6,6 +6,7 @@ pub mod service;
 use std::path::Path;
 use std::time::Duration;
 
+use sea_orm::sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous};
 use sea_orm::{
     ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, Statement,
 };
@@ -101,8 +102,8 @@ async fn init_database_inner(
         .min_connections(1)
         .connect_timeout(Duration::from_secs(10))
         .sqlx_logging(false);
+    configure_sqlite_connections(&mut migrate_opts);
     let migrate_conn = Database::connect(migrate_opts).await?;
-    apply_sqlite_pragmas(&migrate_conn).await?;
     apply_migrations(&migrate_conn).await?;
     migrate_conn.close().await?;
 
@@ -114,8 +115,8 @@ async fn init_database_inner(
         .connect_timeout(Duration::from_secs(10))
         .idle_timeout(Duration::from_secs(300))
         .sqlx_logging(false);
+    configure_sqlite_connections(&mut opts);
     let conn = Database::connect(opts).await?;
-    apply_sqlite_pragmas(&conn).await?;
 
     service::app_metadata_service::update_app_version(&conn, app_version).await?;
 
@@ -152,19 +153,15 @@ async fn execute_sql(conn: &DatabaseConnection, sql: &str) -> Result<(), sea_orm
         .map(|_| ())
 }
 
-/// Apply SQLite performance and reliability pragmas to a freshly opened
-/// connection. `journal_mode=WAL` persists in the database header; the rest are
-/// per-connection settings that must be re-applied every time a connection opens.
-async fn apply_sqlite_pragmas(conn: &DatabaseConnection) -> Result<(), DbError> {
-    for pragma in [
-        "PRAGMA journal_mode=WAL;",
-        "PRAGMA busy_timeout=5000;",
-        "PRAGMA synchronous=NORMAL;",
-        "PRAGMA foreign_keys=ON;",
-        "PRAGMA cache_size=-8000;",
-    ] {
-        conn.execute(Statement::from_string(DbBackend::Sqlite, pragma.to_owned()))
-            .await?;
-    }
-    Ok(())
+/// Configure every physical SQLite connection opened by this pool. WAL persists
+/// in the database header; the other settings are connection-local.
+fn configure_sqlite_connections(options: &mut ConnectOptions) {
+    options.map_sqlx_sqlite_opts(|sqlite| {
+        sqlite
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_secs(5))
+            .synchronous(SqliteSynchronous::Normal)
+            .foreign_keys(true)
+            .pragma("cache_size", "-8000")
+    });
 }

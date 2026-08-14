@@ -268,6 +268,10 @@ struct PendingInner {
     /// `insert_completed`; kept in sync on insert/evict and cleared per-parent
     /// on teardown.
     completed_bytes: HashMap<String, usize>,
+    /// Task ids whose terminal projection must survive completed-cache eviction
+    /// until a delayed ACP tool_call id is either bound or canceled.
+    late_binding_pins: HashSet<String>,
+    late_binding_terminals: HashMap<String, LateCompletionProjection>,
     /// Per-parent byte budget for retained completed result text. `0` =
     /// unlimited (no eviction). Seeded by `set_config` from the live
     /// `DelegationConfig` (default until then: `0`, but `set_config` always runs
@@ -482,6 +486,12 @@ impl PendingInner {
     fn insert_completed(&mut self, call_id: &str, task: CompletedTask) {
         let parent = task.parent_connection_id.clone();
         let task_bytes = task.text.as_ref().map_or(0, |t| t.len());
+        if self.late_binding_pins.contains(call_id) {
+            if let Some(projection) = late_completion_projection(&task) {
+                self.late_binding_terminals
+                    .insert(call_id.to_string(), projection);
+            }
+        }
         self.completed.insert(call_id.to_string(), task);
         *self.completed_bytes.entry(parent.clone()).or_insert(0) += task_bytes;
         self.completed_order
@@ -489,6 +499,11 @@ impl PendingInner {
             .or_default()
             .push_back(call_id.to_string());
         self.evict_completed_over_cap(&parent);
+    }
+
+    fn clear_late_binding_state(&mut self, call_id: &str) {
+        self.late_binding_pins.remove(call_id);
+        self.late_binding_terminals.remove(call_id);
     }
 
     /// Evict `parent`'s OLDEST completed results until its retained result-text
@@ -546,7 +561,17 @@ impl PendingInner {
         if let Some(ids) = self.completed_order.remove(parent_connection_id) {
             for id in ids {
                 self.completed.remove(&id);
+                self.clear_late_binding_state(&id);
             }
+        }
+        let projected_ids: Vec<String> = self
+            .late_binding_terminals
+            .iter()
+            .filter(|(_, projection)| projection.parent_connection_id == parent_connection_id)
+            .map(|(call_id, _)| call_id.clone())
+            .collect();
+        for call_id in projected_ids {
+            self.clear_late_binding_state(&call_id);
         }
     }
 }
@@ -686,6 +711,50 @@ fn outcome_to_summary(outcome: &DelegationOutcome, duration_ms: u64) -> Delegati
         DelegationOutcome::Err { code, .. } => DelegationResultSummary::Err {
             error_code: code.clone(),
         },
+    }
+}
+
+#[derive(Clone)]
+struct LateCompletionProjection {
+    parent_connection_id: String,
+    status: &'static str,
+    error_code: Option<String>,
+    preview: Option<String>,
+    duration_ms: u64,
+    result: DelegationResultSummary,
+}
+
+fn late_completion_projection(completed: &CompletedTask) -> Option<LateCompletionProjection> {
+    match completed.status {
+        TaskStatus::Completed => {
+            let preview = completed.text.as_deref().and_then(build_text_preview);
+            Some(LateCompletionProjection {
+                parent_connection_id: completed.parent_connection_id.clone(),
+                status: "completed",
+                error_code: None,
+                preview: preview.clone(),
+                duration_ms: completed.duration_ms,
+                result: DelegationResultSummary::Ok {
+                    duration_ms: completed.duration_ms,
+                    text_preview: preview,
+                },
+            })
+        }
+        TaskStatus::Failed | TaskStatus::Canceled => {
+            let code = completed
+                .error_code
+                .clone()
+                .unwrap_or_else(|| "subagent_error".to_string());
+            Some(LateCompletionProjection {
+                parent_connection_id: completed.parent_connection_id.clone(),
+                status: "failed",
+                error_code: Some(code.clone()),
+                preview: None,
+                duration_ms: completed.duration_ms,
+                result: DelegationResultSummary::Err { error_code: code },
+            })
+        }
+        TaskStatus::Running | TaskStatus::Unknown => None,
     }
 }
 
@@ -1016,10 +1085,181 @@ struct PendingToolCall {
     registered_at: Instant,
 }
 
+#[derive(Clone)]
+struct LateToolCallBinding {
+    call_id: String,
+    match_key: DelegationMatchKey,
+    parent_connection_id: String,
+    parent_conversation_id: i32,
+    child_connection_id: String,
+    child_conversation_id: i32,
+    agent_type: AgentType,
+}
+
+enum ToolCallRegistration {
+    AlreadyConsumed,
+    Duplicate,
+    Queued,
+    LateBound(LateToolCallBinding),
+}
+
 #[derive(Default)]
 struct ToolCallTrackerBucket {
     pending: VecDeque<PendingToolCall>,
     consumed: VecDeque<(String, Instant)>,
+    late_bindings: VecDeque<LateToolCallBinding>,
+}
+
+impl ToolCallTrackerBucket {
+    fn register(
+        &mut self,
+        tool_call_id: String,
+        match_key: Option<DelegationMatchKey>,
+        now: Instant,
+    ) -> ToolCallRegistration {
+        if self.consumed.iter().any(|(id, _)| id == &tool_call_id) {
+            return ToolCallRegistration::AlreadyConsumed;
+        }
+        let mut duplicate = true;
+        if let Some(existing) = self
+            .pending
+            .iter_mut()
+            .find(|pending| pending.tool_call_id == tool_call_id)
+        {
+            if let Some(key) = match_key {
+                if existing.match_key.as_ref() != Some(&key) {
+                    existing.match_key = Some(key);
+                    duplicate = false;
+                }
+            }
+        } else {
+            self.pending.push_back(PendingToolCall {
+                tool_call_id: tool_call_id.clone(),
+                match_key,
+                registered_at: now,
+            });
+            duplicate = false;
+        }
+        if let Some(binding) = self.claim_late_binding(&tool_call_id, now) {
+            return ToolCallRegistration::LateBound(binding);
+        }
+        if duplicate {
+            ToolCallRegistration::Duplicate
+        } else {
+            ToolCallRegistration::Queued
+        }
+    }
+
+    fn arm_late_binding(&mut self, binding: LateToolCallBinding, now: Instant) -> Option<String> {
+        if let Some(position) = self
+            .pending
+            .iter()
+            .position(|pending| pending.match_key.as_ref() == Some(&binding.match_key))
+        {
+            let tool_call_id = self.pending.remove(position)?.tool_call_id;
+            self.consumed.push_back((tool_call_id.clone(), now));
+            return Some(tool_call_id);
+        }
+        if !self
+            .late_bindings
+            .iter()
+            .any(|pending| pending.call_id == binding.call_id)
+        {
+            self.late_bindings.push_back(binding);
+        }
+        None
+    }
+
+    fn claim_late_binding(
+        &mut self,
+        tool_call_id: &str,
+        now: Instant,
+    ) -> Option<LateToolCallBinding> {
+        let key = self
+            .pending
+            .iter()
+            .find(|pending| pending.tool_call_id == tool_call_id)?
+            .match_key
+            .as_ref()?;
+        let late_position = self
+            .late_bindings
+            .iter()
+            .position(|pending| &pending.match_key == key)?;
+        let binding = self.late_bindings.remove(late_position)?;
+        let pending_position = self
+            .pending
+            .iter()
+            .position(|pending| pending.tool_call_id == tool_call_id)?;
+        self.pending.remove(pending_position);
+        self.consumed.push_back((tool_call_id.to_string(), now));
+        Some(binding)
+    }
+
+    fn cancel_late_binding(&mut self, call_id: &str, now: Instant) -> bool {
+        let Some(position) = self
+            .late_bindings
+            .iter()
+            .position(|binding| binding.call_id == call_id)
+        else {
+            return false;
+        };
+        let Some(binding) = self.late_bindings.remove(position) else {
+            return false;
+        };
+        if let Some(pending_position) = self
+            .pending
+            .iter()
+            .position(|pending| pending.match_key.as_ref() == Some(&binding.match_key))
+        {
+            if let Some(pending) = self.pending.remove(pending_position) {
+                self.consumed.push_back((pending.tool_call_id, now));
+            }
+        }
+        true
+    }
+}
+
+fn drop_tool_calls_for_parent_locked(
+    map: &mut HashMap<String, ToolCallTrackerBucket>,
+    parent_connection_id: &str,
+    keep_consumed: bool,
+) -> Vec<String> {
+    if !keep_consumed {
+        return map
+            .remove(parent_connection_id)
+            .map(|bucket| {
+                bucket
+                    .late_bindings
+                    .into_iter()
+                    .map(|binding| binding.call_id)
+                    .collect()
+            })
+            .unwrap_or_default();
+    }
+    let Some(bucket) = map.get_mut(parent_connection_id) else {
+        return Vec::new();
+    };
+    let binding_call_ids = bucket
+        .late_bindings
+        .iter()
+        .map(|binding| binding.call_id.clone())
+        .collect();
+    let now = Instant::now();
+    let cleared: Vec<String> = bucket
+        .pending
+        .drain(..)
+        .map(|pending| pending.tool_call_id)
+        .collect();
+    for tool_call_id in cleared {
+        if !bucket.consumed.iter().any(|(id, _)| id == &tool_call_id) {
+            bucket.consumed.push_back((tool_call_id, now));
+        }
+    }
+    bucket.late_bindings.clear();
+    if bucket.consumed.is_empty() {
+        map.remove(parent_connection_id);
+    }
+    binding_call_ids
 }
 
 /// Maximum age before a `pending` entry is discarded as stale — but ONLY for
@@ -1273,50 +1513,25 @@ impl DelegationBroker {
         match_key: Option<DelegationMatchKey>,
         now: Instant,
     ) {
-        let mut map = self.tool_calls.inner.lock().await;
-        let bucket = map.entry(parent_connection_id.to_string()).or_default();
-        // Tier 1: recently consumed. No TTL — the consumed memory must
-        // outlast the entire parent-side tool call lifetime (minutes
-        // to hours) so a host re-emit at terminal status flip is
-        // still rejected. See `ToolCallTrackerBucket` docs.
-        if bucket.consumed.iter().any(|(id, _)| id == &tool_call_id) {
-            tracing::info!(
+        let registration = {
+            let mut map = self.tool_calls.inner.lock().await;
+            map.entry(parent_connection_id.to_string())
+                .or_default()
+                .register(tool_call_id.clone(), match_key, now)
+        };
+        match registration {
+            ToolCallRegistration::AlreadyConsumed => tracing::info!(
                 "[delegation] dropping ACP tool_call_id={tool_call_id} on conn={parent_connection_id} (already consumed by an earlier delegation)"
-            );
-            return;
-        }
-        // Tier 2: in-queue. A re-emit of an already-queued id: adopt the
-        // LATEST parseable key rather than only back-filling a missing one.
-        // Hosts stream `raw_input` incrementally and the MCP side keys on the
-        // FINAL arguments, so a later `ToolCallUpdate` that completes the key
-        // (e.g. adds an explicit `working_dir` the first parse lacked) must
-        // REPLACE the earlier `(agent, task, None)` key — otherwise the MCP
-        // claim keys on `(agent, task, Some(dir))`, fails to match the stale
-        // `None`, refuses the keyed fallback, and orphans to a synthetic id
-        // (the very dead-card failure this whole change fixes). An arg-less or
-        // identical re-emit changes nothing and is dropped as a duplicate.
-        if let Some(existing) = bucket
-            .pending
-            .iter_mut()
-            .find(|p| p.tool_call_id == tool_call_id)
-        {
-            match match_key {
-                Some(key) if existing.match_key.as_ref() != Some(&key) => {
-                    existing.match_key = Some(key);
-                }
-                _ => {
-                    tracing::info!(
-                        "[delegation] dropping duplicate ACP tool_call_id={tool_call_id} on conn={parent_connection_id}"
-                    );
-                }
+            ),
+            ToolCallRegistration::Duplicate => tracing::info!(
+                "[delegation] dropping duplicate ACP tool_call_id={tool_call_id} on conn={parent_connection_id}"
+            ),
+            ToolCallRegistration::Queued => {}
+            ToolCallRegistration::LateBound(binding) => {
+                self.apply_late_tool_call_binding(binding, tool_call_id)
+                    .await;
             }
-            return;
         }
-        bucket.pending.push_back(PendingToolCall {
-            tool_call_id,
-            match_key,
-            registered_at: now,
-        });
     }
 
     /// Pop the oldest pending `tool_call_id` for the given parent, if any.
@@ -1386,7 +1601,10 @@ impl DelegationBroker {
         if let Some(id) = &claimed {
             bucket.consumed.push_back((id.clone(), now));
         }
-        if bucket.pending.is_empty() && bucket.consumed.is_empty() {
+        if bucket.pending.is_empty()
+            && bucket.consumed.is_empty()
+            && bucket.late_bindings.is_empty()
+        {
             map.remove(parent_connection_id);
         }
         claimed
@@ -1507,7 +1725,10 @@ impl DelegationBroker {
         if let Some(id) = &claimed {
             bucket.consumed.push_back((id.clone(), now));
         }
-        if bucket.pending.is_empty() && bucket.consumed.is_empty() {
+        if bucket.pending.is_empty()
+            && bucket.consumed.is_empty()
+            && bucket.late_bindings.is_empty()
+        {
             map.remove(parent_connection_id);
         }
         claimed
@@ -1652,6 +1873,165 @@ impl DelegationBroker {
         self.take_pending_tool_call(parent_connection_id).await
     }
 
+    async fn cancel_late_tool_call_binding(&self, parent_connection_id: &str, call_id: &str) {
+        let removed = {
+            let mut map = self.tool_calls.inner.lock().await;
+            let Some(bucket) = map.get_mut(parent_connection_id) else {
+                return;
+            };
+            let removed = bucket.cancel_late_binding(call_id, Instant::now());
+            if bucket.pending.is_empty()
+                && bucket.consumed.is_empty()
+                && bucket.late_bindings.is_empty()
+            {
+                map.remove(parent_connection_id);
+            }
+            removed
+        };
+        if removed {
+            self.pending
+                .inner
+                .lock()
+                .await
+                .clear_late_binding_state(call_id);
+            tracing::info!(
+                task_id = call_id,
+                parent_connection_id,
+                "[delegation] removed canceled late tool-call binding"
+            );
+        }
+    }
+
+    async fn apply_late_tool_call_binding(
+        &self,
+        binding: LateToolCallBinding,
+        tool_call_id: String,
+    ) {
+        self.persist_late_tool_call_binding(&binding, &tool_call_id)
+            .await;
+        self.publish_late_binding_started(&binding, &tool_call_id)
+            .await;
+        let projection = self
+            .record_late_tool_call_binding(&binding.call_id, &tool_call_id)
+            .await;
+        if let Some(projection) = projection {
+            self.publish_late_binding_completed(&binding, &tool_call_id, projection)
+                .await;
+        }
+        tracing::info!(
+            task_id = %binding.call_id,
+            parent_connection_id = %binding.parent_connection_id,
+            tool_call_id = %tool_call_id,
+            "[delegation] synthetic parent id rebound to ACP tool_call_id"
+        );
+    }
+
+    async fn persist_late_tool_call_binding(
+        &self,
+        binding: &LateToolCallBinding,
+        tool_call_id: &str,
+    ) {
+        let result = self
+            .spawner
+            .bind_parent_tool_call(
+                binding.child_conversation_id,
+                binding.parent_conversation_id,
+                &binding.call_id,
+                tool_call_id,
+            )
+            .await;
+        if let Err(error) = result {
+            tracing::error!(
+                task_id = %binding.call_id,
+                child_conversation_id = binding.child_conversation_id,
+                tool_call_id,
+                error = %error,
+                "[delegation] failed to persist late tool-call binding"
+            );
+        }
+    }
+
+    async fn record_late_tool_call_binding(
+        &self,
+        call_id: &str,
+        tool_call_id: &str,
+    ) -> Option<LateCompletionProjection> {
+        let mut inner = self.pending.inner.lock().await;
+        if let Some(projection) = inner.late_binding_terminals.remove(call_id) {
+            inner.late_binding_pins.remove(call_id);
+            return Some(projection);
+        }
+        if let Some(task) = inner.running.get_mut(call_id) {
+            task.parent_tool_use_id = tool_call_id.to_string();
+            inner.late_binding_pins.remove(call_id);
+            return None;
+        }
+        let projection = inner
+            .completed
+            .get(call_id)
+            .and_then(late_completion_projection);
+        inner.clear_late_binding_state(call_id);
+        projection
+    }
+
+    async fn publish_late_binding_started(
+        &self,
+        binding: &LateToolCallBinding,
+        tool_call_id: &str,
+    ) {
+        self.write_meta_if_real(
+            &binding.parent_connection_id,
+            tool_call_id,
+            build_delegation_meta(
+                "running",
+                Some(&binding.child_connection_id),
+                Some(binding.child_conversation_id),
+                None,
+                None,
+                None,
+            ),
+        )
+        .await;
+        self.emit_started_if_real(
+            &binding.parent_connection_id,
+            tool_call_id,
+            &binding.child_connection_id,
+            binding.child_conversation_id,
+            binding.agent_type,
+        )
+        .await;
+    }
+
+    async fn publish_late_binding_completed(
+        &self,
+        binding: &LateToolCallBinding,
+        tool_call_id: &str,
+        projection: LateCompletionProjection,
+    ) {
+        self.write_meta_if_real(
+            &binding.parent_connection_id,
+            tool_call_id,
+            build_delegation_meta(
+                projection.status,
+                Some(&binding.child_connection_id),
+                Some(binding.child_conversation_id),
+                projection.error_code.as_deref(),
+                projection.preview.as_deref(),
+                Some(projection.duration_ms),
+            ),
+        )
+        .await;
+        self.emit_completed_if_real(
+            &binding.parent_connection_id,
+            tool_call_id,
+            &binding.child_connection_id,
+            binding.child_conversation_id,
+            binding.agent_type,
+            projection.result,
+        )
+        .await;
+    }
+
     /// Remove `handle` from the pre-cancel set, returning whether it was
     /// present. Used by `handle_request` at two checkpoints (entry + just
     /// after pending registration) so a cancel that lost the race with the
@@ -1733,29 +2113,11 @@ impl DelegationBroker {
     /// won't arrive after cancel, so nothing legitimate is lost.
     async fn drop_tool_calls_for_parent(&self, parent_connection_id: &str, keep_consumed: bool) {
         let mut map = self.tool_calls.inner.lock().await;
-        if !keep_consumed {
-            map.remove(parent_connection_id);
-            return;
-        }
-        if let Some(bucket) = map.get_mut(parent_connection_id) {
-            // Tombstone the cancelled turn's unclaimed pending ids into
-            // `consumed` rather than just dropping them, so a later host re-emit
-            // of one is rejected by the Tier-1 consumed check instead of
-            // re-registering as a claimable stale entry. `drain` empties
-            // `pending` first so the subsequent `consumed` borrow is disjoint.
-            let now = Instant::now();
-            let cleared: Vec<String> = bucket.pending.drain(..).map(|p| p.tool_call_id).collect();
-            for id in cleared {
-                if !bucket.consumed.iter().any(|(c, _)| c == &id) {
-                    bucket.consumed.push_back((id, now));
-                }
-            }
-            // Drop the now-empty bucket only when nothing consumed remains —
-            // otherwise keep it so the retained `consumed` ids keep rejecting
-            // re-emits for the rest of this connection's lifetime.
-            if bucket.consumed.is_empty() {
-                map.remove(parent_connection_id);
-            }
+        let mut inner = self.pending.inner.lock().await;
+        let call_ids =
+            drop_tool_calls_for_parent_locked(&mut map, parent_connection_id, keep_consumed);
+        for call_id in call_ids {
+            inner.clear_late_binding_state(&call_id);
         }
     }
 
@@ -1895,22 +2257,27 @@ impl DelegationBroker {
         // `session/update` doesn't fall back to a synthetic id (which breaks
         // the parent UI's `parent_tool_use_id` binding). Falls back to a UUID
         // placeholder only when no id arrives within the wait budget.
+        let mut late_match_key = None;
         if req.parent_tool_use_id.is_empty() {
             let match_key = DelegationMatchKey {
                 agent_type: req.agent_type,
                 task: req.task.clone(),
                 working_dir: req.requested_working_dir.clone(),
             };
-            req.parent_tool_use_id = self
+            req.parent_tool_use_id = match self
                 .claim_pending_tool_call_with_brief_wait(&req.parent_connection_id, &match_key)
                 .await
-                .unwrap_or_else(|| {
+            {
+                Some(tool_call_id) => tool_call_id,
+                None => {
                     tracing::warn!(
-                        "[delegation] synthetic fallback for parent_tool_use_id on conn={} (no ACP tool_call_id arrived within claim budget)",
+                        "[delegation] ACP tool_call_id not yet available on conn={}; arming late binding",
                         req.parent_connection_id
                     );
+                    late_match_key = Some(match_key);
                     format!("delegation-{}", uuid::Uuid::new_v4())
-                });
+                }
+            };
         } else {
             // The client gave us the real ACP tool_call_id directly
             // (`_meta.tool_use_id`), so we skip the claim path — but the
@@ -2171,7 +2538,21 @@ impl DelegationBroker {
         // Near-zero elapsed for these setup-window races, but measured for
         // consistency with the normal terminal paths.
         let setup_duration_ms = started_at.elapsed().as_millis() as u64;
-        let disposition = {
+        let mut late_binding = late_match_key.map(|match_key| LateToolCallBinding {
+            call_id: call_id.clone(),
+            match_key,
+            parent_connection_id: req.parent_connection_id.clone(),
+            parent_conversation_id: req.parent_conversation_id,
+            child_connection_id: child_connection_id.clone(),
+            child_conversation_id,
+            agent_type: req.agent_type,
+        });
+        let (disposition, claimed_late_binding) = {
+            // Parent cancellation takes these locks in the same order. The
+            // running/completed transition and late-binding arm therefore form
+            // one handoff: cancel either clears the binding afterward or wins
+            // first and makes this setup observe ParentCanceled.
+            let mut tool_calls = self.tool_calls.inner.lock().await;
             let mut inner = self.pending.inner.lock().await;
             // Each buffered child terminal carries (arrival_stamp, outcome).
             let child_terminal: Option<(u64, DelegationOutcome)> =
@@ -2209,41 +2590,44 @@ impl DelegationBroker {
                     ),
                 );
             };
-            match (child_terminal, parent_canceled_at) {
+            let disposition = match (child_terminal, parent_canceled_at) {
                 // Both raced in the setup window: the earlier arrival stamp wins.
                 (Some((child_stamp, outcome)), Some(cancel_stamp)) => {
-                    inner.deregister_inflight(inflight_id);
                     if child_stamp < cancel_stamp {
-                        record(&mut inner, &outcome);
                         Disposition::ChildTerminal(outcome)
                     } else {
-                        record(
-                            &mut inner,
-                            &canceled_outcome(child_conversation_id, "parent canceled"),
-                        );
                         Disposition::ParentCanceled
                     }
                 }
                 // Only a child terminal fired.
-                (Some((_, outcome)), None) => {
-                    inner.deregister_inflight(inflight_id);
-                    record(&mut inner, &outcome);
-                    Disposition::ChildTerminal(outcome)
-                }
+                (Some((_, outcome)), None) => Disposition::ChildTerminal(outcome),
                 // Only a parent cancel fired.
-                (None, Some(_)) => {
-                    inner.deregister_inflight(inflight_id);
-                    record(
-                        &mut inner,
-                        &canceled_outcome(child_conversation_id, "parent canceled"),
-                    );
-                    Disposition::ParentCanceled
-                }
+                (None, Some(_)) => Disposition::ParentCanceled,
                 // Nothing beat us — register the running task for a future
                 // resolver, deregistering the in-flight record adjacent to the
                 // insert with no `.await` between (so a parent cancel serialized
                 // AFTER us finds it in `running` and drains it).
-                (None, None) => {
+                (None, None) => Disposition::Running,
+            };
+            let claimed_late_binding = if matches!(&disposition, Disposition::ParentCanceled) {
+                None
+            } else {
+                late_binding.take().and_then(|binding| {
+                    inner.late_binding_pins.insert(binding.call_id.clone());
+                    tool_calls
+                        .entry(binding.parent_connection_id.clone())
+                        .or_default()
+                        .arm_late_binding(binding.clone(), Instant::now())
+                        .map(|tool_call_id| (binding, tool_call_id))
+                })
+            };
+            match &disposition {
+                Disposition::ChildTerminal(outcome) => record(&mut inner, outcome),
+                Disposition::ParentCanceled => record(
+                    &mut inner,
+                    &canceled_outcome(child_conversation_id, "parent canceled"),
+                ),
+                Disposition::Running => {
                     inner.running.insert(
                         call_id.clone(),
                         RunningTask {
@@ -2256,11 +2640,15 @@ impl DelegationBroker {
                             started_at,
                         },
                     );
-                    inner.deregister_inflight(inflight_id);
-                    Disposition::Running
                 }
             }
+            inner.deregister_inflight(inflight_id);
+            (disposition, claimed_late_binding)
         };
+        if let Some((binding, tool_call_id)) = claimed_late_binding {
+            self.apply_late_tool_call_binding(binding, tool_call_id)
+                .await;
+        }
 
         match disposition {
             // A child terminal beat registration. Finalize (terminal meta +
@@ -2341,9 +2729,9 @@ impl DelegationBroker {
                 // when the running task is removed) so the completed-cache, the
                 // parent-card meta, and the returned report all report the same
                 // duration. `None` when nothing was drained.
-                let canceled_duration_ms = {
+                let canceled_task = {
                     let mut inner = self.pending.inner.lock().await;
-                    if inner.running.remove(&call_id).is_some() {
+                    if let Some(task) = inner.running.remove(&call_id) {
                         let outcome =
                             canceled_outcome(child_conversation_id, "canceled before await");
                         let duration_ms = started_at.elapsed().as_millis() as u64;
@@ -2357,15 +2745,17 @@ impl DelegationBroker {
                                 &outcome,
                             ),
                         );
-                        Some(duration_ms)
+                        Some((duration_ms, task.parent_tool_use_id))
                     } else {
                         None
                     }
                 };
-                if let Some(duration_ms) = canceled_duration_ms {
+                if let Some((duration_ms, parent_tool_use_id)) = canceled_task {
+                    self.cancel_late_tool_call_binding(&req.parent_connection_id, &call_id)
+                        .await;
                     self.write_meta_if_real(
                         &req.parent_connection_id,
-                        &req.parent_tool_use_id,
+                        &parent_tool_use_id,
                         build_delegation_meta(
                             "failed",
                             Some(&child_connection_id),
@@ -2378,7 +2768,7 @@ impl DelegationBroker {
                     .await;
                     self.emit_completed_if_real(
                         &req.parent_connection_id,
-                        &req.parent_tool_use_id,
+                        &parent_tool_use_id,
                         &child_connection_id,
                         child_conversation_id,
                         req.agent_type,
@@ -2605,15 +2995,22 @@ impl DelegationBroker {
     /// `pre_canceled_handles` so the in-flight request can drain itself
     /// when it tries to register or shortly after.
     pub async fn cancel_by_external_handle(&self, external_handle: &str, reason: String) {
-        let drained = {
+        let (drained, bindings) = {
             let mut inner = self.pending.inner.lock().await;
-            let keys: Vec<String> = inner
+            let bindings: Vec<(String, String)> = inner
                 .running
                 .iter()
                 .filter(|(_, v)| v.external_handle.as_deref() == Some(external_handle))
-                .map(|(k, _)| k.clone())
+                .map(|(call_id, task)| (call_id.clone(), task.parent_connection_id.clone()))
                 .collect();
-            drain_and_record_canceled(&mut inner, keys, &reason)
+            let keys = bindings
+                .iter()
+                .map(|(call_id, _)| call_id.clone())
+                .collect();
+            (
+                drain_and_record_canceled(&mut inner, keys, &reason),
+                bindings,
+            )
         };
         if drained.is_empty() {
             // Race: the cancel beat the handle's `running` registration. Buffer
@@ -2622,6 +3019,10 @@ impl DelegationBroker {
             self.buffer_pre_canceled_handle(external_handle.to_string())
                 .await;
             return;
+        }
+        for (call_id, parent_connection_id) in bindings {
+            self.cancel_late_tool_call_binding(&parent_connection_id, &call_id)
+                .await;
         }
         for (task, duration_ms) in drained {
             // A turn is in flight, so cancel + disconnect.
@@ -2649,15 +3050,15 @@ impl DelegationBroker {
         terminal_error: Option<&str>,
     ) {
         let reason = child_canceled_reason(terminal_error);
-        let drained = {
+        let (drained, bindings) = {
             let mut inner = self.pending.inner.lock().await;
-            let keys: Vec<String> = inner
+            let bindings: Vec<(String, String)> = inner
                 .running
                 .iter()
                 .filter(|(_, v)| v.child_connection_id == child_connection_id)
-                .map(|(k, _)| k.clone())
+                .map(|(call_id, task)| (call_id.clone(), task.parent_connection_id.clone()))
                 .collect();
-            if keys.is_empty() {
+            let drained = if bindings.is_empty() {
                 // No running entry. If the child is still reserved,
                 // `start_delegation` is mid-setup and this failure beat the
                 // `running` insert — buffer its detail for it to drain at
@@ -2670,9 +3071,18 @@ impl DelegationBroker {
                 );
                 Vec::new()
             } else {
+                let keys = bindings
+                    .iter()
+                    .map(|(call_id, _)| call_id.clone())
+                    .collect();
                 drain_and_record_canceled(&mut inner, keys, &reason)
-            }
+            };
+            (drained, bindings)
         };
+        for (call_id, parent_connection_id) in bindings {
+            self.cancel_late_tool_call_binding(&parent_connection_id, &call_id)
+                .await;
+        }
         for (task, duration_ms) in drained {
             // The child already disconnected/errored — disconnect-only teardown
             // (no spawner `cancel`, there's no live turn to interrupt).
@@ -2741,14 +3151,20 @@ impl DelegationBroker {
         parent_connection_id: &str,
         keep_consumed: bool,
     ) -> Vec<(RunningTask, u64)> {
-        // Also drain any tool_call ids captured ahead of an MCP round-trip that
-        // never arrived — keeps the map bounded across parent reconnects.
-        // Teardown drops the whole bucket; a turn cancel keeps `consumed` so a
-        // later re-emit can't mis-bind the next delegation.
-        self.drop_tool_calls_for_parent(parent_connection_id, keep_consumed)
-            .await;
         let drained = {
+            // Lock order is tracker -> pending, shared with late-binding arm.
+            // This makes tracker cleanup and running-task cancellation one
+            // atomic handoff: an old setup cannot recreate a binding afterward.
+            let mut tool_calls = self.tool_calls.inner.lock().await;
             let mut inner = self.pending.inner.lock().await;
+            let binding_call_ids = drop_tool_calls_for_parent_locked(
+                &mut tool_calls,
+                parent_connection_id,
+                keep_consumed,
+            );
+            for call_id in binding_call_ids {
+                inner.clear_late_binding_state(&call_id);
+            }
             // Flag every still-in-flight setup this parent owns in the SAME lock
             // acquisition that drains its running tasks: a delegation is then
             // caught either here (mid-setup → `start_delegation` tears its child
@@ -2774,6 +3190,7 @@ impl DelegationBroker {
                     .into_iter()
                     .map(|k| {
                         let task = inner.running.remove(&k).expect("key just observed");
+                        inner.clear_late_binding_state(&k);
                         let duration_ms = task.started_at.elapsed().as_millis() as u64;
                         (task, duration_ms)
                     })
@@ -3056,6 +3473,8 @@ impl DelegationBroker {
         };
         match drained {
             Some((task, duration_ms)) => {
+                self.cancel_late_tool_call_binding(parent_connection_id, task_id)
+                    .await;
                 // A turn is in flight → cancel + disconnect. Reuse the duration
                 // captured at drain time for both the teardown meta and the
                 // report, so all three (completed-cache, meta, report) agree.

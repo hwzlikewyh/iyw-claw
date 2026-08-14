@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
@@ -9,6 +10,10 @@ use walkdir::WalkDir;
 
 const COMPACTION_OBSERVE_ATTEMPTS: usize = 20;
 const COMPACTION_OBSERVE_INTERVAL_MS: u64 = 100;
+const DEFERRED_MIGRATION_CAP: usize = 128;
+
+static DEFERRED_MIGRATIONS: OnceLock<tokio::sync::Mutex<HashSet<String>>> = OnceLock::new();
+static MIGRATION_GUARD: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 struct LegacyCall {
     caption: Option<String>,
@@ -37,12 +42,87 @@ pub(super) struct MigratedImage {
 }
 
 pub async fn migrate_resumed_session(session_id: &str) -> Result<usize, String> {
+    let _guard = migration_guard().lock().await;
+    migrate_resumed_session_locked(session_id).await
+}
+
+async fn migrate_resumed_session_locked(session_id: &str) -> Result<usize, String> {
     let paths = find_rollouts(session_id)?;
     let mut migrated = 0;
     for path in paths {
         migrated += migrate_rollout(path).await?;
     }
+    deferred_migrations().lock().await.remove(session_id);
     Ok(migrated)
+}
+
+pub async fn defer_retryable_migration(session_id: &str, error: &str) -> bool {
+    if !is_retryable_migration_error(error) || !valid_session_id(session_id) {
+        return false;
+    }
+    let mut pending = deferred_migrations().lock().await;
+    if pending.len() >= DEFERRED_MIGRATION_CAP && !pending.contains(session_id) {
+        tracing::warn!(
+            session_id,
+            pending = pending.len(),
+            "[codex-rollout] deferred migration queue is full"
+        );
+        return false;
+    }
+    pending.insert(session_id.to_string());
+    true
+}
+
+pub async fn retry_deferred_migrations() {
+    let _guard = migration_guard().lock().await;
+    let sessions = deferred_migrations()
+        .lock()
+        .await
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    for session_id in sessions {
+        match migrate_resumed_session_locked(&session_id).await {
+            Ok(count) => tracing::info!(
+                session_id,
+                migrated_images = count,
+                "[codex-rollout] deferred legacy migration completed"
+            ),
+            Err(error) if is_retryable_migration_error(&error) => tracing::info!(
+                session_id,
+                error = %error,
+                "[codex-rollout] deferred legacy migration remains blocked"
+            ),
+            Err(error) => {
+                deferred_migrations().lock().await.remove(&session_id);
+                tracing::warn!(
+                    session_id,
+                    error = %error,
+                    "[codex-rollout] deferred legacy migration became non-retryable"
+                );
+            }
+        }
+    }
+}
+
+fn deferred_migrations() -> &'static tokio::sync::Mutex<HashSet<String>> {
+    DEFERRED_MIGRATIONS.get_or_init(|| tokio::sync::Mutex::new(HashSet::new()))
+}
+
+fn migration_guard() -> &'static tokio::sync::Mutex<()> {
+    MIGRATION_GUARD.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+fn is_retryable_migration_error(error: &str) -> bool {
+    cfg!(windows) && (error.contains("os error 5") || error.contains("os error 32"))
+}
+
+fn valid_session_id(session_id: &str) -> bool {
+    !session_id.is_empty()
+        && session_id.len() <= 128
+        && session_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
 pub(super) async fn compaction_marker(session_id: &str) -> Result<CompactionMarker, String> {
@@ -115,12 +195,7 @@ async fn migrate_rollout(path: PathBuf) -> Result<usize, String> {
 }
 
 fn find_rollouts(session_id: &str) -> Result<Vec<PathBuf>, String> {
-    if session_id.is_empty()
-        || session_id.len() > 128
-        || !session_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    {
+    if !valid_session_id(session_id) {
         return Err("invalid Codex session identifier".to_string());
     }
     let sessions = crate::parsers::codex::resolve_codex_home_dir().join("sessions");

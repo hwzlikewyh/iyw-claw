@@ -40,6 +40,8 @@ pub enum SpawnerError {
     Disconnect(String),
     #[error("cancel failed: {0}")]
     Cancel(String),
+    #[error("delegation binding failed: {0}")]
+    Bind(String),
 }
 
 /// Capabilities the delegation broker needs from whatever owns the ACP
@@ -89,6 +91,15 @@ pub trait ConnectionSpawner: Send + Sync {
         task: String,
         link: DelegationLink,
     ) -> Result<i32, SpawnerError>;
+
+    /// Replace a temporary parent tool id after the real ACP tool_call arrives.
+    async fn bind_parent_tool_call(
+        &self,
+        child_conversation_id: i32,
+        parent_conversation_id: i32,
+        delegation_call_id: &str,
+        parent_tool_use_id: &str,
+    ) -> Result<(), SpawnerError>;
 
     /// Cancel any in-flight prompt on the child connection. Idempotent:
     /// calling on a connection with nothing in flight is a no-op success.

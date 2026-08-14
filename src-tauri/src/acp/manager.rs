@@ -741,9 +741,8 @@ impl ConnectionManager {
                 Some(now + chrono::Duration::seconds(Self::VISIBLE_LEASE_SECS));
         }
         if pending_input {
-            state.pending_input_lease_until = Some(
-                now + chrono::Duration::seconds(Self::PENDING_INPUT_LEASE_SECS),
-            );
+            state.pending_input_lease_until =
+                Some(now + chrono::Duration::seconds(Self::PENDING_INPUT_LEASE_SECS));
         }
         true
     }
@@ -2160,13 +2159,13 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect(&self, conn_id: &str) -> Result<(), AcpError> {
-        let cmd_tx = {
+        let connection = {
             let mut connections = self.connections.lock().await;
-            connections.remove(conn_id).map(|conn| conn.cmd_tx)
+            connections.remove(conn_id)
         };
-        if let Some(cmd_tx) = cmd_tx {
+        if let Some(connection) = connection {
             tracing::info!("[ACP] disconnect connection={}", conn_id);
-            let _ = cmd_tx.send(ConnectionCommand::Disconnect).await;
+            connection.request_disconnect();
             Ok(())
         } else {
             Err(AcpError::ConnectionNotFound(conn_id.into()))
@@ -2422,7 +2421,7 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect_by_owner_window(&self, owner_window_label: &str) -> usize {
-        let cmd_txs = {
+        let removed = {
             let mut connections = self.connections.lock().await;
             let ids: Vec<String> = connections
                 .iter()
@@ -2435,18 +2434,18 @@ impl ConnectionManager {
                 })
                 .collect();
 
-            let mut txs = Vec::with_capacity(ids.len());
+            let mut removed = Vec::with_capacity(ids.len());
             for id in ids {
                 if let Some(conn) = connections.remove(&id) {
-                    txs.push(conn.cmd_tx);
+                    removed.push(conn);
                 }
             }
-            txs
+            removed
         };
 
-        let disconnected = cmd_txs.len();
-        for cmd_tx in cmd_txs {
-            let _ = cmd_tx.send(ConnectionCommand::Disconnect).await;
+        let disconnected = removed.len();
+        for connection in removed {
+            connection.request_disconnect();
         }
         tracing::info!(
             "[ACP] disconnect by owner window owner_window={} count={}",
@@ -2457,13 +2456,13 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect_all(&self) -> usize {
-        let cmd_txs: Vec<_> = {
+        let removed: Vec<_> = {
             let mut connections = self.connections.lock().await;
-            connections.drain().map(|(_, conn)| conn.cmd_tx).collect()
+            connections.drain().map(|(_, conn)| conn).collect()
         };
-        let disconnected = cmd_txs.len();
-        for cmd_tx in cmd_txs {
-            let _ = cmd_tx.send(ConnectionCommand::Disconnect).await;
+        let disconnected = removed.len();
+        for connection in removed {
+            connection.request_disconnect();
         }
         tracing::info!("[ACP] disconnect_all count={}", disconnected);
         disconnected
@@ -3348,6 +3347,31 @@ impl crate::acp::delegation::spawner::ConnectionSpawner for ConnectionManagerSpa
                 "send_prompt_linked succeeded but no conversation_id was bound".into(),
             )
         })
+    }
+
+    async fn bind_parent_tool_call(
+        &self,
+        child_conversation_id: i32,
+        parent_conversation_id: i32,
+        delegation_call_id: &str,
+        parent_tool_use_id: &str,
+    ) -> Result<(), crate::acp::delegation::spawner::SpawnerError> {
+        use crate::acp::delegation::spawner::SpawnerError;
+        let bound = conversation_service::bind_delegation_parent_tool_call(
+            &self.db.conn,
+            child_conversation_id,
+            parent_conversation_id,
+            delegation_call_id,
+            parent_tool_use_id,
+        )
+        .await
+        .map_err(|error| SpawnerError::Bind(error.to_string()))?;
+        if !bound {
+            return Err(SpawnerError::Bind(format!(
+                "child conversation {child_conversation_id} no longer matches delegation {delegation_call_id}"
+            )));
+        }
+        Ok(())
     }
 
     async fn cancel(

@@ -3,7 +3,10 @@ use std::ffi::OsString;
 use std::future::Future;
 use std::panic::{resume_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use futures::FutureExt;
 use sacp::schema::{
@@ -509,6 +512,11 @@ pub struct AgentConnection {
     pub status: ConnectionStatus,
     pub owner_window_label: String,
     pub cmd_tx: mpsc::Sender<ConnectionCommand>,
+    /// Cancels process launch and session establishment before the command loop
+    /// can consume `ConnectionCommand::Disconnect`.
+    pub cancellation: tokio_util::sync::CancellationToken,
+    /// Becomes true once the session command loop can consume Disconnect.
+    pub disconnect_command_ready: Arc<AtomicBool>,
     /// 后端权威的会话状态。所有 `emit_with_state` 写入此状态并自增 seq。
     /// 使用 `Arc<RwLock<_>>` 让 spawn 出的连接 task 与外部 snapshot 读取共享。
     pub state: Arc<RwLock<SessionState>>,
@@ -543,6 +551,24 @@ impl AgentConnection {
             id: self.id.clone(),
             agent_type: self.agent_type,
             status: self.status.clone(),
+        }
+    }
+
+    pub fn request_disconnect(&self) {
+        let command_queued = match self.cmd_tx.try_send(ConnectionCommand::Disconnect) {
+            Ok(()) => true,
+            Err(error) => {
+                if !error.is_closed() {
+                    tracing::info!(
+                        connection_id = self.id,
+                        "[ACP] disconnect command queue busy; using cancellation fallback"
+                    );
+                }
+                false
+            }
+        };
+        if !command_queued || !self.disconnect_command_ready.load(Ordering::Acquire) {
+            self.cancellation.cancel();
         }
     }
 }
@@ -1221,6 +1247,8 @@ pub async fn spawn_agent_connection(
     );
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<ConnectionCommand>(32);
+    let cancellation = tokio_util::sync::CancellationToken::new();
+    let disconnect_command_ready = Arc::new(AtomicBool::new(false));
     let conn_id = connection_id.clone();
     let emitter_clone = emitter.clone();
     let cleanup_connections = connections.clone();
@@ -1241,6 +1269,8 @@ pub async fn spawn_agent_connection(
             status: ConnectionStatus::Connecting,
             owner_window_label,
             cmd_tx,
+            cancellation: cancellation.clone(),
+            disconnect_command_ready: Arc::clone(&disconnect_command_ready),
             state: Arc::clone(&session_state),
             emitter: emitter.clone(),
             prompt_lock: Arc::new(tokio::sync::Mutex::new(())),
@@ -1277,10 +1307,16 @@ pub async fn spawn_agent_connection(
                 openclaw.session_key,
                 prepared_companion,
                 version_center_db,
+                cancellation,
+                disconnect_command_ready,
             ),
             cleanup_connection_resources(cleanup_injection.as_ref(), &conn_id, prompt_bridges),
         )
         .await;
+
+        if agent_type == AgentType::Codex {
+            tokio::spawn(crate::acp::codex_rollout_migration::retry_deferred_migrations());
+        }
 
         if let Err(e) = result {
             let recovery_handled = emit_abrupt_recovery_failure(
@@ -2464,6 +2500,8 @@ async fn run_connection(
     openclaw_session_key: Option<String>,
     prepared_companion: Option<CompanionLaunchPreparation>,
     version_center_db: Option<sea_orm::DatabaseConnection>,
+    cancellation: tokio_util::sync::CancellationToken,
+    disconnect_command_ready: Arc<AtomicBool>,
 ) -> Result<(), AcpError> {
     let pending_perms: PendingPermissions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
     // `terminal_base_env` already filtered to just the credential helper
@@ -2495,7 +2533,7 @@ async fn run_connection(
         Arc::clone(&prompt_ledger),
     );
 
-    Client
+    let connection = Client
         .builder()
         .name("iyw-claw")
         .on_receive_request(
@@ -2898,6 +2936,7 @@ async fn run_connection(
                             .await;
                             emit_selectors_ready(&state, &emitter_clone).await;
 
+                            disconnect_command_ready.store(true, Ordering::Release);
                             let loop_result = run_conversation_loop(
                                 &mut session,
                                 &conn_id,
@@ -3160,6 +3199,7 @@ async fn run_connection(
                         .await;
                         emit_selectors_ready(&state, &emitter_clone).await;
 
+                        disconnect_command_ready.store(true, Ordering::Release);
                         let loop_result = run_conversation_loop(
                             &mut session,
                             &conn_id,
@@ -3261,6 +3301,7 @@ async fn run_connection(
                 .await;
                 emit_selectors_ready(&state, &emitter_clone).await;
 
+                disconnect_command_ready.store(true, Ordering::Release);
                 let loop_result = run_conversation_loop(
                     &mut session,
                     &conn_id,
@@ -3294,9 +3335,25 @@ async fn run_connection(
                 )
                 .await
             }
-        })
-        .await
-        .map_err(|e| {
+        });
+    tokio::pin!(connection);
+
+    let result = tokio::select! {
+        biased;
+        result = &mut connection => result,
+        _ = cancellation.cancelled() => {
+            let snapshot = state.read().await;
+            tracing::info!(
+                connection_id,
+                agent = %agent_type,
+                launch_finalized = snapshot.launch_finalized,
+                session_id = snapshot.external_id.as_deref().unwrap_or(""),
+                "[ACP] connection establishment canceled"
+            );
+            return Ok(());
+        }
+    };
+    result.map_err(|e| {
         let raw = e.to_string();
         if raw.contains(INIT_TIMEOUT_SENTINEL) {
             AcpError::InitializeTimeout

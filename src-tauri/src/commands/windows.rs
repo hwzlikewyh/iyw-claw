@@ -1610,6 +1610,8 @@ pub const TRAY_ICON_ID: &str = "iyw-claw-tray";
 /// which is why `can_hide_to_tray()` reports false on Linux regardless.
 #[cfg(feature = "tauri-runtime")]
 static TRAY_AVAILABLE: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "tauri-runtime")]
+static MAIN_WINDOW_SHOW_PENDING: AtomicBool = AtomicBool::new(false);
 
 /// Whether hide-on-close is safe on this platform/session. When false,
 /// the close handler in `lib.rs` forces a real app exit instead — both
@@ -1635,10 +1637,37 @@ pub fn can_hide_to_tray() -> bool {
 ///   * macOS dock-icon reopen
 #[cfg(feature = "tauri-runtime")]
 pub fn show_main_window(app: &AppHandle) {
-    let Some(main) = app.get_webview_window("main") else {
-        tracing::error!("[window] cannot show main workspace because the window is missing");
+    if let Some(main) = app.get_webview_window("main") {
+        MAIN_WINDOW_SHOW_PENDING.store(false, AtomicOrdering::Release);
+        restore_main_window(&main);
         return;
-    };
+    }
+
+    MAIN_WINDOW_SHOW_PENDING.store(true, AtomicOrdering::Release);
+    tracing::info!("[window] main workspace show deferred until window creation");
+    if let Some(main) = app.get_webview_window("main") {
+        if MAIN_WINDOW_SHOW_PENDING.swap(false, AtomicOrdering::AcqRel) {
+            restore_main_window(&main);
+        }
+    }
+}
+
+#[cfg(feature = "tauri-runtime")]
+pub fn consume_pending_main_window_show(app: &AppHandle) {
+    if !MAIN_WINDOW_SHOW_PENDING.swap(false, AtomicOrdering::AcqRel) {
+        return;
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        tracing::info!("[window] restoring deferred main workspace show request");
+        restore_main_window(&main);
+    } else {
+        MAIN_WINDOW_SHOW_PENDING.store(true, AtomicOrdering::Release);
+        tracing::warn!("[window] deferred main workspace show remains pending");
+    }
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn restore_main_window(main: &tauri::WebviewWindow) {
     for (operation, result) in [
         ("unminimize", main.unminimize()),
         ("show", main.show()),

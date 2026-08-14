@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection,
-    EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait, Set,
+    EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, QueryTrait, Set,
 };
 
 use crate::db::entities::conversation::ConversationKind;
@@ -383,6 +383,35 @@ pub async fn get_by_id(
     let mut summary = conv_to_summary(conv);
     fill_child_counts(conn, std::slice::from_mut(&mut summary)).await?;
     Ok(summary)
+}
+
+pub async fn bind_delegation_parent_tool_call(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+    parent_conversation_id: i32,
+    delegation_call_id: &str,
+    parent_tool_use_id: &str,
+) -> Result<bool, DbError> {
+    let Some(row) = conversation::Entity::find_by_id(conversation_id)
+        .filter(conversation::Column::DeletedAt.is_null())
+        .one(conn)
+        .await?
+    else {
+        return Ok(false);
+    };
+    if row.parent_id != Some(parent_conversation_id)
+        || row.delegation_call_id.as_deref() != Some(delegation_call_id)
+    {
+        return Ok(false);
+    }
+    if row.parent_tool_use_id.as_deref() == Some(parent_tool_use_id) {
+        return Ok(true);
+    }
+    let mut active = row.into_active_model();
+    active.parent_tool_use_id = Set(Some(parent_tool_use_id.to_string()));
+    active.updated_at = Set(Utc::now());
+    active.update(conn).await?;
+    Ok(true)
 }
 
 /// Look up a child conversation by its `delegation_call_id` (the broker's

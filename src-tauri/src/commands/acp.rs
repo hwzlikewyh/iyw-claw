@@ -8330,11 +8330,18 @@ pub(crate) async fn build_session_runtime_env(
                     "[codex-rollout] migrated legacy show_image results"
                 ),
                 Ok(_) => {}
-                Err(error) => tracing::warn!(
-                    session_id,
-                    error = %error,
-                    "[codex-rollout] legacy show_image migration deferred"
-                ),
+                Err(error) => {
+                    let retryable = crate::acp::codex_rollout_migration::defer_retryable_migration(
+                        session_id, &error,
+                    )
+                    .await;
+                    tracing::warn!(
+                        session_id,
+                        retryable,
+                        error = %error,
+                        "[codex-rollout] legacy show_image migration deferred"
+                    );
+                }
             }
         }
     }
