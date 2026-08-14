@@ -5,7 +5,6 @@ use sea_orm::{
 
 use crate::db::entities::conversation;
 use crate::db::error::DbError;
-use crate::db::service::conversation_service;
 use crate::models::{AgentType, ConversationSummary, ImportResult};
 use crate::parsers::claude::ClaudeParser;
 use crate::parsers::cline::ClineParser;
@@ -22,13 +21,15 @@ use crate::parsers::{path_eq_for_matching, AgentParser};
 
 /// Import (and refresh the titles of) the local agent sessions under
 /// `folder_path`. Returns the tally plus the ids of already-imported
-/// conversations whose title was refreshed, so the caller can broadcast a
-/// sidebar upsert for each without re-querying.
+/// conversations whose parsed title should be refreshed. The command layer
+/// applies those candidates through the shared title coordinator so database,
+/// sidebar, and chat-channel updates remain ordered with live Agent events and
+/// manual renames.
 pub async fn import_local_conversations(
     conn: &DatabaseConnection,
     folder_id: i32,
     folder_path: &str,
-) -> Result<(ImportResult, Vec<i32>), DbError> {
+) -> Result<(ImportResult, Vec<AutoTitleCandidate>), DbError> {
     let path = folder_path.to_string();
 
     // Run parsers in blocking task since they do filesystem I/O
@@ -72,17 +73,13 @@ pub async fn import_local_conversations(
     .map_err(|e| DbError::Migration(e.to_string()))?;
 
     let mut imported = 0u32;
-    let mut updated = 0u32;
     let mut skipped = 0u32;
-    let mut updated_ids: Vec<i32> = Vec::new();
+    let mut title_candidates = Vec::new();
 
     for (agent_type, summary) in &summaries {
         match import_one(conn, folder_id, agent_type, summary).await? {
             ImportOutcome::Imported => imported += 1,
-            ImportOutcome::Updated(id) => {
-                updated += 1;
-                updated_ids.push(id);
-            }
+            ImportOutcome::TitleCandidate(candidate) => title_candidates.push(candidate),
             ImportOutcome::Skipped => skipped += 1,
         }
     }
@@ -90,11 +87,17 @@ pub async fn import_local_conversations(
     Ok((
         ImportResult {
             imported,
-            updated,
+            updated: 0,
             skipped,
         },
-        updated_ids,
+        title_candidates,
     ))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct AutoTitleCandidate {
+    pub conversation_id: i32,
+    pub title: String,
 }
 
 /// Outcome of reconciling a single parsed session against the DB.
@@ -102,9 +105,9 @@ pub async fn import_local_conversations(
 enum ImportOutcome {
     /// A new conversation row was inserted.
     Imported,
-    /// An already-imported conversation had its auto-title refreshed; carries
-    /// the row id so the caller can broadcast a sidebar upsert.
-    Updated(i32),
+    /// An already-imported conversation has a parsed title that the command
+    /// layer should apply through the shared title coordinator.
+    TitleCandidate(AutoTitleCandidate),
     /// Already imported, title left unchanged (locked, identical, or the parse
     /// produced no title).
     Skipped,
@@ -149,10 +152,11 @@ async fn import_one(
             .map(str::trim)
             .filter(|t| !t.is_empty())
         {
-            if conversation_service::refresh_auto_title(conn, existing.id, title.to_string())
-                .await?
-            {
-                return Ok(ImportOutcome::Updated(existing.id));
+            if !existing.title_locked && existing.title.as_deref() != Some(title) {
+                return Ok(ImportOutcome::TitleCandidate(AutoTitleCandidate {
+                    conversation_id: existing.id,
+                    title: title.to_string(),
+                }));
             }
         }
         return Ok(ImportOutcome::Skipped);

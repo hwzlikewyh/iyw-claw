@@ -8760,9 +8760,16 @@ pub async fn acp_fork(
     folder_id: Option<i32>,
     db: State<'_, AppDatabase>,
     manager: State<'_, ConnectionManager>,
+    chat_channel_manager: State<'_, crate::chat_channel::manager::ChatChannelManager>,
 ) -> Result<ForkResultInfo, AcpError> {
     manager
-        .fork_session(&db, &connection_id, conversation_id, folder_id)
+        .fork_session(
+            &db,
+            &chat_channel_manager,
+            &connection_id,
+            conversation_id,
+            folder_id,
+        )
         .await
 }
 

@@ -21,6 +21,7 @@ use super::types::{ChannelMessageTarget, MessageLevel, RichMessage};
 use crate::acp::manager::ConnectionManager;
 use crate::acp::registry::all_acp_agents;
 use crate::acp::types::{ConnectionStatus, PromptInputBlock};
+use crate::commands::conversation_title::{self, ConversationTitleContext};
 use crate::db::entities::conversation;
 use crate::db::service::{conversation_service, folder_service, sender_context_service};
 use crate::models::agent::AgentType;
@@ -439,9 +440,12 @@ pub async fn handle_task(
                 target,
             );
         }
-        if let Some(title) = conv.title.as_deref() {
-            manager.sync_conversation_title(db, conv.id, title).await;
-        }
+        let title_context = ConversationTitleContext {
+            conn: db,
+            emitter,
+            chat_channel_manager: manager,
+        };
+        conversation_title::sync_channels(&title_context, conv.id).await;
     }
 
     // 6. Register in bridge (prompt will be sent after SessionStarted event)
@@ -693,9 +697,12 @@ pub async fn handle_resume(
             let _ = conn_mgr.cancel(db, &connection_id).await;
             return RichMessage::error(format!("Failed to bind Telegram topic: {error}"));
         }
-        if let Some(title) = conv.title.as_deref() {
-            manager.sync_conversation_title(db, conv.id, title).await;
-        }
+        let title_context = ConversationTitleContext {
+            conn: db,
+            emitter,
+            chat_channel_manager: manager,
+        };
+        conversation_title::sync_channels(&title_context, conv.id).await;
     } else {
         let _ = sender_context_service::update_session(
             db,

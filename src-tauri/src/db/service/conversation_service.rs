@@ -192,7 +192,8 @@ pub async fn update_title(
 /// checks and the write are atomic: a manual rename ([`update_title`], which
 /// sets `title_locked = true`) that lands between a would-be read and the write
 /// can never be clobbered, because the lock predicate is re-evaluated at write
-/// time by the database. A non-existent row simply matches nothing (`false`).
+/// time by the database. A non-existent or soft-deleted row simply matches
+/// nothing (`false`).
 pub async fn refresh_auto_title(
     conn: &DatabaseConnection,
     conversation_id: i32,
@@ -206,6 +207,7 @@ pub async fn refresh_auto_title(
     let res = conversation::Entity::update_many()
         .col_expr(conversation::Column::Title, Expr::value(title))
         .filter(conversation::Column::Id.eq(conversation_id))
+        .filter(conversation::Column::DeletedAt.is_null())
         .filter(conversation::Column::TitleLocked.eq(false))
         .filter(
             sea_orm::Condition::any()

@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
+use crate::commands::conversation_title::ConversationTitleContext;
 use crate::commands::conversations as conv_commands;
 use crate::models::*;
 
@@ -198,13 +199,13 @@ pub async fn import_local_conversations(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ImportLocalConversationsParams>,
 ) -> Result<Json<ImportResult>, AppCommandError> {
+    let title_context = ConversationTitleContext {
+        conn: &state.db.conn,
+        emitter: &state.emitter,
+        chat_channel_manager: &state.chat_channel_manager,
+    };
     Ok(Json(
-        conv_commands::import_local_conversations_core(
-            &state.db.conn,
-            &state.emitter,
-            params.folder_id,
-        )
-        .await?,
+        conv_commands::import_local_conversations_core(&title_context, params.folder_id).await?,
     ))
 }
 
@@ -286,14 +287,13 @@ pub async fn update_conversation_status(
         params.status,
     )
     .await?;
-    conv_commands::emit_conversation_upsert(&state.emitter, &state.db.conn, params.conversation_id)
+    let title_context = ConversationTitleContext {
+        conn: &state.db.conn,
+        emitter: &state.emitter,
+        chat_channel_manager: &state.chat_channel_manager,
+    };
+    crate::commands::conversation_title::notify_current(&title_context, params.conversation_id)
         .await;
-    conv_commands::sync_conversation_title_to_channels_core(
-        &state.db.conn,
-        &state.chat_channel_manager,
-        params.conversation_id,
-    )
-    .await;
     Ok(Json(()))
 }
 
@@ -308,14 +308,17 @@ pub async fn update_conversation_title(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<UpdateConversationTitleParams>,
 ) -> Result<Json<()>, AppCommandError> {
+    let title_context = ConversationTitleContext {
+        conn: &state.db.conn,
+        emitter: &state.emitter,
+        chat_channel_manager: &state.chat_channel_manager,
+    };
     conv_commands::update_conversation_title_core(
-        &state.db.conn,
+        &title_context,
         params.conversation_id,
         params.title,
     )
     .await?;
-    conv_commands::emit_conversation_upsert(&state.emitter, &state.db.conn, params.conversation_id)
-        .await;
     Ok(Json(()))
 }
 

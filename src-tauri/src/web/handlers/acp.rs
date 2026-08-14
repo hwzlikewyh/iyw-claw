@@ -471,6 +471,7 @@ pub async fn acp_fork(
     let result = manager
         .fork_session(
             &state.db,
+            &state.chat_channel_manager,
             &params.connection_id,
             params.conversation_id,
             params.folder_id,

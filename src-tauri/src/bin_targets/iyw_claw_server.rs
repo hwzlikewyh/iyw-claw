@@ -586,6 +586,7 @@ async fn async_main() -> ExitCode {
     tokio::spawn(iyw_claw_lib::lifecycle_subscriber_task(
         state.db.conn.clone(),
         state.connection_manager.clone_ref(),
+        state.chat_channel_manager.clone_ref(),
         state.acp_event_bus.clone(),
         Some(state.delegation_broker.clone()),
         Some(state.user_memory.clone()),

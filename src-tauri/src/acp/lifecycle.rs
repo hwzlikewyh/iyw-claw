@@ -24,6 +24,8 @@ use crate::acp::internal_bus::InternalEventBus;
 use crate::acp::manager::ConnectionManager;
 use crate::acp::session_state::SessionState;
 use crate::acp::types::{AcpEvent, ConnectionStatus, EventEnvelope};
+use crate::chat_channel::manager::ChatChannelManager;
+use crate::commands::conversation_title::{self, ConversationTitleContext};
 use crate::db::entities::conversation::ConversationStatus;
 use crate::db::error::DbError;
 use crate::db::service::{automation_service, conversation_service};
@@ -35,7 +37,7 @@ use tokio::sync::RwLock;
 /// Per-connection worker queue depth. Sized for the **filtered** event set
 /// only (see `is_lifecycle_relevant`) — high-frequency events (ContentDelta,
 /// ToolCall*, PermissionRequest) are dropped at the dispatcher and never
-/// enter the queue. The remaining 5 event types arrive at most a handful
+/// enter the queue. The remaining event types arrive at most a handful
 /// of times per turn, so 64 slots is comfortable headroom for a sustained
 /// SQLite stall without forcing the dispatcher to block on `send`.
 const WORKER_QUEUE_CAPACITY: usize = 64;
@@ -63,6 +65,7 @@ fn is_lifecycle_relevant(event: &AcpEvent) -> bool {
     matches!(
         event,
         AcpEvent::SessionStarted { .. }
+            | AcpEvent::SessionTitleUpdated { .. }
             | AcpEvent::TurnComplete { .. }
             | AcpEvent::UserMessage { .. }
             | AcpEvent::ConversationLinked { .. }
@@ -131,45 +134,109 @@ const HANDLE_EVENT_RETRY_BACKOFFS: &[Duration] =
 async fn handle_event_with_retry(
     db_conn: &DatabaseConnection,
     manager: &ConnectionManager,
+    chat_channel_manager: &ChatChannelManager,
     envelope: &EventEnvelope,
     broker: Option<&Arc<DelegationBroker>>,
     harvest_service: Option<&Arc<UserMemoryService>>,
 ) {
-    match handle_event(db_conn, manager, envelope, broker, harvest_service).await {
+    let event_kind = lifecycle_event_kind(&envelope.payload);
+    match handle_event(
+        db_conn,
+        manager,
+        chat_channel_manager,
+        envelope,
+        broker,
+        harvest_service,
+    )
+    .await
+    {
         Ok(()) => return,
         Err(e) => {
             tracing::warn!(
-                "[lifecycle][WARN] handle_event failed (attempt 1, will retry) for {:?}: {e}",
-                envelope.payload
+                connection_id = %envelope.connection_id,
+                event_kind,
+                error = %e,
+                "[lifecycle][WARN] handle_event failed (attempt 1, will retry)"
             );
         }
     }
     for (attempt, backoff) in HANDLE_EVENT_RETRY_BACKOFFS.iter().enumerate() {
         tokio::time::sleep(*backoff).await;
-        match handle_event(db_conn, manager, envelope, broker, harvest_service).await {
+        match handle_event(
+            db_conn,
+            manager,
+            chat_channel_manager,
+            envelope,
+            broker,
+            harvest_service,
+        )
+        .await
+        {
             Ok(()) => return,
             Err(e) => {
                 let attempt_num = attempt + 2;
                 let is_last = attempt + 1 == HANDLE_EVENT_RETRY_BACKOFFS.len();
                 let level = if is_last { "ERROR" } else { "WARN" };
                 tracing::warn!(
-                    "[lifecycle][{level}] handle_event failed (attempt {attempt_num}{}) \
-                     for {:?}: {e}",
-                    if is_last {
-                        ", giving up"
-                    } else {
-                        ", will retry"
-                    },
-                    envelope.payload
+                    connection_id = %envelope.connection_id,
+                    event_kind,
+                    error = %e,
+                    attempt = attempt_num,
+                    final_attempt = is_last,
+                    "[lifecycle][{level}] handle_event failed"
                 );
             }
         }
     }
 }
 
+fn lifecycle_event_kind(event: &AcpEvent) -> &'static str {
+    match event {
+        AcpEvent::SessionStarted { .. } => "session_started",
+        AcpEvent::SessionTitleUpdated { .. } => "session_title_updated",
+        AcpEvent::TurnComplete { .. } => "turn_complete",
+        AcpEvent::UserMessage { .. } => "user_message",
+        AcpEvent::ConversationLinked { .. } => "conversation_linked",
+        AcpEvent::StatusChanged { .. } => "status_changed",
+        AcpEvent::Error { .. } => "error",
+        _ => "other",
+    }
+}
+
+async fn refresh_agent_title(
+    db_conn: &DatabaseConnection,
+    manager: &ConnectionManager,
+    chat_channel_manager: &ChatChannelManager,
+    connection_id: &str,
+    title: &str,
+) -> Result<(), DbError> {
+    let Some((state, emitter)) = manager.get_state_and_emitter(connection_id).await else {
+        return Ok(());
+    };
+    let Some(conversation_id) = state.read().await.conversation_id else {
+        return Ok(());
+    };
+    let title_context = ConversationTitleContext {
+        conn: db_conn,
+        emitter: &emitter,
+        chat_channel_manager,
+    };
+    if !conversation_title::refresh_auto(&title_context, conversation_id, title).await? {
+        return Ok(());
+    }
+    tracing::info!(
+        connection_id = %connection_id,
+        conversation_id,
+        title_chars = title.chars().count(),
+        "[lifecycle] Agent session title applied"
+    );
+    Ok(())
+}
+
 pub(crate) async fn handle_event(
     db_conn: &DatabaseConnection,
     manager: &ConnectionManager,
+    chat_channel_manager: &ChatChannelManager,
     envelope: &EventEnvelope,
     broker: Option<&Arc<DelegationBroker>>,
     harvest_service: Option<&Arc<UserMemoryService>>,
@@ -180,6 +247,39 @@ pub(crate) async fn handle_event(
         // `register_delegation_tool_call_from_event`, off the DB-coupled worker
         // and across both `ToolCall` and `ToolCallUpdate`, so `ToolCall` no
         // longer reaches this worker at all (see `is_lifecycle_relevant`).
+        AcpEvent::SessionTitleUpdated { title } => {
+            refresh_agent_title(
+                db_conn,
+                manager,
+                chat_channel_manager,
+                &envelope.connection_id,
+                title,
+            )
+            .await
+        }
+        AcpEvent::ConversationLinked { .. } => {
+            let title = match manager.get_state(&envelope.connection_id).await {
+                Some(state) => state
+                    .read()
+                    .await
+                    .agent_title_candidate
+                    .as_ref()
+                    .filter(|candidate| candidate.event_seq < envelope.seq)
+                    .map(|candidate| candidate.title.clone()),
+                None => None,
+            };
+            let Some(title) = title else {
+                return Ok(());
+            };
+            refresh_agent_title(
+                db_conn,
+                manager,
+                chat_channel_manager,
+                &envelope.connection_id,
+                &title,
+            )
+            .await
+        }
         AcpEvent::SessionStarted { session_id } => {
             // Look up conversation_id (and the emitter) from the live state.
             let Some((state_arc, emitter)) =
@@ -826,6 +926,7 @@ async fn connection_worker_loop(
     connection_id: String,
     db: DatabaseConnection,
     manager: ConnectionManager,
+    chat_channel_manager: ChatChannelManager,
     broker: Option<Arc<DelegationBroker>>,
     harvest_service: Option<Arc<UserMemoryService>>,
     mut rx: mpsc::Receiver<Arc<EventEnvelope>>,
@@ -866,6 +967,15 @@ async fn connection_worker_loop(
                         "[agent-input] connection recovery failed"
                     );
                 }
+                handle_event_with_retry(
+                    &db,
+                    &manager,
+                    &chat_channel_manager,
+                    envelope,
+                    broker.as_ref(),
+                    harvest_service.as_ref(),
+                )
+                .await;
             }
             AcpEvent::StatusChanged {
                 status: ConnectionStatus::Disconnected,
@@ -928,6 +1038,7 @@ async fn connection_worker_loop(
                 handle_event_with_retry(
                     &db,
                     &manager,
+                    &chat_channel_manager,
                     envelope,
                     broker.as_ref(),
                     harvest_service.as_ref(),
@@ -946,7 +1057,7 @@ async fn connection_worker_loop(
 /// connections, workers run independently so a slow SQLite write on one
 /// connection doesn't backpressure the others.
 ///
-/// All forwarded events (the 5 types in `is_lifecycle_relevant`) use
+/// All forwarded events selected by `is_lifecycle_relevant` use
 /// blocking `send().await` to guarantee delivery even when the worker
 /// mailbox is full — `SessionStarted` (writes external_id) and
 /// `TurnComplete` (writes terminal status) are correctness-critical and
@@ -960,6 +1071,7 @@ async fn connection_worker_loop(
 pub fn lifecycle_subscriber_task(
     db_conn: DatabaseConnection,
     manager: ConnectionManager,
+    chat_channel_manager: ChatChannelManager,
     bus: Arc<InternalEventBus>,
     broker: Option<Arc<DelegationBroker>>,
     harvest_service: Option<Arc<UserMemoryService>>,
@@ -1001,6 +1113,7 @@ pub fn lifecycle_subscriber_task(
                             mpsc::channel::<Arc<EventEnvelope>>(WORKER_QUEUE_CAPACITY);
                         let db_clone = db_conn.clone();
                         let mgr_clone = manager.clone_ref();
+                        let chat_channel_clone = chat_channel_manager.clone_ref();
                         let broker_clone = broker.clone();
                         let harvest_clone = harvest_service.clone();
                         let id_clone = conn_id.clone();
@@ -1008,6 +1121,7 @@ pub fn lifecycle_subscriber_task(
                             id_clone,
                             db_clone,
                             mgr_clone,
+                            chat_channel_clone,
                             broker_clone,
                             harvest_clone,
                             worker_rx,

@@ -170,6 +170,12 @@ pub struct SessionLastError {
     pub code: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct AgentTitleCandidate {
+    pub event_seq: u64,
+    pub title: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UsageInfo {
     pub used: u64,
@@ -254,6 +260,8 @@ pub struct SessionState {
     pub conversation_id: Option<i32>,
     pub external_id: Option<String>,
     pub external_id_changed_at: Option<std::time::SystemTime>,
+    /// Agent 最近一次上报的原生标题。事件序号用于绑定补写时排除更晚到达的候选。
+    pub(crate) agent_title_candidate: Option<AgentTitleCandidate>,
     pub agent_type: AgentType,
     pub working_dir: Option<PathBuf>,
     pub owner_window_label: String,
@@ -542,6 +550,7 @@ impl SessionState {
             conversation_id: None,
             external_id: None,
             external_id_changed_at: None,
+            agent_title_candidate: None,
             agent_type,
             working_dir,
             owner_window_label,
@@ -665,6 +674,12 @@ impl SessionState {
                 if let Some(tx) = self.session_started_tx.take() {
                     let _ = tx.send(());
                 }
+            }
+            AcpEvent::SessionTitleUpdated { title } => {
+                self.agent_title_candidate = Some(AgentTitleCandidate {
+                    event_seq: self.event_seq.saturating_add(1),
+                    title: title.clone(),
+                });
             }
             AcpEvent::StatusChanged { status } => {
                 if matches!(status, ConnectionStatus::Prompting) {

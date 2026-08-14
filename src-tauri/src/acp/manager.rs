@@ -29,6 +29,8 @@ use crate::acp::types::{
     AcpEvent, AgentOptionsSnapshot, ConfigStaleKind, ConnectionInfo, ConnectionStatus,
     ForkResultInfo, PromptInputBlock,
 };
+use crate::chat_channel::manager::ChatChannelManager;
+use crate::commands::conversation_title::{self, ConversationTitleContext};
 use crate::db::entities::conversation::{self, ConversationKind, ConversationStatus};
 use crate::db::service::conversation_service;
 use crate::db::AppDatabase;
@@ -1894,6 +1896,7 @@ impl ConnectionManager {
     pub async fn fork_session(
         &self,
         db: &AppDatabase,
+        chat_channel_manager: &ChatChannelManager,
         conn_id: &str,
         link_conversation_id: Option<i32>,
         link_folder_id: Option<i32>,
@@ -1979,6 +1982,7 @@ impl ConnectionManager {
         // We await the task's handle purely to hand the result back to a live
         // caller; the result is harmlessly discarded if the caller is gone.
         let db_conn = db.conn.clone();
+        let chat_channel_manager = chat_channel_manager.clone_ref();
         let conn_id_for_task = conn_id.to_string();
         let handle = tokio::spawn(async move {
             // Holding the owned guard for the whole task is what shields the
@@ -2009,16 +2013,16 @@ impl ConnectionManager {
                 // Fork mutates the sidebar in two ways the rest of the system
                 // never sees otherwise: the current row's title (`[Fork] …`) and
                 // external_id (→ S2) changed, and a brand-new sibling row now
-                // exists (external_id S1, PendingReview). Broadcast both on
-                // `conversation://changed` so every other client converges in
-                // real time instead of waiting for a manual refresh. Both rows
-                // are roots; the helper still guards `parent_id` internally.
-                crate::commands::conversations::emit_conversation_upsert(
-                    &emitter,
-                    &db_conn,
-                    conversation_id,
-                )
-                .await;
+                // exists (external_id S1, PendingReview). The current row goes
+                // through the shared title coordinator so its sidebar and chat
+                // topic side effects cannot finish out of order with Agent,
+                // parser, or manual title changes.
+                let title_context = ConversationTitleContext {
+                    conn: &db_conn,
+                    emitter: &emitter,
+                    chat_channel_manager: &chat_channel_manager,
+                };
+                conversation_title::notify_current(&title_context, conversation_id).await;
                 crate::commands::conversations::emit_conversation_upsert(
                     &emitter, &db_conn, sibling_id,
                 )

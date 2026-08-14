@@ -30,6 +30,8 @@ use crate::web::event_bridge::{
     TABS_CHANGED_EVENT,
 };
 
+use super::conversation_title::{self, ConversationTitleContext};
+
 pub async fn list_all_conversations_core(
     conn: &sea_orm::DatabaseConnection,
     folder_ids: Option<Vec<i32>>,
@@ -375,11 +377,10 @@ fn compute_folders(all_conversations: &[ConversationSummary]) -> Vec<FolderInfo>
 }
 
 pub async fn import_local_conversations_core(
-    conn: &sea_orm::DatabaseConnection,
-    emitter: &EventEmitter,
+    context: &ConversationTitleContext<'_>,
     folder_id: i32,
 ) -> Result<ImportResult, AppCommandError> {
-    let folder = folder_service::get_folder_by_id(conn, folder_id)
+    let folder = folder_service::get_folder_by_id(context.conn, folder_id)
         .await
         .map_err(AppCommandError::from)?
         .ok_or_else(|| {
@@ -387,16 +388,20 @@ pub async fn import_local_conversations_core(
                 .with_detail(format!("folder_id={folder_id}"))
         })?;
 
-    let (result, updated_ids) =
-        import_service::import_local_conversations(conn, folder_id, &folder.path)
+    let (mut result, title_candidates) =
+        import_service::import_local_conversations(context.conn, folder_id, &folder.path)
             .await
             .map_err(AppCommandError::from)?;
 
-    // Broadcast a sidebar upsert for every title refreshed in place, so other
-    // windows and web clients converge live. The importing client refetches the
-    // list itself, which also covers the newly imported rows.
-    for id in updated_ids {
-        emit_conversation_upsert(emitter, conn, id).await;
+    for candidate in title_candidates {
+        if conversation_title::refresh_auto(context, candidate.conversation_id, &candidate.title)
+            .await
+            .map_err(AppCommandError::from)?
+        {
+            result.updated += 1;
+        } else {
+            result.skipped += 1;
+        }
     }
 
     Ok(result)
@@ -409,7 +414,16 @@ pub async fn import_local_conversations(
     db: tauri::State<'_, AppDatabase>,
     folder_id: i32,
 ) -> Result<ImportResult, AppCommandError> {
-    import_local_conversations_core(&db.conn, &EventEmitter::Tauri(app), folder_id).await
+    use tauri::Manager;
+
+    let chat_channel_manager = app.state::<crate::chat_channel::manager::ChatChannelManager>();
+    let emitter = EventEmitter::Tauri(app.clone());
+    let context = ConversationTitleContext {
+        conn: &db.conn,
+        emitter: &emitter,
+        chat_channel_manager: &chat_channel_manager,
+    };
+    import_local_conversations_core(&context, folder_id).await
 }
 
 /// Build the `meta["iyw-claw.delegation"]` value for a delegation child loaded
@@ -848,19 +862,16 @@ pub async fn get_folder_conversation_with_live_core(
     if !detail.summary.title_locked {
         if let Some(parsed) = parsed_title.as_deref().map(str::trim) {
             if !parsed.is_empty() && detail.summary.title.as_deref() != Some(parsed) {
-                match conversation_service::refresh_auto_title(
+                let title_context = ConversationTitleContext {
                     conn,
-                    conversation_id,
-                    parsed.to_string(),
-                )
-                .await
+                    emitter,
+                    chat_channel_manager,
+                };
+                match conversation_title::refresh_auto(&title_context, conversation_id, parsed)
+                    .await
                 {
                     Ok(true) => {
                         detail.summary.title = Some(parsed.to_string());
-                        emit_conversation_upsert(emitter, conn, conversation_id).await;
-                        chat_channel_manager
-                            .sync_conversation_title(conn, conversation_id, parsed)
-                            .await;
                     }
                     Ok(false) => {}
                     Err(e) => tracing::error!(
@@ -1537,17 +1548,26 @@ pub async fn update_conversation_status(
     conversation_id: i32,
     status: String,
 ) -> Result<(), AppCommandError> {
+    use tauri::Manager;
+
     update_conversation_status_core(&db.conn, conversation_id, status).await?;
-    emit_conversation_upsert(&EventEmitter::Tauri(app), &db.conn, conversation_id).await;
+    let chat_channel_manager = app.state::<crate::chat_channel::manager::ChatChannelManager>();
+    let emitter = EventEmitter::Tauri(app.clone());
+    let context = ConversationTitleContext {
+        conn: &db.conn,
+        emitter: &emitter,
+        chat_channel_manager: &chat_channel_manager,
+    };
+    conversation_title::notify_current(&context, conversation_id).await;
     Ok(())
 }
 
-pub async fn update_conversation_title_core(
-    conn: &sea_orm::DatabaseConnection,
+pub(crate) async fn update_conversation_title_core(
+    context: &ConversationTitleContext<'_>,
     conversation_id: i32,
     title: String,
 ) -> Result<(), AppCommandError> {
-    conversation_service::update_title(conn, conversation_id, title)
+    conversation_title::update_manual(context, conversation_id, title)
         .await
         .map_err(AppCommandError::from)
 }
@@ -1557,11 +1577,20 @@ pub async fn sync_conversation_title_to_channels_core(
     chat_channel_manager: &crate::chat_channel::manager::ChatChannelManager,
     conversation_id: i32,
 ) {
-    if let Ok(conversation) = conversation_service::get_by_id(conn, conversation_id).await {
-        if let Some(title) = conversation.title.as_deref() {
-            chat_channel_manager
-                .sync_conversation_title(conn, conversation_id, title)
-                .await;
+    match conversation_service::get_by_id(conn, conversation_id).await {
+        Ok(conversation) => {
+            if let Some(title) = conversation.title.as_deref() {
+                chat_channel_manager
+                    .sync_conversation_title(conn, conversation_id, title)
+                    .await;
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                conversation_id,
+                error = %error,
+                "[conversations] failed to load authoritative title for channel sync"
+            );
         }
     }
 }
@@ -1575,10 +1604,13 @@ pub async fn update_conversation_title(
     conversation_id: i32,
     title: String,
 ) -> Result<(), AppCommandError> {
-    update_conversation_title_core(&db.conn, conversation_id, title).await?;
-    emit_conversation_upsert(&EventEmitter::Tauri(app), &db.conn, conversation_id).await;
-    sync_conversation_title_to_channels_core(&db.conn, &chat_channel_manager, conversation_id)
-        .await;
+    let emitter = EventEmitter::Tauri(app);
+    let context = ConversationTitleContext {
+        conn: &db.conn,
+        emitter: &emitter,
+        chat_channel_manager: &chat_channel_manager,
+    };
+    update_conversation_title_core(&context, conversation_id, title).await?;
     Ok(())
 }
 

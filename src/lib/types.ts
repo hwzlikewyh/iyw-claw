@@ -1248,6 +1248,11 @@ export type AcpEvent =
       session_id: string
     }
   | {
+      /** Native session title reported by the Agent; persisted backend-side. */
+      type: "session_title_updated"
+      title: string
+    }
+  | {
       type: "conversation_linked"
       conversation_id: number
       folder_id: number

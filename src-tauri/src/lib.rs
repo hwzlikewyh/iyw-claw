@@ -860,14 +860,15 @@ mod tauri_app {
                 };
 
                 // Spawn the LifecycleSubscriber: persists cross-connection DB state
-                // (currently `external_id` on conversation rows when SessionStarted fires)
-                // off the emit hot path. `subscribe()` runs synchronously inside
+                // (external session ids, Agent titles, and turn outcomes) off the emit
+                // hot path. `subscribe()` runs synchronously inside
                 // `lifecycle_subscriber_task` before the future is returned, so the
                 // subscribe-before-spawn invariant holds. The setup callback runs
                 // outside any tokio runtime, so we use `tauri::async_runtime::spawn`.
                 {
                     let db_conn = app.state::<db::AppDatabase>().conn.clone();
                     let cm = app.state::<ConnectionManager>().clone_ref();
+                    let chat_channel_manager = app.state::<ChatChannelManager>().clone_ref();
                     let bus = app
                         .state::<std::sync::Arc<crate::acp::InternalEventBus>>()
                         .inner()
@@ -879,6 +880,7 @@ mod tauri_app {
                     tauri::async_runtime::spawn(crate::acp::lifecycle_subscriber_task(
                         db_conn,
                         cm,
+                        chat_channel_manager,
                         bus,
                         Some(broker_for_lifecycle),
                         Some(user_memory_harvest),

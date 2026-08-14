@@ -6904,6 +6904,23 @@ async fn emit_conversation_update(
             .await;
         }
         SessionUpdate::SessionInfoUpdate(info) => {
+            if let Some(title) = info
+                .title
+                .value()
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+            {
+                emit_with_state(
+                    state,
+                    emitter,
+                    AcpEvent::SessionTitleUpdated {
+                        title: title.to_string(),
+                    },
+                )
+                .await;
+            }
+
             // codex-acp v1.1.0 (#263) reports `/goal` transitions as structured
             // session metadata instead of live "Goal updated (…)" agent text:
             // the goal object rides under `_meta.codex.goal`. Map it onto iyw-claw's
@@ -6911,9 +6928,8 @@ async fn emit_conversation_update(
             // existing goal-card pipeline (groupGoalRuns/GoalCard) renders it —
             // byte-identical to the history path (parsers/codex.rs). Non-Codex
             // agents don't populate the `codex` key, so this is a no-op for them.
-            // (`info.title` is Codex's native thread name; it is adopted via the
-            // parser auto-title path on the next conversation fetch, not here, to
-            // keep this DB-agnostic emit path unchanged — see parsers/codex.rs.)
+            // Session titles are handled generically above; this branch remains
+            // Codex-specific because only Codex populates `_meta.codex.goal`.
             if let Some(goal) = info
                 .meta
                 .as_ref()

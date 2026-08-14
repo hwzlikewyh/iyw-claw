@@ -140,6 +140,11 @@ pub enum AcpEvent {
     SessionStarted {
         session_id: String,
     },
+    /// Agent reported a native title for the current session. Persisted by the
+    /// lifecycle subscriber once the connection is bound to a conversation.
+    SessionTitleUpdated {
+        title: String,
+    },
     /// Backend has bound this connection to a conversation row. Emitted exactly
     /// once per connection lifetime, on first prompt that creates the row.
     /// Frontend uses this to associate the connection_id with conversation_id
