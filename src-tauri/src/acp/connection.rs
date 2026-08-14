@@ -59,6 +59,8 @@ const DEFAULT_COMMAND_COLOR_ENV: [(&str, &str); 1] = [("CLICOLOR_FORCE", "1")];
 const CODEX_CONFIG_ENV: &str = "CODEX_CONFIG";
 const IYW_CLAW_MCP_SERVER_NAME: &str = "iyw-claw-mcp";
 const CODEX_COMPANION_TOOL_TIMEOUT_SECS: u64 = 660;
+const LOCAL_FILE_PROMPT_PREFIX: &str =
+    "Local file path (use filesystem tools, not MCP resources): ";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,13 +78,18 @@ struct SessionSteerResponse {
 async fn send_native_steer(
     cx: &ConnectionTo<Agent>,
     session_id: &SessionId,
+    agent_type: AgentType,
     blocks: Vec<PromptInputBlock>,
 ) -> NativeSteerOutcome {
+    let prompt = match map_prompt_blocks(agent_type, blocks) {
+        Ok(prompt) => prompt,
+        Err(error) => return NativeSteerOutcome::Failed(error),
+    };
     let request = match UntypedMessage::new(
         "_session/steering",
         SessionSteerRequest {
             session_id: session_id.clone(),
-            prompt: map_prompt_blocks(blocks),
+            prompt,
         },
     ) {
         Ok(request) => request,
@@ -339,6 +346,7 @@ pub enum ConnectionCommand {
     NativeSteer {
         message_id: String,
         blocks: Vec<PromptInputBlock>,
+        codex_image_validation: Option<(PathBuf, crate::acp::agent_image_input::CodexImageScope)>,
         expected_turn_generation: i64,
         reply: tokio::sync::oneshot::Sender<NativeSteerOutcome>,
         settled: tokio::sync::oneshot::Receiver<()>,
@@ -3916,16 +3924,67 @@ async fn poll_tracked_terminal_tool_calls(
     }
 }
 
-fn map_prompt_blocks(blocks: Vec<PromptInputBlock>) -> Vec<ContentBlock> {
+fn inline_code(text: &str) -> String {
+    let mut longest = 0;
+    let mut current = 0;
+    for ch in text.chars() {
+        if ch == '`' {
+            current += 1;
+            longest = longest.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    let fence = "`".repeat(longest + 1);
+    let needs_padding = text
+        .chars()
+        .next()
+        .is_some_and(|ch| ch == '`' || ch.is_whitespace())
+        || text
+            .chars()
+            .next_back()
+            .is_some_and(|ch| ch == '`' || ch.is_whitespace());
+    let padding = if needs_padding { " " } else { "" };
+    format!("{fence}{padding}{text}{padding}{fence}")
+}
+
+fn map_image_block(
+    agent_type: AgentType,
+    data: String,
+    mime_type: String,
+    uri: Option<String>,
+    local_path: Option<String>,
+) -> Result<ContentBlock, String> {
+    if agent_type != AgentType::Codex {
+        return Ok(ContentBlock::Image(
+            ImageContent::new(data, mime_type).uri(uri),
+        ));
+    }
+    let path = local_path
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Codex image attachment is missing its prepared local file".to_string())?;
+    if !Path::new(&path).is_absolute() {
+        return Err("Codex image attachment local file must be absolute".to_string());
+    }
+    let path = path.replace('\r', " ").replace('\n', " ");
+    let text = format!("{LOCAL_FILE_PROMPT_PREFIX}{}", inline_code(&path));
+    Ok(ContentBlock::Text(TextContent::new(text)))
+}
+
+fn map_prompt_blocks(
+    agent_type: AgentType,
+    blocks: Vec<PromptInputBlock>,
+) -> Result<Vec<ContentBlock>, String> {
     blocks
         .into_iter()
         .map(|block| match block {
-            PromptInputBlock::Text { text } => ContentBlock::Text(TextContent::new(text)),
+            PromptInputBlock::Text { text } => Ok(ContentBlock::Text(TextContent::new(text))),
             PromptInputBlock::Image {
                 data,
                 mime_type,
                 uri,
-            } => ContentBlock::Image(ImageContent::new(data, mime_type).uri(uri)),
+                local_path,
+            } => map_image_block(agent_type, data, mime_type, uri, local_path),
             PromptInputBlock::Resource {
                 uri,
                 mime_type,
@@ -3949,7 +4008,7 @@ fn map_prompt_blocks(blocks: Vec<PromptInputBlock>) -> Vec<ContentBlock> {
                         EmbeddedResourceResource::TextResourceContents(content)
                     }
                 };
-                ContentBlock::Resource(EmbeddedResource::new(resource))
+                Ok(ContentBlock::Resource(EmbeddedResource::new(resource)))
             }
             PromptInputBlock::ResourceLink {
                 uri,
@@ -3960,7 +4019,7 @@ fn map_prompt_blocks(blocks: Vec<PromptInputBlock>) -> Vec<ContentBlock> {
                 let mut link = ResourceLink::new(name, uri);
                 link.mime_type = mime_type;
                 link.description = description;
-                ContentBlock::ResourceLink(link)
+                Ok(ContentBlock::ResourceLink(link))
             }
         })
         .collect()
@@ -4593,7 +4652,39 @@ async fn run_conversation_loop<'a>(
                 } else {
                     None
                 };
-                let mut prompt_blocks = map_prompt_blocks(blocks);
+                let mut prompt_blocks = match map_prompt_blocks(agent_type, blocks) {
+                    Ok(prompt_blocks) => prompt_blocks,
+                    Err(error) => {
+                        tracing::error!(
+                            agent_type = %agent_type,
+                            error = %error,
+                            "[ACP] rejected invalid image transport before Agent send"
+                        );
+                        emit_with_state(
+                            state,
+                            emitter,
+                            AcpEvent::Error {
+                                message: error,
+                                agent_type: agent_type.to_string(),
+                                code: None,
+                                terminal: false,
+                            },
+                        )
+                        .await;
+                        emit_with_state(
+                            state,
+                            emitter,
+                            AcpEvent::TurnComplete {
+                                session_id: session.session_id().0.to_string(),
+                                stop_reason: "cancelled".into(),
+                                agent_type: agent_type.to_string(),
+                            },
+                        )
+                        .await;
+                        prompt_log.interrupted("invalid_image_transport", false, 0);
+                        continue;
+                    }
+                };
                 if let Some(context) = user_context {
                     prompt_blocks
                         .insert(0, ContentBlock::Text(TextContent::new(context.to_string())));
@@ -5132,6 +5223,7 @@ async fn run_conversation_loop<'a>(
                                 Some(ConnectionCommand::NativeSteer {
                                     message_id,
                                     blocks,
+                                    codex_image_validation,
                                     expected_turn_generation,
                                     reply,
                                     settled,
@@ -5142,8 +5234,26 @@ async fn run_conversation_loop<'a>(
                                             && snapshot.native_steering_available
                                     };
                                     let user_blocks = crate::acp::user_blocks_from_prompt(&blocks);
-                                    let mut outcome = if available {
-                                        send_native_steer(&cx, &sid, blocks).await
+                                    let validation = match codex_image_validation {
+                                        Some((data_dir, scope)) => {
+                                            crate::acp::agent_image_input::validate_codex_image_inputs(
+                                                &data_dir,
+                                                scope,
+                                                &blocks,
+                                            )
+                                            .await
+                                        }
+                                        None => Ok(()),
+                                    };
+                                    let mut outcome = if let Err(error) = validation {
+                                        tracing::warn!(
+                                            connection_id = conn_id,
+                                            error = %error,
+                                            "[agent-input] native steer image validation failed"
+                                        );
+                                        NativeSteerOutcome::Failed(error.to_string())
+                                    } else if available {
+                                        send_native_steer(&cx, &sid, agent_type, blocks).await
                                     } else {
                                         NativeSteerOutcome::Unsupported
                                     };

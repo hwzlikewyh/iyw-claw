@@ -11,6 +11,14 @@ use crate::db::AppDatabase;
 
 const MAX_MESSAGE_ID_CHARS: usize = 160;
 
+fn client_item(item: AgentInputItem) -> AgentInputItem {
+    item.client_projection()
+}
+
+fn client_items(items: Vec<AgentInputItem>) -> Vec<AgentInputItem> {
+    items.into_iter().map(client_item).collect()
+}
+
 fn validate_submit(
     conversation_id: i32,
     message_id: &str,
@@ -33,8 +41,18 @@ fn payload_has_content(payload: &AgentInputPayload) -> bool {
     payload.blocks.iter().any(|block| match block {
         PromptInputBlock::Text { text } => !text.trim().is_empty(),
         PromptInputBlock::Image {
-            data, mime_type, ..
-        } => !data.trim().is_empty() && !mime_type.trim().is_empty(),
+            data,
+            mime_type,
+            uri,
+            local_path,
+        } => {
+            !mime_type.trim().is_empty()
+                && (!data.trim().is_empty()
+                    || uri.as_deref().is_some_and(|value| !value.trim().is_empty())
+                    || local_path
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty()))
+        }
         PromptInputBlock::Resource { uri, .. } => !uri.trim().is_empty(),
         PromptInputBlock::ResourceLink { uri, name, .. } => {
             !uri.trim().is_empty() && !name.trim().is_empty()
@@ -54,6 +72,7 @@ pub async fn submit_agent_input_core(
     manager
         .submit_agent_input(db, &connection_id, conversation_id, message_id, payload)
         .await
+        .map(client_item)
 }
 
 pub async fn queue_agent_input_core(
@@ -83,7 +102,7 @@ pub async fn queue_agent_input_core(
         elapsed_ms = started_at.elapsed().as_millis(),
         "[agent-input] durable input queued"
     );
-    Ok(item)
+    Ok(client_item(item))
 }
 
 pub async fn list_agent_inputs_core(
@@ -97,6 +116,7 @@ pub async fn list_agent_inputs_core(
     }
     agent_input_outbox_service::list_visible(db, conversation_id)
         .await
+        .map(client_items)
         .map_err(AppCommandError::from)
 }
 
@@ -110,6 +130,7 @@ pub async fn delete_agent_input_core(
     manager
         .delete_agent_input(db, &connection_id, conversation_id, &message_id)
         .await
+        .map(client_item)
 }
 
 pub async fn retry_agent_input_core(
@@ -122,6 +143,7 @@ pub async fn retry_agent_input_core(
     manager
         .retry_agent_input(db, &connection_id, conversation_id, &message_id)
         .await
+        .map(client_item)
 }
 
 pub async fn reorder_agent_inputs_core(
@@ -134,6 +156,7 @@ pub async fn reorder_agent_inputs_core(
     manager
         .reorder_agent_inputs(db, &connection_id, conversation_id, ordered_ids)
         .await
+        .map(client_items)
 }
 
 pub async fn force_agent_inputs_through_core(
@@ -153,6 +176,7 @@ pub async fn force_agent_inputs_through_core(
             expected_prefix_ids,
         )
         .await
+        .map(client_items)
 }
 
 pub async fn resume_agent_inputs_core(

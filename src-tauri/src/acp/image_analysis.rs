@@ -129,6 +129,7 @@ fn prompt_images(blocks: &[PromptInputBlock]) -> Vec<AnalysisImage> {
                 data,
                 mime_type,
                 uri,
+                ..
             } => {
                 let url = uri.as_deref().filter(|value| {
                     reqwest::Url::parse(value).is_ok_and(|parsed| {

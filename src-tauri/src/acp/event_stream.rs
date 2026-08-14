@@ -315,7 +315,13 @@ fn prompt_block_size(block: &PromptInputBlock) -> usize {
             data,
             mime_type,
             uri,
-        } => 48 + json_str_len(data) + json_str_len(mime_type) + opt_str_size(uri),
+            local_path,
+        } => {
+            64 + json_str_len(data)
+                + json_str_len(mime_type)
+                + opt_str_size(uri)
+                + opt_str_size(local_path)
+        }
         PromptInputBlock::Resource {
             uri,
             mime_type,

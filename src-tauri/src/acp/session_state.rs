@@ -1318,6 +1318,7 @@ impl SessionState {
                     data,
                     mime_type,
                     uri,
+                    ..
                 } => Some(UserMessageBlock::Image {
                     data: data.clone(),
                     mime_type: mime_type.clone(),
@@ -1452,7 +1453,11 @@ impl SessionState {
             pending_user_message: self.pending_user_message.clone(),
             active_delegations: self.active_delegations.values().cloned().collect(),
             feedback: self.feedback.clone(),
-            agent_inputs: self.agent_inputs.clone(),
+            agent_inputs: self
+                .agent_inputs
+                .iter()
+                .map(crate::acp::AgentInputItem::client_projection)
+                .collect(),
             background_outstanding: self.background_outstanding,
             feedback_tool_available: self.feedback_tool_available,
             user_memory_capabilities: self.user_memory_capabilities.clone(),

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::app_error::AppCommandError;
 use crate::commands::chat_image::CHAT_IMAGE_SOURCE_MAX_BYTES;
-use crate::commands::remote_proxy::{self, RemoteProxyState};
+use crate::commands::remote_proxy::{self, RemoteChatImageFile, RemoteProxyState};
 use crate::db::AppDatabase;
 
 const UPLOAD_DIR: &str = ".remote-chat-image-upload";
@@ -246,12 +246,14 @@ async fn remove_upload_file(upload_id: Uuid, path: &Path) {
 
 #[tauri::command]
 pub async fn remote_chat_image_upload_finish(
+    app: AppHandle,
     db: State<'_, AppDatabase>,
     proxy: State<'_, Arc<RemoteProxyState>>,
     state: State<'_, RemoteChatImageUploadState>,
     connection_id: Option<i32>,
     upload_id: String,
     session_id: Option<String>,
+    chat_dir: Option<String>,
 ) -> Result<Value, AppCommandError> {
     let upload_id = parse_upload_id(&upload_id)?;
     let entry = state
@@ -266,18 +268,26 @@ pub async fn remote_chat_image_upload_finish(
             remote_proxy::upload_chat_image_file_to_remote(
                 db.inner(),
                 proxy.inner().as_ref(),
-                connection_id,
-                entry.path.clone(),
-                entry.file_name.clone(),
-                entry.mime_type.clone(),
-                session_id,
+                RemoteChatImageFile {
+                    connection_id,
+                    path: entry.path.clone(),
+                    file_name: entry.file_name.clone(),
+                    mime_type: entry.mime_type.clone(),
+                    session_id,
+                    chat_dir,
+                },
             )
             .await
         } else {
-            let prepared = crate::commands::chat_image::prepare_chat_image_named_core(
+            let prepared = crate::commands::chat_image::prepare_chat_image_core(
                 &db.conn,
-                entry.path.clone(),
-                entry.file_name.clone(),
+                crate::commands::chat_image::PrepareChatImageRequest {
+                    path: entry.path.clone(),
+                    data_dir: crate::commands::chat_image::effective_app_data_dir(&app)?,
+                    chat_dir: chat_dir.map(PathBuf::from),
+                    session_id,
+                    display_name: Some(entry.file_name.clone()),
+                },
             )
             .await?;
             serde_json::to_value(prepared).map_err(|error| {

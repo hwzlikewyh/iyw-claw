@@ -89,6 +89,7 @@ export function blocksToRestoredDraft(
           type: "image",
           data: block.data,
           uri: block.uri ?? null,
+          localPath: block.local_path ?? null,
           name: imageName(block),
           mimeType: block.mime_type,
         })

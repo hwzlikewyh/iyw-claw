@@ -8,7 +8,8 @@ use tokio::io::AsyncWriteExt;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::chat_image::{
-    prepare_chat_image_named_core, PreparedChatImage, CHAT_IMAGE_SOURCE_MAX_BYTES,
+    prepare_chat_image_core, PrepareChatImageRequest, PreparedChatImage,
+    CHAT_IMAGE_SOURCE_MAX_BYTES,
 };
 use crate::paths::iyw_claw_uploads_root;
 
@@ -16,6 +17,15 @@ use super::files::{ensure_path_inside, reserve_upload_bytes, sanitize_upload_fil
 use super::upload_jail;
 
 const IMAGE_UPLOAD_TMP_DIR: &str = ".image-tmp";
+const MAX_SESSION_ID_CHARS: usize = 200;
+const MAX_CHAT_DIR_CHARS: usize = 32_768;
+
+struct UploadedImage {
+    raw_name: String,
+    size: u64,
+    session_id: Option<String>,
+    chat_dir: Option<String>,
+}
 
 fn is_supported_mime(mime_type: &str) -> bool {
     matches!(
@@ -77,18 +87,36 @@ async fn stream_image(
     multipart: &mut Multipart,
     tmp_dir: &Path,
     staging_name: &str,
-) -> Result<(String, u64), AppCommandError> {
+) -> Result<UploadedImage, AppCommandError> {
     let mut file_name: Option<String> = None;
     let mut size = 0;
+    let mut session_id = None;
+    let mut chat_dir = None;
     while let Some(mut field) = multipart.next_field().await.map_err(|error| {
         AppCommandError::invalid_input("Invalid image upload").with_detail(error.to_string())
     })? {
         match field.name().unwrap_or("") {
             "session_id" | "sessionId" => {
-                field.text().await.map_err(|error| {
+                let value = field.text().await.map_err(|error| {
                     AppCommandError::invalid_input("Invalid session id")
                         .with_detail(error.to_string())
                 })?;
+                if value.chars().count() > MAX_SESSION_ID_CHARS {
+                    return Err(AppCommandError::invalid_input("Session id is too long"));
+                }
+                session_id = (!value.trim().is_empty()).then_some(value);
+            }
+            "chat_dir" | "chatDir" => {
+                let value = field.text().await.map_err(|error| {
+                    AppCommandError::invalid_input("Invalid Chat directory")
+                        .with_detail(error.to_string())
+                })?;
+                if value.chars().count() > MAX_CHAT_DIR_CHARS {
+                    return Err(AppCommandError::invalid_input(
+                        "Chat directory path is too long",
+                    ));
+                }
+                chat_dir = (!value.trim().is_empty()).then_some(value);
             }
             "file" if file_name.is_none() => {
                 let declared_mime = field.content_type().unwrap_or("").to_string();
@@ -110,8 +138,14 @@ async fn stream_image(
             }
         }
     }
-    let name = file_name.ok_or_else(|| AppCommandError::invalid_input("Image file is missing"))?;
-    Ok((name, size))
+    let raw_name =
+        file_name.ok_or_else(|| AppCommandError::invalid_input("Image file is missing"))?;
+    Ok(UploadedImage {
+        raw_name,
+        size,
+        session_id,
+        chat_dir,
+    })
 }
 
 pub async fn upload_chat_image(
@@ -124,13 +158,22 @@ pub async fn upload_chat_image(
     prepare_upload_dirs(&uploads_root, &tmp_dir).await?;
     let staging_name = format!("{}.part", uuid::Uuid::new_v4().simple());
     let result = async {
-        let (raw_name, size) = stream_image(&mut multipart, &tmp_dir, &staging_name).await?;
+        let uploaded = stream_image(&mut multipart, &tmp_dir, &staging_name).await?;
         let staged_path = tmp_dir.join(&staging_name);
-        let display_name = sanitize_upload_filename(&raw_name);
-        let prepared =
-            prepare_chat_image_named_core(&state.db.conn, staged_path.clone(), display_name).await;
+        let display_name = sanitize_upload_filename(&uploaded.raw_name);
+        let prepared = prepare_chat_image_core(
+            &state.db.conn,
+            PrepareChatImageRequest {
+                path: staged_path.clone(),
+                data_dir: state.data_dir.clone(),
+                chat_dir: uploaded.chat_dir.map(Into::into),
+                session_id: uploaded.session_id,
+                display_name: Some(display_name),
+            },
+        )
+        .await;
         upload_jail::remove_staging_best_effort(&tmp_dir, &staging_name).await;
-        tracing::debug!(target: "chat.image", source_bytes = size, "processed temporary chat image upload");
+        tracing::debug!(target: "chat.image", source_bytes = uploaded.size, "processed temporary chat image upload");
         prepared
     }
     .await;

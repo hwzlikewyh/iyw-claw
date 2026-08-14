@@ -2743,8 +2743,7 @@ const REMOTE_CHAT_IMAGE_CHUNK_BYTES = 512 * 1024
 async function uploadRemoteDesktopChatImage(
   file: File,
   connectionId: number | null,
-  sessionId: string | null,
-  mimeType: string
+  options: ChatImageStorageOptions
 ): Promise<PreparedChatImage> {
   const shell = getShellTransport()
   let uploadId: string | null = null
@@ -2753,7 +2752,7 @@ async function uploadRemoteDesktopChatImage(
       "remote_chat_image_upload_begin",
       {
         fileName: file.name,
-        mimeType,
+        mimeType: options.mimeType ?? "",
         expectedBytes: file.size,
       }
     )
@@ -2783,7 +2782,8 @@ async function uploadRemoteDesktopChatImage(
       {
         connectionId,
         uploadId,
-        sessionId,
+        sessionId: options.sessionId ?? null,
+        chatDir: options.chatDir ?? null,
       }
     )
     uploadId = null
@@ -2800,28 +2800,32 @@ async function uploadRemoteDesktopChatImage(
 }
 
 /** Stream an original image to the current server's managed upload area. */
+export interface ChatImageStorageOptions {
+  sessionId?: string | null
+  chatDir?: string | null
+  mimeType?: string | null
+}
+
 export async function uploadChatImage(
   file: File,
-  sessionId?: string | null,
-  mimeType?: string | null
+  options: ChatImageStorageOptions = {}
 ): Promise<PreparedChatImage> {
   if (isDesktop()) {
     const connectionId = getActiveRemoteConnectionId()
-    const uploadMime = file.type || mimeType || ""
-    return uploadRemoteDesktopChatImage(
-      file,
-      connectionId,
-      sessionId ?? null,
-      uploadMime
-    )
+    const uploadMime = file.type || options.mimeType || ""
+    return uploadRemoteDesktopChatImage(file, connectionId, {
+      ...options,
+      mimeType: uploadMime,
+    })
   }
   const form = new FormData()
   const uploadFile =
-    file.type || !mimeType
+    file.type || !options.mimeType
       ? file
-      : new File([file], file.name, { type: mimeType })
+      : new File([file], file.name, { type: options.mimeType })
   form.append("file", uploadFile, file.name)
-  if (sessionId) form.append("session_id", sessionId)
+  if (options.sessionId) form.append("session_id", options.sessionId)
+  if (options.chatDir) form.append("chat_dir", options.chatDir)
   const response = await fetch(
     `${window.location.origin}/api/upload_chat_image`,
     {
@@ -2846,7 +2850,7 @@ export async function uploadChatImage(
 /** Stream a desktop-local image path to the active remote workspace server. */
 export async function uploadLocalChatImagePathToRemote(
   path: string,
-  sessionId?: string | null
+  options: ChatImageStorageOptions = {}
 ): Promise<PreparedChatImage> {
   const connectionId = getActiveRemoteConnectionId()
   if (connectionId === null) {
@@ -2857,7 +2861,8 @@ export async function uploadLocalChatImagePathToRemote(
     {
       connectionId,
       path,
-      sessionId: sessionId ?? null,
+      sessionId: options.sessionId ?? null,
+      chatDir: options.chatDir ?? null,
     }
   )
 }
@@ -2915,6 +2920,7 @@ export async function readLocalFileBase64(
 
 export interface PreparedChatImage {
   url: string
+  localPath: string | null
   mimeType: string
   name: string
   sourceBytes: number
@@ -2925,10 +2931,15 @@ export interface PreparedChatImage {
 
 export async function prepareChatImagePath(
   path: string,
-  source: "local" | "workspace" = "local"
+  source: "local" | "workspace" = "local",
+  options: ChatImageStorageOptions = {}
 ): Promise<PreparedChatImage> {
   const transport = source === "local" ? getShellTransport() : getTransport()
-  return transport.call("prepare_chat_image", { path })
+  return transport.call("prepare_chat_image", {
+    path,
+    chatDir: options.chatDir ?? null,
+    sessionId: options.sessionId ?? null,
+  })
 }
 
 // ─── Workspace file upload / download ───

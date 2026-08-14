@@ -12,6 +12,8 @@ pub enum PromptInputBlock {
         mime_type: String,
         #[serde(default)]
         uri: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        local_path: Option<String>,
     },
     Resource {
         uri: String,
@@ -423,6 +425,7 @@ pub fn user_blocks_from_prompt(blocks: &[PromptInputBlock]) -> Vec<UserMessageBl
                 data,
                 mime_type,
                 uri,
+                ..
             } => UserMessageBlock::Image {
                 data: data.clone(),
                 mime_type: mime_type.clone(),

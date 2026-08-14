@@ -59,7 +59,7 @@ pub(crate) async fn ensure_managed_chat_dir(
     Ok(chat_dir)
 }
 
-fn sanitize_file_name(raw: &str) -> String {
+pub(crate) fn sanitize_file_name(raw: &str) -> String {
     let base = Path::new(raw)
         .file_name()
         .and_then(|name| name.to_str())
@@ -77,7 +77,7 @@ fn sanitize_file_name(raw: &str) -> String {
     }
 }
 
-fn sanitize_session_bucket(raw: Option<&str>) -> String {
+pub(crate) fn sanitize_session_bucket(raw: Option<&str>) -> String {
     let cleaned: String = raw
         .unwrap_or("conversation")
         .chars()
@@ -96,7 +96,7 @@ fn sanitize_session_bucket(raw: Option<&str>) -> String {
     }
 }
 
-async fn new_attachment_dir(base: &Path) -> Result<PathBuf, AppCommandError> {
+pub(crate) async fn new_attachment_dir(base: &Path) -> Result<PathBuf, AppCommandError> {
     let dir = base.join(uuid::Uuid::new_v4().simple().to_string());
     tokio::fs::create_dir_all(&dir)
         .await
@@ -120,7 +120,7 @@ async fn canonical_source(source_path: &Path) -> Result<PathBuf, AppCommandError
     Ok(source)
 }
 
-fn user_facing_path(path: &Path) -> String {
+pub(crate) fn user_facing_path(path: &Path) -> String {
     let raw = path.to_string_lossy();
     #[cfg(windows)]
     {

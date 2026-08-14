@@ -10,6 +10,9 @@ use sea_orm::{
     TransactionTrait,
 };
 
+use crate::acp::agent_image_input::{
+    prepare_codex_image_inputs, validate_codex_image_inputs, CodexImageScope,
+};
 use crate::acp::connection::{spawn_agent_connection, AgentConnection, ConnectionCommand};
 use crate::acp::error::AcpError;
 use crate::acp::feedback::{
@@ -20,6 +23,7 @@ use crate::acp::question::{
     build_outcome, QuestionAnswer, QuestionOutcome, QuestionSpec, RegisteredQuestion,
     SessionQuestionAccess,
 };
+use crate::acp::session_state::SessionState;
 use crate::acp::types::{
     AcpEvent, AgentOptionsSnapshot, ConfigStaleKind, ConnectionInfo, ConnectionStatus,
     ForkResultInfo, PromptInputBlock,
@@ -35,6 +39,13 @@ fn combine_prompt_context(launch: Option<Arc<str>>, private: Option<Arc<str>>) -
         (Some(launch), Some(private)) => Some(Arc::from(format!("{launch}\n\n{private}"))),
     }
 }
+
+fn has_prompt_images(blocks: &[PromptInputBlock]) -> bool {
+    blocks
+        .iter()
+        .any(|block| matches!(block, PromptInputBlock::Image { .. }))
+}
+
 use crate::models::agent::AgentType;
 use crate::web::event_bridge::{emit_with_state, emit_with_state_gated, EventEmitter};
 
@@ -381,6 +392,52 @@ impl ConnectionManager {
     pub fn install_version_center(&self, conn: DatabaseConnection, data_dir: PathBuf) {
         let _ = self.version_center_db.set(conn);
         let _ = self.version_center_data_dir.set(data_dir);
+    }
+
+    pub(super) fn agent_image_data_dir(&self) -> Result<&Path, AcpError> {
+        self.version_center_data_dir
+            .get()
+            .map(PathBuf::as_path)
+            .ok_or_else(|| AcpError::protocol("Agent platform data directory is not initialized"))
+    }
+
+    pub(super) async fn codex_image_scope(
+        state: &Arc<tokio::sync::RwLock<SessionState>>,
+        conversation_id: Option<i32>,
+    ) -> CodexImageScope {
+        let snapshot = state.read().await;
+        CodexImageScope {
+            connection_id: snapshot.connection_id.clone(),
+            conversation_id: snapshot.conversation_id.or(conversation_id),
+            working_dir: snapshot.working_dir.clone(),
+        }
+    }
+
+    pub(crate) async fn prepare_agent_image_inputs(
+        &self,
+        agent_type: AgentType,
+        state: &Arc<tokio::sync::RwLock<SessionState>>,
+        conversation_id: Option<i32>,
+        blocks: Vec<PromptInputBlock>,
+    ) -> Result<Vec<PromptInputBlock>, AcpError> {
+        if agent_type != AgentType::Codex || !has_prompt_images(&blocks) {
+            return Ok(blocks);
+        }
+        let scope = Self::codex_image_scope(state, conversation_id).await;
+        prepare_codex_image_inputs(self.agent_image_data_dir()?, scope, blocks).await
+    }
+
+    async fn validate_agent_image_inputs(
+        &self,
+        agent_type: AgentType,
+        state: &Arc<tokio::sync::RwLock<SessionState>>,
+        blocks: &[PromptInputBlock],
+    ) -> Result<(), AcpError> {
+        if agent_type != AgentType::Codex || !has_prompt_images(blocks) {
+            return Ok(());
+        }
+        let scope = Self::codex_image_scope(state, None).await;
+        validate_codex_image_inputs(self.agent_image_data_dir()?, scope, blocks).await
     }
 
     pub(crate) async fn begin_agent_activation(
@@ -1085,6 +1142,9 @@ impl ConnectionManager {
             ));
         }
         let (cmd_tx, state_arc) = self.wait_for_connection_launch(conn_id).await?;
+        let agent_type = state_arc.read().await.agent_type;
+        self.validate_agent_image_inputs(agent_type, &state_arc, &blocks)
+            .await?;
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.
@@ -1173,6 +1233,11 @@ impl ConnectionManager {
     ) -> Result<(), AcpError> {
         let prompt_lock = self.clone_prompt_lock(conn_id).await?;
         let _guard = prompt_lock.lock_owned().await;
+        let (_, state) = self.wait_for_connection_launch(conn_id).await?;
+        let agent_type = state.read().await.agent_type;
+        let blocks = self
+            .prepare_agent_image_inputs(agent_type, &state, None, blocks)
+            .await?;
         self.send_prompt_inner(conn_id, blocks, Vec::new(), None, None)
             .await
     }
@@ -1338,9 +1403,27 @@ impl ConnectionManager {
             return Err(AcpError::TurnInProgress);
         }
 
-        let image_context =
-            crate::acp::image_analysis::prepare_prompt_images(self, db, conn_id, &blocks).await?;
-        let prepared_agent_blocks = if image_context.is_some() {
+        let codex_blocks = if agent_type == AgentType::Codex {
+            Some(
+                self.prepare_agent_image_inputs(
+                    agent_type,
+                    &state_arc,
+                    conversation_id,
+                    blocks.clone(),
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+        let image_context = if agent_type == AgentType::Codex {
+            None
+        } else {
+            crate::acp::image_analysis::prepare_prompt_images(self, db, conn_id, &blocks).await?
+        };
+        let prepared_agent_blocks = if let Some(codex_blocks) = codex_blocks {
+            Some(codex_blocks)
+        } else if image_context.is_some() {
             Some(
                 blocks
                     .iter()
@@ -1348,9 +1431,10 @@ impl ConnectionManager {
                     .cloned()
                     .collect(),
             )
-        } else if blocks
-            .iter()
-            .any(|block| matches!(block, PromptInputBlock::Image { uri: Some(_), .. }))
+        } else if agent_type != AgentType::Codex
+            && blocks
+                .iter()
+                .any(|block| matches!(block, PromptInputBlock::Image { uri: Some(_), .. }))
         {
             Some(
                 crate::acp::image_analysis::normalize_prompt_images_for_agent(blocks.clone())
@@ -3066,14 +3150,22 @@ fn log_prompt_image_summary(
     client_message_id: Option<&str>,
     blocks: &[PromptInputBlock],
 ) {
-    let images: Vec<(&str, usize, bool)> = blocks
+    let images: Vec<(&str, usize, bool, bool)> = blocks
         .iter()
         .filter_map(|block| match block {
             PromptInputBlock::Image {
                 data,
                 mime_type,
                 uri,
-            } => Some((mime_type.as_str(), data.len(), uri.is_some())),
+                local_path,
+            } => Some((
+                mime_type.as_str(),
+                data.len(),
+                uri.is_some(),
+                local_path
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty()),
+            )),
             _ => None,
         })
         .collect();
@@ -3082,15 +3174,19 @@ fn log_prompt_image_summary(
     }
     let mime_types = images
         .iter()
-        .map(|(mime, _, _)| *mime)
+        .map(|(mime, _, _, _)| *mime)
         .collect::<Vec<_>>()
         .join(",");
     let inline_lengths = images
         .iter()
-        .map(|(_, length, _)| length.to_string())
+        .map(|(_, length, _, _)| length.to_string())
         .collect::<Vec<_>>()
         .join(",");
-    let url_images = images.iter().filter(|(_, _, has_uri)| *has_uri).count();
+    let url_images = images.iter().filter(|(_, _, has_uri, _)| *has_uri).count();
+    let local_images = images
+        .iter()
+        .filter(|(_, _, _, has_local_path)| *has_local_path)
+        .count();
     tracing::info!(
         target: "acp.image",
         connection_id,
@@ -3099,6 +3195,7 @@ fn log_prompt_image_summary(
         mime_types,
         inline_lengths,
         url_images,
+        local_images,
         "ACP image prompt accepted"
     );
 }

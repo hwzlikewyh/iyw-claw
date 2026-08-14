@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 use image::codecs::jpeg::JpegEncoder;
 use image::metadata::Orientation;
@@ -9,19 +8,21 @@ use image::{
     DynamicImage, ExtendedColorType, ImageDecoder, ImageEncoder, ImageFormat, ImageReader, Limits,
 };
 use serde::Serialize;
-#[cfg(feature = "tauri-runtime")]
-use tauri::State;
 
 use crate::app_error::AppCommandError;
-#[cfg(feature = "tauri-runtime")]
-use crate::db::AppDatabase;
 
-use super::chat_image_upload;
+mod prepare;
+mod storage;
+
+#[cfg(feature = "tauri-runtime")]
+pub(crate) use prepare::effective_app_data_dir;
+pub(crate) use prepare::{prepare_chat_image_core, PrepareChatImageRequest};
+pub(crate) use storage::{stage_chat_image_bytes_core, StageChatImageBytes};
 
 pub const CHAT_IMAGE_SOURCE_MAX_BYTES: u64 = 100 * 1024 * 1024;
 pub const CHAT_IMAGE_DERIVED_MAX_BYTES: usize = 10 * 1024 * 1024;
 pub const CHAT_IMAGE_I18N_KEY_TOO_LARGE: &str = "errors.chatImage.tooLarge";
-const CHAT_IMAGE_MAX_EDGE: u32 = 2048;
+const CHAT_IMAGE_MAX_EDGE: u32 = 1024;
 const CHAT_IMAGE_DECODE_MAX_EDGE: u32 = 16_384;
 const CHAT_IMAGE_DECODE_MAX_ALLOC: u64 = 512 * 1024 * 1024;
 const RESIZE_NUMERATOR: u32 = 3;
@@ -33,6 +34,7 @@ const JPEG_QUALITIES: [u8; 4] = [85, 70, 55, 40];
 #[serde(rename_all = "camelCase")]
 pub struct PreparedChatImage {
     pub url: String,
+    pub local_path: Option<String>,
     pub mime_type: String,
     pub name: String,
     pub source_bytes: u64,
@@ -105,6 +107,23 @@ fn decode_image(bytes: &[u8]) -> Result<(DynamicImage, ImageFormat, Orientation)
     let image = DynamicImage::from_decoder(decoder)
         .map_err(|error| image_error("Unable to decode image", error))?;
     Ok((image, format, orientation))
+}
+
+pub(crate) fn inspect_derived_image_mime(bytes: &[u8]) -> Result<&'static str, AppCommandError> {
+    let (image, format, _) = decode_image(bytes)?;
+    if image.width() > CHAT_IMAGE_MAX_EDGE || image.height() > CHAT_IMAGE_MAX_EDGE {
+        return Err(AppCommandError::invalid_input(
+            "Prepared image dimensions exceed the limit",
+        ));
+    }
+    match format {
+        ImageFormat::Png => Ok("image/png"),
+        ImageFormat::Jpeg => Ok("image/jpeg"),
+        ImageFormat::WebP => Ok("image/webp"),
+        _ => Err(AppCommandError::invalid_input(
+            "Prepared image format is not supported",
+        )),
+    }
 }
 
 fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, AppCommandError> {
@@ -244,45 +263,24 @@ pub(crate) async fn encode_chat_image_path(
         })?
 }
 
-pub async fn prepare_chat_image_core(
-    conn: &sea_orm::DatabaseConnection,
-    path: PathBuf,
-) -> Result<PreparedChatImage, AppCommandError> {
-    let name = path
-        .file_name()
-        .map(|value| value.to_string_lossy().to_string())
-        .unwrap_or_else(|| "image".to_string());
-    prepare_chat_image_named_core(conn, path, name).await
-}
-
-pub(crate) async fn prepare_chat_image_named_core(
-    conn: &sea_orm::DatabaseConnection,
-    path: PathBuf,
-    name: String,
-) -> Result<PreparedChatImage, AppCommandError> {
-    let started = Instant::now();
-    let mut prepared = encode_chat_image_path(path).await?;
-    prepared.name = name;
-    let result = chat_image_upload::upload_prepared(conn, &prepared).await?;
-    tracing::info!(
-        target: "chat.image",
-        file_name = %prepared.name,
-        mime_type = %prepared.mime_type,
-        source_bytes = prepared.source_bytes,
-        derived_bytes = prepared.bytes.len(),
-        width = prepared.width,
-        height = prepared.height,
-        elapsed_ms = started.elapsed().as_millis(),
-        "prepared and uploaded chat image"
-    );
-    Ok(result)
-}
-
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 #[cfg(feature = "tauri-runtime")]
 pub async fn prepare_chat_image(
-    db: State<'_, AppDatabase>,
+    app: tauri::AppHandle,
+    db: tauri::State<'_, crate::db::AppDatabase>,
     path: String,
+    chat_dir: Option<String>,
+    session_id: Option<String>,
 ) -> Result<PreparedChatImage, AppCommandError> {
-    prepare_chat_image_core(&db.conn, PathBuf::from(path)).await
+    prepare_chat_image_core(
+        &db.conn,
+        PrepareChatImageRequest {
+            path: PathBuf::from(path),
+            data_dir: effective_app_data_dir(&app)?,
+            chat_dir: chat_dir.map(PathBuf::from),
+            session_id,
+            display_name: None,
+        },
+    )
+    .await
 }

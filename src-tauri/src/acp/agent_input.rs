@@ -106,4 +106,14 @@ impl AgentInputItem {
             AgentInputStatus::Consumed | AgentInputStatus::Failed | AgentInputStatus::Deleted
         )
     }
+
+    pub fn client_projection(&self) -> Self {
+        let mut item = self.clone();
+        for block in &mut item.payload.blocks {
+            if let PromptInputBlock::Image { local_path, .. } = block {
+                *local_path = None;
+            }
+        }
+        item
+    }
 }

@@ -175,6 +175,7 @@ pub(super) async fn upload_prepared(
     .await?;
     Ok(PreparedChatImage {
         url,
+        local_path: None,
         mime_type: image.mime_type.to_string(),
         name: image.name.clone(),
         source_bytes: image.source_bytes,

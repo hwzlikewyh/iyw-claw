@@ -61,11 +61,17 @@ function inputFingerprints(item: AgentInputItem): Set<string> {
   const fingerprints = new Set<string>()
   const visible = contentFingerprint(buildAgentInputUserTurn(item).blocks)
   if (visible) fingerprints.add(visible)
-  const promptBlocks: ContentBlock[] = item.payload.blocks.flatMap((block) => {
-    if (block.type === "text")
-      return [{ type: "text" as const, text: block.text }]
+  const promptBlocks = item.payload.blocks.flatMap<ContentBlock>((block) => {
+    if (block.type === "text") return [{ type: "text", text: block.text }]
     if (block.type !== "image") return []
-    return [{ ...block, uri: block.uri ?? null }]
+    return [
+      {
+        type: "image",
+        data: block.data,
+        mime_type: block.mime_type,
+        uri: block.uri ?? null,
+      },
+    ]
   })
   const prompt = contentFingerprint(promptBlocks)
   if (prompt) fingerprints.add(prompt)

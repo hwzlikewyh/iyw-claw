@@ -764,23 +764,31 @@ async fn parse_remote_image_upload(response: reqwest::Response) -> Result<Value,
     })
 }
 
+pub(crate) struct RemoteChatImageFile {
+    pub connection_id: i32,
+    pub path: PathBuf,
+    pub file_name: String,
+    pub mime_type: String,
+    pub session_id: Option<String>,
+    pub chat_dir: Option<String>,
+}
+
 pub(crate) async fn upload_chat_image_file_to_remote(
     db: &AppDatabase,
     proxy: &RemoteProxyState,
-    connection_id: i32,
-    path: PathBuf,
-    file_name: String,
-    mime_type: String,
-    session_id: Option<String>,
+    image: RemoteChatImageFile,
 ) -> Result<Value, AppCommandError> {
-    let conn = remote_workspace_connection_service::get(&db.conn, connection_id)
+    let conn = remote_workspace_connection_service::get(&db.conn, image.connection_id)
         .await
         .map_err(AppCommandError::db)?
         .ok_or_else(|| AppCommandError::not_found("Remote connection was not found"))?;
-    let part = local_chat_image_part(path, &file_name, &mime_type).await?;
+    let part = local_chat_image_part(image.path, &image.file_name, &image.mime_type).await?;
     let mut form = reqwest::multipart::Form::new().part("file", part);
-    if let Some(session_id) = session_id.filter(|value| !value.is_empty()) {
+    if let Some(session_id) = image.session_id.filter(|value| !value.is_empty()) {
         form = form.text("session_id", session_id);
+    }
+    if let Some(chat_dir) = image.chat_dir.filter(|value| !value.is_empty()) {
+        form = form.text("chat_dir", chat_dir);
     }
     let url = format!(
         "{}/api/upload_chat_image",
@@ -806,6 +814,7 @@ pub async fn remote_upload_chat_image_path(
     connection_id: i32,
     path: String,
     session_id: Option<String>,
+    chat_dir: Option<String>,
 ) -> Result<Value, AppCommandError> {
     let path = PathBuf::from(path);
     let mime_type = supported_chat_image_mime(&path)?;
@@ -816,11 +825,14 @@ pub async fn remote_upload_chat_image_path(
     upload_chat_image_file_to_remote(
         db.inner(),
         proxy.inner().as_ref(),
-        connection_id,
-        path,
-        file_name,
-        mime_type,
-        session_id,
+        RemoteChatImageFile {
+            connection_id,
+            path,
+            file_name,
+            mime_type,
+            session_id,
+            chat_dir,
+        },
     )
     .await
 }

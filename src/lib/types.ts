@@ -860,6 +860,7 @@ export type PromptInputBlock =
       data: string
       mime_type: string
       uri?: string | null
+      local_path?: string | null
     }
   | {
       type: "resource"

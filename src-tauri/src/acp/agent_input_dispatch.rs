@@ -120,7 +120,14 @@ pub(super) async fn emit_input(
         payload_blocks = item.payload.blocks.len(),
         "[agent-input] state changed"
     );
-    emit_with_state(state, emitter, AcpEvent::AgentInputChanged { item }).await;
+    emit_with_state(
+        state,
+        emitter,
+        AcpEvent::AgentInputChanged {
+            item: item.client_projection(),
+        },
+    )
+    .await;
 }
 
 impl ConnectionManager {
@@ -204,13 +211,31 @@ impl ConnectionManager {
         ),
         AcpError,
     > {
-        let cmd_tx = {
+        let (cmd_tx, state, agent_type) = {
             let connections = self.connections.lock().await;
-            connections
+            let connection = connections
                 .get(conn_id)
-                .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?
-                .cmd_tx
-                .clone()
+                .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
+            (
+                connection.cmd_tx.clone(),
+                connection.state.clone(),
+                connection.agent_type,
+            )
+        };
+        let blocks = self
+            .prepare_agent_image_inputs(agent_type, &state, None, blocks)
+            .await?;
+        let codex_image_validation = if agent_type == crate::models::AgentType::Codex
+            && blocks
+                .iter()
+                .any(|block| matches!(block, crate::acp::types::PromptInputBlock::Image { .. }))
+        {
+            Some((
+                self.agent_image_data_dir()?.to_path_buf(),
+                Self::codex_image_scope(&state, None).await,
+            ))
+        } else {
+            None
         };
         let (reply, response) = tokio::sync::oneshot::channel();
         let (settled, settlement) = tokio::sync::oneshot::channel();
@@ -218,6 +243,7 @@ impl ConnectionManager {
             .send(crate::acp::connection::ConnectionCommand::NativeSteer {
                 message_id,
                 blocks,
+                codex_image_validation,
                 expected_turn_generation,
                 reply,
                 settled: settlement,

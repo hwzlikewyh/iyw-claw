@@ -18,6 +18,7 @@ async fn normalize_prompt_block(block: PromptInputBlock) -> Result<PromptInputBl
         data,
         mime_type,
         uri,
+        local_path,
     } = block
     else {
         return Ok(block);
@@ -27,6 +28,7 @@ async fn normalize_prompt_block(block: PromptInputBlock) -> Result<PromptInputBl
             data,
             mime_type,
             uri: None,
+            local_path,
         });
     };
     if !data.is_empty() {
@@ -34,6 +36,7 @@ async fn normalize_prompt_block(block: PromptInputBlock) -> Result<PromptInputBl
             data,
             mime_type,
             uri: None,
+            local_path,
         });
     }
     if !uri.starts_with("https://") {
@@ -53,5 +56,6 @@ async fn normalize_prompt_block(block: PromptInputBlock) -> Result<PromptInputBl
         data: STANDARD.encode(downloaded.bytes),
         mime_type: detected.to_string(),
         uri: None,
+        local_path,
     })
 }

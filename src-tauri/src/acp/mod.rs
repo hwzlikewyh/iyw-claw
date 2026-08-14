@@ -1,5 +1,6 @@
 pub mod account_credentials;
 mod account_credentials_formats;
+mod agent_image_input;
 mod agent_input;
 mod agent_input_capabilities;
 mod agent_input_control;

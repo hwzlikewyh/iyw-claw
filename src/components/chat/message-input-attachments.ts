@@ -27,8 +27,7 @@ export interface ResourceInputAttachment {
   blob?: string | null
 }
 
-/** An image attachment. New sends use an HTTPS `uri` and empty `data`; non-empty
- *  base64 remains supported only for restored legacy drafts. */
+/** An image attachment with remote and Agent-local prepared representations. */
 export interface ImageInputAttachment {
   id: string
   type: "image"
@@ -36,6 +35,10 @@ export interface ImageInputAttachment {
   uri: string | null
   name: string
   mimeType: string
+  /** Backend-generated local path for Agents that cannot consume remote URLs. */
+  localPath?: string | null
+  /** Runtime-only browser preview; never serialized into prompt blocks. */
+  previewUrl?: string
   /** MIME type of the original file when the derived image was re-encoded. */
   sourceMimeType?: string
   /** Runtime-only retry state. It is intentionally omitted from prompt blocks. */
@@ -46,7 +49,11 @@ export type ImageAttachmentStaging = {
   status: "failed" | "uploading"
   source:
     | { kind: "browser-file"; file: File }
-    | { kind: "local-path"; path: string }
+    | {
+        kind: "local-path"
+        path: string
+        source: "local" | "workspace" | "remote-local"
+      }
 }
 
 export type InputAttachment = ResourceInputAttachment | ImageInputAttachment
