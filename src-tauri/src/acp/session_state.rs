@@ -104,6 +104,10 @@ pub struct ToolCallState {
     /// 流式拼接的 input chunks（serde 不输出，仅运行时用）
     #[serde(skip)]
     pub raw_input_chunks: Vec<String>,
+    /// Monotonic runtime-only start point for the current tool call. It is not
+    /// serialized because it is meaningful only inside this process.
+    #[serde(skip)]
+    pub(crate) started_at: Option<std::time::Instant>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1394,15 +1398,24 @@ impl SessionState {
                 meta: None,
                 images: Vec::new(),
                 raw_input_chunks: Vec::new(),
+                started_at: None,
             });
+        if let Some(s) = status {
+            entry.status = parse_tool_call_status(s);
+        }
+        if entry.started_at.is_none()
+            && matches!(
+                &entry.status,
+                ToolCallStatus::Pending | ToolCallStatus::InProgress
+            )
+        {
+            entry.started_at = Some(std::time::Instant::now());
+        }
         if let Some(k) = kind {
             entry.kind = parse_tool_kind(k);
         }
         if let Some(t) = title {
             entry.label = t.to_string();
-        }
-        if let Some(s) = status {
-            entry.status = parse_tool_call_status(s);
         }
         if let Some(c) = content {
             entry.content = Some(c.to_string());

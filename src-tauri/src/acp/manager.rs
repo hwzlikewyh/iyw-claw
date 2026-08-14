@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 use sea_orm::{
@@ -19,6 +19,7 @@ use crate::acp::feedback::{
     bounded_feedback_batch, FeedbackItem, FeedbackStatus, PendingFeedback, SessionFeedbackAccess,
     MAX_FEEDBACK_CHARS, MAX_FEEDBACK_RESPONSE_BYTES,
 };
+use crate::acp::prompt_stall::{assess_prompt_stall, PromptStallInput};
 use crate::acp::question::{
     build_outcome, QuestionAnswer, QuestionOutcome, QuestionSpec, RegisteredQuestion,
     SessionQuestionAccess,
@@ -931,19 +932,17 @@ impl ConnectionManager {
     /// conversation spinning "generating" forever: the idle sweep skips
     /// `Prompting` connections, and frontend keepalives refresh
     /// `last_activity_at` while the tab is open. Detection therefore keys on
-    /// `last_agent_event_at`, which only events bump. Connections parked on a
-    /// user gate (permission / question) or with live background work are
-    /// deliberately waiting and never qualify.
+    /// `last_agent_event_at`, which only events bump. A live foreground tool
+    /// extends the deadline from its monotonic start time and declared timeout.
+    /// Connections parked on a user gate (permission / question) or with live
+    /// background work are deliberately waiting and never qualify.
     pub async fn sweep_stalled_prompts(
         &self,
         db: &DatabaseConnection,
         stall_timeout: Duration,
     ) -> usize {
         let now = chrono::Utc::now();
-        let timeout = match chrono::Duration::from_std(stall_timeout) {
-            Ok(d) => d,
-            Err(_) => return 0,
-        };
+        let monotonic_now = Instant::now();
         let victims = {
             let connections = self.connections.lock().await;
             let mut victims = Vec::new();
@@ -960,7 +959,14 @@ impl ConnectionManager {
                 if state.has_active_background_work(now) {
                     continue;
                 }
-                if now.signed_duration_since(state.last_agent_event_at) < timeout {
+                let assessment = assess_prompt_stall(PromptStallInput {
+                    now,
+                    monotonic_now,
+                    last_agent_event_at: state.last_agent_event_at,
+                    base_timeout: stall_timeout,
+                    active_tool_calls: &state.active_tool_calls,
+                });
+                if !assessment.stalled {
                     continue;
                 }
                 victims.push((
@@ -968,17 +974,22 @@ impl ConnectionManager {
                     state.agent_type.to_string(),
                     conn.state.clone(),
                     conn.emitter.clone(),
+                    assessment,
                 ));
             }
             victims
         };
 
         let mut cancelled = 0;
-        for (id, agent_type, state_arc, emitter) in victims {
+        for (id, agent_type, state_arc, emitter, assessment) in victims {
             tracing::warn!(
-                "[ACP] prompt stalled (no agent events for {}s), cancelling connection={}",
-                stall_timeout.as_secs(),
-                id
+                connection_id = %id,
+                effective_timeout_secs = assessment.effective_timeout.as_secs(),
+                active_foreground_tools = assessment.active_tool_count,
+                timeout_source = assessment.timeout_source.as_str(),
+                longest_tool_runtime_secs = assessment.longest_tool_runtime.as_secs(),
+                silent_for_secs = assessment.silent_for.as_secs(),
+                "[ACP] prompt stalled (no agent events), cancelling connection"
             );
             // Surface a classifiable error first ("timed out" maps to the
             // localized request-timeout copy), then cancel — which flips the
@@ -988,8 +999,9 @@ impl ConnectionManager {
                 &emitter,
                 AcpEvent::Error {
                     message: format!(
-                        "generation timed out: no response from the agent for {}s",
-                        stall_timeout.as_secs()
+                        "generation timed out: no response from the agent for {}s (stall threshold {}s)",
+                        assessment.silent_for.as_secs(),
+                        assessment.effective_timeout.as_secs()
                     ),
                     agent_type,
                     code: Some("prompt_stall_timeout".to_string()),

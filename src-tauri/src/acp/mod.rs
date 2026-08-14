@@ -61,6 +61,7 @@ mod profile_import_activation;
 mod profile_import_fs;
 mod profile_import_io;
 mod profile_import_specs;
+pub(crate) mod prompt_stall;
 pub mod provider_overlay;
 mod provider_overlay_files;
 mod provider_overlay_formats;
