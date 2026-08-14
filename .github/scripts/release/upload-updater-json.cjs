@@ -33,6 +33,9 @@ async function uploadUpdaterJson({
 }) {
   const { owner, repo } = context.repo
   const version = tag.replace(/^v/, "")
+  const releaseDownloadBase =
+    `https://github.com/${owner}/${repo}/releases/download/` +
+    encodeURIComponent(tag)
 
   const assets = await github.paginate(github.rest.repos.listReleaseAssets, {
     owner,
@@ -57,7 +60,7 @@ async function uploadUpdaterJson({
     }
     platforms[platform] = {
       signature: await fetchAssetText(github, owner, repo, signature.id),
-      url: installer.browser_download_url,
+      url: `${releaseDownloadBase}/${encodeURIComponent(installer.name)}`,
     }
     core.info(`${platform}: ${installer.name}`)
   }
