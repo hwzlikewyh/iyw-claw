@@ -229,6 +229,10 @@ pub fn build_router(
             post(handlers::conversations::get_folder_conversation),
         )
         .route(
+            "/get_conversation_context_primer",
+            post(handlers::conversations::get_conversation_context_primer),
+        )
+        .route(
             "/list_opened_tabs",
             post(handlers::conversations::list_opened_tabs),
         )

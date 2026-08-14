@@ -10,7 +10,7 @@ use crate::models::DbConversationDetail;
 
 use super::conversation_history_cache_prune::{prune, remove_old_generations};
 
-pub const HISTORY_PAGE_TURNS: usize = 80;
+pub const HISTORY_PAGE_TURNS: usize = 120;
 const HISTORY_CACHE_DIR: &str = "conversation-history";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

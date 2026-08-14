@@ -3,6 +3,9 @@ use std::collections::{HashMap, HashSet};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use crate::app_error::AppCommandError;
+use crate::commands::conversation_context_primer::{
+    build_context_primer, ConversationContextPrimer,
+};
 use crate::db::entities::folder::FolderKind;
 use crate::db::entities::{automation_run, conversation};
 use crate::db::error::DbError;
@@ -962,6 +965,63 @@ pub async fn get_folder_conversation(
         conversation_id,
         before,
         force_refresh.unwrap_or(false),
+    )
+    .await
+}
+
+pub struct ContextPrimerSource<'a> {
+    pub conn: &'a sea_orm::DatabaseConnection,
+    pub manager: &'a crate::acp::manager::ConnectionManager,
+    pub chat_channel_manager: &'a crate::chat_channel::manager::ChatChannelManager,
+    pub emitter: &'a EventEmitter,
+}
+
+pub async fn get_conversation_context_primer_core(
+    source: ContextPrimerSource<'_>,
+    conversation_id: i32,
+) -> Result<ConversationContextPrimer, AppCommandError> {
+    let started_at = std::time::Instant::now();
+    let detail = get_folder_conversation_page_core(
+        source.conn,
+        source.manager,
+        source.chat_channel_manager,
+        source.emitter,
+        conversation_id,
+        None,
+        false,
+    )
+    .await?;
+    let primer = build_context_primer(&detail.turns);
+    tracing::info!(
+        conversation_id,
+        visible_turns = detail.turns.len(),
+        included_user_turns = primer.included_user_turns,
+        total_user_turns = primer.total_user_turns,
+        primer_chars = primer.text.chars().count(),
+        truncated = primer.truncated,
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "[conversation-context-primer] generated"
+    );
+    Ok(primer)
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn get_conversation_context_primer(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+    manager: tauri::State<'_, crate::acp::manager::ConnectionManager>,
+    chat_channel_manager: tauri::State<'_, crate::chat_channel::manager::ChatChannelManager>,
+    conversation_id: i32,
+) -> Result<ConversationContextPrimer, AppCommandError> {
+    get_conversation_context_primer_core(
+        ContextPrimerSource {
+            conn: &db.conn,
+            manager: &manager,
+            chat_channel_manager: &chat_channel_manager,
+            emitter: &EventEmitter::Tauri(app),
+        },
+        conversation_id,
     )
     .await
 }

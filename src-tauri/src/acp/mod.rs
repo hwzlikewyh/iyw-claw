@@ -72,6 +72,7 @@ pub mod runtime_context;
 mod session_config_compat;
 pub mod session_config_reconciler;
 pub mod session_info;
+mod session_recovery;
 pub mod session_state;
 pub mod skill_package;
 pub(crate) mod skill_tree_hash;

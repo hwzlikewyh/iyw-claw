@@ -56,6 +56,7 @@ import {
   createConversation,
   deleteAgentInput,
   forceAgentInputsThrough,
+  getConversationContextPrimer,
   openSettingsWindow,
   queueAgentInput,
   reorderAgentInputs,
@@ -297,6 +298,7 @@ const ConversationTabView = memo(function ConversationTabView({
     pinTab,
     openNewConversationTab,
     closeTab,
+    consumePendingComposerText,
     confirmDraftAgent,
     setDraftAgentFromFallback,
   } = useTabActions()
@@ -361,6 +363,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const [hasSentMessage, setHasSentMessage] = useState(false)
   const [quickActionInject, setQuickActionInject] =
     useState<ComposerInjectContent | null>(null)
+  const [contextPrimerLoading, setContextPrimerLoading] = useState(false)
 
   const hasPersistedConversation = dbConversationId != null
 
@@ -1673,9 +1676,15 @@ const ConversationTabView = memo(function ConversationTabView({
     setQuickActionInject(payload)
   }, [])
 
+  useEffect(() => {
+    if (hasPersistedConversation || !ownTab?.pendingComposerText) return
+    setQuickActionInject({ text: ownTab.pendingComposerText })
+  }, [hasPersistedConversation, ownTab?.pendingComposerText])
+
   const handleQuickActionConsumed = useCallback(() => {
     setQuickActionInject(null)
-  }, [])
+    consumePendingComposerText(tabId)
+  }, [consumePendingComposerText, tabId])
 
   const canShowDetailErrorActions =
     hasPersistedConversation && dbConversationId != null && !!folder
@@ -1707,6 +1716,39 @@ const ConversationTabView = memo(function ConversationTabView({
     closeTab(tabId)
   }, [closeTab, folder, openNewConversationTab, tabId, workingDirForConnection])
 
+  const handleContinueWithContext = useCallback(async () => {
+    if (dbConversationId == null || !folder || contextPrimerLoading) return
+    setContextPrimerLoading(true)
+    try {
+      const primer = await getConversationContextPrimer(dbConversationId)
+      setContextPrimerLoading(false)
+      openNewConversationTab(
+        folder.id,
+        workingDirForConnection ?? folder.path,
+        {
+          inheritFromActive: true,
+          folderDefaultAgent: selectedAgent,
+          initialComposerText: primer.text,
+        }
+      )
+      closeTab(tabId)
+    } catch (error) {
+      console.error("[ConversationDetailPanel] build context primer:", error)
+      toast.error(t("continueContextFailed"))
+      setContextPrimerLoading(false)
+    }
+  }, [
+    closeTab,
+    contextPrimerLoading,
+    dbConversationId,
+    folder,
+    openNewConversationTab,
+    selectedAgent,
+    t,
+    tabId,
+    workingDirForConnection,
+  ])
+
   const messageListNode = (
     <MessageListView
       conversationId={effectiveConversationId}
@@ -1723,6 +1765,10 @@ const ConversationTabView = memo(function ConversationTabView({
       onNewSession={
         canShowDetailErrorActions ? handleOpenNewSession : undefined
       }
+      onContinueWithContext={
+        canShowDetailErrorActions ? handleContinueWithContext : undefined
+      }
+      continueWithContextLoading={contextPrimerLoading}
       liveTrailingStatus={<BackgroundTasksChip contextKey={tabId} inline />}
       standaloneStatus={<BackgroundTasksChip contextKey={tabId} />}
       scrollPositionRef={messageScrollPositionRef}

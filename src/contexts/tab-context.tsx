@@ -223,9 +223,10 @@ export interface TabContextValue {
     options?: {
       inheritFromActive?: boolean
       folderDefaultAgent?: TabItem["agentType"] | null
+      initialComposerText?: string
     }
   ) => void
-  openChatModeTab: () => void
+  openChatModeTab: (options?: { initialComposerText?: string }) => void
   setChatDraftWorkingDir: (tabId: string, workingDir: string) => void
   confirmDraftAgent: (tabId: string, agentType: TabItem["agentType"]) => void
   setDraftAgentFromFallback: (

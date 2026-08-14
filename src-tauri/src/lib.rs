@@ -7,6 +7,7 @@ pub use network::proxy::init_proxy_from_db;
 mod app_error;
 pub mod app_state;
 pub mod automation;
+pub mod browser;
 pub mod chat_channel;
 pub mod commands;
 pub mod db;
@@ -980,6 +981,7 @@ mod tauri_app {
                     }
                     Ok::<(), tauri::Error>(())
                 })?;
+                windows::consume_pending_main_window_show(app);
 
                 crate::logging::emergency::write_event(
                     "startup_ready",
@@ -1124,6 +1126,7 @@ mod tauri_app {
                 conversations::save_opened_tabs,
                 conversations::import_local_conversations,
                 conversations::get_folder_conversation,
+                conversations::get_conversation_context_primer,
                 conversations::list_folders,
                 conversations::get_stats,
                 conversations::get_sidebar_data,

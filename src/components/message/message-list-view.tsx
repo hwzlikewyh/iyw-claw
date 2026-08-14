@@ -56,6 +56,7 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  TextQuote,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTranslations } from "next-intl"
@@ -89,13 +90,15 @@ interface MessageListViewProps {
    * Set when the agent rejected `session/load` non-recoverably (e.g. the
    * historical session_id was deleted). Takes precedence over `detailError`
    * AND the renderable-content gate: even when the local DB has the full
-   * message history, the user must explicitly choose Reload or start a new
-   * conversation since the agent can't continue this thread.
+   * message history, the user must explicitly retry, start over, or continue
+   * from a visible-context recap since the agent can't continue this thread.
    */
   acpLoadError?: string | null
   hideEmptyState?: boolean
   onReload?: () => void
   onNewSession?: () => void
+  onContinueWithContext?: () => void
+  continueWithContextLoading?: boolean
   /**
    * Renders the per-conversation message navigator rail. Enabled in the main
    * conversation view; disabled in compact embeds (e.g. the sub-agent dialog).
@@ -574,6 +577,8 @@ export function MessageListView({
   hideEmptyState = false,
   onReload,
   onNewSession,
+  onContinueWithContext,
+  continueWithContextLoading = false,
   showMessageNav = true,
   enableUserMemoryActions = true,
   liveTrailingStatus,
@@ -903,13 +908,15 @@ export function MessageListView({
   // ACP load failures always replace content: even when the local DB has
   // the conversation, the agent can't resume it, so silently rendering
   // the history would mislead the user into thinking a follow-up message
-  // would extend the same thread.
+  // would extend the same native agent session.
   const blockingLoadError = acpLoadError ?? null
   const fallbackLoadError =
     detailError && !hasRenderableContent ? detailError : null
   const renderedLoadError = blockingLoadError ?? fallbackLoadError
   if (renderedLoadError) {
-    const showActions = Boolean(onReload || onNewSession)
+    const showActions = Boolean(
+      onReload || onNewSession || onContinueWithContext
+    )
     const reloading = detailLoading
     return (
       <div role="alert" className="flex h-full items-center justify-center p-6">
@@ -930,7 +937,7 @@ export function MessageListView({
                 <Button
                   size="sm"
                   onClick={onReload}
-                  disabled={reloading}
+                  disabled={reloading || continueWithContextLoading}
                   aria-busy={reloading}
                 >
                   {reloading ? (
@@ -945,9 +952,37 @@ export function MessageListView({
                 </Button>
               )}
               {onNewSession && (
-                <Button size="sm" variant="outline" onClick={onNewSession}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onNewSession}
+                  disabled={continueWithContextLoading}
+                >
                   <Plus aria-hidden="true" className="me-1.5 h-4 w-4" />
                   {t("errorActionNewSession")}
+                </Button>
+              )}
+              {onContinueWithContext && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onContinueWithContext}
+                  disabled={continueWithContextLoading || reloading}
+                  aria-busy={continueWithContextLoading}
+                >
+                  {continueWithContextLoading ? (
+                    <Loader2
+                      aria-hidden="true"
+                      className="me-1.5 h-4 w-4 animate-spin"
+                    />
+                  ) : (
+                    <TextQuote aria-hidden="true" className="me-1.5 h-4 w-4" />
+                  )}
+                  {t(
+                    continueWithContextLoading
+                      ? "errorActionContinueContextLoading"
+                      : "errorActionContinueContext"
+                  )}
                 </Button>
               )}
             </div>

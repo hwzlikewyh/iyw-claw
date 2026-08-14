@@ -19,6 +19,7 @@ pub mod chat_channel;
 pub mod chat_image;
 mod chat_image_upload;
 pub mod computer_use;
+pub mod conversation_context_primer;
 mod conversation_history_cache;
 mod conversation_history_cache_prune;
 pub mod conversations;

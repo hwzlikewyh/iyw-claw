@@ -10,18 +10,18 @@ use sacp::schema::{
     BlobResourceContents, CancelNotification, ClientCapabilities, ContentBlock, ContentChunk,
     CreateTerminalRequest, CreateTerminalResponse, EmbeddedResource, EmbeddedResourceResource,
     FileSystemCapabilities, ImageContent, InitializeRequest, KillTerminalRequest,
-    KillTerminalResponse, LoadSessionRequest, NewSessionRequest, NewSessionResponse,
-    PermissionOptionKind, Plan, PlanEntryPriority, PlanEntryStatus, PromptRequest, ProtocolVersion,
-    ReadTextFileRequest, ReadTextFileResponse, ReleaseTerminalRequest, ReleaseTerminalResponse,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, ResourceLink,
-    ResumeSessionRequest, ResumeSessionResponse, SelectedPermissionOutcome, SessionConfigKind,
-    SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectGroup,
-    SessionConfigSelectOption, SessionConfigSelectOptions, SessionId, SessionModeState,
-    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
-    SetSessionConfigOptionResponse, SetSessionModeRequest, StopReason, TerminalExitStatus,
-    TerminalOutputRequest, TerminalOutputResponse, TextContent, TextResourceContents,
-    ToolCallContent, WaitForTerminalExitRequest, WaitForTerminalExitResponse, WriteTextFileRequest,
-    WriteTextFileResponse,
+    KillTerminalResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
+    NewSessionResponse, PermissionOptionKind, Plan, PlanEntryPriority, PlanEntryStatus,
+    PromptRequest, ProtocolVersion, ReadTextFileRequest, ReadTextFileResponse,
+    ReleaseTerminalRequest, ReleaseTerminalResponse, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, ResourceLink, ResumeSessionRequest,
+    ResumeSessionResponse, SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption,
+    SessionConfigOptionCategory, SessionConfigSelectGroup, SessionConfigSelectOption,
+    SessionConfigSelectOptions, SessionId, SessionModeState, SessionNotification, SessionUpdate,
+    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
+    StopReason, TerminalExitStatus, TerminalOutputRequest, TerminalOutputResponse, TextContent,
+    TextResourceContents, ToolCallContent, WaitForTerminalExitRequest, WaitForTerminalExitResponse,
+    WriteTextFileRequest, WriteTextFileResponse,
 };
 use sacp::schema::{HttpHeader, McpServer, McpServerHttp, McpServerSse, McpServerStdio};
 use sacp::util::MatchDispatch;
@@ -42,6 +42,9 @@ use crate::acp::file_system_runtime::{FileSystemRuntime, FileSystemRuntimeError}
 use crate::acp::npm_runtime;
 use crate::acp::registry::{self, AgentDistribution};
 use crate::acp::session_config_compat::resolve_preferred_session_config;
+use crate::acp::session_recovery::{
+    RecoveryBudget, RecoveryFailure, RecoveryProgress, RecoveryStage,
+};
 use crate::acp::session_state::SessionState;
 use crate::acp::terminal_runtime::{TerminalRuntime, TerminalRuntimeError};
 use crate::acp::types::{
@@ -407,6 +410,59 @@ async fn run_with_async_cleanup<T>(
         Ok(output) => output,
         Err(payload) => resume_unwind(payload),
     }
+}
+
+struct AbruptRecoveryContext<'a> {
+    progress: &'a RecoveryProgress,
+    session_id: Option<&'a str>,
+    connection_id: &'a str,
+    agent_type: AgentType,
+    state: &'a Arc<RwLock<SessionState>>,
+    emitter: &'a EventEmitter,
+}
+
+async fn emit_abrupt_recovery_failure(
+    context: AbruptRecoveryContext<'_>,
+    error: &AcpError,
+) -> bool {
+    let Some(snapshot) = context.progress.take() else {
+        return false;
+    };
+    let Some(session_id) = context.session_id else {
+        return false;
+    };
+    context.state.write().await.mark_recovery_failed();
+    tracing::warn!(
+        connection_id = context.connection_id,
+        agent_type = %context.agent_type,
+        session_id,
+        stage = snapshot.stage.as_str(),
+        elapsed_ms = snapshot.elapsed_ms,
+        remaining_ms = snapshot.remaining_ms,
+        category = "transport",
+        code = "session_recovery_transport",
+        error = %error,
+        "[ACP] session recovery transport ended unexpectedly"
+    );
+    emit_with_state(
+        context.state,
+        context.emitter,
+        AcpEvent::SessionLoadFailed {
+            session_id: session_id.to_string(),
+            message: error.to_string(),
+            code: "session_recovery_transport".to_string(),
+        },
+    )
+    .await;
+    emit_with_state(
+        context.state,
+        context.emitter,
+        AcpEvent::StatusChanged {
+            status: ConnectionStatus::Error,
+        },
+    )
+    .await;
+    true
 }
 
 /// Revoke every per-launch authority owned by the connection before it leaves,
@@ -1170,6 +1226,9 @@ pub async fn spawn_agent_connection(
     let cleanup_connections = connections.clone();
     let cleanup_connection_id = connection_id.clone();
     let state_clone = Arc::clone(&session_state);
+    let recovery_in_progress = Arc::new(RecoveryProgress::new());
+    let recovery_in_progress_for_run = Arc::clone(&recovery_in_progress);
+    let recovery_session_id = session_id.clone();
 
     // Insert the entry BEFORE spawning the background task so that a
     // fast-failing `run_connection` can never remove it before it was
@@ -1206,6 +1265,7 @@ pub async fn spawn_agent_connection(
                 agent_type,
                 working_dir,
                 session_id,
+                recovery_in_progress_for_run,
                 cmd_rx,
                 emitter_clone.clone(),
                 Arc::clone(&state_clone),
@@ -1223,49 +1283,63 @@ pub async fn spawn_agent_connection(
         .await;
 
         if let Err(e) = result {
-            let code = e.code().map(String::from);
-            // The frontend gets an `AcpEvent::Error` from here, but until this
-            // log existed the backend recorded nothing: a failure inside
-            // `connect_with` (the OS-level process spawn) left only the
-            // `spawning connection` line with no `Sending Initialize` after
-            // it, because the connect closure that logs Initialize never runs
-            // when the spawn itself fails. Log the code and message so a
-            // process that dies before the handshake is attributable.
-            tracing::error!(
-                "[ACP] connection terminated with error connection_id={} agent={:?} \
+            let recovery_handled = emit_abrupt_recovery_failure(
+                AbruptRecoveryContext {
+                    progress: &recovery_in_progress,
+                    session_id: recovery_session_id.as_deref(),
+                    connection_id: &conn_id,
+                    agent_type,
+                    state: &state_clone,
+                    emitter: &emitter_clone,
+                },
+                &e,
+            )
+            .await;
+            if !recovery_handled {
+                let code = e.code().map(String::from);
+                // The frontend gets an `AcpEvent::Error` from here, but until this
+                // log existed the backend recorded nothing: a failure inside
+                // `connect_with` (the OS-level process spawn) left only the
+                // `spawning connection` line with no `Sending Initialize` after
+                // it, because the connect closure that logs Initialize never runs
+                // when the spawn itself fails. Log the code and message so a
+                // process that dies before the handshake is attributable.
+                tracing::error!(
+                    "[ACP] connection terminated with error connection_id={} agent={:?} \
                  code={:?} error={e}",
-                conn_id,
-                agent_type,
-                code.as_deref(),
-            );
-            emit_with_state(
-                &state_clone,
-                &emitter_clone,
-                AcpEvent::Error {
-                    message: e.to_string(),
-                    agent_type: agent_type.to_string(),
-                    code,
-                    // The only genuinely terminal emit site: `run_connection`
-                    // is unwinding and the next event is `Disconnected`.
-                    // The lifecycle worker uses this flag to decide whether
-                    // to flip the conversation row to Cancelled and to
-                    // buffer the detail for the broker's cancel reason.
-                    terminal: true,
-                },
-            )
-            .await;
-            // Drive the state machine through `Error` before `Disconnected`
-            // so the frontend's error-handling effect (cancelled-on-error)
-            // engages — without this hop the connection would jump straight
-            // to Disconnected and look like a clean shutdown.
-            emit_with_state(
-                &state_clone,
-                &emitter_clone,
-                AcpEvent::StatusChanged {
-                    status: ConnectionStatus::Error,
-                },
-            )
-            .await;
+                    conn_id,
+                    agent_type,
+                    code.as_deref(),
+                );
+                emit_with_state(
+                    &state_clone,
+                    &emitter_clone,
+                    AcpEvent::Error {
+                        message: e.to_string(),
+                        agent_type: agent_type.to_string(),
+                        code,
+                        // The only genuinely terminal emit site: `run_connection`
+                        // is unwinding and the next event is `Disconnected`.
+                        // The lifecycle worker uses this flag to decide whether
+                        // to flip the conversation row to Cancelled and to
+                        // buffer the detail for the broker's cancel reason.
+                        terminal: true,
+                    },
+                )
+                .await;
+                // Drive the state machine through `Error` before `Disconnected`
+                // so the frontend's error-handling effect (cancelled-on-error)
+                // engages — without this hop the connection would jump straight
+                // to Disconnected and look like a clean shutdown.
+                emit_with_state(
+                    &state_clone,
+                    &emitter_clone,
+                    AcpEvent::StatusChanged {
+                        status: ConnectionStatus::Error,
+                    },
+                )
+                .await;
+            }
         }
 
         emit_with_state(
@@ -1612,15 +1686,93 @@ fn build_resume_session_request(
 async fn send_resume_session(
     cx: &ConnectionTo<Agent>,
     req: ResumeSessionRequest,
-) -> Result<(ResumeSessionResponse, Option<serde_json::Value>), sacp::Error> {
-    let untyped_req = UntypedMessage::new("session/resume", req)
-        .map_err(|e| sacp::util::internal_error(format!("Failed to build resume request: {e}")))?;
+) -> Result<(ResumeSessionResponse, Option<serde_json::Value>), RecoveryFailure> {
+    let untyped_req = UntypedMessage::new("session/resume", req).map_err(|e| {
+        RecoveryFailure::InvalidResponse(format!("Failed to build resume request: {e}"))
+    })?;
 
-    let raw_response = cx.send_request_to(Agent, untyped_req).block_task().await?;
+    let raw_response = cx
+        .send_request_to(Agent, untyped_req)
+        .block_task()
+        .await
+        .map_err(RecoveryFailure::from_request_error)?;
     let models = raw_response.get("models").cloned();
-    let response = serde_json::from_value(raw_response)
-        .map_err(|e| sacp::util::internal_error(format!("Failed to parse resume response: {e}")))?;
+    let response = serde_json::from_value(raw_response).map_err(|e| {
+        RecoveryFailure::InvalidResponse(format!("Failed to parse resume response: {e}"))
+    })?;
     Ok((response, models))
+}
+
+async fn send_load_session(
+    cx: &ConnectionTo<Agent>,
+    req: LoadSessionRequest,
+) -> Result<LoadSessionResponse, RecoveryFailure> {
+    let untyped_req = UntypedMessage::new("session/load", req).map_err(|e| {
+        RecoveryFailure::InvalidResponse(format!("Failed to build load request: {e}"))
+    })?;
+    let raw_response = cx
+        .send_request_to(Agent, untyped_req)
+        .block_task()
+        .await
+        .map_err(RecoveryFailure::from_request_error)?;
+    serde_json::from_value(raw_response).map_err(|e| {
+        RecoveryFailure::InvalidResponse(format!("Failed to parse load response: {e}"))
+    })
+}
+
+struct SessionRecoveryFailureContext<'a> {
+    connection_id: &'a str,
+    session_id: &'a str,
+    agent_type: AgentType,
+    stage: RecoveryStage,
+    supports_resume: bool,
+    supports_load: bool,
+    budget: &'a RecoveryBudget,
+    progress: &'a RecoveryProgress,
+    state: &'a Arc<RwLock<SessionState>>,
+    emitter: &'a EventEmitter,
+}
+
+async fn emit_session_recovery_failure(
+    context: SessionRecoveryFailureContext<'_>,
+    failure: RecoveryFailure,
+) {
+    context.progress.finish();
+    context.state.write().await.mark_recovery_failed();
+    let code = failure.stable_code();
+    let message = failure.message();
+    tracing::warn!(
+        connection_id = context.connection_id,
+        agent_type = %context.agent_type,
+        session_id = context.session_id,
+        stage = context.stage.as_str(),
+        supports_resume = context.supports_resume,
+        supports_load = context.supports_load,
+        elapsed_ms = context.budget.elapsed_ms(),
+        remaining_ms = context.budget.remaining_ms(),
+        category = failure.category(),
+        code,
+        error = %message,
+        "[ACP] session recovery failed"
+    );
+    emit_with_state(
+        context.state,
+        context.emitter,
+        AcpEvent::SessionLoadFailed {
+            session_id: context.session_id.to_string(),
+            message,
+            code: code.to_string(),
+        },
+    )
+    .await;
+    emit_with_state(
+        context.state,
+        context.emitter,
+        AcpEvent::StatusChanged {
+            status: ConnectionStatus::Error,
+        },
+    )
+    .await;
 }
 
 async fn send_new_session_capturing_models(
@@ -2027,7 +2179,6 @@ async fn prepare_iyw_claw_mcp(
                 memory_proposal_enabled: memory_access.candidate_proposal,
                 opaque_source_id,
                 memory_turn_tracker: memory_access.turn_tracker,
-                cancellation: tokio_util::sync::CancellationToken::new(),
             },
         )
         .await;
@@ -2301,6 +2452,7 @@ async fn run_connection(
     agent_type: AgentType,
     working_dir: Option<String>,
     session_id: Option<String>,
+    recovery_in_progress: Arc<RecoveryProgress>,
     mut cmd_rx: mpsc::Receiver<ConnectionCommand>,
     emitter: EventEmitter,
     state: Arc<RwLock<SessionState>>,
@@ -2543,13 +2695,14 @@ async fn run_connection(
                 .session_capabilities
                 .resume
                 .is_some();
+            let supports_load = init_resp.agent_capabilities.load_session;
             state.write().await.set_recovery_capability(
                 agent_type != AgentType::Cline
-                    && (init_resp.agent_capabilities.load_session || supports_resume),
+                    && (supports_load || supports_resume),
             );
             tracing::info!(
                 "[ACP] Agent capabilities: load_session={}, fork={}, resume={}",
-                init_resp.agent_capabilities.load_session, supports_fork, supports_resume
+                supports_load, supports_fork, supports_resume
             );
 
             // Whether this agent accepts MCP server entries over the ACP wire
@@ -2654,23 +2807,33 @@ async fn run_connection(
             };
 
             if let Some(sid) = session_id {
-                // Prefer session/resume when the agent advertises the
-                // capability: it restores session context WITHOUT replaying
-                // history (which session/load does only for us to drain and
-                // discard — the transcript the user sees comes from the disk
-                // parser, not the ACP wire). On any non-terminal resume failure
-                // we fall through to the session/load block below, so the
-                // effective chain is resume → load. Historical recovery never
-                // falls through to session/new because that would silently
-                // fork the user's context.
+                let recovery_budget = RecoveryBudget::start();
+                let initial_stage = if supports_resume {
+                    RecoveryStage::Resume
+                } else {
+                    RecoveryStage::Load
+                };
+                recovery_in_progress.begin(initial_stage);
+
+                // session/resume restores context without replaying history.
+                // Only a complete remote RPC error leaves this connection
+                // trusted enough for a subsequent session/load request.
                 if supports_resume {
                     let resume_req = build_resume_session_request(
                         session_request_context,
                         SessionId::new(sid.clone()),
                     );
-                    match send_resume_session(&cx, resume_req).await {
+                    let resume_result = match recovery_budget.timeout_for(RecoveryStage::Resume) {
+                        Some(timeout) => tokio::time::timeout(
+                            timeout,
+                            send_resume_session(&cx, resume_req),
+                        )
+                        .await
+                        .unwrap_or(Err(RecoveryFailure::Timeout)),
+                        None => Err(RecoveryFailure::Timeout),
+                    };
+                    match resume_result {
                         Ok((resume_resp, grok_models_raw)) => {
-                            state.write().await.mark_recovery_succeeded();
                             let initial_config_options = resume_resp.config_options.clone();
                             let new_resp = NewSessionResponse::new(SessionId::new(sid.clone()))
                                 .modes(resume_resp.modes)
@@ -2682,6 +2845,17 @@ async fn run_connection(
                             let grok_effort_specs = (agent_type == AgentType::Grok)
                                 .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
                             let mut session = cx.attach_session(new_resp, Default::default())?;
+                            recovery_in_progress.finish();
+                            state.write().await.mark_recovery_succeeded();
+                            tracing::info!(
+                                connection_id = conn_id,
+                                agent_type = %agent_type,
+                                session_id = sid,
+                                stage = "resume",
+                                elapsed_ms = recovery_budget.elapsed_ms(),
+                                remaining_ms = recovery_budget.remaining_ms(),
+                                "[ACP] session recovery succeeded"
+                            );
                             finalize_user_memory_launch(
                                 &state,
                                 &emitter_clone,
@@ -2762,37 +2936,79 @@ async fn run_connection(
                             .await;
                         }
                         Err(e) => {
-                            // resume is unstable and NOT guaranteed equivalent to
-                            // session/load, so a resume-specific failure must
-                            // never deny a load that might still succeed. EVERY
-                            // resume error — ResourceNotFound, "Authentication
-                            // required", "Method not found", or anything else —
-                            // falls through to the session/load block below,
-                            // which already owns all terminal decisions
-                            // (SessionLoadFailed for all load failures). No
-                            // user-facing event is emitted here: load re-derives
-                            // the same outcome a moment later, so emitting now
-                            // would double up (not-found) or flash a transient
-                            // error that self-heals when load succeeds.
-                            tracing::warn!(
-                                "[ACP] session/resume failed ({e}); falling back to session/load"
-                            );
-                            state.write().await.mark_recovery_failed();
-                            // fall through to the session/load block below
+                            if e.allows_load_fallback() && supports_load {
+                                tracing::warn!(
+                                    connection_id = conn_id,
+                                    agent_type = %agent_type,
+                                    session_id = sid,
+                                    stage = "resume",
+                                    elapsed_ms = recovery_budget.elapsed_ms(),
+                                    remaining_ms = recovery_budget.remaining_ms(),
+                                    category = e.category(),
+                                    error = %e.message(),
+                                    "[ACP] session/resume returned RPC error; trying session/load"
+                                );
+                            } else {
+                                emit_session_recovery_failure(
+                                    SessionRecoveryFailureContext {
+                                        connection_id: &conn_id,
+                                        session_id: &sid,
+                                        agent_type,
+                                        stage: RecoveryStage::Resume,
+                                        supports_resume,
+                                        supports_load,
+                                        budget: &recovery_budget,
+                                        progress: &recovery_in_progress,
+                                        state: &state,
+                                        emitter: &emitter_clone,
+                                    },
+                                    e,
+                                )
+                                .await;
+                                return Ok(());
+                            }
                         }
                     }
                 }
 
-                // Load existing session via session/load
+                if !supports_load {
+                    emit_session_recovery_failure(
+                        SessionRecoveryFailureContext {
+                            connection_id: &conn_id,
+                            session_id: &sid,
+                            agent_type,
+                            stage: RecoveryStage::Load,
+                            supports_resume,
+                            supports_load,
+                            budget: &recovery_budget,
+                            progress: &recovery_in_progress,
+                            state: &state,
+                            emitter: &emitter_clone,
+                        },
+                        RecoveryFailure::Unavailable(
+                            "Agent does not advertise session recovery support".to_string(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
+
+                recovery_in_progress.set_stage(RecoveryStage::Load);
                 let load_req = build_load_session_request(
                     session_request_context,
                     SessionId::new(sid.clone()),
                 );
-                let load_result = cx.send_request_to(Agent, load_req).block_task().await;
+                let load_result = match recovery_budget.timeout_for(RecoveryStage::Load) {
+                    Some(timeout) => {
+                        tokio::time::timeout(timeout, send_load_session(&cx, load_req))
+                            .await
+                            .unwrap_or(Err(RecoveryFailure::Timeout))
+                    }
+                    None => Err(RecoveryFailure::Timeout),
+                };
 
                 match load_result {
                     Ok(load_resp) => {
-                        state.write().await.mark_recovery_succeeded();
                         let initial_config_options = load_resp.config_options.clone();
                         let new_resp = NewSessionResponse::new(SessionId::new(sid.clone()))
                             .modes(load_resp.modes)
@@ -2818,12 +3034,30 @@ async fn run_connection(
                         // Drain historical replay notifications from session/load,
                         // but forward AvailableCommandsUpdate to the frontend
                         let mut drained = 0u32;
-                        while let Ok(Ok(msg)) = tokio::time::timeout(
-                            std::time::Duration::from_millis(100),
-                            session.read_update(),
-                        )
-                        .await
-                        {
+                        let mut drain_failure = None;
+                        loop {
+                            let Some(remaining) =
+                                recovery_budget.timeout_for(RecoveryStage::Load)
+                            else {
+                                drain_failure = Some(RecoveryFailure::Timeout);
+                                break;
+                            };
+                            let idle_wait = remaining.min(std::time::Duration::from_millis(100));
+                            let msg = match tokio::time::timeout(idle_wait, session.read_update()).await
+                            {
+                                Ok(Ok(msg)) => msg,
+                                Ok(Err(error)) => {
+                                    drain_failure = Some(RecoveryFailure::Transport(
+                                        error.to_string(),
+                                    ));
+                                    break;
+                                }
+                                Err(_) if remaining <= std::time::Duration::from_millis(100) => {
+                                    drain_failure = Some(RecoveryFailure::Timeout);
+                                    break;
+                                }
+                                Err(_) => break,
+                            };
                             drained += 1;
                             if let SessionMessage::SessionMessage(dispatch) = msg {
                                 let h = emitter_clone.clone();
@@ -2865,9 +3099,42 @@ async fn run_connection(
                                     .await;
                             }
                         }
+                        if let Some(failure) = drain_failure {
+                            drop(session);
+                            emit_session_recovery_failure(
+                                SessionRecoveryFailureContext {
+                                    connection_id: &conn_id,
+                                    session_id: &sid,
+                                    agent_type,
+                                    stage: RecoveryStage::Load,
+                                    supports_resume,
+                                    supports_load,
+                                    budget: &recovery_budget,
+                                    progress: &recovery_in_progress,
+                                    state: &state,
+                                    emitter: &emitter_clone,
+                                },
+                                failure,
+                            )
+                            .await;
+                            return Ok(());
+                        }
                         if drained > 0 {
                             tracing::info!("[ACP] Drained {drained} historical replay notifications");
                         }
+
+                        recovery_in_progress.finish();
+                        state.write().await.mark_recovery_succeeded();
+                        tracing::info!(
+                            connection_id = conn_id,
+                            agent_type = %agent_type,
+                            session_id = sid,
+                            stage = "load",
+                            replay_notifications = drained,
+                            elapsed_ms = recovery_budget.elapsed_ms(),
+                            remaining_ms = recovery_budget.remaining_ms(),
+                            "[ACP] session recovery succeeded"
+                        );
 
                         emit_with_state(
                             &state,
@@ -2927,32 +3194,20 @@ async fn run_connection(
                         .await
                     }
                     Err(e) => {
-                        // Do not silently replace an unrecoverable historical
-                        // session with a new one. The frontend lets the user
-                        // retry the load or explicitly start a new conversation.
-                        let err_str = e.to_string();
-                        state.write().await.mark_recovery_failed();
-                        let code = classify_session_load_failure(e.code, &err_str)
-                            .unwrap_or("session_unavailable");
-                        tracing::warn!(
-                            "[ACP] session/load failed ({err_str}); surfacing as session_load_failed={code}"
-                        );
-                        emit_with_state(
-                            &state,
-                            &emitter_clone,
-                            AcpEvent::SessionLoadFailed {
-                                session_id: sid.clone(),
-                                message: err_str,
-                                code: code.to_string(),
+                        emit_session_recovery_failure(
+                            SessionRecoveryFailureContext {
+                                connection_id: &conn_id,
+                                session_id: &sid,
+                                agent_type,
+                                stage: RecoveryStage::Load,
+                                supports_resume,
+                                supports_load,
+                                budget: &recovery_budget,
+                                progress: &recovery_in_progress,
+                                state: &state,
+                                emitter: &emitter_clone,
                             },
-                        )
-                        .await;
-                        emit_with_state(
-                            &state,
-                            &emitter_clone,
-                            AcpEvent::StatusChanged {
-                                status: ConnectionStatus::Error,
-                            },
+                            e,
                         )
                         .await;
                         Ok(())
@@ -3042,13 +3297,13 @@ async fn run_connection(
         })
         .await
         .map_err(|e| {
-            let raw = e.to_string();
-            if raw.contains(INIT_TIMEOUT_SENTINEL) {
-                AcpError::InitializeTimeout
-            } else {
-                AcpError::protocol(raw)
-            }
-        })
+        let raw = e.to_string();
+        if raw.contains(INIT_TIMEOUT_SENTINEL) {
+            AcpError::InitializeTimeout
+        } else {
+            AcpError::protocol(raw)
+        }
+    })
 }
 
 /// Store the permission responder and emit event to frontend.
@@ -4359,21 +4614,6 @@ fn agent_runtime_error_kind(agent_type: AgentType, text: &str) -> Option<&'stati
         && text.starts_with("stream disconnected before completion:")
         && text.contains("Incomplete response returned"))
     .then_some("codex_stream_incomplete")
-}
-
-fn classify_session_load_failure(
-    code: sacp::schema::ErrorCode,
-    message: &str,
-) -> Option<&'static str> {
-    if matches!(code, sacp::schema::ErrorCode::ResourceNotFound) {
-        return Some("resource_not_found");
-    }
-
-    const UNRECOVERABLE: &[&str] = &["process exited", "session has ended", "Session not found"];
-    UNRECOVERABLE
-        .iter()
-        .any(|signature| message.contains(signature))
-        .then_some("session_unavailable")
 }
 
 /// Recognize adapter diagnostics that were incorrectly emitted as agent text.

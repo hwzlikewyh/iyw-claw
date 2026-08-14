@@ -79,6 +79,8 @@ export interface TabItemInternal {
    * composer hides the branch picker and shows the "no-folder" chip.
    */
   isChat?: boolean
+  /** One-shot text injected into a draft composer, then cleared by its panel. */
+  pendingComposerText?: string
 }
 
 export type TabItem = TabItemInternal
@@ -151,9 +153,11 @@ export interface TabStoreState {
     options?: {
       inheritFromActive?: boolean
       folderDefaultAgent?: AgentType | null
+      initialComposerText?: string
     }
   ) => void
-  openChatModeTab: () => void
+  openChatModeTab: (options?: { initialComposerText?: string }) => void
+  consumePendingComposerText: (tabId: string) => void
   setChatDraftWorkingDir: (tabId: string, workingDir: string) => void
   confirmDraftAgent: (tabId: string, agentType: AgentType) => void
   setDraftAgentFromFallback: (tabId: string, agentType: AgentType) => void
@@ -698,7 +702,9 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       useAppWorkspaceStore.getState().allFolders.find((f) => f.id === folderId)
         ?.kind === "chat"
     ) {
-      get().openChatModeTab()
+      get().openChatModeTab({
+        initialComposerText: options?.initialComposerText,
+      })
       return
     }
     const inheritFromActive = options?.inheritFromActive === true
@@ -736,6 +742,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
         isPinned: true,
         workingDir,
         agentTypeProvisional: provisional,
+        pendingComposerText: options?.initialComposerText,
       }
       set({ rawTabs: [...prevState.rawTabs, newTab], activeTabId: tabId })
       recomputeTabs()
@@ -751,6 +758,16 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
 
     if (folderChanged || agentChanged) {
       set({
+        rawTabs: options?.initialComposerText
+          ? prevState.rawTabs.map((tab) =>
+              tab.id === existingTab.id
+                ? {
+                    ...tab,
+                    pendingComposerText: options.initialComposerText,
+                  }
+                : tab
+            )
+          : prevState.rawTabs,
         activeTabId: existingTab.id,
         draftRetargetRequests: [
           ...prevState.draftRetargetRequests,
@@ -764,11 +781,22 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
           },
         ],
       })
-    } else if (workingDirChanged || provisionalChanged) {
+      if (options?.initialComposerText) recomputeTabs()
+    } else if (
+      workingDirChanged ||
+      provisionalChanged ||
+      options?.initialComposerText
+    ) {
       set({
         rawTabs: prevState.rawTabs.map((tab) =>
           tab.id === existingTab.id
-            ? { ...tab, workingDir, agentTypeProvisional: provisional }
+            ? {
+                ...tab,
+                workingDir,
+                agentTypeProvisional: provisional,
+                pendingComposerText:
+                  options?.initialComposerText ?? tab.pendingComposerText,
+              }
             : tab
         ),
         activeTabId: existingTab.id,
@@ -780,7 +808,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     runtime.activateConversationPane()
   },
 
-  openChatModeTab: () => {
+  openChatModeTab: (options) => {
     const st = get()
     // Inherit the agent like openNewConversationTab's inherit path.
     const activeTab = st.rawTabs.find((x) => x.id === st.activeTabId)
@@ -800,7 +828,8 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     const existingDraft = st.rawTabs.find((t) => t.conversationId == null)
     const needsDisconnect =
       existingDraft != null &&
-      !(existingDraft.isChat && existingDraft.folderId === 0)
+      (!(existingDraft.isChat && existingDraft.folderId === 0) ||
+        existingDraft.agentType !== targetAgent)
 
     const tabId = makeNewConversationTabId()
     const prevState = get()
@@ -818,13 +847,37 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
         workingDir: undefined,
         agentTypeProvisional: provisional,
         isChat: true,
+        pendingComposerText: options?.initialComposerText,
       }
       set({ rawTabs: [...prevState.rawTabs, newTab], activeTabId: tabId })
       recomputeTabs()
     } else if (existingTab.isChat && existingTab.folderId === 0) {
-      // Already a chat-mode draft — just focus it.
-      if (prevState.activeTabId !== existingTab.id) {
-        set({ activeTabId: existingTab.id })
+      // Already a chat-mode draft — focus it and apply any one-shot injection.
+      const agentChanged = existingTab.agentType !== targetAgent
+      if (
+        prevState.activeTabId !== existingTab.id ||
+        options?.initialComposerText ||
+        agentChanged
+      ) {
+        set({
+          activeTabId: existingTab.id,
+          rawTabs:
+            options?.initialComposerText || agentChanged
+              ? prevState.rawTabs.map((tab) =>
+                  tab.id === existingTab.id
+                    ? {
+                        ...tab,
+                        agentType: targetAgent,
+                        agentTypeProvisional: provisional,
+                        pendingComposerText:
+                          options?.initialComposerText ??
+                          tab.pendingComposerText,
+                      }
+                    : tab
+                )
+              : prevState.rawTabs,
+        })
+        if (options?.initialComposerText || agentChanged) recomputeTabs()
       }
     } else {
       // Existing draft on a real folder: flip it to chat mode SYNCHRONOUSLY
@@ -842,6 +895,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
                 isChat: true,
                 agentType: targetAgent,
                 agentTypeProvisional: provisional,
+                pendingComposerText: options?.initialComposerText,
               }
             : tab
         ),
@@ -855,6 +909,18 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
       })
     }
     runtime.activateConversationPane()
+  },
+
+  consumePendingComposerText: (tabId) => {
+    const prev = get().rawTabs
+    const next = prev.map((tab) =>
+      tab.id === tabId && tab.pendingComposerText
+        ? { ...tab, pendingComposerText: undefined }
+        : tab
+    )
+    if (next.every((tab, index) => tab === prev[index])) return
+    set({ rawTabs: next })
+    recomputeTabs()
   },
 
   setChatDraftWorkingDir: (tabId, workingDir) => {
@@ -1507,6 +1573,7 @@ export function useTabActions() {
       toggleTileMode: s.toggleTileMode,
       openNewConversationTab: s.openNewConversationTab,
       openChatModeTab: s.openChatModeTab,
+      consumePendingComposerText: s.consumePendingComposerText,
       setChatDraftWorkingDir: s.setChatDraftWorkingDir,
       confirmDraftAgent: s.confirmDraftAgent,
       setDraftAgentFromFallback: s.setDraftAgentFromFallback,

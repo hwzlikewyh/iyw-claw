@@ -448,6 +448,13 @@ export interface DbConversationDetail {
   in_flight_user_turn_id?: string | null
 }
 
+export interface ConversationContextPrimer {
+  text: string
+  includedUserTurns: number
+  totalUserTurns: number
+  truncated: boolean
+}
+
 export type ConversationStatus =
   | "in_progress"
   | "pending_review"

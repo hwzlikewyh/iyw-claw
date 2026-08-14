@@ -59,6 +59,7 @@ import type {
   AutomationDraftSource,
   ConversationSummary,
   ConversationDetail,
+  ConversationContextPrimer,
   DbConversationDetail,
   FolderInfo,
   AgentStats,
@@ -1795,6 +1796,14 @@ export async function getFolderConversation(
       : Promise.resolve([]),
   ])
   return mergeAgentInputHistory(detail, inputs)
+}
+
+export async function getConversationContextPrimer(
+  conversationId: number
+): Promise<ConversationContextPrimer> {
+  return getTransport().call("get_conversation_context_primer", {
+    conversationId,
+  })
 }
 
 export async function removeFolderFromHistory(path: string): Promise<void> {

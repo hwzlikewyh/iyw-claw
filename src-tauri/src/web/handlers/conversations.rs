@@ -147,6 +147,32 @@ pub async fn get_folder_conversation(
     Ok(Json(result))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetConversationContextPrimerParams {
+    pub conversation_id: i32,
+}
+
+pub async fn get_conversation_context_primer(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<GetConversationContextPrimerParams>,
+) -> Result<
+    Json<crate::commands::conversation_context_primer::ConversationContextPrimer>,
+    AppCommandError,
+> {
+    let result = conv_commands::get_conversation_context_primer_core(
+        conv_commands::ContextPrimerSource {
+            conn: &state.db.conn,
+            manager: &state.connection_manager,
+            chat_channel_manager: &state.chat_channel_manager,
+            emitter: &state.emitter,
+        },
+        params.conversation_id,
+    )
+    .await?;
+    Ok(Json(result))
+}
+
 pub async fn list_folders() -> Result<Json<Vec<FolderInfo>>, AppCommandError> {
     let result = conv_commands::list_folders().await?;
     Ok(Json(result))

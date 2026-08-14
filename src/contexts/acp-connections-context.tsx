@@ -3453,6 +3453,18 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 return t("backendErrors.sessionLoadUnavailable", {
                   agent: agentLabel,
                 })
+              case "session_recovery_timeout":
+                return t("backendErrors.sessionRecoveryTimeout", {
+                  agent: agentLabel,
+                })
+              case "session_recovery_transport":
+                return t("backendErrors.sessionRecoveryTransport", {
+                  agent: agentLabel,
+                })
+              case "session_recovery_invalid_response":
+                return t("backendErrors.sessionRecoveryInvalidResponse", {
+                  agent: agentLabel,
+                })
               default:
                 return (
                   formatAgentRuntimeError(e.message, runtimeErrorMessages) ??
