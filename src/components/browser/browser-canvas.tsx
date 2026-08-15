@@ -47,11 +47,11 @@ export function BrowserCanvas({
       />
       {!tab ? (
         <CanvasState icon={MonitorX} label={t("emptyTab")} />
-      ) : tab.status !== "live" ? (
+      ) : tab.status !== "live" && tab.status !== "navigating" ? (
         <CanvasState
           icon={tab.status === "crashed" ? MonitorX : LoaderCircle}
           label={t(`tabStatus.${tab.status}`)}
-          spin={tab.status === "creating" || tab.status === "navigating"}
+          spin={tab.status === "creating"}
         />
       ) : !subscription ? (
         <CanvasState icon={LoaderCircle} label={t("connecting")} spin />

@@ -189,7 +189,6 @@ impl BrowserSessionManager {
     ) -> Result<BrowserStateSnapshot, BrowserError> {
         let action = self.tabs.action_target(tab_id).await?;
         let ticket = self.state.write().await.begin_tab_navigation(tab_id)?;
-        self.streams.close_tab(tab_id).await;
         if ticket.runtime_generation != action.runtime_generation {
             let _ = self.state.write().await.fail_tab_navigation(&ticket);
             return Err(BrowserError::new(

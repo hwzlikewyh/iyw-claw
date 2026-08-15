@@ -31,6 +31,10 @@ export function useBrowserFrames(
     useState<BrowserFrameSubscriptionSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [retryKey, setRetryKey] = useState(0)
+  const [streamIdentity, setStreamIdentity] = useState<{
+    owner: string
+    generations: BrowserFrameSubscriptionSnapshot["generations"]
+  } | null>(null)
   const committedRef = useRef(false)
   const tabId = tab?.browserTabId
   const tabStatus = tab?.status
@@ -39,8 +43,7 @@ export function useBrowserFrames(
   const runtimeGeneration = sourceGenerations?.runtimeGeneration
   const tabGeneration = sourceGenerations?.tabGeneration
   const viewGeneration = sourceGenerations?.viewGeneration
-  const controlEpoch = sourceGenerations?.controlEpoch
-  const generations = useMemo(
+  const currentGenerations = useMemo(
     () =>
       runtimeGeneration !== undefined &&
       tabGeneration !== undefined &&
@@ -49,20 +52,35 @@ export function useBrowserFrames(
             runtimeGeneration,
             tabGeneration,
             viewGeneration,
-            controlEpoch: controlEpoch ?? 0,
+            // 控制权代次随每次用户输入变化，不属于帧流身份。
+            controlEpoch: 0,
           }
         : null,
-    [controlEpoch, runtimeGeneration, tabGeneration, viewGeneration]
+    [runtimeGeneration, tabGeneration, viewGeneration]
   )
+  const owner = `${tabId ?? "none"}:${claimId ?? "direct"}`
+  useEffect(() => {
+    if (!currentGenerations || tabStatus !== "live") return
+    setStreamIdentity({ owner, generations: currentGenerations })
+  }, [currentGenerations, owner, tabStatus])
+  const generations =
+    tabStatus === "navigating" && streamIdentity?.owner === owner
+      ? streamIdentity.generations
+      : currentGenerations
+  const canStream = tabStatus === "live" || tabStatus === "navigating"
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || !tabId || tabStatus !== "live" || !generations) return
+    if (!canvas || !tabId || !canStream || !generations) return
     let disposed = false
     let active: BrowserFrameSubscriptionSnapshot | null = null
     let queued: ArrayBuffer | Uint8Array | number[] | null = null
     let drawing = false
     let retryTimer: number | null = null
+    const context = canvas.getContext("2d", {
+      alpha: false,
+      desynchronized: true,
+    })
     committedRef.current = false
 
     const retry = () => {
@@ -92,9 +110,8 @@ export function useBrowserFrames(
           bitmap.close()
           return
         }
-        canvas.width = frame.width
-        canvas.height = frame.height
-        const context = canvas.getContext("2d", { alpha: false })
+        if (canvas.width !== frame.width) canvas.width = frame.width
+        if (canvas.height !== frame.height) canvas.height = frame.height
         context?.drawImage(bitmap, 0, 0, frame.width, frame.height)
         bitmap.close()
         await acknowledgeBrowserFrame(
@@ -171,11 +188,11 @@ export function useBrowserFrames(
     acceptState,
     canvasRef,
     claimId,
+    canStream,
     generations,
     refresh,
     retryKey,
     tabId,
-    tabStatus,
   ])
 
   useEffect(() => {
@@ -191,13 +208,14 @@ export function useBrowserFrames(
           subscription.subscriptionId,
           subscription.generations
         )
+        if (disposed) return
         if (current.status !== "disconnected") {
           if (current.status !== subscription.status) setSubscription(current)
           return
         }
         setError("Browser stream disconnected")
       } catch (cause) {
-        setError(String(cause))
+        if (!disposed) setError(String(cause))
       } finally {
         checking = false
       }

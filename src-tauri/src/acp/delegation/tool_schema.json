@@ -185,7 +185,7 @@
   },
   {
     "name": "browser_list_tabs",
-    "description": "List browser tabs shared with this Agent connection or conversation. Returns tab ids, URLs, titles, runtime state, and current human/Agent control state. Use the returned browser_tab_id with the other browser tools.",
+    "description": "List browser tabs shared with this Agent connection or conversation. Call this before browser_open. If tabs is empty, stop and ask the user to share a tab with this Agent. Otherwise read tabs[].browserTabId and pass it as tab_id for same-tab navigation and the other browser tools.",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -194,7 +194,7 @@
   },
   {
     "name": "browser_open",
-    "description": "Open an HTTP/HTTPS URL in the shared visible browser. Pass an accessible tab_id to navigate it. Omit tab_id to create another shared tab only after the user has shared at least one tab with this Agent conversation. New tabs use the same persistent browser profile and may inherit its sign-in state. The user can see and take over the same tab.",
+    "description": "Open an HTTP/HTTPS URL in the shared visible browser. Call browser_list_tabs first. If tabs is empty, stop and ask the user to share a tab with this Agent. Otherwise pass tabs[].browserTabId as tab_id to navigate the same tab. Omit tab_id only when the user explicitly asks for a new tab. New tabs use the same persistent browser profile and may inherit its sign-in state. The user can see and take over the same tab.",
     "inputSchema": {
       "type": "object",
       "required": ["url"],

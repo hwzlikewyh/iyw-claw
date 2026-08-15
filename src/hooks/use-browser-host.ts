@@ -47,12 +47,13 @@ export function useBrowserHost(kind: "docked" | "detached", enabled: boolean) {
     () => state?.hosts.find((item) => item.hostId === hostId) ?? null,
     [hostId, state?.hosts]
   )
+  const hostGeneration = host?.generation
 
   useEffect(() => {
-    if (!host || !enabled) return
+    if (!hostId || hostGeneration === undefined || !enabled) return
     const heartbeat = () => {
       void browserApi
-        .heartbeatHost(host.hostId, host.generation, !document.hidden)
+        .heartbeatHost(hostId, hostGeneration, !document.hidden)
         .then(acceptState)
         .catch(() => void refresh())
     }
@@ -63,7 +64,7 @@ export function useBrowserHost(kind: "docked" | "detached", enabled: boolean) {
       window.clearInterval(timer)
       document.removeEventListener("visibilitychange", heartbeat)
     }
-  }, [acceptState, enabled, host, refresh])
+  }, [acceptState, enabled, hostGeneration, hostId, refresh])
 
   useEffect(() => {
     if (kind !== "docked" || !host || reclaimingRef.current) return

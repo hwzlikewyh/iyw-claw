@@ -94,7 +94,7 @@ impl BrowserSessionManager {
         if visible.tabs.is_empty() {
             return Err(BrowserError::new(
                 super::error::BrowserErrorCode::BrowserTabAccessDenied,
-                "Share a browser tab with this Agent before it creates another tab",
+                "Ask the user to click Share tab with Agent, then call browser_list_tabs and pass tabs[].browserTabId as tab_id",
             ));
         }
         let host_id = self.preferred_agent_host().await;

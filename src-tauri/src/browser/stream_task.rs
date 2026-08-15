@@ -214,7 +214,7 @@ async fn stream_url(context: &StreamTaskContext) -> Result<String, BrowserError>
         .and_then(|port| u16::try_from(port).ok())
         .filter(|port| *port > 0)
         .ok_or_else(disconnected)?;
-    Ok(format!("ws://127.0.0.1:{port}/?pacing=ack&maxFps=10"))
+    Ok(format!("ws://127.0.0.1:{port}/?pacing=ack&maxFps=0"))
 }
 
 fn disconnected() -> BrowserError {
