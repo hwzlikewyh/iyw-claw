@@ -10,6 +10,7 @@ const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 pub(super) async fn page_metadata(
     cli: &AgentBrowserCli,
     session: &str,
+    cdp_url: &str,
     response: &Value,
     cancellation: CancellationToken,
 ) -> Result<(String, String), BrowserError> {
@@ -21,15 +22,22 @@ pub(super) async fn page_metadata(
         return Ok((bounded_title(title), url.to_string()));
     }
     let url_response = cli
-        .run(
+        .run_pinned(
             session,
+            cdp_url,
             &["get", "url"],
             COMMAND_TIMEOUT,
             cancellation.clone(),
         )
         .await?;
     let title_response = cli
-        .run(session, &["get", "title"], COMMAND_TIMEOUT, cancellation)
+        .run_pinned(
+            session,
+            cdp_url,
+            &["get", "title"],
+            COMMAND_TIMEOUT,
+            cancellation,
+        )
         .await?;
     let url = response_data(&url_response)
         .get("url")

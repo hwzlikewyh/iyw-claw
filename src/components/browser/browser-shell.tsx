@@ -11,6 +11,7 @@ import { BrowserPrompts } from "./browser-prompts"
 import { BrowserStatus } from "./browser-status"
 import { BrowserTabStrip } from "./browser-tab-strip"
 import { BrowserToolbar } from "./browser-toolbar"
+import { DEFAULT_BROWSER_HOME_URL } from "@/lib/browser-defaults"
 
 export function BrowserShell({
   kind = "docked",
@@ -33,10 +34,16 @@ export function BrowserShell({
     [activeConversationId]
   )
   const enabled = kind === "detached" || isOpen
-  const { host } = useBrowserHost(kind, enabled)
+  const { host, windowLabel } = useBrowserHost(kind, enabled)
   const creatingRef = useRef(false)
+  const hostedTabRef = useRef(false)
+  const closingWindowRef = useRef(false)
   const claim = state?.viewClaims.find(
     (item) => item.targetHostId === host?.hostId
+  )
+  const hostHasClaim = state?.viewClaims.some(
+    (item) =>
+      item.sourceHostId === host?.hostId || item.targetHostId === host?.hostId
   )
 
   const tabs = useMemo(() => {
@@ -59,6 +66,25 @@ export function BrowserShell({
   const activeTabId =
     claim?.browserTabId ?? host?.activeTabId ?? tabs[0]?.browserTabId
   const activeTab = tabs.find((tab) => tab.browserTabId === activeTabId) ?? null
+  const closeShell =
+    kind === "docked"
+      ? closeBrowser
+      : windowLabel
+        ? () => void browserApi.closeWindow(windowLabel).catch(() => {})
+        : undefined
+
+  useEffect(() => {
+    if (kind !== "detached" || !host || !windowLabel) return
+    if (tabs.length > 0 || hostHasClaim) {
+      hostedTabRef.current = true
+      return
+    }
+    if (!hostedTabRef.current || closingWindowRef.current) return
+    closingWindowRef.current = true
+    void browserApi.closeWindow(windowLabel).catch(() => {
+      closingWindowRef.current = false
+    })
+  }, [host, hostHasClaim, kind, tabs.length, windowLabel])
 
   useEffect(() => {
     if (
@@ -72,7 +98,7 @@ export function BrowserShell({
     }
     creatingRef.current = true
     void run(() =>
-      browserApi.createTab("about:blank", defaultAccess, host.hostId)
+      browserApi.createTab(DEFAULT_BROWSER_HOME_URL, defaultAccess, host.hostId)
     ).finally(() => {
       creatingRef.current = false
     })
@@ -104,7 +130,7 @@ export function BrowserShell({
         host={host}
         tab={activeTab}
         sharedAccess={defaultAccess}
-        onClose={kind === "docked" ? closeBrowser : undefined}
+        onClose={closeShell}
       />
       <div className="min-h-0 flex-1">
         <BrowserCanvas tab={activeTab} claim={claim} />

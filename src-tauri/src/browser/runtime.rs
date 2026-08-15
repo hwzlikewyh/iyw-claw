@@ -94,20 +94,16 @@ impl BrowserRuntime {
                 "The shared browser currently requires Windows x64 desktop",
             ));
         }
+        let mut verified = self.verified.lock().await;
+        if let Some(dependencies) = verified.as_ref() {
+            return Ok(dependencies.capability());
+        }
         let started = std::time::Instant::now();
         let sidecar = sidecar::verify_sidecar().await?;
         let engine = detect_engine().await?;
-        let capability = BrowserCapability {
-            supported: true,
-            status: BrowserRuntimeStatus::Ready,
-            reason: None,
-            platform: std::env::consts::OS.to_string(),
-            architecture: std::env::consts::ARCH.to_string(),
-            sidecar_version: AGENT_BROWSER_VERSION.to_string(),
-            sidecar_verified: true,
-            engine: Some(engine.summary()),
-        };
-        *self.verified.lock().await = Some(VerifiedDependencies { sidecar, engine });
+        let dependencies = VerifiedDependencies { sidecar, engine };
+        let capability = dependencies.capability();
+        *verified = Some(dependencies);
         tracing::info!(
             target: "iyw_claw_browser",
             duration_ms = started.elapsed().as_millis() as u64,
@@ -153,8 +149,10 @@ impl BrowserRuntime {
             Ok(result) => result,
             Err(_) => {
                 let kill_result = kill_tree_checked(&handle.daemon).await;
+                let engine_result = handle.cli.kill_profile_processes().await;
                 let _ = tokio::fs::remove_dir_all(&handle.runtime_dir).await;
                 kill_result?;
+                engine_result?;
                 Err(BrowserError::new(
                     BrowserErrorCode::BrowserOperationTimeout,
                     "The browser runtime did not stop within the shutdown budget",
@@ -186,6 +184,13 @@ impl BrowserRuntime {
         };
         if let Some(handle) = handle {
             handle.watcher_cancel.cancel();
+            if let Err(error) = handle.cli.kill_profile_processes().await {
+                tracing::warn!(
+                    target: "iyw_claw_browser",
+                    error_code = ?error.code,
+                    "failed to clean browser engine after controller exit"
+                );
+            }
             let _ = tokio::fs::remove_dir_all(&handle.runtime_dir).await;
         }
     }
@@ -200,6 +205,21 @@ impl BrowserRuntime {
             .await
             .clone()
             .ok_or_else(unavailable_error)
+    }
+}
+
+impl VerifiedDependencies {
+    fn capability(&self) -> BrowserCapability {
+        BrowserCapability {
+            supported: true,
+            status: BrowserRuntimeStatus::Ready,
+            reason: None,
+            platform: std::env::consts::OS.to_string(),
+            architecture: std::env::consts::ARCH.to_string(),
+            sidecar_version: AGENT_BROWSER_VERSION.to_string(),
+            sidecar_verified: true,
+            engine: Some(self.engine.summary()),
+        }
     }
 }
 
@@ -243,6 +263,7 @@ async fn stop_handle(handle: &mut RuntimeHandle) -> Result<(), BrowserError> {
     if !wait_for_exit(&handle.daemon, GRACEFUL_STOP_TIMEOUT).await {
         kill_tree_checked(&handle.daemon).await?;
     }
+    handle.cli.kill_profile_processes().await?;
     let _ = tokio::fs::remove_dir_all(&handle.runtime_dir).await;
     match result {
         Ok(_) => Ok(()),

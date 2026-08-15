@@ -12,6 +12,7 @@ impl BrowserState {
         {
             return None;
         }
+        self.discard_closing_tabs();
         self.runtime.generation = self.runtime.generation.saturating_add(1);
         self.runtime.status = BrowserRuntimeStatus::Recovering;
         self.runtime.failure_code = None;

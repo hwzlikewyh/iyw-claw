@@ -120,7 +120,7 @@ async fn launch_controller(
     profile: &ProfileGuard,
 ) -> Result<(String, ProcessRecord), BrowserError> {
     let cancellation = CancellationToken::new();
-    cli.run(
+    cli.bootstrap(
         session,
         &["open", "about:blank"],
         START_TIMEOUT,
@@ -145,6 +145,13 @@ async fn cleanup_partial(cli: &AgentBrowserCli, session: &str, runtime_dir: &Pat
     if tokio::fs::metadata(cli.pid_path(session)).await.is_ok() {
         graceful_close(cli, session).await;
         kill_published_daemon(cli, session).await;
+    }
+    if let Err(error) = cli.kill_profile_processes().await {
+        tracing::warn!(
+            target: "iyw_claw_browser",
+            error_code = ?error.code,
+            "failed to clean browser engine after partial startup"
+        );
     }
     remove_runtime_dir(runtime_dir).await;
 }

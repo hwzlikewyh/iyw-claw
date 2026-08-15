@@ -12,6 +12,7 @@ import type {
 } from "@/lib/browser-types"
 import { useBrowser } from "@/contexts/browser-context"
 import { Button } from "@/components/ui/button"
+import { DEFAULT_BROWSER_HOME_URL } from "@/lib/browser-defaults"
 import { cn } from "@/lib/utils"
 
 const TAB_DRAG_MIME = "application/x-iyw-claw-browser-tab"
@@ -143,7 +144,11 @@ export function BrowserTabStrip({
         disabled={busy || Boolean(claim)}
         onClick={() =>
           void run(() =>
-            browserApi.createTab("about:blank", newTabAccess, host.hostId)
+            browserApi.createTab(
+              DEFAULT_BROWSER_HOME_URL,
+              newTabAccess,
+              host.hostId
+            )
           )
         }
       >

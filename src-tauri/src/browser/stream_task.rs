@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::command_runner::AgentBrowserCli;
 use super::error::{BrowserError, BrowserErrorCode};
-use super::frame_protocol::encode_frame;
+use super::frame_protocol::{encode_frame, frame_sequence};
 use super::stream::StreamControl;
 use super::tab_metadata::response_data;
 use super::types::{BrowserFrameSubscriptionStatus, BrowserGenerations};
@@ -19,10 +19,12 @@ use super::types::{BrowserFrameSubscriptionStatus, BrowserGenerations};
 const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_MESSAGE_SIZE: usize = 13 * 1024 * 1024;
+const MAX_CONSECUTIVE_FRAME_FAILURES: usize = 5;
 
 pub(super) struct StreamTaskContext {
     pub session: String,
     pub cli: AgentBrowserCli,
+    pub cdp_url: String,
     pub generations: BrowserGenerations,
     pub channel: Channel<InvokeResponseBody>,
     pub cancellation: CancellationToken,
@@ -47,7 +49,8 @@ pub(super) async fn run(mut context: StreamTaskContext) -> Result<(), BrowserErr
     *context.status.write().await = BrowserFrameSubscriptionStatus::Streaming;
     let (mut sink, mut source) = socket.split();
     let mut pending_seq = None;
-    let mut last_seq = 0_u64;
+    let mut last_seq = None;
+    let mut frame_failures = 0_usize;
     loop {
         tokio::select! {
             _ = context.cancellation.cancelled() => {
@@ -63,15 +66,46 @@ pub(super) async fn run(mut context: StreamTaskContext) -> Result<(), BrowserErr
                 let message = incoming.map_err(|_| disconnected())?;
                 match message {
                     Message::Text(text) => {
-                        if let Some((seq, bytes)) = encode_frame(&text, &context.generations)? {
-                            if seq <= last_seq || pending_seq.is_some() {
-                                return Err(frame_error());
+                        match encode_frame(&text, &context.generations) {
+                            Ok(Some((seq, bytes))) => {
+                                frame_failures = 0;
+                                if last_seq.is_some_and(|last| seq <= last) || pending_seq.is_some() {
+                                    tracing::warn!(
+                                        target: "iyw_claw_browser",
+                                        session = %context.session,
+                                        seq,
+                                        last_seq = ?last_seq,
+                                        pending_seq = ?pending_seq,
+                                        "browser frame dropped because delivery is still pending"
+                                    );
+                                    send_consumed_ack(&mut sink, seq).await?;
+                                    continue;
+                                }
+                                context.channel
+                                    .send(InvokeResponseBody::Raw(bytes))
+                                    .map_err(|_| disconnected())?;
+                                pending_seq = Some(seq);
+                                last_seq = Some(seq);
                             }
-                            context.channel
-                                .send(InvokeResponseBody::Raw(bytes))
-                                .map_err(|_| disconnected())?;
-                            pending_seq = Some(seq);
-                            last_seq = seq;
+                            Ok(None) => {}
+                            Err(error) => {
+                                frame_failures += 1;
+                                let seq = frame_sequence(&text);
+                                tracing::warn!(
+                                    target: "iyw_claw_browser",
+                                    session = %context.session,
+                                    seq = ?seq,
+                                    message_bytes = text.len(),
+                                    consecutive_failures = frame_failures,
+                                    "browser frame payload was dropped"
+                                );
+                                if let Some(seq) = seq {
+                                    send_consumed_ack(&mut sink, seq).await?;
+                                }
+                                if frame_failures >= MAX_CONSECUTIVE_FRAME_FAILURES {
+                                    return Err(error);
+                                }
+                            }
                         }
                     }
                     Message::Ping(data) => sink.send(Message::Pong(data)).await.map_err(|_| disconnected())?,
@@ -113,13 +147,20 @@ where
             "The browser frame acknowledgement is stale",
         ));
     }
+    send_consumed_ack(sink, seq).await?;
+    *pending_seq = None;
+    Ok(())
+}
+
+async fn send_consumed_ack<S>(sink: &mut S, seq: u64) -> Result<(), BrowserError>
+where
+    S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
     sink.send(Message::Text(
         json!({ "type": "ack", "seq": seq }).to_string().into(),
     ))
     .await
-    .map_err(|_| disconnected())?;
-    *pending_seq = None;
-    Ok(())
+    .map_err(|_| disconnected())
 }
 
 async fn send_input<S>(sink: &mut S, messages: Vec<Value>) -> Result<(), BrowserError>
@@ -143,8 +184,9 @@ where
 async fn stream_url(context: &StreamTaskContext) -> Result<String, BrowserError> {
     let response = context
         .cli
-        .run(
+        .run_pinned(
             &context.session,
+            &context.cdp_url,
             &["stream", "status"],
             STATUS_TIMEOUT,
             context.cancellation.clone(),
@@ -156,8 +198,9 @@ async fn stream_url(context: &StreamTaskContext) -> Result<String, BrowserError>
     if !enabled {
         enabled_response = context
             .cli
-            .run(
+            .run_pinned(
                 &context.session,
+                &context.cdp_url,
                 &["stream", "enable"],
                 STATUS_TIMEOUT,
                 context.cancellation.clone(),
@@ -180,11 +223,4 @@ fn disconnected() -> BrowserError {
         "The browser frame stream is disconnected",
     )
     .retryable(true)
-}
-
-fn frame_error() -> BrowserError {
-    BrowserError::new(
-        BrowserErrorCode::BrowserFrameDecodeFailed,
-        "The browser frame sequence is invalid",
-    )
 }

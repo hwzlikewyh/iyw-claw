@@ -1,5 +1,6 @@
 use base64::Engine;
 use serde::Deserialize;
+use serde_json::Value;
 
 use super::error::{BrowserError, BrowserErrorCode, BrowserErrorContext};
 use super::types::BrowserGenerations;
@@ -12,8 +13,6 @@ const MAX_VIEWPORT_EDGE: u32 = 16_384;
 
 #[derive(Deserialize)]
 struct WireFrame {
-    #[serde(rename = "type")]
-    kind: String,
     #[serde(default)]
     seq: Option<u64>,
     #[serde(default)]
@@ -36,11 +35,12 @@ pub(super) fn encode_frame(
     if text.len() > MAX_BASE64_FRAME.saturating_add(4096) {
         return Err(frame_error());
     }
-    let frame: WireFrame = serde_json::from_str(text).map_err(|_| frame_error())?;
-    if frame.kind != "frame" {
+    let value: Value = serde_json::from_str(text).map_err(|_| frame_error())?;
+    if value.get("type").and_then(Value::as_str) != Some("frame") {
         return Ok(None);
     }
-    let seq = frame.seq.filter(|seq| *seq > 0).ok_or_else(frame_error)?;
+    let frame: WireFrame = serde_json::from_value(value).map_err(|_| frame_error())?;
+    let seq = frame.seq.ok_or_else(frame_error)?;
     let data = frame.data.ok_or_else(frame_error)?;
     if data.len() > MAX_BASE64_FRAME
         || !valid_edge(frame.metadata.device_width)
@@ -67,6 +67,13 @@ pub(super) fn encode_frame(
     output.extend_from_slice(&frame.metadata.device_height.to_le_bytes());
     output.extend_from_slice(&jpeg);
     Ok(Some((seq, output)))
+}
+
+pub(super) fn frame_sequence(text: &str) -> Option<u64> {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()?
+        .get("seq")?
+        .as_u64()
 }
 
 fn valid_edge(value: u32) -> bool {

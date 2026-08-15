@@ -22,6 +22,7 @@ pub(super) struct TabRuntimeHandle {
     pub target_id: String,
     pub runtime_generation: u64,
     pub cli: AgentBrowserCli,
+    pub cdp_url: String,
     pub controller_session: String,
     pub daemon: ProcessRecord,
     pub cancellation: CancellationToken,
@@ -30,10 +31,9 @@ pub(super) struct TabRuntimeHandle {
 #[derive(Debug, Clone)]
 pub(super) struct TabActionTarget {
     pub session: String,
-    pub target_id: String,
     pub runtime_generation: u64,
     pub cli: AgentBrowserCli,
-    pub controller_session: String,
+    pub cdp_url: String,
 }
 
 pub(super) struct TabExitWatch {
@@ -126,10 +126,9 @@ impl From<&TabRuntimeHandle> for TabActionTarget {
     fn from(handle: &TabRuntimeHandle) -> Self {
         Self {
             session: handle.session.clone(),
-            target_id: handle.target_id.clone(),
             runtime_generation: handle.runtime_generation,
             cli: handle.cli.clone(),
-            controller_session: handle.controller_session.clone(),
+            cdp_url: handle.cdp_url.clone(),
         }
     }
 }

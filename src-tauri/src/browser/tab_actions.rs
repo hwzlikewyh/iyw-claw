@@ -5,10 +5,12 @@ use tokio_util::sync::CancellationToken;
 use super::error::{BrowserError, BrowserErrorCode};
 use super::manager::BrowserSessionManager;
 use super::process::kill_tree_checked;
-use super::tab_launch::{cleanup_tab, close_target_by_id, launch_tab};
+use super::tab_launch::{cleanup_tab, launch_tab};
 use super::tab_metadata::page_metadata;
 use super::types::BrowserGenerations;
 use super::types::{AgentAccess, BrowserStateSnapshot};
+
+mod tab_close;
 
 const NAVIGATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const TAB_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
@@ -65,23 +67,6 @@ impl BrowserSessionManager {
         }
         self.spawn_tab_watcher(watch);
         Ok((self.snapshot().await, ticket.tab_id))
-    }
-
-    pub async fn close_browser_tab(
-        &self,
-        tab_id: &str,
-    ) -> Result<BrowserStateSnapshot, BrowserError> {
-        let ticket = self.begin_tab_close(tab_id).await?;
-        self.streams.close_tab(tab_id).await;
-        let action = self.tabs.action_target(tab_id).await?;
-        close_target_by_id(&action.cli, &action.controller_session, &action.target_id).await?;
-        let cleanup_result = match self.tabs.take(tab_id).await {
-            Some(handle) => cleanup_tab(handle, false).await,
-            None => Ok(()),
-        };
-        self.finish_tab_close(&ticket).await?;
-        cleanup_result?;
-        Ok(self.snapshot().await)
     }
 
     pub async fn navigate_browser_tab(
@@ -152,8 +137,9 @@ impl BrowserSessionManager {
         let scale = scale.to_string();
         action
             .cli
-            .run(
+            .run_pinned(
                 &action.session,
+                &action.cdp_url,
                 &["set", "viewport", &width, &height, &scale],
                 NAVIGATION_TIMEOUT,
                 CancellationToken::new(),
@@ -213,8 +199,9 @@ impl BrowserSessionManager {
         }
         let result = action
             .cli
-            .run(
+            .run_pinned(
                 &action.session,
+                &action.cdp_url,
                 args,
                 NAVIGATION_TIMEOUT,
                 cancellation.clone(),
@@ -227,14 +214,21 @@ impl BrowserSessionManager {
                 return Err(error);
             }
         };
-        let (title, url) =
-            match page_metadata(&action.cli, &action.session, &response, cancellation).await {
-                Ok(metadata) => metadata,
-                Err(error) => {
-                    self.finish_failed_navigation(&ticket, &error).await;
-                    return Err(error);
-                }
-            };
+        let (title, url) = match page_metadata(
+            &action.cli,
+            &action.session,
+            &action.cdp_url,
+            &response,
+            cancellation,
+        )
+        .await
+        {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                self.finish_failed_navigation(&ticket, &error).await;
+                return Err(error);
+            }
+        };
         self.state
             .write()
             .await

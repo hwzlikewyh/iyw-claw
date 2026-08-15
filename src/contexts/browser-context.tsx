@@ -85,11 +85,7 @@ export function BrowserProvider({
     if (!isDesktop()) return
     setBusy(true)
     try {
-      const capability = await browserApi.refreshCapability()
-      acceptState(capability)
-      if (capability.capability.status === "ready") {
-        acceptState(await browserApi.start())
-      }
+      acceptState(await browserApi.start())
     } catch (cause) {
       setError(normalizeError(cause))
     } finally {

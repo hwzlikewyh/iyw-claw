@@ -120,8 +120,9 @@ impl BrowserSessionManager {
         let refs = request.args.iter().map(String::as_str).collect::<Vec<_>>();
         let result = action
             .cli
-            .run(
+            .run_pinned(
                 &action.session,
+                &action.cdp_url,
                 &refs,
                 request.timeout,
                 cancellation.token(),

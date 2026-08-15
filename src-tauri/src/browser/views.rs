@@ -141,6 +141,7 @@ impl BrowserSessionManager {
                 claim.generations,
                 action.session,
                 action.cli,
+                action.cdp_url,
                 channel,
                 Some(claim_id.to_string()),
             )

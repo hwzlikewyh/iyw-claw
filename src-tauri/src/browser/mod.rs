@@ -22,6 +22,10 @@ mod cdp_observer;
 mod cdp_popups;
 mod cdp_records;
 #[cfg(feature = "tauri-runtime")]
+mod command_bootstrap;
+#[cfg(feature = "tauri-runtime")]
+mod command_output;
+#[cfg(feature = "tauri-runtime")]
 mod command_runner;
 mod control;
 mod control_lease;
@@ -71,6 +75,8 @@ mod stream_task;
 #[cfg(feature = "tauri-runtime")]
 mod tab_actions;
 #[cfg(feature = "tauri-runtime")]
+mod tab_binding;
+#[cfg(feature = "tauri-runtime")]
 mod tab_launch;
 #[cfg(feature = "tauri-runtime")]
 mod tab_metadata;
@@ -83,6 +89,10 @@ mod types_cdp;
 mod user_control_lease;
 #[cfg(feature = "tauri-runtime")]
 mod views;
+#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+mod windows_process;
+#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+mod windows_process_values;
 
 pub use control_lease::AgentControlLease;
 pub use error::{BrowserError, BrowserErrorCode, BrowserErrorContext};

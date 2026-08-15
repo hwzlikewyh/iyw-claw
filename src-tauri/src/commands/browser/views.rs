@@ -6,8 +6,15 @@ use crate::browser::{
     BrowserHostRegistration, BrowserSessionManager, BrowserStateSnapshot, BrowserViewClaimSnapshot,
 };
 
-#[tauri::command]
-pub fn browser_create_window(app: tauri::AppHandle) -> Result<String, BrowserError> {
+use super::window_close::{close_browser_window, spawn_browser_window_cleanup};
+use super::{browser_command, BrowserCommandFuture};
+
+#[tauri::command(async)]
+pub fn browser_create_window(app: tauri::AppHandle) -> BrowserCommandFuture<String> {
+    browser_command(async move { create_browser_window(app) })
+}
+
+fn create_browser_window(app: tauri::AppHandle) -> Result<String, BrowserError> {
     let detached_count = app
         .webview_windows()
         .keys()
@@ -25,44 +32,54 @@ pub fn browser_create_window(app: tauri::AppHandle) -> Result<String, BrowserErr
     .title("原助理浏览器")
     .inner_size(1180.0, 760.0)
     .min_inner_size(720.0, 520.0)
+    .closable(true)
     .build()
-    .map_err(|_| {
-        BrowserError::new(
-            crate::browser::BrowserErrorCode::BrowserViewConflict,
-            "The browser window could not be created",
-        )
+    .map_err(|error| {
+        tracing::error!(
+            target: "iyw_claw_browser",
+            window_label = %label,
+            error = %error,
+            "detached browser window creation failed"
+        );
+        window_error()
     })?;
+    tracing::info!(
+        target: "iyw_claw_browser",
+        window_label = %label,
+        "detached browser window created"
+    );
     Ok(label)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_close_window(
     app: tauri::AppHandle,
     window_label: String,
-) -> Result<(), BrowserError> {
-    validate_browser_window_label(&window_label)?;
-    if let Some(window) = app.get_webview_window(&window_label) {
-        window.close().map_err(|_| window_error())?;
-    }
-    Ok(())
+) -> BrowserCommandFuture<()> {
+    browser_command(async move {
+        validate_browser_window_label(&window_label)?;
+        close_browser_window(&app, &window_label, "command")
+    })
 }
 
-pub fn handle_browser_window_close(app: tauri::AppHandle, window_label: String) {
-    tauri::async_runtime::spawn(async move {
-        if let Some(manager) = app.try_state::<BrowserSessionManager>() {
-            manager.unregister_browser_window(&window_label).await;
-        }
-        if let Some(window) = app.get_webview_window(&window_label) {
-            if let Err(error) = window.destroy() {
-                tracing::warn!(
-                    target: "iyw_claw_browser",
-                    window_label,
-                    error = %error,
-                    "browser window could not be destroyed after host release"
-                );
-            }
-        }
-    });
+pub fn handle_browser_window_close_requested(app: tauri::AppHandle, window_label: String) {
+    if let Err(error) = close_browser_window(&app, &window_label, "system_close") {
+        tracing::error!(
+            target: "iyw_claw_browser",
+            window_label = %window_label,
+            error_code = ?error.code,
+            "detached browser window close failed"
+        );
+    }
+}
+
+pub fn handle_browser_window_destroyed(app: tauri::AppHandle, window_label: String) {
+    tracing::info!(
+        target: "iyw_claw_browser",
+        window_label = %window_label,
+        "detached browser window destroyed"
+    );
+    spawn_browser_window_cleanup(app, window_label, "destroyed");
 }
 
 fn validate_browser_window_label(label: &str) -> Result<(), BrowserError> {
@@ -80,116 +97,142 @@ fn window_error() -> BrowserError {
     )
 }
 
-#[tauri::command]
-pub async fn browser_register_host(
+#[tauri::command(async)]
+pub fn browser_register_host(
     manager: tauri::State<'_, BrowserSessionManager>,
     window_label: String,
     kind: BrowserHostKind,
-) -> Result<BrowserHostRegistration, BrowserError> {
-    manager.register_browser_host(window_label, kind).await
+) -> BrowserCommandFuture<BrowserHostRegistration> {
+    let manager = manager.inner().clone();
+    browser_command(async move { manager.register_browser_host(window_label, kind).await })
 }
 
-#[tauri::command]
-pub async fn browser_heartbeat_host(
+#[tauri::command(async)]
+pub fn browser_heartbeat_host(
     manager: tauri::State<'_, BrowserSessionManager>,
     host_id: String,
     generation: u64,
     visible: bool,
-) -> Result<BrowserStateSnapshot, BrowserError> {
-    manager
-        .heartbeat_browser_host(&host_id, generation, visible)
-        .await
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move {
+        manager
+            .heartbeat_browser_host(&host_id, generation, visible)
+            .await
+    })
 }
 
-#[tauri::command]
-pub async fn browser_unregister_host(
+#[tauri::command(async)]
+pub fn browser_unregister_host(
     manager: tauri::State<'_, BrowserSessionManager>,
     host_id: String,
-) -> Result<BrowserStateSnapshot, BrowserError> {
-    manager.unregister_browser_host(&host_id).await
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move { manager.unregister_browser_host(&host_id).await })
 }
 
-#[tauri::command]
-pub async fn browser_set_host_visible(
+#[tauri::command(async)]
+pub fn browser_set_host_visible(
     manager: tauri::State<'_, BrowserSessionManager>,
     host_id: String,
     generation: u64,
     visible: bool,
-) -> Result<BrowserStateSnapshot, BrowserError> {
-    manager
-        .set_browser_host_visible(&host_id, generation, visible)
-        .await
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move {
+        manager
+            .set_browser_host_visible(&host_id, generation, visible)
+            .await
+    })
 }
 
-#[tauri::command]
-pub async fn browser_activate_tab(
+#[tauri::command(async)]
+pub fn browser_activate_tab(
     manager: tauri::State<'_, BrowserSessionManager>,
     host_id: String,
     host_generation: u64,
     tab_id: String,
-) -> Result<BrowserStateSnapshot, BrowserError> {
-    manager
-        .activate_browser_tab(&host_id, host_generation, &tab_id)
-        .await
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move {
+        manager
+            .activate_browser_tab(&host_id, host_generation, &tab_id)
+            .await
+    })
 }
 
-#[tauri::command]
-pub async fn browser_begin_view_claim(
+#[tauri::command(async)]
+pub fn browser_begin_view_claim(
     manager: tauri::State<'_, BrowserSessionManager>,
     tab_id: String,
     source_host_id: Option<String>,
     target_host_id: String,
     target_index: usize,
-) -> Result<BrowserViewClaimSnapshot, BrowserError> {
-    manager
-        .begin_browser_view_claim(&tab_id, source_host_id, target_host_id, target_index)
-        .await
+) -> BrowserCommandFuture<BrowserViewClaimSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move {
+        manager
+            .begin_browser_view_claim(&tab_id, source_host_id, target_host_id, target_index)
+            .await
+    })
 }
 
-#[tauri::command]
-pub async fn browser_subscribe_claim_frames(
+#[tauri::command(async)]
+pub fn browser_subscribe_claim_frames(
     manager: tauri::State<'_, BrowserSessionManager>,
     claim_id: String,
     generations: BrowserGenerations,
     on_frame: Channel<InvokeResponseBody>,
-) -> Result<BrowserFrameSubscriptionSnapshot, BrowserError> {
-    manager
-        .subscribe_browser_claim_frames(&claim_id, generations, on_frame)
-        .await
+) -> BrowserCommandFuture<BrowserFrameSubscriptionSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move {
+        manager
+            .subscribe_browser_claim_frames(&claim_id, generations, on_frame)
+            .await
+    })
 }
 
-#[tauri::command]
-pub async fn browser_ack_claim_frame(
+#[tauri::command(async)]
+pub fn browser_ack_claim_frame(
     manager: tauri::State<'_, BrowserSessionManager>,
     claim_id: String,
     subscription_id: String,
     generations: BrowserGenerations,
     seq: u64,
-) -> Result<BrowserViewClaimSnapshot, BrowserError> {
-    manager
-        .acknowledge_browser_claim_frame(&claim_id, &subscription_id, generations, seq)
-        .await
+) -> BrowserCommandFuture<BrowserViewClaimSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move {
+        manager
+            .acknowledge_browser_claim_frame(&claim_id, &subscription_id, generations, seq)
+            .await
+    })
 }
 
-#[tauri::command]
-pub async fn browser_commit_view_claim(
+#[tauri::command(async)]
+pub fn browser_commit_view_claim(
     manager: tauri::State<'_, BrowserSessionManager>,
     claim_id: String,
     subscription_id: String,
     generations: BrowserGenerations,
-) -> Result<BrowserStateSnapshot, BrowserError> {
-    manager
-        .commit_browser_view_claim(&claim_id, &subscription_id, generations)
-        .await
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move {
+        manager
+            .commit_browser_view_claim(&claim_id, &subscription_id, generations)
+            .await
+    })
 }
 
-#[tauri::command]
-pub async fn browser_abort_view_claim(
+#[tauri::command(async)]
+pub fn browser_abort_view_claim(
     manager: tauri::State<'_, BrowserSessionManager>,
     claim_id: String,
     generations: BrowserGenerations,
-) -> Result<BrowserStateSnapshot, BrowserError> {
-    manager
-        .abort_browser_view_claim(&claim_id, generations)
-        .await
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move {
+        manager
+            .abort_browser_view_claim(&claim_id, generations)
+            .await
+    })
 }

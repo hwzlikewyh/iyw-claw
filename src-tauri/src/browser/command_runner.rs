@@ -1,25 +1,29 @@
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::Value;
-use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
+use super::command_bootstrap;
+use super::command_output::{
+    cancelled_error, collect_output, parse_output, unavailable_error, CollectedOutput,
+};
 use super::error::{BrowserError, BrowserErrorCode};
-use super::process::{capture_process, configure_hidden_process, kill_tree_checked, ProcessRecord};
-
-const MAX_COMMAND_OUTPUT: usize = 4 * 1024 * 1024;
+use super::process::{
+    capture_process, find_processes_by_executable_arg, kill_tree_checked, ProcessRecord,
+};
 
 #[derive(Debug, Clone)]
 pub(super) struct AgentBrowserCli {
-    executable: PathBuf,
-    socket_dir: PathBuf,
-    profile_path: PathBuf,
-    engine_path: PathBuf,
-    download_path: PathBuf,
-    screenshot_path: PathBuf,
+    pub(super) executable: PathBuf,
+    pub(super) socket_dir: PathBuf,
+    pub(super) profile_path: PathBuf,
+    pub(super) engine_path: PathBuf,
+    pub(super) download_path: PathBuf,
+    pub(super) screenshot_path: PathBuf,
 }
 
 impl AgentBrowserCli {
@@ -56,23 +60,53 @@ impl AgentBrowserCli {
         let process = child
             .id()
             .and_then(|pid| capture_process(pid, "agent-browser-client"));
+        let started = std::time::Instant::now();
+        let operation = args.first().copied().unwrap_or_default();
+        log_command_started(session, operation, process.as_ref());
         let output = collect_output(child);
         tokio::pin!(output);
         let result = tokio::select! {
             result = &mut output => result,
             _ = cancellation.cancelled() => {
                 kill_client(process.as_ref()).await;
+                log_command_interrupted(session, operation, started, "cancelled");
                 return Err(cancelled_error());
             }
             _ = tokio::time::sleep(timeout) => {
                 kill_client(process.as_ref()).await;
+                log_command_interrupted(session, operation, started, "timed_out");
                 return Err(BrowserError::new(
                     BrowserErrorCode::BrowserOperationTimeout,
                     "The browser operation timed out",
                 ).retryable(true));
             }
         }?;
+        log_command_completed(session, operation, started, &result);
         parse_output(result.success, &result.stdout, &result.stderr)
+    }
+
+    pub async fn bootstrap(
+        &self,
+        session: &str,
+        args: &[&str],
+        timeout: Duration,
+        cancellation: CancellationToken,
+    ) -> Result<(), BrowserError> {
+        command_bootstrap::bootstrap(self, session, args, timeout, cancellation).await
+    }
+
+    pub async fn run_pinned(
+        &self,
+        session: &str,
+        cdp_url: &str,
+        args: &[&str],
+        timeout: Duration,
+        cancellation: CancellationToken,
+    ) -> Result<Value, BrowserError> {
+        let mut pinned_args = Vec::with_capacity(args.len() + 3);
+        pinned_args.extend_from_slice(&["--cdp", cdp_url, "--pin-tab"]);
+        pinned_args.extend_from_slice(args);
+        self.run(session, &pinned_args, timeout, cancellation).await
     }
 
     pub fn pid_path(&self, session: &str) -> PathBuf {
@@ -99,115 +133,117 @@ impl AgentBrowserCli {
         &self.executable
     }
 
+    pub async fn kill_profile_processes(&self) -> Result<(), BrowserError> {
+        let profile = self.profile_path.to_string_lossy();
+        let mut processes =
+            find_processes_by_executable_arg(&self.engine_path, &profile, "browser-engine");
+        processes.sort_by_key(|process| (process.pid, process.started_at));
+        processes.dedup_by_key(|process| (process.pid, process.started_at));
+        for process in processes {
+            kill_tree_checked(&process).await?;
+        }
+        Ok(())
+    }
+
     fn command(&self, session: &str, args: &[&str]) -> Command {
         let mut command = Command::new(&self.executable);
+        command.args(self.arguments(session, args));
+        for (key, value) in self.environment() {
+            command.env(key, value);
+        }
         command
-            .arg("--session")
-            .arg(session)
-            .arg("--json")
-            .args(args)
-            .env("AGENT_BROWSER_SOCKET_DIR", &self.socket_dir)
-            .env("AGENT_BROWSER_IDLE_TIMEOUT_MS", "0")
-            .env("AGENT_BROWSER_NO_AUTO_DIALOG", "1")
-            .env("AGENT_BROWSER_CONTENT_BOUNDARIES", "1")
-            .env("AGENT_BROWSER_STREAM_QUALITY", "60")
-            .env("AGENT_BROWSER_STREAM_MAX_WIDTH", "1600")
-            .env("AGENT_BROWSER_STREAM_MAX_HEIGHT", "1000")
-            .env("AGENT_BROWSER_PROFILE", &self.profile_path)
-            .env("AGENT_BROWSER_EXECUTABLE_PATH", &self.engine_path)
-            .env("AGENT_BROWSER_DOWNLOAD_PATH", &self.download_path)
-            .env("AGENT_BROWSER_SCREENSHOT_DIR", &self.screenshot_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        configure_hidden_process(&mut command);
         command
     }
-}
 
-struct CollectedOutput {
-    success: bool,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-}
-
-async fn collect_output(mut child: Child) -> Result<CollectedOutput, BrowserError> {
-    let stdout = child.stdout.take().ok_or_else(unavailable_error)?;
-    let stderr = child.stderr.take().ok_or_else(unavailable_error)?;
-    let (status, stdout, stderr) =
-        tokio::join!(child.wait(), read_bounded(stdout), read_bounded(stderr));
-    Ok(CollectedOutput {
-        success: status.map_err(|_| unavailable_error())?.success(),
-        stdout: stdout?,
-        stderr: stderr?,
-    })
-}
-
-async fn read_bounded(mut reader: impl AsyncRead + Unpin) -> Result<Vec<u8>, BrowserError> {
-    let mut output = Vec::new();
-    let mut buffer = [0_u8; 16 * 1024];
-    loop {
-        let read = reader
-            .read(&mut buffer)
-            .await
-            .map_err(|_| unavailable_error())?;
-        if read == 0 {
-            return Ok(output);
-        }
-        if output.len().saturating_add(read) > MAX_COMMAND_OUTPUT {
-            return Err(BrowserError::new(
-                BrowserErrorCode::BrowserInternal,
-                "The browser controller returned too much data",
-            ));
-        }
-        output.extend_from_slice(&buffer[..read]);
+    pub(super) fn arguments(&self, session: &str, args: &[&str]) -> Vec<OsString> {
+        let mut values = vec![
+            OsString::from("--session"),
+            OsString::from(session),
+            OsString::from("--json"),
+        ];
+        values.extend(args.iter().map(|value| OsString::from(*value)));
+        values
     }
+
+    pub(super) fn environment(&self) -> Vec<(OsString, OsString)> {
+        vec![
+            env("AGENT_BROWSER_SOCKET_DIR", self.socket_dir.as_os_str()),
+            env("AGENT_BROWSER_IDLE_TIMEOUT_MS", "0"),
+            env("AGENT_BROWSER_NO_AUTO_DIALOG", "1"),
+            env("AGENT_BROWSER_CONTENT_BOUNDARIES", "1"),
+            env("AGENT_BROWSER_STREAM_QUALITY", "60"),
+            env("AGENT_BROWSER_STREAM_MAX_WIDTH", "1600"),
+            env("AGENT_BROWSER_STREAM_MAX_HEIGHT", "1000"),
+            env("AGENT_BROWSER_PROFILE", self.profile_path.as_os_str()),
+            env(
+                "AGENT_BROWSER_EXECUTABLE_PATH",
+                self.engine_path.as_os_str(),
+            ),
+            env(
+                "AGENT_BROWSER_DOWNLOAD_PATH",
+                self.download_path.as_os_str(),
+            ),
+            env(
+                "AGENT_BROWSER_SCREENSHOT_DIR",
+                self.screenshot_path.as_os_str(),
+            ),
+        ]
+    }
+}
+
+fn env(key: impl Into<OsString>, value: impl Into<OsString>) -> (OsString, OsString) {
+    (key.into(), value.into())
+}
+
+fn log_command_started(session: &str, operation: &str, process: Option<&ProcessRecord>) {
+    tracing::info!(
+        target: "iyw_claw_browser",
+        session,
+        operation,
+        client_pid = process.map(|record| record.pid),
+        "browser controller command started"
+    );
+}
+
+fn log_command_interrupted(
+    session: &str,
+    operation: &str,
+    started: std::time::Instant,
+    outcome: &str,
+) {
+    tracing::warn!(
+        target: "iyw_claw_browser",
+        session,
+        operation,
+        outcome,
+        duration_ms = started.elapsed().as_millis() as u64,
+        "browser controller command interrupted"
+    );
+}
+
+fn log_command_completed(
+    session: &str,
+    operation: &str,
+    started: std::time::Instant,
+    result: &CollectedOutput,
+) {
+    tracing::info!(
+        target: "iyw_claw_browser",
+        session,
+        operation,
+        duration_ms = started.elapsed().as_millis() as u64,
+        success = result.success,
+        stdout_bytes = result.stdout.len(),
+        stderr_bytes = result.stderr.len(),
+        "browser controller command completed"
+    );
 }
 
 async fn kill_client(process: Option<&ProcessRecord>) {
     if let Some(process) = process {
         let _ = kill_tree_checked(process).await;
     }
-}
-
-fn parse_output(success: bool, stdout: &[u8], stderr: &[u8]) -> Result<Value, BrowserError> {
-    if stdout.len() > MAX_COMMAND_OUTPUT || stderr.len() > MAX_COMMAND_OUTPUT {
-        return Err(BrowserError::new(
-            BrowserErrorCode::BrowserInternal,
-            "The browser controller returned too much data",
-        ));
-    }
-    let value: Value = serde_json::from_slice(stdout).map_err(|_| unavailable_error())?;
-    if success && value.get("success").and_then(Value::as_bool) != Some(false) {
-        return Ok(value);
-    }
-    let code = value
-        .get("code")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    Err(map_cli_error(code))
-}
-
-fn map_cli_error(code: &str) -> BrowserError {
-    let mapped = match code {
-        "tab_gone" => BrowserErrorCode::BrowserTabGone,
-        "dialog_pending" => BrowserErrorCode::BrowserDialogPending,
-        _ => BrowserErrorCode::BrowserRuntimeUnavailable,
-    };
-    BrowserError::new(mapped, "The browser controller rejected the operation").retryable(true)
-}
-
-fn unavailable_error() -> BrowserError {
-    BrowserError::new(
-        BrowserErrorCode::BrowserRuntimeUnavailable,
-        "The browser controller is unavailable",
-    )
-    .retryable(true)
-}
-
-fn cancelled_error() -> BrowserError {
-    BrowserError::new(
-        BrowserErrorCode::BrowserCancelled,
-        "The browser operation was cancelled",
-    )
 }

@@ -56,6 +56,7 @@ impl BrowserStreamRegistry {
         generations: BrowserGenerations,
         session: String,
         cli: AgentBrowserCli,
+        cdp_url: String,
         channel: Channel<InvokeResponseBody>,
         claim_id: Option<String>,
     ) -> Result<BrowserFrameSubscriptionSnapshot, BrowserError> {
@@ -73,6 +74,7 @@ impl BrowserStreamRegistry {
         let task = spawn_stream_task(StreamTaskContext {
             session,
             cli,
+            cdp_url,
             generations: generations.clone(),
             channel,
             cancellation: cancellation.clone(),

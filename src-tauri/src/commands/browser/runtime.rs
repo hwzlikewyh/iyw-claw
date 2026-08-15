@@ -1,29 +1,35 @@
-use crate::browser::{BrowserError, BrowserSessionManager, BrowserStateSnapshot};
+use crate::browser::{BrowserSessionManager, BrowserStateSnapshot};
 
-#[tauri::command]
-pub async fn browser_get_state(
+use super::{browser_command, BrowserCommandFuture};
+
+#[tauri::command(async)]
+pub fn browser_get_state(
     manager: tauri::State<'_, BrowserSessionManager>,
-) -> Result<BrowserStateSnapshot, BrowserError> {
-    Ok(manager.snapshot().await)
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move { Ok(manager.snapshot().await) })
 }
 
-#[tauri::command]
-pub async fn browser_refresh_capability(
+#[tauri::command(async)]
+pub fn browser_refresh_capability(
     manager: tauri::State<'_, BrowserSessionManager>,
-) -> Result<BrowserStateSnapshot, BrowserError> {
-    Ok(manager.refresh_capability().await)
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move { Ok(manager.refresh_capability().await) })
 }
 
-#[tauri::command]
-pub async fn browser_start_runtime(
+#[tauri::command(async)]
+pub fn browser_start_runtime(
     manager: tauri::State<'_, BrowserSessionManager>,
-) -> Result<BrowserStateSnapshot, BrowserError> {
-    manager.start_browser_runtime().await
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move { manager.start_browser_runtime().await })
 }
 
-#[tauri::command]
-pub async fn browser_stop_runtime(
+#[tauri::command(async)]
+pub fn browser_stop_runtime(
     manager: tauri::State<'_, BrowserSessionManager>,
-) -> Result<BrowserStateSnapshot, BrowserError> {
-    manager.stop_browser_runtime().await
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move { manager.stop_browser_runtime().await })
 }

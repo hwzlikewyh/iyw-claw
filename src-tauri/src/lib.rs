@@ -263,6 +263,7 @@ mod tauri_app {
             // app's own toolbar — the Linux "double title bar".
             .plugin(
                 tauri_plugin_window_state::Builder::new()
+                    .with_filter(|label| !label.starts_with("browser-"))
                     .with_state_flags(
                         tauri_plugin_window_state::StateFlags::all()
                             & !tauri_plugin_window_state::StateFlags::DECORATIONS,
@@ -1072,13 +1073,28 @@ mod tauri_app {
                 }
 
                 if label.starts_with("browser-") {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        browser_commands::handle_browser_window_close(
-                            window.app_handle().clone(),
-                            label.clone(),
-                        );
-                        return;
+                    match event {
+                        tauri::WindowEvent::CloseRequested { api, .. } => {
+                            tracing::info!(
+                                target: "iyw_claw_browser",
+                                window_label = %label,
+                                "detached browser window close requested"
+                            );
+                            api.prevent_close();
+                            browser_commands::handle_browser_window_close_requested(
+                                window.app_handle().clone(),
+                                label.clone(),
+                            );
+                            return;
+                        }
+                        tauri::WindowEvent::Destroyed => {
+                            browser_commands::handle_browser_window_destroyed(
+                                window.app_handle().clone(),
+                                label.clone(),
+                            );
+                            return;
+                        }
+                        _ => {}
                     }
                 }
 

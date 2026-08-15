@@ -73,6 +73,7 @@ impl BrowserState {
         self.runtime.status = BrowserRuntimeStatus::Failed;
         self.runtime.operation_id = None;
         self.runtime.failure_code = Some(failure_code);
+        self.discard_closing_tabs();
         for tab in self.tabs.values_mut() {
             tab.tab_generation = tab.tab_generation.saturating_add(1);
             tab.status = BrowserTabStatus::Crashed;

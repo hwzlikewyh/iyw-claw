@@ -27,6 +27,7 @@ impl BrowserSessionManager {
                 tab.generations.clone(),
                 action.session,
                 action.cli,
+                action.cdp_url,
                 channel,
                 None,
             )

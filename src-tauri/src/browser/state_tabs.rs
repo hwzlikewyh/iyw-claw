@@ -7,6 +7,8 @@ use super::types::{
     AgentAccess, BrowserHostKind, BrowserRuntimeStatus, BrowserTabStatus, BrowserViewStatus,
 };
 
+mod tab_close;
+
 impl BrowserState {
     pub fn set_tab_agent_access(
         &mut self,
@@ -150,35 +152,6 @@ impl BrowserState {
         Ok(())
     }
 
-    pub fn begin_tab_close(&mut self, tab_id: &str) -> Result<TabTicket, BrowserError> {
-        let runtime_generation = self.runtime.generation;
-        let tab = self
-            .tabs
-            .get_mut(tab_id)
-            .ok_or_else(|| BrowserError::tab_not_found(tab_id))?;
-        if tab.status == BrowserTabStatus::Closing {
-            return closing_ticket(runtime_generation, tab);
-        }
-        tab.tab_generation = tab.tab_generation.saturating_add(1);
-        tab.status = BrowserTabStatus::Closing;
-        let operation_id = Uuid::new_v4().to_string();
-        tab.operation_id = Some(operation_id.clone());
-        Ok(TabTicket {
-            operation_id,
-            tab_id: tab_id.to_string(),
-            runtime_generation,
-            tab_generation: tab.tab_generation,
-            view_generation: tab.view_generation,
-        })
-    }
-
-    pub fn finish_tab_close(&mut self, ticket: &TabTicket) -> Result<(), BrowserError> {
-        self.validate_tab_ticket(ticket)?;
-        self.clear_tab_cdp(&ticket.tab_id);
-        remove_tab_record(&mut self.tabs, &mut self.hosts, &ticket.tab_id);
-        Ok(())
-    }
-
     pub fn record_tab_crash(&mut self, tab_id: &str, runtime_generation: u64) -> bool {
         if self.runtime.generation != runtime_generation {
             return false;
@@ -257,22 +230,6 @@ impl BrowserState {
             })
             .unwrap_or(BrowserViewStatus::Unclaimed)
     }
-}
-
-fn closing_ticket(runtime_generation: u64, tab: &TabRecord) -> Result<TabTicket, BrowserError> {
-    let operation_id = tab.operation_id.clone().ok_or_else(|| {
-        BrowserError::new(
-            BrowserErrorCode::BrowserInternal,
-            "The closing browser tab has no cleanup operation",
-        )
-    })?;
-    Ok(TabTicket {
-        operation_id,
-        tab_id: tab.id.clone(),
-        runtime_generation,
-        tab_generation: tab.tab_generation,
-        view_generation: tab.view_generation,
-    })
 }
 
 fn runtime_unavailable() -> BrowserError {
