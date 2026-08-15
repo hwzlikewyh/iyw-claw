@@ -81,8 +81,8 @@ impl BrowserSessionManager {
         if accepted {
             self.close_control(&tab_id).await;
         }
-        cleanup_dead_tab_session(handle).await;
         if accepted {
+            cleanup_dead_tab_session(handle).await;
             tracing::error!(
                 target: "iyw_claw_browser",
                 browser_tab_id = %tab_id,
@@ -90,6 +90,15 @@ impl BrowserSessionManager {
                 "pinned browser tab daemon exited unexpectedly"
             );
             self.schedule_tab_recovery(tab_id, runtime_generation);
+        } else if let Err(error) = self.cleanup_watcher_owned_tab(handle).await {
+            tracing::warn!(
+                target: "iyw_claw_browser",
+                browser_tab_id = %tab_id,
+                runtime_generation,
+                error_code = ?error.code,
+                error_message = %error.message,
+                "browser tab watcher cleanup failed after close ownership transfer"
+            );
         }
     }
 

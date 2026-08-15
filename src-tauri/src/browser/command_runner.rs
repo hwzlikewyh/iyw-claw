@@ -13,7 +13,8 @@ use super::command_output::{
 };
 use super::error::{BrowserError, BrowserErrorCode};
 use super::process::{
-    capture_process, find_processes_by_executable_arg, kill_tree_checked, ProcessRecord,
+    capture_process, configure_hidden_process, find_processes_by_executable_arg, kill_tree_checked,
+    ProcessRecord,
 };
 
 #[derive(Debug, Clone)]
@@ -151,6 +152,7 @@ impl AgentBrowserCli {
         for (key, value) in self.environment() {
             command.env(key, value);
         }
+        configure_hidden_process(&mut command);
         command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
