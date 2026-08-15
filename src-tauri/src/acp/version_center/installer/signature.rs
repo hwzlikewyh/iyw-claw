@@ -26,6 +26,12 @@ pub fn verify_tool_signature(bytes: &[u8], signature_text: &str) -> Result<(), A
 }
 
 pub fn verify_agent_signature(bytes: &[u8], signature_text: &str) -> Result<(), AppCommandError> {
+    if signature_text.trim().is_empty() {
+        tracing::warn!(
+            "[managed-agent-install] unsigned Agent artifact accepted with size and SHA-256 verification"
+        );
+        return Ok(());
+    }
     let key = AGENT_RELEASE_PUBLIC_KEY
         .map(str::trim)
         .filter(|value| !value.is_empty())

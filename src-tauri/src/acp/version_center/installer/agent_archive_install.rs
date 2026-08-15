@@ -47,7 +47,12 @@ async fn read_verified_archive(request: &ResolvedBinaryInstall<'_>) -> Result<Ve
         .await
         .map_err(|error| AcpError::DownloadFailed(error.to_string()))?;
     verify_agent_signature(&bytes, &request.ticket.signature).map_err(app_error)?;
-    (request.on_progress)("Agent artifact integrity and signature verified");
+    let progress = if request.ticket.signature.trim().is_empty() {
+        "Agent artifact integrity verified"
+    } else {
+        "Agent artifact integrity and signature verified"
+    };
+    (request.on_progress)(progress);
     Ok(bytes)
 }
 

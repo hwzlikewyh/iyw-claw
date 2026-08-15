@@ -114,8 +114,7 @@ fn validate_ticket(ticket: &DownloadTicket) -> Result<(), AppCommandError> {
         && parsed.password().is_none()
         && ticket.size > 0
         && ticket.sha256.len() == 64
-        && ticket.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
-        && !ticket.signature.trim().is_empty();
+        && ticket.sha256.bytes().all(|byte| byte.is_ascii_hexdigit());
     valid
         .then_some(())
         .ok_or_else(|| AppCommandError::invalid_input("Agent download ticket was rejected"))
