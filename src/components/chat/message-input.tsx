@@ -90,8 +90,6 @@ import {
   uploadLocalChatImagePathToRemote,
   uploadLocalPathToRemote,
   isEmptyAttachmentError,
-  openSettingsWindow,
-  type SettingsSection,
   type ChatImageStorageOptions,
   type PreparedChatImage,
   CHAT_IMAGE_I18N_KEY_TOO_LARGE,
@@ -131,6 +129,7 @@ import {
   type AttachImageToSessionDetail,
   type AppendTextToSessionDetail,
 } from "@/lib/session-attachment-events"
+import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import {
   ConversationContextBar,
   ConversationFolderBranchPicker,
@@ -823,6 +822,7 @@ export function MessageInput({
   onInjectConsumed,
 }: MessageInputProps) {
   const t = useTranslations("Folder.chat.messageInput")
+  const { openSkillMarket } = useWorkbenchRoute()
   const tSessionConfig = t as unknown as SessionConfigTranslator
   const tQueue = useTranslations("Folder.chat.messageQueue")
   // Kept as a separate binding from `t` so its call sites — exclusively
@@ -2441,8 +2441,8 @@ export function MessageInput({
   // Surface the welcome-page skill families inside an active conversation. Each
   // item drops that skill's leading invocation badge into the composer. A skill
   // not linked to the current agent is "locked": clicking it surfaces a hint
-  // (and a jump to Settings) instead of injecting a badge the agent can't act on
-  // — the same gating QuickActions applies, to avoid a wasted send.
+  // (and opens its Skill Market detail) instead of injecting a badge the agent
+  // can't act on — the same gating QuickActions applies, to avoid a wasted send.
   const expertsSorted = useMemo(
     () =>
       [...experts].sort(
@@ -2458,7 +2458,7 @@ export function MessageInput({
   )
 
   const notifySkillNotEnabled = useCallback(
-    (skillLabel: string, section: SettingsSection) => {
+    (skillLabel: string, skillId: string) => {
       const agentLabel = agentType ? getAgentDisplayName(agentType) : ""
       toast.warning(
         tQa("notEnabled.title", { skill: skillLabel, agent: agentLabel }),
@@ -2466,16 +2466,12 @@ export function MessageInput({
           description: tQa("notEnabled.description"),
           action: {
             label: tQa("notEnabled.action"),
-            onClick: () => {
-              void openSettingsWindow(section).catch((err) =>
-                console.error("[MessageInput] failed to open settings:", err)
-              )
-            },
+            onClick: () => openSkillMarket(skillId),
           },
         }
       )
     },
-    [agentType, tQa]
+    [agentType, openSkillMarket, tQa]
   )
 
   // Insert a skill shortcut: seed the template only into an *empty* composer
@@ -2511,7 +2507,7 @@ export function MessageInput({
       const label =
         pickLocalized(item.metadata.display_name, locale) || item.metadata.id
       if (isSkillLocked(item.metadata.id)) {
-        notifySkillNotEnabled(label, "experts")
+        notifySkillNotEnabled(label, item.metadata.id)
         return
       }
       // Experts are open-ended: just the leading badge, no canned template.
@@ -2524,7 +2520,7 @@ export function MessageInput({
     (action: OfficeAction) => {
       const label = tQa(action.id as Parameters<typeof tQa>[0])
       if (isSkillLocked(action.skillId)) {
-        notifySkillNotEnabled(label, "office-tools")
+        notifySkillNotEnabled(label, action.skillId)
         return
       }
       insertSkillShortcut(

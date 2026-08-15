@@ -145,6 +145,24 @@ function parseQuery(searchParams: URLSearchParams): SkillMarketQueryState {
   }
 }
 
+function initialQuery(
+  searchParams: URLSearchParams,
+  targetSkillId?: string | null
+): SkillMarketQueryState {
+  const query = parseQuery(searchParams)
+  if (!targetSkillId) return query
+  return {
+    ...query,
+    view: "market",
+    publisher: "all",
+    distribution: "all",
+    compatibility: "all",
+    category: null,
+    sort: "recommended",
+    q: targetSkillId,
+  }
+}
+
 function persistQuery(query: SkillMarketQueryState): void {
   if (typeof window === "undefined") return
   const params = new URLSearchParams()
@@ -182,7 +200,7 @@ const INITIAL_LIST: ListState = {
   offline: false,
 }
 
-export function useSkillMarket() {
+export function useSkillMarket(targetSkillId?: string | null) {
   const searchParams = useSearchParams()
   const perfParam = searchParams.get("perf")
   const perfCount = perfParam
@@ -190,7 +208,7 @@ export function useSkillMarket() {
     : undefined
 
   const [query, setQueryState] = useState<SkillMarketQueryState>(() =>
-    parseQuery(searchParams)
+    initialQuery(searchParams, targetSkillId)
   )
   const updateQuery = useCallback((patch: Partial<SkillMarketQueryState>) => {
     setQueryState((current) => {

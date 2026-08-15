@@ -2966,7 +2966,7 @@
           },
           "notEnabled": {
             "title": "“{skill}” isn’t enabled for {agent} yet",
-            "description": "Enable it in Settings to use it here.",
+            "description": "Enable it in Skill Market to use it here.",
             "action": "Enable",
             "hint": "Skill not enabled"
           }

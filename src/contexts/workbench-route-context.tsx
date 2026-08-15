@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react"
@@ -20,6 +21,11 @@ import {
  */
 export type WorkbenchRouteId = "conversations" | "automations" | "skills"
 
+export interface SkillMarketNavigationTarget {
+  requestId: number
+  skillId: string
+}
+
 interface WorkbenchRouteContextValue {
   routeId: WorkbenchRouteId
   /** Convenience for the common branch — `routeId === "conversations"`. */
@@ -27,6 +33,9 @@ interface WorkbenchRouteContextValue {
   setRoute: (id: WorkbenchRouteId) => void
   /** Sugar for returning to the conversation workspace. */
   openConversations: () => void
+  skillMarketTarget: SkillMarketNavigationTarget | null
+  openSkillMarket: (skillId: string) => void
+  consumeSkillMarketTarget: (requestId: number) => void
 }
 
 const WorkbenchRouteContext = createContext<WorkbenchRouteContextValue | null>(
@@ -55,9 +64,27 @@ export function useWorkbenchRoute() {
 
 export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
   const [routeId, setRouteId] = useState<WorkbenchRouteId>("conversations")
+  const [skillMarketTarget, setSkillMarketTarget] =
+    useState<SkillMarketNavigationTarget | null>(null)
+  const skillMarketRequestIdRef = useRef(0)
 
   const setRoute = useCallback((id: WorkbenchRouteId) => setRouteId(id), [])
   const openConversations = useCallback(() => setRouteId("conversations"), [])
+  const openSkillMarket = useCallback((skillId: string) => {
+    const normalized = skillId.trim()
+    if (!normalized) return
+    skillMarketRequestIdRef.current += 1
+    setSkillMarketTarget({
+      requestId: skillMarketRequestIdRef.current,
+      skillId: normalized,
+    })
+    setRouteId("skills")
+  }, [])
+  const consumeSkillMarketTarget = useCallback((requestId: number) => {
+    setSkillMarketTarget((current) =>
+      current?.requestId === requestId ? null : current
+    )
+  }, [])
 
   const value = useMemo<WorkbenchRouteContextValue>(
     () => ({
@@ -65,8 +92,18 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
       isConversations: routeId === "conversations",
       setRoute,
       openConversations,
+      skillMarketTarget,
+      openSkillMarket,
+      consumeSkillMarketTarget,
     }),
-    [routeId, setRoute, openConversations]
+    [
+      routeId,
+      setRoute,
+      openConversations,
+      skillMarketTarget,
+      openSkillMarket,
+      consumeSkillMarketTarget,
+    ]
   )
 
   return (

@@ -2966,7 +2966,7 @@
           },
           "notEnabled": {
             "title": "「{skill}」技能尚未对 {agent} 启用",
-            "description": "前往设置启用后即可在此使用。",
+            "description": "前往技能市场启用后即可在此使用。",
             "action": "去启用",
             "hint": "技能未启用"
           }

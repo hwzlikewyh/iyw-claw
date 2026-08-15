@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useSkillMarket } from "@/hooks/use-skill-market"
 import { useSkillMarketActivation } from "@/hooks/use-skill-market-activation"
 import { useSkillMarketInstall } from "@/hooks/use-skill-market-install"
@@ -14,6 +14,7 @@ import {
   type SkillMarketUploadMode,
 } from "@/components/skills/market/upload-dialog"
 import { ManagementDialogs } from "@/components/skills/market/management-dialogs"
+import type { SkillMarketNavigationTarget } from "@/contexts/workbench-route-context"
 import type { SkillMarketV2Detail, SkillMarketV2Item } from "@/lib/skill-market"
 import type {
   SkillMarketAddVersionRequestV2,
@@ -22,12 +23,19 @@ import type {
 } from "@/lib/skill-market-source"
 
 export function SkillMarketView({
+  navigationTarget,
+  onNavigationTargetConsumed,
   onOpenConnectors,
 }: {
+  navigationTarget: SkillMarketNavigationTarget | null
+  onNavigationTargetConsumed: (requestId: number) => void
   onOpenConnectors: () => void
 }) {
-  const market = useSkillMarket()
+  const market = useSkillMarket(navigationTarget?.skillId)
   const install = useSkillMarketInstall()
+  const { list, selectItem } = market
+  const targetLoadingRequestRef = useRef<number | null>(null)
+  const handledTargetRequestRef = useRef<number | null>(null)
 
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadMode, setUploadMode] = useState<SkillMarketUploadMode>("publish")
@@ -50,6 +58,31 @@ export function SkillMarketView({
     detail: market.detail.value,
   })
   const inventory = detailActivation.inventory
+
+  useEffect(() => {
+    if (!navigationTarget) return
+    const { requestId, skillId } = navigationTarget
+    if (handledTargetRequestRef.current === requestId) return
+    if (list.loading) {
+      targetLoadingRequestRef.current = requestId
+      return
+    }
+    if (targetLoadingRequestRef.current !== requestId || list.error) return
+
+    handledTargetRequestRef.current = requestId
+    const item = list.items.find((candidate) => candidate.slug === skillId)
+    if (!item) return
+    selectItem(item)
+    setDetailOpen(true)
+    onNavigationTargetConsumed(requestId)
+  }, [
+    list.error,
+    list.items,
+    list.loading,
+    navigationTarget,
+    onNavigationTargetConsumed,
+    selectItem,
+  ])
 
   const handlePrimaryAction = useCallback(
     (item: SkillMarketV2Item, version: string) => {

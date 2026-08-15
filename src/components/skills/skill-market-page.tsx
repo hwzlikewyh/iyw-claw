@@ -8,9 +8,11 @@ import {
 import { ConnectorMarketView } from "@/components/skills/market/connector-market-view"
 import { PluginMarketPreview } from "@/components/skills/market/plugin-market-preview"
 import { SkillMarketView } from "@/components/skills/market/view"
+import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { cn } from "@/lib/utils"
 
 export function SkillMarketPage() {
+  const { skillMarketTarget, consumeSkillMarketTarget } = useWorkbenchRoute()
   const [section, setSection] = useState<CapabilityMarketSection>("skills")
   const [visited, setVisited] = useState<Set<CapabilityMarketSection>>(
     () => new Set(["skills"])
@@ -31,7 +33,11 @@ export function SkillMarketPage() {
         onSectionChange={openSection}
       >
         <div className={cn("h-full", section !== "skills" && "hidden")}>
-          <SkillMarketView onOpenConnectors={() => openSection("connectors")} />
+          <SkillMarketView
+            navigationTarget={skillMarketTarget}
+            onNavigationTargetConsumed={consumeSkillMarketTarget}
+            onOpenConnectors={() => openSection("connectors")}
+          />
         </div>
         {visited.has("connectors") ? (
           <div className={cn("h-full", section !== "connectors" && "hidden")}>
