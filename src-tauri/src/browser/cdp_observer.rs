@@ -17,6 +17,7 @@ use super::manager::BrowserSessionManager;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const OBSERVER_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
 
 struct CdpRequest {
@@ -104,14 +105,8 @@ impl CdpObserverHandle {
 
     pub async fn stop(&self) {
         self.cancellation.cancel();
-        if let Some(mut task) = self.task.lock().await.take() {
-            if tokio::time::timeout(Duration::from_secs(2), &mut task)
-                .await
-                .is_err()
-            {
-                task.abort();
-                let _ = task.await;
-            }
+        if let Some(task) = self.task.lock().await.take() {
+            let _ = task.await;
         }
     }
 
@@ -160,7 +155,10 @@ async fn run_observer<S>(
     loop {
         tokio::select! {
             _ = cancellation.cancelled() => {
-                let _ = sink.send(Message::Close(None)).await;
+                let _ = tokio::time::timeout(
+                    OBSERVER_CLOSE_TIMEOUT,
+                    sink.send(Message::Close(None)),
+                ).await;
                 break;
             }
             request = commands.recv() => {
