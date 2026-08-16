@@ -32,7 +32,6 @@ pub(super) struct DownloadRecord {
 #[derive(Debug, Clone)]
 pub(super) struct PopupSeed {
     pub tab_id: String,
-    pub access: super::types::AgentAccess,
-    pub access_generation: u64,
+    pub tab_generation: u64,
     pub host_id: Option<String>,
 }

@@ -7,18 +7,6 @@ use crate::browser::user_control_lease::UserControlLease;
 const USER_TAKEOVER_TIMEOUT: Duration = Duration::from_secs(3);
 
 impl ControlGate {
-    pub async fn reset_agent_access(&self, enabled: bool) {
-        let mut inner = self.inner.lock().await;
-        inner.agent_enabled = enabled;
-        inner.epoch = inner.epoch.saturating_add(1);
-        if let Some(active) = &inner.active_agent {
-            active.cancellation.cancel();
-        }
-        inner.queue.clear();
-        drop(inner);
-        self.notify.notify_waiters();
-    }
-
     pub async fn acquire_user(&self) -> Result<UserControlLease, BrowserError> {
         let (lease, active_agent) = {
             let mut inner = self.inner.lock().await;

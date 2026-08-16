@@ -100,8 +100,7 @@ impl BrowserSessionManager {
                 timeout: COMMAND_TIMEOUT,
             })
             .await?;
-        self.agent_state(context.identity, Some(tab_id), Some(output))
-            .await
+        self.agent_state(Some(tab_id), Some(output)).await
     }
 
     pub(super) async fn run_agent_cli(

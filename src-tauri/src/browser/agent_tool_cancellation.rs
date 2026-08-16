@@ -4,11 +4,9 @@ use tokio_util::sync::CancellationToken;
 use super::control_lease::AgentControlLease;
 use super::error::{BrowserError, BrowserErrorCode};
 use super::manager::BrowserSessionManager;
-use super::types::BrowserAgentIdentity;
 
 #[derive(Clone, Copy)]
 pub(super) struct AgentToolContext<'a> {
-    pub identity: &'a BrowserAgentIdentity,
     pub cancellation: &'a CancellationToken,
 }
 
@@ -47,7 +45,7 @@ impl BrowserSessionManager {
     ) -> Result<AgentControlLease, BrowserError> {
         tokio::select! {
             _ = context.cancellation.cancelled() => Err(cancelled_error()),
-            result = self.acquire_agent_control(tab_id, context.identity) => result,
+            result = self.acquire_agent_control(tab_id) => result,
         }
     }
 }

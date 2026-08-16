@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use super::cdp_records::{DialogRecord, DownloadRecord, FileChooserRecord, PopupSeed};
+use super::error::{BrowserError, BrowserErrorContext};
 use super::state::BrowserState;
 use super::types::{BrowserGenerations, BrowserTabStatus};
 use super::types_cdp::{BrowserDialogKind, BrowserDownloadStatus, BrowserFileChooserMode};
@@ -18,8 +19,7 @@ impl BrowserState {
             })
             .map(|tab| PopupSeed {
                 tab_id: tab.id.clone(),
-                access: tab.agent_access.clone(),
-                access_generation: tab.access_generation,
+                tab_generation: tab.tab_generation,
                 host_id: tab.host_id.clone(),
             })
     }
@@ -37,22 +37,20 @@ impl BrowserState {
         let opener_matches = self.tabs.values().any(|tab| {
             tab.id == seed.tab_id
                 && tab.target_id.as_deref() == Some(opener_target_id)
-                && tab.access_generation == seed.access_generation
-                && tab.agent_access == seed.access
+                && tab.tab_generation == seed.tab_generation
                 && matches!(
                     tab.status,
                     BrowserTabStatus::Live | BrowserTabStatus::Navigating
                 )
         });
-        let popup_matches = self
-            .tabs
-            .get(&ticket.tab_id)
-            .is_some_and(|tab| tab.agent_access == seed.access && tab.access_generation == 1);
-        if !opener_matches || !popup_matches {
-            return Err(super::error::BrowserError::new(
-                super::error::BrowserErrorCode::BrowserTabAccessDenied,
-                "The parent browser tab access changed while opening a popup",
-            ));
+        if !opener_matches {
+            return Err(BrowserError::stale_generation(BrowserErrorContext {
+                operation_id: Some(ticket.operation_id.clone()),
+                browser_tab_id: Some(seed.tab_id.clone()),
+                runtime_generation: Some(ticket.runtime_generation),
+                tab_generation: Some(seed.tab_generation),
+                ..BrowserErrorContext::default()
+            }));
         }
         self.commit_tab_live(ticket, target_id, title, url)
     }

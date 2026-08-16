@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use serde_json::{json, Value};
+use tokio_util::sync::CancellationToken;
 
 use super::cdp_observer::CdpObserverHandle;
 use super::error::{BrowserError, BrowserErrorCode};
@@ -14,6 +15,7 @@ impl BrowserSessionManager {
     pub(super) async fn start_cdp_observer(
         &self,
         runtime: &BrowserRuntimeContext,
+        cancellation: CancellationToken,
     ) -> Result<(), BrowserError> {
         self.stop_cdp_observer().await;
         let observer = CdpObserverHandle::start(
@@ -21,6 +23,7 @@ impl BrowserSessionManager {
             &runtime.download_path,
             self.clone(),
             runtime.generation,
+            cancellation,
         )
         .await?;
         *self.observer.lock().await = Some(observer);
@@ -41,19 +44,34 @@ impl BrowserSessionManager {
         if !accepted {
             return;
         }
+        let epoch = self.current_shutdown_epoch();
+        let _tab_guard = self.tab_open_lock.lock().await;
+        if self.ensure_shutdown_epoch(epoch).is_err() {
+            return;
+        }
         self.close_all_controls().await;
         self.streams.close_all().await;
-        let _ = self.shutdown_tabs().await;
+        let tabs_result = self.shutdown_tabs().await;
+        let mut recovered = false;
         if let Some(runtime) = &self.runtime {
-            let _ = runtime.stop().await;
+            let runtime_result = runtime.stop().await;
+            let tabs_result = if tabs_result.is_err() && runtime_result.is_ok() {
+                self.shutdown_tabs().await
+            } else {
+                tabs_result
+            };
             self.observer.lock().await.take();
-            self.schedule_recovery(runtime.clone(), generation);
+            if tabs_result.is_ok() && runtime_result.is_ok() {
+                self.schedule_recovery(runtime.clone(), generation);
+                recovered = true;
+            }
         } else {
             self.observer.lock().await.take();
         }
         tracing::error!(
             target: "iyw_claw_browser",
             runtime_generation = generation,
+            recovery_scheduled = recovered,
             "browser CDP observer disconnected unexpectedly"
         );
     }

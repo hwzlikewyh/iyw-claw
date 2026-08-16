@@ -10,8 +10,16 @@ use super::window_close::{close_browser_window, spawn_browser_window_cleanup};
 use super::{browser_command, BrowserCommandFuture};
 
 #[tauri::command(async)]
-pub fn browser_create_window(app: tauri::AppHandle) -> BrowserCommandFuture<String> {
-    browser_command(async move { create_browser_window(app) })
+pub fn browser_create_window(
+    app: tauri::AppHandle,
+    manager: tauri::State<'_, BrowserSessionManager>,
+) -> BrowserCommandFuture<String> {
+    let manager = manager.inner().clone();
+    browser_command(async move {
+        manager
+            .run_browser_window_creation(move || create_browser_window(app))
+            .await
+    })
 }
 
 fn create_browser_window(app: tauri::AppHandle) -> Result<String, BrowserError> {
@@ -99,12 +107,35 @@ fn window_error() -> BrowserError {
 
 #[tauri::command(async)]
 pub fn browser_register_host(
+    app: tauri::AppHandle,
     manager: tauri::State<'_, BrowserSessionManager>,
     window_label: String,
     kind: BrowserHostKind,
 ) -> BrowserCommandFuture<BrowserHostRegistration> {
     let manager = manager.inner().clone();
-    browser_command(async move { manager.register_browser_host(window_label, kind).await })
+    browser_command(async move {
+        let label = window_label.clone();
+        manager
+            .register_browser_host(window_label, kind, move || {
+                validate_browser_host_window(&app, &label, kind)
+            })
+            .await
+    })
+}
+
+fn validate_browser_host_window(
+    app: &tauri::AppHandle,
+    window_label: &str,
+    kind: BrowserHostKind,
+) -> Result<(), BrowserError> {
+    let expected_label = match kind {
+        BrowserHostKind::Docked => window_label == "main",
+        BrowserHostKind::Detached => validate_browser_window_label(window_label).is_ok(),
+    };
+    if expected_label && app.get_webview_window(window_label).is_some() {
+        return Ok(());
+    }
+    Err(window_error())
 }
 
 #[tauri::command(async)]

@@ -16,6 +16,12 @@ impl BrowserSessionManager {
         opener_id: String,
         url: String,
     ) {
+        let epoch = self.current_shutdown_epoch();
+        let _tab_guard = self.tab_open_lock.lock().await;
+        if self.ensure_shutdown_epoch(epoch).is_err() {
+            return;
+        }
+        let cancellation = self.shutdown_cancellation().await;
         let Some(seed) = self.state.read().await.popup_seed(&opener_id) else {
             self.close_orphan_target(&target_id).await;
             return;
@@ -28,19 +34,25 @@ impl BrowserSessionManager {
             self.close_orphan_target(&target_id).await;
             return;
         };
-        let Ok(ticket) = self
-            .reserve_tab(url, seed.access.clone(), seed.host_id.clone())
-            .await
-        else {
+        let Ok(ticket) = self.reserve_tab(url, seed.host_id.clone()).await else {
             self.close_orphan_target(&target_id).await;
             return;
         };
         if let Err(error) = self
-            .bind_popup(&runtime, &ticket, &opener_id, &seed, target_id.clone())
+            .bind_popup(
+                &runtime,
+                &ticket,
+                &opener_id,
+                &seed,
+                target_id.clone(),
+                cancellation.clone(),
+            )
             .await
         {
             let _ = self.rollback_tab(&ticket).await;
-            self.close_orphan_target(&target_id).await;
+            if !cancellation.is_cancelled() {
+                self.close_orphan_target(&target_id).await;
+            }
             tracing::warn!(
                 target: "iyw_claw_browser",
                 error_code = ?error.code,
@@ -56,8 +68,9 @@ impl BrowserSessionManager {
         opener_id: &str,
         seed: &PopupSeed,
         target_id: String,
+        cancellation: tokio_util::sync::CancellationToken,
     ) -> Result<(), BrowserError> {
-        let launched = bind_existing_tab(runtime, ticket, &target_id).await?;
+        let launched = bind_existing_tab(runtime, ticket, &target_id, cancellation).await?;
         let watch = match self.tabs.insert(launched.handle).await {
             Ok(watch) => watch,
             Err(handle) => {

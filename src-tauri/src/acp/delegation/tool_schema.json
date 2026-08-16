@@ -185,7 +185,7 @@
   },
   {
     "name": "browser_list_tabs",
-    "description": "List browser tabs shared with this Agent connection or conversation. Call this before browser_open. If tabs is empty, stop and ask the user to share a tab with this Agent. Otherwise read tabs[].browserTabId and pass it as tab_id for same-tab navigation and the other browser tools.",
+    "description": "List every tab in iyw-claw's managed browser. All managed tabs are available to every Agent session. Read activeTabId for the current/default tab and tabs[].browserTabId for exact tab selection. Pass a browserTabId as tab_id to the other browser tools.",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -194,7 +194,7 @@
   },
   {
     "name": "browser_open",
-    "description": "Open an HTTP/HTTPS URL in the shared visible browser. Call browser_list_tabs first. If tabs is empty, stop and ask the user to share a tab with this Agent. Otherwise pass tabs[].browserTabId as tab_id to navigate the same tab. Omit tab_id only when the user explicitly asks for a new tab. New tabs use the same persistent browser profile and may inherit its sign-in state. The user can see and take over the same tab.",
+    "description": "Open an HTTP/HTTPS URL in iyw-claw's managed browser. By default this navigates activeTabId and does not add a tab. Pass tabs[].browserTabId as tab_id to navigate an exact tab. Set new_tab to true only when the user explicitly asks for another tab. If no tabs exist, the default call starts the browser and creates the first tab. All tabs use the same persistent profile and sign-in state, and the user can see and take over them.",
     "inputSchema": {
       "type": "object",
       "required": ["url"],
@@ -210,6 +210,11 @@
           "minLength": 1,
           "maxLength": 128,
           "description": "Optional tab id from browser_list_tabs.tabs[].browserTabId."
+        },
+        "new_tab": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create another tab instead of navigating the active tab. Do not combine with tab_id."
         }
       },
       "additionalProperties": false
@@ -217,7 +222,7 @@
   },
   {
     "name": "browser_snapshot",
-    "description": "Read a fresh accessibility snapshot for one shared browser tab. The snapshot contains stable @eN references for browser_click and browser_fill; take another snapshot after navigation or material page changes.",
+    "description": "Read a fresh accessibility snapshot for one managed browser tab. The snapshot contains stable @eN references for browser_click and browser_fill; take another snapshot after navigation or material page changes.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id"],
@@ -244,7 +249,7 @@
   },
   {
     "name": "browser_click",
-    "description": "Click an element in a shared browser tab using an @eN reference from the latest browser_snapshot or a CSS selector. Human input preempts this operation.",
+    "description": "Click an element in a managed browser tab using an @eN reference from the latest browser_snapshot or a CSS selector. Human input preempts this operation.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id", "selector"],
@@ -262,7 +267,7 @@
   },
   {
     "name": "browser_fill",
-    "description": "Clear and fill an input in a shared browser tab using an @eN reference from the latest snapshot or a CSS selector. Never enter secrets unless the user explicitly supplied them for this task. Human input preempts this operation.",
+    "description": "Clear and fill an input in a managed browser tab using an @eN reference from the latest snapshot or a CSS selector. Never enter secrets unless the user explicitly supplied them for this task. Human input preempts this operation.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id", "selector", "text"],
@@ -281,7 +286,7 @@
   },
   {
     "name": "browser_press",
-    "description": "Press a keyboard key or chord in a shared browser tab, for example Enter, Tab, Escape, or Control+a. Human input preempts this operation.",
+    "description": "Press a keyboard key or chord in a managed browser tab, for example Enter, Tab, Escape, or Control+a. Human input preempts this operation.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id", "key"],
@@ -299,7 +304,7 @@
   },
   {
     "name": "browser_scroll",
-    "description": "Scroll a shared browser tab in one direction. Human input preempts this operation.",
+    "description": "Scroll a managed browser tab in one direction. Human input preempts this operation.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id", "direction"],
@@ -326,7 +331,7 @@
   },
   {
     "name": "browser_wait",
-    "description": "Wait for a selector to appear in a shared browser tab, or wait for a bounded number of milliseconds. Prefer a selector for deterministic page readiness.",
+    "description": "Wait for a selector to appear in a managed browser tab, or wait for a bounded number of milliseconds. Prefer a selector for deterministic page readiness.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id"],
@@ -350,7 +355,7 @@
   },
   {
     "name": "browser_screenshot",
-    "description": "Capture a screenshot of a shared browser tab into iyw-claw's managed browser screenshot directory. Returns the generated local path; use analyze_image when visual inspection is needed.",
+    "description": "Capture a screenshot of a managed browser tab into iyw-claw's managed browser screenshot directory. Returns the generated local path; use analyze_image when visual inspection is needed.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id"],
@@ -373,7 +378,7 @@
   },
   {
     "name": "browser_close_tab",
-    "description": "Close one browser tab accessible to the current Agent. This closes the same visible tab for the user, so use it only when the tab is no longer needed.",
+    "description": "Close one managed browser tab. This closes the same visible tab for the user and every Agent session, so use it only when the tab is no longer needed.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id"],

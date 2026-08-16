@@ -14,7 +14,6 @@ pub enum BrowserErrorCode {
     BrowserTabLimit,
     BrowserInvalidArgument,
     BrowserTabNotFound,
-    BrowserTabAccessDenied,
     BrowserTabGone,
     BrowserTabCrashed,
     BrowserNavigationFailed,

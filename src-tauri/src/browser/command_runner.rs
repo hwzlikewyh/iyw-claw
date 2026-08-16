@@ -136,14 +136,11 @@ impl AgentBrowserCli {
 
     pub async fn kill_profile_processes(&self) -> Result<(), BrowserError> {
         let profile = self.profile_path.to_string_lossy();
-        let mut processes =
-            find_processes_by_executable_arg(&self.engine_path, &profile, "browser-engine");
-        processes.sort_by_key(|process| (process.pid, process.started_at));
-        processes.dedup_by_key(|process| (process.pid, process.started_at));
-        for process in processes {
-            kill_tree_checked(&process).await?;
-        }
-        Ok(())
+        kill_matching_processes(&self.engine_path, &profile, "browser-engine").await
+    }
+
+    pub async fn kill_sidecar_processes(&self) -> Result<(), BrowserError> {
+        kill_matching_processes(&self.executable, "iyw-", "agent-browser-daemon").await
     }
 
     fn command(&self, session: &str, args: &[&str]) -> Command {
@@ -194,6 +191,21 @@ impl AgentBrowserCli {
             ),
         ]
     }
+}
+
+async fn kill_matching_processes(
+    executable: &Path,
+    argument_fragment: &str,
+    label: &str,
+) -> Result<(), BrowserError> {
+    let mut processes = find_processes_by_executable_arg(executable, argument_fragment, label);
+    processes.sort_by_key(|process| (process.pid, process.started_at));
+    processes.dedup_by_key(|process| (process.pid, process.started_at));
+    let results = futures_util::future::join_all(processes.iter().map(kill_tree_checked)).await;
+    results
+        .into_iter()
+        .find_map(Result::err)
+        .map_or(Ok(()), Err)
 }
 
 fn env(key: impl Into<OsString>, value: impl Into<OsString>) -> (OsString, OsString) {

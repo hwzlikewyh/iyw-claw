@@ -73,6 +73,10 @@ impl BrowserState {
         self.runtime.status = BrowserRuntimeStatus::Failed;
         self.runtime.operation_id = None;
         self.runtime.failure_code = Some(failure_code);
+        let claims = self.claims.keys().cloned().collect::<Vec<_>>();
+        for claim_id in claims {
+            self.abort_view_claim_unchecked(&claim_id);
+        }
         self.discard_closing_tabs();
         for tab in self.tabs.values_mut() {
             tab.tab_generation = tab.tab_generation.saturating_add(1);

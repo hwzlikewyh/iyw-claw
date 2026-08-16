@@ -25,7 +25,7 @@ interface BrowserContextValue {
   error: BrowserErrorEnvelope | null
   busy: boolean
   openBrowser: () => Promise<void>
-  closeBrowser: () => void
+  closeBrowser: () => Promise<void>
   toggleBrowser: () => Promise<void>
   refresh: () => Promise<BrowserStateSnapshot | null>
   acceptState: (state: BrowserStateSnapshot) => void
@@ -47,9 +47,13 @@ export function BrowserProvider({
   const [error, setError] = useState<BrowserErrorEnvelope | null>(null)
   const [busy, setBusy] = useState(false)
   const mountedRef = useRef(true)
+  const closingRef = useRef(false)
+  const acceptedRevisionRef = useRef(0)
 
   const acceptState = useCallback((next: BrowserStateSnapshot) => {
-    if (!mountedRef.current) return
+    if (!mountedRef.current || next.stateRevision < acceptedRevisionRef.current)
+      return
+    acceptedRevisionRef.current = next.stateRevision
     setState(next)
     setError(null)
   }, [])
@@ -93,9 +97,27 @@ export function BrowserProvider({
     }
   }, [acceptState])
 
-  const closeBrowser = useCallback(() => setOpen(false), [])
+  const closeBrowser = useCallback(async () => {
+    if (closingRef.current) return
+    if (!isDesktop()) {
+      setOpen(false)
+      return
+    }
+    closingRef.current = true
+    setBusy(true)
+    try {
+      const next = await browserApi.stop()
+      acceptState(next)
+      if (mountedRef.current) setOpen(false)
+    } catch (cause) {
+      if (mountedRef.current) setError(normalizeError(cause))
+    } finally {
+      closingRef.current = false
+      if (mountedRef.current) setBusy(false)
+    }
+  }, [acceptState])
   const toggleBrowser = useCallback(async () => {
-    if (isOpen) closeBrowser()
+    if (isOpen) await closeBrowser()
     else await openBrowser()
   }, [closeBrowser, isOpen, openBrowser])
 

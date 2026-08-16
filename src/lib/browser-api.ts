@@ -1,7 +1,6 @@
 import type { Channel } from "@tauri-apps/api/core"
 import { getShellTransport, isDesktop } from "@/lib/transport"
 import type {
-  AgentAccess,
   BrowserFrameSubscriptionSnapshot,
   BrowserGenerations,
   BrowserHostRegistration,
@@ -18,10 +17,14 @@ export const browserApi = {
     shell().call<BrowserStateSnapshot>("browser_refresh_capability"),
   start: () => shell().call<BrowserStateSnapshot>("browser_start_runtime"),
   stop: () => shell().call<BrowserStateSnapshot>("browser_stop_runtime"),
-  createTab: (url: string, access: AgentAccess, hostId?: string) =>
+  createTab: (url: string, hostId?: string) =>
     shell().call<BrowserStateSnapshot>("browser_create_tab", {
       url,
-      access,
+      hostId: hostId ?? null,
+    }),
+  ensureInitialTab: (url: string, hostId?: string) =>
+    shell().call<BrowserStateSnapshot>("browser_ensure_initial_tab", {
+      url,
       hostId: hostId ?? null,
     }),
   closeTab: (tabId: string) =>
@@ -91,11 +94,6 @@ export const browserApi = {
     shell().call<BrowserStateSnapshot>("browser_set_user_held", {
       tabId,
       held,
-    }),
-  setAgentAccess: (tabId: string, access: AgentAccess) =>
-    shell().call<BrowserStateSnapshot>("browser_set_tab_agent_access", {
-      tabId,
-      access,
     }),
   sendInput: (
     subscriptionId: string,

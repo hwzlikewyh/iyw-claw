@@ -4,7 +4,6 @@ import { useState } from "react"
 import {
   ArrowLeft,
   ArrowRight,
-  Bot,
   Hand,
   PanelTopClose,
   RotateCw,
@@ -15,7 +14,6 @@ import { useTranslations } from "next-intl"
 import { useBrowser } from "@/contexts/browser-context"
 import { browserApi } from "@/lib/browser-api"
 import type {
-  AgentAccess,
   BrowserHostSnapshot,
   BrowserTabSnapshot,
 } from "@/lib/browser-types"
@@ -26,12 +24,10 @@ import { BrowserDownloads } from "./browser-downloads"
 export function BrowserToolbar({
   host,
   tab,
-  sharedAccess,
   onClose,
 }: {
   host: BrowserHostSnapshot
   tab: BrowserTabSnapshot | null
-  sharedAccess: AgentAccess
   onClose?: () => void
 }) {
   const t = useTranslations("Browser")
@@ -61,7 +57,6 @@ export function BrowserToolbar({
   }
 
   const held = tab?.controlStatus === "user_held"
-  const shared = tab?.agentAccess.kind !== "user_only"
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
@@ -99,23 +94,6 @@ export function BrowserToolbar({
         spellCheck={false}
       />
       <ToolButton
-        label={shared ? t("keepPrivate") : t("shareWithAgent")}
-        icon={Bot}
-        active={shared}
-        disabled={
-          !tab || busy || (!shared && sharedAccess.kind === "user_only")
-        }
-        onClick={() =>
-          tab &&
-          void run(() =>
-            browserApi.setAgentAccess(
-              tab.browserTabId,
-              shared ? { kind: "user_only" } : sharedAccess
-            )
-          )
-        }
-      />
-      <ToolButton
         label={held ? t("releaseControl") : t("holdControl")}
         icon={Hand}
         active={held}
@@ -145,7 +123,12 @@ export function BrowserToolbar({
       )}
       <BrowserDownloads />
       {onClose ? (
-        <ToolButton label={t("closeBrowser")} icon={X} onClick={onClose} />
+        <ToolButton
+          label={t("closeBrowser")}
+          icon={X}
+          disabled={busy}
+          onClick={onClose}
+        />
       ) : null}
     </div>
   )

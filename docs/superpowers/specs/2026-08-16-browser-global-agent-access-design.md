@@ -28,6 +28,8 @@ Edge 或其他应用的浏览器窗口。
 4. 空页签状态下，Agent 可直接启动内核并创建首个页签。
 5. 删除逐页签授权状态、共享入口、IPC 和拒绝错误，保持前后端语义一致。
 6. 保留用户接管、主动暂停 Agent、操作取消和登录 profile 持久化语义。
+7. 用户关闭主浏览器面板时立即停止浏览器运行时并释放进程内存，但不删除磁盘
+   profile。
 
 ## 核心契约
 
@@ -75,7 +77,7 @@ resolver 重新计算 `activeTabId`，下一次默认导航不会依赖上次响
 crashed 或 gone 错误。这样“默认不增加页签”和“仅空浏览器创建”在异常状态下也
 成立。
 
-创建页签继续复用 `create_browser_tab_with_id()`，由其现有
+创建页签继续复用锁内的 `create_browser_tab_with_id_unlocked()`，由其现有
 `ensure_runtime_running()` 路径完成 capability 校验、内核启动和页签绑定。若存在
 可见 docked host，新页签绑定到该 host；否则页签保持 unclaimed，用户以后打开
 浏览器面板时由现有 host reclaim 流程接管。
@@ -121,8 +123,8 @@ CDP popup 仍校验 opener、target、runtime generation 和页签生命周期�
 manager 新增两个进程内共享协调锁：
 
 - runtime start 锁覆盖“重新读取 runtime 状态、决定是否启动、等待启动完成”。所有
-  `ensure_runtime_running()` 调用者共用该锁；并发调用等待首次启动结果后重新读取
-  状态，不再因观察到 `starting` 立即返回 unavailable。
+  `ensure_runtime_running()` 调用者及自动恢复入口共用该锁；并发调用等待首次启动
+  结果后重新读取状态，不再因观察到 `starting` 立即返回 unavailable。
 - tab open 锁覆盖普通页签创建，以及 Agent 默认打开时的“重新读取全局页签集合、
   选择现有目标或创建首个页签”决策。锁内必须再次读取状态，不能使用加锁前快照。
 
@@ -135,6 +137,17 @@ manager 新增两个进程内共享协调锁：
 否则只返回当前快照。工具栏“新建页签”和 MCP `new_tab: true` 仍走明确创建入口，
 每次调用各创建一个页签。
 
+manager 同时维护单调 `shutdown_epoch`。偶数表示可启动，奇数表示关闭中。普通创建、
+自动首页、detached 窗口创建和无 `tab_id` 的 Agent 打开在等待 tab open 锁前记录
+代次，拿到锁后再次校验。这样关闭前已经排队的请求会以 `BROWSER_CANCELLED` 结束，
+不会在 shutdown 刚完成后重新拉起内核。关闭完成后新发起的 Agent 请求记录新代次，
+仍可正常重启。
+
+shutdown 在等待 tab open 锁前就把代次推进到奇数，并取消当前 lifecycle token。
+runtime start、页签 launch、恢复和 popup 绑定全部使用该 token；慢操作收到取消后先
+回滚已创建资源，再释放生命周期锁。runtime 和页签异常恢复也必须进入同一 barrier，
+不得在 registry drain 后以 detached task 继续创建 sidecar。
+
 ### 前端和 IPC
 
 - 删除 `AgentAccess` TypeScript 类型及 `BrowserTabSnapshot.agentAccess`。
@@ -143,6 +156,39 @@ manager 新增两个进程内共享协调锁：
 - 删除 `browser_set_tab_agent_access` Tauri command、前端 API 封装和 handler 注册。
 - 删除浏览器工具栏的共享/私有按钮及对应国际化文案。
 - 保留“暂停/恢复 Agent 控制”按钮，因为它属于临时控制协调而非访问权限。
+
+### 关闭与资源释放
+
+主浏览器面板的关闭按钮和顶部浏览器开关统一执行异步关闭流程，不再只隐藏 React
+面板：
+
+1. 调用现有 `browser_stop_runtime`。
+2. manager 关闭 control gates、CDP observer、全部帧流和页签 sidecar，再停止浏览器
+   runtime。
+3. 后端通过 `AppHandle.webview_windows()` 实时枚举并关闭全部 `browser-*` detached
+   窗口，清除其 host/view 资源；不得依赖前端可能滞后的 host 快照。
+4. 后端成功返回 stopped 快照后才把主面板标记为关闭。
+
+每个 `BrowserStateSnapshot` 带单调递增的 `stateRevision`。后端在捕获结构快照时
+分配版本，前端拒绝低于已接收版本的响应，避免轮询、heartbeat 和用户操作并发时
+旧快照晚到并把新 frame generation 回退。
+
+shutdown 与自动恢复遵守相同的 tab open -> runtime start 锁顺序。已启动的恢复任务
+响应 lifecycle token 后回滚，尚未进入的恢复尝试在代际变化后退出。
+
+停止失败时保留面板和结构化错误，不声称内存已经释放。关闭单个页签继续只释放该
+页签资源；关闭一个 detached 窗口不应停止仍由主面板或其他窗口使用的整个 runtime。
+磁盘 profile、Cookie 和缓存不删除，因此下一次用户或 Agent 打开时可以重新启动
+内核并复用登录状态。
+
+优雅关闭超时或命令失败后必须继续尝试终止全部已记录 sidecar、controller 和匹配
+该 profile 的浏览器内核进程。兜底终止全部成功即视为关闭成功；只有进程兜底也失败
+时才保留失败状态。单个进程终止失败不得跳过其余匹配进程的清理。
+
+强制终止必须用 PID、启动时间和可执行文件身份确认目标，并等待进程实际退出。只有
+确认退出后才能删除 PID/target 文件、runtime handle 和 profile lock；失败时把所有权
+放回 stopping registry，使下一次关闭能够重试。manager 不使用会取消 owner cleanup
+future 的外层总 timeout，各清理步骤自行提供有界超时和不丢句柄的强制回收。
 
 前端不新增授权 toast、确认对话框或 pending request。此前讨论的“一次授权后原
 `browser_open` 自动续跑”方案被本设计取代。
@@ -195,6 +241,10 @@ manager 新增两个进程内共享协调锁：
   `effectMayHaveOccurred`。
 - Agent 请求在导航期间取消：沿用现有 control epoch 与
   `effectMayHaveOccurred` 语义，不自动重试可能已发生的导航。
+- 用户关闭主浏览器时，shutdown 取消正在执行或等待的 Agent 操作；Agent 后续再次
+  调用 `browser_open` 可按首次打开流程重启内核。
+- 关闭前已经排队等待创建页签的请求命中 `shutdown_epoch` 变化并返回
+  `BROWSER_CANCELLED`，不得在关闭完成后自动重启。
 - server runtime 继续返回 `BROWSER_UNSUPPORTED_RUNTIME`，本次不引入无界面浏览器。
 
 `BROWSER_TAB_ACCESS_DENIED` 从浏览器错误枚举和运行路径删除。交付前必须搜索确认
@@ -235,9 +285,16 @@ manager 新增两个进程内共享协调锁：
   分支、取消和创建后清理。
 - 静态核对 runtime start 与 tab open 锁的唯一顺序、锁内状态复查，以及 docked
   自动首页与 Agent 首次打开的竞争路径。
+- 静态核对 shutdown 在锁等待前推进奇数代次并取消 lifecycle token，启动、恢复、
+  popup 和页签关闭均不能越过 shutdown barrier 留下新进程。
 - 沿 MCP token -> listener -> manager -> control gate 静态核对身份仍用于归属和取消，
   但不再用于授权过滤。
 - 沿用户输入、暂停、页签关闭和 popup 路径核对资源释放及代际校验仍闭环。
+- 沿主面板关闭、顶部按钮关闭、detached 窗口和 shutdown 路径核对进程、帧流、
+  control gate、host 与 view 资源释放。
+- 沿优雅关闭失败、强杀失败和重试路径核对进程句柄、PID 文件及 profile lock 的所有权
+  不会提前丢失。
+- 静态核对状态快照版本单调分配，前端不会接受低版本快照覆盖新状态。
 - 搜索确认不存在 `AgentAccess`、`agentAccess`、
   `browser_set_tab_agent_access`、`BROWSER_TAB_ACCESS_DENIED` 和共享页签提示残留。
 
@@ -253,11 +310,13 @@ manager 新增两个进程内共享协调锁：
 6. 每次响应的 `activeTabId` 都表示 UI/默认目标，`targetTabId` 表示本次操作目标。
 7. 界面、工具 schema 和运行时错误不再包含共享页签指引或授权拒绝。
 8. 用户接管、暂停 Agent、独立窗口、关闭页签和持久登录缓存行为保持不变。
+9. 关闭主浏览器面板后 runtime、页签进程和帧流停止，detached 窗口关闭；重新打开
+   后仍复用原磁盘登录状态。
 
 ## 非目标
 
 - 不开放系统 Chrome/Edge 中未由 iyw-claw 管理的页签。
 - 不新增基于 Agent、连接或会话的浏览器隔离。
 - 不返回 Cookie、密码、localStorage 原文或其他凭证数据。
-- 不修改帧流协议、帧率、窗口关闭、profile 目录或缓存同步实现。
+- 不修改帧流协议、帧率、profile 目录或缓存同步实现。
 - 不包含版本升级、安装包构建或发布。

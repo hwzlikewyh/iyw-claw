@@ -6,6 +6,8 @@ use tokio::process::Command;
 
 use super::error::{BrowserError, BrowserErrorCode};
 
+const KILL_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
+
 #[derive(Debug, Clone)]
 pub(super) struct ProcessRecord {
     pub pid: u32,
@@ -104,15 +106,19 @@ pub(super) async fn kill_tree_checked(record: &ProcessRecord) -> Result<(), Brow
         process_label = %record.label,
         "browser process required kill-tree fallback"
     );
-    kill_tree::tokio::kill_tree(record.pid)
-        .await
-        .map(|_| ())
-        .map_err(|_| {
-            BrowserError::new(
-                BrowserErrorCode::BrowserInternal,
-                "A browser process could not be stopped",
-            )
-        })
+    kill_tree::tokio::kill_tree(record.pid).await.map_err(|_| {
+        BrowserError::new(
+            BrowserErrorCode::BrowserInternal,
+            "A browser process could not be stopped",
+        )
+    })?;
+    if wait_for_exit(record, KILL_EXIT_TIMEOUT).await {
+        return Ok(());
+    }
+    Err(BrowserError::new(
+        BrowserErrorCode::BrowserInternal,
+        "A browser process remained alive after forced shutdown",
+    ))
 }
 
 pub(super) async fn wait_for_pid_file(

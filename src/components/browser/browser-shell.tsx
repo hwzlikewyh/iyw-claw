@@ -4,8 +4,7 @@ import { useEffect, useMemo, useRef } from "react"
 import { useBrowser } from "@/contexts/browser-context"
 import { useBrowserHost } from "@/hooks/use-browser-host"
 import { browserApi } from "@/lib/browser-api"
-import type { AgentAccess, BrowserTabSnapshot } from "@/lib/browser-types"
-import { useTabStore } from "@/stores/tab-store"
+import type { BrowserTabSnapshot } from "@/lib/browser-types"
 import { BrowserCanvas } from "./browser-canvas"
 import { BrowserPrompts } from "./browser-prompts"
 import { BrowserStatus } from "./browser-status"
@@ -19,20 +18,6 @@ export function BrowserShell({
   kind?: "docked" | "detached"
 }) {
   const { state, isOpen, closeBrowser, run } = useBrowser()
-  const activeConversationId = useTabStore((store) => {
-    const active = store.rawTabs.find((tab) => tab.id === store.activeTabId)
-    return active?.conversationId ?? null
-  })
-  const defaultAccess = useMemo<AgentAccess>(
-    () =>
-      activeConversationId
-        ? {
-            kind: "shared_conversation",
-            conversationId: activeConversationId,
-          }
-        : { kind: "user_only" },
-    [activeConversationId]
-  )
   const enabled = kind === "detached" || isOpen
   const { host, windowLabel } = useBrowserHost(kind, enabled)
   const creatingRef = useRef(false)
@@ -68,7 +53,7 @@ export function BrowserShell({
   const activeTab = tabs.find((tab) => tab.browserTabId === activeTabId) ?? null
   const closeShell =
     kind === "docked"
-      ? closeBrowser
+      ? () => void closeBrowser()
       : windowLabel
         ? () => void browserApi.closeWindow(windowLabel).catch(() => {})
         : undefined
@@ -98,11 +83,11 @@ export function BrowserShell({
     }
     creatingRef.current = true
     void run(() =>
-      browserApi.createTab(DEFAULT_BROWSER_HOME_URL, defaultAccess, host.hostId)
+      browserApi.ensureInitialTab(DEFAULT_BROWSER_HOME_URL, host.hostId)
     ).finally(() => {
       creatingRef.current = false
     })
-  }, [defaultAccess, host, kind, run, state])
+  }, [host, kind, run, state])
 
   if (!enabled) return null
   if (!state || !host || state.runtime.status !== "running") {
@@ -123,13 +108,11 @@ export function BrowserShell({
         tabs={tabs}
         activeTabId={activeTabId}
         claim={claim}
-        newTabAccess={defaultAccess}
       />
       <BrowserToolbar
         key={`${activeTab?.browserTabId ?? "empty"}:${activeTab?.url ?? ""}`}
         host={host}
         tab={activeTab}
-        sharedAccess={defaultAccess}
         onClose={closeShell}
       />
       <div className="min-h-0 flex-1">

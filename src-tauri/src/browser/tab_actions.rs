@@ -1,42 +1,42 @@
-use futures_util::future::join_all;
 use reqwest::Url;
 use tokio_util::sync::CancellationToken;
 
 use super::error::{BrowserError, BrowserErrorCode};
 use super::manager::BrowserSessionManager;
-use super::process::kill_tree_checked;
 use super::tab_launch::{cleanup_tab, launch_tab};
 use super::tab_metadata::page_metadata;
-use super::types::BrowserGenerations;
-use super::types::{AgentAccess, BrowserStateSnapshot};
+use super::types::{BrowserGenerations, BrowserStateSnapshot};
 
 mod tab_close;
+mod tab_shutdown;
 
 const NAVIGATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-const TAB_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 impl BrowserSessionManager {
     pub async fn create_browser_tab(
         &self,
         url: String,
-        access: AgentAccess,
         host_id: Option<String>,
     ) -> Result<BrowserStateSnapshot, BrowserError> {
-        self.create_browser_tab_with_id(url, access, host_id)
+        let epoch = self.current_shutdown_epoch();
+        let _guard = self.tab_open_lock.lock().await;
+        self.ensure_shutdown_epoch(epoch)?;
+        let cancellation = self.shutdown_cancellation().await;
+        self.create_browser_tab_with_id_unlocked(url, host_id, cancellation)
             .await
             .map(|(state, _)| state)
     }
 
-    pub(super) async fn create_browser_tab_with_id(
+    pub(super) async fn create_browser_tab_with_id_unlocked(
         &self,
         url: String,
-        access: AgentAccess,
         host_id: Option<String>,
+        cancellation: CancellationToken,
     ) -> Result<(BrowserStateSnapshot, String), BrowserError> {
         let url = validated_url(&url)?;
-        let runtime = self.ensure_runtime_running().await?;
-        let ticket = self.reserve_tab(url.clone(), access, host_id).await?;
-        let launched = match launch_tab(&runtime, &ticket, &url).await {
+        let runtime = self.ensure_runtime_running(cancellation.clone()).await?;
+        let ticket = self.reserve_tab(url.clone(), host_id).await?;
+        let launched = match launch_tab(&runtime, &ticket, &url, cancellation).await {
             Ok(launched) => launched,
             Err(error) => {
                 let _ = self.rollback_tab(&ticket).await;
@@ -67,6 +67,33 @@ impl BrowserSessionManager {
         }
         self.spawn_tab_watcher(watch);
         Ok((self.snapshot().await, ticket.tab_id))
+    }
+
+    pub async fn ensure_initial_browser_tab(
+        &self,
+        url: String,
+        host_id: Option<String>,
+    ) -> Result<BrowserStateSnapshot, BrowserError> {
+        let epoch = self.current_shutdown_epoch();
+        let _guard = self.tab_open_lock.lock().await;
+        self.ensure_shutdown_epoch(epoch)?;
+        let cancellation = self.shutdown_cancellation().await;
+        let state = self.snapshot().await;
+        if !state.tabs.is_empty() {
+            tracing::debug!(
+                target: "iyw_claw_browser",
+                tab_count = state.tabs.len(),
+                "initial browser tab already exists"
+            );
+            return Ok(state);
+        }
+        tracing::info!(
+            target: "iyw_claw_browser",
+            "creating initial browser tab"
+        );
+        self.create_browser_tab_with_id_unlocked(url, host_id, cancellation)
+            .await
+            .map(|(state, _)| state)
     }
 
     pub async fn navigate_browser_tab(
@@ -146,39 +173,6 @@ impl BrowserSessionManager {
             )
             .await?;
         Ok(self.snapshot().await)
-    }
-
-    pub(super) async fn shutdown_tabs(&self) -> Result<(), BrowserError> {
-        let handles = self.tabs.drain().await;
-        let fallback = handles
-            .iter()
-            .map(|handle| {
-                (
-                    handle.daemon.clone(),
-                    handle.cli.clone(),
-                    handle.session.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-        let cleanup = join_all(handles.into_iter().map(|handle| cleanup_tab(handle, true)));
-        let results = match tokio::time::timeout(TAB_SHUTDOWN_TIMEOUT, cleanup).await {
-            Ok(results) => results,
-            Err(_) => {
-                for (daemon, cli, session) in fallback {
-                    let _ = kill_tree_checked(&daemon).await;
-                    let _ = tokio::fs::remove_file(cli.pid_path(&session)).await;
-                    let _ = tokio::fs::remove_file(cli.target_path(&session)).await;
-                }
-                return Err(BrowserError::new(
-                    BrowserErrorCode::BrowserOperationTimeout,
-                    "Browser tab cleanup exceeded the shutdown budget",
-                ));
-            }
-        };
-        results
-            .into_iter()
-            .find_map(Result::err)
-            .map_or(Ok(()), Err)
     }
 
     async fn run_navigation(

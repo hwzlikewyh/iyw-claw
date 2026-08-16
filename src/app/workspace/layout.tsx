@@ -401,7 +401,7 @@ function BrowserFileMutualExclusion() {
   useEffect(() => {
     const changed = previousRef.current !== activeFileTabId
     previousRef.current = activeFileTabId
-    if (isOpen && changed && activeFileTabId) closeBrowser()
+    if (isOpen && changed && activeFileTabId) void closeBrowser()
   }, [activeFileTabId, closeBrowser, isOpen])
   return null
 }

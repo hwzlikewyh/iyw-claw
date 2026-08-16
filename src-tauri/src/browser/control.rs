@@ -27,7 +27,6 @@ struct ControlInner {
     epoch: u64,
     held: bool,
     closed: bool,
-    agent_enabled: bool,
     user_active_until: Option<Instant>,
     active_user_operations: usize,
     activity_sequence: u64,
@@ -55,7 +54,6 @@ impl ControlGate {
                 epoch: 0,
                 held: false,
                 closed: false,
-                agent_enabled: true,
                 user_active_until: None,
                 active_user_operations: 0,
                 activity_sequence: 0,
@@ -220,13 +218,6 @@ fn acquire_decision(inner: &mut ControlInner, operation_id: &str) -> AcquireDeci
         return AcquireDecision::Error(BrowserError::new(
             BrowserErrorCode::BrowserTabGone,
             "The browser tab is closed",
-        ));
-    }
-    if !inner.agent_enabled {
-        inner.queue.retain(|id| id != operation_id);
-        return AcquireDecision::Error(BrowserError::new(
-            BrowserErrorCode::BrowserTabAccessDenied,
-            "Agent access to this browser tab is disabled",
         ));
     }
     if inner.held {

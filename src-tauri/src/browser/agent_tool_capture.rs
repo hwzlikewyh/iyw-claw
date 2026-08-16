@@ -28,8 +28,7 @@ impl BrowserSessionManager {
                 timeout: SNAPSHOT_TIMEOUT,
             })
             .await?;
-        self.agent_state(context.identity, Some(tab_id), Some(output))
-            .await
+        self.agent_state(Some(tab_id), Some(output)).await
     }
 
     pub(super) async fn agent_screenshot(
@@ -54,8 +53,7 @@ impl BrowserSessionManager {
             })
             .await?;
         self.enforce_agent_screenshot_quota().await?;
-        self.agent_state(context.identity, Some(tab_id), Some(output))
-            .await
+        self.agent_state(Some(tab_id), Some(output)).await
     }
 
     async fn enforce_agent_screenshot_quota(&self) -> Result<(), BrowserError> {

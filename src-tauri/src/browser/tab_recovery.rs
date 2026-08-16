@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use serde_json::Value;
+use tokio_util::sync::CancellationToken;
 
 use super::error::{BrowserError, BrowserErrorCode};
 use super::manager::BrowserSessionManager;
@@ -107,11 +108,15 @@ impl BrowserSessionManager {
         tab_id: &str,
         runtime_generation: u64,
     ) -> Result<(), BrowserError> {
+        let epoch = self.current_shutdown_epoch();
+        let _tab_guard = self.tab_open_lock.lock().await;
+        self.ensure_shutdown_epoch(epoch)?;
+        let cancellation = self.shutdown_cancellation().await;
         let runtime = self.current_runtime(runtime_generation).await?;
         let tab = self.state.write().await.begin_tab_recovery(tab_id)?;
         self.streams.close_tab(tab_id).await;
         self.reset_control(tab_id).await;
-        let result = match self.launch_recovery_tab(&runtime, &tab).await {
+        let result = match self.launch_recovery_tab(&runtime, &tab, cancellation).await {
             Ok(launched) => self.register_recovered_tab(&tab, launched).await,
             Err(error) => Err(error),
         };
@@ -139,24 +144,30 @@ impl BrowserSessionManager {
         &self,
         runtime: &BrowserRuntimeContext,
         tab: &RecoveryTab,
+        cancellation: CancellationToken,
     ) -> Result<RecoveryLaunch, BrowserError> {
         if let Some(target_id) = &tab.target_id {
-            if let Ok(launched) =
-                bind_existing_tab_preserving_target(runtime, &tab.ticket, target_id).await
+            if let Ok(launched) = bind_existing_tab_preserving_target(
+                runtime,
+                &tab.ticket,
+                target_id,
+                cancellation.clone(),
+            )
+            .await
             {
                 return Ok(RecoveryLaunch {
                     launched,
                     stale_target_id: None,
                 });
             }
-            let launched = launch_tab(runtime, &tab.ticket, &tab.url).await?;
+            let launched = launch_tab(runtime, &tab.ticket, &tab.url, cancellation.clone()).await?;
             return Ok(RecoveryLaunch {
                 launched,
                 stale_target_id: Some(target_id.clone()),
             });
         }
         Ok(RecoveryLaunch {
-            launched: launch_tab(runtime, &tab.ticket, &tab.url).await?,
+            launched: launch_tab(runtime, &tab.ticket, &tab.url, cancellation).await?,
             stale_target_id: None,
         })
     }

@@ -3,42 +3,14 @@ use uuid::Uuid;
 use super::error::{BrowserError, BrowserErrorCode, BrowserErrorContext};
 use super::records::{attach_reserved_tab, remove_tab_record, TabRecord, TabTicket};
 use super::state::{BrowserState, MAX_BROWSER_TABS};
-use super::types::{
-    AgentAccess, BrowserHostKind, BrowserRuntimeStatus, BrowserTabStatus, BrowserViewStatus,
-};
+use super::types::{BrowserHostKind, BrowserRuntimeStatus, BrowserTabStatus, BrowserViewStatus};
 
 mod tab_close;
 
 impl BrowserState {
-    pub fn set_tab_agent_access(
-        &mut self,
-        tab_id: &str,
-        access: AgentAccess,
-    ) -> Result<(), BrowserError> {
-        let tab = self
-            .tabs
-            .get_mut(tab_id)
-            .ok_or_else(|| BrowserError::tab_not_found(tab_id))?;
-        if matches!(
-            tab.status,
-            BrowserTabStatus::Closing | BrowserTabStatus::Closed
-        ) {
-            return Err(BrowserError::new(
-                BrowserErrorCode::BrowserTabGone,
-                "The browser tab is closing",
-            ));
-        }
-        if tab.agent_access != access {
-            tab.agent_access = access;
-            tab.access_generation = tab.access_generation.saturating_add(1);
-        }
-        Ok(())
-    }
-
     pub fn reserve_tab(
         &mut self,
         url: String,
-        access: AgentAccess,
         host_id: Option<String>,
     ) -> Result<TabTicket, BrowserError> {
         if self.runtime.status != BrowserRuntimeStatus::Running {
@@ -57,7 +29,6 @@ impl BrowserState {
             tab_id.clone(),
             operation_id.clone(),
             url,
-            access,
             host_id.clone(),
             view_status,
         );

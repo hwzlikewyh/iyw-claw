@@ -5,7 +5,6 @@ import { Globe2, Plus, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { browserApi } from "@/lib/browser-api"
 import type {
-  AgentAccess,
   BrowserHostSnapshot,
   BrowserTabSnapshot,
   BrowserViewClaimSnapshot,
@@ -22,13 +21,11 @@ export function BrowserTabStrip({
   tabs,
   activeTabId,
   claim,
-  newTabAccess,
 }: {
   host: BrowserHostSnapshot
   tabs: BrowserTabSnapshot[]
   activeTabId?: string
   claim?: BrowserViewClaimSnapshot
-  newTabAccess: AgentAccess
 }) {
   const t = useTranslations("Browser")
   const { acceptState, run, busy, detachTab, refresh } = useBrowser()
@@ -144,11 +141,7 @@ export function BrowserTabStrip({
         disabled={busy || Boolean(claim)}
         onClick={() =>
           void run(() =>
-            browserApi.createTab(
-              DEFAULT_BROWSER_HOME_URL,
-              newTabAccess,
-              host.hostId
-            )
+            browserApi.createTab(DEFAULT_BROWSER_HOME_URL, host.hostId)
           )
         }
       >

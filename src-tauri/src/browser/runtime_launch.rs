@@ -10,27 +10,46 @@ use super::command_runner::AgentBrowserCli;
 use super::error::BrowserError;
 use super::process::{kill_tree_checked, wait_for_pid_file, ProcessRecord};
 use super::profile::ProfileGuard;
-use super::runtime::{unavailable_error, RuntimeHandle, VerifiedDependencies};
+use super::runtime::{
+    unavailable_error, RuntimeCleanupHandle, RuntimeHandle, VerifiedDependencies,
+};
 
 const START_TIMEOUT: Duration = Duration::from_secs(30);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub(super) struct RuntimeLaunchFailure {
+    pub error: BrowserError,
+    pub cleanup: Option<RuntimeCleanupHandle>,
+}
+
 pub(super) async fn launch(
     data_root: &Path,
     dependencies: VerifiedDependencies,
     generation: u64,
-) -> Result<RuntimeHandle, BrowserError> {
+    cancellation: CancellationToken,
+) -> Result<RuntimeHandle, RuntimeLaunchFailure> {
+    if cancellation.is_cancelled() {
+        return Err(launch_failure(BrowserError::shutting_down(), None));
+    }
     let runtime_id = Uuid::new_v4().simple().to_string();
     let controller_session = format!("iyw-runtime-{}", &runtime_id[..12]);
     let runtime_dir = data_root
         .join("browser")
         .join(format!("runtime-{runtime_id}"));
     let socket_dir = runtime_dir.join("sockets");
-    create_dir(&socket_dir).await?;
-    let profile = acquire_profile(data_root, &runtime_id, &runtime_dir, &dependencies).await?;
-    let download_path = prepare_download_path(data_root, &runtime_dir).await?;
-    let screenshot_path = prepare_screenshot_path(&runtime_dir).await?;
+    create_dir(&socket_dir)
+        .await
+        .map_err(|error| launch_failure(error, None))?;
+    let profile = acquire_profile(data_root, &runtime_id, &runtime_dir, &dependencies)
+        .await
+        .map_err(|error| launch_failure(error, None))?;
+    let download_path = prepare_download_path(data_root, &runtime_dir)
+        .await
+        .map_err(|error| launch_failure(error, None))?;
+    let screenshot_path = prepare_screenshot_path(&runtime_dir)
+        .await
+        .map_err(|error| launch_failure(error, None))?;
     let cli = AgentBrowserCli::new(
         dependencies.sidecar,
         socket_dir,
@@ -39,18 +58,35 @@ pub(super) async fn launch(
         download_path,
         screenshot_path,
     );
-    let (cdp_url, daemon) =
-        launch_or_rollback(&cli, &controller_session, &runtime_dir, &profile).await?;
-    Ok(RuntimeHandle {
+    let mut cleanup = RuntimeCleanupHandle {
         id: runtime_id,
         generation,
         controller_session,
         cli,
+        daemon: None,
+        runtime_dir,
+        profile,
+    };
+    let cdp_url = match launch_controller(&mut cleanup, cancellation.clone()).await {
+        Ok(cdp_url) => cdp_url,
+        Err(error) => return Err(rollback_launch(cleanup, error).await),
+    };
+    if cancellation.is_cancelled() {
+        return Err(rollback_launch(cleanup, BrowserError::shutting_down()).await);
+    }
+    let Some(daemon) = cleanup.daemon.take() else {
+        return Err(rollback_launch(cleanup, unavailable_error()).await);
+    };
+    Ok(RuntimeHandle {
+        id: cleanup.id,
+        generation: cleanup.generation,
+        controller_session: cleanup.controller_session,
+        cli: cleanup.cli,
         cdp_url,
         daemon,
-        runtime_dir,
+        runtime_dir: cleanup.runtime_dir,
         watcher_cancel: CancellationToken::new(),
-        _profile: profile,
+        _profile: cleanup.profile,
     })
 }
 
@@ -99,61 +135,83 @@ async fn prepare_download_path(
     Ok(path)
 }
 
-async fn launch_or_rollback(
-    cli: &AgentBrowserCli,
-    session: &str,
-    runtime_dir: &Path,
-    profile: &ProfileGuard,
-) -> Result<(String, ProcessRecord), BrowserError> {
-    match launch_controller(cli, session, profile).await {
-        Ok(result) => Ok(result),
-        Err(error) => {
-            cleanup_partial(cli, session, runtime_dir).await;
-            Err(error)
-        }
-    }
-}
-
 async fn launch_controller(
-    cli: &AgentBrowserCli,
-    session: &str,
-    profile: &ProfileGuard,
-) -> Result<(String, ProcessRecord), BrowserError> {
-    let cancellation = CancellationToken::new();
-    cli.bootstrap(
-        session,
-        &["open", "about:blank"],
-        START_TIMEOUT,
-        cancellation.clone(),
-    )
-    .await?;
+    cleanup: &mut RuntimeCleanupHandle,
+    cancellation: CancellationToken,
+) -> Result<String, BrowserError> {
+    cleanup
+        .cli
+        .bootstrap(
+            &cleanup.controller_session,
+            &["open", "about:blank"],
+            START_TIMEOUT,
+            cancellation.clone(),
+        )
+        .await?;
     let daemon = wait_for_pid_file(
-        &cli.pid_path(session),
-        cli.executable_path(),
+        &cleanup.cli.pid_path(&cleanup.controller_session),
+        cleanup.cli.executable_path(),
         Duration::from_secs(3),
     )
     .await?;
-    profile.bind_daemon(&daemon)?;
-    let response = cli
-        .run(session, &["get", "cdp-url"], COMMAND_TIMEOUT, cancellation)
+    cleanup.profile.bind_daemon(&daemon)?;
+    cleanup.daemon = Some(daemon);
+    let response = cleanup
+        .cli
+        .run(
+            &cleanup.controller_session,
+            &["get", "cdp-url"],
+            COMMAND_TIMEOUT,
+            cancellation,
+        )
         .await?;
-    let cdp_url = parse_cdp_url(&response)?;
-    Ok((cdp_url, daemon))
+    parse_cdp_url(&response)
 }
 
-async fn cleanup_partial(cli: &AgentBrowserCli, session: &str, runtime_dir: &Path) {
-    if tokio::fs::metadata(cli.pid_path(session)).await.is_ok() {
-        graceful_close(cli, session).await;
-        kill_published_daemon(cli, session).await;
+pub(super) async fn cleanup_partial_owner(
+    cleanup: &mut RuntimeCleanupHandle,
+) -> Result<(), BrowserError> {
+    graceful_close(&cleanup.cli, &cleanup.controller_session).await;
+    if cleanup.daemon.is_none() {
+        cleanup.daemon = published_daemon(&cleanup.cli, &cleanup.controller_session).await;
     }
-    if let Err(error) = cli.kill_profile_processes().await {
+    let initial_daemon_result = match cleanup.daemon.as_ref() {
+        Some(daemon) => kill_tree_checked(daemon).await,
+        None => Ok(()),
+    };
+    if let Err(error) = initial_daemon_result {
         tracing::warn!(
             target: "iyw_claw_browser",
             error_code = ?error.code,
-            "failed to clean browser engine after partial startup"
+            "partial browser daemon required sweep retry"
         );
     }
-    remove_runtime_dir(runtime_dir).await;
+    let (sidecar_result, engine_result) = tokio::join!(
+        cleanup.cli.kill_sidecar_processes(),
+        cleanup.cli.kill_profile_processes()
+    );
+    let daemon_result = match cleanup.daemon.as_ref() {
+        Some(daemon) => kill_tree_checked(daemon).await,
+        None => Ok(()),
+    };
+    daemon_result.and(sidecar_result).and(engine_result)?;
+    remove_runtime_dir(&cleanup.runtime_dir).await;
+    Ok(())
+}
+
+async fn rollback_launch(
+    mut cleanup: RuntimeCleanupHandle,
+    error: BrowserError,
+) -> RuntimeLaunchFailure {
+    if let Err(cleanup_error) = cleanup_partial_owner(&mut cleanup).await {
+        tracing::error!(
+            target: "iyw_claw_browser",
+            error_code = ?cleanup_error.code,
+            "partial browser startup cleanup remains incomplete"
+        );
+        return launch_failure(error, Some(cleanup));
+    }
+    launch_failure(error, None)
 }
 
 async fn graceful_close(cli: &AgentBrowserCli, session: &str) {
@@ -167,16 +225,21 @@ async fn graceful_close(cli: &AgentBrowserCli, session: &str) {
         .await;
 }
 
-async fn kill_published_daemon(cli: &AgentBrowserCli, session: &str) {
-    let daemon = wait_for_pid_file(
+async fn published_daemon(cli: &AgentBrowserCli, session: &str) -> Option<ProcessRecord> {
+    wait_for_pid_file(
         &cli.pid_path(session),
         cli.executable_path(),
         Duration::from_millis(200),
     )
-    .await;
-    if let Ok(daemon) = daemon {
-        let _ = kill_tree_checked(&daemon).await;
-    }
+    .await
+    .ok()
+}
+
+fn launch_failure(
+    error: BrowserError,
+    cleanup: Option<RuntimeCleanupHandle>,
+) -> RuntimeLaunchFailure {
+    RuntimeLaunchFailure { error, cleanup }
 }
 
 fn parse_cdp_url(response: &Value) -> Result<String, BrowserError> {

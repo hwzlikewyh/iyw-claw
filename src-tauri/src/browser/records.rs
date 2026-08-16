@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use super::error::{BrowserError, BrowserErrorCode};
 use super::types::{
-    AgentAccess, BrowserControlStatus, BrowserGenerations, BrowserHostKind, BrowserHostSnapshot,
+    BrowserControlStatus, BrowserGenerations, BrowserHostKind, BrowserHostSnapshot,
     BrowserRuntimeSnapshot, BrowserRuntimeStatus, BrowserTabSnapshot, BrowserTabStatus,
     BrowserViewStatus,
 };
@@ -28,8 +28,6 @@ pub(super) struct TabRecord {
     pub view_generation: u64,
     pub document_epoch: u64,
     pub host_id: Option<String>,
-    pub agent_access: AgentAccess,
-    pub access_generation: u64,
     pub operation_id: Option<String>,
 }
 
@@ -38,7 +36,6 @@ impl TabRecord {
         id: String,
         operation_id: String,
         url: String,
-        agent_access: AgentAccess,
         host_id: Option<String>,
         view_status: BrowserViewStatus,
     ) -> Self {
@@ -53,8 +50,6 @@ impl TabRecord {
             view_generation: 1,
             document_epoch: 0,
             host_id,
-            agent_access,
-            access_generation: 1,
             operation_id: Some(operation_id),
         }
     }
@@ -74,7 +69,6 @@ impl TabRecord {
                 view_generation: self.view_generation,
                 control_epoch: 0,
             },
-            agent_access: self.agent_access.clone(),
             host_id: self.host_id.clone(),
         }
     }

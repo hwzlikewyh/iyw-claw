@@ -16,12 +16,20 @@ const HIDDEN_STREAM_DELAY: Duration = Duration::from_secs(2);
 const CLAIM_TIMEOUT: Duration = Duration::from_secs(15);
 
 impl BrowserSessionManager {
-    pub async fn register_browser_host(
+    pub async fn register_browser_host<F>(
         &self,
         window_label: String,
         kind: BrowserHostKind,
-    ) -> Result<BrowserHostRegistration, BrowserError> {
+        validate_window: F,
+    ) -> Result<BrowserHostRegistration, BrowserError>
+    where
+        F: FnOnce() -> Result<(), BrowserError> + Send,
+    {
+        let epoch = self.current_shutdown_epoch();
+        let _tab_guard = self.tab_open_lock.lock().await;
+        self.ensure_shutdown_epoch(epoch)?;
         validate_window_label(&window_label, kind)?;
+        validate_window()?;
         let (host_id, generation, created) =
             self.state.write().await.register_host(window_label, kind)?;
         if created {
@@ -239,9 +247,8 @@ impl BrowserSessionManager {
         let manager = self.clone();
         tokio::spawn(async move {
             tokio::time::sleep(CLAIM_TIMEOUT).await;
-            if manager.state.write().await.expire_view_claim(&claim_id) {
-                manager.streams.close_claim(&claim_id).await;
-            }
+            manager.state.write().await.expire_view_claim(&claim_id);
+            manager.streams.close_claim(&claim_id).await;
         });
     }
 

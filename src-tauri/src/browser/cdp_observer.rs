@@ -39,17 +39,18 @@ impl CdpObserverHandle {
         download_path: &Path,
         manager: BrowserSessionManager,
         generation: u64,
+        lifecycle: CancellationToken,
     ) -> Result<Self, BrowserError> {
         let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
             .max_message_size(Some(MAX_MESSAGE_SIZE))
             .max_frame_size(Some(MAX_MESSAGE_SIZE));
-        let connection = tokio::time::timeout(
-            CONNECT_TIMEOUT,
-            tokio_tungstenite::connect_async_with_config(url, Some(config), false),
-        )
-        .await
-        .map_err(|_| unavailable())?
-        .map_err(|_| unavailable())?;
+        let connection = tokio::select! {
+            _ = lifecycle.cancelled() => return Err(BrowserError::shutting_down()),
+            result = tokio::time::timeout(
+                CONNECT_TIMEOUT,
+                tokio_tungstenite::connect_async_with_config(url, Some(config), false),
+            ) => result.map_err(|_| unavailable())?.map_err(|_| unavailable())?,
+        };
         let (commands, receiver) = mpsc::channel(32);
         let cancellation = CancellationToken::new();
         let task = tokio::spawn(run_observer(
@@ -64,7 +65,15 @@ impl CdpObserverHandle {
             cancellation,
             task: Arc::new(Mutex::new(Some(task))),
         };
-        if let Err(error) = handle.initialize(download_path).await {
+        let result = {
+            let initialize = handle.initialize(download_path);
+            tokio::pin!(initialize);
+            tokio::select! {
+                _ = lifecycle.cancelled() => Err(BrowserError::shutting_down()),
+                result = &mut initialize => result,
+            }
+        };
+        if let Err(error) = result {
             handle.stop().await;
             return Err(error);
         }

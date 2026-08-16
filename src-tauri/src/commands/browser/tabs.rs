@@ -1,6 +1,4 @@
-use crate::browser::{
-    AgentAccess, BrowserGenerations, BrowserSessionManager, BrowserStateSnapshot,
-};
+use crate::browser::{BrowserGenerations, BrowserSessionManager, BrowserStateSnapshot};
 
 use super::{browser_command, BrowserCommandFuture};
 
@@ -8,11 +6,20 @@ use super::{browser_command, BrowserCommandFuture};
 pub fn browser_create_tab(
     manager: tauri::State<'_, BrowserSessionManager>,
     url: String,
-    access: AgentAccess,
     host_id: Option<String>,
 ) -> BrowserCommandFuture<BrowserStateSnapshot> {
     let manager = manager.inner().clone();
-    browser_command(async move { manager.create_browser_tab(url, access, host_id).await })
+    browser_command(async move { manager.create_browser_tab(url, host_id).await })
+}
+
+#[tauri::command(async)]
+pub fn browser_ensure_initial_tab(
+    manager: tauri::State<'_, BrowserSessionManager>,
+    url: String,
+    host_id: Option<String>,
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move { manager.ensure_initial_browser_tab(url, host_id).await })
 }
 
 #[tauri::command(async)]

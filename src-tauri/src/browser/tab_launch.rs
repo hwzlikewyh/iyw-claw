@@ -14,7 +14,6 @@ use super::tabs::TabRuntimeHandle;
 const CREATE_TIMEOUT: Duration = Duration::from_secs(30);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
-
 pub(super) struct LaunchedTab {
     pub handle: TabRuntimeHandle,
     pub title: String,
@@ -25,9 +24,11 @@ pub(super) async fn launch_tab(
     runtime: &BrowserRuntimeContext,
     ticket: &TabTicket,
     url: &str,
+    cancellation: CancellationToken,
 ) -> Result<LaunchedTab, BrowserError> {
     let session = tab_session(&ticket.tab_id);
-    let result = launch_tab_inner(runtime, ticket, &session, url).await;
+    let result = launch_tab_inner(runtime, ticket, &session, url, cancellation.clone()).await;
+    let result = reject_cancelled_launch(result, &cancellation);
     if result.is_err() {
         cleanup_failed_launch(runtime, &session, true).await;
     }
@@ -38,9 +39,12 @@ pub(super) async fn bind_existing_tab(
     runtime: &BrowserRuntimeContext,
     ticket: &TabTicket,
     target_id: &str,
+    cancellation: CancellationToken,
 ) -> Result<LaunchedTab, BrowserError> {
     let session = tab_session(&ticket.tab_id);
-    let result = bind_existing_inner(runtime, ticket, &session, target_id).await;
+    let result =
+        bind_existing_inner(runtime, ticket, &session, target_id, cancellation.clone()).await;
+    let result = reject_cancelled_launch(result, &cancellation);
     if result.is_err() {
         cleanup_failed_launch(runtime, &session, true).await;
     }
@@ -51,9 +55,12 @@ pub(super) async fn bind_existing_tab_preserving_target(
     runtime: &BrowserRuntimeContext,
     ticket: &TabTicket,
     target_id: &str,
+    cancellation: CancellationToken,
 ) -> Result<LaunchedTab, BrowserError> {
     let session = tab_session(&ticket.tab_id);
-    let result = bind_existing_inner(runtime, ticket, &session, target_id).await;
+    let result =
+        bind_existing_inner(runtime, ticket, &session, target_id, cancellation.clone()).await;
+    let result = reject_cancelled_launch(result, &cancellation);
     if result.is_err() {
         cleanup_failed_launch(runtime, &session, false).await;
     }
@@ -65,6 +72,7 @@ async fn bind_existing_inner(
     ticket: &TabTicket,
     session: &str,
     target_id: &str,
+    cancellation: CancellationToken,
 ) -> Result<LaunchedTab, BrowserError> {
     let response = runtime
         .cli
@@ -73,7 +81,7 @@ async fn bind_existing_inner(
             &runtime.cdp_url,
             &["tab", target_id],
             CREATE_TIMEOUT,
-            CancellationToken::new(),
+            cancellation.clone(),
         )
         .await?;
     let binding = wait_for_binding(&runtime.cli, session).await?;
@@ -91,7 +99,7 @@ async fn bind_existing_inner(
         session,
         &runtime.cdp_url,
         &response,
-        CancellationToken::new(),
+        cancellation,
     )
     .await?;
     Ok(LaunchedTab {
@@ -106,6 +114,7 @@ async fn launch_tab_inner(
     ticket: &TabTicket,
     session: &str,
     url: &str,
+    cancellation: CancellationToken,
 ) -> Result<LaunchedTab, BrowserError> {
     let response = runtime
         .cli
@@ -114,7 +123,7 @@ async fn launch_tab_inner(
             &runtime.cdp_url,
             &["open", url],
             CREATE_TIMEOUT,
-            CancellationToken::new(),
+            cancellation.clone(),
         )
         .await?;
     let binding = wait_for_binding(&runtime.cli, session).await?;
@@ -129,7 +138,7 @@ async fn launch_tab_inner(
         session,
         &runtime.cdp_url,
         &response,
-        CancellationToken::new(),
+        cancellation,
     )
     .await?;
     Ok(LaunchedTab {
@@ -137,6 +146,16 @@ async fn launch_tab_inner(
         title,
         url: actual_url,
     })
+}
+
+fn reject_cancelled_launch(
+    result: Result<LaunchedTab, BrowserError>,
+    cancellation: &CancellationToken,
+) -> Result<LaunchedTab, BrowserError> {
+    if cancellation.is_cancelled() {
+        return Err(BrowserError::shutting_down());
+    }
+    result
 }
 
 fn build_tab_handle(
@@ -163,6 +182,13 @@ pub(super) async fn cleanup_tab(
     handle: TabRuntimeHandle,
     close_target: bool,
 ) -> Result<(), BrowserError> {
+    cleanup_tab_ref(&handle, close_target).await
+}
+
+pub(super) async fn cleanup_tab_ref(
+    handle: &TabRuntimeHandle,
+    close_target: bool,
+) -> Result<(), BrowserError> {
     handle.cancellation.cancel();
     let target_result = if close_target {
         close_target_by_id(&handle.cli, &handle.controller_session, &handle.target_id).await
@@ -176,7 +202,9 @@ pub(super) async fn cleanup_tab(
         &handle.daemon,
     )
     .await;
-    cleanup_session_files(&handle.cli, &handle.session).await;
+    if session_result.is_ok() {
+        cleanup_session_files(&handle.cli, &handle.session).await;
+    }
     target_result.and(session_result)
 }
 

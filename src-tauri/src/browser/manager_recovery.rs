@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::future::join_all;
+use tokio_util::sync::CancellationToken;
 
 use super::error::BrowserError;
 use super::manager::BrowserSessionManager;
@@ -13,6 +14,35 @@ const RECOVERY_ATTEMPTS: usize = 2;
 const RECOVERY_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 impl BrowserSessionManager {
+    pub(super) async fn cleanup_runtime_exit(
+        &self,
+        runtime: &BrowserRuntime,
+        generation: u64,
+    ) -> bool {
+        let epoch = self.current_shutdown_epoch();
+        let _tab_guard = self.tab_open_lock.lock().await;
+        if self.ensure_shutdown_epoch(epoch).is_err() {
+            return false;
+        }
+        self.stop_cdp_observer().await;
+        self.streams.close_all().await;
+        let tabs_result = self.shutdown_tabs().await;
+        self.close_all_controls().await;
+        runtime.release_exited(generation).await;
+        let tabs_result = if tabs_result.is_err() {
+            self.shutdown_tabs().await
+        } else {
+            tabs_result
+        };
+        tracing::error!(
+            target: "iyw_claw_browser",
+            runtime_generation = generation,
+            tab_cleanup_error = tabs_result.as_ref().err().map(|error| error.message.as_str()),
+            "browser controller exited unexpectedly"
+        );
+        tabs_result.is_ok()
+    }
+
     pub(super) fn schedule_recovery(&self, runtime: Arc<BrowserRuntime>, failed_generation: u64) {
         let manager = self.clone();
         tokio::spawn(async move {
@@ -31,21 +61,13 @@ impl BrowserSessionManager {
             if attempt > 0 {
                 tokio::time::sleep(RECOVERY_RETRY_DELAY).await;
             }
-            let Some(plan) = self
-                .state
-                .write()
+            let Some((plan, outcome)) = self
+                .start_recovery_attempt(&runtime, failed_generation)
                 .await
-                .begin_runtime_recovery(failed_generation)
             else {
                 return;
             };
-            for tab in &plan.tabs {
-                self.reset_control(&tab.ticket.tab_id).await;
-            }
-            match self
-                .start_runtime_with_ticket(&runtime, plan.runtime.clone())
-                .await
-            {
+            match outcome {
                 Ok(context) => {
                     self.recover_tabs(&context, &plan).await;
                     tracing::info!(
@@ -73,11 +95,42 @@ impl BrowserSessionManager {
         }
     }
 
+    async fn start_recovery_attempt(
+        &self,
+        runtime: &Arc<BrowserRuntime>,
+        failed_generation: u64,
+    ) -> Option<(RecoveryPlan, Result<BrowserRuntimeContext, BrowserError>)> {
+        let epoch = self.current_shutdown_epoch();
+        let _tab_guard = self.tab_open_lock.lock().await;
+        let _start_guard = self.runtime_start_lock.lock().await;
+        self.ensure_shutdown_epoch(epoch).ok()?;
+        let cancellation = self.shutdown_cancellation().await;
+        let plan = self
+            .state
+            .write()
+            .await
+            .begin_runtime_recovery(failed_generation)?;
+        for tab in &plan.tabs {
+            self.reset_control(&tab.ticket.tab_id).await;
+        }
+        let outcome = self
+            .start_runtime_with_ticket(runtime, plan.runtime.clone(), cancellation)
+            .await;
+        Some((plan, outcome))
+    }
+
     async fn recover_tabs(&self, runtime: &BrowserRuntimeContext, plan: &RecoveryPlan) {
+        let epoch = self.current_shutdown_epoch();
+        let _tab_guard = self.tab_open_lock.lock().await;
+        if self.ensure_shutdown_epoch(epoch).is_err() {
+            return;
+        }
+        let cancellation = self.shutdown_cancellation().await;
         let tasks = plan.tabs.iter().cloned().map(|tab| {
             let manager = self.clone();
             let runtime = runtime.clone();
-            async move { manager.recover_tab(&runtime, tab).await }
+            let cancellation = cancellation.clone();
+            async move { manager.recover_tab(&runtime, tab, cancellation).await }
         });
         for result in join_all(tasks).await {
             if let Err(error) = result {
@@ -94,8 +147,9 @@ impl BrowserSessionManager {
         &self,
         runtime: &BrowserRuntimeContext,
         tab: RecoveryTab,
+        cancellation: CancellationToken,
     ) -> Result<(), BrowserError> {
-        let launched = match launch_tab(runtime, &tab.ticket, &tab.url).await {
+        let launched = match launch_tab(runtime, &tab.ticket, &tab.url, cancellation).await {
             Ok(launched) => launched,
             Err(error) => {
                 self.fail_recovery_tab(&tab).await;

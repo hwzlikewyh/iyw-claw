@@ -64,33 +64,6 @@ pub enum BrowserEngineKind {
     Edge,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum AgentAccess {
-    UserOnly,
-    PrivateConnection {
-        #[serde(rename = "connectionId")]
-        connection_id: String,
-    },
-    SharedConversation {
-        #[serde(rename = "conversationId")]
-        conversation_id: i32,
-    },
-    OrphanedConnection,
-}
-
-impl AgentAccess {
-    pub fn allows(&self, identity: &BrowserAgentIdentity) -> bool {
-        match self {
-            Self::PrivateConnection { connection_id } => connection_id == &identity.connection_id,
-            Self::SharedConversation { conversation_id } => {
-                Some(*conversation_id) == identity.conversation_id
-            }
-            Self::UserOnly | Self::OrphanedConnection => false,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowserAgentIdentity {
     pub connection_id: String,
@@ -173,7 +146,6 @@ pub struct BrowserTabSnapshot {
     pub control_status: BrowserControlStatus,
     pub document_epoch: u64,
     pub generations: BrowserGenerations,
-    pub agent_access: AgentAccess,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host_id: Option<String>,
 }
@@ -194,6 +166,7 @@ pub struct BrowserHostSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserStateSnapshot {
+    pub state_revision: u64,
     pub capability: BrowserCapability,
     pub runtime: BrowserRuntimeSnapshot,
     pub tabs: Vec<BrowserTabSnapshot>,

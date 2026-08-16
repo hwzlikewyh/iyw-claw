@@ -57,6 +57,7 @@ impl BrowserState {
 
     pub fn snapshot(&self) -> BrowserStateSnapshot {
         BrowserStateSnapshot {
+            state_revision: 0,
             capability: self.capability.clone(),
             runtime: runtime_snapshot(&self.runtime),
             tabs: self

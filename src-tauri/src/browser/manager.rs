@@ -1,13 +1,16 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock};
+#[cfg(feature = "tauri-runtime")]
+use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "tauri-runtime")]
 use super::cdp_observer::CdpObserverHandle;
 use super::control::ControlGate;
 use super::control_lease::AgentControlLease;
-use super::error::{BrowserError, BrowserErrorCode};
+use super::error::BrowserError;
 use super::records::{RuntimeStartDecision, RuntimeTicket, TabTicket};
 #[cfg(feature = "tauri-runtime")]
 use super::runtime::BrowserRuntime;
@@ -16,7 +19,7 @@ use super::state::BrowserState;
 use super::stream::BrowserStreamRegistry;
 #[cfg(feature = "tauri-runtime")]
 use super::tabs::BrowserTabRegistry;
-use super::types::{AgentAccess, BrowserAgentIdentity, BrowserCapability, BrowserStateSnapshot};
+use super::types::{BrowserCapability, BrowserStateSnapshot};
 #[cfg(feature = "tauri-runtime")]
 use super::user_control_lease::UserControlLease;
 
@@ -24,6 +27,17 @@ use super::user_control_lease::UserControlLease;
 pub struct BrowserSessionManager {
     pub(super) state: Arc<RwLock<BrowserState>>,
     pub(super) controls: Arc<Mutex<HashMap<String, ControlGate>>>,
+    pub(super) snapshot_revision: Arc<AtomicU64>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) shutdown_lock: Arc<Mutex<()>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) shutdown_cancellation: Arc<Mutex<CancellationToken>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) runtime_start_lock: Arc<Mutex<()>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) tab_open_lock: Arc<Mutex<()>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) shutdown_epoch: Arc<AtomicU64>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) runtime: Option<Arc<BrowserRuntime>>,
     #[cfg(feature = "tauri-runtime")]
@@ -39,6 +53,17 @@ impl BrowserSessionManager {
         Self {
             state: Arc::new(RwLock::new(BrowserState::new(capability))),
             controls: Arc::new(Mutex::new(HashMap::new())),
+            snapshot_revision: Arc::new(AtomicU64::new(0)),
+            #[cfg(feature = "tauri-runtime")]
+            shutdown_lock: Arc::new(Mutex::new(())),
+            #[cfg(feature = "tauri-runtime")]
+            shutdown_cancellation: Arc::new(Mutex::new(CancellationToken::new())),
+            #[cfg(feature = "tauri-runtime")]
+            runtime_start_lock: Arc::new(Mutex::new(())),
+            #[cfg(feature = "tauri-runtime")]
+            tab_open_lock: Arc::new(Mutex::new(())),
+            #[cfg(feature = "tauri-runtime")]
+            shutdown_epoch: Arc::new(AtomicU64::new(0)),
             #[cfg(feature = "tauri-runtime")]
             runtime: None,
             #[cfg(feature = "tauri-runtime")]
@@ -54,8 +79,49 @@ impl BrowserSessionManager {
         self.state.write().await.set_capability(capability);
     }
 
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) fn current_shutdown_epoch(&self) -> u64 {
+        self.shutdown_epoch.load(Ordering::Acquire)
+    }
+
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) fn ensure_shutdown_epoch(&self, observed: u64) -> Result<(), BrowserError> {
+        if observed % 2 == 0 && self.current_shutdown_epoch() == observed {
+            return Ok(());
+        }
+        Err(BrowserError::new(
+            super::error::BrowserErrorCode::BrowserCancelled,
+            "The browser closed while the tab was waiting to open",
+        ))
+    }
+
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) async fn shutdown_cancellation(&self) -> CancellationToken {
+        self.shutdown_cancellation.lock().await.clone()
+    }
+
+    #[cfg(feature = "tauri-runtime")]
+    pub async fn run_browser_window_creation<T, F>(&self, create: F) -> Result<T, BrowserError>
+    where
+        T: Send,
+        F: FnOnce() -> Result<T, BrowserError> + Send,
+    {
+        let epoch = self.current_shutdown_epoch();
+        let _guard = self.tab_open_lock.lock().await;
+        self.ensure_shutdown_epoch(epoch)?;
+        create()
+    }
+
     pub async fn snapshot(&self) -> BrowserStateSnapshot {
-        let mut snapshot = self.state.read().await.snapshot();
+        let mut snapshot = {
+            let state = self.state.read().await;
+            let mut snapshot = state.snapshot();
+            snapshot.state_revision = self
+                .snapshot_revision
+                .fetch_add(1, Ordering::AcqRel)
+                .saturating_add(1);
+            snapshot
+        };
         let controls: Vec<(String, ControlGate)> = {
             let controls = self.controls.lock().await;
             controls
@@ -137,10 +203,9 @@ impl BrowserSessionManager {
     pub(super) async fn reserve_tab(
         &self,
         url: String,
-        access: AgentAccess,
         host_id: Option<String>,
     ) -> Result<TabTicket, BrowserError> {
-        let ticket = self.state.write().await.reserve_tab(url, access, host_id)?;
+        let ticket = self.state.write().await.reserve_tab(url, host_id)?;
         self.controls
             .lock()
             .await
@@ -218,63 +283,15 @@ impl BrowserSessionManager {
         Ok(())
     }
 
-    pub async fn set_tab_agent_access(
-        &self,
-        tab_id: &str,
-        access: AgentAccess,
-    ) -> Result<BrowserStateSnapshot, BrowserError> {
-        let gate = self
-            .control_gate(tab_id)
-            .await
-            .ok_or_else(|| BrowserError::tab_not_found(tab_id))?;
-        let agent_enabled = !matches!(
-            access,
-            AgentAccess::UserOnly | AgentAccess::OrphanedConnection
-        );
-        self.state
-            .write()
-            .await
-            .set_tab_agent_access(tab_id, access)?;
-        gate.reset_agent_access(agent_enabled).await;
-        Ok(self.snapshot().await)
-    }
-
     pub async fn acquire_agent_control(
         &self,
         tab_id: &str,
-        identity: &BrowserAgentIdentity,
     ) -> Result<AgentControlLease, BrowserError> {
-        self.ensure_agent_access(tab_id, identity).await?;
         let gate = self
             .control_gate(tab_id)
             .await
             .ok_or_else(|| BrowserError::tab_not_found(tab_id))?;
-        let lease = gate.acquire_agent().await?;
-        if let Err(error) = self.ensure_agent_access(tab_id, identity).await {
-            lease.finish().await;
-            return Err(error);
-        }
-        Ok(lease)
-    }
-
-    async fn ensure_agent_access(
-        &self,
-        tab_id: &str,
-        identity: &BrowserAgentIdentity,
-    ) -> Result<(), BrowserError> {
-        let snapshot = self.state.read().await.snapshot();
-        let tab = snapshot
-            .tabs
-            .iter()
-            .find(|tab| tab.browser_tab_id == tab_id)
-            .ok_or_else(|| BrowserError::tab_not_found(tab_id))?;
-        if tab.agent_access.allows(identity) {
-            return Ok(());
-        }
-        Err(BrowserError::new(
-            BrowserErrorCode::BrowserTabAccessDenied,
-            "This Agent is not allowed to access the browser tab",
-        ))
+        gate.acquire_agent().await
     }
 
     async fn control_gate(&self, tab_id: &str) -> Option<ControlGate> {

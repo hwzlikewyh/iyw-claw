@@ -5,7 +5,7 @@ use super::super::error::{BrowserError, BrowserErrorCode};
 use super::super::manager::BrowserSessionManager;
 use super::super::process::{kill_tree_checked, ProcessRecord};
 use super::super::records::TabTicket;
-use super::super::tab_launch::{cleanup_tab, close_target_by_id};
+use super::super::tab_launch::{cleanup_tab_ref, close_target_by_id};
 use super::super::tabs::TabRuntimeHandle;
 use super::super::types::BrowserStateSnapshot;
 
@@ -28,52 +28,81 @@ impl BrowserSessionManager {
         &self,
         tab_id: &str,
     ) -> Result<BrowserStateSnapshot, BrowserError> {
+        let epoch = self.current_shutdown_epoch();
+        let _tab_guard = self.tab_open_lock.lock().await;
+        self.ensure_shutdown_epoch(epoch)?;
         let ticket = match self.begin_tab_close(tab_id).await {
             Ok(ticket) => ticket,
             Err(error) if error.code == BrowserErrorCode::BrowserTabNotFound => {
-                tracing::info!(
-                    target: "iyw_claw_browser",
-                    browser_tab_id = %tab_id,
-                    "browser tab close was already completed"
-                );
-                return Ok(self.snapshot().await);
+                return self.retry_stopping_tab_cleanup(tab_id).await;
             }
             Err(error) => return Err(error),
         };
         self.finish_tab_close(&ticket).await?;
         let handle = self.tabs.take(tab_id).await;
         let snapshot = self.snapshot().await;
-        self.spawn_tab_close_cleanup(ticket, handle);
+        let result = self
+            .complete_tab_close_cleanup(&ticket, handle.as_ref())
+            .await;
+        if result.is_err() {
+            if let Some(handle) = handle {
+                self.tabs.restore_for_cleanup(vec![handle]).await;
+            }
+        }
+        result?;
         Ok(snapshot)
     }
 
-    fn spawn_tab_close_cleanup(&self, ticket: TabTicket, handle: Option<TabRuntimeHandle>) {
-        let manager = self.clone();
-        tokio::spawn(async move {
-            let fallback = cleanup_fallback(handle.as_ref());
-            let cleanup = manager.cleanup_closed_tab_resources(&ticket, handle);
-            match tokio::time::timeout(TAB_CLOSE_CLEANUP_TIMEOUT, cleanup).await {
-                Ok((target_result, session_result)) => {
-                    log_tab_close_cleanup(&ticket, &target_result, &session_result);
-                    if target_result.is_err() || session_result.is_err() {
-                        manager
-                            .force_closed_tab_cleanup(&ticket, fallback, "cleanup_failed")
-                            .await;
-                    }
+    async fn retry_stopping_tab_cleanup(
+        &self,
+        tab_id: &str,
+    ) -> Result<BrowserStateSnapshot, BrowserError> {
+        let Some(handle) = self.tabs.take(tab_id).await else {
+            tracing::info!(
+                target: "iyw_claw_browser",
+                browser_tab_id = %tab_id,
+                "browser tab close was already completed"
+            );
+            return Ok(self.snapshot().await);
+        };
+        let ticket = cleanup_retry_ticket(&handle);
+        let result = self
+            .complete_tab_close_cleanup(&ticket, Some(&handle))
+            .await;
+        if result.is_err() {
+            self.tabs.restore_for_cleanup(vec![handle]).await;
+        }
+        result?;
+        Ok(self.snapshot().await)
+    }
+
+    async fn complete_tab_close_cleanup(
+        &self,
+        ticket: &TabTicket,
+        handle: Option<&TabRuntimeHandle>,
+    ) -> Result<(), BrowserError> {
+        let fallback = cleanup_fallback(handle);
+        let cleanup = self.cleanup_closed_tab_resources(ticket, handle);
+        match tokio::time::timeout(TAB_CLOSE_CLEANUP_TIMEOUT, cleanup).await {
+            Ok((target_result, session_result)) => {
+                log_tab_close_cleanup(ticket, &target_result, &session_result);
+                if target_result.is_ok() && session_result.is_ok() {
+                    return Ok(());
                 }
-                Err(_) => {
-                    manager
-                        .force_closed_tab_cleanup(&ticket, fallback, "cleanup_timed_out")
-                        .await;
-                }
+                self.force_closed_tab_cleanup(ticket, fallback, "cleanup_failed")
+                    .await
             }
-        });
+            Err(_) => {
+                self.force_closed_tab_cleanup(ticket, fallback, "cleanup_timed_out")
+                    .await
+            }
+        }
     }
 
     async fn cleanup_closed_tab_resources(
         &self,
         ticket: &TabTicket,
-        handle: Option<TabRuntimeHandle>,
+        handle: Option<&TabRuntimeHandle>,
     ) -> (Result<(), BrowserError>, Result<(), BrowserError>) {
         self.streams.close_tab(&ticket.tab_id).await;
         let Some(handle) = handle else {
@@ -87,17 +116,17 @@ impl BrowserSessionManager {
         &self,
         handle: TabRuntimeHandle,
     ) -> Result<(), BrowserError> {
-        let (target_result, session_result) = self.cleanup_runtime_handle(handle).await;
+        let (target_result, session_result) = self.cleanup_runtime_handle(&handle).await;
         target_result.and(session_result)
     }
 
     async fn cleanup_runtime_handle(
         &self,
-        handle: TabRuntimeHandle,
+        handle: &TabRuntimeHandle,
     ) -> (Result<(), BrowserError>, Result<(), BrowserError>) {
-        let cleanup = CleanupFallback::from(&handle);
+        let cleanup = CleanupFallback::from(handle);
         let target_cleanup = self.close_tab_target(&cleanup);
-        let session_cleanup = cleanup_tab(handle, false);
+        let session_cleanup = cleanup_tab_ref(handle, false);
         tokio::join!(target_cleanup, session_cleanup)
     }
 
@@ -133,7 +162,7 @@ impl BrowserSessionManager {
         ticket: &TabTicket,
         fallback: Option<CleanupFallback>,
         reason: &'static str,
-    ) {
+    ) -> Result<(), BrowserError> {
         let (target_result, session_result) = force_cleanup(fallback).await;
         tracing::error!(
             target: "iyw_claw_browser",
@@ -146,6 +175,17 @@ impl BrowserSessionManager {
             session_error = session_result.as_ref().err().map(|error| error.message.as_str()),
             "browser tab cleanup required forced fallback"
         );
+        target_result.and(session_result)
+    }
+}
+
+fn cleanup_retry_ticket(handle: &TabRuntimeHandle) -> TabTicket {
+    TabTicket {
+        operation_id: format!("cleanup-retry-{}", handle.session),
+        tab_id: handle.tab_id.clone(),
+        runtime_generation: handle.runtime_generation,
+        tab_generation: 0,
+        view_generation: 0,
     }
 }
 
@@ -166,10 +206,10 @@ async fn force_cleanup(
 }
 
 async fn force_session_cleanup(cleanup: &CleanupFallback) -> Result<(), BrowserError> {
-    let result = kill_tree_checked(&cleanup.daemon).await;
+    kill_tree_checked(&cleanup.daemon).await?;
     let _ = tokio::fs::remove_file(cleanup.cli.pid_path(&cleanup.session)).await;
     let _ = tokio::fs::remove_file(cleanup.cli.target_path(&cleanup.session)).await;
-    result
+    Ok(())
 }
 
 async fn retry_target_close(

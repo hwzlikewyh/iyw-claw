@@ -32,12 +32,6 @@ export interface BrowserGenerations {
   controlEpoch: number
 }
 
-export type AgentAccess =
-  | { kind: "user_only" }
-  | { kind: "private_connection"; connectionId: string }
-  | { kind: "shared_conversation"; conversationId: number }
-  | { kind: "orphaned_connection" }
-
 export interface BrowserCapability {
   supported: boolean
   status: BrowserRuntimeStatus
@@ -63,7 +57,6 @@ export interface BrowserTabSnapshot {
     | "agent_waiting"
   documentEpoch: number
   generations: BrowserGenerations
-  agentAccess: AgentAccess
   hostId?: string
 }
 
@@ -116,6 +109,7 @@ export interface BrowserDownloadSnapshot {
 }
 
 export interface BrowserStateSnapshot {
+  stateRevision: number
   capability: BrowserCapability
   runtime: {
     status: BrowserRuntimeStatus
