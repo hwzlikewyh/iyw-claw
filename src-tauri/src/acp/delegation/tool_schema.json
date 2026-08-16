@@ -209,7 +209,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "description": "Optional browser_tab_id from browser_list_tabs."
+          "description": "Optional tab id from browser_list_tabs.tabs[].browserTabId."
         }
       },
       "additionalProperties": false
@@ -222,7 +222,12 @@
       "type": "object",
       "required": ["tab_id"],
       "properties": {
-        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        },
         "interactive": {
           "type": "boolean",
           "default": true,
@@ -244,7 +249,12 @@
       "type": "object",
       "required": ["tab_id", "selector"],
       "properties": {
-        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        },
         "selector": { "type": "string", "minLength": 1, "maxLength": 2048 }
       },
       "additionalProperties": false
@@ -257,7 +267,12 @@
       "type": "object",
       "required": ["tab_id", "selector", "text"],
       "properties": {
-        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        },
         "selector": { "type": "string", "minLength": 1, "maxLength": 2048 },
         "text": { "type": "string", "maxLength": 32768 }
       },
@@ -271,7 +286,12 @@
       "type": "object",
       "required": ["tab_id", "key"],
       "properties": {
-        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        },
         "key": { "type": "string", "minLength": 1, "maxLength": 128 }
       },
       "additionalProperties": false
@@ -284,7 +304,12 @@
       "type": "object",
       "required": ["tab_id", "direction"],
       "properties": {
-        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        },
         "direction": {
           "type": "string",
           "enum": ["up", "down", "left", "right"]
@@ -306,7 +331,12 @@
       "type": "object",
       "required": ["tab_id"],
       "properties": {
-        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        },
         "selector": { "type": "string", "minLength": 1, "maxLength": 2048 },
         "milliseconds": {
           "type": "integer",
@@ -325,7 +355,12 @@
       "type": "object",
       "required": ["tab_id"],
       "properties": {
-        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        },
         "full_page": { "type": "boolean", "default": false },
         "annotate": {
           "type": "boolean",
@@ -343,7 +378,12 @@
       "type": "object",
       "required": ["tab_id"],
       "properties": {
-        "tab_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        }
       },
       "additionalProperties": false
     }
