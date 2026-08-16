@@ -18,6 +18,7 @@ use super::manager::BrowserSessionManager;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const OBSERVER_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+const SOCKET_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
 
 struct CdpRequest {
@@ -155,9 +156,8 @@ async fn run_observer<S>(
     loop {
         tokio::select! {
             _ = cancellation.cancelled() => {
-                let _ = tokio::time::timeout(
-                    OBSERVER_CLOSE_TIMEOUT,
-                    sink.send(Message::Close(None)),
+                let _ = send_with_timeout(
+                    &mut sink, Message::Close(None), OBSERVER_CLOSE_TIMEOUT,
                 ).await;
                 break;
             }
@@ -166,7 +166,11 @@ async fn run_observer<S>(
                 let id = next_id;
                 next_id = next_id.saturating_add(1);
                 let message = command_message(id, &request);
-                if sink.send(Message::Text(message.to_string().into())).await.is_err() {
+                if send_with_timeout(
+                    &mut sink,
+                    Message::Text(message.to_string().into()),
+                    SOCKET_WRITE_TIMEOUT,
+                ).await.is_err() {
                     let _ = request.response.send(Err(unavailable()));
                     disconnected = true;
                     break;
@@ -177,10 +181,13 @@ async fn run_observer<S>(
                 let Some(result) = incoming else { disconnected = true; break; };
                 let Ok(message) = result else { disconnected = true; break; };
                 if let Message::Text(text) = message {
-                    handle_message(
+                    if handle_message(
                         &text, &mut pending, &mut sessions, &mut frames,
                         &manager, generation, &mut sink, &mut next_id,
-                    ).await;
+                    ).await.is_err() {
+                        disconnected = true;
+                        break;
+                    }
                 }
             }
         }
@@ -214,11 +221,12 @@ async fn handle_message<S>(
     generation: u64,
     sink: &mut S,
     next_id: &mut u64,
-) where
+) -> Result<(), ()>
+where
     S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
     let Ok(message) = serde_json::from_str::<Value>(text) else {
-        return;
+        return Ok(());
     };
     if let Some(id) = message.get("id").and_then(Value::as_u64) {
         if let Some(response) = pending.remove(&id) {
@@ -229,17 +237,17 @@ async fn handle_message<S>(
             };
             let _ = response.send(result);
         }
-        return;
+        return Ok(());
     }
     let Some(method) = message.get("method").and_then(Value::as_str) else {
-        return;
+        return Ok(());
     };
     let params = message.get("params").cloned().unwrap_or(Value::Null);
     let session_id = message.get("sessionId").and_then(Value::as_str);
     update_protocol_maps(method, &params, session_id, sessions, frames);
     if method == "Target.attachedToTarget" {
         if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
-            enable_page_events(sink, next_id, session).await;
+            enable_page_events(sink, next_id, session).await?;
         }
     }
     let target_id = session_id.and_then(|id| sessions.get(id)).cloned();
@@ -258,9 +266,10 @@ async fn handle_message<S>(
             frame_target,
         )
         .await;
+    Ok(())
 }
 
-async fn enable_page_events<S>(sink: &mut S, next_id: &mut u64, session_id: &str)
+async fn enable_page_events<S>(sink: &mut S, next_id: &mut u64, session_id: &str) -> Result<(), ()>
 where
     S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
@@ -279,6 +288,22 @@ where
             "sessionId": session_id,
         });
         *next_id = (*next_id).saturating_add(1);
-        let _ = sink.send(Message::Text(message.to_string().into())).await;
+        send_with_timeout(
+            sink,
+            Message::Text(message.to_string().into()),
+            SOCKET_WRITE_TIMEOUT,
+        )
+        .await?;
     }
+    Ok(())
+}
+
+async fn send_with_timeout<S>(sink: &mut S, message: Message, timeout: Duration) -> Result<(), ()>
+where
+    S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    tokio::time::timeout(timeout, sink.send(message))
+        .await
+        .map_err(|_| ())?
+        .map_err(|_| ())
 }
