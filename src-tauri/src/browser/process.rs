@@ -85,6 +85,33 @@ pub(super) fn find_processes_by_executable_arg(
         .collect()
 }
 
+pub(super) fn find_processes_by_exact_session(
+    executable: &Path,
+    session: &str,
+    label: &str,
+) -> Vec<ProcessRecord> {
+    let system = System::new_all();
+    system
+        .processes()
+        .values()
+        .filter(|process| {
+            process
+                .exe()
+                .is_some_and(|path| same_path(path, executable))
+                && process
+                    .cmd()
+                    .windows(2)
+                    .any(|arguments| arguments[0] == "--session" && arguments[1] == session)
+        })
+        .map(|process| ProcessRecord {
+            pid: process.pid().as_u32(),
+            started_at: process.start_time(),
+            label: label.to_string(),
+            executable: Some(executable.to_path_buf()),
+        })
+        .collect()
+}
+
 pub(super) async fn wait_for_exit(record: &ProcessRecord, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {

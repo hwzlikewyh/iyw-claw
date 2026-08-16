@@ -3,7 +3,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::error::{BrowserError, BrowserErrorCode};
 use super::manager::BrowserSessionManager;
-use super::tab_launch::{cleanup_tab, launch_tab};
+use super::tab_launch::launch_tab;
 use super::tab_metadata::page_metadata;
 use super::types::{BrowserGenerations, BrowserStateSnapshot};
 
@@ -36,18 +36,19 @@ impl BrowserSessionManager {
         let url = validated_url(&url)?;
         let runtime = self.ensure_runtime_running(cancellation.clone()).await?;
         let ticket = self.reserve_tab(url.clone(), host_id).await?;
-        let launched = match launch_tab(&runtime, &ticket, &url, cancellation).await {
-            Ok(launched) => launched,
-            Err(error) => {
-                let _ = self.rollback_tab(&ticket).await;
-                return Err(error);
-            }
-        };
+        let launched =
+            match launch_tab(&self.tab_cleanups, &runtime, &ticket, &url, cancellation).await {
+                Ok(launched) => launched,
+                Err(error) => {
+                    let _ = self.rollback_tab(&ticket).await;
+                    return Err(error);
+                }
+            };
         let target_id = launched.handle.target_id.clone();
         let watch = match self.tabs.insert(launched.handle).await {
             Ok(watch) => watch,
             Err(handle) => {
-                let _ = cleanup_tab(handle, true).await;
+                let _ = self.cleanup_or_retain_tab_handle(handle, true).await;
                 let _ = self.rollback_tab(&ticket).await;
                 return Err(BrowserError::new(
                     BrowserErrorCode::BrowserInternal,
@@ -60,7 +61,7 @@ impl BrowserSessionManager {
             .await
         {
             if let Some(handle) = self.tabs.take(&ticket.tab_id).await {
-                let _ = cleanup_tab(handle, true).await;
+                let _ = self.cleanup_or_retain_tab_handle(handle, true).await;
             }
             let _ = self.rollback_tab(&ticket).await;
             return Err(error);

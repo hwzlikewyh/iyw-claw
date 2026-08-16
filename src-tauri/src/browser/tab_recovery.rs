@@ -7,12 +7,14 @@ use super::error::{BrowserError, BrowserErrorCode};
 use super::manager::BrowserSessionManager;
 use super::records::RecoveryTab;
 use super::runtime::BrowserRuntimeContext;
-use super::tab_launch::{
-    bind_existing_tab_preserving_target, cleanup_dead_tab_session, cleanup_tab, close_target_by_id,
-    launch_tab, LaunchedTab,
-};
+use super::tab_cleanup::close_target_by_id;
+use super::tab_launch::{bind_existing_tab_preserving_target, launch_tab, LaunchedTab};
 use super::tabs::TabExitWatch;
 use super::types::BrowserStateSnapshot;
+
+mod logging;
+
+use logging::{log_recovery_result, recovery_error, runtime_changed};
 
 const RECOVERY_ATTEMPTS: usize = 2;
 const RECOVERY_RETRY_DELAY: Duration = Duration::from_millis(500);
@@ -83,7 +85,15 @@ impl BrowserSessionManager {
             self.close_control(&tab_id).await;
         }
         if accepted {
-            cleanup_dead_tab_session(handle).await;
+            if let Err(error) = self.cleanup_or_retain_tab_handle(handle, false).await {
+                tracing::warn!(
+                    target: "iyw_claw_browser",
+                    browser_tab_id = %tab_id,
+                    runtime_generation,
+                    error_code = ?error.code,
+                    "crashed browser tab session cleanup was retained for retry"
+                );
+            }
             tracing::error!(
                 target: "iyw_claw_browser",
                 browser_tab_id = %tab_id,
@@ -148,6 +158,7 @@ impl BrowserSessionManager {
     ) -> Result<RecoveryLaunch, BrowserError> {
         if let Some(target_id) = &tab.target_id {
             if let Ok(launched) = bind_existing_tab_preserving_target(
+                &self.tab_cleanups,
                 runtime,
                 &tab.ticket,
                 target_id,
@@ -160,14 +171,28 @@ impl BrowserSessionManager {
                     stale_target_id: None,
                 });
             }
-            let launched = launch_tab(runtime, &tab.ticket, &tab.url, cancellation.clone()).await?;
+            let launched = launch_tab(
+                &self.tab_cleanups,
+                runtime,
+                &tab.ticket,
+                &tab.url,
+                cancellation.clone(),
+            )
+            .await?;
             return Ok(RecoveryLaunch {
                 launched,
                 stale_target_id: Some(target_id.clone()),
             });
         }
         Ok(RecoveryLaunch {
-            launched: launch_tab(runtime, &tab.ticket, &tab.url, cancellation).await?,
+            launched: launch_tab(
+                &self.tab_cleanups,
+                runtime,
+                &tab.ticket,
+                &tab.url,
+                cancellation,
+            )
+            .await?,
             stale_target_id: None,
         })
     }
@@ -182,7 +207,7 @@ impl BrowserSessionManager {
         let watch = match self.tabs.insert(launched.handle).await {
             Ok(watch) => watch,
             Err(handle) => {
-                let _ = cleanup_tab(handle, true).await;
+                let _ = self.cleanup_or_retain_tab_handle(handle, true).await;
                 return Err(recovery_error());
             }
         };
@@ -191,7 +216,7 @@ impl BrowserSessionManager {
             .await
         {
             if let Some(handle) = self.tabs.take(&tab.ticket.tab_id).await {
-                let _ = cleanup_tab(handle, true).await;
+                let _ = self.cleanup_or_retain_tab_handle(handle, true).await;
             }
             return Err(error);
         }
@@ -227,7 +252,7 @@ impl BrowserSessionManager {
         self.streams.close_tab(&ticket.tab_id).await;
         self.close_control(&ticket.tab_id).await;
         if let Some(handle) = self.tabs.take(&ticket.tab_id).await {
-            let _ = cleanup_tab(handle, false).await;
+            let _ = self.cleanup_or_retain_tab_handle(handle, false).await;
         }
     }
 
@@ -249,49 +274,10 @@ impl BrowserSessionManager {
         self.streams.close_tab(&tab_id).await;
         self.close_control(&tab_id).await;
         if let Some(handle) = self.tabs.take(&tab_id).await {
-            let _ = cleanup_tab(handle, false).await;
+            let _ = self.cleanup_or_retain_tab_handle(handle, false).await;
         }
         if crashed {
             self.schedule_tab_recovery(tab_id, generation);
         }
     }
-}
-
-fn log_recovery_result(context: RecoveryAttempt<'_>, result: &Result<(), BrowserError>) -> bool {
-    match result {
-        Ok(()) => tracing::info!(
-            target: "iyw_claw_browser",
-            browser_tab_id = %context.tab_id,
-            runtime_generation = context.runtime_generation,
-            attempt = context.number,
-            "browser tab session recovered"
-        ),
-        Err(error) => tracing::warn!(
-            target: "iyw_claw_browser",
-            browser_tab_id = %context.tab_id,
-            runtime_generation = context.runtime_generation,
-            attempt = context.number,
-            error_code = ?error.code,
-            "browser tab session recovery failed"
-        ),
-    }
-    match result {
-        Ok(()) => true,
-        Err(error) => !error.retryable,
-    }
-}
-
-fn runtime_changed() -> BrowserError {
-    BrowserError::new(
-        BrowserErrorCode::BrowserRuntimeUnavailable,
-        "The browser runtime changed during tab recovery",
-    )
-    .retryable(true)
-}
-
-fn recovery_error() -> BrowserError {
-    BrowserError::new(
-        BrowserErrorCode::BrowserInternal,
-        "The recovered browser tab could not be registered",
-    )
 }

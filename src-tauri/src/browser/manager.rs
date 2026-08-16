@@ -18,6 +18,8 @@ use super::state::BrowserState;
 #[cfg(feature = "tauri-runtime")]
 use super::stream::BrowserStreamRegistry;
 #[cfg(feature = "tauri-runtime")]
+use super::tab_cleanup_registry::PendingTabCleanupRegistry;
+#[cfg(feature = "tauri-runtime")]
 use super::tabs::BrowserTabRegistry;
 use super::types::{BrowserCapability, BrowserStateSnapshot};
 #[cfg(feature = "tauri-runtime")]
@@ -42,6 +44,8 @@ pub struct BrowserSessionManager {
     pub(super) runtime: Option<Arc<BrowserRuntime>>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) tabs: Arc<BrowserTabRegistry>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) tab_cleanups: Arc<PendingTabCleanupRegistry>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) streams: Arc<BrowserStreamRegistry>,
     #[cfg(feature = "tauri-runtime")]
@@ -68,6 +72,8 @@ impl BrowserSessionManager {
             runtime: None,
             #[cfg(feature = "tauri-runtime")]
             tabs: Arc::new(BrowserTabRegistry::default()),
+            #[cfg(feature = "tauri-runtime")]
+            tab_cleanups: Arc::new(PendingTabCleanupRegistry::default()),
             #[cfg(feature = "tauri-runtime")]
             streams: Arc::new(BrowserStreamRegistry::default()),
             #[cfg(feature = "tauri-runtime")]
@@ -178,13 +184,6 @@ impl BrowserSessionManager {
             controls.drain().map(|(_, gate)| gate).collect::<Vec<_>>()
         };
         for gate in controls {
-            gate.close().await;
-        }
-    }
-
-    pub(super) async fn close_control(&self, tab_id: &str) {
-        let gate = self.controls.lock().await.remove(tab_id);
-        if let Some(gate) = gate {
             gate.close().await;
         }
     }
