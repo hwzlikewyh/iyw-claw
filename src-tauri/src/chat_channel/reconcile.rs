@@ -17,7 +17,7 @@ use sea_orm::DatabaseConnection;
 use super::backends;
 use super::error::ChatChannelError;
 use super::manager::ChatChannelManager;
-use super::types::{ChannelRuntimeStatus, ChannelType};
+use super::types::{ChannelConnectionStatus, ChannelRuntimeStatus, ChannelType};
 use crate::app_error::AppCommandError;
 use crate::db::entities::chat_channel;
 use crate::db::service::chat_channel_service;
@@ -66,7 +66,7 @@ impl ReconcileOutcome {
 
 /// Per-type credential readiness. WeCom owns credentials inside wecom-cli
 /// (QR-scan auth) and must NOT be gated on a channel token
-/// (IYW-CHANNEL-003); Lark/Weixin use the keyring token.
+/// (IYW-CHANNEL-003); all official API transports use the keyring token.
 pub async fn credential_ready(
     _db: &DatabaseConnection,
     model: &chat_channel::Model,
@@ -83,12 +83,17 @@ pub async fn credential_ready(
                 Err(error) => Err(format!("企微授权状态检查失败：{error}")),
             }
         }
-        ChannelType::Lark | ChannelType::Weixin => {
+        ChannelType::Lark
+        | ChannelType::Weixin
+        | ChannelType::WecomAiBot
+        | ChannelType::WecomAgent
+        | ChannelType::Dingtalk => {
             if crate::keyring_store::get_channel_token(model.id).is_none() {
-                let hint = if channel_type == ChannelType::Weixin {
-                    "请先扫码完成微信授权"
-                } else {
-                    "请先保存 App Secret"
+                let hint = match channel_type {
+                    ChannelType::Weixin => "请先扫码完成微信授权",
+                    ChannelType::Dingtalk => "请先保存 Client Secret",
+                    ChannelType::WecomAiBot => "请先保存 Bot Secret",
+                    _ => "请先保存 App Secret",
                 };
                 Err(format!("缺少渠道凭据（{hint}）"))
             } else {
@@ -140,10 +145,9 @@ pub async fn reconcile_channel(
         ));
     }
 
-    // Fast path: already connected with intact credentials — nothing to
-    // rebuild. Keeps the wecom QR polling loop (and repeated saves) cheap and
-    // idempotent.
-    if manager.is_connected(id).await {
+    // Fast path for idempotent connect/app-start calls. Config and credential
+    // changes always rebuild so a live backend cannot keep stale values.
+    if manager.is_connected(id).await && !requires_backend_rebuild(reason) {
         if let Err(message) = credential_ready(db, &model).await {
             let updated = chat_channel_service::update_runtime(
                 db,
@@ -195,23 +199,72 @@ pub async fn reconcile_channel(
     manager.emit_channel_status(id, "connecting").await;
 
     let outcome = match reconcile_connect(db, manager, &model).await {
-        Ok(()) => {
-            let updated = chat_channel_service::update_runtime(
-                db,
-                id,
-                Some(ChannelRuntimeStatus::Connected.as_str().to_string()),
-                Some(None),
-                Some(None),
-                Some(Some(chrono::Utc::now())),
-            )
-            .await
-            .map_err(AppCommandError::from)?;
-            tracing::info!("[reconcile] channel {id} ({reason}): connected");
-            ReconcileOutcome::ok(updated.id, true, &updated.runtime_status, true)
-        }
+        Ok(()) => match manager.connection_status(id).await {
+            Some(ChannelConnectionStatus::Connected) => {
+                let updated = chat_channel_service::update_runtime(
+                    db,
+                    id,
+                    Some(ChannelRuntimeStatus::Connected.as_str().to_string()),
+                    Some(None),
+                    Some(None),
+                    Some(Some(chrono::Utc::now())),
+                )
+                .await
+                .map_err(AppCommandError::from)?;
+                tracing::info!(channel_id = id, reason, "[reconcile] transport connected");
+                ReconcileOutcome::ok(updated.id, true, &updated.runtime_status, true)
+            }
+            Some(ChannelConnectionStatus::Connecting) => {
+                let updated = chat_channel_service::update_runtime(
+                    db,
+                    id,
+                    Some(ChannelRuntimeStatus::Connecting.as_str().to_string()),
+                    None,
+                    None,
+                    None,
+                )
+                .await
+                .map_err(AppCommandError::from)?;
+                tracing::info!(
+                    channel_id = id,
+                    reason,
+                    "[reconcile] backend started; waiting for transport readiness"
+                );
+                ReconcileOutcome::ok(updated.id, true, &updated.runtime_status, false)
+            }
+            status => {
+                let message = format!(
+                    "渠道启动后未建立传输连接（状态：{}）",
+                    connection_status_label(status)
+                );
+                tracing::warn!(
+                    channel_id = id,
+                    reason,
+                    transport_status = connection_status_label(status),
+                    "[reconcile] backend startup did not produce a live transport"
+                );
+                let updated = chat_channel_service::update_runtime(
+                    db,
+                    id,
+                    Some(ChannelRuntimeStatus::Error.as_str().to_string()),
+                    Some(Some(message.clone())),
+                    Some(Some(chrono::Utc::now())),
+                    None,
+                )
+                .await
+                .map_err(AppCommandError::from)?;
+                manager.emit_channel_status(id, "error").await;
+                ReconcileOutcome::failed(updated.id, true, &updated.runtime_status, message)
+            }
+        },
         Err(error) => {
             let message = error.to_string();
-            tracing::error!("[reconcile] channel {id} ({reason}) failed: {message}");
+            tracing::error!(
+                channel_id = id,
+                reason,
+                error = %message,
+                "[reconcile] channel startup failed"
+            );
             let updated = chat_channel_service::update_runtime(
                 db,
                 id,
@@ -227,6 +280,20 @@ pub async fn reconcile_channel(
         }
     };
     Ok(outcome)
+}
+
+fn connection_status_label(status: Option<ChannelConnectionStatus>) -> &'static str {
+    match status {
+        Some(ChannelConnectionStatus::Connected) => "connected",
+        Some(ChannelConnectionStatus::Connecting) => "connecting",
+        Some(ChannelConnectionStatus::Disconnected) => "disconnected",
+        Some(ChannelConnectionStatus::Error) => "error",
+        None => "missing",
+    }
+}
+
+fn requires_backend_rebuild(reason: ReconcileReason) -> bool {
+    matches!(reason, "edit" | "credential" | "qr_completed")
 }
 
 /// Build + start the backend for an enabled channel, performing a safe
@@ -250,7 +317,11 @@ async fn reconcile_connect(
 
     let token = match channel_type {
         ChannelType::Wecom => String::new(),
-        ChannelType::Lark | ChannelType::Weixin => {
+        ChannelType::Lark
+        | ChannelType::Weixin
+        | ChannelType::WecomAiBot
+        | ChannelType::WecomAgent
+        | ChannelType::Dingtalk => {
             crate::keyring_store::get_channel_token(model.id).unwrap_or_default()
         }
     };
@@ -260,7 +331,7 @@ async fn reconcile_connect(
     // Build the new backend inside the same fallible block so a config error
     // restores the previous (last-known-good) backend instead of dropping it.
     let result = async {
-        let backend = backends::create_backend(model.id, channel_type, &config, token)
+        let backend = backends::create_backend(model.id, channel_type, &config, token, db.clone())
             .map_err(|e| ChatChannelError::ConfigurationInvalid(e.to_string()))?;
         manager
             .upsert_channel(

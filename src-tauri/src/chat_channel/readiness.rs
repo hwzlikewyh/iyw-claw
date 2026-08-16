@@ -192,6 +192,9 @@ pub async fn evaluate_all(
     };
     let mut reports = Vec::with_capacity(models.len());
     for model in models {
+        if model.channel_type == super::types::ChannelType::WecomAgent.to_string() {
+            continue;
+        }
         reports.push(evaluate_readiness(db, manager, &model).await);
     }
     reports

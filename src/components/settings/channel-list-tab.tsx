@@ -62,6 +62,22 @@ import { WeixinQrcodeDialog } from "./weixin-qrcode-dialog"
 
 export function ChannelListTab() {
   const t = useTranslations("ChatChannelSettings")
+  const channelTypeLabel = (type: ChannelType) => {
+    switch (type) {
+      case "lark":
+        return t("lark")
+      case "weixin":
+        return t("weixin")
+      case "wecom":
+        return t("wecom")
+      case "wecom_ai_bot":
+        return t("wecomAiBot")
+      case "wecom_agent":
+        return t("wecomAgent")
+      case "dingtalk":
+        return t("dingtalk")
+    }
+  }
   const [channels, setChannels] = useState<ChatChannelInfo[]>([])
   const [statuses, setStatuses] = useState<ChannelStatusInfo[]>([])
   const [readiness, setReadiness] = useState<ChannelReadinessReport[]>([])
@@ -79,7 +95,9 @@ export function ChannelListTab() {
         getChatChannelStatus().catch(() => []),
         getChatChannelReadiness().catch(() => []),
       ])
-      setChannels(chs)
+      setChannels(
+        chs.filter((channel) => channel.channel_type !== "wecom_agent")
+      )
       setStatuses(sts)
       setReadiness(rd)
     } catch {
@@ -227,11 +245,7 @@ export function ChannelListTab() {
             : await fullLoopChatChannel(ch.id)
         const rd = result.readiness
         const failedStage = rd.stages.find((s) => !s.ok)
-        if (
-          kind === "full" &&
-          result.roundtrip &&
-          !result.roundtrip.verified
-        ) {
+        if (kind === "full" && result.roundtrip && !result.roundtrip.verified) {
           const detail = result.roundtrip.details.join("；")
           toast.error(t("diagnosticFailed") + (detail ? `：${detail}` : ""))
         } else if (failedStage) {
@@ -269,8 +283,7 @@ export function ChannelListTab() {
   const getChannelStatus = (id: number) =>
     statuses.find((s) => s.channel_id === id)?.status ?? "disconnected"
 
-  const getReadiness = (id: number) =>
-    readiness.find((r) => r.channelId === id)
+  const getReadiness = (id: number) => readiness.find((r) => r.channelId === id)
 
   if (loading) {
     return (
@@ -321,7 +334,26 @@ export function ChannelListTab() {
                       variant="outline"
                       className="text-xs inline-flex items-center gap-1"
                     >
-                      {ch.channel_type}
+                      {channelTypeLabel(ch.channel_type)}
+                      {ch.channel_type === "wecom" && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                className="inline-flex cursor-help rounded-sm text-yellow-600 outline-none focus-visible:ring-1 focus-visible:ring-ring dark:text-yellow-500"
+                                aria-label={t("wecomLegacyMigrationHint")}
+                              >
+                                <AlertCircle className="h-3 w-3" />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              {t("wecomLegacyMigrationHint")}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
                       {ch.channel_type === "weixin" && (
                         <TooltipProvider>
                           <Tooltip>

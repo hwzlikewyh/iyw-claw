@@ -23,6 +23,15 @@ pub(super) fn create_config(
             "default_agent_type": input.default_agent_type,
             "poll_interval_secs": input.poll_interval_secs,
         })),
+        "wecom_ai_bot" => Ok(json!({
+            "bot_id": input.bot_id.unwrap_or_default(),
+            "default_chatid": input.default_target.unwrap_or_default(),
+            "default_agent_type": input.default_agent_type,
+        })),
+        "dingtalk" => Ok(json!({
+            "client_id": input.client_id.unwrap_or_default(),
+            "default_agent_type": input.default_agent_type,
+        })),
         _ => Err("CHANNEL_TYPE_UNSUPPORTED".to_string()),
     }
 }
@@ -32,19 +41,25 @@ pub(super) fn update_config(
     input: &ChannelConfigInput,
 ) -> Result<Value, String> {
     let mut patch = serde_json::Map::new();
-    add(&mut patch, "baseUrl", &input.base_url);
-    add(&mut patch, "appId", &input.app_id);
-    add(&mut patch, "defaultAgentType", &input.default_agent_type);
-    add(&mut patch, "pollIntervalSecs", &input.poll_interval_secs);
-    add(&mut patch, "defaultChatType", &input.default_target_type);
-    if let Some(target) = &input.default_target {
-        let key = if channel_type == "wecom" {
-            "defaultChatid"
-        } else {
-            "chatId"
-        };
-        patch.insert(key.to_string(), json!(target));
+    match channel_type {
+        "lark" => {
+            add(&mut patch, "appId", &input.app_id);
+            add(&mut patch, "chatId", &input.default_target);
+        }
+        "weixin" => add(&mut patch, "baseUrl", &input.base_url),
+        "wecom" => {
+            add(&mut patch, "defaultChatid", &input.default_target);
+            add(&mut patch, "defaultChatType", &input.default_target_type);
+            add(&mut patch, "pollIntervalSecs", &input.poll_interval_secs);
+        }
+        "wecom_ai_bot" => {
+            add(&mut patch, "botId", &input.bot_id);
+            add(&mut patch, "defaultChatid", &input.default_target);
+        }
+        "dingtalk" => add(&mut patch, "clientId", &input.client_id),
+        _ => return Err("CHANNEL_TYPE_UNSUPPORTED".to_string()),
     }
+    add(&mut patch, "defaultAgentType", &input.default_agent_type);
     Ok(Value::Object(patch))
 }
 

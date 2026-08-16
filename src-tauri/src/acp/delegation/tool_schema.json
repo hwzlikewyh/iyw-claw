@@ -723,7 +723,7 @@
         },
         "channel_type": {
           "type": "string",
-          "enum": ["lark", "weixin", "wecom"]
+          "enum": ["lark", "weixin", "wecom", "wecom_ai_bot", "dingtalk"]
         },
         "enabled": { "type": "boolean" },
         "runtime_status": {
@@ -753,7 +753,7 @@
         "name": { "type": "string", "minLength": 1 },
         "channel_type": {
           "type": "string",
-          "enum": ["lark", "weixin", "wecom"],
+          "enum": ["lark", "weixin", "wecom", "wecom_ai_bot", "dingtalk"],
           "description": "Required when creating and immutable afterwards."
         },
         "enabled": { "type": "boolean" },
@@ -768,6 +768,8 @@
           "properties": {
             "base_url": { "type": "string" },
             "app_id": { "type": "string" },
+            "bot_id": { "type": "string" },
+            "client_id": { "type": "string" },
             "default_target": { "type": "string" },
             "default_target_type": {
               "type": "integer",

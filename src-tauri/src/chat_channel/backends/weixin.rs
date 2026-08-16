@@ -5,12 +5,14 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rand::Rng;
 use reqwest::header::{HeaderMap, HeaderValue};
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, Mutex};
 
 use crate::chat_channel::error::ChatChannelError;
 use crate::chat_channel::traits::ChatChannelBackend;
 use crate::chat_channel::types::*;
+use crate::db::service::sender_context_service;
 
 const ILINK_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
 const ILINK_CHANNEL_VERSION: &str = "1.0.2";
@@ -65,6 +67,8 @@ struct SendRequest<'a> {
     to_user_id: &'a str,
     context_token: &'a str,
     text: &'a str,
+    database: &'a DatabaseConnection,
+    channel_id: i32,
     reply_context: &'a Mutex<Option<WeixinReplyContext>>,
     pending_messages: &'a Mutex<Vec<String>>,
     allow_buffer: bool,
@@ -249,6 +253,7 @@ pub struct WeixinBackend {
     bot_token: String,
     base_url: String,
     client: reqwest::Client,
+    database: DatabaseConnection,
     status: Arc<Mutex<ChannelConnectionStatus>>,
     channel_id: i32,
     shutdown_tx: Arc<Mutex<Option<tokio::sync::watch::Sender<bool>>>>,
@@ -260,7 +265,12 @@ pub struct WeixinBackend {
 }
 
 impl WeixinBackend {
-    pub fn new(channel_id: i32, bot_token: String, base_url: String) -> Self {
+    pub fn new(
+        channel_id: i32,
+        bot_token: String,
+        base_url: String,
+        database: DatabaseConnection,
+    ) -> Self {
         let uin_raw = rand::thread_rng().gen::<u32>().to_string();
         let wechat_uin = B64.encode(uin_raw.as_bytes());
 
@@ -272,6 +282,7 @@ impl WeixinBackend {
                 .timeout(Duration::from_secs(45))
                 .build()
                 .unwrap_or_default(),
+            database,
             status: Arc::new(Mutex::new(ChannelConnectionStatus::Disconnected)),
             channel_id,
             shutdown_tx: Arc::new(Mutex::new(None)),
@@ -349,6 +360,21 @@ impl WeixinBackend {
                     tracing::info!(ret, "[Weixin] sendmessage rejected");
 
                     if ret == -2 {
+                        if let Err(error) =
+                            sender_context_service::clear_weixin_context_token_if_matches(
+                                req.database,
+                                req.channel_id,
+                                req.to_user_id,
+                                req.context_token,
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                channel_id = req.channel_id,
+                                error = %error,
+                                "[Weixin] failed to clear expired persisted reply context"
+                            );
+                        }
                         if !req.allow_buffer {
                             return Err(ChatChannelError::SendFailed(
                                 "TARGET_CONTEXT_EXPIRED".to_string(),
@@ -421,6 +447,8 @@ impl WeixinBackend {
             to_user_id: &to_user_id,
             context_token: &context_token,
             text,
+            database: &self.database,
+            channel_id: self.channel_id,
             reply_context: &self.reply_context,
             pending_messages: &self.pending_messages,
             allow_buffer: true,
@@ -438,24 +466,40 @@ impl WeixinBackend {
         let to_user_id = target.chat_id.as_deref().ok_or_else(|| {
             ChatChannelError::ConfigurationInvalid("WeChat target user is missing".to_string())
         })?;
-        let context_token = target
+        let target_context_token = target
             .provider_payload
             .as_ref()
             .and_then(|payload| payload.get("context_token"))
             .and_then(serde_json::Value::as_str)
+            .filter(|token| !token.is_empty());
+        // The in-flight target is the source of truth for a reply. When a
+        // backend has restarted, the sender-scoped persisted token restores
+        // delivery for targets that only retain the recipient id.
+        let context_token = match target_context_token {
+            Some(token) => token.to_string(),
+            None => sender_context_service::get_weixin_context_token(
+                &self.database,
+                self.channel_id,
+                to_user_id,
+            )
+            .await
+            .map_err(|error| ChatChannelError::SendFailed(error.to_string()))?
             .ok_or_else(|| {
                 ChatChannelError::ConfigurationInvalid(
                     "WeChat target context is unavailable".to_string(),
                 )
-            })?;
+            })?,
+        };
         Self::do_send(SendRequest {
             client: &self.client,
             base_url: &self.base_url,
             bot_token: &self.bot_token,
             wechat_uin: &self.wechat_uin,
             to_user_id,
-            context_token,
+            context_token: &context_token,
             text,
+            database: &self.database,
+            channel_id: self.channel_id,
             reply_context: &self.reply_context,
             pending_messages: &self.pending_messages,
             allow_buffer: false,
@@ -474,12 +518,18 @@ impl ChatChannelBackend for WeixinBackend {
     async fn start(
         &self,
         command_tx: mpsc::Sender<IncomingCommand>,
-        _runtime_tx: mpsc::Sender<ChannelRuntimeEvent>,
-        _generation: u64,
+        runtime_tx: mpsc::Sender<ChannelRuntimeEvent>,
+        generation: u64,
     ) -> Result<(), ChatChannelError> {
         *self.status.lock().await = ChannelConnectionStatus::Connecting;
 
-        tracing::info!(channel_id = self.channel_id, "[Weixin] starting backend");
+        tracing::info!(
+            channel_id = self.channel_id,
+            channel_type = "weixin",
+            generation,
+            stage = "credential_verification",
+            "[Weixin] starting backend"
+        );
 
         // Verify auth by doing a quick getupdates with empty cursor
         let verify_body = serde_json::json!({
@@ -503,6 +553,12 @@ impl ChatChannelBackend for WeixinBackend {
             .map_err(|e| ChatChannelError::ConnectionFailed(e.to_string()))?;
 
         tracing::info!("[Weixin] verify response status={status_code}");
+
+        if !status_code.is_success() {
+            return Err(ChatChannelError::ConnectionFailed(format!(
+                "Weixin verification returned HTTP {status_code}"
+            )));
+        }
 
         let verify_result: serde_json::Value = serde_json::from_str(&resp_text)
             .map_err(|e| ChatChannelError::ConnectionFailed(format!("JSON parse failed: {e}")))?;
@@ -554,6 +610,7 @@ impl ChatChannelBackend for WeixinBackend {
         let base_url = self.base_url.clone();
         let wechat_uin = self.wechat_uin.clone();
         let channel_id = self.channel_id;
+        let database = self.database.clone();
         let status = self.status.clone();
         let reply_context = self.reply_context.clone();
         let pending_messages = self.pending_messages.clone();
@@ -580,20 +637,33 @@ impl ChatChannelBackend for WeixinBackend {
                         .send() => r,
                     _ = shutdown_rx.changed() => break,
                 };
+                if *shutdown_rx.borrow() {
+                    break;
+                }
 
                 match result {
                     Ok(resp) => {
-                        // Recover from error state after successful poll
-                        consecutive_errors = 0;
-                        {
-                            let mut s = status.lock().await;
-                            if *s == ChannelConnectionStatus::Error {
-                                *s = ChannelConnectionStatus::Connected;
+                        let response_status = resp.status();
+                        if !response_status.is_success() {
+                            consecutive_errors = consecutive_errors.saturating_add(1);
+                            report_weixin_error(
+                                &status,
+                                &runtime_tx,
+                                channel_id,
+                                generation,
+                                "http_status",
+                                &format!("Weixin polling returned HTTP {response_status}"),
+                            )
+                            .await;
+                            if wait_weixin_retry(consecutive_errors, &mut shutdown_rx).await {
+                                break;
                             }
+                            continue;
                         }
 
                         if let Ok(body) = resp.json::<serde_json::Value>().await {
                             let ret = body.get("ret").and_then(|v| v.as_i64());
+                            let errcode = body.get("errcode").and_then(|v| v.as_i64());
 
                             // Always update cursor if present
                             if let Some(new_cursor) =
@@ -605,6 +675,22 @@ impl ChatChannelBackend for WeixinBackend {
                             }
 
                             // If ret is explicitly non-zero (not just missing), log it
+                            if let Some(code) = errcode.filter(|code| *code != 0) {
+                                consecutive_errors = consecutive_errors.saturating_add(1);
+                                report_weixin_error(
+                                    &status,
+                                    &runtime_tx,
+                                    channel_id,
+                                    generation,
+                                    "provider_response",
+                                    &format!("Weixin polling provider error {code}"),
+                                )
+                                .await;
+                                if wait_weixin_retry(consecutive_errors, &mut shutdown_rx).await {
+                                    break;
+                                }
+                                continue;
+                            }
                             if let Some(r) = ret {
                                 if r != 0 {
                                     tracing::info!("[Weixin] getupdates ret={r}");
@@ -614,11 +700,44 @@ impl ChatChannelBackend for WeixinBackend {
                                     tracing::info!(
                                         "[Weixin] session expired (ret=-14), pausing 30s"
                                     );
-                                    *status.lock().await = ChannelConnectionStatus::Error;
-                                    tokio::time::sleep(Duration::from_secs(30)).await;
+                                    report_weixin_error(
+                                        &status,
+                                        &runtime_tx,
+                                        channel_id,
+                                        generation,
+                                        "authentication",
+                                        "Weixin session expired; re-authentication required",
+                                    )
+                                    .await;
+                                    if wait_weixin_delay(Duration::from_secs(30), &mut shutdown_rx)
+                                        .await
+                                    {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                if r != 0 {
+                                    consecutive_errors = consecutive_errors.saturating_add(1);
+                                    report_weixin_error(
+                                        &status,
+                                        &runtime_tx,
+                                        channel_id,
+                                        generation,
+                                        "provider_response",
+                                        &format!("Weixin polling provider error {r}"),
+                                    )
+                                    .await;
+                                    if wait_weixin_retry(consecutive_errors, &mut shutdown_rx).await
+                                    {
+                                        break;
+                                    }
                                     continue;
                                 }
                             }
+
+                            report_weixin_connected(&status, &runtime_tx, channel_id, generation)
+                                .await;
+                            consecutive_errors = 0;
 
                             // Process messages
                             if let Some(msgs) = body.get("msgs").and_then(|v| v.as_array()) {
@@ -669,14 +788,40 @@ impl ChatChannelBackend for WeixinBackend {
                                         .get("context_token")
                                         .and_then(|v| v.as_str())
                                         .unwrap_or_default();
+                                    if from_user_id.is_empty() || context_token.is_empty() {
+                                        tracing::warn!(
+                                            channel_id,
+                                            sender_present = !from_user_id.is_empty(),
+                                            context_present = !context_token.is_empty(),
+                                            "[Weixin] skipped message without reply context"
+                                        );
+                                        continue;
+                                    }
 
                                     // Store reply context for outbound messages
                                     // Single lock scope to avoid TOCTOU
                                     if !from_user_id.is_empty() && !context_token.is_empty() {
+                                        if let Err(error) =
+                                            sender_context_service::update_weixin_context_token(
+                                                &database,
+                                                channel_id,
+                                                from_user_id,
+                                                Some(context_token.to_string()),
+                                            )
+                                            .await
+                                        {
+                                            tracing::error!(
+                                                channel_id,
+                                                error = %error,
+                                                "[Weixin] failed to persist reply context"
+                                            );
+                                        }
                                         let was_expired = {
                                             let mut guard = reply_context.lock().await;
-                                            let was =
-                                                guard.as_ref().map(|c| c.expired).unwrap_or(false);
+                                            let was = guard
+                                                .as_ref()
+                                                .map(|c| c.to_user_id == from_user_id && c.expired)
+                                                .unwrap_or(false);
                                             *guard = Some(WeixinReplyContext {
                                                 to_user_id: from_user_id.to_string(),
                                                 context_token: context_token.to_string(),
@@ -703,6 +848,8 @@ impl ChatChannelBackend for WeixinBackend {
                                                         to_user_id: from_user_id,
                                                         context_token,
                                                         text: pending_text,
+                                                        database: &database,
+                                                        channel_id,
                                                         reply_context: &reply_context,
                                                         pending_messages: &pending_messages,
                                                         allow_buffer: true,
@@ -786,6 +933,8 @@ impl ChatChannelBackend for WeixinBackend {
                                                     to_user_id: from_user_id,
                                                     context_token,
                                                     text: super::DISPATCHER_BUSY_TEXT,
+                                                    database: &database,
+                                                    channel_id,
                                                     reply_context: &reply_context,
                                                     pending_messages: &pending_messages,
                                                     allow_buffer: true,
@@ -802,17 +951,38 @@ impl ChatChannelBackend for WeixinBackend {
                                 }
                             }
                         } else {
+                            consecutive_errors = consecutive_errors.saturating_add(1);
                             tracing::error!("[Weixin] failed to parse response body");
+                            report_weixin_error(
+                                &status,
+                                &runtime_tx,
+                                channel_id,
+                                generation,
+                                "decode",
+                                "Weixin polling response was not valid JSON",
+                            )
+                            .await;
+                            if wait_weixin_retry(consecutive_errors, &mut shutdown_rx).await {
+                                break;
+                            }
                         }
                     }
                     Err(e) => {
                         consecutive_errors += 1;
                         tracing::error!("[Weixin] polling error ({consecutive_errors}): {e}");
-                        *status.lock().await = ChannelConnectionStatus::Error;
+                        report_weixin_error(
+                            &status,
+                            &runtime_tx,
+                            channel_id,
+                            generation,
+                            "network",
+                            &format!("Weixin polling failed: {e}"),
+                        )
+                        .await;
                         // Exponential backoff: 5s, 10s, 20s, capped at 30s
-                        let delay =
-                            std::cmp::min(5 * 2u64.saturating_pow(consecutive_errors - 1), 30);
-                        tokio::time::sleep(Duration::from_secs(delay)).await;
+                        if wait_weixin_retry(consecutive_errors, &mut shutdown_rx).await {
+                            break;
+                        }
                     }
                 }
             }
@@ -897,6 +1067,106 @@ impl ChatChannelBackend for WeixinBackend {
         }
 
         Ok(())
+    }
+}
+
+async fn report_weixin_connected(
+    status: &Arc<Mutex<ChannelConnectionStatus>>,
+    runtime_tx: &mpsc::Sender<ChannelRuntimeEvent>,
+    channel_id: i32,
+    generation: u64,
+) {
+    if !set_weixin_status(status, ChannelConnectionStatus::Connected).await {
+        return;
+    }
+    tracing::info!(
+        channel_id,
+        channel_type = "weixin",
+        generation,
+        stage = "getupdates_recovery",
+        "[Weixin] polling transport recovered"
+    );
+    if let Err(error) = runtime_tx
+        .send(ChannelRuntimeEvent::Connected {
+            channel_id,
+            generation,
+        })
+        .await
+    {
+        tracing::warn!(
+            channel_id,
+            generation,
+            error = %error,
+            "[Weixin] failed to report recovered runtime status"
+        );
+    }
+}
+
+async fn report_weixin_error(
+    status: &Arc<Mutex<ChannelConnectionStatus>>,
+    runtime_tx: &mpsc::Sender<ChannelRuntimeEvent>,
+    channel_id: i32,
+    generation: u64,
+    error_category: &'static str,
+    error: &str,
+) {
+    if !set_weixin_status(status, ChannelConnectionStatus::Error).await {
+        return;
+    }
+    tracing::warn!(
+        channel_id,
+        channel_type = "weixin",
+        generation,
+        stage = "getupdates",
+        error_category,
+        reason = error,
+        "[Weixin] polling transport unavailable"
+    );
+    if let Err(send_error) = runtime_tx
+        .send(ChannelRuntimeEvent::Error {
+            channel_id,
+            generation,
+            error: error.to_string(),
+        })
+        .await
+    {
+        tracing::warn!(
+            channel_id,
+            generation,
+            error = %send_error,
+            "[Weixin] failed to report runtime error status"
+        );
+    }
+}
+
+async fn set_weixin_status(
+    status: &Arc<Mutex<ChannelConnectionStatus>>,
+    next: ChannelConnectionStatus,
+) -> bool {
+    let mut current = status.lock().await;
+    if *current == next {
+        return false;
+    }
+    *current = next;
+    true
+}
+
+async fn wait_weixin_retry(
+    consecutive_errors: u32,
+    shutdown_rx: &mut tokio::sync::watch::Receiver<bool>,
+) -> bool {
+    let exponent = consecutive_errors.saturating_sub(1);
+    let delay = std::cmp::min(5 * 2u64.saturating_pow(exponent), 30);
+    wait_weixin_delay(Duration::from_secs(delay), shutdown_rx).await
+}
+
+async fn wait_weixin_delay(
+    delay: Duration,
+    shutdown_rx: &mut tokio::sync::watch::Receiver<bool>,
+) -> bool {
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => false,
+        _ = shutdown_rx.changed() => true,
     }
 }
 

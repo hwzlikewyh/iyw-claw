@@ -1,4 +1,5 @@
 use chrono::Utc;
+use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
     IntoActiveModel, QueryFilter, Set,
@@ -31,6 +32,7 @@ pub async fn get_or_create(
         current_agent_type: Set(None),
         current_conversation_id: Set(None),
         current_connection_id: Set(None),
+        weixin_context_token: Set(None),
         auto_approve: Set(false),
         created_at: Set(now),
         updated_at: Set(now),
@@ -98,4 +100,55 @@ pub async fn update_auto_approve(
     active.auto_approve = Set(auto_approve);
     active.updated_at = Set(Utc::now());
     Ok(active.update(conn).await?)
+}
+
+pub async fn get_weixin_context_token(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+) -> Result<Option<String>, DbError> {
+    let context = chat_channel_sender_context::Entity::find()
+        .filter(chat_channel_sender_context::Column::ChannelId.eq(channel_id))
+        .filter(chat_channel_sender_context::Column::SenderId.eq(sender_id))
+        .one(conn)
+        .await?;
+    Ok(context.and_then(|model| model.weixin_context_token))
+}
+
+pub async fn update_weixin_context_token(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+    context_token: Option<String>,
+) -> Result<chat_channel_sender_context::Model, DbError> {
+    let model = get_or_create(conn, channel_id, sender_id).await?;
+    let mut active = model.into_active_model();
+    active.weixin_context_token = Set(context_token);
+    active.updated_at = Set(Utc::now());
+    Ok(active.update(conn).await?)
+}
+
+pub async fn clear_weixin_context_token_if_matches(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+    context_token: &str,
+) -> Result<(), DbError> {
+    // Compare-and-clear prevents a late failure for an old iLink token from
+    // erasing a newer token persisted by a later inbound message.
+    chat_channel_sender_context::Entity::update_many()
+        .col_expr(
+            chat_channel_sender_context::Column::WeixinContextToken,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            chat_channel_sender_context::Column::UpdatedAt,
+            Expr::value(Utc::now()),
+        )
+        .filter(chat_channel_sender_context::Column::ChannelId.eq(channel_id))
+        .filter(chat_channel_sender_context::Column::SenderId.eq(sender_id))
+        .filter(chat_channel_sender_context::Column::WeixinContextToken.eq(context_token))
+        .exec(conn)
+        .await?;
+    Ok(())
 }

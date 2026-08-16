@@ -3,7 +3,9 @@ import type { AgentType, ChannelType } from "@/lib/types"
 interface ChatChannelConfigFields {
   appId: string
   baseUrl: string
+  botId: string
   chatId: string
+  clientId: string
   /** Channel-level default agent; `null` falls through to the folder default. */
   defaultAgentType: AgentType | null
 }
@@ -26,6 +28,16 @@ export function buildChatChannelConfig(
       default_chatid: fields.chatId,
       default_chat_type: 1,
     })
+  }
+  if (channelType === "wecom_ai_bot") {
+    return JSON.stringify({
+      ...base,
+      bot_id: fields.botId,
+      default_chatid: fields.chatId,
+    })
+  }
+  if (channelType === "dingtalk") {
+    return JSON.stringify({ ...base, client_id: fields.clientId })
   }
   return JSON.stringify({
     ...base,
@@ -54,6 +66,13 @@ export function buildChatChannelConfigPatch(
   if (channelType === "lark") {
     patch.appId = fields.appId
     patch.chatId = fields.chatId
+  }
+  if (channelType === "wecom_ai_bot") {
+    patch.botId = fields.botId
+    patch.defaultChatid = fields.chatId
+  }
+  if (channelType === "dingtalk") {
+    patch.clientId = fields.clientId
   }
   // wecom: chat id is not editable in the edit dialog (auth lives in
   // wecom-cli); weixin: base_url is written by QR auth, never here.

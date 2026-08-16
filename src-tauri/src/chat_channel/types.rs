@@ -5,8 +5,13 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ChannelType {
     Lark,
+    /// Legacy `@wecom/cli` polling transport. Existing rows remain readable,
+    /// but new channels should use `WecomAiBot` or `WecomAgent`.
     Wecom,
+    WecomAiBot,
+    WecomAgent,
     Weixin,
+    Dingtalk,
 }
 
 // ── Per-channel strong typed configs ──
@@ -33,6 +38,21 @@ fn default_wecom_chat_type() -> u8 {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct WecomAiBotConfig {
+    pub bot_id: String,
+    #[serde(default)]
+    pub default_chatid: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WecomAgentConfig {
+    pub corp_id: String,
+    pub agent_id: String,
+    #[serde(default)]
+    pub callback_path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct LarkConfig {
     pub app_id: String,
     pub chat_id: String,
@@ -43,12 +63,20 @@ pub struct WeixinConfig {
     pub base_url: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct DingtalkConfig {
+    pub client_id: String,
+}
+
 impl std::fmt::Display for ChannelType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChannelType::Lark => write!(f, "lark"),
             ChannelType::Wecom => write!(f, "wecom"),
+            ChannelType::WecomAiBot => write!(f, "wecom_ai_bot"),
+            ChannelType::WecomAgent => write!(f, "wecom_agent"),
             ChannelType::Weixin => write!(f, "weixin"),
+            ChannelType::Dingtalk => write!(f, "dingtalk"),
         }
     }
 }

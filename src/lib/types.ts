@@ -2896,7 +2896,13 @@ export interface BootstrapInitStatusReport {
 }
 // ─── Chat Channels ───
 
-export type ChannelType = "lark" | "wecom" | "weixin"
+export type ChannelType =
+  | "lark"
+  | "wecom"
+  | "wecom_ai_bot"
+  | "wecom_agent"
+  | "weixin"
+  | "dingtalk"
 
 // ── WeCom (企业微信) auth via wecom-cli ───
 

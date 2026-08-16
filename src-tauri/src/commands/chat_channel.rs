@@ -24,7 +24,11 @@ pub async fn list_chat_channels_core(
     let rows = chat_channel_service::list_all(&db.conn)
         .await
         .map_err(AppCommandError::from)?;
-    Ok(rows.into_iter().map(ChatChannelInfo::from).collect())
+    Ok(rows
+        .into_iter()
+        .filter(|row| row.channel_type != ChannelType::WecomAgent.to_string())
+        .map(ChatChannelInfo::from)
+        .collect())
 }
 
 pub async fn create_chat_channel_core(
@@ -38,10 +42,17 @@ pub async fn create_chat_channel_core(
     daily_report_time: Option<String>,
 ) -> Result<ChatChannelInfo, AppCommandError> {
     // Validate channel_type
-    let _: ChannelType = serde_json::from_value(serde_json::Value::String(channel_type.clone()))
-        .map_err(|_| {
+    let parsed_type: ChannelType =
+        serde_json::from_value(serde_json::Value::String(channel_type.clone())).map_err(|_| {
             AppCommandError::invalid_input(format!("Invalid channel type: {channel_type}"))
         })?;
+    if parsed_type == ChannelType::WecomAgent {
+        return Err(AppCommandError::invalid_input(
+            "wecom_agent is no longer available; use wecom_ai_bot",
+        ));
+    }
+    let (daily_report_enabled, daily_report_time) =
+        normalize_daily_report(parsed_type, daily_report_enabled, daily_report_time);
 
     let model = chat_channel_service::create(
         &db.conn,
@@ -199,6 +210,19 @@ pub async fn update_chat_channel_core(
     daily_report_enabled: Option<bool>,
     daily_report_time: Option<Option<String>>,
 ) -> Result<ChatChannelInfo, AppCommandError> {
+    let current = chat_channel_service::get_by_id(&db.conn, id)
+        .await
+        .map_err(AppCommandError::from)?
+        .ok_or_else(|| AppCommandError::not_found(format!("Chat channel {id} not found")))?;
+    let channel_type: ChannelType = serde_json::from_value(serde_json::Value::String(
+        current.channel_type.clone(),
+    ))
+    .map_err(|_| {
+        AppCommandError::invalid_input(format!("Invalid channel type: {}", current.channel_type))
+    })?;
+    let (daily_report_enabled, daily_report_time) =
+        normalize_daily_report_update(channel_type, daily_report_enabled, daily_report_time);
+
     // Apply the typed patch onto the CURRENT stored config instead of letting
     // the UI rebuild the whole JSON (IYW-CHANNEL-004 / -005).
     let patched_config = match config_patch_json {
@@ -206,14 +230,11 @@ pub async fn update_chat_channel_core(
             let patch: ChatChannelConfigPatch = serde_json::from_str(&patch_json).map_err(|e| {
                 AppCommandError::invalid_input(format!("Invalid config patch: {e}"))
             })?;
-            let current = chat_channel_service::get_by_id(&db.conn, id)
-                .await
-                .map_err(AppCommandError::from)?
-                .ok_or_else(|| AppCommandError::not_found(format!("Chat channel {id} not found")))?
-                .config_json;
-            Some(apply_config_patch(&current, &patch).map_err(|e| {
-                AppCommandError::configuration_invalid("配置更新失败").with_detail(e)
-            })?)
+            Some(
+                apply_config_patch(&current.config_json, &patch).map_err(|e| {
+                    AppCommandError::configuration_invalid("配置更新失败").with_detail(e)
+                })?,
+            )
         }
         None => None,
     };
@@ -238,6 +259,30 @@ pub async fn update_chat_channel_core(
     // disable → disconnect, enable → connect, edit → safe reconnect.
     let outcome = reconcile_channel_or_log(db, manager, info.id, info.enabled, "edit").await;
     Ok(with_reconcile_outcome(info, outcome))
+}
+
+fn normalize_daily_report(
+    channel_type: ChannelType,
+    enabled: bool,
+    time: Option<String>,
+) -> (bool, Option<String>) {
+    if channel_type == ChannelType::Dingtalk {
+        (false, None)
+    } else {
+        (enabled, time)
+    }
+}
+
+fn normalize_daily_report_update(
+    channel_type: ChannelType,
+    enabled: Option<bool>,
+    time: Option<Option<String>>,
+) -> (Option<bool>, Option<Option<String>>) {
+    if channel_type == ChannelType::Dingtalk {
+        (Some(false), Some(None))
+    } else {
+        (enabled, time)
+    }
 }
 
 async fn register_default_target(
@@ -332,13 +377,21 @@ pub async fn test_chat_channel_core(db: &AppDatabase, id: i32) -> Result<(), App
 
     let token = match channel_type {
         ChannelType::Wecom => String::new(),
-        ChannelType::Lark | ChannelType::Weixin => {
-            crate::keyring_store::get_channel_token(id).unwrap_or_default()
-        }
+        ChannelType::Lark
+        | ChannelType::Weixin
+        | ChannelType::WecomAiBot
+        | ChannelType::WecomAgent
+        | ChannelType::Dingtalk => crate::keyring_store::get_channel_token(id).unwrap_or_default(),
     };
 
-    let backend = crate::chat_channel::backends::create_backend(id, channel_type, &config, token)
-        .map_err(AppCommandError::from)?;
+    let backend = crate::chat_channel::backends::create_backend(
+        id,
+        channel_type,
+        &config,
+        token,
+        db.conn.clone(),
+    )
+    .map_err(AppCommandError::from)?;
 
     backend
         .test_connection()
@@ -382,7 +435,12 @@ pub fn delete_chat_channel_token_core(channel_id: i32) -> Result<(), AppCommandE
 pub async fn get_chat_channel_status_core(
     manager: &ChatChannelManager,
 ) -> Result<Vec<ChannelStatusInfo>, AppCommandError> {
-    Ok(manager.get_status().await)
+    Ok(manager
+        .get_status()
+        .await
+        .into_iter()
+        .filter(|status| status.channel_type != ChannelType::WecomAgent.to_string())
+        .collect())
 }
 
 /// Per-channel readiness report (all channels) — desired/runtime/readiness

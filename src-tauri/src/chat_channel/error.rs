@@ -22,6 +22,21 @@ pub enum ChatChannelError {
     Other(String),
 }
 
+impl ChatChannelError {
+    pub fn category(&self) -> &'static str {
+        match self {
+            Self::ConnectionFailed(_) => "connection",
+            Self::SendFailed(_) => "send",
+            Self::AuthenticationFailed(_) => "authentication",
+            Self::ConfigurationInvalid(_) => "configuration",
+            Self::NotConnected | Self::AlreadyConnected => "connection_state",
+            Self::NotFound(_) => "not_found",
+            Self::Unsupported(_) => "unsupported",
+            Self::Other(_) => "other",
+        }
+    }
+}
+
 impl From<ChatChannelError> for AppCommandError {
     fn from(err: ChatChannelError) -> Self {
         match &err {

@@ -161,6 +161,8 @@ fn safe_config(model: &chat_channel::Model) -> Value {
     let get = |key: &str| parsed.get(key).cloned().unwrap_or(Value::Null);
     json!({
         "app_id_configured": parsed.get("app_id").and_then(Value::as_str).is_some_and(|v| !v.is_empty()),
+        "bot_id_configured": parsed.get("bot_id").and_then(Value::as_str).is_some_and(|v| !v.is_empty()),
+        "client_id_configured": parsed.get("client_id").and_then(Value::as_str).is_some_and(|v| !v.is_empty()),
         "default_target_configured": parsed.get("chat_id").or_else(|| parsed.get("default_chatid")).and_then(Value::as_str).is_some_and(|v| !v.is_empty()),
         "default_target_type": get("default_chat_type"),
         "default_agent_type": get("default_agent_type"),

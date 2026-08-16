@@ -134,23 +134,8 @@ impl ChatChannelManager {
             let _ = existing.backend.stop().await;
         }
 
-        let command_tx = self.inner.command_tx.clone();
-        let runtime_tx = self.inner.runtime_tx.clone();
-        backend.start(command_tx, runtime_tx, generation).await?;
-
-        let channel = ActiveChannel {
-            id,
-            generation,
-            name,
-            channel_type,
-            backend,
-            last_inbound_at: None,
-            inbound_count: 0,
-        };
-
-        self.inner.channels.lock().await.insert(id, channel);
-        self.emit_status_event(id, "connected").await;
-        Ok(())
+        self.start_and_publish(id, generation, name, channel_type, backend)
+            .await
     }
 
     /// Detach the running backend for a channel so the caller can restore it
@@ -178,9 +163,38 @@ impl ChatChannelManager {
         if let Some(existing) = old {
             let _ = existing.backend.stop().await;
         }
+        self.start_and_publish(id, generation, name, channel_type, backend)
+            .await
+    }
+
+    /// Publish the channel only after startup completed. `start` may launch a
+    /// reconnecting transport, so the status notification must reflect the
+    /// backend's observed state rather than treating a successful spawn as a
+    /// completed connection.
+    async fn start_and_publish(
+        &self,
+        id: i32,
+        generation: u64,
+        name: String,
+        channel_type: ChannelType,
+        backend: Arc<dyn ChatChannelBackend>,
+    ) -> Result<(), ChatChannelError> {
         let command_tx = self.inner.command_tx.clone();
         let runtime_tx = self.inner.runtime_tx.clone();
-        backend.start(command_tx, runtime_tx, generation).await?;
+        if let Err(error) = backend.start(command_tx, runtime_tx, generation).await {
+            tracing::warn!(
+                channel_id = id,
+                channel_type = %channel_type,
+                generation,
+                stage = "startup",
+                error_category = error.category(),
+                error = %error,
+                "[ChatChannel] backend startup failed"
+            );
+            return Err(error);
+        }
+
+        let transport_status = backend.status().await;
         self.inner.channels.lock().await.insert(
             id,
             ActiveChannel {
@@ -193,7 +207,16 @@ impl ChatChannelManager {
                 inbound_count: 0,
             },
         );
-        self.emit_status_event(id, "connected").await;
+        let status = connection_status_name(transport_status);
+        tracing::info!(
+            channel_id = id,
+            channel_type = %channel_type,
+            generation,
+            stage = "startup",
+            transport_status = status,
+            "[ChatChannel] backend startup completed"
+        );
+        self.emit_status_event(id, status).await;
         Ok(())
     }
 
@@ -427,5 +450,14 @@ impl ChatChannelManager {
         // Reconcile only user- or Agent-created channels. New installations
         // intentionally start with an empty channel list.
         super::reconcile::reconcile_all_enabled(&self.clone_ref(), &db_conn2, "app_start").await;
+    }
+}
+
+fn connection_status_name(status: ChannelConnectionStatus) -> &'static str {
+    match status {
+        ChannelConnectionStatus::Connected => "connected",
+        ChannelConnectionStatus::Connecting => "connecting",
+        ChannelConnectionStatus::Disconnected => "disconnected",
+        ChannelConnectionStatus::Error => "error",
     }
 }

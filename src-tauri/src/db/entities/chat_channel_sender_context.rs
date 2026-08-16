@@ -11,6 +11,8 @@ pub struct Model {
     pub current_agent_type: Option<String>,
     pub current_conversation_id: Option<i32>,
     pub current_connection_id: Option<String>,
+    /// iLink reply token for this sender. Never include it in application logs.
+    pub weixin_context_token: Option<String>,
     pub auto_approve: bool,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,

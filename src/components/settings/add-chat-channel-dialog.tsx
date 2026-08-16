@@ -20,8 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { WecomAuthPanel } from "@/components/settings/wecom-auth-panel"
+import { ChatChannelCredentialFields } from "@/components/settings/chat-channel-credential-fields"
+import { ChatChannelDailyReportFields } from "@/components/settings/chat-channel-daily-report-fields"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
 import {
   createChatChannel,
@@ -54,10 +54,12 @@ export function AddChatChannelDialog({
   const [error, setError] = useState<string | null>(null)
 
   const [name, setName] = useState("")
-  const [channelType, setChannelType] = useState<ChannelType>("wecom")
+  const [channelType, setChannelType] = useState<ChannelType>("wecom_ai_bot")
   const [token, setToken] = useState("")
   const [chatId, setChatId] = useState("")
   const [appId, setAppId] = useState("")
+  const [botId, setBotId] = useState("")
+  const [clientId, setClientId] = useState("")
   const [baseUrl, setBaseUrl] = useState("https://ilinkai.weixin.qq.com")
   const [defaultAgentType, setDefaultAgentType] = useState<AgentType | null>(
     null
@@ -67,10 +69,12 @@ export function AddChatChannelDialog({
 
   const resetForm = useCallback(() => {
     setName("")
-    setChannelType("wecom")
+    setChannelType("wecom_ai_bot")
     setToken("")
     setChatId("")
     setAppId("")
+    setBotId("")
+    setClientId("")
     setBaseUrl("https://ilinkai.weixin.qq.com")
     setDefaultAgentType(null)
     setDailyReportEnabled(false)
@@ -91,11 +95,30 @@ export function AddChatChannelDialog({
       setError(t("nameRequired"))
       return
     }
-    if (channelType === "lark" && !token.trim()) {
-      setError(t("tokenRequired"))
+    if (
+      ["lark", "wecom_ai_bot", "dingtalk"].includes(channelType) &&
+      !token.trim()
+    ) {
+      setError(t("secretRequired"))
       return
     }
     if (channelType === "lark" && !chatId.trim()) {
+      setError(t("chatIdRequired"))
+      return
+    }
+    if (channelType === "wecom_ai_bot" && !botId.trim()) {
+      setError(t("botIdRequired"))
+      return
+    }
+    if (channelType === "dingtalk" && !clientId.trim()) {
+      setError(t("clientIdRequired"))
+      return
+    }
+    if (
+      channelType === "wecom_ai_bot" &&
+      dailyReportEnabled &&
+      !chatId.trim()
+    ) {
       setError(t("chatIdRequired"))
       return
     }
@@ -106,7 +129,9 @@ export function AddChatChannelDialog({
       const configJson = buildChatChannelConfig(channelType, {
         appId,
         baseUrl,
+        botId,
         chatId,
+        clientId,
         defaultAgentType,
       })
 
@@ -115,11 +140,17 @@ export function AddChatChannelDialog({
         channelType,
         configJson,
         enabled: true,
-        dailyReportEnabled,
-        dailyReportTime: dailyReportEnabled ? dailyReportTime : null,
+        dailyReportEnabled: channelType !== "dingtalk" && dailyReportEnabled,
+        dailyReportTime:
+          channelType !== "dingtalk" && dailyReportEnabled
+            ? dailyReportTime
+            : null,
       })
 
-      if (channelType === "lark" && token.trim()) {
+      if (
+        ["lark", "wecom_ai_bot", "dingtalk"].includes(channelType) &&
+        token.trim()
+      ) {
         await saveChatChannelToken(channel.id, token.trim())
       }
 
@@ -152,8 +183,10 @@ export function AddChatChannelDialog({
     chatId,
     channelType,
     appId,
+    botId,
     baseUrl,
     defaultAgentType,
+    clientId,
     dailyReportEnabled,
     dailyReportTime,
     handleOpenChange,
@@ -182,54 +215,42 @@ export function AddChatChannelDialog({
             <label className="text-xs font-medium">{t("channelType")}</label>
             <Select
               value={channelType}
-              onValueChange={(v) => setChannelType(v as ChannelType)}
+              onValueChange={(value) => {
+                setChannelType(value as ChannelType)
+                setToken("")
+                setChatId("")
+                setAppId("")
+                setBotId("")
+                setClientId("")
+                setDailyReportEnabled(false)
+                setError(null)
+              }}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="wecom">{t("wecom")}</SelectItem>
+                <SelectItem value="wecom_ai_bot">{t("wecomAiBot")}</SelectItem>
                 <SelectItem value="lark">{t("lark")}</SelectItem>
                 <SelectItem value="weixin">{t("weixin")}</SelectItem>
+                <SelectItem value="dingtalk">{t("dingtalk")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {channelType === "wecom" && <WecomAuthPanel />}
-
-          {channelType === "lark" && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium">App ID</label>
-              <Input
-                value={appId}
-                onChange={(e) => setAppId(e.target.value)}
-                placeholder="cli_xxxxx"
-              />
-            </div>
-          )}
-
-          {channelType === "lark" && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium">App Secret</label>
-              <Input
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="xxxxx"
-              />
-            </div>
-          )}
-
-          {channelType === "lark" && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium">Chat ID</label>
-              <Input
-                value={chatId}
-                onChange={(e) => setChatId(e.target.value)}
-                placeholder="oc_xxxxx"
-              />
-            </div>
-          )}
+          <ChatChannelCredentialFields
+            channelType={channelType}
+            appId={appId}
+            botId={botId}
+            chatId={chatId}
+            clientId={clientId}
+            token={token}
+            onAppIdChange={setAppId}
+            onBotIdChange={setBotId}
+            onChatIdChange={setChatId}
+            onClientIdChange={setClientId}
+            onTokenChange={setToken}
+          />
 
           {channelType === "weixin" && (
             <p className="text-xs text-muted-foreground">
@@ -264,26 +285,13 @@ export function AddChatChannelDialog({
             </p>
           </div>
 
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-medium">{t("dailyReport")}</label>
-            <Switch
-              checked={dailyReportEnabled}
-              onCheckedChange={setDailyReportEnabled}
-            />
-          </div>
-
-          {dailyReportEnabled && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium">
-                {t("dailyReportTime")}
-              </label>
-              <Input
-                type="time"
-                value={dailyReportTime}
-                onChange={(e) => setDailyReportTime(e.target.value)}
-              />
-            </div>
-          )}
+          <ChatChannelDailyReportFields
+            channelType={channelType}
+            enabled={dailyReportEnabled}
+            time={dailyReportTime}
+            onEnabledChange={setDailyReportEnabled}
+            onTimeChange={setDailyReportTime}
+          />
 
           {error && (
             <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">

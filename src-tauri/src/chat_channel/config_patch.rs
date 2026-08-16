@@ -20,6 +20,16 @@ pub struct ChatChannelConfigPatch {
     #[serde(deserialize_with = "deserialize_double_option")]
     pub app_id: Option<Option<String>>,
     #[serde(deserialize_with = "deserialize_double_option")]
+    pub bot_id: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
+    pub client_id: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
+    pub corp_id: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
+    pub agent_id: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
+    pub callback_path: Option<Option<String>>,
+    #[serde(deserialize_with = "deserialize_double_option")]
     pub chat_id: Option<Option<String>>,
     #[serde(deserialize_with = "deserialize_double_option")]
     pub default_chatid: Option<Option<String>>,
@@ -72,6 +82,11 @@ pub fn apply_config_patch(
 
     set_or_clear(&mut map, "base_url", patch.base_url.as_ref());
     set_or_clear(&mut map, "app_id", patch.app_id.as_ref());
+    set_or_clear(&mut map, "bot_id", patch.bot_id.as_ref());
+    set_or_clear(&mut map, "client_id", patch.client_id.as_ref());
+    set_or_clear(&mut map, "corp_id", patch.corp_id.as_ref());
+    set_or_clear(&mut map, "agent_id", patch.agent_id.as_ref());
+    set_or_clear(&mut map, "callback_path", patch.callback_path.as_ref());
     set_or_clear(&mut map, "chat_id", patch.chat_id.as_ref());
     set_or_clear(&mut map, "default_chatid", patch.default_chatid.as_ref());
     set_or_clear(

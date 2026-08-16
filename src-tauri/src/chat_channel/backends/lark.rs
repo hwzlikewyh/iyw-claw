@@ -320,9 +320,22 @@ impl LarkBackend {
     async fn start_ws_receiver(
         &self,
         command_tx: mpsc::Sender<IncomingCommand>,
+        runtime_tx: mpsc::Sender<ChannelRuntimeEvent>,
+        generation: u64,
     ) -> Result<(), ChatChannelError> {
-        // Verify we can get a WS URL before spawning the background task
-        let _ = fetch_ws_url(&self.client, &self.app_id, &self.app_secret).await?;
+        // A channel is not connected until the provider accepts the WebSocket
+        // handshake. Do that work before returning from `start` so callers do
+        // not mistake a spawned reconnect task for a live transport.
+        let ws_url = fetch_ws_url(&self.client, &self.app_id, &self.app_secret).await?;
+        let (initial_stream, _) =
+            tokio_tungstenite::connect_async(&ws_url)
+                .await
+                .map_err(|error| {
+                    ChatChannelError::ConnectionFailed(format!(
+                        "Lark WebSocket handshake failed: {}",
+                        redact_transport_error(&error)
+                    ))
+                })?;
 
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
         *self.shutdown_tx.lock().await = Some(shutdown_tx);
@@ -333,45 +346,94 @@ impl LarkBackend {
         let app_id = self.app_id.clone();
         let app_secret = self.app_secret.clone();
         let client = self.client.clone();
+        *status.lock().await = ChannelConnectionStatus::Connected;
+        tracing::info!(
+            channel_id,
+            channel_type = "lark",
+            generation,
+            stage = "websocket_handshake",
+            "[Lark] WebSocket handshake completed"
+        );
 
         tokio::spawn(async move {
             let mut retry_count = 0u32;
+            let mut next_stream = Some(initial_stream);
 
             loop {
                 if *shutdown_rx.borrow() {
                     break;
                 }
 
-                let ws_url = match fetch_ws_url(&client, &app_id, &app_secret).await {
-                    Ok(url) => url,
-                    Err(e) => {
-                        tracing::error!("[Lark] failed to get WS endpoint: {e}");
-                        *status.lock().await = ChannelConnectionStatus::Error;
-                        let delay = Duration::from_secs((2u64).pow(retry_count.min(5)));
-                        retry_count += 1;
-                        tokio::select! {
-                            _ = tokio::time::sleep(delay) => continue,
-                            _ = shutdown_rx.changed() => break,
-                        }
-                    }
-                };
-
-                let ws_result = tokio_tungstenite::connect_async(&ws_url).await;
-                let ws_stream = match ws_result {
-                    Ok((stream, _)) => {
-                        *status.lock().await = ChannelConnectionStatus::Connected;
-                        retry_count = 0;
-                        tracing::info!("[Lark] WebSocket connected");
-                        stream
-                    }
-                    Err(e) => {
-                        tracing::error!("[Lark] WebSocket connect failed: {e}");
-                        *status.lock().await = ChannelConnectionStatus::Error;
-                        let delay = Duration::from_secs((2u64).pow(retry_count.min(5)));
-                        retry_count += 1;
-                        tokio::select! {
-                            _ = tokio::time::sleep(delay) => continue,
-                            _ = shutdown_rx.changed() => break,
+                let ws_stream = match next_stream.take() {
+                    Some(stream) => stream,
+                    None => {
+                        let ws_url_result = tokio::select! {
+                            result = fetch_ws_url(&client, &app_id, &app_secret) => Some(result),
+                            _ = shutdown_rx.changed() => None,
+                        };
+                        let ws_url = match ws_url_result {
+                            None => break,
+                            Some(Ok(url)) => url,
+                            Some(Err(error)) => {
+                                report_transport_error(
+                                    &status,
+                                    &runtime_tx,
+                                    channel_id,
+                                    generation,
+                                    "endpoint_fetch_failed",
+                                    &redact_transport_error(&error),
+                                )
+                                .await;
+                                if wait_for_retry(&mut shutdown_rx, &mut retry_count).await {
+                                    break;
+                                }
+                                continue;
+                            }
+                        };
+                        let connect_result = tokio::select! {
+                            result = tokio_tungstenite::connect_async(&ws_url) => Some(result),
+                            _ = shutdown_rx.changed() => None,
+                        };
+                        match connect_result {
+                            None => break,
+                            Some(Ok((stream, _))) => {
+                                if *shutdown_rx.borrow() {
+                                    break;
+                                }
+                                retry_count = 0;
+                                let recovered = set_transport_status(
+                                    &status,
+                                    ChannelConnectionStatus::Connected,
+                                )
+                                .await;
+                                if recovered {
+                                    report_transport_connected(&runtime_tx, channel_id, generation)
+                                        .await;
+                                }
+                                tracing::info!(
+                                    channel_id,
+                                    channel_type = "lark",
+                                    generation,
+                                    stage = "websocket_reconnect",
+                                    "[Lark] WebSocket reconnected"
+                                );
+                                stream
+                            }
+                            Some(Err(error)) => {
+                                report_transport_error(
+                                    &status,
+                                    &runtime_tx,
+                                    channel_id,
+                                    generation,
+                                    "handshake_failed",
+                                    &redact_transport_error(&error),
+                                )
+                                .await;
+                                if wait_for_retry(&mut shutdown_rx, &mut retry_count).await {
+                                    break;
+                                }
+                                continue;
+                            }
                         }
                     }
                 };
@@ -470,11 +532,29 @@ impl LarkBackend {
                                     let _ = write.send(tungstenite::Message::Pong(data)).await;
                                 }
                                 Some(Ok(tungstenite::Message::Close(_))) | None => {
-                                    tracing::info!("[Lark] WebSocket closed, will reconnect");
+                                    if !*shutdown_rx.borrow() {
+                                        report_transport_error(
+                                            &status,
+                                            &runtime_tx,
+                                            channel_id,
+                                            generation,
+                                            "closed",
+                                            "provider closed the WebSocket",
+                                        ).await;
+                                    }
                                     break;
                                 }
-                                Some(Err(e)) => {
-                                    tracing::error!("[Lark] WebSocket error: {e}");
+                                Some(Err(error)) => {
+                                    if !*shutdown_rx.borrow() {
+                                        report_transport_error(
+                                            &status,
+                                            &runtime_tx,
+                                            channel_id,
+                                            generation,
+                                            "read_failed",
+                                            &redact_transport_error(&error),
+                                        ).await;
+                                    }
                                     break;
                                 }
                                 _ => {}
@@ -488,11 +568,8 @@ impl LarkBackend {
                     }
                 }
 
-                *status.lock().await = ChannelConnectionStatus::Connecting;
-                let delay = Duration::from_secs(3);
-                tokio::select! {
-                    _ = tokio::time::sleep(delay) => {},
-                    _ = shutdown_rx.changed() => break,
+                if wait_for_retry(&mut shutdown_rx, &mut retry_count).await {
+                    break;
                 }
             }
 
@@ -500,6 +577,87 @@ impl LarkBackend {
         });
 
         Ok(())
+    }
+}
+
+async fn wait_for_retry(
+    shutdown_rx: &mut tokio::sync::watch::Receiver<bool>,
+    retry_count: &mut u32,
+) -> bool {
+    let delay = Duration::from_secs((2u64).pow((*retry_count).min(5)));
+    *retry_count = (*retry_count).saturating_add(1);
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => false,
+        _ = shutdown_rx.changed() => true,
+    }
+}
+
+async fn set_transport_status(
+    status: &Mutex<ChannelConnectionStatus>,
+    next: ChannelConnectionStatus,
+) -> bool {
+    let mut current = status.lock().await;
+    if *current == next {
+        return false;
+    }
+    *current = next;
+    true
+}
+
+async fn report_transport_connected(
+    runtime_tx: &mpsc::Sender<ChannelRuntimeEvent>,
+    channel_id: i32,
+    generation: u64,
+) {
+    if let Err(error) = runtime_tx
+        .send(ChannelRuntimeEvent::Connected {
+            channel_id,
+            generation,
+        })
+        .await
+    {
+        tracing::warn!(channel_id, generation, error = %error, "[Lark] runtime connected event delivery failed");
+    }
+}
+
+async fn report_transport_error(
+    status: &Mutex<ChannelConnectionStatus>,
+    runtime_tx: &mpsc::Sender<ChannelRuntimeEvent>,
+    channel_id: i32,
+    generation: u64,
+    reason: &'static str,
+    detail: &str,
+) {
+    if !set_transport_status(status, ChannelConnectionStatus::Error).await {
+        return;
+    }
+    let error = format!("Lark WebSocket transport {reason}: {detail}");
+    tracing::warn!(
+        channel_id,
+        channel_type = "lark",
+        generation,
+        stage = "websocket_session",
+        error_category = reason,
+        error = %error,
+        "[Lark] transport unavailable; reconnect scheduled"
+    );
+    if let Err(send_error) = runtime_tx
+        .send(ChannelRuntimeEvent::Error {
+            channel_id,
+            generation,
+            error,
+        })
+        .await
+    {
+        tracing::warn!(channel_id, generation, error = %send_error, "[Lark] runtime error event delivery failed");
+    }
+}
+
+fn redact_transport_error(error: &impl std::fmt::Display) -> String {
+    let message = error.to_string();
+    match message.find('?') {
+        Some(index) => format!("{}?[redacted]", &message[..index]),
+        None => message,
     }
 }
 
@@ -678,15 +836,38 @@ impl ChatChannelBackend for LarkBackend {
     async fn start(
         &self,
         command_tx: mpsc::Sender<IncomingCommand>,
-        _runtime_tx: mpsc::Sender<ChannelRuntimeEvent>,
-        _generation: u64,
+        runtime_tx: mpsc::Sender<ChannelRuntimeEvent>,
+        generation: u64,
     ) -> Result<(), ChatChannelError> {
         *self.status.lock().await = ChannelConnectionStatus::Connecting;
-        self.get_tenant_access_token().await?;
-        *self.status.lock().await = ChannelConnectionStatus::Connected;
-
-        if let Err(e) = self.start_ws_receiver(command_tx).await {
-            tracing::error!("[Lark] WebSocket receiver failed to start: {e}");
+        if let Err(error) = self.get_tenant_access_token().await {
+            *self.status.lock().await = ChannelConnectionStatus::Error;
+            tracing::warn!(
+                channel_id = self.channel_id,
+                channel_type = "lark",
+                generation,
+                stage = "credential_validation",
+                error_category = error.category(),
+                error = %error,
+                "[Lark] token validation failed during startup"
+            );
+            return Err(error);
+        }
+        if let Err(error) = self
+            .start_ws_receiver(command_tx, runtime_tx, generation)
+            .await
+        {
+            *self.status.lock().await = ChannelConnectionStatus::Error;
+            tracing::warn!(
+                channel_id = self.channel_id,
+                channel_type = "lark",
+                generation,
+                stage = "websocket_startup",
+                error_category = error.category(),
+                error = %error,
+                "[Lark] WebSocket startup failed"
+            );
+            return Err(error);
         }
 
         Ok(())
@@ -756,7 +937,21 @@ impl ChatChannelBackend for LarkBackend {
 
     async fn test_connection(&self) -> Result<(), ChatChannelError> {
         self.get_tenant_access_token().await?;
-        Ok(())
+        let ws_url = fetch_ws_url(&self.client, &self.app_id, &self.app_secret).await?;
+        let (mut stream, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .map_err(|error| {
+                ChatChannelError::ConnectionFailed(format!(
+                    "Lark WebSocket handshake failed: {}",
+                    redact_transport_error(&error)
+                ))
+            })?;
+        stream.close(None).await.map_err(|error| {
+            ChatChannelError::ConnectionFailed(format!(
+                "Lark WebSocket close failed: {}",
+                redact_transport_error(&error)
+            ))
+        })
     }
 }
 

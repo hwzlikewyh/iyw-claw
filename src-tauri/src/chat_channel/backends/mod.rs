@@ -1,6 +1,10 @@
+pub mod dingtalk;
 pub mod lark;
 pub mod wecom;
+pub mod wecom_ai_bot;
 pub mod weixin;
+
+use sea_orm::DatabaseConnection;
 
 use super::error::ChatChannelError;
 use super::traits::ChatChannelBackend;
@@ -17,6 +21,7 @@ pub fn create_backend(
     channel_type: ChannelType,
     config: &serde_json::Value,
     token: String,
+    database: DatabaseConnection,
 ) -> Result<Box<dyn ChatChannelBackend>, ChatChannelError> {
     match channel_type {
         ChannelType::Wecom => {
@@ -41,6 +46,7 @@ pub fn create_backend(
                 channel_id,
                 token,
                 cfg.base_url,
+                database,
             )))
         }
         ChannelType::Lark => {
@@ -59,5 +65,32 @@ pub fn create_backend(
                 cfg.chat_id,
             )))
         }
+        ChannelType::WecomAiBot => {
+            let cfg: WecomAiBotConfig =
+                serde_json::from_value(config.clone()).map_err(|error| {
+                    ChatChannelError::ConfigurationInvalid(format!(
+                        "Invalid WeCom AI Bot config: {error}"
+                    ))
+                })?;
+            Ok(Box::new(wecom_ai_bot::WecomAiBotBackend::new(
+                channel_id, cfg, token,
+            )))
+        }
+        ChannelType::Dingtalk => {
+            let cfg: DingtalkConfig = serde_json::from_value(config.clone()).map_err(|error| {
+                ChatChannelError::ConfigurationInvalid(format!("Invalid DingTalk config: {error}"))
+            })?;
+            if cfg.client_id.trim().is_empty() {
+                return Err(ChatChannelError::ConfigurationInvalid(
+                    "client_id is required".into(),
+                ));
+            }
+            Ok(Box::new(dingtalk::DingtalkBackend::new(
+                channel_id, cfg, token,
+            )))
+        }
+        ChannelType::WecomAgent => Err(ChatChannelError::ConfigurationInvalid(
+            "WeCom Agent callback backend is not available yet; use WeCom AI Bot".into(),
+        )),
     }
 }

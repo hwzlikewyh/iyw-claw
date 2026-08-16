@@ -32,6 +32,15 @@ pub async fn register_default(
                 provider_payload: Some(serde_json::json!({ "chat_type": chat_type })),
             }
         }),
+        "wecom_ai_bot" => {
+            string_field(&config, "default_chatid").map(|chat_id| ChannelMessageTarget {
+                channel_id: channel.id,
+                chat_id: Some(chat_id),
+                thread_key: None,
+                thread_kind: Some("wecom_ai_bot".to_string()),
+                provider_payload: None,
+            })
+        }
         _ => None,
     };
     let Some(target) = target else {
@@ -90,6 +99,8 @@ pub async fn resolve_default(
 fn target_kind(target: &ChannelMessageTarget) -> &'static str {
     match target.thread_kind.as_deref() {
         Some("wecom_chat") => "wecom_chat",
+        Some("wecom_ai_bot") => "wecom_ai_bot",
+        Some("dingtalk_chat") => "dingtalk_chat",
         Some("lark_chat") => "lark_chat",
         Some("weixin_context") => "weixin_context",
         Some(_) => "thread",

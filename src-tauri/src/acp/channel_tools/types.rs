@@ -58,6 +58,8 @@ pub struct SaveChannelInput {
 pub struct ChannelConfigInput {
     pub base_url: Option<String>,
     pub app_id: Option<String>,
+    pub bot_id: Option<String>,
+    pub client_id: Option<String>,
     pub default_target: Option<String>,
     pub default_target_type: Option<u8>,
     pub default_agent_type: Option<String>,
