@@ -9,7 +9,7 @@ use super::super::tabs::TabRuntimeHandle;
 const TAB_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 impl BrowserSessionManager {
-    pub(super) async fn shutdown_tabs(&self) -> Result<(), BrowserError> {
+    pub(in crate::browser) async fn shutdown_tabs(&self) -> Result<(), BrowserError> {
         let handles = self.tabs.drain().await;
         let cleanup = join_all(handles.iter().map(|handle| cleanup_tab_ref(handle, true)));
         let fallback_reason = match tokio::time::timeout(TAB_SHUTDOWN_TIMEOUT, cleanup).await {

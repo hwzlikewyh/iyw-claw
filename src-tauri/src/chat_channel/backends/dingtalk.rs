@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures_util::SinkExt;
 use reqwest::header::ACCEPT;
 use serde::Deserialize;
 use tokio::sync::{mpsc, Mutex};

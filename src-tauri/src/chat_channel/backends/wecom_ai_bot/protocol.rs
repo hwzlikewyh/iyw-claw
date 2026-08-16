@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::RunArgs;
+use super::runtime::RunArgs;
 use crate::chat_channel::error::ChatChannelError;
 use crate::chat_channel::types::*;
 

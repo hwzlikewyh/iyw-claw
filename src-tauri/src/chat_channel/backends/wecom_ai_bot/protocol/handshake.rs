@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::Message;
 
 use super::{
-    connection_error, message_json, provider_error, request_id, send_stream_json, target_header,
-    WsStream,
+    ack_code, connection_error, message_json, provider_error, request_id, send_stream_json,
+    target_header, WsStream,
 };
 use crate::chat_channel::error::ChatChannelError;
 
