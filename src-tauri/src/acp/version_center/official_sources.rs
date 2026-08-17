@@ -44,6 +44,7 @@ pub(crate) fn fallback_npm_agent_install(
         revision: 0,
         effective_policy: "manual".to_string(),
         packages,
+        bundle_offer: None,
     })
 }
 
@@ -65,6 +66,7 @@ pub(crate) fn fallback_uvx_agent_install(
         package_spec: format!("{base}=={requested_version}"),
         index_url: "https://pypi.org/simple".to_string(),
         source_key: "official-pypi".to_string(),
+        bundle_offer: None,
     })
 }
 

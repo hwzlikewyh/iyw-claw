@@ -27,6 +27,7 @@ pub(crate) struct ManagedNpmInstall {
     pub(crate) revision: u64,
     pub(crate) effective_policy: String,
     pub(crate) packages: Vec<ManagedNpmPackage>,
+    pub(crate) bundle_offer: Option<AgentOffer>,
 }
 
 pub(crate) enum ManagedNpmInstallError {
@@ -98,7 +99,11 @@ pub(crate) async fn confirm_npm_agent_install(
         reason,
     )
     .await?;
-    if confirmed.version != installed.version || confirmed.packages != installed.packages {
+    if confirmed.version != installed.version
+        || confirmed.packages != installed.packages
+        || bundle_identity(confirmed.bundle_offer.as_ref())
+            != bundle_identity(installed.bundle_offer.as_ref())
+    {
         return Err(ManagedNpmInstallError::Rejected(contract_error(
             "version center npm offer changed before activation",
         )));
@@ -110,6 +115,7 @@ fn install_from_offer(
     agent_type: AgentType,
     offer: AgentOffer,
 ) -> Result<ManagedNpmInstall, AcpError> {
+    let bundle_offer = offer.delivery.artifact_id.as_ref().map(|_| offer.clone());
     let allowed = expected_npm_packages(agent_type)?;
     if offer.delivery.components.len() != allowed.len() {
         return Err(contract_error(
@@ -169,7 +175,16 @@ fn install_from_offer(
         revision: offer.revision,
         effective_policy: offer.effective_update_policy,
         packages,
+        bundle_offer,
     })
+}
+
+fn bundle_identity(offer: Option<&AgentOffer>) -> Option<(&str, &str)> {
+    let offer = offer?;
+    Some((
+        offer.version_id.as_str(),
+        offer.delivery.artifact_id.as_deref()?,
+    ))
 }
 
 fn expected_npm_packages(agent_type: AgentType) -> Result<Vec<(&'static str, String)>, AcpError> {

@@ -12,6 +12,9 @@ mod inventory;
 mod launch_authorization;
 mod npm_install;
 mod official_sources;
+mod runtime_bundle_archive;
+mod runtime_bundle_manifest;
+mod runtime_bundle_state;
 mod types;
 mod uvx_install;
 
@@ -31,6 +34,9 @@ pub(crate) use installer::{
     locate_payload, persisted_activation_revision, runtime_dir, write_current_pointer,
     ManagedBinaryAgentRequest,
 };
+pub(crate) use installer::{
+    install_runtime_bundle, InstalledRuntimeBundle, RuntimeBundleInstallError, RuntimeBundleRequest,
+};
 pub(crate) use installer::{push_pending_activation, PendingActivation};
 pub use inventory::{
     activate_agent, list_agent_installations, list_tool_installations, list_tool_settings,
@@ -43,6 +49,7 @@ pub(crate) use npm_install::{
     confirm_npm_agent_install, resolve_npm_agent_install, ManagedNpmInstall,
 };
 pub(crate) use official_sources::{fallback_npm_agent_install, fallback_uvx_agent_install};
+pub(crate) use runtime_bundle_state::{remove_uvx_bundles, uvx_bundle_env};
 pub(crate) use types::ResolveAgentRequest;
 pub use types::{AgentOffer, CatalogSnapshot, DownloadTicket, ToolOffer, VersionHistory};
 pub(crate) use uvx_install::{confirm_uvx_agent_install, resolve_uvx_agent_install};

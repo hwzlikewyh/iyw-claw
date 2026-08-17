@@ -18,7 +18,9 @@ use std::path::Path;
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 
-use super::component::{install_tool_component, update_checkpoint, update_checkpoint_deferred};
+use super::bootstrap_commit::mark_component_failed;
+use super::bootstrap_component::prepare_tool_components;
+use super::bootstrap_finalize::commit_prepared_components;
 use super::manifest::{
     active_versions, digest_managed_root, read_manifest, read_pending_activations,
     InventoryManifest, PendingActivation,
@@ -153,58 +155,44 @@ pub async fn bootstrap_initialize(
     let mut manifest = read_manifest(data_dir).await?;
     let active = active_versions(&manifest);
 
-    let mut deferred_components: Vec<&str> = Vec::new();
-    for tool_id in TOOL_COMPONENTS {
-        emit_init_event(emitter, task_id, "resolving", Some(tool_id), "");
-        match install_tool_component(
-            conn,
-            data_dir,
-            &mut manifest,
-            tool_id,
-            channel,
-            defer_while_active,
-            task_id,
-            emitter,
-            &active,
-        )
-        .await
-        {
-            Ok(outcome) => {
-                if outcome.deferred {
-                    deferred_components.push(tool_id);
-                    update_checkpoint_deferred(&mut state, tool_id, outcome.version);
-                } else {
-                    update_checkpoint(&mut state, tool_id, outcome.version);
-                }
-                write_state(data_dir, &state).await?;
-            }
-            Err(error) => {
-                let healthy = has_healthy_inventory(&manifest);
-                state.set_phase(if healthy {
-                    InitPhase::Degraded
-                } else {
-                    InitPhase::Blocked
-                });
-                if let Some(checkpoint) = state
-                    .components
-                    .iter_mut()
-                    .find(|item| item.component_id == tool_id)
-                {
-                    checkpoint.last_error = Some(error.message.clone());
-                    checkpoint.phase = state.phase;
-                }
-                write_state(data_dir, &state).await?;
-                emit_init_event(
-                    emitter,
-                    task_id,
-                    phase_label(state.phase),
-                    Some(tool_id),
-                    &error.message,
-                );
-                return bootstrap_init_status(data_dir).await;
-            }
+    // 准备阶段不写 inventory、manifest 或 active pointer，可以并行 resolve、
+    // 取票、下载、校验和解压；提交仍按固定顺序串行，保留单写入者语义。
+    let [node, git, uv] = prepare_tool_components(
+        conn,
+        data_dir,
+        channel,
+        defer_while_active,
+        task_id,
+        emitter,
+        &active,
+    )
+    .await;
+    let mut prepared = [("node", Some(node)), ("git", Some(git)), ("uv", Some(uv))];
+    let deferred_components = match commit_prepared_components(
+        conn,
+        data_dir,
+        &mut manifest,
+        &mut state,
+        &mut prepared,
+        defer_while_active,
+        task_id,
+        emitter,
+    )
+    .await
+    {
+        Ok(components) => components,
+        Err((tool_id, error)) => {
+            mark_component_failed(data_dir, &mut state, &manifest, &tool_id, &error).await?;
+            emit_init_event(
+                emitter,
+                task_id,
+                phase_label(state.phase),
+                Some(&tool_id),
+                &error.message,
+            );
+            return bootstrap_init_status(data_dir).await;
         }
-    }
+    };
 
     state.set_phase(InitPhase::Ready);
     write_state(data_dir, &state).await?;
@@ -276,10 +264,6 @@ fn components_all_ready(state: &BootstrapState) -> bool {
             .component(tool_id)
             .is_some_and(|checkpoint| checkpoint.installed && checkpoint.active)
     })
-}
-
-fn has_healthy_inventory(_manifest: &InventoryManifest) -> bool {
-    !_manifest.entries.is_empty()
 }
 
 fn phase_label(phase: InitPhase) -> &'static str {

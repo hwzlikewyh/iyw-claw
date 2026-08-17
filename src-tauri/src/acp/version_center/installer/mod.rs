@@ -6,6 +6,10 @@ mod agent_download;
 mod agent_pending;
 mod agents;
 mod archive;
+mod bootstrap_commit;
+mod bootstrap_component;
+mod bootstrap_download;
+mod bootstrap_finalize;
 mod component;
 mod download;
 mod init;
@@ -15,6 +19,7 @@ mod official_binary;
 mod preflight;
 mod resumable;
 mod runtime;
+mod runtime_bundle;
 mod signature;
 mod state;
 mod tools;
@@ -28,4 +33,7 @@ pub use manifest::digest_managed_root;
 pub(crate) use manifest::{push_pending_activation, PendingActivation};
 pub use runtime::managed_tool_executable;
 pub(crate) use runtime::{runtime_dir, write_current_pointer};
+pub(crate) use runtime_bundle::{
+    install_runtime_bundle, InstalledRuntimeBundle, RuntimeBundleInstallError, RuntimeBundleRequest,
+};
 pub use tools::{install_managed_tool, ManagedToolInstallResult};

@@ -28,8 +28,9 @@ use crate::acp::types::{
 use crate::acp::types::{ConnectionInfo, ForkResultInfo, PromptInputBlock};
 use crate::acp::version_center::{
     confirm_npm_agent_install, confirm_uvx_agent_install, fallback_npm_agent_install,
-    fallback_uvx_agent_install, push_pending_activation, resolve_npm_agent_install,
-    resolve_uvx_agent_install, PendingActivation,
+    fallback_uvx_agent_install, install_runtime_bundle, push_pending_activation,
+    resolve_npm_agent_install, resolve_uvx_agent_install, InstalledRuntimeBundle,
+    PendingActivation, RuntimeBundleRequest,
 };
 use crate::commands::experts::{
     central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, ExpertLinkState,
@@ -629,6 +630,9 @@ struct NpmCommandOutput {
     stderr: String,
 }
 
+const NPM_ATTEMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+const NPM_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Run npm with isolated config, streaming and collecting both output pipes.
 async fn run_npm_streaming(
     args: &[OsString],
@@ -650,6 +654,7 @@ async fn run_npm_streaming(
         cmd.arg(arg);
     }
     cmd.current_dir(working_dir)
+        .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
@@ -669,17 +674,66 @@ async fn run_npm_streaming(
         emitter.clone(),
         task_id.to_string(),
     ));
-    let (stdout_result, stderr_result) = tokio::join!(stdout_handle, stderr_handle);
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| AcpError::protocol(format!("failed to wait for npm process: {e}")))?;
+    wait_npm_or_kill(child, stdout_handle, stderr_handle).await
+}
 
+async fn wait_npm_or_kill(
+    mut child: tokio::process::Child,
+    stdout: tokio::task::JoinHandle<String>,
+    stderr: tokio::task::JoinHandle<String>,
+) -> Result<NpmCommandOutput, AcpError> {
+    let pid = child.id();
+    let status = match tokio::time::timeout(NPM_ATTEMPT_TIMEOUT, child.wait()).await {
+        Ok(Ok(status)) => status,
+        Ok(Err(error)) => {
+            cleanup_npm_process(&mut child, pid, stdout, stderr).await;
+            return Err(AcpError::protocol(format!(
+                "failed to wait for npm process: {error}"
+            )));
+        }
+        Err(_) => {
+            cleanup_npm_process(&mut child, pid, stdout, stderr).await;
+            return Err(AcpError::DownloadFailed(format!(
+                "{NPM_REGISTRY_UNAVAILABLE_PREFIX}timeout)"
+            )));
+        }
+    };
     Ok(NpmCommandOutput {
         success: status.success(),
-        stdout: stdout_result.unwrap_or_default(),
-        stderr: stderr_result.unwrap_or_default(),
+        stdout: stdout.await.unwrap_or_default(),
+        stderr: stderr.await.unwrap_or_default(),
     })
+}
+
+async fn cleanup_npm_process(
+    child: &mut tokio::process::Child,
+    pid: Option<u32>,
+    stdout: tokio::task::JoinHandle<String>,
+    stderr: tokio::task::JoinHandle<String>,
+) {
+    if let Some(pid) = pid {
+        match tokio::time::timeout(NPM_CLEANUP_TIMEOUT, kill_tree::tokio::kill_tree(pid)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                tracing::error!(pid, %error, "[managed-npm] process tree cleanup failed");
+            }
+            Err(_) => {
+                tracing::error!(pid, "[managed-npm] process tree cleanup timed out");
+            }
+        }
+    }
+    let _ = child.start_kill();
+    stdout.abort();
+    stderr.abort();
+    let _ = stdout.await;
+    let _ = stderr.await;
+    match tokio::time::timeout(NPM_CLEANUP_TIMEOUT, child.wait()).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "[managed-npm] failed to reap npm process");
+        }
+        Err(_) => tracing::warn!("[managed-npm] npm process reap timed out"),
+    }
 }
 
 async fn collect_npm_output<R>(output: Option<R>, emitter: EventEmitter, task_id: String) -> String
@@ -705,7 +759,10 @@ where
 
 const MAX_MANAGED_NPM_METADATA_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_MANAGED_NPM_TARBALL_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_MANAGED_NPM_REDIRECTS: usize = 3;
+const MANAGED_NPM_REDIRECT_HOSTS_ENV: &str = "IYW_CLAW_NPM_REDIRECT_HOSTS";
 
+#[derive(Debug)]
 enum ManagedNpmSourceError {
     Unavailable(AcpError),
     Rejected(AcpError),
@@ -725,7 +782,6 @@ struct ManagedNpmDist {
 }
 
 struct ManagedNpmTarball {
-    _temp_dir: tempfile::TempDir,
     path: PathBuf,
 }
 
@@ -838,29 +894,61 @@ fn managed_npm_metadata_url(
     Ok(url)
 }
 
-fn validate_managed_tarball_url(
+fn validate_managed_npm_url(
     registry_url: &str,
-    tarball_url: &str,
+    candidate_url: &str,
 ) -> Result<reqwest::Url, ManagedNpmSourceError> {
     let registry = reqwest::Url::parse(registry_url)
         .map_err(|error| managed_npm_rejected(format!("invalid managed npm registry: {error}")))?;
-    let tarball = reqwest::Url::parse(tarball_url).map_err(|error| {
-        managed_npm_rejected(format!("invalid managed npm tarball URL: {error}"))
+    let candidate = reqwest::Url::parse(candidate_url).map_err(|error| {
+        managed_npm_rejected(format!("invalid managed npm source URL: {error}"))
     })?;
-    let same_origin = registry.scheme() == tarball.scheme()
-        && registry.host_str() == tarball.host_str()
-        && registry.port_or_known_default() == tarball.port_or_known_default();
-    let safe = same_origin
-        && tarball.username().is_empty()
-        && tarball.password().is_none()
-        && tarball.query().is_none()
-        && tarball.fragment().is_none();
+    let host = candidate.host_str().unwrap_or_default();
+    let local_debug = cfg!(debug_assertions)
+        && matches!(host, "127.0.0.1" | "localhost")
+        && candidate.scheme() == "http";
+    let same_origin = registry.host_str() == Some(host)
+        && registry.port_or_known_default() == candidate.port_or_known_default();
+    let safe = (candidate.scheme() == "https" || local_debug)
+        && managed_npm_host_allowed(registry.host_str().unwrap_or_default(), host)
+        && (candidate.port().is_none() || same_origin)
+        && candidate.username().is_empty()
+        && candidate.password().is_none()
+        && candidate.query().is_none()
+        && candidate.fragment().is_none();
     if !safe {
         return Err(managed_npm_rejected(
-            "managed npm registry returned an unsafe tarball URL",
+            "managed npm registry returned an unsafe source URL",
         ));
     }
-    Ok(tarball)
+    Ok(candidate)
+}
+
+fn managed_npm_host_allowed(registry_host: &str, candidate_host: &str) -> bool {
+    if registry_host.eq_ignore_ascii_case(candidate_host) {
+        return true;
+    }
+    const TRUSTED_REDIRECT_HOSTS: [&str; 3] = [
+        "registry.npmmirror.com",
+        "cdn.npmmirror.com",
+        "registry.npmjs.org",
+    ];
+    TRUSTED_REDIRECT_HOSTS
+        .iter()
+        .any(|host| host.eq_ignore_ascii_case(candidate_host))
+        || configured_npm_redirect_hosts()
+            .iter()
+            .any(|host| host.eq_ignore_ascii_case(candidate_host))
+}
+
+fn configured_npm_redirect_hosts() -> Vec<String> {
+    std::env::var(MANAGED_NPM_REDIRECT_HOSTS_ENV)
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .collect()
 }
 
 fn managed_npm_client() -> Result<reqwest::Client, ManagedNpmSourceError> {
@@ -880,12 +968,7 @@ async fn fetch_managed_npm_metadata(
     expected_integrity: &str,
 ) -> Result<ManagedNpmDist, ManagedNpmSourceError> {
     let metadata_url = managed_npm_metadata_url(registry_url, package_name, version)?;
-    let response = client
-        .get(metadata_url)
-        .header(reqwest::header::ACCEPT, "application/json")
-        .send()
-        .await
-        .map_err(|error| managed_npm_reqwest_error("managed npm metadata request failed", error))?;
+    let response = request_managed_npm_url(client, registry_url, metadata_url, true).await?;
     if !response.status().is_success() {
         return Err(managed_npm_http_error(
             "managed npm metadata request failed",
@@ -925,11 +1008,8 @@ async fn request_managed_npm_tarball(
     registry_url: &str,
     tarball_url: &str,
 ) -> Result<reqwest::Response, ManagedNpmSourceError> {
-    let tarball_url = validate_managed_tarball_url(registry_url, tarball_url)?;
-    let response =
-        client.get(tarball_url).send().await.map_err(|error| {
-            managed_npm_reqwest_error("managed npm tarball request failed", error)
-        })?;
+    let tarball_url = validate_managed_npm_url(registry_url, tarball_url)?;
+    let response = request_managed_npm_url(client, registry_url, tarball_url, false).await?;
     if !response.status().is_success() {
         return Err(managed_npm_http_error(
             "managed npm tarball request failed",
@@ -937,6 +1017,41 @@ async fn request_managed_npm_tarball(
         ));
     }
     Ok(response)
+}
+
+async fn request_managed_npm_url(
+    client: &reqwest::Client,
+    registry_url: &str,
+    mut url: reqwest::Url,
+    accept_json: bool,
+) -> Result<reqwest::Response, ManagedNpmSourceError> {
+    for redirects in 0..=MAX_MANAGED_NPM_REDIRECTS {
+        let mut request = client.get(url.clone());
+        if accept_json {
+            request = request.header(reqwest::header::ACCEPT, "application/json");
+        }
+        let response = request.send().await.map_err(|error| {
+            managed_npm_reqwest_error("managed npm source request failed", error)
+        })?;
+        if !response.status().is_redirection() {
+            return Ok(response);
+        }
+        if redirects == MAX_MANAGED_NPM_REDIRECTS {
+            break;
+        }
+        let location = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| managed_npm_rejected("managed npm redirect has no location"))?;
+        let next = url
+            .join(location)
+            .map_err(|error| managed_npm_rejected(format!("invalid npm redirect: {error}")))?;
+        url = validate_managed_npm_url(registry_url, next.as_str())?;
+    }
+    Err(managed_npm_rejected(
+        "managed npm source exceeded the redirect limit",
+    ))
 }
 
 async fn write_managed_npm_tarball(
@@ -986,30 +1101,62 @@ async fn write_managed_npm_tarball(
 }
 
 async fn persist_managed_npm_tarball(
-    paths: &AgentStoragePaths,
     response: reqwest::Response,
     expected_integrity: &str,
+    cache_path: &Path,
 ) -> Result<ManagedNpmTarball, ManagedNpmSourceError> {
-    tokio::fs::create_dir_all(paths.staging_dir())
+    let parent = cache_path
+        .parent()
+        .ok_or_else(|| managed_npm_rejected("managed npm cache path has no parent"))?;
+    tokio::fs::create_dir_all(parent)
         .await
-        .map_err(|error| {
-            managed_npm_rejected(format!("create npm staging root failed: {error}"))
-        })?;
-    let temp_dir = tempfile::Builder::new()
-        .prefix("managed-npm-")
-        .tempdir_in(paths.staging_dir())
-        .map_err(|error| {
-            managed_npm_rejected(format!("create npm tarball staging failed: {error}"))
-        })?;
-    let path = temp_dir.path().join("package.tgz");
-    let file = tokio::fs::File::create(&path)
+        .map_err(|error| managed_npm_rejected(format!("create npm cache failed: {error}")))?;
+    let name = cache_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| managed_npm_rejected("managed npm cache name is invalid"))?;
+    let temporary = parent.join(format!(".{name}.{}.part", uuid::Uuid::new_v4()));
+    let file = tokio::fs::File::create(&temporary)
         .await
         .map_err(|error| managed_npm_rejected(format!("create npm tarball failed: {error}")))?;
-    write_managed_npm_tarball(file, response, expected_integrity).await?;
+    if let Err(error) = write_managed_npm_tarball(file, response, expected_integrity).await {
+        let _ = tokio::fs::remove_file(&temporary).await;
+        return Err(error);
+    }
+    commit_managed_npm_cache(&temporary, cache_path, expected_integrity).await?;
     Ok(ManagedNpmTarball {
-        _temp_dir: temp_dir,
-        path,
+        path: cache_path.to_path_buf(),
     })
+}
+
+async fn commit_managed_npm_cache(
+    temporary: &Path,
+    cache_path: &Path,
+    expected_integrity: &str,
+) -> Result<(), ManagedNpmSourceError> {
+    if cache_path.is_file()
+        && verify_managed_npm_cache(cache_path, expected_integrity)
+            .await
+            .is_ok()
+    {
+        let _ = tokio::fs::remove_file(temporary).await;
+        return Ok(());
+    }
+    if let Err(error) = tokio::fs::rename(temporary, cache_path).await {
+        if cache_path.is_file()
+            && verify_managed_npm_cache(cache_path, expected_integrity)
+                .await
+                .is_ok()
+        {
+            let _ = tokio::fs::remove_file(temporary).await;
+            return Ok(());
+        }
+        let _ = tokio::fs::remove_file(temporary).await;
+        return Err(managed_npm_rejected(format!(
+            "commit npm cache failed: {error}"
+        )));
+    }
+    Ok(())
 }
 
 async fn fetch_managed_npm_tarball(
@@ -1019,6 +1166,25 @@ async fn fetch_managed_npm_tarball(
     registry_url: &str,
     expected_integrity: &str,
 ) -> Result<ManagedNpmTarball, ManagedNpmSourceError> {
+    let cache_path = managed_npm_cache_path(paths, expected_integrity)?;
+    if cache_path.is_file() {
+        match verify_managed_npm_cache(&cache_path, expected_integrity).await {
+            Ok(()) => {
+                tracing::info!(path = %cache_path.display(), "[managed-npm] tarball cache hit");
+                return Ok(ManagedNpmTarball { path: cache_path });
+            }
+            Err(error) => {
+                tracing::warn!(path = %cache_path.display(), error = ?error, "[managed-npm] discarding invalid tarball cache");
+                tokio::fs::remove_file(&cache_path)
+                    .await
+                    .map_err(|remove_error| {
+                        managed_npm_rejected(format!(
+                            "remove invalid npm cache failed: {remove_error}"
+                        ))
+                    })?;
+            }
+        }
+    }
     let client = managed_npm_client()?;
     let dist = fetch_managed_npm_metadata(
         &client,
@@ -1029,7 +1195,66 @@ async fn fetch_managed_npm_tarball(
     )
     .await?;
     let response = request_managed_npm_tarball(&client, registry_url, &dist.tarball).await?;
-    persist_managed_npm_tarball(paths, response, expected_integrity).await
+    persist_managed_npm_tarball(response, expected_integrity, &cache_path).await
+}
+
+fn managed_npm_cache_path(
+    paths: &AgentStoragePaths,
+    integrity: &str,
+) -> Result<PathBuf, ManagedNpmSourceError> {
+    use base64::Engine as _;
+
+    let (algorithm, encoded) = integrity
+        .split_once('-')
+        .ok_or_else(|| managed_npm_rejected("managed npm integrity contract is invalid"))?;
+    if !matches!(algorithm, "sha256" | "sha384" | "sha512") {
+        return Err(managed_npm_rejected(
+            "managed npm integrity algorithm is unsupported",
+        ));
+    }
+    let digest = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| managed_npm_rejected("managed npm integrity digest is invalid"))?;
+    let digest = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    Ok(paths
+        .npm_cache_dir()
+        .join("managed-tarballs")
+        .join(format!("{algorithm}-{digest}.tgz")))
+}
+
+async fn verify_managed_npm_cache(
+    path: &Path,
+    expected_integrity: &str,
+) -> Result<(), ManagedNpmSourceError> {
+    use tokio::io::AsyncReadExt as _;
+
+    let metadata = tokio::fs::metadata(path).await.map_err(|error| {
+        managed_npm_rejected(format!("read npm cache metadata failed: {error}"))
+    })?;
+    if metadata.len() > MAX_MANAGED_NPM_TARBALL_BYTES {
+        return Err(managed_npm_rejected("managed npm cache is too large"));
+    }
+    let (mut hasher, expected) = ManagedNpmHasher::from_integrity(expected_integrity)?;
+    let mut file = tokio::fs::File::open(path)
+        .await
+        .map_err(|error| managed_npm_rejected(format!("open npm cache failed: {error}")))?;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .await
+            .map_err(|error| managed_npm_rejected(format!("read npm cache failed: {error}")))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    (hasher.finish() == expected)
+        .then_some(())
+        .ok_or_else(|| managed_npm_rejected("managed npm cache integrity mismatch"))
 }
 
 fn managed_npm_install_error(error: AcpError) -> ManagedNpmSourceError {
@@ -4288,7 +4513,13 @@ fn shell_join(argv: &[String]) -> String {
 
 #[cfg(any(feature = "tauri-runtime", test))]
 fn with_private_uv_shell_env(command: &str, paths: &AgentStoragePaths, windows: bool) -> String {
-    let env = binary_cache::uv_runtime_env(paths);
+    let prepared = binary_cache::uvx_prepared_version(paths, AgentType::Hermes);
+    let env = prepared
+        .as_deref()
+        .and_then(|version| {
+            crate::acp::version_center::uvx_bundle_env(paths, AgentType::Hermes, version)
+        })
+        .unwrap_or_else(|| binary_cache::uv_runtime_env(paths));
     if windows {
         let assignments = env
             .into_iter()
@@ -4342,13 +4573,18 @@ fn hermes_setup_argvs() -> (Vec<String>, Vec<String>) {
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "uvx".to_string());
         let python_args = uvx_python_args(python);
+        let package = AgentStoragePaths::active()
+            .and_then(|paths| binary_cache::uvx_prepared_version(&paths, AgentType::Hermes))
+            .and_then(|version| uvx_package_spec_for_version(package, &version).ok())
+            .unwrap_or_else(|| package.to_string());
         // `uvx [--python <ver>] --from <package> <tail...>` — the pin must
         // precede `--from`, matching the launch/prewarm invocations.
         let build = |tail: &[&str]| -> Vec<String> {
             let mut argv = vec![uvx.clone()];
             argv.extend(python_args.iter().cloned());
+            argv.push("--offline".to_string());
             argv.push("--from".to_string());
-            argv.push(package.to_string());
+            argv.push(package.clone());
             argv.extend(tail.iter().map(|s| s.to_string()));
             argv
         };
@@ -4889,7 +5125,7 @@ fn plan_hermes_base_url_reconcile(
 /// back to the default `~/.hermes` (it does NOT re-inherit the parent). With no
 /// override the child inherits the parent env, so defer to `hermes_home_dir()`
 /// (iyw-claw's existing resolution, shared with the settings panel).
-fn hermes_home_for_launch(runtime_env: &BTreeMap<String, String>) -> PathBuf {
+pub(crate) fn hermes_home_for_launch(runtime_env: &BTreeMap<String, String>) -> PathBuf {
     match runtime_env.get("HERMES_HOME") {
         Some(raw) => {
             let trimmed = raw.trim();
@@ -9396,6 +9632,8 @@ struct ManagedAgentRecord<'a> {
     source_key: Option<&'a str>,
     revision: u64,
     policy: &'a str,
+    artifact_id: Option<&'a str>,
+    expected_sha256: Option<&'a str>,
 }
 
 async fn record_managed_agent(
@@ -9411,9 +9649,9 @@ async fn record_managed_agent(
             registry_id: registry::registry_id_for(agent_type),
             version: record.version,
             delivery_kind: record.delivery_kind,
-            artifact_id: None,
+            artifact_id: record.artifact_id,
             source_key: record.source_key,
-            expected_sha256: None,
+            expected_sha256: record.expected_sha256,
         },
     )
     .await?;
@@ -9443,6 +9681,55 @@ async fn record_managed_agent(
         )
         .await
     }
+}
+
+struct RuntimeBundleAttempt<'a> {
+    conn: &'a sea_orm::DatabaseConnection,
+    paths: &'a AgentStoragePaths,
+    agent_type: AgentType,
+    offer: Option<&'a crate::acp::version_center::AgentOffer>,
+    current_version: Option<&'a str>,
+    required_commands: &'a [&'a str],
+    reason: &'a str,
+    task_id: &'a str,
+    emitter: &'a EventEmitter,
+}
+
+async fn try_runtime_bundle(
+    attempt: RuntimeBundleAttempt<'_>,
+) -> Result<Option<InstalledRuntimeBundle>, crate::acp::version_center::RuntimeBundleInstallError> {
+    let Some(offer) = attempt.offer else {
+        return Ok(None);
+    };
+    let task_id = attempt.task_id;
+    let emitter = attempt.emitter;
+    let on_progress = |message: &str| {
+        tracing::info!(
+            registry_id = %offer.registry_id,
+            version = %offer.version,
+            artifact_id = offer.delivery.artifact_id.as_deref().unwrap_or_default(),
+            phase = message,
+            "[agent-runtime-bundle] progress"
+        );
+        emit_agent_install_event(
+            emitter,
+            task_id,
+            AgentInstallEventKind::Log,
+            message.to_string(),
+        );
+    };
+    install_runtime_bundle(RuntimeBundleRequest {
+        conn: attempt.conn,
+        paths: attempt.paths,
+        agent_type: attempt.agent_type,
+        offer,
+        current_version: attempt.current_version,
+        required_commands: attempt.required_commands,
+        reason: attempt.reason,
+        on_progress,
+    })
+    .await
+    .map(Some)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -10527,46 +10814,77 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             if agent_type == AgentType::Pi {
                 required_commands.push("pi");
             }
-            let install_result = install_managed_npm_packages(
-                &paths,
-                agent_type,
-                &managed.version,
-                &managed,
-                &required_commands,
-                &task_id,
-                emitter,
-            )
-            .await;
-            match install_result {
-                Ok(_) => {}
-                Err(ManagedNpmSourceError::Unavailable(_))
-                    if resolve_reason == "manual" && !fallback =>
+            let bundle = if fallback {
+                None
+            } else {
+                match try_runtime_bundle(RuntimeBundleAttempt {
+                    conn: &db.conn,
+                    paths: &paths,
+                    agent_type,
+                    offer: managed.bundle_offer.as_ref(),
+                    current_version: current_version.as_deref(),
+                    required_commands: &required_commands,
+                    reason: resolve_reason,
+                    task_id: &task_id,
+                    emitter,
+                })
+                .await
                 {
-                    fallback = true;
-                    emit_agent_install_event(
-                        emitter,
-                        &task_id,
-                        AgentInstallEventKind::Log,
-                        "Fusion npm source unavailable; using the official npm registry",
-                    );
-                    let authorized_version = managed.version.clone();
-                    managed = fallback_npm_agent_install(agent_type, &authorized_version)
-                        .map_err(|error| error.into_error())?;
-                    install_managed_npm_packages(
-                        &paths,
-                        agent_type,
-                        &managed.version,
-                        &managed,
-                        &required_commands,
-                        &task_id,
-                        emitter,
-                    )
-                    .await
-                    .map_err(managed_source_error)?;
+                    Ok(value) => value,
+                    Err(error) if resolve_reason == "manual" && error.is_unavailable() => {
+                        emit_agent_install_event(
+                            emitter,
+                            &task_id,
+                            AgentInstallEventKind::Log,
+                            "bundle_fallback: TOS unavailable; using the managed npm registry",
+                        );
+                        None
+                    }
+                    Err(error) => return Err(error.into_error()),
                 }
-                Err(error) => return Err(managed_source_error(error)),
+            };
+            if bundle.is_none() {
+                let install_result = install_managed_npm_packages(
+                    &paths,
+                    agent_type,
+                    &managed.version,
+                    &managed,
+                    &required_commands,
+                    &task_id,
+                    emitter,
+                )
+                .await;
+                match install_result {
+                    Ok(_) => {}
+                    Err(ManagedNpmSourceError::Unavailable(_))
+                        if resolve_reason == "manual" && !fallback =>
+                    {
+                        fallback = true;
+                        emit_agent_install_event(
+                            emitter,
+                            &task_id,
+                            AgentInstallEventKind::Log,
+                            "Fusion npm source unavailable; using the official npm registry",
+                        );
+                        let authorized_version = managed.version.clone();
+                        managed = fallback_npm_agent_install(agent_type, &authorized_version)
+                            .map_err(|error| error.into_error())?;
+                        install_managed_npm_packages(
+                            &paths,
+                            agent_type,
+                            &managed.version,
+                            &managed,
+                            &required_commands,
+                            &task_id,
+                            emitter,
+                        )
+                        .await
+                        .map_err(managed_source_error)?;
+                    }
+                    Err(error) => return Err(managed_source_error(error)),
+                }
             }
-            if !fallback {
+            if !fallback && bundle.is_none() {
                 managed = confirm_npm_agent_install(
                     &db.conn,
                     agent_type,
@@ -10583,10 +10901,22 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             )
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?;
-            let source = managed
-                .packages
-                .first()
-                .map(|package| package.source_key.as_str());
+            let source = if bundle.is_none() {
+                managed
+                    .packages
+                    .first()
+                    .map(|package| package.source_key.as_str())
+            } else {
+                None
+            };
+            let revision = bundle
+                .as_ref()
+                .map(|value| value.revision)
+                .unwrap_or(managed.revision);
+            let policy = bundle
+                .as_ref()
+                .map(|value| value.effective_policy.as_str())
+                .unwrap_or(&managed.effective_policy);
             record_managed_agent(
                 &db.conn,
                 agent_type,
@@ -10594,8 +10924,10 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                     version: &resolved,
                     delivery_kind: "npm",
                     source_key: source,
-                    revision: managed.revision,
-                    policy: &managed.effective_policy,
+                    revision,
+                    policy,
+                    artifact_id: bundle.as_ref().map(|value| value.artifact_id.as_str()),
+                    expected_sha256: bundle.as_ref().map(|value| value.sha256.as_str()),
                 },
                 defer_while_active,
             )
@@ -10662,45 +10994,79 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                     "Fusion unavailable; using the official Python index",
                 );
             }
-            let prewarm = prewarm_uvx_agent(
-                meta.name,
-                &managed.package_spec,
-                cmd,
-                python,
-                Some(&managed.index_url),
-                &task_id,
-                emitter,
-            )
-            .await;
-            match prewarm {
-                Ok(()) => {}
-                Err(UvxPrewarmError::Unavailable(_)) if resolve_reason == "manual" && !fallback => {
-                    fallback = true;
-                    emit_agent_install_event(
-                        emitter,
-                        &task_id,
-                        AgentInstallEventKind::Log,
-                        "Fusion Python source unavailable; using the official Python index",
-                    );
-                    let authorized_version = managed.version.clone();
-                    managed = fallback_uvx_agent_install(agent_type, &authorized_version)
-                        .map_err(|error| error.into_error())?;
-                    prewarm_uvx_agent(
-                        meta.name,
-                        &managed.package_spec,
-                        cmd,
-                        python,
-                        Some(&managed.index_url),
-                        &task_id,
-                        emitter,
-                    )
-                    .await
-                    .map_err(UvxPrewarmError::into_error)?;
+            let required_commands = [cmd];
+            let bundle = if fallback {
+                None
+            } else {
+                match try_runtime_bundle(RuntimeBundleAttempt {
+                    conn: &db.conn,
+                    paths: &paths,
+                    agent_type,
+                    offer: managed.bundle_offer.as_ref(),
+                    current_version: current_version.as_deref(),
+                    required_commands: &required_commands,
+                    reason: resolve_reason,
+                    task_id: &task_id,
+                    emitter,
+                })
+                .await
+                {
+                    Ok(value) => value,
+                    Err(error) if resolve_reason == "manual" && error.is_unavailable() => {
+                        emit_agent_install_event(
+                            emitter,
+                            &task_id,
+                            AgentInstallEventKind::Log,
+                            "bundle_fallback: TOS unavailable; using the managed Python index",
+                        );
+                        None
+                    }
+                    Err(error) => return Err(error.into_error()),
                 }
-                Err(error) => return Err(error.into_error()),
+            };
+            if bundle.is_none() {
+                let prewarm = prewarm_uvx_agent(
+                    meta.name,
+                    &managed.package_spec,
+                    cmd,
+                    python,
+                    Some(&managed.index_url),
+                    &task_id,
+                    emitter,
+                )
+                .await;
+                match prewarm {
+                    Ok(()) => {}
+                    Err(UvxPrewarmError::Unavailable(_))
+                        if resolve_reason == "manual" && !fallback =>
+                    {
+                        fallback = true;
+                        emit_agent_install_event(
+                            emitter,
+                            &task_id,
+                            AgentInstallEventKind::Log,
+                            "Fusion Python source unavailable; using the official Python index",
+                        );
+                        let authorized_version = managed.version.clone();
+                        managed = fallback_uvx_agent_install(agent_type, &authorized_version)
+                            .map_err(|error| error.into_error())?;
+                        prewarm_uvx_agent(
+                            meta.name,
+                            &managed.package_spec,
+                            cmd,
+                            python,
+                            Some(&managed.index_url),
+                            &task_id,
+                            emitter,
+                        )
+                        .await
+                        .map_err(UvxPrewarmError::into_error)?;
+                    }
+                    Err(error) => return Err(error.into_error()),
+                }
             }
 
-            if !fallback {
+            if !fallback && bundle.is_none() {
                 managed = confirm_uvx_agent_install(
                     &db.conn,
                     agent_type,
@@ -10712,7 +11078,9 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 .map_err(|error| error.into_error())?;
             }
             let resolved = managed.version.clone();
-            binary_cache::mark_uvx_agent_prepared(&paths, agent_type, &resolved)?;
+            if bundle.is_none() {
+                binary_cache::mark_uvx_agent_prepared(&paths, agent_type, &resolved)?;
+            }
             crate::commands::agent_storage::ensure_active_agent_profile_layout(
                 &db.conn, agent_type,
             )
@@ -10724,9 +11092,20 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 ManagedAgentRecord {
                     version: &resolved,
                     delivery_kind: "uvx",
-                    source_key: Some(&managed.source_key),
-                    revision: managed.revision,
-                    policy: &managed.effective_policy,
+                    source_key: bundle
+                        .as_ref()
+                        .is_none()
+                        .then_some(managed.source_key.as_str()),
+                    revision: bundle
+                        .as_ref()
+                        .map(|value| value.revision)
+                        .unwrap_or(managed.revision),
+                    policy: bundle
+                        .as_ref()
+                        .map(|value| value.effective_policy.as_str())
+                        .unwrap_or(&managed.effective_policy),
+                    artifact_id: bundle.as_ref().map(|value| value.artifact_id.as_str()),
+                    expected_sha256: bundle.as_ref().map(|value| value.sha256.as_str()),
                 },
                 defer_while_active,
             )
@@ -10829,6 +11208,7 @@ pub(crate) async fn acp_uninstall_agent_core(
                 npm_runtime::uninstall_private_npm_runtime(&paths, agent_type)?;
             }
             registry::AgentDistribution::Uvx { .. } => {
+                crate::acp::version_center::remove_uvx_bundles(&paths, agent_type)?;
                 binary_cache::clear_uvx_agent_prepared(&paths, agent_type)?;
             }
         }

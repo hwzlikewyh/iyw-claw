@@ -26,6 +26,7 @@ use tokio::sync::Semaphore;
 use crate::app_error::{AppCommandError, AppErrorCode};
 
 pub const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
+pub(super) const MAX_AGENT_ARCHIVE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MAX_ATTEMPTS: u32 = 5;
@@ -37,7 +38,7 @@ const HASH_BUFFER_BYTES: usize = 64 * 1024;
 /// IR-008：全局并发下载上限（无依赖组件下载并行，默认小并发）。
 const MAX_GLOBAL_DOWNLOADS: usize = 2;
 /// IR-008：每 host 并发上限（同一 CDN/TOS 域名避免被打爆）。
-const MAX_HOST_DOWNLOADS: usize = 1;
+const MAX_HOST_DOWNLOADS: usize = 2;
 
 static GLOBAL_DOWNLOAD_SEMAPHORE: LazyLock<Semaphore> =
     LazyLock::new(|| Semaphore::new(MAX_GLOBAL_DOWNLOADS));
@@ -100,7 +101,49 @@ pub async fn download_resumable(
     expected_sha256: &str,
     on_progress: Option<&(dyn Fn(DownloadProgress) + Send + Sync)>,
 ) -> Result<(), AppCommandError> {
-    if expected_size <= 0 || expected_size as u64 > MAX_ARCHIVE_BYTES {
+    download_resumable_with_limit(
+        artifact_id,
+        url,
+        final_path,
+        expected_size,
+        expected_sha256,
+        on_progress,
+        MAX_ARCHIVE_BYTES,
+    )
+    .await
+}
+
+pub(super) async fn download_agent_resumable(
+    artifact_id: &str,
+    url: &str,
+    final_path: &Path,
+    expected_size: i64,
+    expected_sha256: &str,
+    on_progress: Option<&(dyn Fn(DownloadProgress) + Send + Sync)>,
+) -> Result<(), AppCommandError> {
+    download_resumable_with_limit(
+        artifact_id,
+        url,
+        final_path,
+        expected_size,
+        expected_sha256,
+        on_progress,
+        MAX_AGENT_ARCHIVE_BYTES,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn download_resumable_with_limit(
+    artifact_id: &str,
+    url: &str,
+    final_path: &Path,
+    expected_size: i64,
+    expected_sha256: &str,
+    on_progress: Option<&(dyn Fn(DownloadProgress) + Send + Sync)>,
+    max_archive_bytes: u64,
+) -> Result<(), AppCommandError> {
+    if expected_size <= 0 || expected_size as u64 > max_archive_bytes {
         return Err(AppCommandError::invalid_input(
             "Managed artifact size is outside the allowed range",
         ));
@@ -142,6 +185,7 @@ pub async fn download_resumable(
             expected_sha256,
             etag.as_deref(),
             on_progress,
+            max_archive_bytes,
         )
         .await
         {
@@ -153,7 +197,7 @@ pub async fn download_resumable(
                     )
                     .await;
                 }
-                return finalize_part(&part_path, final_path, expected_size, expected_sha256)
+                return commit_verified_part(&part_path, final_path, expected_size)
                     .await
                     .map_err(|error| {
                         let _ = std::fs::remove_file(&part_path);
@@ -202,6 +246,7 @@ async fn attempt_once(
     expected_sha256: &str,
     etag: Option<&str>,
     on_progress: Option<&(dyn Fn(DownloadProgress) + Send + Sync)>,
+    max_archive_bytes: u64,
 ) -> Result<Option<String>, AttemptError> {
     let client = DOWNLOAD_CLIENT.as_ref().map_err(|error| {
         AttemptError::Fatal(
@@ -305,6 +350,7 @@ async fn attempt_once(
             expected_size,
             expected_sha256,
             on_progress,
+            max_archive_bytes,
         )
         .await?;
         return Ok(new_etag);
@@ -337,6 +383,7 @@ async fn stream_to_part(
     expected_size: i64,
     expected_sha256: &str,
     on_progress: Option<&(dyn Fn(DownloadProgress) + Send + Sync)>,
+    max_archive_bytes: u64,
 ) -> Result<(), AttemptError> {
     let (mut output, mut hasher) = prepare_part_output(part_path, truncate, server_resume).await?;
     let mut stream = response.bytes_stream();
@@ -348,7 +395,7 @@ async fn stream_to_part(
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| AttemptError::Transient(error.to_string()))?;
         total = total.saturating_add(chunk.len() as u64);
-        if total > expected_size as u64 || total > MAX_ARCHIVE_BYTES {
+        if total > expected_size as u64 || total > max_archive_bytes {
             return Err(AttemptError::Fatal(AppCommandError::invalid_input(
                 "Managed artifact archive is too large",
             )));
@@ -442,31 +489,14 @@ fn io_attempt_error(error: std::io::Error) -> AttemptError {
     AttemptError::Fatal(AppCommandError::io(error))
 }
 
-async fn finalize_part(
+async fn commit_verified_part(
     part_path: &Path,
     final_path: &Path,
     expected_size: i64,
-    expected_sha256: &str,
 ) -> Result<(), AppCommandError> {
     if part_size(part_path).await != expected_size as u64 {
         return Err(AppCommandError::invalid_input(
             "Managed artifact download is incomplete",
-        ));
-    }
-    let path = part_path.to_path_buf();
-    let expected = expected_sha256.to_string();
-    let matches = tokio::task::spawn_blocking(move || {
-        let mut file = std::fs::File::open(&path).ok()?;
-        let mut hasher = Sha256::new();
-        std::io::copy(&mut file, &mut hasher).ok()?;
-        Some(format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(&expected))
-    })
-    .await
-    .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?
-    .unwrap_or(false);
-    if !matches {
-        return Err(AppCommandError::invalid_input(
-            "Managed artifact integrity check failed",
         ));
     }
     tokio::fs::rename(part_path, final_path)

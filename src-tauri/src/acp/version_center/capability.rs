@@ -73,6 +73,14 @@ pub fn validate_agent_offer(offer: &AgentOffer) -> Result<(), String> {
         offer.delivery.recipe_schema_version,
     )?;
     let meta = registry::get_agent_meta(agent);
+    if offer
+        .delivery
+        .artifact_id
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty())
+    {
+        return Err("Agent artifact id is empty".to_string());
+    }
     match (&meta.distribution, offer.delivery.kind.as_str()) {
         (AgentDistribution::Binary { .. }, "binary") => require_artifact(offer)?,
         (AgentDistribution::Npx { package, .. }, "npm") => {
