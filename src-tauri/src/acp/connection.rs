@@ -40,7 +40,7 @@ use crate::acp::session_config_compat::resolve_preferred_session_config;
 use crate::acp::session_recovery::{
     RecoveryBudget, RecoveryFailure, RecoveryProgress, RecoveryStage,
 };
-use crate::acp::session_state::SessionState;
+use crate::acp::session_state::{SessionState, ToolCallStatus};
 use crate::acp::terminal_runtime::{TerminalRuntime, TerminalRuntimeError};
 use crate::acp::types::{
     AcpEvent, AvailableCommandInfo, ConnectionInfo, ConnectionStatus, PermissionOptionInfo,
@@ -571,10 +571,7 @@ impl AgentConnection {
 /// caller injects nothing — when the system cache dir is unknown or the
 /// directory can't be created: diagnostics must never block a connection.
 fn codex_app_server_log_dir() -> Option<String> {
-    let dir = dirs::cache_dir()?
-        .join("app.iywclaw")
-        .join("acp-logs")
-        .join("codex-acp");
+    let dir = crate::paths::codex_acp_logs_root()?;
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.to_string_lossy().into_owned())
 }
@@ -1279,6 +1276,7 @@ pub(crate) async fn spawn_agent_connection(
     );
 
     tokio::spawn(async move {
+        let connection_started_at = std::time::Instant::now();
         // RAII guard: runs on normal exit AND on panic unwinding, so a
         // panic inside `run_connection` can't leak a stale map entry.
         let _cleanup = ConnectionCleanupGuard {
@@ -1313,6 +1311,7 @@ pub(crate) async fn spawn_agent_connection(
             cleanup_connection_resources(cleanup_injection.as_ref(), &conn_id, prompt_bridges),
         )
         .await;
+        let connection_failed = result.is_err();
 
         if agent_type == AgentType::Codex {
             tokio::spawn(crate::acp::codex_rollout_migration::retry_deferred_migrations());
@@ -1333,6 +1332,7 @@ pub(crate) async fn spawn_agent_connection(
             .await;
             if !recovery_handled {
                 let code = e.code().map(String::from);
+                let detail = safe_prompt_error_detail(&e.to_string());
                 // The frontend gets an `AcpEvent::Error` from here, but until this
                 // log existed the backend recorded nothing: a failure inside
                 // `connect_with` (the OS-level process spawn) left only the
@@ -1341,11 +1341,11 @@ pub(crate) async fn spawn_agent_connection(
                 // when the spawn itself fails. Log the code and message so a
                 // process that dies before the handshake is attributable.
                 tracing::error!(
-                    "[ACP] connection terminated with error connection_id={} agent={:?} \
-                 code={:?} error={e}",
-                    conn_id,
-                    agent_type,
-                    code.as_deref(),
+                    connection_id = conn_id,
+                    agent = %agent_type,
+                    error_code = code.as_deref().unwrap_or("acp_connection_failed"),
+                    error = %detail,
+                    "[ACP] connection terminated with error"
                 );
                 emit_with_state(
                     &state_clone,
@@ -1377,6 +1377,23 @@ pub(crate) async fn spawn_agent_connection(
                 .await;
             }
         }
+
+        let (external_session_id, conversation_id) = {
+            let snapshot = state_clone.read().await;
+            (
+                snapshot.external_id.clone().unwrap_or_default(),
+                snapshot.conversation_id,
+            )
+        };
+        tracing::info!(
+            connection_id = conn_id,
+            session_id = external_session_id,
+            conversation_id = conversation_id.unwrap_or_default(),
+            agent = %agent_type,
+            outcome = if connection_failed { "error" } else { "closed" },
+            elapsed_ms = connection_started_at.elapsed().as_millis(),
+            "[ACP] connection lifecycle ended"
+        );
 
         emit_with_state(
             &state_clone,
@@ -3315,6 +3332,7 @@ pub(crate) async fn handle_permission_request(
     responder: Responder<RequestPermissionResponse>,
 ) {
     let request_id = uuid::Uuid::new_v4().to_string();
+    let session_id = req.session_id.0.to_string();
 
     let options: Vec<PermissionOptionInfo> = req
         .options
@@ -3364,7 +3382,39 @@ pub(crate) async fn handle_permission_request(
         }
     }
 
-    perms.lock().await.insert(request_id.clone(), responder);
+    let tool_call_id = permission_tool_call_id(&tool_call_value).to_string();
+    let option_count = options.len();
+    let allow_option_count = options
+        .iter()
+        .filter(|option| option.kind.starts_with("allow_"))
+        .count();
+    let pending_before = {
+        let mut pending = perms.lock().await;
+        let pending_before = pending.len();
+        pending.insert(request_id.clone(), responder);
+        pending_before
+    };
+    let connection_id = state.read().await.connection_id.clone();
+    if pending_before > 0 {
+        tracing::warn!(
+            connection_id,
+            session_id,
+            request_id,
+            tool_call_id,
+            pending_before,
+            "[ACP] concurrent permission request registered"
+        );
+    } else {
+        tracing::info!(
+            connection_id,
+            session_id,
+            request_id,
+            tool_call_id,
+            option_count,
+            allow_option_count,
+            "[ACP] permission requested"
+        );
+    }
 
     emit_with_state(
         state,
@@ -3376,6 +3426,114 @@ pub(crate) async fn handle_permission_request(
         },
     )
     .await;
+}
+
+fn permission_tool_call_id(value: &serde_json::Value) -> &str {
+    value
+        .get("toolCallId")
+        .or_else(|| value.get("tool_call_id"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+}
+
+async fn respond_permission_request(
+    state: &Arc<RwLock<SessionState>>,
+    emitter: &EventEmitter,
+    perms: &PendingPermissions,
+    request_id: String,
+    option_id: String,
+) {
+    let (connection_id, option_kind, wait_ms) =
+        permission_response_context(state, &request_id, &option_id).await;
+    let (responder, remaining) = {
+        let mut pending = perms.lock().await;
+        let responder = pending.remove(&request_id);
+        (responder, pending.len())
+    };
+    let Some(responder) = responder else {
+        tracing::warn!(
+            connection_id,
+            request_id,
+            remaining,
+            "[ACP] permission response ignored"
+        );
+        return;
+    };
+    let outcome = RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id));
+    match responder.respond(RequestPermissionResponse::new(outcome)) {
+        Ok(()) => tracing::info!(
+            connection_id,
+            request_id,
+            option_kind,
+            wait_ms,
+            remaining,
+            "[ACP] permission resolved"
+        ),
+        Err(error) => tracing::warn!(
+            connection_id,
+            request_id,
+            option_kind,
+            wait_ms,
+            remaining,
+            error = %error,
+            "[ACP] permission response delivery failed"
+        ),
+    }
+    emit_with_state(state, emitter, AcpEvent::PermissionResolved { request_id }).await;
+}
+
+async fn permission_response_context(
+    state: &Arc<RwLock<SessionState>>,
+    request_id: &str,
+    option_id: &str,
+) -> (String, String, i64) {
+    let snapshot = state.read().await;
+    let pending = snapshot
+        .pending_permission
+        .as_ref()
+        .filter(|pending| pending.request_id == request_id);
+    let option_kind = pending
+        .and_then(|pending| {
+            pending
+                .options
+                .iter()
+                .find(|option| option.option_id == option_id)
+        })
+        .map(|option| option.kind.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+    let wait_ms = pending
+        .map(|pending| {
+            (chrono::Utc::now() - pending.created_at)
+                .num_milliseconds()
+                .max(0)
+        })
+        .unwrap_or_default();
+    (snapshot.connection_id.clone(), option_kind, wait_ms)
+}
+
+async fn cancel_pending_permissions(
+    perms: &PendingPermissions,
+    connection_id: &str,
+    reason: &'static str,
+) -> usize {
+    let mut pending = perms.lock().await;
+    let count = pending.len();
+    let mut delivery_failures = 0usize;
+    for (_, responder) in pending.drain() {
+        let outcome = RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled);
+        delivery_failures += usize::from(responder.respond(outcome).is_err());
+    }
+    drop(pending);
+    if count > 0 {
+        tracing::info!(
+            connection_id,
+            reason,
+            count,
+            delivery_failures,
+            "[ACP] pending permissions cancelled"
+        );
+    }
+    count
 }
 
 async fn set_session_mode(
@@ -4478,6 +4636,15 @@ struct PromptLogContext<'a> {
     started_at: std::time::Instant,
 }
 
+#[derive(Default)]
+struct ToolCallFailureStats {
+    pending: usize,
+    in_progress: usize,
+    completed: usize,
+    failed: usize,
+    permission_pending: bool,
+}
+
 impl PromptLogContext<'_> {
     fn started(&self) {
         tracing::info!(
@@ -4510,7 +4677,12 @@ impl PromptLogContext<'_> {
         );
     }
 
-    fn failed(&self, error: &impl std::fmt::Display) {
+    fn failed(
+        &self,
+        error: &impl std::fmt::Display,
+        tool_call_count: usize,
+        tool_stats: &ToolCallFailureStats,
+    ) {
         let detail = safe_prompt_error_detail(&error.to_string());
         tracing::error!(
             connection_id = self.connection_id,
@@ -4519,6 +4691,12 @@ impl PromptLogContext<'_> {
             error_kind = prompt_error_kind(&detail),
             error = %detail,
             elapsed_ms = self.started_at.elapsed().as_millis(),
+            tool_call_count,
+            pending_tool_call_count = tool_stats.pending,
+            in_progress_tool_call_count = tool_stats.in_progress,
+            completed_tool_call_count = tool_stats.completed,
+            failed_tool_call_count = tool_stats.failed,
+            permission_pending = tool_stats.permission_pending,
             is_compaction = self.is_compaction,
             "[ACP] prompt failed"
         );
@@ -4537,6 +4715,22 @@ impl PromptLogContext<'_> {
             "[ACP] prompt interrupted"
         );
     }
+}
+
+fn tool_call_failure_stats(state: &SessionState) -> ToolCallFailureStats {
+    let mut stats = ToolCallFailureStats {
+        permission_pending: state.pending_permission.is_some(),
+        ..Default::default()
+    };
+    for tool_call in state.active_tool_calls.values() {
+        match tool_call.status {
+            ToolCallStatus::Pending => stats.pending += 1,
+            ToolCallStatus::InProgress => stats.in_progress += 1,
+            ToolCallStatus::Completed => stats.completed += 1,
+            ToolCallStatus::Failed => stats.failed += 1,
+        }
+    }
+    stats
 }
 
 fn prompt_input_stats(blocks: &[PromptInputBlock]) -> PromptInputStats {
@@ -5191,7 +5385,11 @@ async fn run_conversation_loop<'a>(
                             let reason = match prompt_result {
                                 Ok(response) => response.stop_reason,
                                 Err(error) => {
-                                    prompt_log.failed(&error);
+                                    let tool_stats = {
+                                        let snapshot = state.read().await;
+                                        tool_call_failure_stats(&snapshot)
+                                    };
+                                    prompt_log.failed(&error, tool_call_count, &tool_stats);
                                     return Err(error);
                                 }
                             };
@@ -5272,18 +5470,14 @@ async fn run_conversation_loop<'a>(
                                     request_id,
                                     option_id,
                                 }) => {
-                                    if let Some(responder) = perms.lock().await.remove(&request_id) {
-                                        let outcome = RequestPermissionOutcome::Selected(
-                                            SelectedPermissionOutcome::new(option_id),
-                                        );
-                                        let _ = responder.respond(RequestPermissionResponse::new(outcome));
-                                        emit_with_state(
-                                            state,
-                                            emitter,
-                                            AcpEvent::PermissionResolved { request_id },
-                                        )
-                                        .await;
-                                    }
+                                    respond_permission_request(
+                                        state,
+                                        emitter,
+                                        perms,
+                                        request_id,
+                                        option_id,
+                                    )
+                                    .await;
                                 }
                                 Some(ConnectionCommand::SetMode { mode_id }) => {
                                     let req = SetSessionModeRequest::new(sid.clone(), mode_id.clone());
@@ -5355,13 +5549,8 @@ async fn run_conversation_loop<'a>(
                                         .await;
                                     tracked_terminal_tool_calls.clear();
                                     // Also cancel any pending permission requests
-                                    let mut locked = perms.lock().await;
-                                    for (_, responder) in locked.drain() {
-                                        let _ = responder.respond(RequestPermissionResponse::new(
-                                            RequestPermissionOutcome::Cancelled,
-                                        ));
-                                    }
-                                    drop(locked);
+                                    cancel_pending_permissions(perms, conn_id, "turn_cancelled")
+                                        .await;
                                     prompt_log.completed(
                                         "cancelled",
                                         turn_had_agent_output,
@@ -5532,7 +5721,9 @@ async fn run_conversation_loop<'a>(
                                 }
                                 Some(ConnectionCommand::Disconnect) | None => {
                                     tracing::info!(
-                                        "[ACP] disconnect requested during prompting; connection_id={conn_id}"
+                                        connection_id = conn_id,
+                                        phase = "prompting",
+                                        "[ACP] disconnect requested"
                                     );
                                     let _ = cx.send_notification_to(
                                         Agent,
@@ -5542,12 +5733,12 @@ async fn run_conversation_loop<'a>(
                                         .release_all_for_session(sid.0.as_ref())
                                         .await;
                                     tracked_terminal_tool_calls.clear();
-                                    let mut locked = perms.lock().await;
-                                    for (_, responder) in locked.drain() {
-                                        let _ = responder.respond(RequestPermissionResponse::new(
-                                            RequestPermissionOutcome::Cancelled,
-                                        ));
-                                    }
+                                    cancel_pending_permissions(
+                                        perms,
+                                        conn_id,
+                                        "connection_disconnected",
+                                    )
+                                    .await;
                                     prompt_log.interrupted(
                                         "disconnect_requested",
                                         turn_had_agent_output,
@@ -5564,7 +5755,8 @@ async fn run_conversation_loop<'a>(
 
                 if disconnect_requested {
                     tracing::info!(
-                        "[ACP] closing connection loop after disconnect; connection_id={conn_id}"
+                        connection_id = conn_id,
+                        "[ACP] closing connection loop after disconnect"
                     );
                     break;
                 }
@@ -5609,14 +5801,7 @@ async fn run_conversation_loop<'a>(
                 request_id,
                 option_id,
             }) => {
-                if let Some(responder) = perms.lock().await.remove(&request_id) {
-                    let outcome = RequestPermissionOutcome::Selected(
-                        SelectedPermissionOutcome::new(option_id),
-                    );
-                    let _ = responder.respond(RequestPermissionResponse::new(outcome));
-                    emit_with_state(state, emitter, AcpEvent::PermissionResolved { request_id })
-                        .await;
-                }
+                respond_permission_request(state, emitter, perms, request_id, option_id).await;
             }
             Some(ConnectionCommand::SetMode { mode_id }) => {
                 if let Err(e) = set_session_mode(session, state, emitter, mode_id).await {
@@ -5669,13 +5854,7 @@ async fn run_conversation_loop<'a>(
                 terminal_runtime
                     .release_all_for_session(sid.0.as_ref())
                     .await;
-                let mut locked = perms.lock().await;
-                for (_, responder) in locked.drain() {
-                    let _ = responder.respond(RequestPermissionResponse::new(
-                        RequestPermissionOutcome::Cancelled,
-                    ));
-                }
-                drop(locked);
+                cancel_pending_permissions(perms, conn_id, "idle_turn_cancelled").await;
                 // Cascade-cancel any pending delegations owned by this parent.
                 // Reached when Cancel arrives between prompts (idle path); the
                 // inner Cancel handler covers mid-prompt. Both must trigger

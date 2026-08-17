@@ -42,7 +42,11 @@ impl SessionRequestRouter {
         let Some(route) = self.resolve(&session_id) else {
             return respond_missing(responder, &session_id);
         };
-        respond_file_system(responder, route.file_system.read_text_file(request).await)
+        respond_file_system(
+            responder,
+            &session_id,
+            route.file_system.read_text_file(request).await,
+        )
     }
 
     pub(super) async fn write_file(
@@ -54,7 +58,11 @@ impl SessionRequestRouter {
         let Some(route) = self.resolve(&session_id) else {
             return respond_missing(responder, &session_id);
         };
-        respond_file_system(responder, route.file_system.write_text_file(request).await)
+        respond_file_system(
+            responder,
+            &session_id,
+            route.file_system.write_text_file(request).await,
+        )
     }
 
     pub(super) async fn create_terminal(
@@ -66,7 +74,11 @@ impl SessionRequestRouter {
         let Some(route) = self.resolve(&session_id) else {
             return respond_missing(responder, &session_id);
         };
-        respond_terminal(responder, route.terminal.create_terminal(request).await)
+        respond_terminal(
+            responder,
+            &session_id,
+            route.terminal.create_terminal(request).await,
+        )
     }
 
     pub(super) async fn terminal_output(
@@ -78,7 +90,11 @@ impl SessionRequestRouter {
         let Some(route) = self.resolve(&session_id) else {
             return respond_missing(responder, &session_id);
         };
-        respond_terminal(responder, route.terminal.terminal_output(request).await)
+        respond_terminal(
+            responder,
+            &session_id,
+            route.terminal.terminal_output(request).await,
+        )
     }
 
     pub(super) async fn wait_terminal(
@@ -92,6 +108,7 @@ impl SessionRequestRouter {
         };
         respond_terminal(
             responder,
+            &session_id,
             route.terminal.wait_for_terminal_exit(request).await,
         )
     }
@@ -105,7 +122,11 @@ impl SessionRequestRouter {
         let Some(route) = self.resolve(&session_id) else {
             return respond_missing(responder, &session_id);
         };
-        respond_terminal(responder, route.terminal.kill_terminal(request).await)
+        respond_terminal(
+            responder,
+            &session_id,
+            route.terminal.kill_terminal(request).await,
+        )
     }
 
     pub(super) async fn release_terminal(
@@ -117,6 +138,10 @@ impl SessionRequestRouter {
         let Some(route) = self.resolve(&session_id) else {
             return respond_missing(responder, &session_id);
         };
-        respond_terminal(responder, route.terminal.release_terminal(request).await)
+        respond_terminal(
+            responder,
+            &session_id,
+            route.terminal.release_terminal(request).await,
+        )
     }
 }

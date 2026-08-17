@@ -82,15 +82,16 @@ fn is_valid_target(target: &str) -> bool {
 /// that construct a detached [`crate::logging::hub::LogHub`] without touching
 /// the process-global subscriber.
 
-/// Retention for rotated daily files. A disk-bound necessity (daily files would
-/// otherwise accumulate forever), not a functional cap; generous default,
-/// overridable via `IYW_CLAW_LOG_MAX_FILES`.
+/// Defense-in-depth file cap for rotated daily files. Time-based cleanup is
+/// handled by [`crate::logging::retention`]; operators may keep fewer files but
+/// cannot extend diagnostic retention beyond the product's seven-day policy.
 fn file_retention() -> usize {
     std::env::var("IYW_CLAW_LOG_MAX_FILES")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|&n| n > 0)
-        .unwrap_or(30)
+        .unwrap_or(crate::logging::retention::MAX_APP_LOG_FILES)
+        .min(crate::logging::retention::MAX_APP_LOG_FILES)
 }
 
 /// The env-override directive, or `None`: the first non-empty (trimmed) value of
@@ -240,20 +241,19 @@ pub fn init_mcp() -> LogGuard {
 }
 
 /// Phase 2: override the default level from the persisted `logging.level` KV
-/// value, unless an explicit `IYW_CLAW_LOG` / `RUST_LOG` is set (env wins). No-op
-/// when no hub is installed (mcp) or the value is absent/unparseable.
+/// value when available, then start the process-wide diagnostic-log retention
+/// task. An explicit `IYW_CLAW_LOG` / `RUST_LOG` still owns the live level.
 pub async fn apply_persisted_level(conn: &sea_orm::DatabaseConnection) {
-    if env_level_is_set() {
-        return;
-    }
-    let Some(hub) = crate::logging::hub::log_hub() else {
-        return;
-    };
-    if let Ok(Some(raw)) =
-        crate::db::service::app_metadata_service::get_value(conn, LOGGING_LEVEL_KEY).await
-    {
-        if let Ok(settings) = serde_json::from_str::<LogSettings>(&raw) {
-            hub.apply_settings(&settings);
+    if !env_level_is_set() {
+        if let Some(hub) = crate::logging::hub::log_hub() {
+            if let Ok(Some(raw)) =
+                crate::db::service::app_metadata_service::get_value(conn, LOGGING_LEVEL_KEY).await
+            {
+                if let Ok(settings) = serde_json::from_str::<LogSettings>(&raw) {
+                    hub.apply_settings(&settings);
+                }
+            }
         }
     }
+    crate::logging::retention::start(conn.clone()).await;
 }

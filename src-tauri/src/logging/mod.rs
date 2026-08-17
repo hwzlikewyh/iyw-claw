@@ -17,6 +17,7 @@ mod emergency_redact;
 pub mod hub;
 pub mod init;
 pub mod layer;
+pub mod retention;
 mod startup_stage;
 
 use serde::{Deserialize, Serialize};

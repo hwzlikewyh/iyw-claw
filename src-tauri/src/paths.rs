@@ -206,6 +206,12 @@ pub fn iyw_claw_logs_root() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(APP_DIR_NAME).join(LOGS_DIR_NAME))
 }
 
+/// Root used by codex-acp for optional adapter-side diagnostics. These files
+/// are iyw-claw-owned and follow the same retention policy as application logs.
+pub fn codex_acp_logs_root() -> Option<PathBuf> {
+    dirs::cache_dir().map(|root| root.join("app.iywclaw").join("acp-logs").join("codex-acp"))
+}
+
 /// Single source of truth for "where does the database live, and where
 /// do `paths::*` resolve their roots against."
 ///

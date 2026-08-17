@@ -707,9 +707,11 @@ impl ConnectionManager {
             startup_trace.bind_connection(existing.clone());
             startup_trace.record("connection_reuse", "reused", Duration::ZERO);
             tracing::info!(
-                "[ACP] reusing connection id={} for session_id={}",
-                existing,
-                session_id.as_deref().unwrap_or("")
+                connection_id = existing,
+                session_id = session_id.as_deref().unwrap_or(""),
+                agent = %agent_type,
+                origin = ?user_memory_origin,
+                "[ACP] connection reused"
             );
             return Ok(existing);
         }
@@ -721,6 +723,13 @@ impl ConnectionManager {
         {
             startup_trace.bind_connection(existing.clone());
             startup_trace.record("connection_reuse", "reused", Duration::ZERO);
+            tracing::info!(
+                connection_id = existing,
+                session_id = session_id.as_deref().unwrap_or(""),
+                agent = %agent_type,
+                origin = ?user_memory_origin,
+                "[ACP] connection reused after activation wait"
+            );
             return Ok(existing);
         }
 
@@ -776,11 +785,18 @@ impl ConnectionManager {
 
         let connection_id = uuid::Uuid::new_v4().to_string();
         startup_trace.bind_connection(connection_id.clone());
+        let managed_version = runtime_env
+            .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
+            .map(String::as_str)
+            .unwrap_or("");
         tracing::info!(
-            "[ACP] spawning connection id={} owner_window={} agent={:?}",
             connection_id,
-            owner_window_label,
-            agent_type
+            agent = %agent_type,
+            resumed = session_id.is_some(),
+            origin = ?user_memory_origin,
+            owner_window = owner_window_label,
+            managed_version,
+            "[ACP] spawning connection"
         );
 
         // `spawn_agent_connection` inserts the entry into `self.connections`,
@@ -817,13 +833,12 @@ impl ConnectionManager {
             let timeout = self.spawn_handshake_timeout;
             let (outcome, elapsed) = wait_for_session_started(session_started_rx, timeout).await;
             tracing::info!(
-                "[ACP] dedup_wait connection_id={} session_id={} outcome={} \
-                 elapsed_ms={} timeout_ms={}",
                 connection_id,
-                session_id_for_log.as_deref().unwrap_or(""),
-                outcome.as_str(),
-                elapsed.as_millis(),
-                timeout.as_millis(),
+                session_id = session_id_for_log.as_deref().unwrap_or(""),
+                outcome = outcome.as_str(),
+                elapsed_ms = elapsed.as_millis(),
+                timeout_ms = timeout.as_millis(),
+                "[ACP] deduplication wait completed"
             );
         }
         // session_started_rx (in the no-dedup branch) is dropped here. tx
@@ -2295,10 +2310,14 @@ impl ConnectionManager {
             connections.remove(conn_id)
         };
         if let Some(connection) = connection {
-            tracing::info!("[ACP] disconnect connection={}", conn_id);
+            tracing::info!(connection_id = conn_id, "[ACP] disconnect requested");
             connection.request_disconnect();
             Ok(())
         } else {
+            tracing::warn!(
+                connection_id = conn_id,
+                "[ACP] disconnect ignored because connection was not found"
+            );
             Err(AcpError::ConnectionNotFound(conn_id.into()))
         }
     }
@@ -2579,9 +2598,9 @@ impl ConnectionManager {
             connection.request_disconnect();
         }
         tracing::info!(
-            "[ACP] disconnect by owner window owner_window={} count={}",
-            owner_window_label,
-            disconnected
+            owner_window = owner_window_label,
+            disconnected,
+            "[ACP] disconnected connections by owner window"
         );
         disconnected
     }
@@ -2597,9 +2616,9 @@ impl ConnectionManager {
         }
         let stopped_hosts = self.runtime_hosts.shutdown_all().await;
         tracing::info!(
-            "[ACP] disconnect_all count={} stopped_hosts={}",
             disconnected,
-            stopped_hosts
+            stopped_hosts,
+            "[ACP] disconnected all connections"
         );
         disconnected
     }
