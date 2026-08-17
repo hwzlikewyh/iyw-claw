@@ -325,6 +325,9 @@ pub struct SessionState {
     /// reflects the latest selection). `None` when the agent advertises no
     /// `model` option and no launch preference is available.
     pub current_model: Option<String>,
+    /// Correlates request validation, Host startup, session setup, and the
+    /// first prompt without exposing any launch environment values.
+    pub(crate) startup_trace: Option<crate::acp::startup_trace::StartupTrace>,
     pub(crate) grok_effort_specs: Option<crate::acp::grok::EffortSpecs>,
     pub prompt_capabilities: Option<PromptCapabilitiesInfo>,
     pub fork_supported: bool,
@@ -570,6 +573,7 @@ impl SessionState {
             current_mode: None,
             config_options: None,
             current_model: None,
+            startup_trace: None,
             grok_effort_specs: None,
             prompt_capabilities: None,
             fork_supported: false,

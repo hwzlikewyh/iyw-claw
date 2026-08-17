@@ -191,22 +191,11 @@ jobs:
           IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ matrix.target == 'i686-pc-windows-msvc' && '1' || '' }}
         run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
 
-      - name: Verify bundled sidecars
+      - name: Verify staged sidecars
         shell: bash
         run: |
-          version="$(node -p "require('./package.json').version")"
-          ext=""
-          case "${{ matrix.target }}" in
-            *windows*) ext=".exe" ;;
-          esac
-          for name in iyw-claw-mcp "iyw-claw-mcp-${version}"; do
-            file="src-tauri/binaries/${name}-${{ matrix.target }}${ext}"
-            test -s "$file" || {
-              echo "::error::Sidecar $file is missing or empty after prepare-sidecars"
-              exit 1
-            }
-            ls -la "$file"
-          done
+          node src-tauri/scripts/verify-sidecar-bundle.mjs \
+            --target "${{ matrix.target }}"
           if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
             file="src-tauri/binaries/agent-browser-${{ matrix.target }}.exe"
             test -s "$file" || {
@@ -276,6 +265,18 @@ jobs:
           else
             node src-tauri/scripts/verify-signatures.mjs
           fi
+
+      # externalBin staging can succeed while the NSIS template accidentally
+      # omits an item. Install into a CI-only temporary root and prove both
+      # generic and versioned MCP binaries are present and byte-identical.
+      - name: Verify installed NSIS sidecars
+        if: contains(matrix.target, 'windows')
+        shell: bash
+        env:
+          IYW_CLAW_VERIFY_NSIS: "1"
+        run: |
+          node src-tauri/scripts/verify-sidecar-bundle.mjs \
+            --target "${{ matrix.target }}"
 
       # Runs even on failure: the decrypted .pfx holds the private key and must
       # not outlive the job on a self-hosted runner. Paths must stay in sync with

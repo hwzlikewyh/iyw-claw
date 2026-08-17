@@ -12,6 +12,8 @@ pub mod chat_channel;
 pub mod commands;
 pub mod db;
 pub mod desktop_bootstrap;
+#[cfg(all(target_os = "windows", not(debug_assertions)))]
+mod desktop_startup_gate;
 pub mod display_assets;
 pub mod git_credential;
 pub mod git_repo;
@@ -203,6 +205,20 @@ mod tauri_app {
             emergency_log = ?crate::logging::emergency::emergency_path(),
             "desktop process diagnostics initialized"
         );
+
+        #[cfg(all(target_os = "windows", not(debug_assertions)))]
+        let startup_gate = match crate::desktop_startup_gate::acquire() {
+            Ok(gate) => gate,
+            Err(error) => {
+                tracing::error!(
+                    target: "iyw_claw_startup",
+                    event = "startup_gate_failed",
+                    error = %error,
+                    "desktop launch stopped before Tauri initialization"
+                );
+                return;
+            }
+        };
 
         // Apply the WebView2 rendering override before *any* tokio worker
         // exists or any plugin reads the env. See doc comment above.
@@ -606,6 +622,7 @@ mod tauri_app {
                 let system_skills_data_dir = effective_data_dir.clone();
                 let system_skills_emitter =
                     crate::web::event_bridge::EventEmitter::Tauri(app.handle().clone());
+                let runtime_prewarm_manager = app.state::<ConnectionManager>().clone_ref();
                 tauri::async_runtime::spawn(async move {
                     let report = crate::commands::experts::ensure_central_experts_installed().await;
                     if !report.errors.is_empty() {
@@ -666,6 +683,21 @@ mod tauri_app {
                         Err(error) => {
                             tracing::warn!("[internet-tools] startup bootstrap failed: {error}");
                         }
+                    }
+                    let prewarm_started = std::time::Instant::now();
+                    match runtime_prewarm_manager.prewarm_codex_runtime().await {
+                        Ok(true) => tracing::info!(
+                            elapsed_ms = prewarm_started.elapsed().as_millis(),
+                            "[ACP][startup] Codex runtime Host prewarmed"
+                        ),
+                        Ok(false) => tracing::info!(
+                            "[ACP][startup] Codex runtime Host prewarm disabled"
+                        ),
+                        Err(error) => tracing::info!(
+                            elapsed_ms = prewarm_started.elapsed().as_millis(),
+                            error = %error,
+                            "[ACP][startup] Codex runtime Host prewarm deferred"
+                        ),
                     }
                 });
 
@@ -1629,6 +1661,8 @@ mod tauri_app {
                 panic!("error while building tauri application: {error}");
             }
         };
+        #[cfg(all(target_os = "windows", not(debug_assertions)))]
+        drop(startup_gate);
         crate::logging::emergency::write_event("event_loop", "begin", "runtime", None);
         app.run(|app, event| match event {
             tauri::RunEvent::ExitRequested { .. } => {

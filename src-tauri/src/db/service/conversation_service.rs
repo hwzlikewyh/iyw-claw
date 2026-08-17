@@ -434,6 +434,30 @@ pub async fn get_by_delegation_call_id(
     Ok(conv.map(conv_to_summary))
 }
 
+/// Resolve a persisted Agent session to its workspace. This is only used when
+/// a resume caller omits `working_dir`; new sessions never get an implicit cwd.
+pub async fn find_folder_path_by_external_id(
+    conn: &DatabaseConnection,
+    external_id: &str,
+    agent_type: AgentType,
+) -> Result<Option<String>, DbError> {
+    let agent_type = serde_json::to_value(agent_type)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    let row = conversation::Entity::find()
+        .filter(conversation::Column::ExternalId.eq(external_id))
+        .filter(conversation::Column::AgentType.eq(agent_type))
+        .filter(conversation::Column::DeletedAt.is_null())
+        .find_also_related(folder::Entity)
+        .one(conn)
+        .await?;
+    Ok(row
+        .and_then(|(_, folder)| folder)
+        .filter(|folder| folder.deleted_at.is_none())
+        .map(|folder| folder.path))
+}
+
 pub async fn list_by_folder(
     conn: &DatabaseConnection,
     folder_id: i32,

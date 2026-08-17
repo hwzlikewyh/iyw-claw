@@ -35,6 +35,7 @@ pub async fn locate_healthy_companion() -> CompanionHealthSnapshot {
         if health.status == CompanionHealthStatus::Ready {
             tracing::info!(
                 path = ?health.selected_path,
+                file_size = ?selected_file_size(&health),
                 detected_version = ?health.detected_version,
                 advertised_tools = ?health.advertised_tools,
                 "[ACP] selected compatible iyw-claw-mcp companion"
@@ -43,6 +44,7 @@ pub async fn locate_healthy_companion() -> CompanionHealthSnapshot {
         }
         tracing::warn!(
             path = ?health.selected_path,
+            file_size = ?selected_file_size(&health),
             expected_version = env!("CARGO_PKG_VERSION"),
             detected_version = ?health.detected_version,
             status = ?health.status,
@@ -289,4 +291,12 @@ fn should_replace_failure(
     current.selected_path.is_none()
         || (current.status == CompanionHealthStatus::Missing
             && next.status != CompanionHealthStatus::Missing)
+}
+
+fn selected_file_size(health: &CompanionHealthSnapshot) -> Option<u64> {
+    health
+        .selected_path
+        .as_deref()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .map(|metadata| metadata.len())
 }

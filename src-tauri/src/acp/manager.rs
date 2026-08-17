@@ -251,6 +251,7 @@ async fn wait_for_session_started(
 
 pub struct ConnectionManager {
     pub(crate) connections: Arc<Mutex<HashMap<String, AgentConnection>>>,
+    runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
     /// Per-(agent, working_dir, session_id) async mutex. Held across the
     /// dedup-lookup + spawn + SessionStarted-wait critical section so two
     /// concurrent `spawn_agent` calls for the same logical session can't
@@ -349,6 +350,7 @@ impl ConnectionManager {
     pub fn new() -> Self {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
+            runtime_hosts: Arc::new(Default::default()),
             spawn_locks: Arc::new(Mutex::new(HashMap::new())),
             spawn_handshake_timeout: spawn_handshake_timeout_from_env(),
             delegation_injection: Arc::new(std::sync::OnceLock::new()),
@@ -367,6 +369,7 @@ impl ConnectionManager {
     pub fn clone_ref(&self) -> Self {
         Self {
             connections: self.connections.clone(),
+            runtime_hosts: self.runtime_hosts.clone(),
             spawn_locks: self.spawn_locks.clone(),
             spawn_handshake_timeout: self.spawn_handshake_timeout,
             delegation_injection: self.delegation_injection.clone(),
@@ -521,6 +524,38 @@ impl ConnectionManager {
             .is_some_and(|injection| injection.tokens.listener_ready())
     }
 
+    pub async fn prewarm_codex_runtime(&self) -> Result<bool, AcpError> {
+        let version_center_db = self
+            .version_center_db
+            .get()
+            .ok_or_else(|| AcpError::protocol("Agent platform authorization is not initialized"))?;
+        let data_dir = self.version_center_data_dir.get().ok_or_else(|| {
+            AcpError::protocol("Agent platform data directory is not initialized")
+        })?;
+        let agent_type = AgentType::Codex;
+        let _activation_guard = self.begin_agent_activation(agent_type).await;
+        let _storage_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
+        let runtime_env = crate::commands::acp::build_session_runtime_env(
+            &AppDatabase {
+                conn: version_center_db.clone(),
+            },
+            agent_type,
+            None,
+            data_dir,
+        )
+        .await?;
+        crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)?;
+        crate::acp::version_center::authorize_verified_agent_launch(version_center_db, agent_type)
+            .await
+            .map_err(|error| AcpError::protocol(error.message))?;
+        crate::acp::connection::prewarm_agent_runtime(
+            agent_type,
+            runtime_env,
+            self.runtime_hosts.clone(),
+        )
+        .await
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn spawn_agent(
         &self,
@@ -533,7 +568,12 @@ impl ConnectionManager {
         preferred_mode_id: Option<String>,
         preferred_config_values: BTreeMap<String, String>,
     ) -> Result<String, AcpError> {
-        self.spawn_agent_with_origin(
+        let startup_trace = crate::acp::startup_trace::StartupTrace::new(
+            agent_type,
+            session_id.is_some(),
+            "internal",
+        );
+        self.spawn_agent_with_origin_traced(
             agent_type,
             working_dir,
             session_id,
@@ -543,6 +583,35 @@ impl ConnectionManager {
             preferred_mode_id,
             preferred_config_values,
             crate::user_memory::UserMemoryOrigin::Root,
+            startup_trace,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn spawn_agent_traced(
+        &self,
+        agent_type: AgentType,
+        working_dir: Option<String>,
+        session_id: Option<String>,
+        runtime_env: BTreeMap<String, String>,
+        owner_window_label: String,
+        emitter: EventEmitter,
+        preferred_mode_id: Option<String>,
+        preferred_config_values: BTreeMap<String, String>,
+        startup_trace: crate::acp::startup_trace::StartupTrace,
+    ) -> Result<String, AcpError> {
+        self.spawn_agent_with_origin_traced(
+            agent_type,
+            working_dir,
+            session_id,
+            runtime_env,
+            owner_window_label,
+            emitter,
+            preferred_mode_id,
+            preferred_config_values,
+            crate::user_memory::UserMemoryOrigin::Root,
+            startup_trace,
         )
         .await
     }
@@ -559,6 +628,42 @@ impl ConnectionManager {
         preferred_mode_id: Option<String>,
         preferred_config_values: BTreeMap<String, String>,
         user_memory_origin: crate::user_memory::UserMemoryOrigin,
+    ) -> Result<String, AcpError> {
+        let source = match user_memory_origin {
+            crate::user_memory::UserMemoryOrigin::Root => "internal",
+            crate::user_memory::UserMemoryOrigin::Delegation => "delegation",
+            crate::user_memory::UserMemoryOrigin::Probe => "probe",
+        };
+        let startup_trace =
+            crate::acp::startup_trace::StartupTrace::new(agent_type, session_id.is_some(), source);
+        self.spawn_agent_with_origin_traced(
+            agent_type,
+            working_dir,
+            session_id,
+            runtime_env,
+            owner_window_label,
+            emitter,
+            preferred_mode_id,
+            preferred_config_values,
+            user_memory_origin,
+            startup_trace,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn spawn_agent_with_origin_traced(
+        &self,
+        agent_type: AgentType,
+        working_dir: Option<String>,
+        session_id: Option<String>,
+        runtime_env: BTreeMap<String, String>,
+        owner_window_label: String,
+        emitter: EventEmitter,
+        preferred_mode_id: Option<String>,
+        preferred_config_values: BTreeMap<String, String>,
+        user_memory_origin: crate::user_memory::UserMemoryOrigin,
+        startup_trace: crate::acp::startup_trace::StartupTrace,
     ) -> Result<String, AcpError> {
         // Connection dedup: when resuming an agent session (session_id is
         // Some), look for a live AgentConnection that already represents
@@ -600,6 +705,8 @@ impl ConnectionManager {
             .find_connection_for_reuse(agent_type, working_dir_path.as_ref(), session_id.as_deref())
             .await
         {
+            startup_trace.bind_connection(existing.clone());
+            startup_trace.record("connection_reuse", "reused", Duration::ZERO);
             tracing::info!(
                 "[ACP] reusing connection id={} for session_id={}",
                 existing,
@@ -613,44 +720,63 @@ impl ConnectionManager {
             .find_connection_for_reuse(agent_type, working_dir_path.as_ref(), session_id.as_deref())
             .await
         {
+            startup_trace.bind_connection(existing.clone());
+            startup_trace.record("connection_reuse", "reused", Duration::ZERO);
             return Ok(existing);
         }
+
+        let authorization_stage = startup_trace.stage("launch_authorization");
 
         // Freeze the managed Agent inventory until the process has been
         // inserted. A concurrent install then observes this live connection
         // and records a pending activation instead of switching beneath it.
         let storage_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
 
-        let version_center_db = self
-            .version_center_db
-            .get()
-            .ok_or_else(|| AcpError::protocol("Agent platform authorization is not initialized"))?;
-        let (runtime_env, pending_authorized) = self
+        let Some(version_center_db) = self.version_center_db.get() else {
+            authorization_stage.finish("version_center_uninitialized");
+            return Err(AcpError::protocol(
+                "Agent platform authorization is not initialized",
+            ));
+        };
+        let (runtime_env, pending_authorized) = match self
             .refresh_runtime_for_pending_activation(agent_type, session_id.as_deref(), runtime_env)
-            .await?;
-        crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)?;
+            .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                authorization_stage.finish("runtime_refresh_error");
+                return Err(error);
+            }
+        };
+        if let Err(error) = crate::commands::acp::verify_agent_installed(agent_type, &runtime_env) {
+            authorization_stage.finish("inventory_verification_error");
+            return Err(error);
+        }
         if !pending_authorized {
-            crate::acp::version_center::authorize_verified_agent_launch(
+            if let Err(error) = crate::acp::version_center::authorize_verified_agent_launch(
                 version_center_db,
                 agent_type,
             )
             .await
-            .map_err(|error| {
+            {
                 tracing::warn!(
                     agent_type = ?agent_type,
                     code = ?error.code,
                     detail = ?error.detail,
                     "[agent-version-center] rejected Agent launch"
                 );
-                AcpError::protocol(error.message)
-            })?;
+                authorization_stage.finish("authorization_rejected");
+                return Err(AcpError::protocol(error.message));
+            }
         }
 
         let user_memory_context = self
             .user_memory_context_for(agent_type, user_memory_origin)
             .await;
+        authorization_stage.finish("ok");
 
         let connection_id = uuid::Uuid::new_v4().to_string();
+        startup_trace.bind_connection(connection_id.clone());
         tracing::info!(
             "[ACP] spawning connection id={} owner_window={} agent={:?}",
             connection_id,
@@ -671,6 +797,8 @@ impl ConnectionManager {
             owner_window_label,
             emitter,
             self.connections.clone(),
+            self.runtime_hosts.clone(),
+            startup_trace,
             preferred_mode_id,
             preferred_config_values,
             user_memory_context,
@@ -2468,7 +2596,12 @@ impl ConnectionManager {
         for connection in removed {
             connection.request_disconnect();
         }
-        tracing::info!("[ACP] disconnect_all count={}", disconnected);
+        let stopped_hosts = self.runtime_hosts.shutdown_all().await;
+        tracing::info!(
+            "[ACP] disconnect_all count={} stopped_hosts={}",
+            disconnected,
+            stopped_hosts
+        );
         disconnected
     }
 

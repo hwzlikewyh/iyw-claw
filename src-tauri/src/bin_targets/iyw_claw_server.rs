@@ -510,6 +510,7 @@ async fn async_main() -> ExitCode {
     let managed_distribution_db = state.db.conn.clone();
     let system_skills_data_dir = state.data_dir.clone();
     let system_skills_emitter = state.emitter.clone();
+    let runtime_prewarm_manager = state.connection_manager.clone_ref();
     tokio::spawn(async move {
         let report = iyw_claw_lib::commands::experts::ensure_central_experts_installed().await;
         if !report.errors.is_empty() {
@@ -543,6 +544,21 @@ async fn async_main() -> ExitCode {
                 .await
         {
             tracing::warn!("[managed-skills] startup reconcile failed: {error}");
+        }
+        let prewarm_started = std::time::Instant::now();
+        match runtime_prewarm_manager.prewarm_codex_runtime().await {
+            Ok(true) => tracing::info!(
+                elapsed_ms = prewarm_started.elapsed().as_millis(),
+                "[ACP][startup] Codex runtime Host prewarmed"
+            ),
+            Ok(false) => {
+                tracing::info!("[ACP][startup] Codex runtime Host prewarm disabled")
+            }
+            Err(error) => tracing::info!(
+                elapsed_ms = prewarm_started.elapsed().as_millis(),
+                error = %error,
+                "[ACP][startup] Codex runtime Host prewarm deferred"
+            ),
         }
         if let Err(error) =
             iyw_claw_lib::commands::mcp_sync::reconcile_all_managed_mcp(&managed_distribution_db)

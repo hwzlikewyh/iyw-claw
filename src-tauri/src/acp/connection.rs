@@ -10,28 +10,20 @@ use std::sync::{
 
 use futures::FutureExt;
 use sacp::schema::{
-    BlobResourceContents, CancelNotification, ClientCapabilities, ContentBlock, ContentChunk,
-    CreateTerminalRequest, CreateTerminalResponse, EmbeddedResource, EmbeddedResourceResource,
-    FileSystemCapabilities, ImageContent, InitializeRequest, KillTerminalRequest,
-    KillTerminalResponse, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
-    NewSessionResponse, PermissionOptionKind, Plan, PlanEntryPriority, PlanEntryStatus,
-    PromptRequest, ProtocolVersion, ReadTextFileRequest, ReadTextFileResponse,
-    ReleaseTerminalRequest, ReleaseTerminalResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, ResourceLink, ResumeSessionRequest,
-    ResumeSessionResponse, SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption,
-    SessionConfigOptionCategory, SessionConfigSelectGroup, SessionConfigSelectOption,
-    SessionConfigSelectOptions, SessionId, SessionModeState, SessionNotification, SessionUpdate,
-    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
-    StopReason, TerminalExitStatus, TerminalOutputRequest, TerminalOutputResponse, TextContent,
-    TextResourceContents, ToolCallContent, WaitForTerminalExitRequest, WaitForTerminalExitResponse,
-    WriteTextFileRequest, WriteTextFileResponse,
+    BlobResourceContents, CancelNotification, ContentBlock, ContentChunk, EmbeddedResource,
+    EmbeddedResourceResource, ImageContent, LoadSessionRequest, LoadSessionResponse,
+    NewSessionRequest, NewSessionResponse, PermissionOptionKind, Plan, PlanEntryPriority,
+    PlanEntryStatus, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
+    RequestPermissionResponse, ResourceLink, ResumeSessionRequest, ResumeSessionResponse,
+    SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
+    SessionConfigSelectGroup, SessionConfigSelectOption, SessionConfigSelectOptions, SessionId,
+    SessionModeState, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+    SetSessionConfigOptionResponse, SetSessionModeRequest, StopReason, TerminalExitStatus,
+    TextContent, TextResourceContents, ToolCallContent,
 };
 use sacp::schema::{HttpHeader, McpServer, McpServerHttp, McpServerSse, McpServerStdio};
 use sacp::util::MatchDispatch;
-use sacp::{
-    on_receive_request, Agent, Client, ConnectionTo, Dispatch, Responder, SessionMessage,
-    UntypedMessage,
-};
+use sacp::{Agent, ConnectionTo, Dispatch, Responder, SessionMessage, UntypedMessage};
 use sacp_tokio::AcpAgent;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, RwLock};
@@ -41,7 +33,7 @@ use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::automatic_mode::automatic_mode_id;
 use crate::acp::background_watch;
 use crate::acp::error::AcpError;
-use crate::acp::file_system_runtime::{FileSystemRuntime, FileSystemRuntimeError};
+use crate::acp::file_system_runtime::FileSystemRuntime;
 use crate::acp::npm_runtime;
 use crate::acp::registry::{self, AgentDistribution};
 use crate::acp::session_config_compat::resolve_preferred_session_config;
@@ -62,9 +54,7 @@ use crate::network::proxy;
 use crate::web::event_bridge::{emit_with_state, EventEmitter};
 
 const DEFAULT_COMMAND_COLOR_ENV: [(&str, &str); 1] = [("CLICOLOR_FORCE", "1")];
-const CODEX_CONFIG_ENV: &str = "CODEX_CONFIG";
 const IYW_CLAW_MCP_SERVER_NAME: &str = "iyw-claw-mcp";
-const CODEX_COMPANION_TOOL_TIMEOUT_SECS: u64 = 660;
 const LOCAL_FILE_PROMPT_PREFIX: &str =
     "Local file path (use filesystem tools, not MCP resources): ";
 
@@ -371,7 +361,6 @@ pub enum ConnectionCommand {
 /// Sentinel string embedded in a `sacp::Error` when the Initialize
 /// handshake times out. Converted back to `AcpError::InitializeTimeout`
 /// by the outer `.map_err(...)` in `run_connection`.
-const INIT_TIMEOUT_SENTINEL: &str = "__iyw_claw_init_timeout__";
 
 /// RAII guard that removes the `AgentConnection` entry from the manager
 /// map when dropped. Runs on both normal task exit AND task panic, so a
@@ -636,6 +625,32 @@ struct AgentLaunchSpec<'a> {
     runtime_env: &'a BTreeMap<String, String>,
     cwd: &'a Path,
     builtin_prompt: &'a str,
+}
+
+fn shared_runtime_host_enabled(agent_type: AgentType) -> bool {
+    if agent_type != AgentType::Codex {
+        return false;
+    }
+    !std::env::var("IYW_CLAW_SHARED_ACP_HOST")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "off"
+            )
+        })
+}
+
+fn runtime_host_process_cwd<'a>(
+    agent_type: AgentType,
+    storage: &'a AgentStoragePaths,
+    session_cwd: &'a Path,
+) -> &'a Path {
+    if shared_runtime_host_enabled(agent_type) {
+        storage.root().as_path()
+    } else {
+        session_cwd
+    }
 }
 
 async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
@@ -1022,7 +1037,7 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
 /// exits (timeout, error, or clean disconnect), so the manager never
 /// leaks stale entries after a connection tears down.
 #[allow(clippy::too_many_arguments)]
-pub async fn spawn_agent_connection(
+pub(crate) async fn spawn_agent_connection(
     connection_id: String,
     agent_type: AgentType,
     working_dir: Option<String>,
@@ -1031,6 +1046,8 @@ pub async fn spawn_agent_connection(
     owner_window_label: String,
     emitter: EventEmitter,
     connections: Arc<tokio::sync::Mutex<HashMap<String, AgentConnection>>>,
+    runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
+    startup_trace: crate::acp::startup_trace::StartupTrace,
     preferred_mode_id: Option<String>,
     preferred_config_values: BTreeMap<String, String>,
     user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
@@ -1080,6 +1097,7 @@ pub async fn spawn_agent_connection(
         .map(|model| model.trim())
         .filter(|model| !model.is_empty())
         .map(str::to_string);
+    initial_state.startup_trace = Some(startup_trace.clone());
     initial_state.user_memory_context = user_memory_context;
     if session_id.is_some() {
         // The external session already retains the user-memory envelope in its
@@ -1126,6 +1144,7 @@ pub async fn spawn_agent_connection(
     // `Connecting` status emitted above and falls back to a generic toast, and
     // nothing at all reaches the log. Emit + log here so the failure is
     // attributable to a concrete path.
+    let process_prepare_stage = startup_trace.stage("process_prepare");
     let launch = async {
         let storage = AgentStoragePaths::active().ok_or_else(|| {
             AcpError::SdkNotInstalled(
@@ -1133,7 +1152,7 @@ pub async fn spawn_agent_connection(
                     .to_string(),
             )
         })?;
-        let mut prepared = crate::acp::builtin_prompt_injection::prepare(
+        let prepared = crate::acp::builtin_prompt_injection::prepare(
             crate::acp::builtin_prompt_injection::PrepareRequest {
                 agent_type,
                 connection_id: &connection_id,
@@ -1143,38 +1162,25 @@ pub async fn spawn_agent_connection(
             },
         )
         .await?;
-        let companion = if agent_type == AgentType::Codex {
-            let companion = prepare_companion_launch(
-                delegation_injection.as_ref(),
-                &connection_id,
-                &launch_cwd,
-                agent_type,
-                &session_state,
-            )
-            .await;
-            if let Some(ref prepared_companion) = companion.companion {
-                merge_codex_companion_config(
-                    &mut prepared.environment,
-                    &prepared_companion.server,
-                )?;
-            }
-            Some(companion)
-        } else {
-            None
-        };
+        let process_fingerprint =
+            crate::commands::acp::fingerprint_config(agent_type, &prepared.environment);
         let agent = build_agent(AgentLaunchSpec {
             agent_type,
             runtime_env: &prepared.environment,
-            cwd: &launch_cwd,
+            cwd: runtime_host_process_cwd(agent_type, &storage, &launch_cwd),
             builtin_prompt: &prepared.prompt.text,
         })
         .await?;
-        Ok::<_, AcpError>((agent, prepared, companion))
+        Ok::<_, AcpError>((agent, prepared, process_fingerprint))
     }
     .await;
-    let (agent, prepared_prompt, prepared_companion) = match launch {
-        Ok(launch) => launch,
+    let (agent, prepared_prompt, process_fingerprint) = match launch {
+        Ok(launch) => {
+            process_prepare_stage.finish("ok");
+            launch
+        }
         Err(error) => {
+            process_prepare_stage.finish("error");
             cleanup_delegation_resources(delegation_injection.as_ref(), &connection_id).await;
             tracing::error!(
                 "[ACP] agent launch preparation failed connection_id={} agent={:?} cwd={} \
@@ -1210,13 +1216,6 @@ pub async fn spawn_agent_connection(
             return Err(error);
         }
     };
-    let pid_state = Arc::clone(&session_state);
-    let agent = agent.with_spawned_pid(move |pid| {
-        let state = Arc::clone(&pid_state);
-        tokio::spawn(async move {
-            state.write().await.set_agent_pid(pid);
-        });
-    });
     let crate::acp::builtin_prompt_injection::PreparedBuiltinPrompt {
         environment: _launch_environment,
         prompt: builtin_prompt,
@@ -1305,7 +1304,8 @@ pub async fn spawn_agent_connection(
                 delegation_injection,
                 builtin_prompt,
                 openclaw.session_key,
-                prepared_companion,
+                process_fingerprint,
+                runtime_hosts,
                 version_center_db,
                 cancellation,
                 disconnect_command_ready,
@@ -1393,8 +1393,52 @@ pub async fn spawn_agent_connection(
     Ok(session_started_rx)
 }
 
+pub(crate) async fn prewarm_agent_runtime(
+    agent_type: AgentType,
+    runtime_env: BTreeMap<String, String>,
+    runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
+) -> Result<bool, AcpError> {
+    if !shared_runtime_host_enabled(agent_type) {
+        return Ok(false);
+    }
+    crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
+        .map_err(AcpError::protocol)?;
+    let storage = AgentStoragePaths::active().ok_or_else(|| {
+        AcpError::SdkNotInstalled(
+            "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
+                .to_string(),
+        )
+    })?;
+    let prepared = crate::acp::builtin_prompt_injection::prepare(
+        crate::acp::builtin_prompt_injection::PrepareRequest {
+            agent_type,
+            connection_id: "runtime-host-prewarm",
+            session_id: None,
+            environment: &runtime_env,
+            storage: &storage,
+        },
+    )
+    .await?;
+    let fingerprint = crate::commands::acp::fingerprint_config(agent_type, &prepared.environment);
+    let agent = build_agent(AgentLaunchSpec {
+        agent_type,
+        runtime_env: &prepared.environment,
+        cwd: runtime_host_process_cwd(agent_type, &storage, storage.root()),
+        builtin_prompt: &prepared.prompt.text,
+    })
+    .await?;
+    let host = runtime_hosts
+        .acquire(
+            crate::acp::runtime_host::RuntimeHostKey::new(agent_type, fingerprint),
+            agent,
+        )
+        .await?;
+    host.release_route_reservation();
+    Ok(true)
+}
+
 /// Shared state for pending permission responders.
-type PendingPermissions =
+pub(crate) type PendingPermissions =
     Arc<tokio::sync::Mutex<HashMap<String, Responder<RequestPermissionResponse>>>>;
 
 fn map_session_modes(mode_state: &SessionModeState) -> SessionModeStateInfo {
@@ -2335,65 +2379,6 @@ async fn project_memory_launch_access(
     }
 }
 
-fn merge_codex_companion_config(
-    environment: &mut BTreeMap<String, String>,
-    server: &McpServerStdio,
-) -> Result<(), AcpError> {
-    let mut config = match environment.get(CODEX_CONFIG_ENV) {
-        Some(raw) if !raw.trim().is_empty() => serde_json::from_str::<serde_json::Value>(raw)
-            .map_err(|error| {
-                AcpError::BuiltinPromptInjection(format!("invalid {CODEX_CONFIG_ENV}: {error}"))
-            })?
-            .as_object()
-            .cloned()
-            .ok_or_else(|| {
-                AcpError::BuiltinPromptInjection(format!(
-                    "{CODEX_CONFIG_ENV} must be a JSON object"
-                ))
-            })?,
-        _ => serde_json::Map::new(),
-    };
-    let servers = config
-        .entry("mcp_servers")
-        .or_insert_with(|| serde_json::json!({}))
-        .as_object_mut()
-        .ok_or_else(|| {
-            AcpError::BuiltinPromptInjection(format!(
-                "{CODEX_CONFIG_ENV}.mcp_servers must be a JSON object"
-            ))
-        })?;
-    if servers.contains_key(IYW_CLAW_MCP_SERVER_NAME) {
-        tracing::warn!(
-            server = IYW_CLAW_MCP_SERVER_NAME,
-            "[ACP][Codex] replacing reserved MCP server in process-local config"
-        );
-    }
-    let env = server
-        .env
-        .iter()
-        .map(|value| {
-            (
-                value.name.clone(),
-                serde_json::Value::String(value.value.clone()),
-            )
-        })
-        .collect::<serde_json::Map<_, _>>();
-    servers.insert(
-        IYW_CLAW_MCP_SERVER_NAME.to_string(),
-        serde_json::json!({
-            "command": server.command.to_string_lossy(),
-            "args": server.args,
-            "env": env,
-            "tool_timeout_sec": CODEX_COMPANION_TOOL_TIMEOUT_SECS,
-        }),
-    );
-    let serialized = serde_json::to_string(&config).map_err(|error| {
-        AcpError::BuiltinPromptInjection(format!("failed to serialize {CODEX_CONFIG_ENV}: {error}"))
-    })?;
-    environment.insert(CODEX_CONFIG_ENV.to_string(), serialized);
-    Ok(())
-}
-
 /// Resolve an MCP server `command` to an absolute path.
 ///
 /// The ACP spec requires `McpServerStdio.command` to be an absolute path.
@@ -2518,7 +2503,8 @@ async fn run_connection(
     delegation_injection: Option<DelegationInjection>,
     builtin_prompt: crate::acp::builtin_agent_prompt::RenderedBuiltinPrompt,
     openclaw_session_key: Option<String>,
-    prepared_companion: Option<CompanionLaunchPreparation>,
+    process_fingerprint: String,
+    runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
     version_center_db: Option<sea_orm::DatabaseConnection>,
     cancellation: tokio_util::sync::CancellationToken,
     disconnect_command_ready: Arc<AtomicBool>,
@@ -2553,234 +2539,132 @@ async fn run_connection(
         Arc::clone(&prompt_ledger),
     );
 
-    let connection = Client
-        .builder()
-        .name("iyw-claw")
-        .on_receive_request(
-            {
-                let emitter_inner = emitter_clone.clone();
-                let perms = perms.clone();
-                let perm_cwd = cwd_string.clone();
-                let state_inner = Arc::clone(&state);
-                async move |req: RequestPermissionRequest,
-                            responder: Responder<RequestPermissionResponse>,
-                            _cx: ConnectionTo<Agent>| {
-                    handle_permission_request(
-                        &state_inner,
-                        &emitter_inner,
-                        &perms,
-                        &perm_cwd,
-                        req,
-                        responder,
-                    )
-                    .await;
-                    Ok(())
-                }
-            },
-            on_receive_request!(),
+    let shared_host = shared_runtime_host_enabled(agent_type);
+    let host_key = crate::acp::runtime_host::RuntimeHostKey::new(agent_type, process_fingerprint);
+    let host_started = std::time::Instant::now();
+    let startup_trace = state.read().await.startup_trace.clone();
+    let host_stage = startup_trace
+        .as_ref()
+        .map(|trace| trace.stage("host_lookup_wait_spawn"));
+    let host_result = if shared_host {
+        match startup_trace.clone() {
+            Some(trace) => runtime_hosts.acquire_traced(host_key, agent, trace).await,
+            None => runtime_hosts.acquire(host_key, agent).await,
+        }
+    } else {
+        match startup_trace.clone() {
+            Some(trace) => {
+                crate::acp::runtime_host::AgentRuntimeHost::start_owned_traced(
+                    host_key, agent, trace,
+                )
+                .await
+            }
+            None => crate::acp::runtime_host::AgentRuntimeHost::start_owned(host_key, agent).await,
+        }
+    };
+    let host = match host_result {
+        Ok(host) => {
+            if let Some(stage) = host_stage {
+                stage.finish("ok");
+            }
+            host
+        }
+        Err(error) => {
+            if let Some(stage) = host_stage {
+                stage.finish("error");
+            }
+            return Err(error);
+        }
+    };
+    if let Some(pid) = host.pid() {
+        state.write().await.set_agent_pid(pid);
+    }
+    tracing::info!(
+        connection_id,
+        agent = %agent_type,
+        shared_host,
+        elapsed_ms = host_started.elapsed().as_millis(),
+        "[ACP][startup] runtime Host ready"
+    );
+    let _route_lease = host.register_route(
+        connection_id.clone(),
+        session_id.clone(),
+        crate::acp::runtime_host::RuntimeSessionRoute {
+            state: Arc::clone(&state),
+            emitter: emitter.clone(),
+            permissions: pending_perms.clone(),
+            cwd: cwd_string.clone(),
+            file_system: Arc::clone(&file_system_runtime),
+            terminal: Arc::clone(&terminal_runtime),
+        },
+    )?;
+    let route_binding = _route_lease.binding();
+    let terminal_cleanup = Arc::clone(&terminal_runtime);
+    let cx = host.connection();
+    let init_resp = host.initialize_response();
+    let connection = async move {
+        let state = state_outer;
+        let native_steering_available = agent_type == AgentType::Codex
+            && init_resp
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get("steering"))
+                .and_then(serde_json::Value::as_object)
+                .and_then(|steering| steering.get("supported"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+        state.write().await.native_steering_available = native_steering_available;
+        tracing::info!(
+            agent_type = %agent_type,
+            native_steering_available,
+            "[agent-input] native steering capability negotiated"
+        );
+        emit_prompt_capabilities(
+            &state,
+            &emitter_clone,
+            &init_resp.agent_capabilities.prompt_capabilities,
         )
-        .on_receive_request(
-            {
-                let runtime = file_system_runtime.clone();
-                async move |req: ReadTextFileRequest,
-                            responder: Responder<ReadTextFileResponse>,
-                            _cx: ConnectionTo<Agent>| {
-                    respond_file_system_request(responder, runtime.read_text_file(req).await)?;
-                    Ok(())
-                }
-            },
-            on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let runtime = file_system_runtime.clone();
-                async move |req: WriteTextFileRequest,
-                            responder: Responder<WriteTextFileResponse>,
-                            _cx: ConnectionTo<Agent>| {
-                    respond_file_system_request(responder, runtime.write_text_file(req).await)?;
-                    Ok(())
-                }
-            },
-            on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let runtime = terminal_runtime.clone();
-                async move |req: CreateTerminalRequest,
-                            responder: Responder<CreateTerminalResponse>,
-                            _cx: ConnectionTo<Agent>| {
-                    respond_terminal_request(responder, runtime.create_terminal(req).await)?;
-                    Ok(())
-                }
-            },
-            on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let runtime = terminal_runtime.clone();
-                async move |req: TerminalOutputRequest,
-                            responder: Responder<TerminalOutputResponse>,
-                            _cx: ConnectionTo<Agent>| {
-                    respond_terminal_request(responder, runtime.terminal_output(req).await)?;
-                    Ok(())
-                }
-            },
-            on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let runtime = terminal_runtime.clone();
-                async move |req: WaitForTerminalExitRequest,
-                            responder: Responder<WaitForTerminalExitResponse>,
-                            _cx: ConnectionTo<Agent>| {
-                    respond_terminal_request(responder, runtime.wait_for_terminal_exit(req).await)?;
-                    Ok(())
-                }
-            },
-            on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let runtime = terminal_runtime.clone();
-                async move |req: KillTerminalRequest,
-                            responder: Responder<KillTerminalResponse>,
-                            _cx: ConnectionTo<Agent>| {
-                    respond_terminal_request(responder, runtime.kill_terminal(req).await)?;
-                    Ok(())
-                }
-            },
-            on_receive_request!(),
-        )
-        .on_receive_request(
-            {
-                let runtime = terminal_runtime.clone();
-                async move |req: ReleaseTerminalRequest,
-                            responder: Responder<ReleaseTerminalResponse>,
-                            _cx: ConnectionTo<Agent>| {
-                    respond_terminal_request(responder, runtime.release_terminal(req).await)?;
-                    Ok(())
-                }
-            },
-            on_receive_request!(),
-        )
-        .connect_with(agent, async move |cx| -> Result<(), sacp::Error> {
-            let state = state_outer;
-            let agent_name_for_log = registry::get_agent_meta(agent_type).name;
+        .await;
 
-            // Advertise filesystem + terminal capabilities for ACP tool execution.
-            let init_request = InitializeRequest::new(ProtocolVersion::LATEST).client_capabilities(
-                ClientCapabilities::new()
-                    .terminal(true)
-                    .fs(FileSystemCapabilities::new()
-                        .read_text_file(true)
-                        .write_text_file(true)),
-            );
-            // Bound the Initialize handshake so an outdated / incompatible
-            // cached binary that never responds can't leave the frontend
-            // stuck on "Connecting...". A healthy agent answers in <1s; we
-            // give 60s headroom for cold process startup on slow machines.
-            //
-            // We cannot carry a structured error code through sacp's Error
-            // type, so we tag the timeout with `INIT_TIMEOUT_SENTINEL` and
-            // convert it back to `AcpError::InitializeTimeout` in the
-            // outer `.map_err(...)` below. The outer layer attaches a
-            // stable `code` to the frontend event so it can be localized.
-            tracing::info!(
-                "[ACP][{agent_name_for_log}] Sending Initialize (protocol={}, timeout=60s)",
-                ProtocolVersion::LATEST
-            );
-            let init_started = std::time::Instant::now();
-            let init_resp = match tokio::time::timeout(
-                std::time::Duration::from_secs(60),
-                cx.send_request_to(Agent, init_request).block_task(),
-            )
-            .await
-            {
-                Ok(Ok(resp)) => {
-                    tracing::info!(
-                        "[ACP][{agent_name_for_log}] Initialize responded in {:?}",
-                        init_started.elapsed()
-                    );
-                    resp
-                }
-                Ok(Err(e)) => {
-                    tracing::error!(
-                        "[ACP][{agent_name_for_log}] Initialize failed in {:?}: {e}",
-                        init_started.elapsed()
-                    );
-                    return Err(e);
-                }
-                Err(_) => {
-                    tracing::error!(
-                        "[ACP][{agent_name_for_log}] Initialize TIMED OUT after {:?} \
-                         — the agent never answered the handshake. Check the \
-                         [stderr] lines above for agent-side errors. For a full \
-                         JSON-RPC trace, re-launch with IYW_CLAW_ACP_DEBUG=1.",
-                        init_started.elapsed()
-                    );
-                    return Err(sacp::util::internal_error(INIT_TIMEOUT_SENTINEL));
-                }
-            };
-            let native_steering_available = agent_type == AgentType::Codex
-                && init_resp
-                    .meta
-                    .as_ref()
-                    .and_then(|meta| meta.get("steering"))
-                    .and_then(serde_json::Value::as_object)
-                    .and_then(|steering| steering.get("supported"))
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false);
-            state.write().await.native_steering_available = native_steering_available;
-            tracing::info!(
-                agent_type = %agent_type,
-                native_steering_available,
-                "[agent-input] native steering capability negotiated"
-            );
-            emit_prompt_capabilities(
-                &state,
-                &emitter_clone,
-                &init_resp.agent_capabilities.prompt_capabilities,
-            )
-            .await;
+        let supports_fork = init_resp
+            .agent_capabilities
+            .session_capabilities
+            .fork
+            .is_some();
+        let supports_resume = init_resp
+            .agent_capabilities
+            .session_capabilities
+            .resume
+            .is_some();
+        let supports_load = init_resp.agent_capabilities.load_session;
+        state.write().await.set_recovery_capability(
+            agent_type != AgentType::Cline && (supports_load || supports_resume),
+        );
+        tracing::info!(
+            "[ACP] Agent capabilities: load_session={}, fork={}, resume={}",
+            supports_load,
+            supports_fork,
+            supports_resume
+        );
 
-            let supports_fork = init_resp
-                .agent_capabilities
-                .session_capabilities
-                .fork
-                .is_some();
-            let supports_resume = init_resp
-                .agent_capabilities
-                .session_capabilities
-                .resume
-                .is_some();
-            let supports_load = init_resp.agent_capabilities.load_session;
-            state.write().await.set_recovery_capability(
-                agent_type != AgentType::Cline
-                    && (supports_load || supports_resume),
-            );
-            tracing::info!(
-                "[ACP] Agent capabilities: load_session={}, fork={}, resume={}",
-                supports_load, supports_fork, supports_resume
-            );
+        // Whether this agent accepts MCP server entries over the ACP wire
+        // (`session/new`'s `mcpServers`). Almost all do; OpenClaw rejects
+        // any server entry and fails session creation, so it must receive
+        // NONE — neither user-configured servers nor the built-in iyw-claw-mcp
+        // companion. (The `mcpServers` key itself is always serialized as
+        // `[]` by the ACP schema and OpenClaw tolerates the empty list; the
+        // gate only guarantees the list stays empty for it.) This is the
+        // single chokepoint feeding session/new, session/load, and the
+        // load→new fallback, so gating here keeps server entries off the
+        // wire on every path. See `AcpAgentMeta::supports_mcp`.
+        let agent_supports_mcp = registry::get_agent_meta(agent_type).supports_mcp;
 
-            // Whether this agent accepts MCP server entries over the ACP wire
-            // (`session/new`'s `mcpServers`). Almost all do; OpenClaw rejects
-            // any server entry and fails session creation, so it must receive
-            // NONE — neither user-configured servers nor the built-in iyw-claw-mcp
-            // companion. (The `mcpServers` key itself is always serialized as
-            // `[]` by the ACP schema and OpenClaw tolerates the empty list; the
-            // gate only guarantees the list stays empty for it.) This is the
-            // single chokepoint feeding session/new, session/load, and the
-            // load→new fallback, so gating here keeps server entries off the
-            // wire on every path. See `AcpAgentMeta::supports_mcp`.
-            let agent_supports_mcp = registry::get_agent_meta(agent_type).supports_mcp;
-
-            // Load MCP servers configured for this agent and filter by the
-            // capabilities the agent just declared. Stdio is mandatory per
-            // ACP spec; HTTP/SSE are gated on `mcp_capabilities.{http,sse}`.
-            let mut mcp_servers: Vec<McpServer> = if agent_supports_mcp {
-                let mcp_caps = &init_resp.agent_capabilities.mcp_capabilities;
-                load_mcp_servers_for_agent(agent_type)
+        // Load MCP servers configured for this agent and filter by the
+        // capabilities the agent just declared. Stdio is mandatory per
+        // ACP spec; HTTP/SSE are gated on `mcp_capabilities.{http,sse}`.
+        let mut mcp_servers: Vec<McpServer> = if agent_supports_mcp {
+            let mcp_caps = &init_resp.agent_capabilities.mcp_capabilities;
+            load_mcp_servers_for_agent(agent_type)
                     .into_iter()
                     .filter(|s| match s {
                         McpServer::Stdio(_) => true,
@@ -2809,274 +2693,110 @@ async fn run_connection(
                         _ => false,
                     })
                     .collect()
-            } else {
-                tracing::info!(
+        } else {
+            tracing::info!(
                     "[ACP][{}] supports_mcp=false: skipping all MCP wire forwarding (user servers + iyw-claw-mcp companion)",
                     agent_type
                 );
-                Vec::new()
-            };
+            Vec::new()
+        };
 
-            // Codex needs its dynamic companion before process spawn so its
-            // process-local CODEX_CONFIG can carry the 660 s tool deadline.
-            // Other agents preserve the existing post-Initialize preparation.
-            let companion_launch = if let Some(prepared) = prepared_companion {
-                prepared
+        // Build the companion per logical session. Shared Codex Hosts must not
+        // inherit another session's token or cwd through process-level config.
+        let companion_launch = prepare_companion_launch(
+            delegation_injection.as_ref(),
+            &conn_id,
+            &cwd,
+            agent_type,
+            &state,
+        )
+        .await;
+        let companion_health = companion_launch.health;
+        let delegate_injection = companion_launch.companion.map(|prepared| {
+            mcp_servers.push(McpServer::Stdio(prepared.server));
+            prepared.injection
+        });
+        if let Some(ref injected) = delegate_injection {
+            let mut s = state.write().await;
+            s.delegation_token = Some(injected.token.clone());
+            // The agent's actual feedback capability for this session — the
+            // authoritative gate for submit + UI, fixed at launch.
+            s.feedback_tool_available = injected.feedback_available;
+        }
+        // Emit fork support capability
+        emit_with_state(
+            &state,
+            &emitter_clone,
+            AcpEvent::ForkSupported {
+                supported: supports_fork,
+            },
+        )
+        .await;
+
+        let session_request_context = SessionRequestContext {
+            agent_type,
+            cwd: &cwd,
+            mcp_servers: &mcp_servers,
+            builtin_prompt: &builtin_prompt.text,
+            openclaw_session_key: openclaw_session_key.as_deref(),
+        };
+
+        if let Some(sid) = session_id {
+            let recovery_budget = RecoveryBudget::start();
+            let initial_stage = if supports_resume {
+                RecoveryStage::Resume
             } else {
-                prepare_companion_launch(
-                    delegation_injection.as_ref(),
-                    &conn_id,
-                    &cwd,
-                    agent_type,
-                    &state,
-                )
-                .await
+                RecoveryStage::Load
             };
-            let companion_health = companion_launch.health;
-            let delegate_injection = companion_launch.companion.map(|prepared| {
-                if agent_type != AgentType::Codex {
-                    mcp_servers.push(McpServer::Stdio(prepared.server));
-                }
-                prepared.injection
-            });
-            if let Some(ref injected) = delegate_injection {
-                let mut s = state.write().await;
-                s.delegation_token = Some(injected.token.clone());
-                // The agent's actual feedback capability for this session — the
-                // authoritative gate for submit + UI, fixed at launch.
-                s.feedback_tool_available = injected.feedback_available;
-            }
-            // Emit fork support capability
-            emit_with_state(
-                &state,
-                &emitter_clone,
-                AcpEvent::ForkSupported {
-                    supported: supports_fork,
-                },
-            )
-            .await;
+            recovery_in_progress.begin(initial_stage);
 
-            let session_request_context = SessionRequestContext {
-                agent_type,
-                cwd: &cwd,
-                mcp_servers: &mcp_servers,
-                builtin_prompt: &builtin_prompt.text,
-                openclaw_session_key: openclaw_session_key.as_deref(),
-            };
-
-            if let Some(sid) = session_id {
-                let recovery_budget = RecoveryBudget::start();
-                let initial_stage = if supports_resume {
-                    RecoveryStage::Resume
-                } else {
-                    RecoveryStage::Load
-                };
-                recovery_in_progress.begin(initial_stage);
-
-                // session/resume restores context without replaying history.
-                // Only a complete remote RPC error leaves this connection
-                // trusted enough for a subsequent session/load request.
-                if supports_resume {
-                    let resume_req = build_resume_session_request(
-                        session_request_context,
-                        SessionId::new(sid.clone()),
-                    );
-                    let resume_result = match recovery_budget.timeout_for(RecoveryStage::Resume) {
-                        Some(timeout) => tokio::time::timeout(
-                            timeout,
-                            send_resume_session(&cx, resume_req),
-                        )
-                        .await
-                        .unwrap_or(Err(RecoveryFailure::Timeout)),
-                        None => Err(RecoveryFailure::Timeout),
-                    };
-                    match resume_result {
-                        Ok((resume_resp, grok_models_raw)) => {
-                            let initial_config_options = resume_resp.config_options.clone();
-                            let new_resp = NewSessionResponse::new(SessionId::new(sid.clone()))
-                                .modes(resume_resp.modes)
-                                .config_options(resume_resp.config_options)
-                                .meta(resume_resp.meta);
-                            let grok_meta = (agent_type == AgentType::Grok)
-                                .then(|| new_resp.meta.clone())
-                                .flatten();
-                            let grok_effort_specs = (agent_type == AgentType::Grok)
-                                .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
-                            let mut session = cx.attach_session(new_resp, Default::default())?;
-                            recovery_in_progress.finish();
-                            state.write().await.mark_recovery_succeeded();
-                            tracing::info!(
-                                connection_id = conn_id,
-                                agent_type = %agent_type,
-                                session_id = sid,
-                                stage = "resume",
-                                elapsed_ms = recovery_budget.elapsed_ms(),
-                                remaining_ms = recovery_budget.remaining_ms(),
-                                "[ACP] session recovery succeeded"
-                            );
-                            finalize_user_memory_launch(
-                                &state,
-                                &emitter_clone,
-                                UserMemoryLaunchFinalization {
-                                    injection: delegation_injection.as_ref(),
-                                    companion: delegate_injection.as_ref(),
-                                    health: &companion_health,
-                                    resumed: true,
-                                },
-                                version_center_db.as_ref(),
-                            )
-                            .await;
-
-                            // No drain: session/resume does not replay history,
-                            // so there is nothing to discard. Any buffered
-                            // notification (e.g. an early AvailableCommandsUpdate)
-                            // is consumed and forwarded by run_conversation_loop.
-
-                            emit_with_state(
-                                &state,
-                                &emitter_clone,
-                                AcpEvent::SessionStarted {
-                                    session_id: sid.clone(),
-                                },
-                            )
-                            .await;
-                            emit_session_modes(&state, &emitter_clone, session.modes()).await;
-                            apply_and_emit_session_config_options(
-                                &cx,
-                                &mut session,
-                                &state,
-                                &emitter_clone,
-                                agent_type,
-                                grok_meta.as_ref(),
-                                grok_effort_specs.as_ref(),
-                                preferred_mode_id.as_deref(),
-                                &preferred_config_values,
-                                initial_config_options.unwrap_or_default(),
-                            )
-                            .await;
-                            emit_selectors_ready(&state, &emitter_clone).await;
-
-                            disconnect_command_ready.store(true, Ordering::Release);
-                            let loop_result = run_conversation_loop(
-                                &mut session,
-                                &conn_id,
-                                &emitter_clone,
-                                &state,
-                                agent_type,
-                                &perms,
-                                &mut cmd_rx,
-                                terminal_runtime.clone(),
-                                &cwd_string,
-                                supports_fork,
-                                &prompt_ledger,
-                                delegation_injection.as_ref(),
-                            )
-                            .await;
-                            terminal_runtime.release_all_for_session(&sid).await;
-                            drop(session);
-                            // Explicit return: this arm is NOT in tail position
-                            // (the session/load block follows it), so without
-                            // `return` a successful resume would fall into
-                            // session/load.
-                            return handle_fork_or_exit(
-                                loop_result,
-                                &conn_id,
-                                &emitter_clone,
-                                &state,
-                                agent_type,
-                                &perms,
-                                &mut cmd_rx,
-                                terminal_runtime.clone(),
-                                &cwd,
-                                &cwd_string,
-                                &prompt_ledger,
-                                delegation_injection.as_ref(),
-                            )
-                            .await;
-                        }
-                        Err(e) => {
-                            if e.allows_load_fallback() && supports_load {
-                                tracing::warn!(
-                                    connection_id = conn_id,
-                                    agent_type = %agent_type,
-                                    session_id = sid,
-                                    stage = "resume",
-                                    elapsed_ms = recovery_budget.elapsed_ms(),
-                                    remaining_ms = recovery_budget.remaining_ms(),
-                                    category = e.category(),
-                                    error = %e.message(),
-                                    "[ACP] session/resume returned RPC error; trying session/load"
-                                );
-                            } else {
-                                emit_session_recovery_failure(
-                                    SessionRecoveryFailureContext {
-                                        connection_id: &conn_id,
-                                        session_id: &sid,
-                                        agent_type,
-                                        stage: RecoveryStage::Resume,
-                                        supports_resume,
-                                        supports_load,
-                                        budget: &recovery_budget,
-                                        progress: &recovery_in_progress,
-                                        state: &state,
-                                        emitter: &emitter_clone,
-                                    },
-                                    e,
-                                )
-                                .await;
-                                return Ok(());
-                            }
-                        }
-                    }
-                }
-
-                if !supports_load {
-                    emit_session_recovery_failure(
-                        SessionRecoveryFailureContext {
-                            connection_id: &conn_id,
-                            session_id: &sid,
-                            agent_type,
-                            stage: RecoveryStage::Load,
-                            supports_resume,
-                            supports_load,
-                            budget: &recovery_budget,
-                            progress: &recovery_in_progress,
-                            state: &state,
-                            emitter: &emitter_clone,
-                        },
-                        RecoveryFailure::Unavailable(
-                            "Agent does not advertise session recovery support".to_string(),
-                        ),
-                    )
-                    .await;
-                    return Ok(());
-                }
-
-                recovery_in_progress.set_stage(RecoveryStage::Load);
-                let load_req = build_load_session_request(
+            // session/resume restores context without replaying history.
+            // Only a complete remote RPC error leaves this connection
+            // trusted enough for a subsequent session/load request.
+            if supports_resume {
+                let resume_stage = startup_trace
+                    .as_ref()
+                    .map(|trace| trace.stage("session_resume"));
+                let resume_req = build_resume_session_request(
                     session_request_context,
                     SessionId::new(sid.clone()),
                 );
-                let load_result = match recovery_budget.timeout_for(RecoveryStage::Load) {
+                let resume_result = match recovery_budget.timeout_for(RecoveryStage::Resume) {
                     Some(timeout) => {
-                        tokio::time::timeout(timeout, send_load_session(&cx, load_req))
+                        tokio::time::timeout(timeout, send_resume_session(&cx, resume_req))
                             .await
                             .unwrap_or(Err(RecoveryFailure::Timeout))
                     }
                     None => Err(RecoveryFailure::Timeout),
                 };
-
-                match load_result {
-                    Ok(load_resp) => {
-                        let initial_config_options = load_resp.config_options.clone();
+                if let Some(stage) = resume_stage {
+                    stage.finish(if resume_result.is_ok() { "ok" } else { "error" });
+                }
+                match resume_result {
+                    Ok((resume_resp, grok_models_raw)) => {
+                        let initial_config_options = resume_resp.config_options.clone();
                         let new_resp = NewSessionResponse::new(SessionId::new(sid.clone()))
-                            .modes(load_resp.modes)
-                            .config_options(load_resp.config_options)
-                            .meta(load_resp.meta);
+                            .modes(resume_resp.modes)
+                            .config_options(resume_resp.config_options)
+                            .meta(resume_resp.meta);
                         let grok_meta = (agent_type == AgentType::Grok)
                             .then(|| new_resp.meta.clone())
                             .flatten();
+                        let grok_effort_specs = (agent_type == AgentType::Grok).then(|| {
+                            crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref())
+                        });
                         let mut session = cx.attach_session(new_resp, Default::default())?;
+                        recovery_in_progress.finish();
+                        state.write().await.mark_recovery_succeeded();
+                        tracing::info!(
+                            connection_id = conn_id,
+                            agent_type = %agent_type,
+                            session_id = sid,
+                            stage = "resume",
+                            elapsed_ms = recovery_budget.elapsed_ms(),
+                            remaining_ms = recovery_budget.remaining_ms(),
+                            "[ACP] session recovery succeeded"
+                        );
                         finalize_user_memory_launch(
                             &state,
                             &emitter_clone,
@@ -3090,110 +2810,10 @@ async fn run_connection(
                         )
                         .await;
 
-                        // Drain historical replay notifications from session/load,
-                        // but forward AvailableCommandsUpdate to the frontend
-                        let mut drained = 0u32;
-                        let mut drain_failure = None;
-                        loop {
-                            let Some(remaining) =
-                                recovery_budget.timeout_for(RecoveryStage::Load)
-                            else {
-                                drain_failure = Some(RecoveryFailure::Timeout);
-                                break;
-                            };
-                            let idle_wait = remaining.min(std::time::Duration::from_millis(100));
-                            let msg = match tokio::time::timeout(idle_wait, session.read_update()).await
-                            {
-                                Ok(Ok(msg)) => msg,
-                                Ok(Err(error)) => {
-                                    drain_failure = Some(RecoveryFailure::Transport(
-                                        error.to_string(),
-                                    ));
-                                    break;
-                                }
-                                Err(_) if remaining <= std::time::Duration::from_millis(100) => {
-                                    drain_failure = Some(RecoveryFailure::Timeout);
-                                    break;
-                                }
-                                Err(_) => break,
-                            };
-                            drained += 1;
-                            if let SessionMessage::SessionMessage(dispatch) = msg {
-                                let h = emitter_clone.clone();
-                                let st = Arc::clone(&state);
-                                let dispatch = fix_usage_update_nulls(dispatch);
-                                let _ = MatchDispatch::new(dispatch)
-                                    .if_notification(async |notif: SessionNotification| {
-                                        if matches!(
-                                            notif.update,
-                                            SessionUpdate::AvailableCommandsUpdate(_)
-                                        ) {
-                                            // Historical-replay path only
-                                            // forwards AvailableCommandsUpdate,
-                                            // which never carries tool output or
-                                            // tool-call titles — throwaway state
-                                            // is fine.
-                                            let mut replay_cache =
-                                                ToolCallOutputCache::default();
-                                            let mut replay_cb_state =
-                                                CodeBuddyLiveState::default();
-                                            emit_conversation_update(
-                                                &st,
-                                                &h,
-                                                agent_type,
-                                                notif.update,
-                                                None,
-                                                &mut replay_cache,
-                                                &mut replay_cb_state,
-                                            )
-                                            .await;
-                                        }
-                                        Ok(())
-                                    })
-                                    .await
-                                    .otherwise(async |dispatch| {
-                                        maybe_emit_claude_sdk_ext_notification(&st, &h, dispatch).await;
-                                        Ok(())
-                                    })
-                                    .await;
-                            }
-                        }
-                        if let Some(failure) = drain_failure {
-                            drop(session);
-                            emit_session_recovery_failure(
-                                SessionRecoveryFailureContext {
-                                    connection_id: &conn_id,
-                                    session_id: &sid,
-                                    agent_type,
-                                    stage: RecoveryStage::Load,
-                                    supports_resume,
-                                    supports_load,
-                                    budget: &recovery_budget,
-                                    progress: &recovery_in_progress,
-                                    state: &state,
-                                    emitter: &emitter_clone,
-                                },
-                                failure,
-                            )
-                            .await;
-                            return Ok(());
-                        }
-                        if drained > 0 {
-                            tracing::info!("[ACP] Drained {drained} historical replay notifications");
-                        }
-
-                        recovery_in_progress.finish();
-                        state.write().await.mark_recovery_succeeded();
-                        tracing::info!(
-                            connection_id = conn_id,
-                            agent_type = %agent_type,
-                            session_id = sid,
-                            stage = "load",
-                            replay_notifications = drained,
-                            elapsed_ms = recovery_budget.elapsed_ms(),
-                            remaining_ms = recovery_budget.remaining_ms(),
-                            "[ACP] session recovery succeeded"
-                        );
+                        // No drain: session/resume does not replay history,
+                        // so there is nothing to discard. Any buffered
+                        // notification (e.g. an early AvailableCommandsUpdate)
+                        // is consumed and forwarded by run_conversation_loop.
 
                         emit_with_state(
                             &state,
@@ -3204,6 +2824,9 @@ async fn run_connection(
                         )
                         .await;
                         emit_session_modes(&state, &emitter_clone, session.modes()).await;
+                        let selectors_stage = startup_trace
+                            .as_ref()
+                            .map(|trace| trace.stage("selectors_ready"));
                         apply_and_emit_session_config_options(
                             &cx,
                             &mut session,
@@ -3211,13 +2834,16 @@ async fn run_connection(
                             &emitter_clone,
                             agent_type,
                             grok_meta.as_ref(),
-                            None,
+                            grok_effort_specs.as_ref(),
                             preferred_mode_id.as_deref(),
                             &preferred_config_values,
                             initial_config_options.unwrap_or_default(),
                         )
                         .await;
                         emit_selectors_ready(&state, &emitter_clone).await;
+                        if let Some(stage) = selectors_stage {
+                            stage.finish("ok");
+                        }
 
                         disconnect_command_ready.store(true, Ordering::Release);
                         let loop_result = run_conversation_loop(
@@ -3237,7 +2863,11 @@ async fn run_connection(
                         .await;
                         terminal_runtime.release_all_for_session(&sid).await;
                         drop(session);
-                        handle_fork_or_exit(
+                        // Explicit return: this arm is NOT in tail position
+                        // (the session/load block follows it), so without
+                        // `return` a successful resume would fall into
+                        // session/load.
+                        return handle_fork_or_exit(
                             loop_result,
                             &conn_id,
                             &emitter_clone,
@@ -3249,11 +2879,174 @@ async fn run_connection(
                             &cwd,
                             &cwd_string,
                             &prompt_ledger,
+                            &route_binding,
                             delegation_injection.as_ref(),
                         )
-                        .await
+                        .await;
                     }
                     Err(e) => {
+                        if e.allows_load_fallback() && supports_load {
+                            tracing::warn!(
+                                connection_id = conn_id,
+                                agent_type = %agent_type,
+                                session_id = sid,
+                                stage = "resume",
+                                elapsed_ms = recovery_budget.elapsed_ms(),
+                                remaining_ms = recovery_budget.remaining_ms(),
+                                category = e.category(),
+                                error = %e.message(),
+                                "[ACP] session/resume returned RPC error; trying session/load"
+                            );
+                        } else {
+                            emit_session_recovery_failure(
+                                SessionRecoveryFailureContext {
+                                    connection_id: &conn_id,
+                                    session_id: &sid,
+                                    agent_type,
+                                    stage: RecoveryStage::Resume,
+                                    supports_resume,
+                                    supports_load,
+                                    budget: &recovery_budget,
+                                    progress: &recovery_in_progress,
+                                    state: &state,
+                                    emitter: &emitter_clone,
+                                },
+                                e,
+                            )
+                            .await;
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+
+            if !supports_load {
+                emit_session_recovery_failure(
+                    SessionRecoveryFailureContext {
+                        connection_id: &conn_id,
+                        session_id: &sid,
+                        agent_type,
+                        stage: RecoveryStage::Load,
+                        supports_resume,
+                        supports_load,
+                        budget: &recovery_budget,
+                        progress: &recovery_in_progress,
+                        state: &state,
+                        emitter: &emitter_clone,
+                    },
+                    RecoveryFailure::Unavailable(
+                        "Agent does not advertise session recovery support".to_string(),
+                    ),
+                )
+                .await;
+                return Ok(());
+            }
+
+            recovery_in_progress.set_stage(RecoveryStage::Load);
+            let load_req =
+                build_load_session_request(session_request_context, SessionId::new(sid.clone()));
+            let load_stage = startup_trace
+                .as_ref()
+                .map(|trace| trace.stage("session_load"));
+            let load_result = match recovery_budget.timeout_for(RecoveryStage::Load) {
+                Some(timeout) => tokio::time::timeout(timeout, send_load_session(&cx, load_req))
+                    .await
+                    .unwrap_or(Err(RecoveryFailure::Timeout)),
+                None => Err(RecoveryFailure::Timeout),
+            };
+            if let Some(stage) = load_stage {
+                stage.finish(if load_result.is_ok() { "ok" } else { "error" });
+            }
+
+            match load_result {
+                Ok(load_resp) => {
+                    let initial_config_options = load_resp.config_options.clone();
+                    let new_resp = NewSessionResponse::new(SessionId::new(sid.clone()))
+                        .modes(load_resp.modes)
+                        .config_options(load_resp.config_options)
+                        .meta(load_resp.meta);
+                    let grok_meta = (agent_type == AgentType::Grok)
+                        .then(|| new_resp.meta.clone())
+                        .flatten();
+                    let mut session = cx.attach_session(new_resp, Default::default())?;
+                    finalize_user_memory_launch(
+                        &state,
+                        &emitter_clone,
+                        UserMemoryLaunchFinalization {
+                            injection: delegation_injection.as_ref(),
+                            companion: delegate_injection.as_ref(),
+                            health: &companion_health,
+                            resumed: true,
+                        },
+                        version_center_db.as_ref(),
+                    )
+                    .await;
+
+                    // Drain historical replay notifications from session/load,
+                    // but forward AvailableCommandsUpdate to the frontend
+                    let mut drained = 0u32;
+                    let mut drain_failure = None;
+                    loop {
+                        let Some(remaining) = recovery_budget.timeout_for(RecoveryStage::Load)
+                        else {
+                            drain_failure = Some(RecoveryFailure::Timeout);
+                            break;
+                        };
+                        let idle_wait = remaining.min(std::time::Duration::from_millis(100));
+                        let msg = match tokio::time::timeout(idle_wait, session.read_update()).await
+                        {
+                            Ok(Ok(msg)) => msg,
+                            Ok(Err(error)) => {
+                                drain_failure = Some(RecoveryFailure::Transport(error.to_string()));
+                                break;
+                            }
+                            Err(_) if remaining <= std::time::Duration::from_millis(100) => {
+                                drain_failure = Some(RecoveryFailure::Timeout);
+                                break;
+                            }
+                            Err(_) => break,
+                        };
+                        drained += 1;
+                        if let SessionMessage::SessionMessage(dispatch) = msg {
+                            let h = emitter_clone.clone();
+                            let st = Arc::clone(&state);
+                            let dispatch = fix_usage_update_nulls(dispatch);
+                            let _ = MatchDispatch::new(dispatch)
+                                .if_notification(async |notif: SessionNotification| {
+                                    if matches!(
+                                        notif.update,
+                                        SessionUpdate::AvailableCommandsUpdate(_)
+                                    ) {
+                                        // Historical-replay path only
+                                        // forwards AvailableCommandsUpdate,
+                                        // which never carries tool output or
+                                        // tool-call titles — throwaway state
+                                        // is fine.
+                                        let mut replay_cache = ToolCallOutputCache::default();
+                                        let mut replay_cb_state = CodeBuddyLiveState::default();
+                                        emit_conversation_update(
+                                            &st,
+                                            &h,
+                                            agent_type,
+                                            notif.update,
+                                            None,
+                                            &mut replay_cache,
+                                            &mut replay_cb_state,
+                                        )
+                                        .await;
+                                    }
+                                    Ok(())
+                                })
+                                .await
+                                .otherwise(async |dispatch| {
+                                    maybe_emit_claude_sdk_ext_notification(&st, &h, dispatch).await;
+                                    Ok(())
+                                })
+                                .await;
+                        }
+                    }
+                    if let Some(failure) = drain_failure {
+                        drop(session);
                         emit_session_recovery_failure(
                             SessionRecoveryFailureContext {
                                 connection_id: &conn_id,
@@ -3267,95 +3060,224 @@ async fn run_connection(
                                 state: &state,
                                 emitter: &emitter_clone,
                             },
-                            e,
+                            failure,
                         )
                         .await;
-                        Ok(())
+                        return Ok(());
                     }
-                }
-            } else {
-                // Create new session
-                let (new_resp, grok_models_raw) =
-                    send_new_session_with_routing(&cx, session_request_context).await?;
-                let sid = new_resp.session_id.0.to_string();
-                let initial_config_options = new_resp.config_options.clone();
-                let grok_meta = (agent_type == AgentType::Grok)
-                    .then(|| new_resp.meta.clone())
-                    .flatten();
-                let grok_effort_specs = (agent_type == AgentType::Grok)
-                    .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
-                let mut session = cx.attach_session(new_resp, Default::default())?;
-                finalize_user_memory_launch(
-                    &state,
-                    &emitter_clone,
-                    UserMemoryLaunchFinalization {
-                        injection: delegation_injection.as_ref(),
-                        companion: delegate_injection.as_ref(),
-                        health: &companion_health,
-                        resumed: false,
-                    },
-                    version_center_db.as_ref(),
-                )
-                .await;
-                emit_with_state(
-                    &state,
-                    &emitter_clone,
-                    AcpEvent::SessionStarted {
-                        session_id: sid.clone(),
-                    },
-                )
-                .await;
-                emit_session_modes(&state, &emitter_clone, session.modes()).await;
-                apply_and_emit_session_config_options(
-                    &cx,
-                    &mut session,
-                    &state,
-                    &emitter_clone,
-                    agent_type,
-                    grok_meta.as_ref(),
-                    grok_effort_specs.as_ref(),
-                    preferred_mode_id.as_deref(),
-                    &preferred_config_values,
-                    initial_config_options.unwrap_or_default(),
-                )
-                .await;
-                emit_selectors_ready(&state, &emitter_clone).await;
+                    if drained > 0 {
+                        tracing::info!("[ACP] Drained {drained} historical replay notifications");
+                    }
 
-                disconnect_command_ready.store(true, Ordering::Release);
-                let loop_result = run_conversation_loop(
-                    &mut session,
-                    &conn_id,
-                    &emitter_clone,
-                    &state,
-                    agent_type,
-                    &perms,
-                    &mut cmd_rx,
-                    terminal_runtime.clone(),
-                    &cwd_string,
-                    supports_fork,
-                    &prompt_ledger,
-                    delegation_injection.as_ref(),
-                )
-                .await;
-                terminal_runtime.release_all_for_session(&sid).await;
-                drop(session);
-                handle_fork_or_exit(
-                    loop_result,
-                    &conn_id,
-                    &emitter_clone,
-                    &state,
-                    agent_type,
-                    &perms,
-                    &mut cmd_rx,
-                    terminal_runtime.clone(),
-                    &cwd,
-                    &cwd_string,
-                    &prompt_ledger,
-                    delegation_injection.as_ref(),
-                )
-                .await
+                    recovery_in_progress.finish();
+                    state.write().await.mark_recovery_succeeded();
+                    tracing::info!(
+                        connection_id = conn_id,
+                        agent_type = %agent_type,
+                        session_id = sid,
+                        stage = "load",
+                        replay_notifications = drained,
+                        elapsed_ms = recovery_budget.elapsed_ms(),
+                        remaining_ms = recovery_budget.remaining_ms(),
+                        "[ACP] session recovery succeeded"
+                    );
+
+                    emit_with_state(
+                        &state,
+                        &emitter_clone,
+                        AcpEvent::SessionStarted {
+                            session_id: sid.clone(),
+                        },
+                    )
+                    .await;
+                    emit_session_modes(&state, &emitter_clone, session.modes()).await;
+                    let selectors_stage = startup_trace
+                        .as_ref()
+                        .map(|trace| trace.stage("selectors_ready"));
+                    apply_and_emit_session_config_options(
+                        &cx,
+                        &mut session,
+                        &state,
+                        &emitter_clone,
+                        agent_type,
+                        grok_meta.as_ref(),
+                        None,
+                        preferred_mode_id.as_deref(),
+                        &preferred_config_values,
+                        initial_config_options.unwrap_or_default(),
+                    )
+                    .await;
+                    emit_selectors_ready(&state, &emitter_clone).await;
+                    if let Some(stage) = selectors_stage {
+                        stage.finish("ok");
+                    }
+
+                    disconnect_command_ready.store(true, Ordering::Release);
+                    let loop_result = run_conversation_loop(
+                        &mut session,
+                        &conn_id,
+                        &emitter_clone,
+                        &state,
+                        agent_type,
+                        &perms,
+                        &mut cmd_rx,
+                        terminal_runtime.clone(),
+                        &cwd_string,
+                        supports_fork,
+                        &prompt_ledger,
+                        delegation_injection.as_ref(),
+                    )
+                    .await;
+                    terminal_runtime.release_all_for_session(&sid).await;
+                    drop(session);
+                    handle_fork_or_exit(
+                        loop_result,
+                        &conn_id,
+                        &emitter_clone,
+                        &state,
+                        agent_type,
+                        &perms,
+                        &mut cmd_rx,
+                        terminal_runtime.clone(),
+                        &cwd,
+                        &cwd_string,
+                        &prompt_ledger,
+                        &route_binding,
+                        delegation_injection.as_ref(),
+                    )
+                    .await
+                }
+                Err(e) => {
+                    emit_session_recovery_failure(
+                        SessionRecoveryFailureContext {
+                            connection_id: &conn_id,
+                            session_id: &sid,
+                            agent_type,
+                            stage: RecoveryStage::Load,
+                            supports_resume,
+                            supports_load,
+                            budget: &recovery_budget,
+                            progress: &recovery_in_progress,
+                            state: &state,
+                            emitter: &emitter_clone,
+                        },
+                        e,
+                    )
+                    .await;
+                    Ok(())
+                }
             }
-        });
+        } else {
+            // Create new session
+            let new_stage = startup_trace
+                .as_ref()
+                .map(|trace| trace.stage("session_new"));
+            let (new_resp, grok_models_raw) =
+                match send_new_session_with_routing(&cx, session_request_context).await {
+                    Ok(response) => {
+                        if let Some(stage) = new_stage {
+                            stage.finish("ok");
+                        }
+                        response
+                    }
+                    Err(error) => {
+                        if let Some(stage) = new_stage {
+                            stage.finish("error");
+                        }
+                        return Err(error);
+                    }
+                };
+            let sid = new_resp.session_id.0.to_string();
+            if !route_binding.bind_session(sid.clone()) {
+                return Err(sacp::util::internal_error(
+                    "ACP runtime route expired before new session binding",
+                ));
+            }
+            let initial_config_options = new_resp.config_options.clone();
+            let grok_meta = (agent_type == AgentType::Grok)
+                .then(|| new_resp.meta.clone())
+                .flatten();
+            let grok_effort_specs = (agent_type == AgentType::Grok)
+                .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
+            let mut session = cx.attach_session(new_resp, Default::default())?;
+            finalize_user_memory_launch(
+                &state,
+                &emitter_clone,
+                UserMemoryLaunchFinalization {
+                    injection: delegation_injection.as_ref(),
+                    companion: delegate_injection.as_ref(),
+                    health: &companion_health,
+                    resumed: false,
+                },
+                version_center_db.as_ref(),
+            )
+            .await;
+            emit_with_state(
+                &state,
+                &emitter_clone,
+                AcpEvent::SessionStarted {
+                    session_id: sid.clone(),
+                },
+            )
+            .await;
+            emit_session_modes(&state, &emitter_clone, session.modes()).await;
+            let selectors_stage = startup_trace
+                .as_ref()
+                .map(|trace| trace.stage("selectors_ready"));
+            apply_and_emit_session_config_options(
+                &cx,
+                &mut session,
+                &state,
+                &emitter_clone,
+                agent_type,
+                grok_meta.as_ref(),
+                grok_effort_specs.as_ref(),
+                preferred_mode_id.as_deref(),
+                &preferred_config_values,
+                initial_config_options.unwrap_or_default(),
+            )
+            .await;
+            emit_selectors_ready(&state, &emitter_clone).await;
+            if let Some(stage) = selectors_stage {
+                stage.finish("ok");
+            }
+
+            disconnect_command_ready.store(true, Ordering::Release);
+            let loop_result = run_conversation_loop(
+                &mut session,
+                &conn_id,
+                &emitter_clone,
+                &state,
+                agent_type,
+                &perms,
+                &mut cmd_rx,
+                terminal_runtime.clone(),
+                &cwd_string,
+                supports_fork,
+                &prompt_ledger,
+                delegation_injection.as_ref(),
+            )
+            .await;
+            terminal_runtime.release_all_for_session(&sid).await;
+            drop(session);
+            handle_fork_or_exit(
+                loop_result,
+                &conn_id,
+                &emitter_clone,
+                &state,
+                agent_type,
+                &perms,
+                &mut cmd_rx,
+                terminal_runtime.clone(),
+                &cwd,
+                &cwd_string,
+                &prompt_ledger,
+                &route_binding,
+                delegation_injection.as_ref(),
+            )
+            .await
+        }
+    };
     tokio::pin!(connection);
 
     let result = tokio::select! {
@@ -3370,21 +3292,21 @@ async fn run_connection(
                 session_id = snapshot.external_id.as_deref().unwrap_or(""),
                 "[ACP] connection establishment canceled"
             );
-            return Ok(());
+            Ok(())
         }
     };
-    result.map_err(|e| {
-        let raw = e.to_string();
-        if raw.contains(INIT_TIMEOUT_SENTINEL) {
-            AcpError::InitializeTimeout
-        } else {
-            AcpError::protocol(raw)
-        }
-    })
+    for session_id in _route_lease.session_ids() {
+        terminal_cleanup.release_all_for_session(&session_id).await;
+    }
+    drop(_route_lease);
+    if !shared_host {
+        host.shutdown().await;
+    }
+    result.map_err(|error| AcpError::protocol(error.to_string()))
 }
 
 /// Store the permission responder and emit event to frontend.
-async fn handle_permission_request(
+pub(crate) async fn handle_permission_request(
     state: &Arc<RwLock<SessionState>>,
     emitter: &EventEmitter,
     perms: &PendingPermissions,
@@ -3454,26 +3376,6 @@ async fn handle_permission_request(
         },
     )
     .await;
-}
-
-fn respond_terminal_request<T: sacp::JsonRpcResponse>(
-    responder: Responder<T>,
-    result: Result<T, TerminalRuntimeError>,
-) -> Result<(), sacp::Error> {
-    match result {
-        Ok(response) => responder.respond(response),
-        Err(error) => responder.respond_with_error(error.into_rpc_error()),
-    }
-}
-
-fn respond_file_system_request<T: sacp::JsonRpcResponse>(
-    responder: Responder<T>,
-    result: Result<T, FileSystemRuntimeError>,
-) -> Result<(), sacp::Error> {
-    match result {
-        Ok(response) => responder.respond(response),
-        Err(error) => responder.respond_with_error(error.into_rpc_error()),
-    }
 }
 
 async fn set_session_mode(
@@ -4437,6 +4339,7 @@ async fn handle_fork_or_exit(
     _cwd: &std::path::Path,
     cwd_string: &str,
     prompt_ledger: &background_watch::PromptLedger,
+    route_binding: &crate::acp::runtime_host::RuntimeHostRouteBinding,
     // Threaded through from run_connection so the forked session's
     // run_conversation_loop call has the same delegation cascade
     // capability as the original.
@@ -4451,6 +4354,11 @@ async fn handle_fork_or_exit(
     let cx = fork_info.connection;
     let fork_resp = fork_info.fork_response;
     let new_sid = fork_resp.session_id.0.to_string();
+    if !route_binding.bind_session(new_sid.clone()) {
+        return Err(sacp::util::internal_error(
+            "ACP runtime route expired before forked session binding",
+        ));
+    }
 
     tracing::info!(
         "[ACP] Fork transition: attaching to forked session {} (original: {})",
@@ -4525,6 +4433,7 @@ async fn handle_fork_or_exit(
         _cwd,
         cwd_string,
         prompt_ledger,
+        route_binding,
         delegation_injection,
     ))
     .await
@@ -5052,6 +4961,9 @@ async fn run_conversation_loop<'a>(
                         .await;
                 }
 
+                if let Some(trace) = state.read().await.startup_trace.clone() {
+                    trace.first_prompt_dispatched();
+                }
                 // Clone connection and session ID before entering the
                 // select loop so we can send CancelNotification without
                 // conflicting with session.read_update()'s mutable borrow.
