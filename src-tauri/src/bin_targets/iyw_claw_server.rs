@@ -298,6 +298,22 @@ async fn async_main() -> ExitCode {
     // reqwest clients (including the LazyLock in check_app_update) cache the proxy
     // config at build time, so this must run before the first one is constructed.
     iyw_claw_lib::init_proxy_from_db(&db.conn).await;
+    let pending_activation_started = std::time::Instant::now();
+    match iyw_claw_lib::acp::version_center::consume_pending_activations_at_startup(
+        &db.conn, &data_dir,
+    )
+    .await
+    {
+        Ok(()) => tracing::info!(
+            elapsed_ms = pending_activation_started.elapsed().as_millis(),
+            "[agent-version-center] startup pending activation pass completed"
+        ),
+        Err(error) => tracing::warn!(
+            elapsed_ms = pending_activation_started.elapsed().as_millis(),
+            error = %error,
+            "[agent-version-center] startup pending activation pass deferred"
+        ),
+    }
 
     // Reclaim orphaned chat scratch dirs (pre-send drafts that never bound to a
     // conversation, plus dirs left behind by deleted chat conversations).

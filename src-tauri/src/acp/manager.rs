@@ -319,30 +319,6 @@ impl Default for ConnectionManager {
     }
 }
 
-async fn consume_pending_for_new_connection(
-    conn: &DatabaseConnection,
-    data_dir: &Path,
-    agent_type: AgentType,
-    session_id: Option<&str>,
-) -> bool {
-    if session_id.is_some() {
-        return false;
-    }
-    match crate::acp::version_center::consume_pending_agent_activation(conn, data_dir, agent_type)
-        .await
-    {
-        Ok(consumed) => consumed,
-        Err(error) => {
-            tracing::warn!(
-                agent_type = ?agent_type,
-                error = %error,
-                "[agent-version-center] pending activation deferred; using active version"
-            );
-            false
-        }
-    }
-}
-
 impl ConnectionManager {
     const VISIBLE_LEASE_SECS: i64 = 45;
     const PENDING_INPUT_LEASE_SECS: i64 = 120;
@@ -459,43 +435,6 @@ impl ConnectionManager {
         lock.lock_owned().await
     }
 
-    async fn refresh_runtime_for_pending_activation(
-        &self,
-        agent_type: AgentType,
-        session_id: Option<&str>,
-        runtime_env: BTreeMap<String, String>,
-    ) -> Result<(BTreeMap<String, String>, bool), AcpError> {
-        let conn = self
-            .version_center_db
-            .get()
-            .ok_or_else(|| AcpError::protocol("Agent platform authorization is not initialized"))?;
-        let data_dir = self.version_center_data_dir.get().ok_or_else(|| {
-            AcpError::protocol("Agent platform data directory is not initialized")
-        })?;
-        let consumed =
-            consume_pending_for_new_connection(conn, data_dir, agent_type, session_id).await;
-        let active_version =
-            crate::db::service::agent_setting_service::get_by_agent_type(conn, agent_type)
-                .await
-                .map_err(|error| AcpError::protocol(error.to_string()))?
-                .and_then(|setting| setting.installed_version);
-        let caller_version = runtime_env
-            .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
-            .map(String::as_str);
-        if !consumed && active_version.as_deref() == caller_version {
-            return Ok((runtime_env, false));
-        }
-        let runtime_env = crate::commands::acp::build_session_runtime_env(
-            &AppDatabase { conn: conn.clone() },
-            agent_type,
-            session_id,
-            data_dir,
-        )
-        .await?;
-        crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)?;
-        Ok((runtime_env, consumed))
-    }
-
     async fn user_memory_context_for(
         &self,
         agent_type: AgentType,
@@ -532,8 +471,6 @@ impl ConnectionManager {
             AcpError::protocol("Agent platform data directory is not initialized")
         })?;
         let agent_type = AgentType::Codex;
-        let _activation_guard = self.begin_agent_activation(agent_type).await;
-        let _storage_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
         let runtime_env = crate::commands::acp::build_session_runtime_env(
             &AppDatabase {
                 conn: version_center_db.clone(),
@@ -544,9 +481,6 @@ impl ConnectionManager {
         )
         .await?;
         crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)?;
-        crate::acp::version_center::authorize_verified_agent_launch(version_center_db, agent_type)
-            .await
-            .map_err(|error| AcpError::protocol(error.message))?;
         crate::acp::connection::prewarm_agent_runtime(
             agent_type,
             runtime_env,
@@ -716,72 +650,23 @@ impl ConnectionManager {
             return Ok(existing);
         }
 
-        let activation_guard = self.begin_agent_activation(agent_type).await;
-        if let Some(existing) = self
-            .find_connection_for_reuse(agent_type, working_dir_path.as_ref(), session_id.as_deref())
-            .await
-        {
-            startup_trace.bind_connection(existing.clone());
-            startup_trace.record("connection_reuse", "reused", Duration::ZERO);
-            tracing::info!(
-                connection_id = existing,
-                session_id = session_id.as_deref().unwrap_or(""),
-                agent = %agent_type,
-                origin = ?user_memory_origin,
-                "[ACP] connection reused after activation wait"
-            );
-            return Ok(existing);
-        }
-
-        let authorization_stage = startup_trace.stage("launch_authorization");
-
-        // Freeze the managed Agent inventory until the process has been
-        // inserted. A concurrent install then observes this live connection
-        // and records a pending activation instead of switching beneath it.
-        let storage_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
+        let verification_stage = startup_trace.stage("local_runtime_verify");
 
         let Some(version_center_db) = self.version_center_db.get() else {
-            authorization_stage.finish("version_center_uninitialized");
+            verification_stage.finish("version_center_uninitialized");
             return Err(AcpError::protocol(
                 "Agent platform authorization is not initialized",
             ));
         };
-        let (runtime_env, pending_authorized) = match self
-            .refresh_runtime_for_pending_activation(agent_type, session_id.as_deref(), runtime_env)
-            .await
-        {
-            Ok(result) => result,
-            Err(error) => {
-                authorization_stage.finish("runtime_refresh_error");
-                return Err(error);
-            }
-        };
         if let Err(error) = crate::commands::acp::verify_agent_installed(agent_type, &runtime_env) {
-            authorization_stage.finish("inventory_verification_error");
+            verification_stage.finish("inventory_verification_error");
             return Err(error);
         }
-        if !pending_authorized {
-            if let Err(error) = crate::acp::version_center::authorize_verified_agent_launch(
-                version_center_db,
-                agent_type,
-            )
-            .await
-            {
-                tracing::warn!(
-                    agent_type = ?agent_type,
-                    code = ?error.code,
-                    detail = ?error.detail,
-                    "[agent-version-center] rejected Agent launch"
-                );
-                authorization_stage.finish("authorization_rejected");
-                return Err(AcpError::protocol(error.message));
-            }
-        }
+        verification_stage.finish("ok");
 
         let user_memory_context = self
             .user_memory_context_for(agent_type, user_memory_origin)
             .await;
-        authorization_stage.finish("ok");
 
         let connection_id = uuid::Uuid::new_v4().to_string();
         startup_trace.bind_connection(connection_id.clone());
@@ -821,8 +706,6 @@ impl ConnectionManager {
             Some(version_center_db.clone()),
         )
         .await?;
-        drop(storage_guard);
-        drop(activation_guard);
 
         // When dedup is active, hold the lock until the agent's
         // SessionStarted has applied (so external_id is populated for the

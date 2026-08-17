@@ -8,48 +8,13 @@ use crate::acp::version_center::capability;
 use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
 
-#[derive(Debug, Clone, Copy)]
-enum LocalFallbackValidation {
-    CallerVerified,
-    ManagedInventory,
-}
-
-/// The spawn path must call `verify_agent_installed` before this gate.
-pub async fn authorize_verified_agent_launch(
-    conn: &DatabaseConnection,
-    agent_type: AgentType,
-) -> Result<(), AppCommandError> {
-    let setting = agent_setting(conn, agent_type).await?;
-    let version = setting
-        .installed_version
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| AppCommandError::configuration_invalid("Agent is not installed"))?;
-    authorize_agent_version(
-        conn,
-        agent_type,
-        version,
-        &setting,
-        LocalFallbackValidation::CallerVerified,
-    )
-    .await
-}
-
 pub(crate) async fn authorize_agent_version_launch(
     conn: &DatabaseConnection,
     agent_type: AgentType,
     version: &str,
 ) -> Result<(), AppCommandError> {
     let setting = agent_setting(conn, agent_type).await?;
-    authorize_agent_version(
-        conn,
-        agent_type,
-        version,
-        &setting,
-        LocalFallbackValidation::ManagedInventory,
-    )
-    .await
+    authorize_agent_version(conn, agent_type, version, &setting).await
 }
 
 async fn authorize_agent_version(
@@ -57,7 +22,6 @@ async fn authorize_agent_version(
     agent_type: AgentType,
     version: &str,
     setting: &crate::db::entities::agent_setting::Model,
-    fallback_validation: LocalFallbackValidation,
 ) -> Result<(), AppCommandError> {
     let platform = platform_projection(conn, agent_type).await;
     if platform.access == PlatformAccess::Disabled {
@@ -81,7 +45,7 @@ async fn authorize_agent_version(
         },
     )
     .await;
-    validate_resolution(conn, agent_type, version, resolution, fallback_validation).await
+    validate_resolution(conn, agent_type, version, resolution).await
 }
 
 async fn validate_resolution(
@@ -89,7 +53,6 @@ async fn validate_resolution(
     agent_type: AgentType,
     version: &str,
     resolution: Result<super::types::AgentOffer, AppCommandError>,
-    fallback_validation: LocalFallbackValidation,
 ) -> Result<(), AppCommandError> {
     match resolution {
         Ok(offer) if offer.version == version => Ok(()),
@@ -97,17 +60,11 @@ async fn validate_resolution(
             "Agent launch version was rejected",
         )),
         Err(error) if super::fallback::launch_allowed(&error) => {
-            if matches!(
-                fallback_validation,
-                LocalFallbackValidation::ManagedInventory
-            ) {
-                super::installer::validate_local_agent_runtime(conn, agent_type, version).await?;
-            }
+            super::installer::validate_local_agent_runtime(conn, agent_type, version).await?;
             tracing::warn!(
                 agent_type = ?agent_type,
                 version,
                 reason = ?super::fallback::classify(&error),
-                ?fallback_validation,
                 "[agent-version-center] Fusion launch authorization unavailable; using verified local Agent"
             );
             Ok(())

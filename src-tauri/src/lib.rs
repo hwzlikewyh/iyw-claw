@@ -565,6 +565,23 @@ mod tauri_app {
                 // Restore and apply saved system proxy settings before any network operation.
                 let db = app.state::<db::AppDatabase>();
                 tauri::async_runtime::block_on(network::proxy::init_proxy_from_db(&db.conn));
+                let pending_activation_started = std::time::Instant::now();
+                match tauri::async_runtime::block_on(
+                    crate::acp::version_center::consume_pending_activations_at_startup(
+                        &db.conn,
+                        &effective_data_dir,
+                    ),
+                ) {
+                    Ok(()) => tracing::info!(
+                        elapsed_ms = pending_activation_started.elapsed().as_millis(),
+                        "[agent-version-center] startup pending activation pass completed"
+                    ),
+                    Err(error) => tracing::warn!(
+                        elapsed_ms = pending_activation_started.elapsed().as_millis(),
+                        error = %error,
+                        "[agent-version-center] startup pending activation pass deferred"
+                    ),
+                }
 
                 crate::update::scheduler::spawn(
                     app.handle().clone(),

@@ -20,7 +20,8 @@ mod state;
 mod tools;
 
 pub(crate) use agent_activation::persisted_activation_revision;
-pub(crate) use agent_pending::{consume_pending_agent_activation, validate_local_agent_runtime};
+pub use agent_pending::consume_pending_activations_at_startup;
+pub(crate) use agent_pending::{pending_agent_activation_version, validate_local_agent_runtime};
 pub(crate) use agents::{install_managed_binary_agent, ManagedBinaryAgentRequest};
 pub(crate) use archive::{extract_tool_zip, locate_payload};
 pub use init::{bootstrap_init_status, bootstrap_initialize, InitStatusReport};
