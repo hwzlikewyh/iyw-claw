@@ -1,13 +1,14 @@
 ; Capture source paths while NSIS includes this file.
 !define IYW_CLAW_INSTALL_REGISTRY_KEY "Software\iywclaw\iyw-claw"
 !define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
-
 Var IywClawRoot
 
+!include "${__FILEDIR__}\installer-process-control.nsh"
+!include "${__FILEDIR__}\installer-app-transaction.nsh"
+
 Function IywClawIsMainProcessRunning
-  ; 仅返回精确主进程命中。tasklist/find 不可用或执行失败时按未运行处理，
-  ; 避免安装完成后意外启动原本关闭的应用。
-  nsExec::Exec 'cmd.exe /D /C tasklist.exe /FI "IMAGENAME eq iyw-claw.exe" /NH | find.exe /I "iyw-claw.exe" >NUL'
+  ; 仅检查安装器当前用户，其他登录会话不能改变本次恢复策略。
+  nsis_tauri_utils::FindProcessCurrentUser "iyw-claw.exe"
   Pop $R5
   StrCmp $R5 "0" iyw_process_running 0
   Push "0"
@@ -118,30 +119,45 @@ FunctionEnd
 
 !macro NSIS_HOOK_PREINSTALL
   Call IywClawResolveInstallRoot
-  DetailPrint "正在停止运行中的 iyw-claw 后台进程..."
-  nsExec::Exec 'taskkill /F /T /IM iyw-claw.exe'
-  Pop $0
-  nsExec::Exec 'taskkill /F /T /IM "iyw-claw-mcp*.exe" /FI "STATUS eq RUNNING"'
-  Pop $0
-  Sleep 500
-
-  ${If} $UpdateMode = 1
-    DetailPrint "正在替换 iyw-claw 应用文件..."
-    ; 更新只替换 app 区。任何删除路径必须先 canonicalize 并证明目标就是
-    ; $IywClawRoot\app，绝不触碰 runtime/agents/skills/inventory/config/data/logs。
-    StrCmp $IywClawRoot "" iyw_skip_app_replace 0
-    GetFullPathName $R0 "$IywClawRoot\app"
-    GetFullPathName $R1 "$INSTDIR"
-    StrCmp $R0 $R1 0 iyw_skip_app_replace
-    RMDir /r "$R0"
-    CreateDirectory "$R0"
-    StrCpy $INSTDIR "$R0"
-    SetOutPath "$INSTDIR"
-  iyw_skip_app_replace:
+  !if "${ARCH}" == "x64"
+    StrCpy $IywClawRequireBrowser "1"
+  !else
+    StrCpy $IywClawRequireBrowser "0"
+  !endif
+  Call IywClawConfigureAppTransaction
+  Call IywClawStopKnownProcesses
+  Pop $R0
+  StrCmp $R0 "0" iyw_begin_app_transaction 0
+  IfSilent iyw_abort_install_for_processes 0
+  ${If} $PassiveMode != 1
+    MessageBox MB_OK|MB_ICONSTOP \
+      "无法停止当前用户的后台进程：$IywClawProcessError$\r$\n安装尚未修改旧版本。"
   ${EndIf}
+  iyw_abort_install_for_processes:
+    Abort
+
+  iyw_begin_app_transaction:
+    Call IywClawBeginAppTransaction
+    Pop $R0
+    StrCmp $R0 "1" iyw_app_transaction_ready 0
+    IfSilent iyw_abort_install_for_transaction 0
+    ${If} $PassiveMode != 1
+      MessageBox MB_OK|MB_ICONSTOP \
+        "无法安全替换应用目录：$IywClawTransactionError$\r$\n旧版本和备份现场已保留。"
+    ${EndIf}
+    iyw_abort_install_for_transaction:
+      Abort
+
+  iyw_app_transaction_ready:
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  Call IywClawCommitAppTransaction
+  Pop $R0
+  StrCmp $R0 "1" iyw_app_transaction_committed 0
+  Abort
+
+  iyw_app_transaction_committed:
   ; Tauri persists the internal app directory as the next installer location.
   ; Expose the logical root in the directory page while keeping binaries
   ; isolated below root\app.
@@ -157,10 +173,18 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  DetailPrint "正在停止运行中的 iyw-claw 后台进程..."
-  nsExec::Exec 'taskkill /F /T /IM "iyw-claw-mcp*.exe" /FI "STATUS eq RUNNING"'
-  Pop $0
-  Sleep 500
+  Call un.IywClawStopKnownProcesses
+  Pop $R0
+  StrCmp $R0 "0" iyw_uninstall_processes_stopped 0
+  IfSilent iyw_abort_uninstall_for_processes 0
+  ${If} $PassiveMode != 1
+    MessageBox MB_OK|MB_ICONSTOP \
+      "无法停止当前用户的后台进程：$IywClawProcessError$\r$\n卸载尚未修改应用文件。"
+  ${EndIf}
+  iyw_abort_uninstall_for_processes:
+    Abort
+
+  iyw_uninstall_processes_stopped:
 
   ${If} $UpdateMode = 1
     Goto iyw_uninstall_done
@@ -202,3 +226,9 @@ FunctionEnd
 
   iyw_uninstall_done:
 !macroend
+
+Function .onInstFailed
+  Call IywClawRollbackAppTransaction
+  Pop $R0
+  Call IywClawRestartOldAppIfRequested
+FunctionEnd
