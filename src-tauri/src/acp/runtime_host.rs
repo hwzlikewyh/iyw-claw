@@ -21,9 +21,17 @@ pub(crate) use crate::acp::runtime_host_router::{
 mod lifecycle;
 
 pub(crate) const INIT_TIMEOUT_SENTINEL: &str = "__IYW_CLAW_ACP_INIT_TIMEOUT__";
-const HOST_READY_TIMEOUT: Duration = Duration::from_secs(65);
+const DEFAULT_HOST_READY_TIMEOUT: Duration = Duration::from_secs(65);
+const CODEX_HOST_READY_TIMEOUT: Duration = Duration::from_secs(125);
 const HOST_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const HOST_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+
+const fn host_ready_timeout(agent_type: crate::models::agent::AgentType) -> Duration {
+    match agent_type {
+        crate::models::agent::AgentType::Codex => CODEX_HOST_READY_TIMEOUT,
+        _ => DEFAULT_HOST_READY_TIMEOUT,
+    }
+}
 
 pub(crate) struct AgentRuntimeHost {
     key: RuntimeHostKey,
@@ -66,7 +74,8 @@ impl AgentRuntimeHost {
             ready_tx,
             startup_trace,
         );
-        let ready = match tokio::time::timeout(HOST_READY_TIMEOUT, ready_rx).await {
+        let ready_timeout = host_ready_timeout(key.agent_type);
+        let ready = match tokio::time::timeout(ready_timeout, ready_rx).await {
             Ok(Ok(Ok(ready))) => ready,
             Ok(Ok(Err(error))) => {
                 shutdown.cancel();

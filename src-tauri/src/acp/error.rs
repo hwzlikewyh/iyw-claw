@@ -44,7 +44,7 @@ pub enum AcpError {
     SdkNotInstalled(String),
     #[error("Sign in to iyw-claw before installing or using Agents")]
     AuthenticationRequired,
-    #[error("Agent did not respond to Initialize within 60 seconds. The cached binary may be outdated or incompatible. Try upgrading it from Agent Settings.")]
+    #[error("Agent local initialization timed out. Check Agent Settings and startup logs.")]
     InitializeTimeout,
     #[error("Agent did not publish its configurable options within 60 seconds. The probe was aborted; the agent may be slow, idle, or not ACP-compliant — try again or check the agent binary.")]
     ProbeTimedOut,

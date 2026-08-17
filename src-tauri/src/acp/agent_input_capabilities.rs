@@ -39,6 +39,7 @@ pub(crate) struct AgentInputCapabilities {
     has_consumption_ack: bool,
     supports_cooperative_feedback: bool,
     deferred_interrupt: bool,
+    supports_post_tool_cancel: bool,
 }
 
 impl AgentInputCapabilities {
@@ -71,6 +72,9 @@ impl AgentInputCapabilities {
             has_consumption_ack: codex_native,
             supports_cooperative_feedback: feedback_tool_available && !deferred_interrupt,
             deferred_interrupt,
+            // Claude sessions can remain poisoned after a post-tool cancel and
+            // reject the next prompt with a tool-use concurrency 400.
+            supports_post_tool_cancel: agent_type != AgentType::ClaudeCode,
         }
     }
 
@@ -107,6 +111,10 @@ impl AgentInputCapabilities {
 
     pub(crate) const fn uses_deferred_interrupt(&self) -> bool {
         self.deferred_interrupt
+    }
+
+    pub(crate) const fn supports_post_tool_cancel(&self) -> bool {
+        self.supports_post_tool_cancel
     }
 }
 

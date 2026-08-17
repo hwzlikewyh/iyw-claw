@@ -21,7 +21,15 @@ use crate::acp::runtime_host::{HostReady, INIT_TIMEOUT_SENTINEL};
 use crate::acp::runtime_host_router::SessionRequestRouter;
 use crate::models::agent::AgentType;
 
-const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(60);
+const DEFAULT_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(60);
+const CODEX_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(120);
+
+const fn initialize_timeout(agent_type: AgentType) -> Duration {
+    match agent_type {
+        AgentType::Codex => CODEX_INITIALIZE_TIMEOUT,
+        _ => DEFAULT_INITIALIZE_TIMEOUT,
+    }
+}
 
 pub(super) fn spawn(
     agent_type: AgentType,
@@ -182,15 +190,16 @@ async fn initialize_agent(
                 .write_text_file(true)),
     );
     let started = Instant::now();
+    let timeout = initialize_timeout(agent_type);
     let startup_stage = startup_trace.map(|trace| trace.stage("initialize"));
     tracing::info!(
         agent = %agent_type,
         protocol = %ProtocolVersion::LATEST,
-        timeout_seconds = INITIALIZE_TIMEOUT.as_secs(),
+        timeout_seconds = timeout.as_secs(),
         "[ACP][host] initialize started"
     );
     match tokio::time::timeout(
-        INITIALIZE_TIMEOUT,
+        timeout,
         connection.send_request_to(Agent, request).block_task(),
     )
     .await

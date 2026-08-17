@@ -192,10 +192,9 @@ struct SpawnDedupKey {
 
 /// Default upper bound on how long `spawn_agent` will hold the per-session
 /// dedup lock waiting for `SessionStarted`. Picked to comfortably cover
-/// cold-start agents (claude-code/codex warm: <2s; npx-fetched cold: 10–30s)
-/// without deadlocking the next concurrent acp_connect when an agent is
-/// genuinely broken.
-pub(crate) const SPAWN_HANDSHAKE_TIMEOUT_SECS: u64 = 60;
+/// cold-start agents, including a full Codex profile scan, without deadlocking
+/// the next concurrent acp_connect when an agent is genuinely broken.
+pub(crate) const SPAWN_HANDSHAKE_TIMEOUT_SECS: u64 = 150;
 
 /// Read the spawn-handshake timeout from `IYW_CLAW_ACP_SPAWN_HANDSHAKE_TIMEOUT_SECS`,
 /// falling back to `SPAWN_HANDSHAKE_TIMEOUT_SECS`. Returns the configured

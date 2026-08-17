@@ -2633,7 +2633,7 @@
           "networkError": "Network connection failed. Check your connection and try again.",
           "serviceUnavailable": "The service is temporarily unavailable. Try again later.",
           "requestFailed": "The request failed. Try again later.",
-          "initializeTimeout": "{agent} connection handshake timed out after 60 seconds. Please open Settings to check Agent configuration and network settings.",
+          "initializeTimeout": "{agent} local initialization timed out. Open Settings to check the Agent configuration and startup logs.",
           "processExited": "{agent} process exited unexpectedly.",
           "spawnFailed": "Unable to start {agent}. Check its configuration and try again.",
           "downloadFailed": "{agent} download failed. Check your network and try again.",

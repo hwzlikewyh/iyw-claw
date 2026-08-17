@@ -2633,7 +2633,7 @@
           "networkError": "网络连接失败，请检查网络后重试。",
           "serviceUnavailable": "服务暂时不可用，请稍后重试。",
           "requestFailed": "请求失败，请稍后重试。",
-          "initializeTimeout": "{agent} 连接握手超时（60 秒未响应），请前往设置页面检查智能体和网络配置。",
+          "initializeTimeout": "{agent} 本地初始化超时。请前往设置检查智能体配置和启动日志。",
           "processExited": "{agent} 进程意外退出。",
           "spawnFailed": "无法启动 {agent}，请检查配置后重试。",
           "downloadFailed": "{agent} 下载失败，请检查网络后重试。",

@@ -985,18 +985,22 @@ const ConversationTabView = memo(function ConversationTabView({
             blocks: draft.blocks,
             display_text: draft.displayText,
             mode_id: selectedModeIdArg ?? null,
-          }).catch((error) => {
-            console.error("[agent-input] durable recovery queue failed", {
-              conversationId,
-              messageId,
-              error,
-            })
-            saveMessageInputDraft(
-              buildConversationDraftStorageKey(conversationId),
-              draft.displayText
-            )
-            toast.error(tAgentInput("durableQueueFailed"))
           })
+            .then(() => {
+              mqRemove(messageId)
+            })
+            .catch((error) => {
+              console.error("[agent-input] durable recovery queue failed", {
+                conversationId,
+                messageId,
+                error,
+              })
+              saveMessageInputDraft(
+                buildConversationDraftStorageKey(conversationId),
+                draft.displayText
+              )
+              toast.error(tAgentInput("durableQueueFailed"))
+            })
         } else {
           mqEnqueue(draft, selectedModeIdArg ?? null)
         }
@@ -1285,6 +1289,7 @@ const ConversationTabView = memo(function ConversationTabView({
       removeOptimisticTurn,
       mqEnqueue,
       mqEnqueueAgentInput,
+      mqRemove,
       mqRequeueItemFront,
       mqGetQueueLength,
       bindConversationTab,
@@ -1330,19 +1335,23 @@ const ConversationTabView = memo(function ConversationTabView({
         blocks: draft.blocks,
         display_text: draft.displayText,
         mode_id: selectedModeIdArg,
-      }).catch((error) => {
-        console.error("[agent-input] durable submission failed", {
-          messageId,
-          error,
-        })
-        saveMessageInputDraft(
-          buildConversationDraftStorageKey(conversationId),
-          draft.displayText
-        )
-        toast.error(tAgentInput("durableQueueFailed"))
       })
+        .then(() => {
+          mqRemove(messageId)
+        })
+        .catch((error) => {
+          console.error("[agent-input] durable submission failed", {
+            messageId,
+            error,
+          })
+          saveMessageInputDraft(
+            buildConversationDraftStorageKey(conversationId),
+            draft.displayText
+          )
+          toast.error(tAgentInput("durableQueueFailed"))
+        })
     },
-    [mqEnqueueAgentInput, tAgentInput]
+    [mqEnqueueAgentInput, mqRemove, tAgentInput]
   )
 
   const handleDeleteAgentInput = useCallback(

@@ -37,8 +37,9 @@ pub(super) struct WorkerContext<'a> {
 
 #[derive(Default)]
 struct WorkerTracking {
-    observed_tool_for: Option<String>,
+    tool_for: Option<String>,
     cancel_requested_for: Option<String>,
+    turn_generation: i64,
 }
 
 enum PendingWork {
@@ -156,7 +157,7 @@ impl WorkerTracking {
         item: AgentInputItem,
         snapshot: WorkerSnapshot,
     ) {
-        self.reset(&item.id);
+        self.reset(&item.id, snapshot.turn_generation);
         if snapshot.native_background_active {
             snapshot.wake.await;
             return;
@@ -190,15 +191,19 @@ impl WorkerTracking {
         let Some(batch_id) = items.first().and_then(|item| item.force_batch_id.clone()) else {
             return;
         };
-        self.reset(&batch_id);
+        self.reset(&batch_id, snapshot.turn_generation);
+        let capabilities = &snapshot.capabilities;
+        let had_tools = snapshot.has_tools || self.tool_for.as_deref() == Some(batch_id.as_str());
         if snapshot.native_background_active {
             snapshot.wake.await;
             return;
         }
         if snapshot.turn_in_flight {
             if snapshot.has_running_tools {
-                self.observed_tool_for = Some(batch_id);
-            } else if self.cancel_requested_for.as_deref() != Some(batch_id.as_str()) {
+                self.tool_for = Some(batch_id);
+            } else if self.cancel_requested_for.as_deref() != Some(batch_id.as_str())
+                && (!had_tools || capabilities.supports_post_tool_cancel())
+            {
                 match context
                     .manager
                     .request_safe_cancel(context.conn_id, snapshot.turn_generation)
@@ -222,18 +227,17 @@ impl WorkerTracking {
         self.clear();
         dispatch_force_batch(context, items, snapshot).await;
     }
-    fn reset(&mut self, id: &str) {
-        if self
-            .observed_tool_for
-            .as_deref()
-            .is_some_and(|value| value != id)
+    fn reset(&mut self, id: &str, turn_generation: i64) {
+        if self.turn_generation != turn_generation
+            || self.tool_for.as_deref().is_some_and(|value| value != id)
         {
             self.clear();
+            self.turn_generation = turn_generation;
         }
     }
 
     fn clear(&mut self) {
-        self.observed_tool_for = None;
+        self.tool_for = None;
         self.cancel_requested_for = None;
     }
 
@@ -275,13 +279,14 @@ impl WorkerTracking {
         snapshot: &WorkerSnapshot,
     ) {
         if snapshot.has_running_tools {
-            self.observed_tool_for = Some(item.id.clone());
+            self.tool_for = Some(item.id.clone());
             return;
         }
         let reached = snapshot.has_tools
-            && self.observed_tool_for.as_deref() == Some(item.id.as_str())
+            && self.tool_for.as_deref() == Some(item.id.as_str())
             && self.cancel_requested_for.as_deref() != Some(item.id.as_str());
         if reached
+            && snapshot.capabilities.supports_post_tool_cancel()
             && context
                 .manager
                 .request_safe_cancel(context.conn_id, snapshot.turn_generation)
