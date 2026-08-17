@@ -128,9 +128,17 @@ pub fn desktop_updater(
             AppCommandError::configuration_invalid("Invalid update endpoint")
                 .with_detail(error.to_string())
         })?;
+    let app = request.app.clone();
     request
         .app
         .updater_builder()
+        .on_before_exit(move || {
+            crate::desktop_shutdown::shutdown_blocking(
+                &app,
+                crate::desktop_shutdown::ShutdownReason::WindowsUpdate,
+            );
+            app.cleanup_before_exit();
+        })
         .endpoints(vec![endpoint])
         .map_err(updater_error)?
         .header(

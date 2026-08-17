@@ -1,9 +1,5 @@
 #!/usr/bin/env node
-//
-// Verifies the first-party MCP companion at each release boundary:
-// Cargo output -> Tauri externalBin staging -> installed NSIS application.
-// The NSIS mode is intentionally used only on disposable Windows CI runners.
-
+// Verifies bundled sidecars from staging through disposable Windows installs.
 import { execFileSync } from "node:child_process"
 import {
   existsSync,
@@ -19,12 +15,18 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 
+import {
+  addAgentBrowserHash,
+  verifyAgentBrowserConfig,
+  verifyInstalledAgentBrowser,
+  verifyStagedAgentBrowser,
+} from "./verify-agent-browser-bundle.mjs"
+
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SRC_TAURI = resolve(SCRIPT_DIR, "..")
 const REPO_ROOT = resolve(SRC_TAURI, "..")
 const BIN_NAME = "iyw-claw-mcp"
 const NSIS_INSTALL_PREFIX = "iyw-claw-sidecar-"
-
 function log(message) {
   console.log(`[verify-sidecar-bundle] ${message}`)
 }
@@ -113,7 +115,7 @@ function expectedStagePaths(target, version) {
   )
 }
 
-function verifyConfiguredExternalBins(version) {
+function verifyConfiguredExternalBins(target, version) {
   const config = JSON.parse(
     readFileSync(join(SRC_TAURI, "tauri.conf.json"), "utf8")
   )
@@ -124,6 +126,7 @@ function verifyConfiguredExternalBins(version) {
       die(`tauri.conf.json externalBin is missing ${expected}`)
     }
   }
+  verifyAgentBrowserConfig(SRC_TAURI, target, die)
 }
 
 function cargoOutputPath(target) {
@@ -140,13 +143,14 @@ function verifyStagedSidecars(target, version) {
   const cargoPath = cargoOutputPath(target)
   logFile("Cargo MCP sidecar", cargoPath, version)
   const cargoHash = sha256(cargoPath)
-  verifyConfiguredExternalBins(version)
+  verifyConfiguredExternalBins(target, version)
   for (const stagePath of expectedStagePaths(target, version)) {
     logFile("Tauri externalBin sidecar", stagePath, version)
     if (sha256(stagePath) !== cargoHash) {
       die(`staged sidecar differs from Cargo output: ${stagePath}`)
     }
   }
+  verifyStagedAgentBrowser(SRC_TAURI, target, { die, logFile, sha256 })
 }
 
 function resolveInstallerPath(args, target, version) {
@@ -191,15 +195,22 @@ function verifyInstalledSidecars(
       die(`installed sidecar differs from staged externalBin source: ${path}`)
     }
   }
+  verifyInstalledAgentBrowser(appDirectory, target, expectedHashes, {
+    die,
+    logFile,
+    sha256,
+  })
 }
 
 function stagedHashes(target, version) {
-  return new Map(
+  const hashes = new Map(
     expectedNames(version).map((name, index) => [
       name,
       sha256(expectedStagePaths(target, version)[index]),
     ])
   )
+  addAgentBrowserHash(hashes, SRC_TAURI, target, sha256)
+  return hashes
 }
 
 function verifyNsisInstaller(installer, target, version) {

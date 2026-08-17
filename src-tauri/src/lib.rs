@@ -12,6 +12,8 @@ pub mod chat_channel;
 pub mod commands;
 pub mod db;
 pub mod desktop_bootstrap;
+#[cfg(feature = "tauri-runtime")]
+mod desktop_shutdown;
 #[cfg(all(target_os = "windows", not(debug_assertions)))]
 mod desktop_startup_gate;
 pub mod display_assets;
@@ -60,8 +62,6 @@ pub fn sweep_acp_binary_trash() {
 
 #[cfg(feature = "tauri-runtime")]
 mod tauri_app {
-    use std::sync::atomic::{AtomicBool, Ordering};
-
     use crate::acp::manager::ConnectionManager;
     use crate::chat_channel::manager::ChatChannelManager;
     use crate::commands::{
@@ -94,7 +94,6 @@ mod tauri_app {
     use crate::{db, git_credential, network, paths, process, web};
     use tauri::Manager;
 
-    static APP_QUITTING: AtomicBool = AtomicBool::new(false);
     const INSTALLER_RESTORE_ARG: &str = "--restore-installer-session";
 
     fn installer_restore_requested() -> bool {
@@ -1169,10 +1168,9 @@ mod tauri_app {
                         //     callback's `show_main_window` is a no-op once
                         //     main is destroyed.
                         //
-                        // ExitRequested itself reaches this branch with
-                        // APP_QUITTING already set — that's the only path
-                        // that should fall through to the cleanup below.
-                        if !APP_QUITTING.load(Ordering::Relaxed) {
+                        // 真正退出时统一清理入口已标记 quitting；其他关闭请求继续
+                        // 走隐藏到托盘或显式退出分支。
+                        if !crate::desktop_shutdown::is_quitting() {
                             api.prevent_close();
                             if windows::can_hide_to_tray() {
                                 let _ = window.hide();
@@ -1180,20 +1178,6 @@ mod tauri_app {
                                 window.app_handle().exit(0);
                             }
                             return;
-                        }
-                        let app = window.app_handle();
-                        if let Some(cm) = app.try_state::<ConnectionManager>() {
-                            let disconnected = tauri::async_runtime::block_on(
-                                cm.disconnect_by_owner_window(&label),
-                            );
-                            tracing::info!(
-                                "[ACP] main window closing disconnected_connections={}",
-                                disconnected
-                            );
-                        }
-                        if let Some(tm) = app.try_state::<TerminalManager>() {
-                            let killed = tm.kill_by_owner_window(&label);
-                            tracing::info!("[TERM] main window closing killed_terminals={}", killed);
                         }
                     }
                 }
@@ -1689,26 +1673,10 @@ mod tauri_app {
         app.run(|app, event| match event {
             tauri::RunEvent::ExitRequested { .. } => {
                 crate::logging::emergency::write_event("exit_requested", "begin", "shutdown", None);
-                APP_QUITTING.store(true, Ordering::Relaxed);
-                if let Some(browser) = app.try_state::<crate::browser::BrowserSessionManager>() {
-                    if let Err(error) = tauri::async_runtime::block_on(browser.shutdown()) {
-                        tracing::error!(
-                            target: "iyw_claw_browser",
-                            error_code = ?error.code,
-                            "browser shutdown did not complete cleanly"
-                        );
-                    }
-                }
-                if let Some(ws) = app.try_state::<web::WebServerState>() {
-                    tauri::async_runtime::block_on(web::do_stop_web_server(&ws));
-                }
-                if let Some(tm) = app.try_state::<TerminalManager>() {
-                    tm.kill_all();
-                }
-                crate::office_watch::stop_all_office_watches();
-                if let Some(cm) = app.try_state::<ConnectionManager>() {
-                    tauri::async_runtime::block_on(cm.disconnect_all());
-                }
+                crate::desktop_shutdown::shutdown_blocking(
+                    app,
+                    crate::desktop_shutdown::ShutdownReason::NormalExit,
+                );
             }
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => {
