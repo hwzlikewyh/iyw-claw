@@ -4420,7 +4420,7 @@
     "pause": "暂停",
     "resume": "实时",
     "refresh": "刷新",
-    "clear": "清空",
+    "clear": "清空显示",
     "openFolder": "打开文件夹",
     "logsPathLabel": "日志目录",
     "copyPath": "复制日志目录",

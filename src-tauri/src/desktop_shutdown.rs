@@ -5,6 +5,7 @@ use std::time::Instant;
 use tauri::Manager;
 
 use crate::acp::manager::ConnectionManager;
+use crate::acp::types::ConnectionStatus;
 use crate::browser::BrowserSessionManager;
 use crate::terminal::manager::TerminalManager;
 
@@ -62,14 +63,16 @@ fn run_on_shutdown_thread(app: tauri::AppHandle, reason: ShutdownReason) -> bool
         .name("iyw-claw-shutdown".to_string())
         .spawn(move || tauri::async_runtime::block_on(shutdown_resources(&app, reason)));
     match worker {
-        Ok(worker) if worker.join().is_ok() => true,
-        Ok(_) => {
-            tracing::error!(
-                shutdown_reason = reason.as_str(),
-                "[shutdown] worker panicked"
-            );
-            false
-        }
+        Ok(worker) => match worker.join() {
+            Ok(()) => true,
+            Err(_) => {
+                tracing::error!(
+                    shutdown_reason = reason.as_str(),
+                    "[shutdown] worker panicked"
+                );
+                false
+            }
+        },
         Err(error) => {
             tracing::error!(
                 shutdown_reason = reason.as_str(),
@@ -82,10 +85,123 @@ fn run_on_shutdown_thread(app: tauri::AppHandle, reason: ShutdownReason) -> bool
 }
 
 async fn shutdown_resources(app: &tauri::AppHandle, reason: ShutdownReason) {
+    let live_agent_connections = snapshot_live_agent_connections(app).await;
     stop_entrypoints(app, reason).await;
+    maintain_agent_logs(app, reason, live_agent_connections).await;
     stop_terminals(app, reason);
     stop_office_watchers(reason);
     stop_browser(app, reason).await;
+}
+
+async fn snapshot_live_agent_connections(app: &tauri::AppHandle) -> Option<usize> {
+    let manager = app.try_state::<ConnectionManager>()?;
+    Some(
+        manager
+            .list_connections()
+            .await
+            .into_iter()
+            .filter(|connection| {
+                !matches!(
+                    connection.status,
+                    ConnectionStatus::Disconnected | ConnectionStatus::Error
+                )
+            })
+            .count(),
+    )
+}
+
+async fn maintain_agent_logs(
+    app: &tauri::AppHandle,
+    reason: ShutdownReason,
+    live_connections: Option<usize>,
+) {
+    let skip_reason = match (reason, live_connections) {
+        (ShutdownReason::WindowsUpdate, _) => Some("update_exit"),
+        (_, None) => Some("manager_unavailable"),
+        (_, Some(count)) if count > 0 => Some("live_agents"),
+        _ => None,
+    };
+    if let Some(skip_reason) = skip_reason {
+        log_agent_cleanup_skip(reason, live_connections, skip_reason);
+        return;
+    }
+    let Some(database) = app.try_state::<crate::db::AppDatabase>() else {
+        log_agent_cleanup_skip(reason, live_connections, "database_unavailable");
+        return;
+    };
+    let report = crate::logging::agent_retention::cleanup_managed_agent_logs(&database.conn).await;
+    log_agent_cleanup_report(reason, live_connections, &report);
+}
+
+fn log_agent_cleanup_skip(
+    reason: ShutdownReason,
+    live_connections: Option<usize>,
+    decision: &'static str,
+) {
+    tracing::info!(
+        target: "iyw_claw::diagnostics::agent_retention",
+        shutdown_reason = reason.as_str(),
+        live_agent_connections = live_connections.unwrap_or_default(),
+        activity_known = live_connections.is_some(),
+        decision,
+        "[shutdown] Agent log cleanup skipped"
+    );
+}
+
+fn log_agent_cleanup_report(
+    reason: ShutdownReason,
+    live_connections: Option<usize>,
+    report: &crate::logging::agent_retention::AgentLogCleanupReport,
+) {
+    if report.failed_files > 0 || report.decision == "cleanup_timed_out" {
+        log_agent_cleanup_error(reason, live_connections, report);
+    } else {
+        log_agent_cleanup_success(reason, live_connections, report);
+    }
+}
+
+fn log_agent_cleanup_error(
+    reason: ShutdownReason,
+    live_connections: Option<usize>,
+    report: &crate::logging::agent_retention::AgentLogCleanupReport,
+) {
+    tracing::warn!(
+        target: "iyw_claw::diagnostics::agent_retention",
+        shutdown_reason = reason.as_str(),
+        live_agent_connections = live_connections.unwrap_or_default(),
+        scanned_agents = report.scanned_agents,
+        scanned_files = report.scanned_files,
+        total_bytes = report.total_bytes,
+        deleted_files = report.deleted_files,
+        deleted_bytes = report.deleted_bytes,
+        failed_files = report.failed_files,
+        elapsed_ms = report.elapsed.as_millis() as u64,
+        decision = report.decision,
+        error = report.first_error.as_deref().unwrap_or(""),
+        "[shutdown] Agent log cleanup incomplete"
+    );
+}
+
+fn log_agent_cleanup_success(
+    reason: ShutdownReason,
+    live_connections: Option<usize>,
+    report: &crate::logging::agent_retention::AgentLogCleanupReport,
+) {
+    tracing::info!(
+        target: "iyw_claw::diagnostics::agent_retention",
+        shutdown_reason = reason.as_str(),
+        live_agent_connections = live_connections.unwrap_or_default(),
+        scanned_agents = report.scanned_agents,
+        scanned_files = report.scanned_files,
+        total_bytes = report.total_bytes,
+        threshold_bytes = crate::logging::agent_retention::TOTAL_BYTES_THRESHOLD,
+        retention_days = crate::logging::agent_retention::RETENTION_DAYS,
+        deleted_files = report.deleted_files,
+        deleted_bytes = report.deleted_bytes,
+        elapsed_ms = report.elapsed.as_millis() as u64,
+        decision = report.decision,
+        "[shutdown] Agent log cleanup evaluated"
+    );
 }
 
 async fn stop_entrypoints(app: &tauri::AppHandle, reason: ShutdownReason) {
