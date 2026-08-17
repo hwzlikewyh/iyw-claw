@@ -85,7 +85,9 @@ export function BrowserProvider({
   )
 
   const openBrowser = useCallback(async () => {
+    if (closingRef.current) return
     setOpen(true)
+    setError(null)
     if (!isDesktop()) return
     setBusy(true)
     try {
@@ -99,8 +101,8 @@ export function BrowserProvider({
 
   const closeBrowser = useCallback(async () => {
     if (closingRef.current) return
+    setOpen(false)
     if (!isDesktop()) {
-      setOpen(false)
       return
     }
     closingRef.current = true
@@ -108,7 +110,6 @@ export function BrowserProvider({
     try {
       const next = await browserApi.stop()
       acceptState(next)
-      if (mountedRef.current) setOpen(false)
     } catch (cause) {
       if (mountedRef.current) setError(normalizeError(cause))
     } finally {

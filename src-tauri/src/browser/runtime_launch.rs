@@ -16,7 +16,6 @@ use super::runtime::{
 
 const START_TIMEOUT: Duration = Duration::from_secs(30);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
-const GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(super) struct RuntimeLaunchFailure {
     pub error: BrowserError,
@@ -171,7 +170,6 @@ async fn launch_controller(
 pub(super) async fn cleanup_partial_owner(
     cleanup: &mut RuntimeCleanupHandle,
 ) -> Result<(), BrowserError> {
-    graceful_close(&cleanup.cli, &cleanup.controller_session).await;
     if cleanup.daemon.is_none() {
         cleanup.daemon = published_daemon(&cleanup.cli, &cleanup.controller_session).await;
     }
@@ -212,17 +210,6 @@ async fn rollback_launch(
         return launch_failure(error, Some(cleanup));
     }
     launch_failure(error, None)
-}
-
-async fn graceful_close(cli: &AgentBrowserCli, session: &str) {
-    let _ = cli
-        .run(
-            session,
-            &["close"],
-            GRACEFUL_STOP_TIMEOUT,
-            CancellationToken::new(),
-        )
-        .await;
 }
 
 async fn published_daemon(cli: &AgentBrowserCli, session: &str) -> Option<ProcessRecord> {

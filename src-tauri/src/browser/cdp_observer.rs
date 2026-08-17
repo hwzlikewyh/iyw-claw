@@ -111,6 +111,13 @@ impl CdpObserverHandle {
         }
     }
 
+    pub async fn cancel_without_wait(&self) {
+        self.cancellation.cancel();
+        if let Some(task) = self.task.lock().await.take() {
+            task.abort();
+        }
+    }
+
     async fn initialize(&self, download_path: &Path) -> Result<(), BrowserError> {
         self.call(
             "Target.setDiscoverTargets",
