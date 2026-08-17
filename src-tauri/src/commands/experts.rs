@@ -1010,12 +1010,6 @@ fn current_central_experts_fingerprint() -> Result<CentralExpertsFingerprint, Ex
     for meta in bundled_metadata() {
         let target = central_dir.join(&meta.id);
         append_skill_tree_fingerprint(&target, &meta.id, &mut entries)?;
-        let backup = central_dir.join(format!(".{}.bundled-runtime-backup", meta.id));
-        append_skill_tree_fingerprint(
-            &backup,
-            &format!(".{}.bundled-runtime-backup", meta.id),
-            &mut entries,
-        )?;
     }
     Ok(CentralExpertsFingerprint {
         central_dir,
@@ -1226,8 +1220,6 @@ fn install_or_refresh_expert(
         );
         return Ok(InstallAction::Skipped);
     }
-    let runtime_backup = bundled_runtime_backup_path(&central_path, &meta.id);
-    recover_stale_bundled_runtime_backup(&central_path, &runtime_backup, &meta.id)?;
     let bundled_hash = &meta.bundled_hash;
     let manifest_entry = manifest.experts.get(&meta.id).cloned().unwrap_or_default();
     let path_exists = fs::symlink_metadata(&central_path).is_ok();
@@ -1278,14 +1270,7 @@ fn refresh_bundled_expert(
     if legacy_link {
         return refresh_bundled_from_legacy_link(meta, target, legacy_source);
     }
-    let backup = stage_bundled_runtime_envs(target, &meta.id)?;
-    if let Err(error) = replace_bundled_directory(meta, target) {
-        return Err(restore_runtime_backup(&backup, target, &meta.id, error));
-    }
-    if let Err(error) = migrate_runtime_envs(target, &backup, &meta.id) {
-        return Err(restore_runtime_backup(&backup, target, &meta.id, error));
-    }
-    remove_runtime_backup(&backup, &meta.id)?;
+    replace_bundled_contents(meta, target)?;
     migrate_runtime_envs(target, legacy_source, &meta.id)
 }
 
@@ -1325,248 +1310,40 @@ fn rollback_legacy_runtime_migration(
     restore_legacy_link(legacy_source, target, id, restored)
 }
 
-fn replace_bundled_directory(meta: &ExpertMetadata, target: &Path) -> Result<(), ExpertsError> {
-    if fs::symlink_metadata(target).is_ok() {
-        remove_superseded_skill_dir(target, &meta.id)?;
+fn replace_bundled_contents(meta: &ExpertMetadata, target: &Path) -> Result<(), ExpertsError> {
+    match fs::symlink_metadata(target) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            clear_bundled_skill_contents(target, &meta.id)?;
+        }
+        Ok(_) => {
+            remove_skill_entry(target)
+                .map_err(|error| superseded_skill_dir_error(&meta.id, target, error))?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
     }
     extract_expert_to_disk(meta, target)
 }
 
-fn stage_bundled_runtime_envs(target: &Path, id: &str) -> Result<PathBuf, ExpertsError> {
-    let backup = bundled_runtime_backup_path(target, id);
-    recover_stale_bundled_runtime_backup(target, &backup, id)?;
-    if fs::symlink_metadata(&backup)
-        .is_ok_and(|metadata| !metadata.is_dir() || metadata.file_type().is_symlink())
-    {
-        return Err(ExpertsError::Io(format!(
-            "runtime environment backup for '{id}' is not a directory: {}",
-            backup.display()
-        )));
+fn clear_bundled_skill_contents(target: &Path, id: &str) -> Result<(), ExpertsError> {
+    let mut preserved_runtime_envs = Vec::new();
+    for entry in fs::read_dir(target)? {
+        let entry = entry?;
+        let path = entry.path();
+        if is_runtime_env_dir(&path) {
+            preserved_runtime_envs.push(entry.file_name().to_string_lossy().into_owned());
+            continue;
+        }
+        remove_skill_entry(&path).map_err(|error| superseded_skill_dir_error(id, &path, error))?;
     }
-    if let Some(blocked) = blocking_runtime_env_dir(&backup, target) {
-        return Err(ExpertsError::Io(format!(
-            "cannot stage runtime environment for '{id}': {} already exists",
-            blocked.display()
-        )));
-    }
-    if retained_runtime_env_dir(target).is_none() {
-        return Ok(backup);
-    }
-    fs::create_dir_all(&backup)?;
-    if let Err(error) = migrate_runtime_envs(&backup, target, id) {
-        return Err(restore_runtime_backup(&backup, target, id, error));
-    }
-    Ok(backup)
-}
-
-fn bundled_runtime_backup_path(target: &Path, id: &str) -> PathBuf {
-    target.with_file_name(format!(".{id}.bundled-runtime-backup"))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RuntimeEnvironmentState {
-    Missing,
-    Usable,
-    Unusable,
-}
-
-struct StaleRuntimeBackupPlan {
-    restore: Vec<&'static str>,
-    discard: Vec<&'static str>,
-}
-
-/// Recover an interrupted bundled-Skill replacement only when the previous
-/// backup is structurally unambiguous. A duplicate backup may be discarded
-/// after the active environment proves usable; unknown backup content or an
-/// incomplete active environment is retained for manual recovery.
-fn recover_stale_bundled_runtime_backup(
-    target: &Path,
-    backup: &Path,
-    id: &str,
-) -> Result<(), ExpertsError> {
-    let names = stale_runtime_backup_names(backup, id)?;
-    if names.is_empty() {
-        return remove_runtime_backup(backup, id);
-    }
-    let plan = stale_runtime_backup_plan(target, backup, id, &names)?;
-    ensure_runtime_restore_target(target, id, &plan.restore)?;
-    for name in plan.restore {
-        let source = backup.join(name);
-        let destination = target.join(name);
-        rename_system_skill_entry(&source, &destination, id).map_err(|error| {
-            ExpertsError::Io(format!(
-                "restore runtime environment {} to {}: {error}",
-                source.display(),
-                destination.display()
-            ))
-        })?;
-    }
-    for name in plan.discard {
-        let stale = backup.join(name);
-        remove_skill_entry(&stale).map_err(|error| {
-            ExpertsError::Io(format!(
-                "remove stale runtime environment backup {}: {error}",
-                stale.display()
-            ))
-        })?;
-    }
-    remove_runtime_backup(backup, id)?;
     tracing::info!(
         target: "system_skills",
         skill_id = id,
-        backup = %backup.display(),
-        "recovered stale bundled runtime backup"
+        target = %target.display(),
+        preserved_runtime_envs = ?preserved_runtime_envs,
+        "cleared bundled Skill contents while preserving runtime environments"
     );
     Ok(())
-}
-
-fn stale_runtime_backup_plan(
-    target: &Path,
-    backup: &Path,
-    id: &str,
-    names: &[&'static str],
-) -> Result<StaleRuntimeBackupPlan, ExpertsError> {
-    let mut plan = StaleRuntimeBackupPlan {
-        restore: Vec::new(),
-        discard: Vec::new(),
-    };
-    for name in names {
-        match runtime_environment_state(&target.join(name), name)? {
-            RuntimeEnvironmentState::Missing => plan.restore.push(*name),
-            RuntimeEnvironmentState::Usable => plan.discard.push(*name),
-            RuntimeEnvironmentState::Unusable => {
-                return Err(ExpertsError::Io(format!(
-                    "cannot safely clear stale runtime backup for '{id}': active {} is incomplete; retaining {}",
-                    target.join(name).display(),
-                    backup.display()
-                )));
-            }
-        }
-    }
-    Ok(plan)
-}
-
-fn ensure_runtime_restore_target(
-    target: &Path,
-    id: &str,
-    names: &[&'static str],
-) -> Result<(), ExpertsError> {
-    if names.is_empty() || target.is_dir() {
-        return Ok(());
-    }
-    Err(ExpertsError::Io(format!(
-        "cannot restore runtime backup for '{id}': active Skill directory is unavailable: {}",
-        target.display()
-    )))
-}
-
-fn stale_runtime_backup_names(backup: &Path, id: &str) -> Result<Vec<&'static str>, ExpertsError> {
-    let metadata = match fs::symlink_metadata(backup) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error.into()),
-    };
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err(ExpertsError::Io(format!(
-            "runtime environment backup for '{id}' is not a safe directory: {}",
-            backup.display()
-        )));
-    }
-    let mut names = Vec::new();
-    for entry in fs::read_dir(backup)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            return Err(ExpertsError::Io(format!(
-                "runtime environment backup for '{id}' contains a non-UTF-8 entry: {}",
-                backup.display()
-            )));
-        };
-        if !RUNTIME_ENV_DIR_NAMES.contains(&name) {
-            return Err(ExpertsError::Io(format!(
-                "cannot safely clear runtime backup for '{id}': {} contains unexpected entry '{name}'",
-                backup.display()
-            )));
-        }
-        let child_metadata = fs::symlink_metadata(entry.path())?;
-        if !child_metadata.is_dir() || child_metadata.file_type().is_symlink() {
-            return Err(ExpertsError::Io(format!(
-                "cannot safely clear runtime backup for '{id}': {} is not a real directory",
-                entry.path().display()
-            )));
-        }
-        names.push(
-            RUNTIME_ENV_DIR_NAMES
-                .iter()
-                .copied()
-                .find(|value| *value == name)
-                .expect("runtime environment name was validated"),
-        );
-    }
-    Ok(names)
-}
-
-fn runtime_environment_state(
-    path: &Path,
-    name: &str,
-) -> Result<RuntimeEnvironmentState, ExpertsError> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Ok(RuntimeEnvironmentState::Missing);
-        }
-        Err(error) => return Err(error.into()),
-    };
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err(ExpertsError::Io(format!(
-            "cannot safely replace runtime environment {}: it is not a real directory",
-            path.display()
-        )));
-    }
-    Ok(runtime_environment_is_usable(path, name)
-        .then_some(RuntimeEnvironmentState::Usable)
-        .unwrap_or(RuntimeEnvironmentState::Unusable))
-}
-
-fn runtime_environment_is_usable(path: &Path, name: &str) -> bool {
-    match name {
-        ".venv" => {
-            path.join("pyvenv.cfg").is_file()
-                && ["Scripts/python.exe", "Scripts/python", "bin/python"]
-                    .iter()
-                    .any(|relative| path.join(relative).is_file())
-        }
-        "node_modules" => fs::read_dir(path)
-            .ok()
-            .and_then(|mut entries| entries.next())
-            .is_some(),
-        _ => false,
-    }
-}
-
-fn remove_runtime_backup(backup: &Path, id: &str) -> Result<(), ExpertsError> {
-    if fs::symlink_metadata(backup).is_err() {
-        return Ok(());
-    }
-    fs::remove_dir(backup).map_err(|error| {
-        ExpertsError::Io(format!(
-            "remove runtime environment backup for '{id}' at {}: {error}",
-            backup.display()
-        ))
-    })
-}
-
-fn restore_runtime_backup(
-    backup: &Path,
-    target: &Path,
-    id: &str,
-    original_error: ExpertsError,
-) -> ExpertsError {
-    let restored = restore_runtime_envs(backup, target, id, original_error);
-    match remove_runtime_backup(backup, id) {
-        Ok(()) => restored,
-        Err(cleanup_error) => ExpertsError::Io(format!("{restored}; {cleanup_error}")),
-    }
 }
 
 fn restore_legacy_link(
