@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use reqwest::{Method, RequestBuilder};
 use sea_orm::DatabaseConnection;
 use serde::de::DeserializeOwned;
@@ -15,7 +17,9 @@ use crate::update::preferences;
 mod config;
 mod error;
 use config::{endpoint, http_client, INSTALLATION_HEADER};
-use error::envelope_error;
+use error::{envelope_error, retryable_agent_resolve_error};
+
+const AGENT_RESOLVE_RETRY_DELAY_MS: u64 = 1_000;
 
 #[derive(Debug)]
 pub enum CatalogFetch {
@@ -89,7 +93,27 @@ impl AgentPlatformClient {
         conn: &DatabaseConnection,
         request: ResolveAgentRequest<'_>,
     ) -> Result<AgentOffer, AppCommandError> {
-        let offer = Self::post(conn, "/agent-platforms/v1/resolve", &request).await?;
+        let first: Result<AgentOffer, AppCommandError> =
+            Self::post(conn, "/agent-platforms/v1/resolve", &request).await;
+        let offer = match first {
+            Ok(offer) => offer,
+            Err(error) if retryable_agent_resolve_error(&error) => {
+                tracing::warn!(
+                    error_code = error.detail.as_deref().unwrap_or("unknown"),
+                    registry_id = request.registry_id,
+                    runtime = request.runtime,
+                    target = request.target,
+                    arch = request.arch,
+                    reason = request.reason,
+                    retry_attempt = 2,
+                    retry_delay_ms = AGENT_RESOLVE_RETRY_DELAY_MS,
+                    "[AgentPlatform] retrying agent resolve after transient catalog error"
+                );
+                tokio::time::sleep(Duration::from_millis(AGENT_RESOLVE_RETRY_DELAY_MS)).await;
+                Self::post(conn, "/agent-platforms/v1/resolve", &request).await?
+            }
+            Err(error) => return Err(error),
+        };
         capability::validate_agent_offer(&offer).map_err(rejected_offer)?;
         Ok(offer)
     }
