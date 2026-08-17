@@ -623,6 +623,7 @@ async fn async_main() -> ExitCode {
         state.acp_event_bus.clone(),
         Some(state.delegation_broker.clone()),
         Some(state.user_memory.clone()),
+        None,
     ));
 
     // Spawn the idle/stall/capacity sweep. The persisted preference controls

@@ -68,6 +68,7 @@ pub enum BrowserEngineKind {
 pub struct BrowserAgentIdentity {
     pub connection_id: String,
     pub conversation_id: Option<i32>,
+    pub turn_generation: i64,
 }
 
 #[derive(Debug)]

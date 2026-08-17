@@ -11,6 +11,8 @@ mod agent_tool_support;
 #[cfg(feature = "tauri-runtime")]
 mod agent_tools;
 #[cfg(feature = "tauri-runtime")]
+mod agent_turn_leases;
+#[cfg(feature = "tauri-runtime")]
 mod cdp_errors;
 #[cfg(feature = "tauri-runtime")]
 mod cdp_events;
@@ -38,6 +40,8 @@ mod frame_protocol;
 mod manager;
 #[cfg(feature = "tauri-runtime")]
 mod manager_cdp;
+#[cfg(feature = "tauri-runtime")]
+mod manager_idle;
 #[cfg(feature = "tauri-runtime")]
 mod manager_recovery;
 #[cfg(feature = "tauri-runtime")]
@@ -87,6 +91,8 @@ mod tabs;
 mod types;
 mod types_cdp;
 mod user_control_lease;
+#[cfg(feature = "tauri-runtime")]
+mod view_host_lifecycle;
 #[cfg(feature = "tauri-runtime")]
 mod views;
 #[cfg(all(feature = "tauri-runtime", target_os = "windows"))]

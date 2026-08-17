@@ -942,6 +942,11 @@ mod tauri_app {
                         bus,
                         Some(broker_for_lifecycle),
                         Some(user_memory_harvest),
+                        Some(
+                            app.state::<crate::browser::BrowserSessionManager>()
+                                .inner()
+                                .clone(),
+                        ),
                     ));
                 }
 

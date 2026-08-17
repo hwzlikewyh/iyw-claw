@@ -3449,6 +3449,12 @@ impl crate::acp::delegation::listener::ParentSessionLookup for ConnectionManager
         let snapshot = state.read().await;
         snapshot.conversation_id
     }
+
+    async fn current_turn_generation(&self, parent_connection_id: &str) -> Option<i64> {
+        let state = self.manager.get_state(parent_connection_id).await?;
+        let snapshot = state.read().await;
+        Some(snapshot.turn_generation)
+    }
 }
 
 /// Production impl of `SessionFeedbackAccess` for the delegation listener's

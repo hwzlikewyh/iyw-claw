@@ -5,13 +5,11 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use super::error::{BrowserError, BrowserErrorCode};
 use super::frame_protocol::ensure_frame_generations;
 use super::manager::BrowserSessionManager;
-use super::state_hosts::HostExpiry;
 use super::types::{
     BrowserFrameSubscriptionSnapshot, BrowserGenerations, BrowserHostKind, BrowserHostRegistration,
     BrowserStateSnapshot, BrowserViewClaimSnapshot,
 };
 
-const HOST_WATCH_INTERVAL: Duration = Duration::from_secs(2);
 const HIDDEN_STREAM_DELAY: Duration = Duration::from_secs(2);
 const CLAIM_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -59,30 +57,6 @@ impl BrowserSessionManager {
         Ok(self.snapshot().await)
     }
 
-    pub async fn unregister_browser_host(
-        &self,
-        host_id: &str,
-    ) -> Result<BrowserStateSnapshot, BrowserError> {
-        let removed = self.state.write().await.unregister_host(host_id);
-        self.release_host_resources(removed.tab_ids, removed.claim_ids)
-            .await;
-        Ok(self.snapshot().await)
-    }
-
-    pub async fn unregister_browser_window(&self, window_label: &str) -> BrowserStateSnapshot {
-        let host_id = self
-            .snapshot()
-            .await
-            .hosts
-            .into_iter()
-            .find(|host| host.window_label == window_label)
-            .map(|host| host.host_id);
-        if let Some(host_id) = host_id {
-            let _ = self.unregister_browser_host(&host_id).await;
-        }
-        self.snapshot().await
-    }
-
     pub async fn set_browser_host_visible(
         &self,
         host_id: &str,
@@ -124,6 +98,8 @@ impl BrowserSessionManager {
         target_host_id: String,
         target_index: usize,
     ) -> Result<BrowserViewClaimSnapshot, BrowserError> {
+        let _tab_guard = self.tab_open_lock.lock().await;
+        self.agent_turn_leases.ensure_claimable(tab_id).await?;
         let claim = self.state.write().await.begin_view_claim(
             tab_id,
             source_host_id,
@@ -187,7 +163,11 @@ impl BrowserSessionManager {
         subscription_id: &str,
         generations: BrowserGenerations,
     ) -> Result<BrowserStateSnapshot, BrowserError> {
+        let _tab_guard = self.tab_open_lock.lock().await;
         let claim = self.state.read().await.claim_snapshot(claim_id)?;
+        self.agent_turn_leases
+            .ensure_claimable(&claim.browser_tab_id)
+            .await?;
         self.streams
             .validate_claim_subscription(
                 subscription_id,
@@ -223,26 +203,6 @@ impl BrowserSessionManager {
         Ok(self.snapshot().await)
     }
 
-    fn spawn_host_monitor(&self, host_id: String) {
-        let manager = self.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(HOST_WATCH_INTERVAL).await;
-                let expiry = manager.state.write().await.expire_host_if_stale(&host_id);
-                match expiry {
-                    HostExpiry::Alive => continue,
-                    HostExpiry::Gone => return,
-                    HostExpiry::Expired(removed) => {
-                        manager
-                            .release_host_resources(removed.tab_ids, removed.claim_ids)
-                            .await;
-                        return;
-                    }
-                }
-            }
-        });
-    }
-
     fn spawn_claim_timeout(&self, claim_id: String) {
         let manager = self.clone();
         tokio::spawn(async move {
@@ -265,15 +225,6 @@ impl BrowserSessionManager {
                 manager.streams.close_tab(&tab_id).await;
             }
         });
-    }
-
-    async fn release_host_resources(&self, tab_ids: Vec<String>, claims: Vec<String>) {
-        for tab_id in tab_ids {
-            self.streams.close_tab(&tab_id).await;
-        }
-        for claim_id in claims {
-            self.streams.close_claim(&claim_id).await;
-        }
     }
 }
 

@@ -94,7 +94,7 @@ impl BrowserSessionManager {
         }
     }
 
-    async fn begin_shutdown(&self) -> u64 {
+    pub(super) async fn begin_shutdown(&self) -> u64 {
         let shutdown_epoch = self
             .shutdown_epoch
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
@@ -108,7 +108,7 @@ impl BrowserSessionManager {
         shutdown_epoch
     }
 
-    async fn finish_shutdown(&self, shutdown_epoch: u64) {
+    pub(super) async fn finish_shutdown(&self, shutdown_epoch: u64) {
         *self.shutdown_cancellation.lock().await = CancellationToken::new();
         let finished_epoch = self
             .shutdown_epoch
@@ -122,7 +122,12 @@ impl BrowserSessionManager {
         self.stop_cdp_observer().await;
         let _tab_guard = self.tab_open_lock.lock().await;
         let _start_guard = self.runtime_start_lock.lock().await;
+        self.stop_runtime_state_and_resources().await
+    }
+
+    pub(super) async fn stop_runtime_state_and_resources(&self) -> Result<(), BrowserError> {
         let Some(runtime) = &self.runtime else {
+            self.agent_turn_leases.clear().await;
             return Ok(());
         };
         let state_transitioned = self.state.write().await.begin_runtime_stop();
@@ -134,6 +139,7 @@ impl BrowserSessionManager {
                 .map(|error| format!("{:?}", error.code));
             self.state.write().await.finish_runtime_stop(failure_code);
         }
+        self.agent_turn_leases.clear().await;
         result
     }
 
@@ -192,6 +198,7 @@ impl BrowserSessionManager {
             tabs: Arc::new(super::tabs::BrowserTabRegistry::default()),
             streams: Arc::new(super::stream::BrowserStreamRegistry::default()),
             observer: Arc::new(tokio::sync::Mutex::new(None)),
+            agent_turn_leases: Arc::new(super::agent_turn_leases::AgentTurnLeaseRegistry::default()),
         }
     }
 

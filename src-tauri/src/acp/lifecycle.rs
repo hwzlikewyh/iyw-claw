@@ -24,6 +24,7 @@ use crate::acp::internal_bus::InternalEventBus;
 use crate::acp::manager::ConnectionManager;
 use crate::acp::session_state::SessionState;
 use crate::acp::types::{AcpEvent, ConnectionStatus, EventEnvelope};
+use crate::browser::BrowserSessionManager;
 use crate::chat_channel::manager::ChatChannelManager;
 use crate::commands::conversation_title::{self, ConversationTitleContext};
 use crate::db::entities::conversation::ConversationStatus;
@@ -69,6 +70,10 @@ fn is_lifecycle_relevant(event: &AcpEvent) -> bool {
             | AcpEvent::TurnComplete { .. }
             | AcpEvent::UserMessage { .. }
             | AcpEvent::ConversationLinked { .. }
+            | AcpEvent::ConversationStatusChanged {
+                status: ConversationStatus::Cancelled,
+                ..
+            }
             | AcpEvent::StatusChanged {
                 status: ConnectionStatus::Disconnected
             }
@@ -197,6 +202,7 @@ fn lifecycle_event_kind(event: &AcpEvent) -> &'static str {
         AcpEvent::TurnComplete { .. } => "turn_complete",
         AcpEvent::UserMessage { .. } => "user_message",
         AcpEvent::ConversationLinked { .. } => "conversation_linked",
+        AcpEvent::ConversationStatusChanged { .. } => "conversation_status_changed",
         AcpEvent::StatusChanged { .. } => "status_changed",
         AcpEvent::Error { .. } => "error",
         _ => "other",
@@ -929,6 +935,7 @@ async fn connection_worker_loop(
     chat_channel_manager: ChatChannelManager,
     broker: Option<Arc<DelegationBroker>>,
     harvest_service: Option<Arc<UserMemoryService>>,
+    browser: Option<BrowserSessionManager>,
     mut rx: mpsc::Receiver<Arc<EventEnvelope>>,
 ) {
     // 1-entry HashMap so we can reuse `handle_terminal_event` (also keeps the
@@ -977,6 +984,24 @@ async fn connection_worker_loop(
                 )
                 .await;
             }
+            AcpEvent::TurnComplete { .. } => {
+                finish_browser_turn(browser.as_ref(), &manager, &envelope.connection_id).await;
+                handle_event_with_retry(
+                    &db,
+                    &manager,
+                    &chat_channel_manager,
+                    envelope,
+                    broker.as_ref(),
+                    harvest_service.as_ref(),
+                )
+                .await;
+            }
+            AcpEvent::ConversationStatusChanged {
+                status: ConversationStatus::Cancelled,
+                ..
+            } => {
+                finish_browser_turn(browser.as_ref(), &manager, &envelope.connection_id).await;
+            }
             AcpEvent::StatusChanged {
                 status: ConnectionStatus::Disconnected,
             } => {
@@ -989,6 +1014,7 @@ async fn connection_worker_loop(
                 if let Some(b) = broker.as_ref() {
                     forward_disconnect_to_broker(b.as_ref(), &connection_id, None).await;
                 }
+                finish_browser_connection(browser.as_ref(), &connection_id).await;
                 terminal_dispatched = true;
             }
             AcpEvent::Error {
@@ -1032,6 +1058,7 @@ async fn connection_worker_loop(
                     let detail = format_terminal_error(message, code.as_deref());
                     forward_disconnect_to_broker(b.as_ref(), &connection_id, Some(&detail)).await;
                 }
+                finish_browser_connection(browser.as_ref(), &connection_id).await;
                 terminal_dispatched = true;
             }
             _ => {
@@ -1046,6 +1073,28 @@ async fn connection_worker_loop(
                 .await;
             }
         }
+    }
+}
+
+async fn finish_browser_turn(
+    browser: Option<&BrowserSessionManager>,
+    manager: &ConnectionManager,
+    connection_id: &str,
+) {
+    let Some(browser) = browser else { return };
+    let Some(state) = manager.get_state(connection_id).await else {
+        browser.finish_agent_connection(connection_id).await;
+        return;
+    };
+    let turn_generation = state.read().await.turn_generation;
+    browser
+        .finish_agent_turn(connection_id, turn_generation)
+        .await;
+}
+
+async fn finish_browser_connection(browser: Option<&BrowserSessionManager>, connection_id: &str) {
+    if let Some(browser) = browser {
+        browser.finish_agent_connection(connection_id).await;
     }
 }
 
@@ -1075,6 +1124,7 @@ pub fn lifecycle_subscriber_task(
     bus: Arc<InternalEventBus>,
     broker: Option<Arc<DelegationBroker>>,
     harvest_service: Option<Arc<UserMemoryService>>,
+    browser: Option<BrowserSessionManager>,
 ) -> impl Future<Output = ()> + Send + 'static {
     let mut rx = bus.subscribe();
     let metrics = Arc::clone(bus.metrics());
@@ -1116,6 +1166,7 @@ pub fn lifecycle_subscriber_task(
                         let chat_channel_clone = chat_channel_manager.clone_ref();
                         let broker_clone = broker.clone();
                         let harvest_clone = harvest_service.clone();
+                        let browser_clone = browser.clone();
                         let id_clone = conn_id.clone();
                         tokio::spawn(connection_worker_loop(
                             id_clone,
@@ -1124,6 +1175,7 @@ pub fn lifecycle_subscriber_task(
                             chat_channel_clone,
                             broker_clone,
                             harvest_clone,
+                            browser_clone,
                             worker_rx,
                         ));
                         tx

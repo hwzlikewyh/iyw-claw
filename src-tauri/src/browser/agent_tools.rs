@@ -15,12 +15,14 @@ impl BrowserSessionManager {
     pub async fn execute_agent_tool(&self, call: BrowserAgentToolCall) -> Value {
         let tab_id = call.input.get("tab_id").and_then(Value::as_str);
         let context = AgentToolContext {
+            identity: &call.identity,
             cancellation: &call.cancellation,
         };
         tracing::info!(
             target: "iyw_claw_browser",
             connection_id = %call.identity.connection_id,
             conversation_id = call.identity.conversation_id,
+            turn_generation = call.identity.turn_generation,
             browser_tab_id = tab_id,
             tool = %call.tool,
             "Agent browser tool started"
@@ -63,7 +65,7 @@ impl BrowserSessionManager {
         match tool {
             "browser_list_tabs" => {
                 ensure_request_active(context)?;
-                self.agent_state(None, None).await
+                self.agent_state(context, None, None).await
             }
             "browser_open" => self.agent_open(context, input).await,
             "browser_snapshot" => self.agent_snapshot(context, input).await,
@@ -100,7 +102,7 @@ impl BrowserSessionManager {
                 "Agent browser open selected tab"
             );
             self.agent_navigate(context, tab_id, url).await?;
-            return self.agent_state(Some(tab_id), None).await;
+            return self.agent_state(context, Some(tab_id), None).await;
         }
         let epoch = self.current_shutdown_epoch();
         let _guard = tokio::select! {
@@ -109,7 +111,7 @@ impl BrowserSessionManager {
         };
         ensure_request_active(context)?;
         self.ensure_shutdown_epoch(epoch)?;
-        let state = self.snapshot().await;
+        let state = self.agent_snapshot_for(context.identity).await;
         if !new_tab {
             if let Some(target) = default_agent_tab_id(&state) {
                 tracing::info!(
@@ -120,7 +122,7 @@ impl BrowserSessionManager {
                 );
                 drop(_guard);
                 self.agent_navigate(context, &target, url).await?;
-                return self.agent_state(Some(&target), None).await;
+                return self.agent_state(context, Some(&target), None).await;
             }
         }
         tracing::info!(
@@ -128,32 +130,42 @@ impl BrowserSessionManager {
             open_mode = if new_tab { "explicit_new_tab" } else { "initial_tab" },
             "Agent browser open is creating a tab"
         );
-        let created = self.agent_create_locked(url, &state).await;
+        let created = self
+            .agent_create_locked(context.identity, url, &state)
+            .await;
         drop(_guard);
-        let (state, created) = created?;
+        let created = created?;
         if context.cancellation.is_cancelled() {
             let cleanup_failed = self.close_browser_tab(&created).await.is_err();
             return Err(cancelled_error().effect_may_have_occurred(cleanup_failed));
         }
-        Ok(project_agent_state(state, Some(&created), None))
+        self.agent_state(context, Some(&created), None).await
     }
 
     async fn agent_create_locked(
         &self,
+        identity: &super::types::BrowserAgentIdentity,
         url: &str,
         state: &BrowserStateSnapshot,
-    ) -> Result<(BrowserStateSnapshot, String), BrowserError> {
+    ) -> Result<String, BrowserError> {
         let host_id = preferred_agent_host_id(state);
+        let headless = host_id.is_none();
         let cancellation = self.shutdown_cancellation().await;
         let (_, created) = self
             .create_browser_tab_with_id_unlocked(url.to_string(), host_id, cancellation)
             .await?;
+        self.agent_turn_leases.register(identity, &created).await?;
+        if headless {
+            self.agent_turn_leases
+                .mark_close_pending(std::slice::from_ref(&created))
+                .await;
+        }
         tracing::info!(
             target: "iyw_claw_browser",
             browser_tab_id = %created,
             "Agent browser tab created"
         );
-        Ok((self.snapshot().await, created))
+        Ok(created)
     }
 
     async fn agent_navigate(
@@ -187,16 +199,17 @@ impl BrowserSessionManager {
         let result = self.close_browser_tab(tab_id).await;
         lease.finish().await;
         result?;
-        self.agent_state(Some(tab_id), None).await
+        self.agent_state(context, Some(tab_id), None).await
     }
 
     pub(super) async fn agent_state(
         &self,
+        context: AgentToolContext<'_>,
         target_tab_id: Option<&str>,
         output: Option<Value>,
     ) -> Result<Value, BrowserError> {
         Ok(project_agent_state(
-            self.snapshot().await,
+            self.agent_snapshot_for(context.identity).await,
             target_tab_id,
             output,
         ))

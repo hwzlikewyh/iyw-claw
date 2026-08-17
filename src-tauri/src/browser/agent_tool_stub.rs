@@ -12,4 +12,8 @@ impl BrowserSessionManager {
             }
         })
     }
+
+    pub(crate) async fn finish_agent_turn(&self, _connection_id: &str, _turn_generation: i64) {}
+
+    pub(crate) async fn finish_agent_connection(&self, _connection_id: &str) {}
 }
