@@ -44,7 +44,7 @@ interface ConversationShellProps {
   onSend: (
     draft: PromptDraft,
     modeId?: string | null
-  ) => void | Promise<boolean>
+  ) => boolean | void | Promise<boolean>
   onCancel: () => void
   onRespondPermission: (requestId: string, optionId: string) => void
   onAnswerQuestion: (answer: string) => void
@@ -93,7 +93,7 @@ interface ConversationShellProps {
    *  active tab only). Threaded straight through to the composer. */
   showActiveFlow?: boolean
   queue?: QueuedMessage[]
-  onEnqueue?: (draft: PromptDraft, modeId: string | null) => void
+  onEnqueue?: (draft: PromptDraft, modeId: string | null) => boolean | void
   onQueueReorder?: (items: QueuedMessage[]) => void
   onQueueEdit?: (id: string) => void
   onQueueDelete?: (id: string) => void
@@ -103,7 +103,7 @@ interface ConversationShellProps {
   isEditingQueueItem?: boolean
   onSaveQueueEdit?: (draft: PromptDraft) => void
   onCancelQueueEdit?: () => void
-  onForkSend?: (draft: PromptDraft, modeId?: string | null) => void
+  onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
   /** Optional banner pinned to the top of the panel, above the message area
    *  (e.g. the "restart to apply" config-stale banner). Renders nothing when
    *  omitted. */

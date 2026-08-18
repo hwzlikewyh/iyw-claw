@@ -29,7 +29,7 @@ interface ChatInputProps {
   onSend: (
     draft: PromptDraft,
     modeId?: string | null
-  ) => void | Promise<boolean>
+  ) => boolean | void | Promise<boolean>
   onCancel: () => void
   modes?: SessionModeInfo[]
   configOptions?: SessionConfigOptionInfo[]
@@ -49,7 +49,7 @@ interface ChatInputProps {
    *  tab when tiled across multiple sessions; passed through to MessageInput. */
   showActiveFlow?: boolean
   queue?: QueuedMessage[]
-  onEnqueue?: (draft: PromptDraft, modeId: string | null) => void
+  onEnqueue?: (draft: PromptDraft, modeId: string | null) => boolean | void
   onQueueReorder?: (items: QueuedMessage[]) => void
   onQueueEdit?: (id: string) => void
   onQueueDelete?: (id: string) => void
@@ -59,7 +59,7 @@ interface ChatInputProps {
   isEditingQueueItem?: boolean
   onSaveQueueEdit?: (draft: PromptDraft) => void
   onCancelQueueEdit?: () => void
-  onForkSend?: (draft: PromptDraft, modeId?: string | null) => void
+  onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
   onAddFeedback?: () => void
   feedbackAddDisabled?: boolean
   /** Keep the composer usable while the selected Agent connects silently. */

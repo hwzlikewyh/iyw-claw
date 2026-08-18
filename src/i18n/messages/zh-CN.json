@@ -1791,6 +1791,13 @@
       "reloaded": "当前会话已重新加载",
       "reload": "重新加载",
       "activeConversationIndicator": "当前激活会话",
+      "pointsGate": {
+        "insufficientTitle": "点数不足",
+        "insufficientDescription": "当前账号点数不足，请充值后重试。",
+        "unknownTitle": "无法确认点数",
+        "unknownDescription": "暂时无法获取账号点数，请稍后重试。",
+        "dismiss": "知道了"
+      },
       "newConversation": "新建会话",
       "closeConversation": "关闭会话",
       "copyText": "复制文本",

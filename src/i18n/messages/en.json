@@ -1791,6 +1791,13 @@
       "reloaded": "Conversation reloaded",
       "reload": "Reload",
       "activeConversationIndicator": "Active conversation",
+      "pointsGate": {
+        "insufficientTitle": "Insufficient credits",
+        "insufficientDescription": "Your account does not have enough credits. Add credits and try again.",
+        "unknownTitle": "Unable to verify credits",
+        "unknownDescription": "Your account credits are temporarily unavailable. Try again later.",
+        "dismiss": "Got it"
+      },
       "newConversation": "New Conversation",
       "closeConversation": "Close Conversation",
       "copyText": "Copy Text",
