@@ -426,7 +426,7 @@ async fn remote_display_asset_error(response: reqwest::Response) -> AppCommandEr
 /// the file I/O cost — the remote `/api/upload_attachment` enforces the
 /// same cap regardless, but a 100 MB read followed by a base64 encode and
 /// an IPC trip would be a noticeable waste compared to early rejection.
-const UPLOAD_MAX_BYTES: u64 = 2 * 1024 * 1024;
+const UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024;
 
 /// Maximum tolerated base64 payload length, pre-decode. Exactly
 /// `ceil(UPLOAD_MAX_BYTES / 3) * 4` — that formula already accounts for
@@ -583,8 +583,7 @@ pub async fn remote_upload_attachment(
     // buggy webview hitting this command directly would otherwise force
     // a `Vec<u8>` allocation roughly equal to the base64 length before
     // the cap fires server-side. Cap at `ceil(UPLOAD_MAX_BYTES * 4/3) +
-    // padding slack` so a legitimate 2 MiB file (which encodes to
-    // exactly `(2 MiB + 2)/3*4` bytes) always passes.
+    // padding slack` so a legitimate maximum-sized file always passes.
     if data_base64.len() > REMOTE_UPLOAD_MAX_BASE64_LEN {
         return Err(
             AppCommandError::io_error("Upload payload exceeds the size limit")

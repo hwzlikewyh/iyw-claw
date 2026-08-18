@@ -12,11 +12,15 @@
 //! - [`layer`] is the custom `tracing` layer that converts events into
 //!   [`hub::LogRecord`]s.
 
+pub(crate) mod agent_retention;
+mod agent_retention_policy;
+mod agent_retention_scan;
 pub mod emergency;
 mod emergency_redact;
 pub mod hub;
 pub mod init;
 pub mod layer;
+pub mod retention;
 mod startup_stage;
 
 use serde::{Deserialize, Serialize};

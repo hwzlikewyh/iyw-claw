@@ -16,7 +16,7 @@ import {
   iywAccountLoginWithPassword,
   iywAccountLogout,
 } from "@/lib/api"
-import { toErrorMessage } from "@/lib/app-error"
+import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import type { IywAccountProfile } from "@/lib/types"
 
 const PROFILE_REFRESH_INTERVAL_MS = 60_000
@@ -71,6 +71,7 @@ interface PeriodicProfileRefreshOptions {
   status: IywAccountStatus
   requestProfile: (generation: number) => Promise<IywAccountProfile>
   applyProfile: (profile: IywAccountProfile) => void
+  onAuthenticationFailure: () => void
   getGeneration: () => number
   isGenerationCurrent: (generation: number) => boolean
 }
@@ -79,6 +80,7 @@ function usePeriodicProfileRefresh({
   status,
   requestProfile,
   applyProfile,
+  onAuthenticationFailure,
   getGeneration,
   isGenerationCurrent,
 }: PeriodicProfileRefreshOptions) {
@@ -96,10 +98,16 @@ function usePeriodicProfileRefresh({
         if (active && isGenerationCurrent(generation)) applyProfile(next)
       } catch (reason) {
         if (active && isGenerationCurrent(generation)) {
-          console.warn(
-            "[iyw-account] Periodic profile refresh failed",
-            toErrorMessage(reason)
-          )
+          if (
+            extractAppCommandError(reason)?.code === "authentication_failed"
+          ) {
+            onAuthenticationFailure()
+          } else {
+            console.warn(
+              "[iyw-account] Periodic profile refresh failed",
+              toErrorMessage(reason)
+            )
+          }
         }
       } finally {
         refreshPending = false
@@ -114,7 +122,14 @@ function usePeriodicProfileRefresh({
       active = false
       window.clearInterval(interval)
     }
-  }, [applyProfile, getGeneration, isGenerationCurrent, requestProfile, status])
+  }, [
+    applyProfile,
+    getGeneration,
+    isGenerationCurrent,
+    onAuthenticationFailure,
+    requestProfile,
+    status,
+  ])
 }
 
 export function IywAccountProvider({ children }: { children: ReactNode }) {
@@ -135,6 +150,13 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
   const advanceGeneration = useCallback(() => {
     profileGenerationRef.current += 1
     return profileGenerationRef.current
+  }, [])
+
+  const markAuthenticationRequired = useCallback(() => {
+    if (!mountedRef.current) return
+    setProfile(null)
+    setError(null)
+    setStatus("login_required")
   }, [])
 
   useEffect(() => {
@@ -159,11 +181,21 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
       if (isGenerationCurrent(generation)) applyProfile(next)
     } catch (reason) {
       if (!isGenerationCurrent(generation)) return
+      if (extractAppCommandError(reason)?.code === "authentication_failed") {
+        markAuthenticationRequired()
+        return
+      }
       setProfile(null)
       setError(toErrorMessage(reason))
       setStatus("error")
     }
-  }, [applyProfile, getGeneration, isGenerationCurrent, requestProfile])
+  }, [
+    applyProfile,
+    getGeneration,
+    isGenerationCurrent,
+    markAuthenticationRequired,
+    requestProfile,
+  ])
 
   useEffect(() => {
     void refreshProfile()
@@ -173,6 +205,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
     status,
     requestProfile,
     applyProfile,
+    onAuthenticationFailure: markAuthenticationRequired,
     getGeneration,
     isGenerationCurrent,
   })

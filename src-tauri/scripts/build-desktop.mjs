@@ -217,6 +217,15 @@ function main() {
   for (const step of plan.steps) {
     runStep(step, plan.env)
   }
+  runStep(
+    {
+      label: "staged sidecar verification",
+      args: [
+        join(REPO_ROOT, "src-tauri", "scripts", "verify-sidecar-bundle.mjs"),
+      ],
+    },
+    plan.env
+  )
   stageBrandedInstallerArtifacts()
   if (!options.bundleOnly) {
     console.log(

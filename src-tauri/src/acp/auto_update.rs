@@ -66,7 +66,7 @@ async fn run_auto_update_pass(
             );
             break;
         }
-        update_candidate(candidate, manager, db, emitter).await;
+        update_candidate(candidate, db, emitter).await;
     }
 }
 
@@ -103,22 +103,24 @@ async fn is_update_window_open(manager: &ConnectionManager) -> bool {
 
 async fn update_candidate(
     candidate: AutoUpdateCandidate,
-    manager: &ConnectionManager,
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) {
+    if pending_version_covers(&candidate).await {
+        return;
+    }
     tracing::info!(
         agent = %candidate.agent_type,
         installed_version = %candidate.installed_version,
         registry_version = %candidate.registry_version,
         "[ACP] automatic Agent SDK update started"
     );
-    let result = install_registry_version(&candidate, manager, db, emitter).await;
+    let result = install_registry_version(&candidate, db, emitter).await;
     match result {
         Ok(()) => tracing::info!(
             agent = %candidate.agent_type,
             version = %candidate.registry_version,
-            "[ACP] automatic Agent SDK update completed"
+            "[ACP] automatic Agent SDK update prepared; activation pending"
         ),
         Err(error) => tracing::warn!(
             agent = %candidate.agent_type,
@@ -129,18 +131,36 @@ async fn update_candidate(
     }
 }
 
+async fn pending_version_covers(candidate: &AutoUpdateCandidate) -> bool {
+    let pending =
+        crate::acp::version_center::pending_agent_activation_version(candidate.agent_type).await;
+    match pending {
+        Ok(Some(version)) if version_is_at_least(&version, &candidate.registry_version) => {
+            tracing::debug!(
+                agent = %candidate.agent_type,
+                pending_version = %version,
+                registry_version = %candidate.registry_version,
+                "[ACP] automatic Agent SDK update skipped because activation is pending"
+            );
+            true
+        }
+        Ok(_) => false,
+        Err(error) => {
+            tracing::warn!(
+                agent = %candidate.agent_type,
+                %error,
+                "[ACP] automatic Agent SDK pending inventory unavailable"
+            );
+            false
+        }
+    }
+}
+
 async fn install_registry_version(
     candidate: &AutoUpdateCandidate,
-    manager: &ConnectionManager,
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
-    let _activation_guard = manager.begin_agent_activation(candidate.agent_type).await;
-    if manager.has_live_agent_session(candidate.agent_type).await {
-        return Err(AcpError::protocol(
-            "automatic Agent SDK update paused because Agent activity resumed",
-        ));
-    }
     let task_id = format!(
         "agent-auto-update-{}-{}",
         registry::registry_id_for(candidate.agent_type),
@@ -154,7 +174,7 @@ async fn install_registry_version(
                 task_id,
                 db,
                 emitter,
-                false,
+                true,
                 "automatic",
             )
             .await
@@ -168,7 +188,7 @@ async fn install_registry_version(
                 task_id,
                 db,
                 emitter,
-                false,
+                true,
             )
             .await
             .map(|_| ())
@@ -184,6 +204,16 @@ fn is_strictly_newer(installed: &str, registry: &str) -> bool {
         return false;
     };
     registry > installed
+}
+
+fn version_is_at_least(candidate: &str, required: &str) -> bool {
+    let Ok(candidate) = semver::Version::parse(normalize_version(candidate)) else {
+        return false;
+    };
+    let Ok(required) = semver::Version::parse(normalize_version(required)) else {
+        return false;
+    };
+    candidate >= required
 }
 
 fn normalize_version(version: &str) -> &str {

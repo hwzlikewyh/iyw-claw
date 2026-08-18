@@ -1938,11 +1938,9 @@ export function MessageInput({
 
   // Shared upload pool used by the menu's "Upload local file" button,
   // browser drag-drop in web mode, paste in web mode, and the fallback
-  // path of `appendFilesAsResources` for remote-desktop. Splits oversize
-  // from acceptable, runs uploads with bounded concurrency, surfaces
-  // failures via toast, and finally appends the successful paths as
-  // ResourceLinks. Returns nothing — all state changes happen via the
-  // existing setters / toast.
+  // path of `appendFilesAsResources` for remote-desktop. Local desktop staging
+  // uses the same 100 MiB ceiling in every transport; path-backed local files
+  // above that threshold bypass this pool earlier and remain direct links.
   const uploadAndAppendFiles = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return
@@ -3560,17 +3558,33 @@ export function MessageInput({
     (event: React.DragEvent<HTMLDivElement>) => {
       if (!hasDragFiles(event.dataTransfer)) return
       event.preventDefault()
-      lastDomDropAtRef.current = Date.now()
       setDragActiveIfChanged(false)
       if (disabled) return
       const files = Array.from(event.dataTransfer.files ?? [])
+      // Tauri's native drop event carries real OS paths. When the DOM File
+      // objects omit those paths, let the native event own the drop so large
+      // local files can remain direct references instead of being rejected by
+      // the byte-upload path.
+      if (
+        showNativePaperclip &&
+        (files.length === 0 || files.some((file) => getFilePath(file) === null))
+      ) {
+        lastDomDropAtRef.current = 0
+        return
+      }
+      lastDomDropAtRef.current = Date.now()
       if (files.length > 0) {
         void appendFilesFromInput(files).catch((error) => {
           console.error("[MessageInput] drop files failed:", error)
         })
       }
     },
-    [appendFilesFromInput, disabled, setDragActiveIfChanged]
+    [
+      appendFilesFromInput,
+      disabled,
+      setDragActiveIfChanged,
+      showNativePaperclip,
+    ]
   )
 
   const hasImageAttachments = imageAttachments.length > 0

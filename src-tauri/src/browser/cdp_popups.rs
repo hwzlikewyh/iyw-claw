@@ -38,7 +38,7 @@ impl BrowserSessionManager {
             self.close_orphan_target(&target_id).await;
             return;
         };
-        if let Err(error) = self
+        let result = self
             .bind_popup(
                 &runtime,
                 &ticket,
@@ -47,17 +47,48 @@ impl BrowserSessionManager {
                 target_id.clone(),
                 cancellation.clone(),
             )
-            .await
-        {
-            let _ = self.rollback_tab(&ticket).await;
-            if !cancellation.is_cancelled() {
-                self.close_orphan_target(&target_id).await;
+            .await;
+        match result {
+            Ok(()) => self.finish_popup_adoption(&seed, &ticket).await,
+            Err(error) => {
+                self.fail_popup_adoption(&ticket, &target_id, &cancellation)
+                    .await;
+                log_popup_adoption_failure(&error);
             }
-            tracing::warn!(
-                target: "iyw_claw_browser",
-                error_code = ?error.code,
-                "popup adoption failed"
-            );
+        }
+    }
+
+    async fn finish_popup_adoption(&self, seed: &PopupSeed, ticket: &TabTicket) {
+        let inherited_lease = self
+            .agent_turn_leases
+            .inherit_tab(&seed.tab_id, &ticket.tab_id)
+            .await;
+        if seed.host_id.is_none() {
+            let close_now = self
+                .agent_turn_leases
+                .mark_close_pending(std::slice::from_ref(&ticket.tab_id))
+                .await;
+            self.spawn_pending_tab_cleanup(close_now, "headless_popup");
+        }
+        tracing::info!(
+            target: "iyw_claw_browser",
+            browser_tab_id = %ticket.tab_id,
+            opener_tab_id = %seed.tab_id,
+            inherited_lease,
+            headless = seed.host_id.is_none(),
+            "popup browser tab adopted"
+        );
+    }
+
+    async fn fail_popup_adoption(
+        &self,
+        ticket: &TabTicket,
+        target_id: &str,
+        cancellation: &tokio_util::sync::CancellationToken,
+    ) {
+        let _ = self.rollback_tab(ticket).await;
+        if !cancellation.is_cancelled() {
+            self.close_orphan_target(target_id).await;
         }
     }
 
@@ -116,4 +147,12 @@ impl BrowserSessionManager {
             .cdp_call("Target.closeTarget", json!({ "targetId": target_id }), None)
             .await;
     }
+}
+
+fn log_popup_adoption_failure(error: &BrowserError) {
+    tracing::warn!(
+        target: "iyw_claw_browser",
+        error_code = ?error.code,
+        "popup adoption failed"
+    );
 }

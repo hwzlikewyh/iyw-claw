@@ -54,6 +54,7 @@ impl BrowserSessionManager {
             }
         }
         result?;
+        self.spawn_runtime_idle_check("tab_closed");
         Ok(snapshot)
     }
 
@@ -81,6 +82,7 @@ impl BrowserSessionManager {
             self.tab_cleanups.retain_handles(vec![handle], true).await;
         }
         result?;
+        self.spawn_runtime_idle_check("tab_cleanup_retried");
         Ok(self.snapshot().await)
     }
 

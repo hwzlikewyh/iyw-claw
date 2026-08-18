@@ -37,6 +37,12 @@ impl BrowserSessionManager {
         }
     }
 
+    pub(super) async fn cancel_cdp_observer_without_wait(&self) {
+        if let Some(observer) = self.observer.lock().await.take() {
+            observer.cancel_without_wait().await;
+        }
+    }
+
     pub(super) async fn handle_cdp_disconnect(&self, generation: u64) {
         let accepted = self
             .record_runtime_exit(generation, "BROWSER_CDP_DISCONNECTED".to_string())
@@ -49,6 +55,9 @@ impl BrowserSessionManager {
         if self.ensure_shutdown_epoch(epoch).is_err() {
             return;
         }
+        if !self.is_failed_runtime_generation(generation).await {
+            return;
+        }
         self.close_all_controls().await;
         self.streams.close_all().await;
         let tabs_result = self.shutdown_tabs().await;
@@ -56,7 +65,7 @@ impl BrowserSessionManager {
         if let Some(runtime) = &self.runtime {
             let runtime_result = runtime.stop().await;
             let tabs_result = if tabs_result.is_err() && runtime_result.is_ok() {
-                self.shutdown_tabs().await
+                self.finish_shutdown_tabs_after_runtime().await
             } else {
                 tabs_result
             };

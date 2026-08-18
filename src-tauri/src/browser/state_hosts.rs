@@ -82,6 +82,14 @@ impl BrowserState {
         HostExpiry::Expired(self.unregister_host(host_id))
     }
 
+    pub fn host_tab_ids(&self, host_id: &str) -> Vec<String> {
+        self.tabs
+            .values()
+            .filter(|tab| tab.host_id.as_deref() == Some(host_id))
+            .map(|tab| tab.id.clone())
+            .collect()
+    }
+
     pub fn unregister_host(&mut self, host_id: &str) -> HostRemoval {
         let claims: Vec<String> = self
             .claims

@@ -123,12 +123,7 @@ export function BrowserToolbar({
       )}
       <BrowserDownloads />
       {onClose ? (
-        <ToolButton
-          label={t("closeBrowser")}
-          icon={X}
-          disabled={busy}
-          onClick={onClose}
-        />
+        <ToolButton label={t("closeBrowser")} icon={X} onClick={onClose} />
       ) : null}
     </div>
   )

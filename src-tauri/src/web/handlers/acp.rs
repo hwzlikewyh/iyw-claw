@@ -63,38 +63,77 @@ pub async fn acp_connect(
 ) -> Result<Json<String>, AppCommandError> {
     let db = &state.db;
     let manager = &state.connection_manager;
+    let startup_trace = crate::acp::startup_trace::StartupTrace::new(
+        params.agent_type,
+        params.session_id.is_some(),
+        "web",
+    );
 
-    acp_commands::ensure_acp_working_dir(&state.data_dir, params.working_dir.as_deref())
-        .await
-        .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+    let working_dir_stage = startup_trace.stage("working_dir");
+    let working_dir = match acp_commands::resolve_acp_working_dir(
+        db,
+        &state.data_dir,
+        params.agent_type,
+        params.session_id.as_deref(),
+        params.working_dir.as_deref(),
+    )
+    .await
+    {
+        Ok(path) => {
+            working_dir_stage.finish("ok");
+            Some(path)
+        }
+        Err(error) => {
+            working_dir_stage.finish("error");
+            return Err(AppCommandError::task_execution_failed(error.to_string()));
+        }
+    };
 
-    let runtime_env = acp_commands::build_session_runtime_env(
+    let runtime_stage = startup_trace.stage("runtime_env_reconcile");
+    let runtime_env = match acp_commands::build_session_runtime_env(
         db,
         params.agent_type,
         params.session_id.as_deref(),
         &state.data_dir,
     )
     .await
-    .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+    {
+        Ok(environment) => {
+            runtime_stage.finish("ok");
+            environment
+        }
+        Err(error) => {
+            runtime_stage.finish("error");
+            return Err(AppCommandError::task_execution_failed(error.to_string()));
+        }
+    };
 
     // Guard: the session page must never trigger a download or install.
     // If the agent isn't ready, return SdkNotInstalled here so the frontend
     // can prompt the user to install it from Agent Settings.
     acp_commands::verify_agent_installed(params.agent_type, &runtime_env)
         .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
-    crate::acp::account_credentials::sync_agent_credentials(&db.conn, params.agent_type).await?;
+    let credentials_stage = startup_trace.stage("credential_sync");
+    if let Err(error) =
+        crate::acp::account_credentials::sync_agent_credentials(&db.conn, params.agent_type).await
+    {
+        credentials_stage.finish("error");
+        return Err(error.into());
+    }
+    credentials_stage.finish("ok");
 
     let emitter = state.emitter.clone();
     let connection_id = manager
-        .spawn_agent(
+        .spawn_agent_traced(
             params.agent_type,
-            params.working_dir,
+            working_dir,
             params.session_id,
             runtime_env,
             "web".to_string(),
             emitter,
             params.preferred_mode_id,
             params.preferred_config_values.unwrap_or_default(),
+            startup_trace,
         )
         .await
         .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;

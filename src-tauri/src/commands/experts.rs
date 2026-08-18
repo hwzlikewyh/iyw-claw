@@ -15,15 +15,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex as StdMutex, OnceLock};
 #[cfg(windows)]
 use std::time::Duration;
+use std::time::{Instant, SystemTime};
 
 use chrono::Utc;
 use include_dir::{include_dir, Dir, DirEntry};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::acp::types::AgentSkillScope;
 use crate::commands::acp::{
@@ -209,7 +210,7 @@ pub struct InstallReport {
 
 // ─── Manifest ───────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct Manifest {
     #[serde(default)]
     iyw_claw_version: String,
@@ -219,7 +220,7 @@ struct Manifest {
     experts: BTreeMap<String, ManifestEntry>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct ManifestEntry {
     #[serde(default)]
     hash: String,
@@ -231,9 +232,63 @@ struct ManifestEntry {
 
 // ─── Concurrency ────────────────────────────────────────────────────────
 
-fn mutation_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+fn mutation_lock() -> &'static AsyncMutex<()> {
+    static LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| AsyncMutex::new(()))
+}
+
+/// A successful central-store reconcile is expensive because it hashes every
+/// bundled Skill on disk. Keep a process-local, metadata-only fingerprint so
+/// repeated ACP connections can prove that no relevant input changed without
+/// rereading every Skill file. Failed reconciles are deliberately never cached.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CentralExpertsCache {
+    fingerprint: CentralExpertsFingerprint,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CentralExpertsFingerprint {
+    central_dir: PathBuf,
+    bundle_revision: String,
+    entries: Vec<SkillTreeEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SkillTreeEntry {
+    relative_path: String,
+    kind: SkillTreeEntryKind,
+    len: u64,
+    modified: Option<SystemTime>,
+    link_target: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SkillTreeEntryKind {
+    Missing,
+    File,
+    Directory,
+    Symlink,
+    Other,
+}
+
+fn central_experts_cache() -> &'static StdMutex<Option<CentralExpertsCache>> {
+    static CACHE: OnceLock<StdMutex<Option<CentralExpertsCache>>> = OnceLock::new();
+    CACHE.get_or_init(|| StdMutex::new(None))
+}
+
+/// Call after a market override, bundled-Skill restore, or Agent configuration
+/// mutation that can change the central store. The next reconcile validates the
+/// full on-disk state instead of accepting the previous successful cache entry.
+pub(crate) fn invalidate_central_experts_cache(reason: &str) {
+    let mut cache = central_experts_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *cache = None;
+    tracing::debug!(
+        target: "system_skills",
+        reason,
+        "invalidated central Skill reconcile cache"
+    );
 }
 
 // ─── Paths ──────────────────────────────────────────────────────────────
@@ -531,6 +586,7 @@ fn collect_bundle_files<'a>(dir: &'a Dir<'a>, out: &mut Vec<(&'a str, &'a [u8])>
                 let rel = f.path().to_str().unwrap_or("");
                 out.push((rel, f.contents()));
             }
+            DirEntry::Dir(d) if is_runtime_env_dir(d.path()) => {}
             DirEntry::Dir(d) => collect_bundle_files(d, out),
         }
     }
@@ -930,18 +986,172 @@ pub(crate) fn classify_link(link_path: &Path, expected_target: &Path) -> ExpertL
 
 // ─── Central store installation ────────────────────────────────────────
 
+fn bundled_revision() -> &'static str {
+    static REVISION: OnceLock<String> = OnceLock::new();
+    REVISION
+        .get_or_init(|| {
+            let mut hasher = Sha256::new();
+            hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
+            for meta in bundled_metadata() {
+                hasher.update(meta.id.as_bytes());
+                hasher.update(b"\0");
+                hasher.update(meta.bundled_hash.as_bytes());
+                hasher.update(b"\0");
+            }
+            format!("{:x}", hasher.finalize())
+        })
+        .as_str()
+}
+
+fn current_central_experts_fingerprint() -> Result<CentralExpertsFingerprint, ExpertsError> {
+    let central_dir = central_experts_dir();
+    let mut entries = Vec::new();
+    append_skill_tree_fingerprint(&manifest_path(), ".manifest.json", &mut entries)?;
+    for meta in bundled_metadata() {
+        let target = central_dir.join(&meta.id);
+        append_skill_tree_fingerprint(&target, &meta.id, &mut entries)?;
+    }
+    Ok(CentralExpertsFingerprint {
+        central_dir,
+        bundle_revision: bundled_revision().to_string(),
+        entries,
+    })
+}
+
+fn append_skill_tree_fingerprint(
+    path: &Path,
+    relative_path: &str,
+    entries: &mut Vec<SkillTreeEntry>,
+) -> Result<(), ExpertsError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            entries.push(SkillTreeEntry {
+                relative_path: relative_path.to_string(),
+                kind: SkillTreeEntryKind::Missing,
+                len: 0,
+                modified: None,
+                link_target: None,
+            });
+            return Ok(());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let file_type = metadata.file_type();
+    let kind = if file_type.is_symlink() {
+        SkillTreeEntryKind::Symlink
+    } else if file_type.is_dir() {
+        SkillTreeEntryKind::Directory
+    } else if file_type.is_file() {
+        SkillTreeEntryKind::File
+    } else {
+        SkillTreeEntryKind::Other
+    };
+    entries.push(SkillTreeEntry {
+        relative_path: relative_path.to_string(),
+        kind,
+        len: metadata.len(),
+        modified: Some(metadata.modified()?),
+        link_target: file_type
+            .is_symlink()
+            .then(|| fs::read_link(path).ok())
+            .flatten(),
+    });
+    if kind != SkillTreeEntryKind::Directory || is_runtime_env_dir(path) {
+        return Ok(());
+    }
+    let mut children = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
+    children.sort_by_key(|entry| entry.file_name());
+    for child in children {
+        let name = child.file_name().to_string_lossy().replace('\\', "/");
+        append_skill_tree_fingerprint(&child.path(), &format!("{relative_path}/{name}"), entries)?;
+    }
+    Ok(())
+}
+
+fn is_runtime_env_dir(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| {
+        RUNTIME_ENV_DIR_NAMES
+            .iter()
+            .any(|runtime_name| name == *runtime_name)
+    })
+}
+
+fn central_experts_cache_is_current() -> Result<bool, ExpertsError> {
+    let fingerprint = current_central_experts_fingerprint()?;
+    let cache = central_experts_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    Ok(cache
+        .as_ref()
+        .is_some_and(|cached| cached.fingerprint == fingerprint))
+}
+
+fn cache_successful_central_reconcile() -> Result<(), ExpertsError> {
+    let fingerprint = current_central_experts_fingerprint()?;
+    let mut cache = central_experts_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *cache = Some(CentralExpertsCache { fingerprint });
+    Ok(())
+}
+
 pub async fn ensure_central_experts_installed() -> InstallReport {
+    let started_at = Instant::now();
     let _guard = mutation_lock().lock().await;
-    tokio::task::spawn_blocking(ensure_central_experts_installed_blocking)
+    match central_experts_cache_is_current() {
+        Ok(true) => {
+            tracing::info!(
+                target: "system_skills",
+                elapsed_ms = started_at.elapsed().as_millis(),
+                cache = "hit",
+                "central Skill reconcile skipped"
+            );
+            return InstallReport::default();
+        }
+        Ok(false) => tracing::debug!(
+            target: "system_skills",
+            cache = "miss",
+            "central Skill reconcile needs validation"
+        ),
+        Err(error) => tracing::warn!(
+            target: "system_skills",
+            error = %error,
+            cache = "unavailable",
+            "central Skill cache fingerprint failed; reconciling from disk"
+        ),
+    }
+    let report = tokio::task::spawn_blocking(ensure_central_experts_installed_blocking)
         .await
         .unwrap_or_else(|e| {
             let mut r = InstallReport::default();
             r.errors.push(format!("join error: {e}"));
             r
-        })
+        });
+    if report.errors.is_empty() {
+        if let Err(error) = cache_successful_central_reconcile() {
+            tracing::warn!(
+                target: "system_skills",
+                error = %error,
+                "central Skill reconcile succeeded but its cache was not stored"
+            );
+        }
+    } else {
+        invalidate_central_experts_cache("reconcile_failed");
+    }
+    tracing::info!(
+        target: "system_skills",
+        elapsed_ms = started_at.elapsed().as_millis(),
+        installed = report.installed_count,
+        updated = report.updated_count,
+        errors = report.errors.len(),
+        "central Skill reconcile finished"
+    );
+    report
 }
 
 fn ensure_central_experts_installed_blocking() -> InstallReport {
+    let started_at = Instant::now();
     let _shared_guard = crate::commands::acp::shared_skill_mutation_guard();
     let mut report = InstallReport::default();
 
@@ -954,6 +1164,7 @@ fn ensure_central_experts_installed_blocking() -> InstallReport {
     }
 
     let mut manifest = load_manifest();
+    let original_manifest = manifest.clone();
     let meta_list = bundled_metadata();
 
     for meta in meta_list {
@@ -972,11 +1183,21 @@ fn ensure_central_experts_installed_blocking() -> InstallReport {
     }
 
     manifest.iyw_claw_version = env!("CARGO_PKG_VERSION").to_string();
-    manifest.installed_at = Utc::now().to_rfc3339();
-    if let Err(e) = save_manifest(&manifest) {
-        report.errors.push(format!("save manifest: {e}"));
+    if manifest != original_manifest {
+        manifest.installed_at = Utc::now().to_rfc3339();
+        if let Err(e) = save_manifest(&manifest) {
+            report.errors.push(format!("save manifest: {e}"));
+        }
     }
-
+    tracing::debug!(
+        target: "system_skills",
+        elapsed_ms = started_at.elapsed().as_millis(),
+        installed = report.installed_count,
+        updated = report.updated_count,
+        manifest_changed = manifest != original_manifest,
+        errors = report.errors.len(),
+        "central Skill disk reconcile completed"
+    );
     report
 }
 
@@ -1049,14 +1270,7 @@ fn refresh_bundled_expert(
     if legacy_link {
         return refresh_bundled_from_legacy_link(meta, target, legacy_source);
     }
-    let backup = stage_bundled_runtime_envs(target, &meta.id)?;
-    if let Err(error) = replace_bundled_directory(meta, target) {
-        return Err(restore_runtime_backup(&backup, target, &meta.id, error));
-    }
-    if let Err(error) = migrate_runtime_envs(target, &backup, &meta.id) {
-        return Err(restore_runtime_backup(&backup, target, &meta.id, error));
-    }
-    remove_runtime_backup(&backup, &meta.id)?;
+    replace_bundled_contents(meta, target)?;
     migrate_runtime_envs(target, legacy_source, &meta.id)
 }
 
@@ -1096,62 +1310,40 @@ fn rollback_legacy_runtime_migration(
     restore_legacy_link(legacy_source, target, id, restored)
 }
 
-fn replace_bundled_directory(meta: &ExpertMetadata, target: &Path) -> Result<(), ExpertsError> {
-    if fs::symlink_metadata(target).is_ok() {
-        remove_superseded_skill_dir(target, &meta.id)?;
+fn replace_bundled_contents(meta: &ExpertMetadata, target: &Path) -> Result<(), ExpertsError> {
+    match fs::symlink_metadata(target) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            clear_bundled_skill_contents(target, &meta.id)?;
+        }
+        Ok(_) => {
+            remove_skill_entry(target)
+                .map_err(|error| superseded_skill_dir_error(&meta.id, target, error))?;
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
     }
     extract_expert_to_disk(meta, target)
 }
 
-fn stage_bundled_runtime_envs(target: &Path, id: &str) -> Result<PathBuf, ExpertsError> {
-    let backup = target.with_file_name(format!(".{id}.bundled-runtime-backup"));
-    if fs::symlink_metadata(&backup)
-        .is_ok_and(|metadata| !metadata.is_dir() || metadata.file_type().is_symlink())
-    {
-        return Err(ExpertsError::Io(format!(
-            "runtime environment backup for '{id}' is not a directory: {}",
-            backup.display()
-        )));
+fn clear_bundled_skill_contents(target: &Path, id: &str) -> Result<(), ExpertsError> {
+    let mut preserved_runtime_envs = Vec::new();
+    for entry in fs::read_dir(target)? {
+        let entry = entry?;
+        let path = entry.path();
+        if is_runtime_env_dir(&path) {
+            preserved_runtime_envs.push(entry.file_name().to_string_lossy().into_owned());
+            continue;
+        }
+        remove_skill_entry(&path).map_err(|error| superseded_skill_dir_error(id, &path, error))?;
     }
-    if let Some(blocked) = blocking_runtime_env_dir(&backup, target) {
-        return Err(ExpertsError::Io(format!(
-            "cannot stage runtime environment for '{id}': {} already exists",
-            blocked.display()
-        )));
-    }
-    if retained_runtime_env_dir(target).is_none() {
-        return Ok(backup);
-    }
-    fs::create_dir_all(&backup)?;
-    if let Err(error) = migrate_runtime_envs(&backup, target, id) {
-        return Err(restore_runtime_backup(&backup, target, id, error));
-    }
-    Ok(backup)
-}
-
-fn remove_runtime_backup(backup: &Path, id: &str) -> Result<(), ExpertsError> {
-    if fs::symlink_metadata(backup).is_err() {
-        return Ok(());
-    }
-    fs::remove_dir(backup).map_err(|error| {
-        ExpertsError::Io(format!(
-            "remove runtime environment backup for '{id}' at {}: {error}",
-            backup.display()
-        ))
-    })
-}
-
-fn restore_runtime_backup(
-    backup: &Path,
-    target: &Path,
-    id: &str,
-    original_error: ExpertsError,
-) -> ExpertsError {
-    let restored = restore_runtime_envs(backup, target, id, original_error);
-    match remove_runtime_backup(backup, id) {
-        Ok(()) => restored,
-        Err(cleanup_error) => ExpertsError::Io(format!("{restored}; {cleanup_error}")),
-    }
+    tracing::info!(
+        target: "system_skills",
+        skill_id = id,
+        target = %target.display(),
+        preserved_runtime_envs = ?preserved_runtime_envs,
+        "cleared bundled Skill contents while preserving runtime environments"
+    );
+    Ok(())
 }
 
 fn restore_legacy_link(
@@ -1218,6 +1410,14 @@ fn extract_bundle_dir(
                 }
             }
             DirEntry::Dir(d) => {
+                if is_runtime_env_dir(d.path()) {
+                    tracing::debug!(
+                        target: "system_skills",
+                        path = %d.path().display(),
+                        "skipping bundled runtime environment"
+                    );
+                    continue;
+                }
                 extract_bundle_dir(d, bundle_prefix, target)?;
             }
         }
@@ -1726,7 +1926,11 @@ pub async fn experts_list_all_install_statuses() -> Result<Vec<ExpertInstallStat
 
 pub(crate) async fn reconcile_system_repo_links(ids: &[String]) -> Result<(), ExpertsError> {
     let _guard = mutation_lock().lock().await;
-    reconcile_system_repo_links_locked(ids)
+    let result = reconcile_system_repo_links_locked(ids);
+    // A repository reconciliation can replace central Skill directories or
+    // migrate their runtime environments. Never reuse a prior startup cache.
+    invalidate_central_experts_cache("system_repository_reconciled");
+    result
 }
 
 fn reconcile_system_repo_links_locked(ids: &[String]) -> Result<(), ExpertsError> {

@@ -13,8 +13,6 @@ use crate::db::service::{
 };
 
 const MESSAGE_LANGUAGE_KEY: &str = "chat_message_language";
-/// Days to retain message logs before cleanup.
-const LOG_RETENTION_DAYS: i64 = 30;
 
 pub fn spawn_daily_report_scheduler(
     manager: ChatChannelManager,
@@ -22,7 +20,6 @@ pub fn spawn_daily_report_scheduler(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut sent_today: HashSet<(i32, NaiveDate)> = HashSet::new();
-        let mut last_cleanup_date: Option<NaiveDate> = None;
 
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
@@ -33,21 +30,6 @@ pub fn spawn_daily_report_scheduler(
 
             // Clean up old entries from sent_today
             sent_today.retain(|(_, date)| *date == today);
-
-            // Periodic log cleanup: once per day
-            if last_cleanup_date != Some(today) {
-                last_cleanup_date = Some(today);
-                let cutoff = Utc::now() - chrono::Duration::days(LOG_RETENTION_DAYS);
-                match chat_channel_message_log_service::cleanup_old_logs(&db_conn, cutoff).await {
-                    Ok(n) if n > 0 => {
-                        tracing::info!("[ChatChannel] cleaned up {n} old message logs");
-                    }
-                    Err(e) => {
-                        tracing::error!("[ChatChannel] log cleanup failed: {e}");
-                    }
-                    _ => {}
-                }
-            }
 
             let channels = match chat_channel_service::list_enabled(&db_conn).await {
                 Ok(c) => c,

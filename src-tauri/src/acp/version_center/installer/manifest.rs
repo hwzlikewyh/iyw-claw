@@ -256,8 +256,7 @@ pub async fn write_pending_activations(
 
 /// 追加一条待激活记录；同一组件只保留最后一次目标版本。
 ///
-/// IR-005：活跃会话存活时不切换版本，先在此记录，会话结束后的首次启动
-/// 由 `bootstrap_initialize` 消费并激活。
+/// IR-005：后台准备版本时不切换 active，真实应用启动入口消费并激活。
 pub async fn push_pending_activation(
     data_dir: &Path,
     pending: PendingActivation,

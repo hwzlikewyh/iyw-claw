@@ -9,7 +9,7 @@ use super::manifest::{
 use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
 
-pub(super) async fn consume_pending_activations(
+pub async fn consume_pending_activations_at_startup(
     conn: &DatabaseConnection,
     data_dir: &Path,
 ) -> Result<(), AppCommandError> {
@@ -47,37 +47,18 @@ pub(super) async fn consume_pending_activations(
     Ok(())
 }
 
-pub(crate) async fn consume_pending_agent_activation(
-    conn: &DatabaseConnection,
-    data_dir: &Path,
+pub(crate) async fn pending_agent_activation_version(
     agent_type: AgentType,
-) -> Result<bool, AppCommandError> {
+) -> Result<Option<String>, AppCommandError> {
     let _guard = lock_pending_activations().await;
     let component_id = serialize_agent_type(agent_type)?;
-    let mut pending = read_pending_activations(data_dir).await?;
-    let Some(index) = pending
-        .iter()
-        .position(|item| item.component_kind == "agent" && item.component_id == component_id)
-    else {
-        return Ok(false);
-    };
-    let item = pending[index].clone();
-    activate_pending_agent(conn, data_dir, agent_type, &item).await?;
-    pending.remove(index);
-    if let Err(error) = write_pending_activations(data_dir, &pending).await {
-        tracing::warn!(
-            agent_type = ?agent_type,
-            version = %item.version,
-            error = %error,
-            "[agent-version-center] Agent activated; pending cleanup will retry"
-        );
-    }
-    tracing::info!(
-        agent_type = ?agent_type,
-        version = %item.version,
-        "[agent-version-center] pending Agent activation consumed before launch"
-    );
-    Ok(true)
+    Ok(
+        read_pending_activations(&crate::system_skills::data_dir_from_env())
+            .await?
+            .into_iter()
+            .find(|item| item.component_kind == "agent" && item.component_id == component_id)
+            .map(|item| item.version),
+    )
 }
 
 async fn activate_pending_component(

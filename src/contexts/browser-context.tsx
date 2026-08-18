@@ -47,7 +47,6 @@ export function BrowserProvider({
   const [error, setError] = useState<BrowserErrorEnvelope | null>(null)
   const [busy, setBusy] = useState(false)
   const mountedRef = useRef(true)
-  const closingRef = useRef(false)
   const acceptedRevisionRef = useRef(0)
 
   const acceptState = useCallback((next: BrowserStateSnapshot) => {
@@ -86,6 +85,7 @@ export function BrowserProvider({
 
   const openBrowser = useCallback(async () => {
     setOpen(true)
+    setError(null)
     if (!isDesktop()) return
     setBusy(true)
     try {
@@ -98,24 +98,10 @@ export function BrowserProvider({
   }, [acceptState])
 
   const closeBrowser = useCallback(async () => {
-    if (closingRef.current) return
-    if (!isDesktop()) {
-      setOpen(false)
-      return
-    }
-    closingRef.current = true
-    setBusy(true)
-    try {
-      const next = await browserApi.stop()
-      acceptState(next)
-      if (mountedRef.current) setOpen(false)
-    } catch (cause) {
-      if (mountedRef.current) setError(normalizeError(cause))
-    } finally {
-      closingRef.current = false
-      if (mountedRef.current) setBusy(false)
-    }
-  }, [acceptState])
+    setOpen(false)
+    setError(null)
+    setBusy(false)
+  }, [])
   const toggleBrowser = useCallback(async () => {
     if (isOpen) await closeBrowser()
     else await openBrowser()
@@ -125,11 +111,15 @@ export function BrowserProvider({
     async (tabId: string, sourceHostId?: string) => {
       setBusy(true)
       let label: string | null = null
+      const sourceIsDocked = state?.hosts.some(
+        (host) => host.hostId === sourceHostId && host.kind === "docked"
+      )
       try {
         label = await browserApi.createWindow()
         const host = await waitForHost(label, refresh)
         await browserApi.beginClaim(tabId, sourceHostId, host.hostId, 0)
-        await refresh()
+        await waitForTabHost(tabId, host.hostId, refresh)
+        if (sourceIsDocked) setOpen(false)
       } catch (cause) {
         if (label) await browserApi.closeWindow(label).catch(() => {})
         setError(normalizeError(cause))
@@ -138,7 +128,7 @@ export function BrowserProvider({
         if (mountedRef.current) setBusy(false)
       }
     },
-    [refresh]
+    [refresh, state?.hosts]
   )
 
   useEffect(() => {
@@ -211,6 +201,21 @@ async function waitForHost(
     await new Promise((resolve) => window.setTimeout(resolve, 100))
   }
   throw new Error("Detached browser window did not register")
+}
+
+async function waitForTabHost(
+  tabId: string,
+  hostId: string,
+  refresh: () => Promise<BrowserStateSnapshot | null>
+) {
+  const deadline = Date.now() + DETACHED_HOST_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const state = await refresh()
+    const tab = state?.tabs.find((item) => item.browserTabId === tabId)
+    if (tab?.hostId === hostId) return
+    await new Promise((resolve) => window.setTimeout(resolve, 100))
+  }
+  throw new Error("Detached browser tab did not migrate")
 }
 
 function normalizeError(cause: unknown): BrowserErrorEnvelope {

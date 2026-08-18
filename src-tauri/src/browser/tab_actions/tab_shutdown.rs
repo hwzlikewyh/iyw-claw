@@ -11,6 +11,17 @@ impl BrowserSessionManager {
         let _operation = self.tab_cleanups.lock_operation().await;
         let handles = self.tabs.drain().await;
         self.tab_cleanups.retain_handles(handles, true).await;
+        self.finish_pending_tab_shutdown().await
+    }
+
+    pub(in crate::browser) async fn finish_shutdown_tabs_after_runtime(
+        &self,
+    ) -> Result<(), BrowserError> {
+        let _operation = self.tab_cleanups.lock_operation().await;
+        self.finish_pending_tab_shutdown().await
+    }
+
+    async fn finish_pending_tab_shutdown(&self) -> Result<(), BrowserError> {
         let mut owners = self.tab_cleanups.drain().await;
         if owners.is_empty() {
             return Ok(());

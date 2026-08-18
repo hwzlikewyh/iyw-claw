@@ -88,6 +88,14 @@ impl BrowserState {
         true
     }
 
+    pub fn record_runtime_cleanup_failure(&mut self, generation: u64, failure_code: String) {
+        if self.runtime.generation == generation
+            && self.runtime.status == BrowserRuntimeStatus::Failed
+        {
+            self.runtime.failure_code = Some(failure_code);
+        }
+    }
+
     pub fn begin_runtime_stop(&mut self) -> bool {
         if !matches!(
             self.runtime.status,

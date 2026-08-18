@@ -45,6 +45,10 @@ pub(super) struct TabExitWatch {
 }
 
 impl BrowserTabRegistry {
+    pub async fn is_empty(&self) -> bool {
+        self.inner.lock().await.is_empty()
+    }
+
     pub async fn insert(&self, handle: TabRuntimeHandle) -> Result<TabExitWatch, TabRuntimeHandle> {
         let mut inner = self.inner.lock().await;
         if inner.contains_key(&handle.tab_id)

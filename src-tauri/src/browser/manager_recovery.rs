@@ -24,23 +24,37 @@ impl BrowserSessionManager {
         if self.ensure_shutdown_epoch(epoch).is_err() {
             return false;
         }
+        if !self.is_failed_runtime_generation(generation).await {
+            return false;
+        }
         self.stop_cdp_observer().await;
         self.streams.close_all().await;
         let tabs_result = self.shutdown_tabs().await;
         self.close_all_controls().await;
-        runtime.release_exited(generation).await;
-        let tabs_result = if tabs_result.is_err() {
-            self.shutdown_tabs().await
+        let runtime_result = runtime.release_exited(generation).await;
+        let tabs_result = if tabs_result.is_err() && runtime_result.is_ok() {
+            self.finish_shutdown_tabs_after_runtime().await
         } else {
             tabs_result
         };
+        let cleanup_error = tabs_result
+            .as_ref()
+            .err()
+            .or_else(|| runtime_result.as_ref().err());
+        if let Some(error) = cleanup_error {
+            self.state
+                .write()
+                .await
+                .record_runtime_cleanup_failure(generation, format!("{:?}", error.code));
+        }
         tracing::error!(
             target: "iyw_claw_browser",
             runtime_generation = generation,
             tab_cleanup_error = tabs_result.as_ref().err().map(|error| error.message.as_str()),
+            runtime_cleanup_error = runtime_result.as_ref().err().map(|error| error.message.as_str()),
             "browser controller exited unexpectedly"
         );
-        tabs_result.is_ok()
+        tabs_result.is_ok() && runtime_result.is_ok()
     }
 
     pub(super) fn schedule_recovery(&self, runtime: Arc<BrowserRuntime>, failed_generation: u64) {

@@ -31,6 +31,7 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   statSync,
@@ -58,6 +59,17 @@ function log(msg) {
 function die(msg) {
   console.error(`[prepare-sidecars][ERROR] ${msg}`)
   process.exit(1)
+}
+
+function requireNonEmptyFile(path, label) {
+  if (!existsSync(path)) {
+    throw new Error(`${label} is missing: ${path}`)
+  }
+  const stats = statSync(path)
+  if (!stats.isFile() || stats.size === 0) {
+    throw new Error(`${label} must be a non-empty file: ${path}`)
+  }
+  return stats
 }
 
 function parseArgs(argv) {
@@ -115,9 +127,12 @@ export function resolveBuildInvocation(srcTauri, target, ext) {
 }
 
 export function copyFileIfChanged(source, destination) {
+  const sourceStats = requireNonEmptyFile(source, "sidecar source")
   if (existsSync(destination)) {
-    const sourceStats = statSync(source)
-    const destinationStats = statSync(destination)
+    const destinationStats = lstatSync(destination)
+    if (!destinationStats.isFile()) {
+      throw new Error(`staged sidecar must be a regular file: ${destination}`)
+    }
     if (
       sourceStats.size === destinationStats.size &&
       readFileSync(source).equals(readFileSync(destination))
@@ -128,6 +143,7 @@ export function copyFileIfChanged(source, destination) {
 
   mkdirSync(dirname(destination), { recursive: true })
   copyFileSync(source, destination)
+  requireNonEmptyFile(destination, "staged sidecar")
   return true
 }
 
@@ -176,6 +192,8 @@ async function main() {
   if (!existsSync(built)) {
     die(`expected ${built} after cargo build, but it does not exist`)
   }
+  const builtStats = requireNonEmptyFile(built, "Cargo sidecar output")
+  log(`Cargo sidecar output: ${built} (${builtStats.size} bytes)`)
 
   // Authenticode-sign the freshly built sidecar before it is copied anywhere.
   // Signing the single Cargo output means every staged copy below (binaries/
@@ -188,6 +206,7 @@ async function main() {
   if (isWindows && resolveSignMode(process.env) !== "none") {
     log(`Authenticode-signing ${built}`)
     signFiles([built])
+    requireNonEmptyFile(built, "signed Cargo sidecar output")
   }
 
   for (const bundleName of [BIN_NAME, `${BIN_NAME}-${APP_VERSION}`]) {
@@ -198,7 +217,10 @@ async function main() {
       // sources that may strip the +x bit.
       chmodSync(dest, 0o755)
     }
-    log(`sidecar ${sidecarChanged ? "staged" : "unchanged"} at ${dest}`)
+    const stagedStats = requireNonEmptyFile(dest, "staged sidecar")
+    log(
+      `sidecar ${sidecarChanged ? "staged" : "unchanged"} at ${dest} (${stagedStats.size} bytes)`
+    )
   }
 
   // Tauri CLI 2.10 resolves Cargo target names with underscores while
@@ -214,8 +236,12 @@ async function main() {
     if (!isWindows) {
       chmodSync(compatPath, 0o755)
     }
+    const aliasStats = requireNonEmptyFile(
+      compatPath,
+      "bundle compatibility alias"
+    )
     log(
-      `bundle compatibility alias ${aliasChanged ? "staged" : "unchanged"} at ${compatPath}`
+      `bundle compatibility alias ${aliasChanged ? "staged" : "unchanged"} at ${compatPath} (${aliasStats.size} bytes)`
     )
   }
 

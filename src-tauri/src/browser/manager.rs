@@ -7,6 +7,8 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "tauri-runtime")]
+use super::agent_turn_leases::AgentTurnLeaseRegistry;
+#[cfg(feature = "tauri-runtime")]
 use super::cdp_observer::CdpObserverHandle;
 use super::control::ControlGate;
 use super::control_lease::AgentControlLease;
@@ -50,6 +52,8 @@ pub struct BrowserSessionManager {
     pub(super) streams: Arc<BrowserStreamRegistry>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) observer: Arc<Mutex<Option<CdpObserverHandle>>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) agent_turn_leases: Arc<AgentTurnLeaseRegistry>,
 }
 
 impl BrowserSessionManager {
@@ -78,6 +82,8 @@ impl BrowserSessionManager {
             streams: Arc::new(BrowserStreamRegistry::default()),
             #[cfg(feature = "tauri-runtime")]
             observer: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "tauri-runtime")]
+            agent_turn_leases: Arc::new(AgentTurnLeaseRegistry::default()),
         }
     }
 
@@ -245,6 +251,8 @@ impl BrowserSessionManager {
     pub(super) async fn finish_tab_close(&self, ticket: &TabTicket) -> Result<(), BrowserError> {
         let result = self.state.write().await.finish_tab_close(ticket);
         self.controls.lock().await.remove(&ticket.tab_id);
+        #[cfg(feature = "tauri-runtime")]
+        self.agent_turn_leases.forget_tab(&ticket.tab_id).await;
         result
     }
 

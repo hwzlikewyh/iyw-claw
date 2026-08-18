@@ -298,6 +298,22 @@ async fn async_main() -> ExitCode {
     // reqwest clients (including the LazyLock in check_app_update) cache the proxy
     // config at build time, so this must run before the first one is constructed.
     iyw_claw_lib::init_proxy_from_db(&db.conn).await;
+    let pending_activation_started = std::time::Instant::now();
+    match iyw_claw_lib::acp::version_center::consume_pending_activations_at_startup(
+        &db.conn, &data_dir,
+    )
+    .await
+    {
+        Ok(()) => tracing::info!(
+            elapsed_ms = pending_activation_started.elapsed().as_millis(),
+            "[agent-version-center] startup pending activation pass completed"
+        ),
+        Err(error) => tracing::warn!(
+            elapsed_ms = pending_activation_started.elapsed().as_millis(),
+            error = %error,
+            "[agent-version-center] startup pending activation pass deferred"
+        ),
+    }
 
     // Reclaim orphaned chat scratch dirs (pre-send drafts that never bound to a
     // conversation, plus dirs left behind by deleted chat conversations).
@@ -510,6 +526,7 @@ async fn async_main() -> ExitCode {
     let managed_distribution_db = state.db.conn.clone();
     let system_skills_data_dir = state.data_dir.clone();
     let system_skills_emitter = state.emitter.clone();
+    let runtime_prewarm_manager = state.connection_manager.clone_ref();
     tokio::spawn(async move {
         let report = iyw_claw_lib::commands::experts::ensure_central_experts_installed().await;
         if !report.errors.is_empty() {
@@ -543,6 +560,21 @@ async fn async_main() -> ExitCode {
                 .await
         {
             tracing::warn!("[managed-skills] startup reconcile failed: {error}");
+        }
+        let prewarm_started = std::time::Instant::now();
+        match runtime_prewarm_manager.prewarm_codex_runtime().await {
+            Ok(true) => tracing::info!(
+                elapsed_ms = prewarm_started.elapsed().as_millis(),
+                "[ACP][startup] Codex runtime Host prewarmed"
+            ),
+            Ok(false) => {
+                tracing::info!("[ACP][startup] Codex runtime Host prewarm disabled")
+            }
+            Err(error) => tracing::info!(
+                elapsed_ms = prewarm_started.elapsed().as_millis(),
+                error = %error,
+                "[ACP][startup] Codex runtime Host prewarm deferred"
+            ),
         }
         if let Err(error) =
             iyw_claw_lib::commands::mcp_sync::reconcile_all_managed_mcp(&managed_distribution_db)
@@ -591,6 +623,7 @@ async fn async_main() -> ExitCode {
         state.acp_event_bus.clone(),
         Some(state.delegation_broker.clone()),
         Some(state.user_memory.clone()),
+        None,
     ));
 
     // Spawn the idle/stall/capacity sweep. The persisted preference controls

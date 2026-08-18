@@ -60,6 +60,10 @@ const MAX_COMPANION_TOOLS: usize = 64;
 #[async_trait]
 pub trait ParentSessionLookup: Send + Sync {
     async fn current_conversation_id(&self, parent_connection_id: &str) -> Option<i32>;
+
+    async fn current_turn_generation(&self, _parent_connection_id: &str) -> Option<i64> {
+        None
+    }
 }
 
 #[async_trait]
@@ -980,6 +984,13 @@ impl DelegationListener {
             .parent_lookup
             .current_conversation_id(&entry.parent_connection_id)
             .await;
+        let Some(turn_generation) = self
+            .parent_lookup
+            .current_turn_generation(&entry.parent_connection_id)
+            .await
+        else {
+            return browser_unavailable("BROWSER_SESSION_UNAVAILABLE");
+        };
         let cancellation = request_cancellation.child_token();
         let bridged = cancellation.clone();
         let session_cancellation = entry.cancellation.clone();
@@ -992,6 +1003,7 @@ impl DelegationListener {
                 identity: crate::browser::BrowserAgentIdentity {
                     connection_id: entry.parent_connection_id,
                     conversation_id,
+                    turn_generation,
                 },
                 tool: req.tool,
                 input: req.input,

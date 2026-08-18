@@ -8825,13 +8825,7 @@ pub(crate) async fn acp_update_agent_preferences_and_refresh(
     .await)
 }
 
-pub(crate) async fn ensure_acp_working_dir(
-    data_dir: &Path,
-    working_dir: Option<&str>,
-) -> Result<(), AcpError> {
-    let Some(raw) = working_dir.filter(|value| !value.trim().is_empty()) else {
-        return Ok(());
-    };
+async fn ensure_acp_working_dir_path(data_dir: &Path, raw: &str) -> Result<PathBuf, AcpError> {
     let path = PathBuf::from(raw);
     let path = if path.is_absolute() {
         path
@@ -8839,7 +8833,7 @@ pub(crate) async fn ensure_acp_working_dir(
         std::env::current_dir().unwrap_or_default().join(path)
     };
     if path.is_dir() {
-        return Ok(());
+        return Ok(path);
     }
     if path.exists() {
         return Err(AcpError::SpawnFailed(format!(
@@ -8856,12 +8850,52 @@ pub(crate) async fn ensure_acp_working_dir(
                     path.display()
                 ))
             })?;
-        return Ok(());
+        return Ok(path);
     }
     Err(AcpError::SpawnFailed(format!(
         "working directory does not exist: {}",
         path.display()
     )))
+}
+
+pub(crate) async fn resolve_acp_working_dir(
+    db: &AppDatabase,
+    data_dir: &Path,
+    agent_type: AgentType,
+    session_id: Option<&str>,
+    working_dir: Option<&str>,
+) -> Result<String, AcpError> {
+    let explicit = working_dir.map(str::trim).filter(|value| !value.is_empty());
+    let (raw, source) = match explicit {
+        Some(raw) => (raw.to_string(), "request"),
+        None => {
+            let session_id = session_id
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    AcpError::SpawnFailed(
+                        "working directory is required before starting an Agent session"
+                            .to_string(),
+                    )
+                })?;
+            let persisted = crate::db::service::conversation_service::find_folder_path_by_external_id(
+                &db.conn,
+                session_id,
+                agent_type,
+            )
+            .await
+            .map_err(|error| AcpError::SpawnFailed(format!(
+                "failed to resolve the persisted working directory: {error}"
+            )))?
+            .ok_or_else(|| AcpError::SpawnFailed(
+                "working directory is required because the resumed session has no persisted workspace"
+                    .to_string(),
+            ))?;
+            (persisted, "persisted_session")
+        }
+    };
+    let path = ensure_acp_working_dir_path(data_dir, &raw).await?;
+    tracing::info!(agent = %agent_type, resumed = session_id.is_some(), source, "[ACP] working directory resolved");
+    Ok(path.to_string_lossy().into_owned())
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -8878,6 +8912,8 @@ pub async fn acp_connect(
     app_handle: tauri::AppHandle,
     window: tauri::WebviewWindow,
 ) -> Result<String, AcpError> {
+    let startup_trace =
+        crate::acp::startup_trace::StartupTrace::new(agent_type, session_id.is_some(), "tauri");
     // Resolve through the effective data dir so a custom `IYW_CLAW_DATA_DIR`
     // reaches the credential helper script the agent's git subprocess
     // will execute. `acp_connect` may be called before the app data dir
@@ -8888,19 +8924,60 @@ pub async fn acp_connect(
         .app_data_dir()
         .map(|p| crate::paths::resolve_effective_data_dir(&p))
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    ensure_acp_working_dir(&app_data_dir, working_dir.as_deref()).await?;
-    let runtime_env =
-        build_session_runtime_env(&db, agent_type, session_id.as_deref(), &app_data_dir).await?;
+    let working_dir_stage = startup_trace.stage("working_dir");
+    let working_dir = match resolve_acp_working_dir(
+        &db,
+        &app_data_dir,
+        agent_type,
+        session_id.as_deref(),
+        working_dir.as_deref(),
+    )
+    .await
+    {
+        Ok(path) => {
+            working_dir_stage.finish("ok");
+            Some(path)
+        }
+        Err(error) => {
+            working_dir_stage.finish("error");
+            return Err(error);
+        }
+    };
+    let runtime_stage = startup_trace.stage("runtime_env_reconcile");
+    let runtime_env = match build_session_runtime_env(
+        &db,
+        agent_type,
+        session_id.as_deref(),
+        &app_data_dir,
+    )
+    .await
+    {
+        Ok(environment) => {
+            runtime_stage.finish("ok");
+            environment
+        }
+        Err(error) => {
+            runtime_stage.finish("error");
+            return Err(error);
+        }
+    };
 
     // Guard: the session page must never trigger a download or install.
     // If the agent isn't ready, return SdkNotInstalled here so the frontend
     // can prompt the user to install it from Agent Settings.
     verify_agent_installed(agent_type, &runtime_env)?;
-    crate::acp::account_credentials::sync_agent_credentials_for_acp(&db.conn, agent_type).await?;
+    let credentials_stage = startup_trace.stage("credential_sync");
+    if let Err(error) =
+        crate::acp::account_credentials::sync_agent_credentials_for_acp(&db.conn, agent_type).await
+    {
+        credentials_stage.finish("error");
+        return Err(error);
+    }
+    credentials_stage.finish("ok");
 
     let emitter = EventEmitter::Tauri(app_handle);
     manager
-        .spawn_agent(
+        .spawn_agent_traced(
             agent_type,
             working_dir,
             session_id,
@@ -8909,6 +8986,7 @@ pub async fn acp_connect(
             emitter,
             preferred_mode_id,
             preferred_config_values.unwrap_or_default(),
+            startup_trace,
         )
         .await
 }

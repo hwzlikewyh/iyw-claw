@@ -1,21 +1,15 @@
-use std::time::Duration;
-
-use tokio_util::sync::CancellationToken;
-
 use super::{BrowserRuntime, RuntimeHandle};
 use crate::browser::error::BrowserError;
-use crate::browser::process::{kill_tree_checked, wait_for_exit};
-
-const GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(2);
+use crate::browser::process::kill_tree_checked;
 
 impl BrowserRuntime {
     pub async fn stop(&self) -> Result<(), BrowserError> {
         let _mutation = self.mutation.lock().await;
         let current = { self.current.lock().await.take() };
         let current_result = match current {
-            Some(mut handle) => {
+            Some(handle) => {
                 handle.watcher_cancel.cancel();
-                let result = stop_handle(&mut handle).await;
+                let result = stop_handle(&handle).await;
                 if result.is_err() {
                     *self.current.lock().await = Some(handle);
                 }
@@ -38,20 +32,24 @@ impl BrowserRuntime {
         current_result.and(pending_result)
     }
 
-    pub async fn release_exited(&self, generation: u64) {
+    pub async fn release_exited(&self, generation: u64) -> Result<(), BrowserError> {
         let _mutation = self.mutation.lock().await;
         let Some(handle) = self.take_generation(generation).await else {
-            return;
+            return Ok(());
         };
         handle.watcher_cancel.cancel();
-        if let Err(error) = force_stop_handle(&handle).await {
-            tracing::error!(
-                target: "iyw_claw_browser",
-                runtime_generation = generation,
-                error_code = ?error.code,
-                "browser cleanup after controller exit remains incomplete"
-            );
-            *self.current.lock().await = Some(handle);
+        match force_stop_handle(&handle).await {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                tracing::error!(
+                    target: "iyw_claw_browser",
+                    runtime_generation = generation,
+                    error_code = ?error.code,
+                    "browser cleanup after controller exit remains incomplete"
+                );
+                *self.current.lock().await = Some(handle);
+                Err(error)
+            }
         }
     }
 
@@ -63,21 +61,8 @@ impl BrowserRuntime {
     }
 }
 
-async fn stop_handle(handle: &mut RuntimeHandle) -> Result<(), BrowserError> {
-    let close_result = handle
-        .cli
-        .run(
-            &handle.controller_session,
-            &["close"],
-            GRACEFUL_STOP_TIMEOUT,
-            CancellationToken::new(),
-        )
-        .await;
-    let initial_daemon_result = if wait_for_exit(&handle.daemon, GRACEFUL_STOP_TIMEOUT).await {
-        Ok(())
-    } else {
-        kill_tree_checked(&handle.daemon).await
-    };
+async fn stop_handle(handle: &RuntimeHandle) -> Result<(), BrowserError> {
+    let initial_daemon_result = kill_tree_checked(&handle.daemon).await;
     if let Err(error) = initial_daemon_result {
         tracing::warn!(
             target: "iyw_claw_browser",
@@ -93,13 +78,6 @@ async fn stop_handle(handle: &mut RuntimeHandle) -> Result<(), BrowserError> {
     let cleanup_result = daemon_result.and(sidecar_result).and(engine_result);
     cleanup_result?;
     remove_runtime_dir(handle).await;
-    if let Err(error) = close_result {
-        tracing::warn!(
-            target: "iyw_claw_browser",
-            error_code = ?error.code,
-            "browser runtime graceful close failed; process cleanup completed"
-        );
-    }
     Ok(())
 }
 

@@ -187,13 +187,10 @@ pub async fn create_file_tree_entry(
 
 /// Hard cap on a single uploaded attachment.
 ///
-/// Aligned with axum's default 2MB multipart body limit and with the practical
-/// constraint that the file is later embedded as context for an AI agent —
-/// anything larger would not fit a typical model's context window anyway.
-/// The check inside the streaming loop is defense-in-depth: axum's
-/// `DefaultBodyLimit` rejects the request before reaching here, but a future
-/// limit change must not silently allow oversized writes to disk.
-pub const UPLOAD_MAX_BYTES: u64 = 2 * 1024 * 1024;
+/// Hard payload limit for a single attachment. The route's multipart body
+/// limit is derived from this value, while the streaming check remains
+/// defense-in-depth against future route configuration changes.
+pub const UPLOAD_MAX_BYTES: u64 = 100 * 1024 * 1024;
 
 /// Env-controlled cap on the *total* bytes resident under
 /// `uploads_root/`. Per-file `UPLOAD_MAX_BYTES` bounds one payload; this

@@ -71,8 +71,15 @@ impl BrowserSessionManager {
     ) -> Result<BrowserRuntimeContext, BrowserError> {
         let _start_guard = self.runtime_start_lock.lock().await;
         let runtime = self.desktop_runtime()?;
-        if self.state.read().await.runtime.status == BrowserRuntimeStatus::Running {
+        let status = self.state.read().await.runtime.status;
+        if status == BrowserRuntimeStatus::Running {
             return runtime.context().await.ok_or_else(runtime_state_mismatch);
+        }
+        if status == BrowserRuntimeStatus::Failed {
+            self.retry_failed_cleanup_before_start(runtime).await?;
+        }
+        if !self.tabs.is_empty().await {
+            return Err(incomplete_tab_cleanup_error());
         }
         let capability = runtime.verify().await?;
         self.set_capability(capability).await;
@@ -87,7 +94,7 @@ impl BrowserSessionManager {
         }
     }
 
-    async fn begin_shutdown(&self) -> u64 {
+    pub(super) async fn begin_shutdown(&self) -> u64 {
         let shutdown_epoch = self
             .shutdown_epoch
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
@@ -101,7 +108,7 @@ impl BrowserSessionManager {
         shutdown_epoch
     }
 
-    async fn finish_shutdown(&self, shutdown_epoch: u64) {
+    pub(super) async fn finish_shutdown(&self, shutdown_epoch: u64) {
         *self.shutdown_cancellation.lock().await = CancellationToken::new();
         let finished_epoch = self
             .shutdown_epoch
@@ -115,7 +122,12 @@ impl BrowserSessionManager {
         self.stop_cdp_observer().await;
         let _tab_guard = self.tab_open_lock.lock().await;
         let _start_guard = self.runtime_start_lock.lock().await;
+        self.stop_runtime_state_and_resources().await
+    }
+
+    pub(super) async fn stop_runtime_state_and_resources(&self) -> Result<(), BrowserError> {
         let Some(runtime) = &self.runtime else {
+            self.agent_turn_leases.clear().await;
             return Ok(());
         };
         let state_transitioned = self.state.write().await.begin_runtime_stop();
@@ -127,19 +139,44 @@ impl BrowserSessionManager {
                 .map(|error| format!("{:?}", error.code));
             self.state.write().await.finish_runtime_stop(failure_code);
         }
+        self.agent_turn_leases.clear().await;
         result
     }
 
     async fn stop_runtime_resources(&self, runtime: &BrowserRuntime) -> Result<(), BrowserError> {
         self.stop_cdp_observer().await;
+        self.stop_runtime_owners(runtime).await
+    }
+
+    async fn stop_runtime_owners(&self, runtime: &BrowserRuntime) -> Result<(), BrowserError> {
         let (_, tabs_result) = tokio::join!(self.streams.close_all(), self.shutdown_tabs());
         let runtime_result = runtime.stop().await;
         let tabs_result = if tabs_result.is_err() && runtime_result.is_ok() {
-            self.shutdown_tabs().await
+            self.finish_shutdown_tabs_after_runtime().await
         } else {
             tabs_result
         };
         tabs_result.and(runtime_result)
+    }
+
+    async fn retry_failed_cleanup_before_start(
+        &self,
+        runtime: &BrowserRuntime,
+    ) -> Result<(), BrowserError> {
+        self.cancel_cdp_observer_without_wait().await;
+        let result = self.stop_runtime_owners(runtime).await;
+        let failure_code = result
+            .as_ref()
+            .err()
+            .map(|error| format!("{:?}", error.code));
+        self.state.write().await.finish_runtime_stop(failure_code);
+        result
+    }
+
+    pub(super) async fn is_failed_runtime_generation(&self, generation: u64) -> bool {
+        let state = self.state.read().await;
+        state.runtime.generation == generation
+            && state.runtime.status == BrowserRuntimeStatus::Failed
     }
 
     pub(super) fn with_runtime(
@@ -164,6 +201,7 @@ impl BrowserSessionManager {
             ),
             streams: Arc::new(super::stream::BrowserStreamRegistry::default()),
             observer: Arc::new(tokio::sync::Mutex::new(None)),
+            agent_turn_leases: Arc::new(super::agent_turn_leases::AgentTurnLeaseRegistry::default()),
         }
     }
 
@@ -282,4 +320,12 @@ fn runtime_state_mismatch() -> BrowserError {
         BrowserErrorCode::BrowserInternal,
         "The browser runtime state is inconsistent",
     )
+}
+
+fn incomplete_tab_cleanup_error() -> BrowserError {
+    BrowserError::new(
+        BrowserErrorCode::BrowserShuttingDown,
+        "The previous browser tabs are still being cleaned up",
+    )
+    .retryable(true)
 }
