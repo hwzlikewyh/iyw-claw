@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -221,9 +222,30 @@ impl ChatChannelManager {
     }
 
     pub async fn remove_channel(&self, id: i32) -> Result<(), ChatChannelError> {
-        let removed = self.inner.channels.lock().await.remove(&id);
-        if let Some(channel) = removed {
-            channel.backend.stop().await?;
+        let candidate = self
+            .inner
+            .channels
+            .lock()
+            .await
+            .get(&id)
+            .map(|channel| (channel.generation, channel.backend.clone()));
+        if let Some((generation, backend)) = candidate {
+            backend.stop().await?;
+            let removed = {
+                let mut channels = self.inner.channels.lock().await;
+                if channels
+                    .get(&id)
+                    .is_some_and(|channel| channel.generation == generation)
+                {
+                    channels.remove(&id);
+                    true
+                } else {
+                    false
+                }
+            };
+            if !removed {
+                return Ok(());
+            }
             self.emit_status_event(id, "disconnected").await;
         }
         Ok(())
@@ -370,6 +392,27 @@ impl ChatChannelManager {
             Some(backend) => Some(backend.status().await),
             None => None,
         }
+    }
+
+    pub(crate) async fn commit_runtime_if_current<T>(
+        &self,
+        id: i32,
+        generation: u64,
+        expected: ChannelConnectionStatus,
+        operation: impl Future<Output = T>,
+    ) -> Option<T> {
+        let channels = self.inner.channels.lock().await;
+        let backend = channels
+            .get(&id)
+            .filter(|channel| channel.generation == generation)?
+            .backend
+            .clone();
+        if backend.status().await != expected {
+            return None;
+        }
+        let result = operation.await;
+        drop(channels);
+        Some(result)
     }
 
     /// Start background tasks (event subscriber + command dispatcher) and

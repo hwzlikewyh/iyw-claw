@@ -52,6 +52,7 @@ import type {
   PendingQuestionState,
   QuestionAnswer,
   SessionConfigOptionInfo,
+  SessionFailureRecord,
   SessionModeStateInfo,
   SessionUsageUpdateInfo,
   PromptCapabilitiesInfo,
@@ -59,7 +60,15 @@ import type {
   ToolCallImageWire,
   UserMessageBlock,
 } from "@/lib/types"
-import { AGENT_LABELS } from "@/lib/types"
+import {
+  dismissSessionFailures,
+  hasSettleableRetryIncident,
+  mergeSessionFailures,
+  settleSessionFailures,
+  upsertSessionFailure,
+  type SessionFailureSettleScope,
+} from "@/lib/session-failures"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { CONNECTION_KEEPALIVE_INTERVAL_MS } from "@/lib/constants"
 import { sendSystemNotification } from "@/lib/notification"
 import {
@@ -117,6 +126,8 @@ export interface PendingPermission {
   request_id: string
   tool_call: unknown
   options: PermissionOptionInfo[]
+  /** Requests waiting behind the single visible permission card. */
+  queued?: number
 }
 
 /** In-flight user prompt carried on a connection (from a `user_message` event
@@ -193,6 +204,8 @@ export interface ConnectionState {
   pendingAskQuestion: PendingQuestionState | null
   pendingChannelConfirmation: PendingChannelConfirmationState | null
   claudeApiRetry: ClaudeApiRetryState | null
+  /** AIR failure table retained with per-id revision watermarks. */
+  sessionFailures: SessionFailureRecord[]
   error: string | null
   /**
    * Set when the agent rejected `session/load` non-recoverably, including an
@@ -333,6 +346,21 @@ type Action =
       status: ConnectionStatus
     }
   | {
+      type: "SESSION_FAILURE"
+      contextKey: string
+      record: SessionFailureRecord
+    }
+  | {
+      type: "SETTLE_SESSION_FAILURES"
+      contextKey: string
+      scope: SessionFailureSettleScope
+    }
+  | {
+      type: "DISMISS_SESSION_FAILURES"
+      contextKey: string
+      ids: string[]
+    }
+  | {
       type: "SET_BACKGROUND_OUTSTANDING"
       contextKey: string
       outstanding: number
@@ -405,6 +433,12 @@ type Action =
       fallback_title: string
       fallback_kind: string
       options: PermissionOptionInfo[]
+      queued?: number
+    }
+  | {
+      type: "PERMISSION_QUEUE_DEPTH"
+      contextKey: string
+      depth: number
     }
   | {
       type: "PERMISSION_CLEARED"
@@ -1107,6 +1141,7 @@ function connectionsReducer(
         pendingAskQuestion: null,
         pendingChannelConfirmation: null,
         claudeApiRetry: null,
+        sessionFailures: [],
         error: null,
         loadError: null,
         lastAppliedSeq: 0,
@@ -1165,6 +1200,7 @@ function connectionsReducer(
         pendingAskQuestion: null,
         pendingChannelConfirmation: null,
         claudeApiRetry: null,
+        sessionFailures: [],
         error: null,
         loadError: null,
         lastAppliedSeq: 0,
@@ -1226,6 +1262,10 @@ function connectionsReducer(
         current.agentInputs,
         action.patch.agentInputs
       )
+      const mergedSessionFailures = mergeSessionFailures(
+        current.sessionFailures,
+        action.patch.sessionFailures
+      )
 
       // Race guard: the snapshot may have been generated BEFORE events
       // that have since arrived and been applied to in-memory state.
@@ -1241,7 +1281,8 @@ function connectionsReducer(
           mergedConfigOptions === current.configOptions &&
           mergedAvailableCommands === current.availableCommands &&
           mergedPromptCapabilities === current.promptCapabilities &&
-          mergedAgentInputs === current.agentInputs
+          mergedAgentInputs === current.agentInputs &&
+          mergedSessionFailures === current.sessionFailures
         ) {
           return state
         }
@@ -1255,6 +1296,7 @@ function connectionsReducer(
           selectorsReady: mergedSelectorsReady,
           supportsFork: mergedSupportsFork,
           agentInputs: mergedAgentInputs,
+          sessionFailures: mergedSessionFailures,
         })
         return next
       }
@@ -1276,6 +1318,7 @@ function connectionsReducer(
         liveMessage: hydratedLiveMessage,
         pendingPermission: hydratedPendingPermission,
         agentInputs: action.patch.agentInputs,
+        sessionFailures: mergedSessionFailures,
         pendingAskQuestion: action.patch.pendingAskQuestion,
         pendingChannelConfirmation: action.patch.pendingChannelConfirmation,
         pendingUserMessage: action.patch.pendingUserMessage,
@@ -1411,6 +1454,10 @@ function connectionsReducer(
         updated.pendingQuestion = null
         updated.claudeApiRetry = null
         updated.error = null
+        updated.sessionFailures = settleSessionFailures(
+          conn.sessionFailures,
+          "all"
+        )
         updated.outOfTurnToolCalls = null
       } else if (conn.status === "prompting") {
         // Prompt cycle ended: clear in-flight Claude API retry banner.
@@ -1846,6 +1893,22 @@ function connectionsReducer(
           request_id: action.request_id,
           tool_call: permissionToolCall,
           options: action.options,
+          queued: action.queued,
+        },
+      })
+      return next
+    }
+
+    case "PERMISSION_QUEUE_DEPTH": {
+      const conn = state.get(action.contextKey)
+      if (!conn?.pendingPermission) return state
+      if (conn.pendingPermission.queued === action.depth) return state
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        pendingPermission: {
+          ...conn.pendingPermission,
+          queued: action.depth,
         },
       })
       return next
@@ -2161,6 +2224,45 @@ function connectionsReducer(
       return next
     }
 
+    case "SESSION_FAILURE": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      const sessionFailures = upsertSessionFailure(
+        conn.sessionFailures,
+        action.record
+      )
+      if (sessionFailures === conn.sessionFailures) return state
+      const next = new Map(state)
+      next.set(action.contextKey, { ...conn, sessionFailures })
+      return next
+    }
+
+    case "SETTLE_SESSION_FAILURES": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      const sessionFailures = settleSessionFailures(
+        conn.sessionFailures,
+        action.scope
+      )
+      if (sessionFailures === conn.sessionFailures) return state
+      const next = new Map(state)
+      next.set(action.contextKey, { ...conn, sessionFailures })
+      return next
+    }
+
+    case "DISMISS_SESSION_FAILURES": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      const sessionFailures = dismissSessionFailures(
+        conn.sessionFailures,
+        action.ids
+      )
+      if (sessionFailures === conn.sessionFailures) return state
+      const next = new Map(state)
+      next.set(action.contextKey, { ...conn, sessionFailures })
+      return next
+    }
+
     case "ERROR": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
@@ -2393,6 +2495,8 @@ export interface AcpActionsValue {
    * subsequent settings change re-shows it. Wired to the banner's X button.
    */
   dismissConfigStale(contextKey: string): void
+  /** Close AIR failure strips in this client's local projection. */
+  dismissSessionFailures(contextKey: string, ids: string[]): void
 }
 
 const AcpActionsContext = createContext<AcpActionsValue | null>(null)
@@ -2517,6 +2621,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     pushAlertRef.current = pushAlert
   }, [pushAlert])
+  const alertedErrorDetailsRef = useRef(new Map<string, string>())
 
   // Ref-based store — mutations don't trigger React state updates
   const storeRef = useRef<InternalStore>({
@@ -2584,7 +2689,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         return { kind: "missing_config", reason: t("blocked.missingConfig") }
       }
 
-      const agentLabel = AGENT_LABELS[agent.agent_type]
+      const agentLabel = getAgentDisplayName(agent.agent_type)
       if (!agent.enabled) {
         return {
           kind: "disabled",
@@ -2653,6 +2758,20 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
 
   const dispatch = useCallback(
     (action: Action) => {
+      if (
+        action.type === "CONNECTION_CREATED" ||
+        action.type === "CONNECTION_REMOVED"
+      ) {
+        alertedErrorDetailsRef.current.delete(action.contextKey)
+      } else if (action.type === "REMOVE_ALL") {
+        alertedErrorDetailsRef.current.clear()
+      } else if (action.type === "REKEY_CONNECTION") {
+        const evidence = alertedErrorDetailsRef.current.get(action.fromKey)
+        alertedErrorDetailsRef.current.delete(action.fromKey)
+        if (evidence) {
+          alertedErrorDetailsRef.current.set(action.toKey, evidence)
+        }
+      }
       const prev = storeRef.current.connections
       const next = connectionsReducer(prev, action)
       if (next === prev) return // no change
@@ -2872,6 +2991,19 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     [flushStreamingQueue]
   )
 
+  const settleRetryIncidentsOnProgress = useCallback(
+    (contextKey: string) => {
+      const conn = storeRef.current.connections.get(contextKey)
+      if (!conn || !hasSettleableRetryIncident(conn.sessionFailures)) return
+      dispatch({
+        type: "SETTLE_SESSION_FAILURES",
+        contextKey,
+        scope: "retry_incidents",
+      })
+    },
+    [dispatch]
+  )
+
   const resolveListenerReadyWaiters = useCallback(() => {
     if (listenerReadyWaitersRef.current.length === 0) return
     const waiters = listenerReadyWaitersRef.current
@@ -2970,6 +3102,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           dispatch({ type: "STATUS_CHANGED", contextKey, status: e.status })
           break
         case "content_delta":
+          settleRetryIncidentsOnProgress(contextKey)
           enqueueStreamingAction({
             type: "CONTENT_DELTA",
             contextKey,
@@ -2985,6 +3118,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           })
           break
         case "thinking":
+          settleRetryIncidentsOnProgress(contextKey)
           enqueueStreamingAction({ type: "THINKING", contextKey, text: e.text })
           break
         case "claude_sdk_message":
@@ -2996,6 +3130,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           })
           break
         case "tool_call":
+          settleRetryIncidentsOnProgress(contextKey)
           flushStreamingQueue()
           dispatch({
             type: "TOOL_CALL",
@@ -3043,6 +3178,13 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             type: "PERMISSION_CLEARED",
             contextKey,
             requestId: e.request_id,
+          })
+          break
+        case "permission_queue_depth":
+          dispatch({
+            type: "PERMISSION_QUEUE_DEPTH",
+            contextKey,
+            depth: e.depth,
           })
           break
         case "question_request":
@@ -3125,7 +3267,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           if (e.settled && e.settled.length > 0) {
             const connection = storeRef.current.connections.get(contextKey)
             const agentLabel = connection
-              ? AGENT_LABELS[connection.agentType]
+              ? getAgentDisplayName(connection.agentType)
               : "Agent"
             const folderName = folderNameRef.current
             const title = folderName ? `${folderName} - 原助理` : "原助理"
@@ -3167,12 +3309,13 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             fallback_title: t("toolFallbackTitle"),
             fallback_kind: "tool",
             options: e.options,
+            queued: e.queued,
           })
           // Send OS notification when permission approval is needed
           {
             const nc = storeRef.current.connections.get(contextKey)
             if (nc) {
-              const agentLabel = AGENT_LABELS[nc.agentType]
+              const agentLabel = getAgentDisplayName(nc.agentType)
               const fn = folderNameRef.current
               const title = fn ? `${fn} - 原助理` : "原助理"
               sendSystemNotification(
@@ -3304,9 +3447,24 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             entries: e.entries,
           })
           break
+        case "session_failure":
+          flushStreamingQueue()
+          dispatch({
+            type: "SESSION_FAILURE",
+            contextKey,
+            record: e.record,
+          })
+          break
         case "turn_complete": {
           flushStreamingQueue()
           flushPendingToolCallUpdates()
+          if (e.stop_reason === "end_turn") {
+            dispatch({
+              type: "SETTLE_SESSION_FAILURES",
+              contextKey,
+              scope: "warnings",
+            })
+          }
           dispatch({
             type: "STATUS_CHANGED",
             contextKey,
@@ -3345,7 +3503,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           {
             const nc = storeRef.current.connections.get(contextKey)
             if (nc) {
-              const agentLabel = AGENT_LABELS[nc.agentType]
+              const agentLabel = getAgentDisplayName(nc.agentType)
               const fn = folderNameRef.current
               const title = fn ? `${fn} - 原助理` : "原助理"
               sendSystemNotification(
@@ -3360,7 +3518,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           flushStreamingQueue()
           const nc = storeRef.current.connections.get(contextKey)
           const agentLabel = nc
-            ? AGENT_LABELS[nc.agentType]
+            ? getAgentDisplayName(nc.agentType)
             : (e.agent_type as string)
 
           // Prefer stable backend codes, then classify common provider errors.
@@ -3405,6 +3563,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 return t("backendErrors.turnFailedEmpty", {
                   agent: agentLabel,
                 })
+              case "turn_failed_empty_protocol":
+                return t("backendErrors.turnFailedEmptyProtocol", {
+                  agent: agentLabel,
+                })
+              case "turn_failed_empty_metadata":
+                return t("backendErrors.turnFailedEmptyMetadata", {
+                  agent: agentLabel,
+                })
               case "compaction_not_applied":
                 return t("backendErrors.compactionNotApplied", {
                   agent: agentLabel,
@@ -3421,8 +3587,21 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             }
           })()
 
-          dispatch({ type: "ERROR", contextKey, message: localizedMessage })
-          pushAlertRef.current("error", t("eventErrorTitle"), localizedMessage)
+          const evidence = e.details?.trim() || undefined
+          const tooltipMessage = evidence
+            ? `${localizedMessage} ${t("backendErrors.detailsInAlerts")}`
+            : localizedMessage
+          dispatch({ type: "ERROR", contextKey, message: tooltipMessage })
+          pushAlertRef.current(
+            "error",
+            t("eventErrorTitle"),
+            localizedMessage,
+            undefined,
+            evidence
+          )
+          if (evidence) {
+            alertedErrorDetailsRef.current.set(contextKey, evidence)
+          }
           // Send OS notification for agent errors
           if (nc) {
             const fn = folderNameRef.current
@@ -3442,7 +3621,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           // Prefer the stable code; otherwise classify common provider errors
           // without exposing raw transport details.
           const nc = storeRef.current.connections.get(contextKey)
-          const agentLabel = nc ? AGENT_LABELS[nc.agentType] : ""
+          const agentLabel = nc ? getAgentDisplayName(nc.agentType) : ""
           const localizedMessage = (() => {
             switch (e.code) {
               case "resource_not_found":
@@ -3508,6 +3687,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       flushPendingToolCallUpdates,
       flushStreamingQueue,
       scheduleToolCallUpdateFlush,
+      settleRetryIncidentsOnProgress,
       runtimeErrorMessages,
       t,
       tChat,
@@ -3576,6 +3756,30 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     []
   )
 
+  const surfaceSnapshotErrorDetails = useCallback(
+    (
+      contextKey: string,
+      patch: import("@/lib/snapshot-denormalize").SnapshotPatch
+    ) => {
+      const evidence = patch.lastErrorDetails?.trim()
+      if (!evidence) return
+      if (alertedErrorDetailsRef.current.get(contextKey) === evidence) return
+      alertedErrorDetailsRef.current.set(contextKey, evidence)
+      pushAlertRef.current(
+        "error",
+        t("eventErrorTitle"),
+        patch.lastError ?? undefined,
+        undefined,
+        evidence
+      )
+    },
+    [t]
+  )
+  const surfaceSnapshotErrorDetailsRef = useRef(surfaceSnapshotErrorDetails)
+  useEffect(() => {
+    surfaceSnapshotErrorDetailsRef.current = surfaceSnapshotErrorDetails
+  }, [surfaceSnapshotErrorDetails])
+
   // Open a Subscribe-with-Snapshot stream for `connectionId` and route its
   // frames into the store under `contextKey`. Returns the subscription
   // handle for cleanup, or `null` when the active transport doesn't
@@ -3602,6 +3806,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         onSnapshot: (snapshot) => {
           const patch = denormalizeSnapshot(snapshot)
           dispatch({ type: "HYDRATE_FROM_SNAPSHOT", contextKey, patch })
+          surfaceSnapshotErrorDetailsRef.current(contextKey, patch)
           lastActivityRef.current.set(contextKey, Date.now())
           // Recover delegation bindings the snapshot carries but the transient
           // events don't (the load-bearing fix for the web-only "running shows
@@ -3920,6 +4125,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       }
       if (patch) {
         dispatch({ type: "HYDRATE_FROM_SNAPSHOT", contextKey, patch })
+        surfaceSnapshotErrorDetailsRef.current(contextKey, patch)
         seedDelegationsFromSnapshot(
           patch.connectionId,
           patch.activeDelegations,
@@ -3990,7 +4196,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 rawMessage,
             })
             const failedTitle = t("connectFailedTitle", {
-              agent: AGENT_LABELS[agentType],
+              agent: getAgentDisplayName(agentType),
             })
             pushAlertRef.current(
               "error",
@@ -4004,7 +4210,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           const blocked = resolveConnectBlockState(configuredAgent)
           if (blocked.kind !== "none") {
             const failedTitle = t("connectFailedTitle", {
-              agent: AGENT_LABELS[agentType],
+              agent: getAgentDisplayName(agentType),
             })
             const detail =
               blocked.kind === "sdk_missing"
@@ -4169,7 +4375,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         if (request.attachOnly) return
         if (conversationId != null && conversationId > 0 && !sessionId) {
           const message = t("backendErrors.sessionLoadUnavailable", {
-            agent: AGENT_LABELS[agentType],
+            agent: getAgentDisplayName(agentType),
           })
           dispatch({ type: "ACP_LOAD_ERROR", contextKey, message })
           throw createAlertedError(message)
@@ -4273,6 +4479,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
               contextKey,
               patch: snapshotPatch,
             })
+            surfaceSnapshotErrorDetailsRef.current(contextKey, snapshotPatch)
             // Recover delegation bindings from the snapshot here too. On
             // Tauri the firehose also delivers the events (so this is an
             // idempotent no-op), but it keeps RemoteDesktop and the legacy
@@ -4299,7 +4506,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           pendingRequest != null && !sameConnectRequest(pendingRequest, request)
         if (!superseded && !isAlertedError(err)) {
           const message = normalizeErrorMessage(err)
-          const agentLabel = AGENT_LABELS[agentType]
+          const agentLabel = getAgentDisplayName(agentType)
           // Backend safety net: if the agent turned out to be not
           // installed (e.g. the binary was removed between preflight
           // and spawn), surface the same install prompt with a direct
@@ -4445,6 +4652,13 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     [dispatch]
   )
 
+  const dismissSessionFailuresAction = useCallback(
+    (contextKey: string, ids: string[]) => {
+      dispatch({ type: "DISMISS_SESSION_FAILURES", contextKey, ids })
+    },
+    [dispatch]
+  )
+
   const disconnectAll = useCallback(async () => {
     const promises: Promise<void>[] = []
     pendingConnectRequestsRef.current.clear()
@@ -4460,6 +4674,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       pendingUnmappedEventsRef.current.delete(conn.connectionId)
     }
     lastActivityRef.current.clear()
+    alertedErrorDetailsRef.current.clear()
     await Promise.all(promises)
     dispatch({ type: "REMOVE_ALL" })
   }, [dispatch, teardownAttachSubscription])
@@ -4700,6 +4915,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       detachDelegationChild,
       reapplyConfig,
       dismissConfigStale,
+      dismissSessionFailures: dismissSessionFailuresAction,
     }),
     [
       connect,
@@ -4722,6 +4938,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       detachDelegationChild,
       reapplyConfig,
       dismissConfigStale,
+      dismissSessionFailuresAction,
     ]
   )
 

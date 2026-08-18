@@ -1,4 +1,5 @@
 pub mod agent;
+mod agent_interner;
 pub mod automation;
 pub mod chat_channel;
 pub mod conversation;

@@ -1,293 +1,210 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import {
-  Activity,
-  AlertCircle,
-  Loader2,
-  MessageCircle,
-  Pencil,
-  Play,
-  Plus,
-  RefreshCw,
-  Square,
-  Trash2,
-  Zap,
-} from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import {
-  listChatChannels,
+  createChatChannel,
   deleteChatChannel,
-  connectChatChannel,
-  disconnectChatChannel,
-  testChatChannel,
-  updateChatChannel,
-  getChatChannelStatus,
+  getChatChannelHasToken,
   getChatChannelReadiness,
-  quickCheckChatChannel,
-  fullLoopChatChannel,
+  getChatChannelStatus,
+  listChatChannels,
+  testChatChannel,
 } from "@/lib/api"
+import { toErrorMessage } from "@/lib/app-error"
+import { isSetupDraft } from "@/lib/chat-channel-setup"
 import { subscribe } from "@/lib/platform"
 import type {
   ChatChannelInfo,
   ChannelReadinessReport,
   ChannelStatusInfo,
-  ChannelType,
 } from "@/lib/types"
-import { toErrorMessage } from "@/lib/app-error"
-import { AddChatChannelDialog } from "./add-chat-channel-dialog"
+import {
+  AddChatChannelDialog,
+  type ParameterChannel,
+} from "./add-chat-channel-dialog"
+import { AbandonChannelDraftDialog } from "./abandon-channel-draft-dialog"
+import { ChannelConnectedList } from "./channel-connected-list"
+import { ChannelFinalizeDialog } from "./channel-finalize-dialog"
+import { ChannelMarket, type MarketType } from "./channel-market"
+import { ChannelViewHeader, type ChannelView } from "./channel-view-header"
 import { EditChatChannelDialog } from "./edit-chat-channel-dialog"
+import { WecomAgentSetupDialog } from "./wecom-agent-setup-dialog"
 import { WeixinQrcodeDialog } from "./weixin-qrcode-dialog"
-
 export function ChannelListTab() {
   const t = useTranslations("ChatChannelSettings")
-  const channelTypeLabel = (type: ChannelType) => {
-    switch (type) {
-      case "lark":
-        return t("lark")
-      case "weixin":
-        return t("weixin")
-      case "wecom":
-        return t("wecom")
-      case "wecom_ai_bot":
-        return t("wecomAiBot")
-      case "wecom_agent":
-        return t("wecomAgent")
-      case "dingtalk":
-        return t("dingtalk")
-    }
-  }
+  const [view, setView] = useState<ChannelView>("connected")
   const [channels, setChannels] = useState<ChatChannelInfo[]>([])
   const [statuses, setStatuses] = useState<ChannelStatusInfo[]>([])
   const [readiness, setReadiness] = useState<ChannelReadinessReport[]>([])
   const [loading, setLoading] = useState(true)
-  const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [parameterSetup, setParameterSetup] = useState<{
+    type: ParameterChannel
+    draft?: ChatChannelInfo
+  } | null>(null)
+  const [wecomAgentDraft, setWecomAgentDraft] = useState<
+    ChatChannelInfo | undefined
+  >()
+  const [wecomAgentOpen, setWecomAgentOpen] = useState(false)
+  const [weixinDraft, setWeixinDraft] = useState<ChatChannelInfo | null>(null)
+  const [qrcodeOpen, setQrcodeOpen] = useState(false)
+  const [finalizeChannel, setFinalizeChannel] =
+    useState<ChatChannelInfo | null>(null)
   const [editTarget, setEditTarget] = useState<ChatChannelInfo | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<ChatChannelInfo | null>(null)
-  const [actionLoading, setActionLoading] = useState<number | null>(null)
-  const [qrcodeChannelId, setQrcodeChannelId] = useState<number | null>(null)
-
+  const [abandonTarget, setAbandonTarget] = useState<ChatChannelInfo | null>(
+    null
+  )
   const loadChannels = useCallback(async () => {
     try {
-      const [chs, sts, rd] = await Promise.all([
+      const [items, live, reports] = await Promise.all([
         listChatChannels(),
         getChatChannelStatus().catch(() => []),
         getChatChannelReadiness().catch(() => []),
       ])
-      setChannels(
-        chs.filter((channel) => channel.channel_type !== "wecom_agent")
-      )
-      setStatuses(sts)
-      setReadiness(rd)
+      setChannels(items)
+      setStatuses(live)
+      setReadiness(reports)
     } catch {
       toast.error(t("loadFailed"))
     } finally {
       setLoading(false)
     }
   }, [t])
-
   useEffect(() => {
-    loadChannels().catch(console.error)
+    void loadChannels()
   }, [loadChannels])
 
-  // Subscribe to real-time status change events from backend
   useEffect(() => {
+    let unsubscribe: (() => void) | undefined
     let cancelled = false
-    let unsub: (() => void) | undefined
-    subscribe<{
-      channel_id: number
-      status: ChannelStatusInfo["status"]
-    }>("chat-channel://status", (payload) => {
-      setStatuses((prev) => {
-        const idx = prev.findIndex((s) => s.channel_id === payload.channel_id)
-        if (idx >= 0) {
-          const updated = [...prev]
-          updated[idx] = { ...updated[idx], status: payload.status }
-          return updated
-        }
-        return prev
-      })
-    }).then((fn) => {
-      if (cancelled) fn()
-      else unsub = fn
+    subscribe<{ channel_id: number; status: ChannelStatusInfo["status"] }>(
+      "chat-channel://status",
+      (payload) => {
+        setStatuses((current) => {
+          const rest = current.filter(
+            (item) => item.channel_id !== payload.channel_id
+          )
+          const channel = channels.find(
+            (item) => item.id === payload.channel_id
+          )
+          return channel
+            ? [
+                ...rest,
+                {
+                  channel_id: channel.id,
+                  name: channel.name,
+                  channel_type: channel.channel_type,
+                  status: payload.status,
+                },
+              ]
+            : current
+        })
+      }
+    ).then((dispose) => {
+      if (cancelled) dispose()
+      else unsubscribe = dispose
     })
     return () => {
       cancelled = true
-      unsub?.()
+      unsubscribe?.()
     }
-  }, [])
+  }, [channels])
 
-  const handleToggleEnabled = useCallback(
-    async (ch: ChatChannelInfo) => {
-      try {
-        // IYW-CHANNEL-002: the backend reconcile entry drives both directions
-        // (disable → disconnect, enable → connect); the UI only flips the
-        // desired state.
-        const updated = await updateChatChannel({
-          id: ch.id,
-          enabled: !ch.enabled,
-        })
-        if (updated.enabled && updated.runtime_status === "error") {
-          toast.error(
-            `${t("enabledNotConnected")}${updated.last_error ? "：" + updated.last_error : ""}`
-          )
-        } else if (!updated.enabled) {
-          toast.success(t("disconnectSuccess"))
-        }
-        await loadChannels()
-      } catch {
-        toast.error(t("saveFailed"))
-      }
-    },
-    [loadChannels, t]
+  const drafts = useMemo(() => channels.filter(isSetupDraft), [channels])
+  const connected = useMemo(
+    () => channels.filter((channel) => !isSetupDraft(channel)),
+    [channels]
   )
-
-  const handleConnect = useCallback(
-    async (id: number, channelType?: ChannelType) => {
-      setActionLoading(id)
-      try {
-        await connectChatChannel(id)
-        toast.success(t("connectSuccess"))
-        await loadChannels()
-      } catch (err: unknown) {
-        if (channelType === "weixin") {
-          // No token or token expired — show QR code dialog
-          setQrcodeChannelId(id)
-        } else {
-          const msg = toErrorMessage(err)
-          toast.error(t("connectFailed") + ": " + msg)
-        }
-      } finally {
-        setActionLoading(null)
-      }
-    },
-    [loadChannels, t]
-  )
-
-  const handleWeixinAuthSuccess = useCallback(
-    async (channelId: number) => {
-      setQrcodeChannelId(null)
-      setActionLoading(channelId)
-      try {
-        await connectChatChannel(channelId)
-        toast.success(t("connectSuccess"))
-        await loadChannels()
-      } catch (err: unknown) {
-        const msg = toErrorMessage(err)
-        toast.error(t("connectFailed") + ": " + msg)
-      } finally {
-        setActionLoading(null)
-      }
-    },
-    [loadChannels, t]
-  )
-
-  const handleDisconnect = useCallback(
-    async (id: number) => {
-      setActionLoading(id)
-      try {
-        await disconnectChatChannel(id)
-        toast.success(t("disconnectSuccess"))
-        await loadChannels()
-      } catch {
-        toast.error(t("disconnectFailed"))
-      } finally {
-        setActionLoading(null)
-      }
-    },
-    [loadChannels, t]
-  )
-
-  const handleTest = useCallback(
-    async (id: number) => {
-      setActionLoading(id)
-      try {
-        await testChatChannel(id)
-        toast.success(t("testSuccess"))
-      } catch (err: unknown) {
-        const msg = toErrorMessage(err)
-        toast.error(t("testFailed") + ": " + msg)
-      } finally {
-        setActionLoading(null)
-      }
-    },
-    [t]
-  )
-
-  const runDiagnostic = useCallback(
-    async (ch: ChatChannelInfo, kind: "quick" | "full") => {
-      setActionLoading(ch.id)
-      try {
-        const result =
-          kind === "quick"
-            ? await quickCheckChatChannel(ch.id)
-            : await fullLoopChatChannel(ch.id)
-        const rd = result.readiness
-        const failedStage = rd.stages.find((s) => !s.ok)
-        if (kind === "full" && result.roundtrip && !result.roundtrip.verified) {
-          const detail = result.roundtrip.details.join("；")
-          toast.error(t("diagnosticFailed") + (detail ? `：${detail}` : ""))
-        } else if (failedStage) {
-          toast.error(
-            `${t("diagnosticFailed")}（${failedStage.key}）：${
-              failedStage.error ?? rd.errorMessage ?? ""
-            }`
-          )
-        } else {
-          toast.success(t("diagnosticOk"))
-        }
-        await loadChannels()
-      } catch (err: unknown) {
-        const msg = toErrorMessage(err)
-        toast.error(t("diagnosticFailed") + ": " + msg)
-      } finally {
-        setActionLoading(null)
-      }
-    },
-    [loadChannels, t]
-  )
-
-  const handleDelete = useCallback(async () => {
-    if (!deleteTarget) return
+  const startWeixin = async (draft?: ChatChannelInfo, forceScan = false) => {
     try {
-      await deleteChatChannel(deleteTarget.id)
-      toast.success(t("deleteSuccess"))
-      setDeleteTarget(null)
+      const channel =
+        draft ??
+        (await createChatChannel({
+          name: t("market.draftNames.weixin"),
+          channelType: "weixin",
+          configJson: JSON.stringify({
+            base_url: "https://ilinkai.weixin.qq.com",
+            setup_state: "pending_auth",
+          }),
+          enabled: false,
+          dailyReportEnabled: false,
+        }))
+      if (!forceScan && (await getChatChannelHasToken(channel.id))) {
+        try {
+          await testChatChannel(channel.id)
+          setFinalizeChannel(channel)
+          await loadChannels()
+          return
+        } catch {
+          toast.error(t("market.weixinReauthRequired"))
+        }
+      }
+      setWeixinDraft(channel)
+      setQrcodeOpen(true)
       await loadChannels()
     } catch {
-      toast.error(t("deleteFailed"))
+      toast.error(t("saveFailed"))
     }
-  }, [deleteTarget, loadChannels, t])
+  }
+  const openSetup = (type: MarketType, draft?: ChatChannelInfo) => {
+    if (type === "weixin") {
+      void startWeixin(draft)
+      return
+    }
+    if (type === "wecom_agent") {
+      setWecomAgentDraft(draft)
+      setWecomAgentOpen(true)
+      return
+    }
+    setParameterSetup({ type, draft })
+  }
 
-  const getChannelStatus = (id: number) =>
-    statuses.find((s) => s.channel_id === id)?.status ?? "disconnected"
+  const completeSetup = async () => {
+    setParameterSetup(null)
+    setWecomAgentOpen(false)
+    setWecomAgentDraft(undefined)
+    setQrcodeOpen(false)
+    setWeixinDraft(null)
+    setFinalizeChannel(null)
+    await loadChannels()
+    setView("connected")
+  }
+  const closeParameterSetup = (open: boolean) => {
+    if (open) return
+    setParameterSetup(null)
+    void loadChannels()
+  }
 
-  const getReadiness = (id: number) => readiness.find((r) => r.channelId === id)
+  const closeWecomAgentSetup = (open: boolean) => {
+    setWecomAgentOpen(open)
+    if (open) return
+    setWecomAgentDraft(undefined)
+    void loadChannels()
+  }
+  const handleEdit = (channel: ChatChannelInfo) => {
+    if (channel.channel_type === "wecom_agent") {
+      openSetup("wecom_agent", channel)
+      return
+    }
+    setEditTarget(channel)
+  }
 
+  const abandonDraft = async () => {
+    if (!abandonTarget) return
+    try {
+      await deleteChatChannel(abandonTarget.id)
+      setAbandonTarget(null)
+      await loadChannels()
+    } catch (error) {
+      toast.error(toErrorMessage(error))
+    }
+  }
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center text-sm text-muted-foreground gap-2">
+      <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         {t("loading")}
       </div>
@@ -296,246 +213,86 @@ export function ChannelListTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium">{t("channelListTitle")}</h3>
-          <p className="text-xs text-muted-foreground">
-            {t("channelListDescription")}
-          </p>
-        </div>
-        <Button size="sm" onClick={() => setAddDialogOpen(true)}>
-          <Plus className="h-3.5 w-3.5 mr-1" />
-          {t("addChannel")}
-        </Button>
-      </div>
-
-      {channels.length === 0 ? (
-        <section className="rounded-xl border bg-card p-8 text-center">
-          <MessageCircle className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-          <p className="text-sm text-muted-foreground">{t("noChannels")}</p>
-        </section>
-      ) : (
-        <section className="space-y-2">
-          {channels.map((ch) => {
-            const status = getChannelStatus(ch.id)
-            const isConnected = status === "connected"
-            const rd = getReadiness(ch.id)
-            const isLoading = actionLoading === ch.id
-
-            return (
-              <div
-                key={ch.id}
-                className="rounded-xl border bg-card p-4 flex items-center gap-4"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{ch.name}</span>
-                    <Badge
-                      variant="outline"
-                      className="text-xs inline-flex items-center gap-1"
-                    >
-                      {channelTypeLabel(ch.channel_type)}
-                      {ch.channel_type === "wecom" && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                className="inline-flex cursor-help rounded-sm text-yellow-600 outline-none focus-visible:ring-1 focus-visible:ring-ring dark:text-yellow-500"
-                                aria-label={t("wecomLegacyMigrationHint")}
-                              >
-                                <AlertCircle className="h-3 w-3" />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              {t("wecomLegacyMigrationHint")}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                      {ch.channel_type === "weixin" && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                className="inline-flex cursor-help rounded-sm text-yellow-600 outline-none focus-visible:ring-1 focus-visible:ring-ring dark:text-yellow-500"
-                                aria-label={t("weixinReconnectNotice")}
-                              >
-                                <AlertCircle className="h-3 w-3" />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              {t("weixinReconnectNotice")}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </Badge>
-                    <span
-                      className={`inline-block h-2 w-2 rounded-full ${
-                        isConnected
-                          ? "bg-green-500"
-                          : status === "connecting"
-                            ? "bg-yellow-500 animate-pulse"
-                            : status === "error"
-                              ? "bg-red-500"
-                              : "bg-gray-400"
-                      }`}
-                    />
-                    {ch.enabled && !isConnected && (
-                      <Badge variant="destructive" className="text-xs">
-                        {t("enabledNotConnected")}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 mt-1">
-                    {ch.daily_report_enabled && (
-                      <span className="text-xs text-muted-foreground">
-                        {t("dailyReport")}: {ch.daily_report_time || "18:00"}
-                      </span>
-                    )}
-                    {(rd?.lastError || ch.last_error) && (
-                      <span
-                        className="text-xs text-red-400 truncate max-w-[320px]"
-                        title={rd?.lastError ?? ch.last_error ?? undefined}
-                      >
-                        {t("lastError")}: {rd?.lastError ?? ch.last_error}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={ch.enabled}
-                    onCheckedChange={() => handleToggleEnabled(ch)}
-                  />
-                  {isConnected ? (
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      title={t("disconnect")}
-                      disabled={isLoading}
-                      onClick={() => handleDisconnect(ch.id)}
-                    >
-                      {isLoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Square className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      title={t("connect")}
-                      disabled={isLoading || !ch.enabled}
-                      onClick={() => handleConnect(ch.id, ch.channel_type)}
-                    >
-                      {isLoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Play className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    title={t("test")}
-                    disabled={isLoading}
-                    onClick={() => handleTest(ch.id)}
-                  >
-                    <Zap className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    title={t("quickCheck")}
-                    disabled={isLoading || !ch.enabled}
-                    onClick={() => runDiagnostic(ch, "quick")}
-                  >
-                    <Activity className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    title={t("fullLoop")}
-                    disabled={isLoading || !ch.enabled}
-                    onClick={() => runDiagnostic(ch, "full")}
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    title={t("editChannel")}
-                    disabled={isConnected || isLoading}
-                    onClick={() => setEditTarget(ch)}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    title={t("delete")}
-                    onClick={() => setDeleteTarget(ch)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                  </Button>
-                </div>
-              </div>
-            )
-          })}
-        </section>
-      )}
-
-      <AddChatChannelDialog
-        open={addDialogOpen}
-        onOpenChange={setAddDialogOpen}
-        onChannelAdded={loadChannels}
+      <ChannelViewHeader
+        view={view}
+        connectedCount={connected.length}
+        draftCount={drafts.length}
+        onViewChange={setView}
       />
 
-      {editTarget && (
-        <EditChatChannelDialog
-          open={!!editTarget}
-          channel={editTarget}
-          onOpenChange={(open) => !open && setEditTarget(null)}
-          onChannelUpdated={loadChannels}
+      {view === "connected" ? (
+        <ChannelConnectedList
+          channels={connected}
+          statuses={statuses}
+          readiness={readiness}
+          onReload={loadChannels}
+          onEdit={handleEdit}
+          onWeixinAuth={(channel) => void startWeixin(channel, true)}
+        />
+      ) : (
+        <ChannelMarket
+          drafts={drafts}
+          onStart={(type) => openSetup(type)}
+          onContinue={(channel) =>
+            openSetup(channel.channel_type as MarketType, channel)
+          }
+          onAbandon={setAbandonTarget}
         />
       )}
 
-      {qrcodeChannelId !== null && (
+      {parameterSetup && (
+        <AddChatChannelDialog
+          open
+          channelType={parameterSetup.type}
+          draft={parameterSetup.draft}
+          onOpenChange={closeParameterSetup}
+          onChannelAdded={() => void completeSetup()}
+        />
+      )}
+      {wecomAgentOpen && (
+        <WecomAgentSetupDialog
+          open
+          draft={wecomAgentDraft}
+          onOpenChange={closeWecomAgentSetup}
+          onComplete={() => void completeSetup()}
+        />
+      )}
+      {qrcodeOpen && weixinDraft && (
         <WeixinQrcodeDialog
           open
-          channelId={qrcodeChannelId}
-          onOpenChange={(open) => !open && setQrcodeChannelId(null)}
-          onAuthSuccess={handleWeixinAuthSuccess}
+          channelId={weixinDraft.id}
+          onOpenChange={(open) => {
+            setQrcodeOpen(open)
+            if (!open) setWeixinDraft(null)
+          }}
+          onAuthSuccess={() => {
+            setFinalizeChannel(weixinDraft)
+            setQrcodeOpen(false)
+            setWeixinDraft(null)
+          }}
         />
       )}
-
-      <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("deleteConfirmTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("deleteConfirmMessage")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>
-              {t("delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {finalizeChannel && (
+        <ChannelFinalizeDialog
+          open
+          channel={finalizeChannel}
+          onOpenChange={(open) => !open && setFinalizeChannel(null)}
+          onComplete={() => void completeSetup()}
+        />
+      )}
+      {editTarget && (
+        <EditChatChannelDialog
+          open
+          channel={editTarget}
+          onOpenChange={(open) => !open && setEditTarget(null)}
+          onChannelUpdated={() => void loadChannels()}
+        />
+      )}
+      <AbandonChannelDraftDialog
+        open={Boolean(abandonTarget)}
+        onOpenChange={(open) => !open && setAbandonTarget(null)}
+        onConfirm={() => void abandonDraft()}
+      />
     </div>
   )
 }

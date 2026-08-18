@@ -81,6 +81,7 @@ fn policy_for(
         AgentType::KimiCode => vec![logs_directory(&profile, agent_type, "kimi_code_logs")],
         AgentType::Pi => vec![logs_directory(&profile, agent_type, "pi_logs")],
         AgentType::Grok => vec![logs_directory(&profile, agent_type, "grok_logs")],
+        AgentType::Cursor | AgentType::DeepSeek | AgentType::Custom(_) => Vec::new(),
     }
 }
 

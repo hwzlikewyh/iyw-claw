@@ -1,3 +1,4 @@
+use sea_orm::DatabaseConnection;
 use semver::Version;
 
 use crate::acp::registry::{self, AgentDistribution};
@@ -73,6 +74,7 @@ pub fn validate_agent_offer(offer: &AgentOffer) -> Result<(), String> {
         offer.delivery.recipe_schema_version,
     )?;
     let meta = registry::get_agent_meta(agent);
+    crate::acp::deepseek_config::validate_tool_version(agent, &offer.version)?;
     if offer
         .delivery
         .artifact_id
@@ -84,7 +86,8 @@ pub fn validate_agent_offer(offer: &AgentOffer) -> Result<(), String> {
     match (&meta.distribution, offer.delivery.kind.as_str()) {
         (AgentDistribution::Binary { .. }, "binary") => require_artifact(offer)?,
         (AgentDistribution::Npx { package, .. }, "npm") => {
-            validate_npm_components(package, &offer.delivery.components)?
+            validate_npm_components(package, &offer.delivery.components)?;
+            validate_trusted_node_requirement(agent, &offer.delivery.node_required)?;
         }
         (AgentDistribution::Uvx { package, .. }, "uvx") => {
             validate_uvx_components(package, &offer.delivery.components)?
@@ -95,6 +98,22 @@ pub fn validate_agent_offer(offer: &AgentOffer) -> Result<(), String> {
         validate_tool_requirement(requirement)?;
     }
     Ok(())
+}
+
+fn validate_trusted_node_requirement(
+    agent: crate::models::agent::AgentType,
+    offered: &str,
+) -> Result<(), String> {
+    let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent) else {
+        return Ok(());
+    };
+    let offered = Version::parse(offered.trim())
+        .map_err(|_| "trusted npm Agent offer has an invalid Node.js requirement".to_string())?;
+    let required = Version::parse(required)
+        .map_err(|_| "trusted npm Agent Node.js requirement is invalid".to_string())?;
+    (offered >= required)
+        .then_some(())
+        .ok_or_else(|| "Agent offer Node.js requirement is below the trusted minimum".to_string())
 }
 
 pub fn validate_tool_offer(offer: &ToolOffer) -> Result<(), String> {
@@ -112,6 +131,50 @@ pub fn validate_tool_offer(offer: &ToolOffer) -> Result<(), String> {
         return Err("managed tool artifact is not an approved ZIP".to_string());
     }
     validate_sha256(&offer.artifact.sha256)
+}
+
+/// 已安装的 DeepSeek Harness 不允许通过通用 Node offer 降级到可信启动下限以下。
+pub(crate) async fn validate_node_offer_for_active_deepseek(
+    conn: &DatabaseConnection,
+    offer: &ToolOffer,
+) -> Result<(), String> {
+    if offer.tool_id != "node" || !active_deepseek_installation(conn).await? {
+        return Ok(());
+    }
+    let required =
+        crate::acp::trusted_agents::minimum_node_version(crate::models::agent::AgentType::DeepSeek)
+            .ok_or_else(|| "DeepSeek Harness Node.js requirement is unavailable".to_string())?;
+    let offered = Version::parse(&offer.version)
+        .map_err(|_| "managed Node.js offer has an invalid version".to_string())?;
+    let required = Version::parse(required)
+        .map_err(|_| "DeepSeek Harness Node.js requirement is invalid".to_string())?;
+    if offered < required {
+        tracing::warn!(
+            offered_node = %offered,
+            required_node = %required,
+            "[agent-version-center] Node.js offer rejected for active DeepSeek Harness"
+        );
+        return Err(
+            "managed Node.js offer is below the active DeepSeek Harness requirement".into(),
+        );
+    }
+    Ok(())
+}
+
+async fn active_deepseek_installation(conn: &DatabaseConnection) -> Result<bool, String> {
+    crate::acp::version_center::inventory::list_agent_installations(
+        conn,
+        crate::models::agent::AgentType::DeepSeek,
+    )
+    .await
+    .map_err(|error| format!("failed to inspect DeepSeek Harness installation: {error}"))
+    .map(|installations| {
+        installations.into_iter().any(|installation| {
+            installation.status == crate::acp::version_center::inventory::STATUS_ACTIVE
+                && installation.verified
+                && installation.platform == crate::acp::registry::current_platform()
+        })
+    })
 }
 
 pub fn validate_tool_requirement(requirement: &ToolRequirement) -> Result<(), String> {

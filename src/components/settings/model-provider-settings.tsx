@@ -26,10 +26,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { listModelProviders, deleteModelProvider } from "@/lib/api"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import {
   MODEL_PROVIDER_AGENT_TYPES,
   AGENT_LABELS,
-  type AgentType,
+  isBuiltinAgentType,
+  type BuiltinAgentType,
   type ModelProviderInfo,
 } from "@/lib/types"
 import { AddModelProviderDialog } from "./add-model-provider-dialog"
@@ -39,7 +41,7 @@ export function ModelProviderSettings() {
   const t = useTranslations("ModelProviderSettings")
   const [providers, setProviders] = useState<ModelProviderInfo[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<AgentType | null>(null)
+  const [filter, setFilter] = useState<BuiltinAgentType | null>(null)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<ModelProviderInfo | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ModelProviderInfo | null>(
@@ -106,9 +108,10 @@ export function ModelProviderSettings() {
         <div className="flex items-center justify-between gap-2">
           <Select
             value={filter ?? "__all__"}
-            onValueChange={(v) =>
-              setFilter(v === "__all__" ? null : (v as AgentType))
-            }
+            onValueChange={(value) => {
+              if (value === "__all__") setFilter(null)
+              else if (isBuiltinAgentType(value)) setFilter(value)
+            }}
           >
             <SelectTrigger className="h-8 w-40 text-xs">
               <SelectValue />
@@ -160,7 +163,7 @@ export function ModelProviderSettings() {
                       variant="secondary"
                       className="text-[10px] px-1.5 py-0"
                     >
-                      {AGENT_LABELS[p.agent_type] ?? p.agent_type}
+                      {getAgentDisplayName(p.agent_type)}
                     </Badge>
                   </div>
                 </div>

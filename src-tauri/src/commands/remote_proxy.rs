@@ -57,6 +57,7 @@ const OUTBOUND_CAPACITY: usize = 64;
 /// silently drop or block the Tauri command worker indefinitely.
 const OUTBOUND_SEND_TIMEOUT: Duration = Duration::from_secs(2);
 
+use crate::acp::capability_policy::{monitor_file_upload, require_file_upload};
 use crate::app_error::{
     AppCommandError, AppErrorCode, UPLOAD_I18N_KEY_NOT_A_FILE, UPLOAD_I18N_KEY_TOO_LARGE,
 };
@@ -504,6 +505,7 @@ pub struct LocalFileForUpload {
 pub async fn read_local_file_for_upload(
     path: String,
 ) -> Result<LocalFileForUpload, AppCommandError> {
+    require_file_upload().await?;
     let path_buf = std::path::PathBuf::from(&path);
     // Use symlink_metadata + explicit `is_file()` so a webview-driven
     // invoke can't follow a `/tmp/symlink → /etc/shadow` into reading
@@ -571,6 +573,7 @@ pub async fn remote_upload_attachment(
     session_id: Option<String>,
     data_base64: String,
 ) -> Result<Value, AppCommandError> {
+    let monitor = monitor_file_upload(None).await?;
     let conn = remote_workspace_connection_service::get(&db.conn, connection_id)
         .await
         .map_err(AppCommandError::db)?
@@ -653,13 +656,16 @@ pub async fn remote_upload_attachment(
         "{}/api/upload_attachment",
         conn.base_url.trim_end_matches('/'),
     );
-    let response = proxy
-        .http
-        .post(&url)
-        .bearer_auth(conn.token.trim())
-        .multipart(form)
-        .send()
-        .await
+    let response = monitor
+        .run_until_revoked(
+            proxy
+                .http
+                .post(&url)
+                .bearer_auth(conn.token.trim())
+                .multipart(form)
+                .send(),
+        )
+        .await?
         .map_err(|e| {
             AppCommandError::network("Remote upload request failed").with_detail(e.to_string())
         })?;
@@ -673,7 +679,10 @@ pub async fn remote_upload_attachment(
     }
 
     if !status.is_success() {
-        let raw_body = response.text().await.unwrap_or_default();
+        let raw_body = monitor
+            .run_until_revoked(response.text())
+            .await?
+            .unwrap_or_default();
         if let Ok(structured) = serde_json::from_str::<AppCommandError>(&raw_body) {
             return Err(structured);
         }
@@ -688,10 +697,13 @@ pub async fn remote_upload_attachment(
         );
     }
 
-    response.json::<Value>().await.map_err(|e| {
-        AppCommandError::network("Failed to parse remote upload response")
-            .with_detail(e.to_string())
-    })
+    monitor
+        .run_until_revoked(response.json::<Value>())
+        .await?
+        .map_err(|e| {
+            AppCommandError::network("Failed to parse remote upload response")
+                .with_detail(e.to_string())
+        })
 }
 
 fn supported_chat_image_mime(path: &Path) -> Result<String, AppCommandError> {
@@ -777,6 +789,7 @@ pub(crate) async fn upload_chat_image_file_to_remote(
     proxy: &RemoteProxyState,
     image: RemoteChatImageFile,
 ) -> Result<Value, AppCommandError> {
+    let monitor = monitor_file_upload(None).await?;
     let conn = remote_workspace_connection_service::get(&db.conn, image.connection_id)
         .await
         .map_err(AppCommandError::db)?
@@ -793,17 +806,22 @@ pub(crate) async fn upload_chat_image_file_to_remote(
         "{}/api/upload_chat_image",
         conn.base_url.trim_end_matches('/')
     );
-    let response = proxy
-        .workspace_http
-        .post(url)
-        .bearer_auth(conn.token.trim())
-        .multipart(form)
-        .send()
-        .await
+    let response = monitor
+        .run_until_revoked(
+            proxy
+                .workspace_http
+                .post(url)
+                .bearer_auth(conn.token.trim())
+                .multipart(form)
+                .send(),
+        )
+        .await?
         .map_err(|error| {
             AppCommandError::network("Remote image upload failed").with_detail(error.to_string())
         })?;
-    parse_remote_image_upload(response).await
+    monitor
+        .run_until_revoked(parse_remote_image_upload(response))
+        .await?
 }
 
 #[tauri::command]
@@ -948,6 +966,13 @@ pub async fn remote_upload_workspace_paths(
         })?;
 
     let (transfer_id, cancel_token) = transfers.register_transfer().await;
+    let monitor = match monitor_file_upload(Some(cancel_token.clone())).await {
+        Ok(monitor) => monitor,
+        Err(error) => {
+            transfers.finish_transfer(&transfer_id).await;
+            return Err(error);
+        }
+    };
     let result = async {
         let _permit = transfers
             .remote_upload_semaphore
@@ -1012,6 +1037,7 @@ pub async fn remote_upload_workspace_paths(
                         conn.token.trim(),
                         &transfer_id,
                         cancel_token.clone(),
+                        &monitor,
                         &root_path,
                         &target_path,
                         walked.path(),
@@ -1029,6 +1055,7 @@ pub async fn remote_upload_workspace_paths(
                     conn.token.trim(),
                     &transfer_id,
                     cancel_token.clone(),
+                    &monitor,
                     &root_path,
                     &target_path,
                     &local_path,
@@ -1065,6 +1092,10 @@ pub async fn remote_upload_workspace_paths(
     }
     .await;
 
+    let result = match monitor.error_if_revoked() {
+        Err(error) => Err(error),
+        Ok(()) => result,
+    };
     if let Err(err) = &result {
         let state = if cancel_token.is_cancelled() {
             TransferState::Cancelled
@@ -1096,11 +1127,13 @@ async fn upload_one_workspace_path(
     token: &str,
     transfer_id: &str,
     cancel_token: CancellationToken,
+    monitor: &crate::acp::capability_policy::CapabilityRevocationMonitor,
     root_path: &str,
     target_path: &str,
     local_path: &Path,
     relative_path: Option<String>,
 ) -> Result<RemoteWorkspaceUploadedFile, AppCommandError> {
+    monitor.require_current().await?;
     let metadata = tokio::fs::symlink_metadata(local_path)
         .await
         .map_err(AppCommandError::io)?;
@@ -1155,13 +1188,16 @@ async fn upload_one_workspace_path(
         "{}/api/upload_workspace_file",
         base_url.trim_end_matches('/'),
     );
-    let response = proxy
-        .workspace_http
-        .post(&url)
-        .bearer_auth(token)
-        .multipart(form)
-        .send()
-        .await
+    let response = monitor
+        .run_until_revoked(
+            proxy
+                .workspace_http
+                .post(&url)
+                .bearer_auth(token)
+                .multipart(form)
+                .send(),
+        )
+        .await?
         .map_err(|e| {
             if cancel_token.is_cancelled() {
                 return workspace_transfer_cancelled();
@@ -1176,7 +1212,10 @@ async fn upload_one_workspace_path(
         ));
     }
     if !status.is_success() {
-        let raw_body = response.text().await.unwrap_or_default();
+        let raw_body = monitor
+            .run_until_revoked(response.text())
+            .await?
+            .unwrap_or_default();
         if let Ok(structured) = serde_json::from_str::<AppCommandError>(&raw_body) {
             return Err(structured);
         }
@@ -1191,9 +1230,9 @@ async fn upload_one_workspace_path(
         );
     }
 
-    let uploaded = response
-        .json::<RemoteWorkspaceUploadedFile>()
-        .await
+    let uploaded = monitor
+        .run_until_revoked(response.json::<RemoteWorkspaceUploadedFile>())
+        .await?
         .map_err(|e| {
             AppCommandError::network("Failed to parse remote upload response")
                 .with_detail(e.to_string())

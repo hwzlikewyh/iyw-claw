@@ -40,7 +40,19 @@ fn configured_model_gateway_base_url() -> Option<String> {
 }
 
 pub(crate) fn uses_managed_gateway(agent_type: AgentType) -> bool {
-    agent_type != AgentType::Gemini
+    matches!(
+        agent_type,
+        AgentType::ClaudeCode
+            | AgentType::Codex
+            | AgentType::OpenCode
+            | AgentType::OpenClaw
+            | AgentType::Cline
+            | AgentType::Hermes
+            | AgentType::CodeBuddy
+            | AgentType::KimiCode
+            | AgentType::Pi
+            | AgentType::Grok
+    )
 }
 
 pub(crate) fn production_model_gateway_base_url(agent_type: AgentType) -> &'static str {

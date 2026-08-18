@@ -29,6 +29,7 @@ pub async fn run_tool_cli(raw: &[String]) -> ExitCode {
         operation: args.operation,
         input: args.input,
         caller_agent_type: args.agent_type,
+        session_token: None,
     };
     match client_automation_round_trip(&args.socket_path, &request).await {
         Ok(response) => {

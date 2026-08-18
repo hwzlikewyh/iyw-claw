@@ -6,7 +6,8 @@ use thiserror::Error;
 use crate::acp::agent_storage::AgentStoragePaths;
 use crate::models::agent::AgentType;
 
-pub const PROFILE_IMPORT_VERSION: u32 = 1;
+pub(crate) const DEEPSEEK_PROFILE_IMPORT_VERSION: u32 = 2;
+pub const PROFILE_IMPORT_VERSION: u32 = DEEPSEEK_PROFILE_IMPORT_VERSION;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileSourceRoots {
@@ -92,6 +93,12 @@ impl ProfileSourceRoots {
             AgentType::KimiCode => self.home.join(".kimi-code"),
             AgentType::Pi => self.home.join(".pi").join("agent"),
             AgentType::Grok => self.home.join(".grok"),
+            AgentType::DeepSeek => self.home.join(".dsh"),
+            AgentType::Cursor | AgentType::Custom(_) => self
+                .home
+                .join(".iyw-claw")
+                .join("agents")
+                .join(crate::acp::registry::registry_id_for(agent_type)),
         }
     }
 }
@@ -143,6 +150,7 @@ pub struct ProfileImportEntry {
     pub source_root: PathBuf,
     pub source_relative: PathBuf,
     pub destination_relative: PathBuf,
+    pub(crate) include_sessions: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,6 +201,18 @@ pub fn import_existing_profiles(
     import_profile_specs(paths, &profile_import_specs(paths, sources))
 }
 
+pub(crate) fn import_existing_agent_profile(
+    paths: &AgentStoragePaths,
+    sources: &ProfileSourceRoots,
+    agent_type: AgentType,
+) -> Result<ProfileImportReport, ProfileImportError> {
+    let specs = profile_import_specs(paths, sources)
+        .into_iter()
+        .filter(|spec| spec.agent_type == agent_type)
+        .collect::<Vec<_>>();
+    import_profile_specs(paths, &specs)
+}
+
 pub(crate) fn import_profile_specs(
     paths: &AgentStoragePaths,
     specs: &[ProfileImportSpec],
@@ -209,6 +229,20 @@ pub(crate) fn import_entry(
         source_root: source_root.to_path_buf(),
         source_relative: source_relative.into(),
         destination_relative: destination_relative.into(),
+        include_sessions: false,
+    }
+}
+
+pub(crate) fn import_sessions_entry(
+    source_root: &Path,
+    source_relative: impl Into<PathBuf>,
+    destination_relative: impl Into<PathBuf>,
+) -> ProfileImportEntry {
+    ProfileImportEntry {
+        source_root: source_root.to_path_buf(),
+        source_relative: source_relative.into(),
+        destination_relative: destination_relative.into(),
+        include_sessions: true,
     }
 }
 

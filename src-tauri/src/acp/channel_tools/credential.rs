@@ -131,17 +131,11 @@ impl ChannelToolService {
                 _ => unreachable!(),
             };
         };
-        let result = chat_channel::delete_chat_channel_token_core(input.channel_id)
-            .map(|_| json!({ "status": "deleted", "channel_id": input.channel_id }))
-            .unwrap_or_else(|_| super::service::error_value("CREDENTIAL_DELETE_FAILED"));
-        if result.get("error").is_none() {
-            let _ = chat_channel::disconnect_chat_channel_core(
-                &self.db,
-                &self.manager,
-                input.channel_id,
-            )
-            .await;
-        }
+        let result =
+            chat_channel::delete_chat_channel_token_core(&self.db, &self.manager, input.channel_id)
+                .await
+                .map(|_| json!({ "status": "deleted", "channel_id": input.channel_id }))
+                .unwrap_or_else(|_| super::service::error_value("CREDENTIAL_DELETE_FAILED"));
         self.finish_mutation(
             caller,
             "manage_channel_credential",

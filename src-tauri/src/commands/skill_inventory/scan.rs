@@ -6,8 +6,9 @@ use crate::acp::error::AcpError;
 use crate::acp::skill_tree_hash::hash_skill_path;
 use crate::acp::types::{AgentSkillItem, AgentSkillLayout, AgentSkillScope};
 use crate::commands::acp::{
-    build_skill_item, disabled_skills_dir, read_market_skill_marker, set_skill_read_only,
-    shared_skills_dir, skill_storage_spec, SkillStorageKind,
+    build_skill_item, disabled_skills_dir, read_market_skill_marker, scoped_skill_dirs,
+    set_shared_skill_read_only, set_skill_read_only, shared_skills_dir, skill_storage_spec,
+    SkillStorageKind,
 };
 use crate::models::agent::AgentType;
 
@@ -47,22 +48,11 @@ fn collect_roots(workspace_path: Option<&str>) -> BTreeMap<PathBuf, RootSpec> {
         let Some(spec) = skill_storage_spec(agent_type) else {
             continue;
         };
+        let kind = spec.kind;
         for root in spec.global_dirs {
-            add_root(
-                &mut roots,
-                root,
-                AgentSkillScope::Global,
-                spec.kind,
-                agent_type,
-            );
+            add_root(&mut roots, root, AgentSkillScope::Global, kind, agent_type);
         }
-        add_project_roots(
-            &mut roots,
-            workspace_path,
-            spec.project_rel_dirs,
-            spec.kind,
-            agent_type,
-        );
+        add_project_roots(&mut roots, workspace_path, kind, agent_type);
     }
     let shared = roots.entry(shared_skills_dir()).or_default();
     shared.scope = Some(AgentSkillScope::Global);
@@ -73,17 +63,20 @@ fn collect_roots(workspace_path: Option<&str>) -> BTreeMap<PathBuf, RootSpec> {
 fn add_project_roots(
     roots: &mut BTreeMap<PathBuf, RootSpec>,
     workspace_path: Option<&str>,
-    relative_dirs: Vec<&str>,
     kind: SkillStorageKind,
     agent_type: AgentType,
 ) {
     let Some(workspace) = workspace_path.filter(|value| !value.trim().is_empty()) else {
         return;
     };
-    for relative in relative_dirs {
+    let Ok(project_dirs) = scoped_skill_dirs(agent_type, AgentSkillScope::Project, Some(workspace))
+    else {
+        return;
+    };
+    for project_dir in project_dirs {
         add_root(
             roots,
-            Path::new(workspace).join(relative),
+            project_dir,
             AgentSkillScope::Project,
             kind,
             agent_type,
@@ -151,8 +144,10 @@ fn push_source_location(
     let Some((id, layout)) = identify_skill(&path, SkillStorageKind::SkillDirectoryOnly) else {
         return;
     };
+    let mut item = build_skill_item(id, scope, layout, path.clone(), enabled);
+    set_shared_skill_read_only(&mut item);
     output.push(RawLocation {
-        item: build_skill_item(id, scope, layout, path.clone(), enabled),
+        item,
         root: scan_dir.to_path_buf(),
         canonical_path: fs::canonicalize(&path).unwrap_or(path.clone()),
         agent_types: Vec::new(),

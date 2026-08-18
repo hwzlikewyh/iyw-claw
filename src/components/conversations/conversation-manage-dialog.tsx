@@ -58,7 +58,13 @@ import type {
   ConversationStatus,
   DbConversationSummary,
 } from "@/lib/types"
-import { ALL_AGENT_TYPES, STATUS_ORDER } from "@/lib/types"
+import {
+  ALL_AGENT_TYPES,
+  STATUS_ORDER,
+  compareAgentType,
+  isAgentType,
+} from "@/lib/types"
+import { useAcpAgents } from "@/hooks/use-acp-agents"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { cn } from "@/lib/utils"
 import { formatConversationTitle } from "@/lib/conversation-title"
@@ -110,6 +116,7 @@ export function ConversationManageDialog({
   )
   const allFolders = useAppWorkspaceStore((s) => s.allFolders)
   const { closeConversationTab } = useTabActions()
+  const { agents: availableAgents } = useAcpAgents()
 
   const queryFolderIds = useMemo(
     () => resolveConversationFolderScope(folderId, allFolders),
@@ -128,6 +135,14 @@ export function ConversationManageDialog({
   const [pending, setPending] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const agentFilterOptions = useMemo(() => {
+    const options = new Set<AgentType>(ALL_AGENT_TYPES)
+    for (const agent of availableAgents) options.add(agent.agent_type)
+    for (const row of rows) options.add(row.agent_type)
+    if (agentFilter !== "all") options.add(agentFilter)
+    return [...options].sort(compareAgentType)
+  }, [agentFilter, availableAgents, rows])
 
   // Reset state on open/close transitions
   useEffect(() => {
@@ -271,14 +286,18 @@ export function ConversationManageDialog({
             <div className="flex items-center gap-2">
               <Select
                 value={agentFilter}
-                onValueChange={(v) => setAgentFilter(v as AgentType | "all")}
+                onValueChange={(value) => {
+                  if (value === "all" || isAgentType(value)) {
+                    setAgentFilter(value)
+                  }
+                }}
               >
                 <SelectTrigger className="h-9 w-40">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t("agentFilterAll")}</SelectItem>
-                  {ALL_AGENT_TYPES.map((at) => (
+                  {agentFilterOptions.map((at) => (
                     <SelectItem key={at} value={at}>
                       <span className="flex items-center gap-2">
                         <AgentIcon agentType={at} className="h-3.5 w-3.5" />

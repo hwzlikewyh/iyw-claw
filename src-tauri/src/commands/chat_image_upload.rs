@@ -6,6 +6,7 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::acp::capability_policy::monitor_file_upload;
 use crate::app_error::AppCommandError;
 
 use super::chat_image::{EncodedChatImage, PreparedChatImage};
@@ -144,43 +145,50 @@ pub(super) async fn upload_prepared(
     conn: &DatabaseConnection,
     image: &EncodedChatImage,
 ) -> Result<PreparedChatImage, AppCommandError> {
-    let token = crate::commands::iyw_account::iyw_account_access_token_core(conn)
+    let monitor = monitor_file_upload(None).await?;
+    monitor
+        .run_until_revoked(async {
+            let token = crate::commands::iyw_account::iyw_account_access_token_core(conn)
+                .await?
+                .ok_or_else(|| {
+                    AppCommandError::authentication_failed("Sign in to iyw-claw first")
+                })?;
+            let client = Client::builder()
+                .timeout(UPLOAD_TIMEOUT)
+                .user_agent("iyw-claw")
+                .build()
+                .map_err(|error| {
+                    AppCommandError::network("Failed to initialize image upload")
+                        .with_detail(error.to_string())
+                })?;
+            let key = object_key(image)?;
+            let presigned = post_gateway(
+                &client,
+                token.expose(),
+                "PreSignedUrl",
+                json!({ "objectKey": key }),
+            )
+            .await?;
+            let signed = signed_url(&presigned)?;
+            let url = public_url(signed.clone())?;
+            put_image(&client, signed, image).await?;
+            post_gateway(
+                &client,
+                token.expose(),
+                "checkImage",
+                json!({ "image": url }),
+            )
+            .await?;
+            Ok(PreparedChatImage {
+                url,
+                local_path: None,
+                mime_type: image.mime_type.to_string(),
+                name: image.name.clone(),
+                source_bytes: image.source_bytes,
+                derived_bytes: image.bytes.len(),
+                width: image.width,
+                height: image.height,
+            })
+        })
         .await?
-        .ok_or_else(|| AppCommandError::authentication_failed("Sign in to iyw-claw first"))?;
-    let client = Client::builder()
-        .timeout(UPLOAD_TIMEOUT)
-        .user_agent("iyw-claw")
-        .build()
-        .map_err(|error| {
-            AppCommandError::network("Failed to initialize image upload")
-                .with_detail(error.to_string())
-        })?;
-    let key = object_key(image)?;
-    let presigned = post_gateway(
-        &client,
-        token.expose(),
-        "PreSignedUrl",
-        json!({ "objectKey": key }),
-    )
-    .await?;
-    let signed = signed_url(&presigned)?;
-    let url = public_url(signed.clone())?;
-    put_image(&client, signed, image).await?;
-    post_gateway(
-        &client,
-        token.expose(),
-        "checkImage",
-        json!({ "image": url }),
-    )
-    .await?;
-    Ok(PreparedChatImage {
-        url,
-        local_path: None,
-        mime_type: image.mime_type.to_string(),
-        name: image.name.clone(),
-        source_bytes: image.source_bytes,
-        derived_bytes: image.bytes.len(),
-        width: image.width,
-        height: image.height,
-    })
 }

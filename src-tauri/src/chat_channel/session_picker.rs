@@ -3,7 +3,7 @@ use sea_orm::DatabaseConnection;
 use super::i18n::{self, Lang};
 use super::session_dispatch::SessionCommandMessage;
 use super::types::{ButtonStyle, InteractiveMessage, MessageButton, RichMessage};
-use crate::acp::registry::all_acp_agents;
+use crate::acp::{registry, trusted_agents};
 use crate::db::service::{folder_service, sender_context_service};
 use crate::models::agent::AgentType;
 
@@ -64,7 +64,7 @@ pub async fn handle_agent_picker(
     lang: Lang,
     prefix: &str,
 ) -> SessionCommandMessage {
-    let agents = all_acp_agents();
+    let agents = chat_selectable_agents();
     let context = sender_context_service::get_or_create(db, channel_id, sender_id)
         .await
         .ok();
@@ -131,15 +131,41 @@ async fn select_agent(
     sender_id: &str,
     lang: Lang,
 ) -> RichMessage {
-    let normalized = name.to_lowercase().replace([' ', '-'], "_");
-    let agent: AgentType = match serde_json::from_value(normalized.into()) {
-        Ok(agent) => agent,
-        Err(_) => return RichMessage::info(format!("{}{}", i18n::unknown_agent_label(lang), name)),
+    let Some(agent) = parse_chat_agent(name) else {
+        return RichMessage::info(format!("{}{}", i18n::unknown_agent_label(lang), name));
     };
     let _ =
         sender_context_service::update_agent(db, channel_id, sender_id, Some(agent_wire_id(agent)))
             .await;
     RichMessage::info(agent.to_string()).with_title(i18n::agent_selected_title(lang))
+}
+
+pub(super) fn chat_selectable_agents() -> Vec<AgentType> {
+    registry::all_identity_agents()
+        .into_iter()
+        .filter(|agent| is_chat_selectable_agent(*agent))
+        .collect()
+}
+
+pub(super) fn is_chat_selectable_agent(agent: AgentType) -> bool {
+    registry::is_executable_identity(agent)
+        && trusted_agents::definition_for_agent(agent)
+            .map(|definition| definition.capabilities.acp)
+            .unwrap_or(true)
+}
+
+pub(super) fn parse_chat_agent(value: &str) -> Option<AgentType> {
+    let trimmed = value.trim();
+    let wire = if trimmed
+        .get(..crate::models::agent::CUSTOM_AGENT_WIRE_PREFIX.len())
+        .is_some_and(|prefix| {
+            prefix.eq_ignore_ascii_case(crate::models::agent::CUSTOM_AGENT_WIRE_PREFIX)
+        }) {
+        trimmed.to_ascii_lowercase()
+    } else {
+        trimmed.to_ascii_lowercase().replace([' ', '-'], "_")
+    };
+    AgentType::from_wire(&wire).filter(|agent| is_chat_selectable_agent(*agent))
 }
 
 fn button(id: String, label: String) -> MessageButton {

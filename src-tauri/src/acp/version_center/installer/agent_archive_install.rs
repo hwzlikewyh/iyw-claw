@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use sea_orm::DatabaseConnection;
 
@@ -34,10 +34,10 @@ pub(super) async fn install_resolved_archive(
     request: ResolvedBinaryInstall<'_>,
 ) -> Result<String, AcpError> {
     let bytes = read_verified_archive(&request).await?;
-    let executable_name = stage_executable(&request, &bytes)?;
+    let entrypoint = stage_artifact(&request, &bytes)?;
     let confirmed = confirm_offer(&request).await?;
     validate_confirmed_offer(&request, &confirmed)?;
-    activate_staged_binary(&request, &executable_name)?;
+    activate_staged_binary(&request, &entrypoint)?;
     record_and_activate(&request, &confirmed).await?;
     Ok(request.offer.version.clone())
 }
@@ -56,18 +56,15 @@ async fn read_verified_archive(request: &ResolvedBinaryInstall<'_>) -> Result<Ve
     Ok(bytes)
 }
 
-fn stage_executable(request: &ResolvedBinaryInstall<'_>, bytes: &[u8]) -> Result<String, AcpError> {
-    let executable_name = executable_name(request.agent_type)?;
-    let extracted = request.stage.join("extracted");
-    extract_archive(bytes, &request.ticket.file_name, &extracted).map_err(app_error)?;
-    let source = binary_cache::find_binary_recursive(&extracted, &executable_name)
-        .ok_or_else(|| AcpError::DownloadFailed("Agent executable is missing".into()))?;
-    std::fs::copy(source, request.stage.join(&executable_name))
-        .map_err(|error| AcpError::DownloadFailed(error.to_string()))?;
-    std::fs::remove_dir_all(&extracted).map_err(|error| {
-        AcpError::DownloadFailed(format!("failed to finalize Agent staging: {error}"))
-    })?;
-    Ok(executable_name)
+fn stage_artifact(request: &ResolvedBinaryInstall<'_>, bytes: &[u8]) -> Result<PathBuf, AcpError> {
+    let entrypoint = trusted_entrypoint(request.agent_type)?;
+    extract_archive(bytes, &request.ticket.file_name, request.stage).map_err(app_error)?;
+    request
+        .stage
+        .join(&entrypoint)
+        .is_file()
+        .then_some(entrypoint)
+        .ok_or_else(|| AcpError::DownloadFailed("Agent executable is missing".into()))
 }
 
 async fn confirm_offer(request: &ResolvedBinaryInstall<'_>) -> Result<AgentOffer, AcpError> {
@@ -106,13 +103,13 @@ fn validate_confirmed_offer(
 
 fn activate_staged_binary(
     request: &ResolvedBinaryInstall<'_>,
-    executable_name: &str,
+    entrypoint: &Path,
 ) -> Result<(), AcpError> {
     let binary = binary_cache::activate_staged_binary(
         request.paths,
         registry::registry_id_for(request.agent_type),
         &request.offer.version,
-        executable_name,
+        entrypoint,
         request.stage,
     )?;
     binary
@@ -149,16 +146,20 @@ async fn record_and_activate(
     .await
 }
 
-fn executable_name(agent_type: AgentType) -> Result<String, AcpError> {
+fn trusted_entrypoint(agent_type: AgentType) -> Result<PathBuf, AcpError> {
     let cmd = match registry::get_agent_meta(agent_type).distribution {
         AgentDistribution::Binary { cmd, .. } => cmd,
         _ => return Err(AcpError::protocol("Agent is not binary-based")),
     };
-    Ok(if cfg!(windows) {
-        format!("{cmd}.exe")
-    } else {
-        cmd.to_string()
-    })
+    let entrypoint = Path::new(cmd);
+    let valid = !entrypoint.as_os_str().is_empty()
+        && !entrypoint.is_absolute()
+        && entrypoint
+            .components()
+            .all(|component| matches!(component, Component::CurDir | Component::Normal(_)));
+    valid
+        .then(|| entrypoint.to_path_buf())
+        .ok_or_else(|| AcpError::DownloadFailed("Agent executable path is invalid".into()))
 }
 
 fn app_error(error: AppCommandError) -> AcpError {

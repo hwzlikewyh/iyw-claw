@@ -14,6 +14,7 @@ const APP_DIR_NAME: &str = ".iyw-claw";
 const PETS_DIR_NAME: &str = "pets";
 const UPLOADS_DIR_NAME: &str = "uploads";
 const LOGS_DIR_NAME: &str = "logs";
+const ACP_TRANSCRIPTS_DIR_NAME: &str = "acp-transcripts";
 const LOG_DIR_ENV: &str = "IYW_CLAW_LOG_DIR";
 pub const USER_MEMORY_DIR_ENV: &str = "IYW_CLAW_USER_MEMORY_DIR";
 
@@ -204,6 +205,17 @@ pub fn iyw_claw_logs_root() -> PathBuf {
     dirs::home_dir()
         .map(|h| h.join(APP_DIR_NAME).join(LOGS_DIR_NAME))
         .unwrap_or_else(|| PathBuf::from(APP_DIR_NAME).join(LOGS_DIR_NAME))
+}
+
+/// Host-owned ACP history used when an Agent has no dedicated parser.
+pub fn iyw_claw_acp_transcripts_root() -> PathBuf {
+    if let Some(custom) = std::env::var_os("IYW_CLAW_HOME").filter(|s| !s.is_empty()) {
+        return PathBuf::from(custom).join(ACP_TRANSCRIPTS_DIR_NAME);
+    }
+    if let Some(data) = std::env::var_os("IYW_CLAW_DATA_DIR").filter(|s| !s.is_empty()) {
+        return PathBuf::from(data).join(ACP_TRANSCRIPTS_DIR_NAME);
+    }
+    iyw_claw_user_dir().join(ACP_TRANSCRIPTS_DIR_NAME)
 }
 
 /// Root used by codex-acp for optional adapter-side diagnostics. These files

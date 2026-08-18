@@ -34,6 +34,7 @@ impl UserMemoryService {
             resolution => {
                 self.apply_resolution(&mut state, index, resolution).await?;
                 candidate_store::write_state(root, &state)?;
+                self.schedule_index_refresh();
                 Ok(UserMemoryCandidateResolutionResult {
                     candidate: state.candidates[index].clone(),
                     revision: candidate_store::revision(&state)?,
@@ -60,6 +61,7 @@ impl UserMemoryService {
         normalize_references_before_delete(&mut state, index)?;
         state.candidates.remove(index);
         candidate_store::write_state(root, &state)?;
+        self.schedule_index_refresh();
         Ok(UserMemoryCandidateDeleteResult {
             deleted: true,
             revision: candidate_store::revision(&state)?,

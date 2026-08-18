@@ -9,7 +9,8 @@ use crate::acp::agent_storage::{
     validate_root, AgentStorageConfig, AgentStorageError, AgentStoragePaths,
 };
 use crate::acp::profile_import::{
-    import_existing_profiles, ProfileImportError, ProfileSourceRoots, PROFILE_IMPORT_VERSION,
+    import_existing_agent_profile, import_existing_profiles, ProfileImportError,
+    ProfileSourceRoots, DEEPSEEK_PROFILE_IMPORT_VERSION, PROFILE_IMPORT_VERSION,
 };
 use crate::acp::registry;
 use crate::app_error::AppCommandError;
@@ -215,11 +216,38 @@ pub(crate) async fn ensure_active_agent_profile_layout(
     let paths = AgentStoragePaths::active().ok_or_else(|| {
         AppCommandError::agent_storage_not_initialized("Agent storage is not initialized")
     })?;
-    let config = load_config(conn)
+    let mut config = load_config(conn)
         .await
         .map_err(map_storage_error)?
         .unwrap_or_else(|| AgentStorageConfig::confirmed(paths.root().clone()));
+    import_pending_deepseek_profile(conn, &paths, &mut config, agent_type).await?;
     ensure_agent_profile_layout(&paths, &config, agent_type)
+}
+
+async fn import_pending_deepseek_profile(
+    conn: &DatabaseConnection,
+    paths: &AgentStoragePaths,
+    config: &mut AgentStorageConfig,
+    agent_type: AgentType,
+) -> Result<(), AppCommandError> {
+    if agent_type != AgentType::DeepSeek
+        || config.import_version == 0
+        || config.import_version >= DEEPSEEK_PROFILE_IMPORT_VERSION
+    {
+        return Ok(());
+    }
+    let sources = ProfileSourceRoots::discover().map_err(map_profile_import_error)?;
+    let report = import_existing_agent_profile(paths, &sources, agent_type)
+        .map_err(map_profile_import_error)?;
+    config.import_version = DEEPSEEK_PROFILE_IMPORT_VERSION;
+    save_config(conn, config).await.map_err(map_storage_error)?;
+    tracing::info!(
+        imported_files = report.imported_files,
+        skipped_existing = report.skipped_existing,
+        skipped_unsafe_links = report.skipped_unsafe_links,
+        "[agent-storage] upgraded DeepSeek profile import"
+    );
+    Ok(())
 }
 
 fn ensure_agent_profile_layout(
@@ -272,7 +300,7 @@ pub(crate) use super::agent_storage_profile::is_user_global_profile_path;
 
 fn profile_statuses(config: Option<&AgentStorageConfig>, root: &Path) -> Vec<AgentProfileStatus> {
     let paths = AgentStoragePaths::new(root.to_path_buf());
-    registry::all_acp_agents()
+    registry::all_identity_agents()
         .into_iter()
         .map(|agent_type| {
             let registry_id = registry::registry_id_for(agent_type);

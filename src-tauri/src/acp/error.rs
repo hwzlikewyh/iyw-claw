@@ -10,6 +10,8 @@ pub enum AcpError {
     Protocol(String),
     #[error("agent process exited unexpectedly")]
     ProcessExited,
+    #[error("Agent capability denied: {0}")]
+    CapabilityDenied(String),
     /// A prompt arrived while this connection already had a turn in flight.
     /// The connection loop processes one turn at a time; a second concurrent
     /// prompt (e.g. two co-controlling clients sending near-simultaneously)
@@ -59,6 +61,17 @@ pub enum AcpError {
 }
 
 impl AcpError {
+    pub fn from_capability_error(error: crate::app_error::AppCommandError) -> Self {
+        let code = if error.code == crate::app_error::AppErrorCode::PermissionDenied {
+            error
+                .detail
+                .unwrap_or_else(|| "remote_policy_denied".to_string())
+        } else {
+            "remote_policy_missing".to_string()
+        };
+        Self::CapabilityDenied(code)
+    }
+
     pub fn protocol(raw: impl Into<String>) -> Self {
         let raw = raw.into();
         let sanitized = sanitize_protocol_message(&raw);
@@ -87,6 +100,7 @@ impl AcpError {
             Self::InitializeTimeout => Some("initialize_timeout"),
             Self::ProbeTimedOut => Some("probe_timed_out"),
             Self::ProcessExited => Some("process_exited"),
+            Self::CapabilityDenied(_) => Some("capability_denied"),
             Self::TurnInProgress => Some("turn_in_progress"),
             Self::NoActiveTurn => Some("no_active_turn"),
             Self::FeedbackDisabled => Some("feedback_disabled"),

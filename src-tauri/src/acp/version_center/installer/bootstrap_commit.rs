@@ -168,13 +168,13 @@ async fn commit_active(
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<ComponentOutcome, AppCommandError> {
+    health_check(data_dir, offer, final_dir, task_id, emitter).await?;
     emit_init_event(emitter, task_id, "activating", Some(&offer.tool_id), "");
     let previous = read_current_pointer(data_dir, &offer.tool_id).await?;
     write_current_pointer(data_dir, &offer.tool_id, &offer.version).await?;
     activate_inventory(conn, data_dir, offer, final_dir, previous.as_deref()).await?;
     upsert_entry(manifest, manifest_entry(offer, true));
     write_manifest(data_dir, manifest).await?;
-    health_check(data_dir, offer, final_dir, previous, task_id, emitter).await?;
     Ok(ComponentOutcome {
         version: offer.version.clone(),
         deferred: false,
@@ -208,13 +208,11 @@ async fn health_check(
     data_dir: &Path,
     offer: &crate::acp::version_center::types::ToolOffer,
     final_dir: &Path,
-    previous: Option<Vec<u8>>,
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<(), AppCommandError> {
     emit_init_event(emitter, task_id, "health_check", Some(&offer.tool_id), "");
     if let Err(error) = probe_payload(final_dir, &offer.tool_id, &offer.version).await {
-        restore_current_pointer(data_dir, &offer.tool_id, previous).await?;
         quarantine_component(data_dir, final_dir).await?;
         return Err(error);
     }

@@ -23,7 +23,7 @@ pub(crate) use catalog::platform_id;
 pub use catalog::{
     platform_projection, CatalogStore, CatalogView, PlatformAccess, PlatformProjection,
 };
-pub use client::{AgentPlatformClient, CatalogFetch};
+pub use client::{AgentPlatformClient, CapabilityPolicyHttpFetcher, CatalogFetch};
 // Task 06 新增统一初始化入口的再导出（最小改动：仅追加三行，供命令层/前端接线）。
 pub use installer::{
     bootstrap_init_status, bootstrap_initialize, consume_pending_activations_at_startup,
@@ -46,7 +46,8 @@ pub use inventory::{
 };
 pub(crate) use launch_authorization::authorize_agent_version_launch;
 pub(crate) use npm_install::{
-    confirm_npm_agent_install, resolve_npm_agent_install, ManagedNpmInstall,
+    confirm_npm_agent_install, ensure_npm_node_requirement, resolve_npm_agent_install,
+    ManagedNpmInstall,
 };
 pub(crate) use official_sources::{fallback_npm_agent_install, fallback_uvx_agent_install};
 pub(crate) use runtime_bundle_state::{remove_uvx_bundles, uvx_bundle_env};

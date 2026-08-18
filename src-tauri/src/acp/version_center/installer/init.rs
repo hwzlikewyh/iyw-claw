@@ -23,7 +23,7 @@ use super::bootstrap_component::prepare_tool_components;
 use super::bootstrap_finalize::commit_prepared_components;
 use super::manifest::{
     active_versions, digest_managed_root, read_manifest, read_pending_activations,
-    InventoryManifest, PendingActivation,
+    PendingActivation,
 };
 use super::migration::{migration_receipt, run_legacy_migration};
 use super::resumable::DownloadProgress;

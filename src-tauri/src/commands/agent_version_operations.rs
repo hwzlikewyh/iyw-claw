@@ -32,9 +32,13 @@ pub async fn install_agent_version_core(
 ) -> Result<AgentVersionOperationResult, AppCommandError> {
     let _activation_guard = connection_manager.begin_agent_activation(agent_type).await;
     let version = normalized_version(version)?;
+    connection_manager
+        .authorize_agent_install(agent_type)
+        .await
+        .map_err(acp_error)?;
     let task_id = uuid::Uuid::new_v4().to_string();
     let deferred = connection_manager.has_live_agent_session(agent_type).await;
-    match registry::get_agent_meta(agent_type).distribution {
+    let resolved_version = match registry::get_agent_meta(agent_type).distribution {
         AgentDistribution::Binary { .. } => {
             crate::commands::acp::acp_download_agent_binary_core(
                 agent_type,
@@ -47,6 +51,7 @@ pub async fn install_agent_version_core(
             )
             .await
             .map_err(acp_error)?;
+            version.clone()
         }
         AgentDistribution::Npx { .. } | AgentDistribution::Uvx { .. } => {
             crate::commands::acp::acp_prepare_npx_agent_core(
@@ -60,10 +65,10 @@ pub async fn install_agent_version_core(
                 deferred,
             )
             .await
-            .map_err(acp_error)?;
+            .map_err(acp_error)?
         }
-    }
-    operation_result(&db.conn, agent_type, &version, deferred).await
+    };
+    operation_result(&db.conn, agent_type, &resolved_version, deferred).await
 }
 
 pub async fn switch_agent_version_core(
@@ -76,6 +81,10 @@ pub async fn switch_agent_version_core(
     let _activation_guard = connection_manager.begin_agent_activation(agent_type).await;
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     let version = normalized_version(version)?;
+    connection_manager
+        .authorize_agent_install(agent_type)
+        .await
+        .map_err(acp_error)?;
     validate_local_runtime(conn, agent_type, &version).await?;
     let channel = update_channel(conn, agent_type).await?;
     let (policy, revision) = activation_metadata(conn, agent_type, &version, &channel).await?;
@@ -100,6 +109,10 @@ pub async fn rollback_agent_version_core(
 ) -> Result<AgentVersionOperationResult, AppCommandError> {
     let _activation_guard = connection_manager.begin_agent_activation(agent_type).await;
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
+    connection_manager
+        .authorize_agent_install(agent_type)
+        .await
+        .map_err(acp_error)?;
     let setting = setting(conn, agent_type).await?;
     let version = setting
         .last_known_good_version
@@ -195,6 +208,8 @@ async fn validate_local_runtime(
     agent_type: AgentType,
     version: &str,
 ) -> Result<(), AppCommandError> {
+    crate::acp::deepseek_config::validate_tool_version(agent_type, version)
+        .map_err(AppCommandError::invalid_input)?;
     let installation = list_agent_installations(conn, agent_type)
         .await
         .map_err(acp_error)?

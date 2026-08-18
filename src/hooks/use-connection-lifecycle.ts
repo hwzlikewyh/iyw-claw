@@ -6,13 +6,16 @@ import { useAcpActions } from "@/contexts/acp-connections-context"
 import { useTaskContext } from "@/contexts/task-context"
 import { useConnection, type UseConnectionReturn } from "@/hooks/use-connection"
 import { TurnBusyError } from "@/lib/turn-busy"
-import { AGENT_LABELS, type AgentType, type PromptDraft } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
+import type { AgentType, PromptDraft } from "@/lib/types"
 
 export function shouldDisconnectOnUnmount(args: {
   status: string | null
   isViewer: boolean
   backgroundOutstanding: number
+  transientUnmount?: boolean
 }): boolean {
+  if (args.transientUnmount) return false
   if (args.isViewer) return true
   return args.status !== "prompting" && args.backgroundOutstanding === 0
 }
@@ -30,6 +33,8 @@ interface UseConnectionLifecycleOptions {
    */
   conversationId?: number
   attachOnlyOnActivate?: boolean
+  /** Keep the shared connection alive while a split-group move reparents a view. */
+  isTransientUnmount?: () => boolean
 }
 
 export interface UseConnectionLifecycleReturn {
@@ -79,6 +84,7 @@ export function useConnectionLifecycle({
   sessionId,
   conversationId,
   attachOnlyOnActivate = false,
+  isTransientUnmount,
 }: UseConnectionLifecycleOptions): UseConnectionLifecycleReturn {
   const t = useTranslations("Folder.chat.connectionLifecycle")
   const { setActiveKey, touchActivity } = useAcpActions()
@@ -219,7 +225,7 @@ export function useConnectionLifecycle({
       if (!taskIdRef.current) {
         const id = `acp-connect-${Date.now()}`
         taskIdRef.current = id
-        const agent = AGENT_LABELS[agentType]
+        const agent = getAgentDisplayName(agentType)
         addTask(
           id,
           t("tasks.connectingTitle", { agent }),
@@ -270,7 +276,7 @@ export function useConnectionLifecycle({
     if (!selectorTaskIdRef.current) {
       const id = `acp-session-init-${Date.now()}`
       selectorTaskIdRef.current = id
-      const agent = AGENT_LABELS[agentType]
+      const agent = getAgentDisplayName(agentType)
       addTask(
         id,
         t("tasks.initSessionTitle", { agent }),
@@ -294,6 +300,10 @@ export function useConnectionLifecycle({
   useEffect(() => {
     connDisconnectRef.current = connDisconnect
   }, [connDisconnect])
+  const isTransientUnmountRef = useRef(isTransientUnmount)
+  useEffect(() => {
+    isTransientUnmountRef.current = isTransientUnmount
+  }, [isTransientUnmount])
 
   // Clean up on unmount (e.g. tab closed): disconnect the ACP connection
   // so it doesn't leak, and remove lingering tasks.
@@ -314,6 +324,7 @@ export function useConnectionLifecycle({
           status: statusRef.current,
           isViewer: isViewerRef.current,
           backgroundOutstanding: backgroundOutstandingRef.current,
+          transientUnmount: isTransientUnmountRef.current?.() === true,
         })
       ) {
         connDisconnectRef.current().catch(() => {})

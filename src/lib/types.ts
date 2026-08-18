@@ -1,4 +1,5 @@
-export type AgentType =
+/** Agent identities with dedicated client-side integration. */
+export type BuiltinAgentType =
   | "claude_code"
   | "codex"
   | "open_code"
@@ -10,6 +11,69 @@ export type AgentType =
   | "kimi_code"
   | "pi"
   | "grok"
+  | "cursor"
+  | "deepseek"
+
+export type CustomAgentType = `custom:${string}`
+export type AgentType = BuiltinAgentType | CustomAgentType
+
+export const CUSTOM_AGENT_PREFIX = "custom:"
+
+const BUILTIN_AGENT_TYPE_SET: ReadonlySet<string> = new Set([
+  "claude_code",
+  "codex",
+  "open_code",
+  "gemini",
+  "open_claw",
+  "cline",
+  "hermes",
+  "code_buddy",
+  "kimi_code",
+  "pi",
+  "grok",
+  "cursor",
+  "deepseek",
+])
+
+const CUSTOM_AGENT_ID_COLLISIONS: ReadonlySet<string> = new Set([
+  ...BUILTIN_AGENT_TYPE_SET,
+  "claude-acp",
+  "codex-acp",
+  "opencode",
+  "openclaw-acp",
+  "codebuddy-code",
+  "kimi-code",
+  "pi-acp",
+  "grok-build",
+  "deepseek-acp",
+])
+
+const CUSTOM_AGENT_ID_PATTERN = /^(?!\.)[A-Za-z0-9_.-]{1,64}$/
+
+export function isCustomAgentType(value: unknown): value is CustomAgentType {
+  if (typeof value !== "string" || !value.startsWith(CUSTOM_AGENT_PREFIX)) {
+    return false
+  }
+  const registryId = value.slice(CUSTOM_AGENT_PREFIX.length)
+  return (
+    CUSTOM_AGENT_ID_PATTERN.test(registryId) &&
+    !CUSTOM_AGENT_ID_COLLISIONS.has(registryId)
+  )
+}
+
+export function customAgentId(value: unknown): string | null {
+  return isCustomAgentType(value)
+    ? value.slice(CUSTOM_AGENT_PREFIX.length)
+    : null
+}
+
+export function isBuiltinAgentType(value: unknown): value is BuiltinAgentType {
+  return typeof value === "string" && BUILTIN_AGENT_TYPE_SET.has(value)
+}
+
+export function isAgentType(value: unknown): value is AgentType {
+  return isBuiltinAgentType(value) || isCustomAgentType(value)
+}
 
 export type AppErrorCode =
   | "invalid_input"
@@ -37,6 +101,19 @@ export interface AppCommandError {
   i18n_key?: string | null
   /** Optional named parameters substituted into the localized template. */
   i18n_params?: Record<string, string> | null
+}
+
+export interface SessionFailureRecord {
+  id: string
+  revision: number
+  category: string
+  severity: string
+  title: string
+  details?: string | null
+  actions?: string[]
+  resolved: boolean
+  /** Client-local dismissal state; the AIR payload does not persist it. */
+  dismissed?: boolean
 }
 
 export interface AgentProfileStatus {
@@ -491,7 +568,7 @@ export const STATUS_COLORS: Record<ConversationStatus, string> = {
   cancelled: "bg-red-500",
 }
 
-export const AGENT_DISPLAY_ORDER: AgentType[] = [
+export const AGENT_DISPLAY_ORDER: BuiltinAgentType[] = [
   "codex",
   "hermes",
   "open_code",
@@ -503,19 +580,21 @@ export const AGENT_DISPLAY_ORDER: AgentType[] = [
   "kimi_code",
   "pi",
   "grok",
+  "cursor",
+  "deepseek",
 ]
 
-const AGENT_DISPLAY_ORDER_INDEX = new Map(
-  AGENT_DISPLAY_ORDER.map((agent, index) => [agent, index])
+const AGENT_DISPLAY_ORDER_INDEX = new Map<AgentType, number>(
+  AGENT_DISPLAY_ORDER.map((agent, index) => [agent, index] as const)
 )
 
 export function compareAgentType(a: AgentType, b: AgentType): number {
   const aIndex = AGENT_DISPLAY_ORDER_INDEX.get(a) ?? Number.MAX_SAFE_INTEGER
   const bIndex = AGENT_DISPLAY_ORDER_INDEX.get(b) ?? Number.MAX_SAFE_INTEGER
-  return aIndex - bIndex
+  return aIndex - bIndex || a.localeCompare(b)
 }
 
-export const ALL_AGENT_TYPES: AgentType[] = [
+export const ALL_AGENT_TYPES: BuiltinAgentType[] = [
   "codex",
   "hermes",
   "open_code",
@@ -527,9 +606,11 @@ export const ALL_AGENT_TYPES: AgentType[] = [
   "kimi_code",
   "pi",
   "grok",
+  "cursor",
+  "deepseek",
 ]
 
-export const MODEL_PROVIDER_AGENT_TYPES: AgentType[] = [
+export const MODEL_PROVIDER_AGENT_TYPES: BuiltinAgentType[] = [
   "claude_code",
   "codex",
   "gemini",
@@ -818,7 +899,7 @@ export interface HermesLocalConfig {
   modelCommand?: string
 }
 
-export const AGENT_LABELS: Record<AgentType, string> = {
+export const AGENT_LABELS: Record<BuiltinAgentType, string> = {
   claude_code: "远山",
   codex: "星河",
   open_code: "云舟",
@@ -830,9 +911,11 @@ export const AGENT_LABELS: Record<AgentType, string> = {
   kimi_code: "月白",
   pi: "墨川",
   grok: "知微",
+  cursor: "Cursor",
+  deepseek: "DeepSeek Harness",
 }
 
-export const AGENT_COLORS: Record<AgentType, string> = {
+export const AGENT_COLORS: Record<BuiltinAgentType, string> = {
   claude_code: "bg-[#D97757]",
   codex: "bg-[#7A9DFF]",
   open_code: "bg-black",
@@ -844,6 +927,8 @@ export const AGENT_COLORS: Record<AgentType, string> = {
   kimi_code: "bg-[#1783FF]",
   pi: "bg-[#0D9488]",
   grok: "bg-neutral-900",
+  cursor: "bg-zinc-800",
+  deepseek: "bg-[#4D6BFE]",
 }
 
 // ACP connection status (matches Rust ConnectionStatus)
@@ -1227,6 +1312,12 @@ export type AcpEvent =
       request_id: string
       tool_call: unknown
       options: PermissionOptionInfo[]
+      /** Requests waiting behind the single visible permission card. */
+      queued?: number
+    }
+  | {
+      type: "permission_queue_depth"
+      depth: number
     }
   | {
       type: "permission_resolved"
@@ -1299,6 +1390,8 @@ export type AcpEvent =
       agent_type: string
       /** Stable backend error identifier for localization (e.g. "initialize_timeout"). */
       code: string | null
+      /** Redacted, bounded diagnostic evidence for in-app disclosure. */
+      details?: string | null
     }
   | {
       type: "session_load_failed"
@@ -1306,6 +1399,10 @@ export type AcpEvent =
       message: string
       /** Stable backend identifier — currently `"resource_not_found"`. */
       code: string
+    }
+  | {
+      type: "session_failure"
+      record: SessionFailureRecord
     }
   | {
       type: "available_commands"
@@ -1553,6 +1650,8 @@ export interface PendingPermissionState {
   tool_call: unknown
   options: PermissionOptionInfo[]
   created_at: string
+  /** Requests waiting behind the single visible permission card. */
+  queued?: number
 }
 
 /**
@@ -1591,6 +1690,7 @@ export interface FeedbackItem {
 export interface SessionLastError {
   message: string
   code?: string | null
+  details?: string | null
 }
 
 export type UserMemoryCapabilityReason =
@@ -1689,6 +1789,8 @@ export interface LiveSessionSnapshot {
   config_stale_kind?: ConfigStaleKind | null
   /** Latest unresolved runtime error, recoverable after reconnect. */
   last_error?: SessionLastError | null
+  /** AIR typed session-failure table and revision watermarks. */
+  session_failures?: SessionFailureRecord[]
   event_seq: number
 }
 
@@ -3006,6 +3108,7 @@ export interface ChannelReadinessReport {
   enabled: boolean
   runtimeStatus: ChannelRuntimeStatus
   transportConnected: boolean
+  callbackVerified: boolean
   saved: boolean
   credentialReady: boolean
   inboundVerified: boolean

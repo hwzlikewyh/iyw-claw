@@ -63,7 +63,12 @@ export function PanelPermissionCard({
     <div className="mt-1 rounded-md border border-amber-500/30 bg-amber-500/5 p-2">
       <div className="flex items-center gap-1.5 text-xs font-medium">
         <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-        <span className="truncate">{parsed.title}</span>
+        <span className="min-w-0 flex-1 truncate">{parsed.title}</span>
+        {permission.queued > 0 && (
+          <span className="shrink-0 tabular-nums text-muted-foreground">
+            {t("queuedCount", { count: permission.queued })}
+          </span>
+        )}
       </div>
 
       {parsed.command ? (

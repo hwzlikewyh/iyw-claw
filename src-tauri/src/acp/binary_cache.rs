@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -348,10 +348,18 @@ pub(crate) fn activate_staged_binary(
     paths: &AgentStoragePaths,
     agent_id: &str,
     version: &str,
-    executable_name: &str,
+    entrypoint: &Path,
     staging_dir: &Path,
 ) -> Result<PathBuf, AcpError> {
-    let staged_binary = staging_dir.join(executable_name);
+    let entrypoint = binary_entrypoint_path(entrypoint)
+        .ok_or_else(|| AcpError::DownloadFailed("binary entrypoint path is invalid".into()))?;
+    if contains_symbolic_link(staging_dir) {
+        let _ = std::fs::remove_dir_all(staging_dir);
+        return Err(AcpError::DownloadFailed(
+            "downloaded binary contains an unsafe symbolic link".into(),
+        ));
+    }
+    let staged_binary = staging_dir.join(&entrypoint);
     if !is_binary_file_compatible(&staged_binary) {
         let _ = std::fs::remove_dir_all(staging_dir);
         return Err(AcpError::DownloadFailed(
@@ -374,7 +382,7 @@ pub(crate) fn activate_staged_binary(
         let _ = std::fs::remove_dir_all(staging_dir);
         return Err(error);
     }
-    Ok(final_dir.join(executable_name))
+    Ok(final_dir.join(entrypoint))
 }
 
 pub fn clear_agent_cache(paths: &AgentStoragePaths, agent_type: AgentType) -> Result<(), AcpError> {
@@ -430,11 +438,7 @@ fn installed_binary_path(
     version: &str,
     cmd_name: &str,
 ) -> Option<PathBuf> {
-    let bin_name = if cfg!(target_os = "windows") {
-        format!("{cmd_name}.exe")
-    } else {
-        cmd_name.to_string()
-    };
+    let entrypoint = binary_entrypoint_path(Path::new(cmd_name))?;
 
     let normalized = normalize_version_label(version);
     if normalized.is_empty() {
@@ -443,7 +447,7 @@ fn installed_binary_path(
 
     let path = binary_dir_for(paths, agent_id, &normalized)
         .ok()?
-        .join(bin_name);
+        .join(entrypoint);
 
     if !path.exists() {
         return None;
@@ -451,7 +455,9 @@ fn installed_binary_path(
     if is_binary_file_compatible(path.as_path()) {
         return Some(path);
     }
-    let _ = std::fs::remove_file(path);
+    if is_regular_file(&path) {
+        let _ = std::fs::remove_file(path);
+    }
     None
 }
 
@@ -608,11 +614,12 @@ async fn ensure_binary_with_progress(
         return Ok(path);
     }
 
-    let bin_name = if cfg!(target_os = "windows") {
-        format!("{cmd_name}.exe")
-    } else {
-        cmd_name.to_string()
-    };
+    let entrypoint = binary_entrypoint_path(Path::new(cmd_name))
+        .ok_or_else(|| AcpError::DownloadFailed("binary entrypoint path is invalid".into()))?;
+    let bin_name = entrypoint
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| AcpError::DownloadFailed("binary entrypoint name is invalid".into()))?;
     let operation_id = uuid::Uuid::new_v4();
     let staging_dir = paths
         .staging_dir()
@@ -652,13 +659,19 @@ async fn ensure_binary_with_progress(
             AcpError::DownloadFailed(format!("binary '{bin_name}' not found in archive"))
         })?;
 
-        let staged_path = staging_dir.join(&bin_name);
+        let staged_path = staging_dir.join(&entrypoint);
+        if let Some(parent) = staged_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                AcpError::DownloadFailed(format!("failed to create binary entrypoint dir: {error}"))
+            })?;
+        }
         std::fs::copy(&extracted_bin, &staged_path)
             .map_err(|e| AcpError::DownloadFailed(format!("failed to copy binary: {e}")))?;
         std::fs::remove_dir_all(&extract_dir).map_err(|e| {
             AcpError::DownloadFailed(format!("failed to finalize binary staging dir: {e}"))
         })?;
-        let final_path = activate_staged_binary(paths, agent_id, version, &bin_name, &staging_dir)?;
+        let final_path =
+            activate_staged_binary(paths, agent_id, version, &entrypoint, &staging_dir)?;
         on_progress("Binary installed successfully");
         Ok(final_path)
     }
@@ -862,6 +875,12 @@ fn set_executable_permissions(path: &Path) -> Result<(), AcpError> {
 }
 
 pub(crate) fn is_binary_file_compatible(path: &Path) -> bool {
+    if !is_regular_file(path) {
+        return false;
+    }
+    if is_windows_command_script(path) {
+        return true;
+    }
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return false,
@@ -902,11 +921,53 @@ pub(crate) fn is_binary_file_compatible(path: &Path) -> bool {
     }
 }
 
+fn binary_entrypoint_path(entrypoint: &Path) -> Option<PathBuf> {
+    if entrypoint.as_os_str().is_empty() || entrypoint.is_absolute() {
+        return None;
+    }
+    let mut relative = PathBuf::new();
+    for component in entrypoint.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => relative.push(part),
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    if relative.file_name().is_none() {
+        return None;
+    }
+    if cfg!(windows) && relative.extension().is_none() {
+        relative.set_extension("exe");
+    }
+    Some(relative)
+}
+
+fn contains_symbolic_link(root: &Path) -> bool {
+    walkdir::WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .any(|entry| match entry {
+            Ok(entry) => entry.file_type().is_symlink(),
+            Err(_) => true,
+        })
+}
+
+fn is_regular_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
+}
+
+fn is_windows_command_script(path: &Path) -> bool {
+    cfg!(windows)
+        && path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("cmd"))
+}
+
 // ─── Bundled codex-acp npm prefix (legacy) ───────────────────────────────
 
 /// Pinned codex-acp version that used to be bundled by `prepare-sidecars.mjs`.
 /// Must stay in sync with `registry::get_agent_meta(AgentType::Codex)`.
-pub(crate) const BUNDLED_CODEX_ACP_VERSION: &str = "1.1.5";
+pub(crate) const BUNDLED_CODEX_ACP_VERSION: &str = "1.4.0";
 
 /// Seed the bundled codex-acp npm prefix into private Agent storage. Bundling
 /// was removed in the managed distribution work, so this is a no-op stub that

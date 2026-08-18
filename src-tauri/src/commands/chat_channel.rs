@@ -14,6 +14,12 @@ use crate::db::service::{chat_channel_message_log_service, chat_channel_service}
 use crate::db::AppDatabase;
 use crate::models::chat_channel::{ChannelStatusInfo, ChatChannelInfo, ChatChannelMessageLogInfo};
 
+pub use super::chat_channel_delete::delete_chat_channel_core;
+pub use super::chat_channel_token::{
+    delete_chat_channel_token_core, save_chat_channel_token_core,
+    save_chat_channel_token_with_patch_core,
+};
+
 // ---------------------------------------------------------------------------
 // Shared core functions (used by both Tauri commands and web handlers)
 // ---------------------------------------------------------------------------
@@ -24,11 +30,7 @@ pub async fn list_chat_channels_core(
     let rows = chat_channel_service::list_all(&db.conn)
         .await
         .map_err(AppCommandError::from)?;
-    Ok(rows
-        .into_iter()
-        .filter(|row| row.channel_type != ChannelType::WecomAgent.to_string())
-        .map(ChatChannelInfo::from)
-        .collect())
+    Ok(rows.into_iter().map(ChatChannelInfo::from).collect())
 }
 
 pub async fn create_chat_channel_core(
@@ -46,11 +48,17 @@ pub async fn create_chat_channel_core(
         serde_json::from_value(serde_json::Value::String(channel_type.clone())).map_err(|_| {
             AppCommandError::invalid_input(format!("Invalid channel type: {channel_type}"))
         })?;
-    if parsed_type == ChannelType::WecomAgent {
+    if parsed_type == ChannelType::WecomAgent && enabled {
         return Err(AppCommandError::invalid_input(
-            "wecom_agent is no longer available; use wecom_ai_bot",
+            "企业微信自建应用必须先完成回调验证再启用",
         ));
     }
+    let config_json = if parsed_type == ChannelType::WecomAgent {
+        crate::chat_channel::backends::wecom_agent::prepare_new_config(&config_json)
+            .map_err(AppCommandError::from)?
+    } else {
+        config_json
+    };
     let (daily_report_enabled, daily_report_time) =
         normalize_daily_report(parsed_type, daily_report_enabled, daily_report_time);
 
@@ -210,6 +218,33 @@ pub async fn update_chat_channel_core(
     daily_report_enabled: Option<bool>,
     daily_report_time: Option<Option<String>>,
 ) -> Result<ChatChannelInfo, AppCommandError> {
+    let _guard = crate::chat_channel::operation_lock::lock_channel(id).await;
+    update_chat_channel_core_unlocked(
+        db,
+        manager,
+        id,
+        name,
+        enabled,
+        config_patch_json,
+        event_filter_json,
+        daily_report_enabled,
+        daily_report_time,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn update_chat_channel_core_unlocked(
+    db: &AppDatabase,
+    manager: &ChatChannelManager,
+    id: i32,
+    name: Option<String>,
+    enabled: Option<bool>,
+    config_patch_json: Option<String>,
+    event_filter_json: Option<Option<String>>,
+    daily_report_enabled: Option<bool>,
+    daily_report_time: Option<Option<String>>,
+) -> Result<ChatChannelInfo, AppCommandError> {
     let current = chat_channel_service::get_by_id(&db.conn, id)
         .await
         .map_err(AppCommandError::from)?
@@ -238,6 +273,15 @@ pub async fn update_chat_channel_core(
         }
         None => None,
     };
+    if channel_type == ChannelType::WecomAgent && enabled.unwrap_or(current.enabled) {
+        let candidate = patched_config.as_deref().unwrap_or(&current.config_json);
+        let candidate: serde_json::Value = serde_json::from_str(candidate).map_err(|error| {
+            AppCommandError::configuration_invalid("企业微信自建应用配置无效")
+                .with_detail(error.to_string())
+        })?;
+        crate::chat_channel::backends::wecom_agent::ensure_ready_config(&candidate)
+            .map_err(AppCommandError::from)?;
+    }
 
     let model = chat_channel_service::update(
         &db.conn,
@@ -257,7 +301,8 @@ pub async fn update_chat_channel_core(
 
     // Reconcile to the desired state after every update (IYW-CHANNEL-002):
     // disable → disconnect, enable → connect, edit → safe reconnect.
-    let outcome = reconcile_channel_or_log(db, manager, info.id, info.enabled, "edit").await;
+    let outcome =
+        reconcile_channel_or_log_unlocked(db, manager, info.id, info.enabled, "edit").await;
     Ok(with_reconcile_outcome(info, outcome))
 }
 
@@ -300,29 +345,6 @@ async fn register_default_target(
         "default channel target registration failed"
     );
     Some("TARGET_STORAGE_UNAVAILABLE".to_string())
-}
-
-pub async fn delete_chat_channel_core(
-    db: &AppDatabase,
-    manager: &ChatChannelManager,
-    id: i32,
-) -> Result<(), AppCommandError> {
-    // Disconnect running backend before deleting from DB (prevents orphaned task)
-    let _ = manager.remove_channel(id).await;
-    let target_backup =
-        crate::db::service::chat_channel_target_service::take_secure_targets(&db.conn, id)
-            .await
-            .map_err(AppCommandError::from)?;
-    if let Err(error) = chat_channel_service::delete(&db.conn, id).await {
-        if let Err(restore_error) =
-            crate::db::service::chat_channel_target_service::restore_secure_targets(&target_backup)
-        {
-            tracing::error!(channel_id = id, error = %restore_error, "channel target restore failed after database delete failure");
-        }
-        return Err(AppCommandError::from(error));
-    }
-    let _ = crate::keyring_store::delete_channel_token(id);
-    Ok(())
 }
 
 /// Manual connect — the same reconcile entry used by create/enable/edit so
@@ -401,46 +423,14 @@ pub async fn test_chat_channel_core(db: &AppDatabase, id: i32) -> Result<(), App
     Ok(())
 }
 
-/// Save a credential and reconcile immediately (enable path shares the same
-/// entry so a newly saved token triggers connection).
-pub async fn save_chat_channel_token_core(
-    db: &AppDatabase,
-    manager: &ChatChannelManager,
-    channel_id: i32,
-    token: &str,
-) -> Result<(), AppCommandError> {
-    crate::keyring_store::set_channel_token(channel_id, token)
-        .map_err(|e| AppCommandError::io_error("Failed to save token").with_detail(e))?;
-    let model = chat_channel_service::get_by_id(&db.conn, channel_id)
-        .await
-        .map_err(AppCommandError::from)?
-        .ok_or_else(|| {
-            AppCommandError::not_found(format!("Chat channel {channel_id} not found"))
-        })?;
-    if model.enabled {
-        let _ = reconcile_channel_or_log(db, manager, channel_id, true, "credential").await;
-    }
-    Ok(())
-}
-
 pub fn get_chat_channel_has_token_core(channel_id: i32) -> Result<bool, AppCommandError> {
     Ok(crate::keyring_store::get_channel_token(channel_id).is_some())
-}
-
-pub fn delete_chat_channel_token_core(channel_id: i32) -> Result<(), AppCommandError> {
-    crate::keyring_store::delete_channel_token(channel_id)
-        .map_err(|e| AppCommandError::io_error("Failed to delete token").with_detail(e))
 }
 
 pub async fn get_chat_channel_status_core(
     manager: &ChatChannelManager,
 ) -> Result<Vec<ChannelStatusInfo>, AppCommandError> {
-    Ok(manager
-        .get_status()
-        .await
-        .into_iter()
-        .filter(|status| status.channel_type != ChannelType::WecomAgent.to_string())
-        .collect())
+    Ok(manager.get_status().await)
 }
 
 /// Per-channel readiness report (all channels) — desired/runtime/readiness
@@ -488,14 +478,39 @@ pub async fn list_chat_channel_messages_core(
 
 /// Run reconcile but degrade hard errors to a logged outcome so callers can
 /// still return "saved" info with `last_error` populated.
-async fn reconcile_channel_or_log(
+pub(crate) async fn reconcile_channel_or_log(
     db: &AppDatabase,
     manager: &ChatChannelManager,
     id: i32,
     desired_enabled: bool,
     reason: reconcile::ReconcileReason,
 ) -> Option<ReconcileOutcome> {
-    match reconcile::reconcile_channel(&db.conn, manager, id, desired_enabled, reason).await {
+    let _guard = crate::chat_channel::operation_lock::lock_channel(id).await;
+    let result =
+        reconcile::reconcile_channel_unlocked(&db.conn, manager, id, desired_enabled, reason).await;
+    reconcile_result_or_log(db, id, desired_enabled, reason, result).await
+}
+
+pub(crate) async fn reconcile_channel_or_log_unlocked(
+    db: &AppDatabase,
+    manager: &ChatChannelManager,
+    id: i32,
+    desired_enabled: bool,
+    reason: reconcile::ReconcileReason,
+) -> Option<ReconcileOutcome> {
+    let result =
+        reconcile::reconcile_channel_unlocked(&db.conn, manager, id, desired_enabled, reason).await;
+    reconcile_result_or_log(db, id, desired_enabled, reason, result).await
+}
+
+async fn reconcile_result_or_log(
+    db: &AppDatabase,
+    id: i32,
+    desired_enabled: bool,
+    reason: reconcile::ReconcileReason,
+    result: Result<ReconcileOutcome, AppCommandError>,
+) -> Option<ReconcileOutcome> {
+    match result {
         Ok(outcome) => Some(outcome),
         Err(error) => {
             tracing::error!("[chat_channel] reconcile {reason} failed for {id}: {error}");
@@ -748,14 +763,18 @@ pub async fn weixin_check_qrcode_core(
             base_url_received = result.base_url.is_some(),
             "[Weixin] QR authorization confirmed"
         );
-        if let Some(ref token) = result.bot_token {
-            save_chat_channel_token_core(db, manager, channel_id, token).await?;
-            tracing::info!("[Weixin] Token saved for channel {channel_id}");
-        } else {
+        let Some(ref token) = result.bot_token else {
             tracing::warn!(
-                "[Weixin] WARNING: No bot_token in confirmed response for channel {channel_id}"
+                channel_id,
+                stage = "qr_confirmed_without_credential",
+                "[Weixin] QR confirmation omitted bot_token; requesting a fresh QR code"
             );
-        }
+            return Ok(WeixinQrcodeStatusPublic {
+                status: "expired".to_string(),
+            });
+        };
+        save_chat_channel_token_core(db, manager, channel_id, token).await?;
+        tracing::info!("[Weixin] Token saved for channel {channel_id}");
         if let Some(ref base_url) = result.base_url {
             let patch = serde_json::json!({ "baseUrl": base_url }).to_string();
             update_chat_channel_core(
@@ -928,8 +947,10 @@ pub async fn save_chat_channel_token(
     manager: tauri::State<'_, ChatChannelManager>,
     channel_id: i32,
     token: String,
+    config_patch_json: Option<String>,
 ) -> Result<(), AppCommandError> {
-    save_chat_channel_token_core(&db, &manager, channel_id, &token).await
+    save_chat_channel_token_with_patch_core(&db, &manager, channel_id, &token, config_patch_json)
+        .await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -940,8 +961,12 @@ pub async fn get_chat_channel_has_token(channel_id: i32) -> Result<bool, AppComm
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn delete_chat_channel_token(channel_id: i32) -> Result<(), AppCommandError> {
-    delete_chat_channel_token_core(channel_id)
+pub async fn delete_chat_channel_token(
+    db: tauri::State<'_, AppDatabase>,
+    manager: tauri::State<'_, ChatChannelManager>,
+    channel_id: i32,
+) -> Result<(), AppCommandError> {
+    delete_chat_channel_token_core(&db, &manager, channel_id).await
 }
 
 #[cfg(feature = "tauri-runtime")]

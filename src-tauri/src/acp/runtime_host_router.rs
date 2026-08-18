@@ -8,6 +8,7 @@ use sacp::schema::SessionId;
 
 use crate::acp::connection::PendingPermissions;
 use crate::acp::file_system_runtime::FileSystemRuntime;
+use crate::acp::runtime_host_policy::RuntimeHostCapabilities;
 use crate::acp::session_state::SessionState;
 use crate::acp::terminal_runtime::TerminalRuntime;
 use crate::web::event_bridge::EventEmitter;
@@ -19,6 +20,9 @@ pub(crate) struct RuntimeSessionRoute {
     pub(crate) cwd: String,
     pub(crate) file_system: Arc<FileSystemRuntime>,
     pub(crate) terminal: Arc<TerminalRuntime>,
+    pub(crate) elicitation: Option<crate::acp::deepseek_elicitation::ElicitationAccess>,
+    pub(crate) host_capabilities: RuntimeHostCapabilities,
+    pub(crate) runtime_verified: bool,
 }
 
 #[derive(Clone, Default)]

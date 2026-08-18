@@ -6,6 +6,7 @@ use tokio::io::AsyncWriteExt;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::acp::capability_policy::{monitor_file_upload, CapabilityRevocationMonitor};
 use crate::app_error::{
     AppCommandError, UPLOAD_I18N_KEY_QUOTA_EXCEEDED, UPLOAD_I18N_KEY_TOO_LARGE,
 };
@@ -745,6 +746,7 @@ pub async fn purge_upload_staging() {
 pub async fn upload_attachment(
     mut multipart: Multipart,
 ) -> Result<Json<UploadAttachmentResult>, AppCommandError> {
+    let monitor = monitor_file_upload(None).await?;
     let uploads_root = iyw_claw_uploads_root();
     // Ensure root exists before canonicalize/ensure_path_inside can compare.
     tokio::fs::create_dir_all(&uploads_root)
@@ -819,13 +821,26 @@ pub async fn upload_attachment(
     // Cleanup goes through `upload_jail::remove_staging_best_effort` so the
     // unlink itself can't be redirected by a swap of `.tmp` between
     // streaming and cleanup.
-    let result = stream_and_finalize(&mut multipart, &uploads_root, &tmp_dir, &staging_name).await;
+    let context = AttachmentUploadContext {
+        uploads_root: &uploads_root,
+        tmp_dir: &tmp_dir,
+        staging_name: &staging_name,
+        monitor: &monitor,
+    };
+    let result = stream_and_finalize(&mut multipart, context).await;
     if result.is_err() {
         upload_jail::remove_staging_best_effort(&tmp_dir, &staging_name).await;
     }
     // `_quota_guard` drops here regardless of `result`, releasing the
     // reservation for the next admission.
     result.map(Json)
+}
+
+struct AttachmentUploadContext<'a> {
+    uploads_root: &'a std::path::Path,
+    tmp_dir: &'a std::path::Path,
+    staging_name: &'a str,
+    monitor: &'a CapabilityRevocationMonitor,
 }
 
 /// Drain the multipart body and produce the final upload result. Splits out
@@ -840,9 +855,7 @@ pub async fn upload_attachment(
 /// `tmp_dir` or `bucket` cannot land the file outside the root.
 async fn stream_and_finalize(
     multipart: &mut Multipart,
-    uploads_root: &std::path::Path,
-    tmp_dir: &std::path::Path,
-    staging_name: &str,
+    context: AttachmentUploadContext<'_>,
 ) -> Result<UploadAttachmentResult, AppCommandError> {
     let mut session_id: Option<String> = None;
     let mut raw_name: Option<String> = None;
@@ -850,16 +863,25 @@ async fn stream_and_finalize(
     let mut written: u64 = 0;
     let mut file_seen = false;
 
-    while let Some(mut field) = multipart.next_field().await.map_err(|e| {
-        AppCommandError::io_error("Invalid multipart upload").with_detail(e.to_string())
-    })? {
+    while let Some(mut field) = context
+        .monitor
+        .run_until_revoked(multipart.next_field())
+        .await?
+        .map_err(|e| {
+            AppCommandError::io_error("Invalid multipart upload").with_detail(e.to_string())
+        })?
+    {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "session_id" | "sessionId" => {
-                let value = field.text().await.map_err(|e| {
-                    AppCommandError::io_error("Failed to read session_id field")
-                        .with_detail(e.to_string())
-                })?;
+                let value = context
+                    .monitor
+                    .run_until_revoked(field.text())
+                    .await?
+                    .map_err(|e| {
+                        AppCommandError::io_error("Failed to read session_id field")
+                            .with_detail(e.to_string())
+                    })?;
                 let trimmed = value.trim();
                 if !trimmed.is_empty() {
                     session_id = Some(sanitize_session_bucket(trimmed));
@@ -875,16 +897,22 @@ async fn stream_and_finalize(
                 raw_name = Some(field.file_name().unwrap_or("file").to_string());
                 mime_type = field.content_type().map(|s| s.to_string());
 
-                let mut out = upload_jail::create_staging_file(tmp_dir, staging_name)
-                    .await
+                let mut out =
+                    upload_jail::create_staging_file(context.tmp_dir, context.staging_name)
+                        .await
+                        .map_err(|e| {
+                            AppCommandError::io_error("Failed to create staging file")
+                                .with_detail(e.to_string())
+                        })?;
+                while let Some(chunk) = context
+                    .monitor
+                    .run_until_revoked(field.chunk())
+                    .await?
                     .map_err(|e| {
-                        AppCommandError::io_error("Failed to create staging file")
+                        AppCommandError::io_error("Failed to read upload chunk")
                             .with_detail(e.to_string())
-                    })?;
-                while let Some(chunk) = field.chunk().await.map_err(|e| {
-                    AppCommandError::io_error("Failed to read upload chunk")
-                        .with_detail(e.to_string())
-                })? {
+                    })?
+                {
                     let new_total = written.saturating_add(chunk.len() as u64);
                     if new_total > UPLOAD_MAX_BYTES {
                         // Symmetric with the proxy's pre/post-decode caps
@@ -916,7 +944,7 @@ async fn stream_and_finalize(
             }
             _ => {
                 // Drain unknown fields to avoid stalling the multipart parser.
-                let _ = field.bytes().await;
+                let _ = context.monitor.run_until_revoked(field.bytes()).await?;
             }
         }
     }
@@ -932,7 +960,7 @@ async fn stream_and_finalize(
 
     let safe_name = sanitize_upload_filename(raw_name.as_deref().unwrap_or("file"));
     let bucket = session_id.unwrap_or_else(|| "anon".to_string());
-    let dir = uploads_root.join(&bucket);
+    let dir = context.uploads_root.join(&bucket);
     tokio::fs::create_dir_all(&dir).await.map_err(|e| {
         AppCommandError::io_error("Failed to create uploads directory").with_detail(e.to_string())
     })?;
@@ -961,15 +989,26 @@ async fn stream_and_finalize(
     // the rename commits any bytes outside it. This is the load-bearing
     // jail check; the post-rename `ensure_path_inside` below is kept as
     // defense in depth.
-    ensure_path_inside(&dir, uploads_root).await?;
+    ensure_path_inside(&dir, context.uploads_root).await?;
 
     // TOCTOU-safe finalization: `finalize_into_bucket` opens both `tmp_dir`
     // and `dir` as `O_NOFOLLOW` dirfds and creates the final name without
     // replacing an existing file. If the original name is already present in
     // this session bucket, retry with `name (1).ext`, `name (2).ext`, etc.
-    let final_name =
-        finalize_with_available_upload_name(tmp_dir, staging_name, &dir, &safe_name).await?;
+    context.monitor.require_current().await?;
+    let final_name = finalize_with_available_upload_name(
+        context.tmp_dir,
+        context.staging_name,
+        &dir,
+        &safe_name,
+    )
+    .await?;
     let final_path = dir.join(&final_name);
+
+    if let Err(error) = context.monitor.require_current().await {
+        let _ = tokio::fs::remove_file(&final_path).await;
+        return Err(error);
+    }
 
     // Defense in depth: even though every component above was sanitized AND
     // the bucket dir was validated pre-finalization AND the commit itself
@@ -977,7 +1016,7 @@ async fn stream_and_finalize(
     // the jail check too. If somehow this fires, the file is already on disk
     // at `final_path` — clean it up so we don't leak data outside the jail
     // just because we noticed late.
-    let canon = match ensure_path_inside(&final_path, uploads_root).await {
+    let canon = match ensure_path_inside(&final_path, context.uploads_root).await {
         Ok(p) => p,
         Err(err) => {
             let _ = tokio::fs::remove_file(&final_path).await;

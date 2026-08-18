@@ -13,18 +13,7 @@ use crate::db::service::{conversation_service, folder_service, import_service, t
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
 use crate::models::*;
-use crate::parsers::claude::ClaudeParser;
-use crate::parsers::cline::ClineParser;
-use crate::parsers::codebuddy::CodeBuddyParser;
-use crate::parsers::codex::CodexParser;
-use crate::parsers::gemini::GeminiParser;
-use crate::parsers::grok::GrokParser;
-use crate::parsers::hermes::HermesParser;
-use crate::parsers::kimi_code::KimiCodeParser;
-use crate::parsers::openclaw::OpenClawParser;
-use crate::parsers::opencode::OpenCodeParser;
-use crate::parsers::pi::PiParser;
-use crate::parsers::{path_eq_for_matching, AgentParser, ParseError};
+use crate::parsers::{history_parsers, parser_for_agent, path_eq_for_matching, ParseError};
 use crate::web::event_bridge::{
     emit_event, ConversationChange, EventEmitter, TabsChanged, CONVERSATION_CHANGED_EVENT,
     TABS_CHANGED_EVENT,
@@ -170,19 +159,7 @@ fn list_conversations_sync(
     let mut all_conversations = Vec::new();
     let mut seen_keys = HashSet::new();
 
-    let parsers: Vec<(AgentType, Box<dyn AgentParser>)> = vec![
-        (AgentType::ClaudeCode, Box::new(ClaudeParser::new())),
-        (AgentType::Codex, Box::new(CodexParser::new())),
-        (AgentType::OpenCode, Box::new(OpenCodeParser::new())),
-        (AgentType::Gemini, Box::new(GeminiParser::new())),
-        (AgentType::OpenClaw, Box::new(OpenClawParser::new())),
-        (AgentType::Cline, Box::new(ClineParser::new())),
-        (AgentType::Hermes, Box::new(HermesParser::new())),
-        (AgentType::CodeBuddy, Box::new(CodeBuddyParser::new())),
-        (AgentType::KimiCode, Box::new(KimiCodeParser::new())),
-        (AgentType::Pi, Box::new(PiParser::new())),
-        (AgentType::Grok, Box::new(GrokParser::new())),
-    ];
+    let parsers = history_parsers();
 
     for (at, parser) in &parsers {
         if let Some(ref filter) = agent_type {
@@ -278,19 +255,7 @@ pub async fn get_conversation(
     conversation_id: String,
 ) -> Result<ConversationDetail, AppCommandError> {
     tokio::task::spawn_blocking(move || -> Result<ConversationDetail, AppCommandError> {
-        let parser: Box<dyn AgentParser> = match agent_type {
-            AgentType::ClaudeCode => Box::new(ClaudeParser::new()),
-            AgentType::Codex => Box::new(CodexParser::new()),
-            AgentType::OpenCode => Box::new(OpenCodeParser::new()),
-            AgentType::Gemini => Box::new(GeminiParser::new()),
-            AgentType::OpenClaw => Box::new(OpenClawParser::new()),
-            AgentType::Cline => Box::new(ClineParser::new()),
-            AgentType::Hermes => Box::new(HermesParser::new()),
-            AgentType::CodeBuddy => Box::new(CodeBuddyParser::new()),
-            AgentType::KimiCode => Box::new(KimiCodeParser::new()),
-            AgentType::Pi => Box::new(PiParser::new()),
-            AgentType::Grok => Box::new(GrokParser::new()),
-        };
+        let parser = parser_for_agent(agent_type);
 
         parser
             .get_conversation(&conversation_id)
@@ -532,19 +497,7 @@ pub async fn get_folder_conversation_core(
                 folder.map(|f| f.path)
             };
             tokio::task::spawn_blocking(move || -> Result<_, AppCommandError> {
-                let parser: Box<dyn AgentParser> = match at {
-                    AgentType::ClaudeCode => Box::new(ClaudeParser::new()),
-                    AgentType::Codex => Box::new(CodexParser::new()),
-                    AgentType::OpenCode => Box::new(OpenCodeParser::new()),
-                    AgentType::Gemini => Box::new(GeminiParser::new()),
-                    AgentType::OpenClaw => Box::new(OpenClawParser::new()),
-                    AgentType::Cline => Box::new(ClineParser::new()),
-                    AgentType::Hermes => Box::new(HermesParser::new()),
-                    AgentType::CodeBuddy => Box::new(CodeBuddyParser::new()),
-                    AgentType::KimiCode => Box::new(KimiCodeParser::new()),
-                    AgentType::Pi => Box::new(PiParser::new()),
-                    AgentType::Grok => Box::new(GrokParser::new()),
-                };
+                let parser = parser_for_agent(at);
                 match parser.get_conversation(&eid) {
                     Ok(d) => Ok((
                         d.turns,

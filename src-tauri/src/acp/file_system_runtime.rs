@@ -33,13 +33,16 @@ impl FileSystemRuntimeError {
 
 #[derive(Clone)]
 pub struct FileSystemRuntime {
-    workspace_root: PathBuf,
-    workspace_root_canonical: Option<PathBuf>,
+    allowed_roots: Vec<PathBuf>,
     io_semaphore: Arc<Semaphore>,
 }
 
 impl FileSystemRuntime {
     pub fn new(workspace_root: PathBuf) -> Self {
+        Self::with_additional_roots(workspace_root, Vec::new())
+    }
+
+    pub fn with_additional_roots(workspace_root: PathBuf, additional_roots: Vec<PathBuf>) -> Self {
         let workspace_root = if workspace_root.is_absolute() {
             workspace_root
         } else {
@@ -47,11 +50,19 @@ impl FileSystemRuntime {
                 .unwrap_or_default()
                 .join(workspace_root)
         };
-        let workspace_root_canonical = std::fs::canonicalize(&workspace_root).ok();
+        let mut allowed_roots = Vec::with_capacity(additional_roots.len() + 1);
+        allowed_roots.push(canonical_root(&workspace_root));
+        allowed_roots.extend(
+            additional_roots
+                .into_iter()
+                .filter(|root| root.is_absolute())
+                .map(|root| canonical_root(&root)),
+        );
+        allowed_roots.sort();
+        allowed_roots.dedup();
 
         Self {
-            workspace_root,
-            workspace_root_canonical,
+            allowed_roots,
             io_semaphore: Arc::new(Semaphore::new(FS_MAX_CONCURRENT_OPS)),
         }
     }
@@ -80,8 +91,7 @@ impl FileSystemRuntime {
                 FileSystemRuntimeError::Internal("filesystem runtime closed".to_string())
             })?;
 
-        let workspace_root = self.workspace_root.clone();
-        let workspace_root_canonical = self.workspace_root_canonical.clone();
+        let allowed_roots = self.allowed_roots.clone();
         let path = request.path;
         let line = request.line;
         let limit = request.limit;
@@ -89,14 +99,7 @@ impl FileSystemRuntime {
         let path_for_log = path.clone();
 
         let response = run_blocking_with_timeout("fs/read_text_file", move || {
-            read_text_file_impl(
-                &path,
-                line,
-                limit,
-                &workspace_root,
-                workspace_root_canonical.as_deref(),
-            )
-            .map(ReadTextFileResponse::new)
+            read_text_file_impl(&path, line, limit, &allowed_roots).map(ReadTextFileResponse::new)
         })
         .await;
 
@@ -130,20 +133,14 @@ impl FileSystemRuntime {
                 FileSystemRuntimeError::Internal("filesystem runtime closed".to_string())
             })?;
 
-        let workspace_root = self.workspace_root.clone();
-        let workspace_root_canonical = self.workspace_root_canonical.clone();
+        let allowed_roots = self.allowed_roots.clone();
         let path = request.path;
         let content = request.content;
         let started_at = Instant::now();
         let path_for_log = path.clone();
 
         let response = run_blocking_with_timeout("fs/write_text_file", move || {
-            ensure_path_in_workspace(
-                &path,
-                &workspace_root,
-                workspace_root_canonical.as_deref(),
-                true,
-            )?;
+            ensure_path_in_allowed_roots(&path, &allowed_roots, true)?;
             atomic_write_text(&path, content.as_bytes())?;
             Ok(WriteTextFileResponse::new())
         })
@@ -183,10 +180,9 @@ fn read_text_file_impl(
     path: &Path,
     line: Option<u32>,
     limit: Option<u32>,
-    workspace_root: &Path,
-    workspace_root_canonical: Option<&Path>,
+    allowed_roots: &[PathBuf],
 ) -> Result<String, FileSystemRuntimeError> {
-    ensure_path_in_workspace(path, workspace_root, workspace_root_canonical, false)?;
+    ensure_path_in_allowed_roots(path, allowed_roots, false)?;
 
     let metadata = std::fs::metadata(path).map_err(|err| map_io_error("read", path, err))?;
     if metadata.len() > FS_MAX_FILE_SIZE_BYTES {
@@ -355,25 +351,20 @@ fn sync_directory(_path: &Path) -> Result<(), FileSystemRuntimeError> {
     Ok(())
 }
 
-fn canonical_workspace_root(workspace_root: &Path, canonical: Option<&Path>) -> PathBuf {
-    canonical
-        .map(Path::to_path_buf)
-        .or_else(|| std::fs::canonicalize(workspace_root).ok())
-        .unwrap_or_else(|| workspace_root.to_path_buf())
+fn canonical_root(root: &Path) -> PathBuf {
+    std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf())
 }
 
-fn ensure_path_in_workspace(
+fn ensure_path_in_allowed_roots(
     path: &Path,
-    workspace_root: &Path,
-    workspace_root_canonical: Option<&Path>,
+    allowed_roots: &[PathBuf],
     for_write: bool,
 ) -> Result<(), FileSystemRuntimeError> {
-    let root = canonical_workspace_root(workspace_root, workspace_root_canonical);
     let target = canonical_target_path(path, for_write)?;
 
-    if !target.starts_with(&root) {
+    if !allowed_roots.iter().any(|root| target.starts_with(root)) {
         return Err(FileSystemRuntimeError::InvalidParams(format!(
-            "path is outside workspace root: {}",
+            "path is outside allowed filesystem roots: {}",
             path.display()
         )));
     }

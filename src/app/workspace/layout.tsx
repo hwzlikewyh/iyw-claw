@@ -79,6 +79,8 @@ import { IywAccountProvider } from "@/contexts/iyw-account-context"
 import { StartupLoginGate } from "@/components/account/startup-login-gate"
 import { StartupCodexGate } from "@/components/account/startup-codex-gate"
 import { getGatewayModels } from "@/lib/gateway-model-catalog"
+import { groupOfTab } from "@/stores/tab-store"
+import type { LayoutNode } from "@/lib/tab-group-layout"
 
 // Fires getGatewayModels() once on mount so the model catalog is warm from the
 // first user interaction. Placed inside StartupLoginGate so it only runs after
@@ -125,21 +127,78 @@ const PANEL_RESIZE_KEYS = new Set([
   "Home",
 ])
 
+interface VisibleAcpTabOptions {
+  tabs: ReadonlyArray<{ id: string }>
+  activeTabId: string | null
+  groupLayout: LayoutNode
+  groupOf: Record<string, string>
+  groupSelection: Record<string, string>
+  tileByGroup: Record<string, boolean>
+  isMobile: boolean
+}
+
+function buildVisibleAcpTabKeys({
+  tabs,
+  activeTabId,
+  groupLayout,
+  groupOf,
+  groupSelection,
+  tileByGroup,
+  isMobile,
+}: VisibleAcpTabOptions): Set<string> {
+  const visible = new Set<string>()
+  const groupByTab = new Map<string, string>()
+  const firstByGroup = new Map<string, string>()
+  for (const tab of tabs) {
+    const groupId = groupOfTab(groupOf, groupLayout, tab.id)
+    groupByTab.set(tab.id, groupId)
+    if (!firstByGroup.has(groupId)) firstByGroup.set(groupId, tab.id)
+  }
+  const activeGroup = activeTabId ? groupByTab.get(activeTabId) : undefined
+  for (const tab of tabs) {
+    const groupId = groupByTab.get(tab.id)!
+    if (isMobile && groupId !== activeGroup) continue
+    const configured = groupSelection[groupId]
+    const selected =
+      activeGroup === groupId
+        ? activeTabId
+        : configured && groupByTab.get(configured) === groupId
+          ? configured
+          : firstByGroup.get(groupId)
+    if (tileByGroup[groupId] || selected === tab.id) visible.add(tab.id)
+  }
+  return visible
+}
+
 function TabKeysSync() {
   const tabs = useTabStore((s) => s.tabs)
   const activeTabId = useTabStore((s) => s.activeTabId)
-  const isTileMode = useTabStore((s) => s.isTileMode)
+  const groupLayout = useTabStore((s) => s.groupLayout)
+  const groupOf = useTabStore((s) => s.groupOf)
+  const groupSelection = useTabStore((s) => s.groupSelection)
+  const tileByGroup = useTabStore((s) => s.tileByGroup)
+  const isMobile = useIsMobile()
   const { registerVisibleTabKeys } = useAcpActions()
   const keys = useMemo(
     () =>
-      new Set(
-        isTileMode && tabs.length > 1
-          ? tabs.map((tab) => tab.id)
-          : activeTabId
-            ? [activeTabId]
-            : []
-      ),
-    [activeTabId, isTileMode, tabs]
+      buildVisibleAcpTabKeys({
+        tabs,
+        activeTabId,
+        groupLayout,
+        groupOf,
+        groupSelection,
+        tileByGroup,
+        isMobile,
+      }),
+    [
+      activeTabId,
+      groupLayout,
+      groupOf,
+      groupSelection,
+      isMobile,
+      tabs,
+      tileByGroup,
+    ]
   )
   useEffect(() => {
     registerVisibleTabKeys(keys)
@@ -200,6 +259,9 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
   const appliedLayoutRef = useRef<[number, number] | null>(null)
   const fusionVisible = browserOpen || mode === "fusion"
   const filesOverlay = !browserOpen && filesMaximized
+  const isConversationSplit = useTabStore(
+    (state) => state.groupLayout.type === "split"
+  )
 
   const markConversationActive = useCallback(() => {
     if (!fusionVisible || filesOverlay) return
@@ -293,7 +355,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
               onFocusCapture={markConversationActive}
               inert={filesOverlay || undefined}
             >
-              <TabBar />
+              {!isConversationSplit && <TabBar />}
               <div className="relative flex-1 min-h-0 overflow-hidden">
                 {children}
               </div>

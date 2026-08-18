@@ -43,6 +43,7 @@ fn is_sessions_relevant(payload: &AcpEvent) -> bool {
         AcpEvent::StatusChanged { .. }
             | AcpEvent::Error { .. }
             | AcpEvent::PermissionRequest { .. }
+            | AcpEvent::PermissionQueueDepth { .. }
             | AcpEvent::PermissionResolved { .. }
             | AcpEvent::TurnComplete { .. }
             | AcpEvent::ConversationLinked { .. }

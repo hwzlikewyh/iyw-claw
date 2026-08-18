@@ -6,18 +6,7 @@ use sea_orm::{
 use crate::db::entities::conversation;
 use crate::db::error::DbError;
 use crate::models::{AgentType, ConversationSummary, ImportResult};
-use crate::parsers::claude::ClaudeParser;
-use crate::parsers::cline::ClineParser;
-use crate::parsers::codebuddy::CodeBuddyParser;
-use crate::parsers::codex::CodexParser;
-use crate::parsers::gemini::GeminiParser;
-use crate::parsers::grok::GrokParser;
-use crate::parsers::hermes::HermesParser;
-use crate::parsers::kimi_code::KimiCodeParser;
-use crate::parsers::openclaw::OpenClawParser;
-use crate::parsers::opencode::OpenCodeParser;
-use crate::parsers::pi::PiParser;
-use crate::parsers::{path_eq_for_matching, AgentParser};
+use crate::parsers::{history_parsers, path_eq_for_matching};
 
 /// Import (and refresh the titles of) the local agent sessions under
 /// `folder_path`. Returns the tally plus the ids of already-imported
@@ -34,19 +23,7 @@ pub async fn import_local_conversations(
 
     // Run parsers in blocking task since they do filesystem I/O
     let summaries = tokio::task::spawn_blocking(move || {
-        let parsers: Vec<(AgentType, Box<dyn AgentParser>)> = vec![
-            (AgentType::ClaudeCode, Box::new(ClaudeParser::new())),
-            (AgentType::Codex, Box::new(CodexParser::new())),
-            (AgentType::OpenCode, Box::new(OpenCodeParser::new())),
-            (AgentType::Gemini, Box::new(GeminiParser::new())),
-            (AgentType::OpenClaw, Box::new(OpenClawParser::new())),
-            (AgentType::Cline, Box::new(ClineParser::new())),
-            (AgentType::Hermes, Box::new(HermesParser::new())),
-            (AgentType::CodeBuddy, Box::new(CodeBuddyParser::new())),
-            (AgentType::KimiCode, Box::new(KimiCodeParser::new())),
-            (AgentType::Pi, Box::new(PiParser::new())),
-            (AgentType::Grok, Box::new(GrokParser::new())),
-        ];
+        let parsers = history_parsers();
 
         let mut matched = Vec::new();
         for (at, parser) in &parsers {

@@ -37,28 +37,24 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::acp::automation_tools::{ScheduledTaskOperation, ScheduledTaskRequest};
+pub use crate::acp::delegation::transport::backend::DelegationBackend;
 use crate::acp::delegation::transport::{
-    client_artifacts_round_trip, client_ask_round_trip,
-    client_audio_transcription_query_round_trip, client_audio_transcription_round_trip,
-    client_automation_round_trip, client_browser_round_trip, client_cancel,
-    client_cancel_task_round_trip, client_channel_round_trip, client_commit_feedback,
-    client_companion_ready_round_trip, client_feedback_round_trip,
-    client_image_analysis_round_trip, client_memory_append_round_trip,
-    client_memory_proposal_round_trip, client_round_trip, client_session_round_trip,
-    client_status_round_trip, BrokerArtifactsRequest, BrokerAskRequest,
-    BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerBrowserRequest,
-    BrokerCancelRequest, BrokerCancelTaskRequest, BrokerChannelRequest,
-    BrokerCommitFeedbackRequest, BrokerCompanionReadyRequest, BrokerFeedbackRequest,
-    BrokerImageAnalysisRequest, BrokerMemoryAppendRequest, BrokerMemoryProposalRequest,
-    BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
+    BrokerArtifactsRequest, BrokerAskRequest, BrokerAudioTranscriptionQueryRequest,
+    BrokerAudioTranscriptionRequest, BrokerBrowserRequest, BrokerCancelRequest,
+    BrokerCancelTaskRequest, BrokerChannelRequest, BrokerCommitFeedbackRequest,
+    BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
+    BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerMemoryRecallRequest,
+    BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
     COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
@@ -75,14 +71,14 @@ use crate::acp::session_info::MAX_SESSION_MESSAGES;
 const BROKER_CANCEL_BUDGET: Duration = Duration::from_millis(500);
 const COMPANION_READY_REPORT_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Wrap `client_cancel` in [`BROKER_CANCEL_BUDGET`] so callers can fire
+/// Bound broker cancellation so callers cannot stall behind a broken backend.
 /// a synchronous cancel without worrying about a hung listener freezing
 /// them. Both success, transport error, and timeout collapse to `()` —
 /// callers couldn't usefully react anyway, and the broker has independent
 /// cancel backstops (parent / child disconnect cascades) if this one
 /// misses.
-async fn send_broker_cancel(socket_path: &str, req: &BrokerCancelRequest) {
-    let _ = tokio::time::timeout(BROKER_CANCEL_BUDGET, client_cancel(socket_path, req)).await;
+async fn send_broker_cancel(backend: &DelegationBackend, req: &BrokerCancelRequest) {
+    let _ = tokio::time::timeout(BROKER_CANCEL_BUDGET, backend.cancel(req)).await;
 }
 
 /// Static MCP tool schema. Lives next to this module so iyw-claw-mcp ships
@@ -173,12 +169,29 @@ pub struct CompanionFeatures {
     pub images: bool,
     pub memory: bool,
     pub memory_proposal: bool,
+    pub memory_recall: bool,
     pub artifacts: bool,
     pub channels: bool,
     pub browser: bool,
 }
 
 impl CompanionFeatures {
+    pub const fn all_enabled() -> Self {
+        Self {
+            delegation: true,
+            feedback: true,
+            ask: true,
+            sessions: true,
+            images: true,
+            memory: true,
+            memory_proposal: true,
+            memory_recall: true,
+            artifacts: true,
+            channels: true,
+            browser: true,
+        }
+    }
+
     /// Parse the comma-joined `--features` value (e.g.
     /// `delegation,feedback,ask,sessions,memory,memory-proposal`). Unknown tokens are ignored. An absent
     /// value (`None`) defaults to delegation-only — backward compatible with a
@@ -194,6 +207,7 @@ impl CompanionFeatures {
                 images: false,
                 memory: false,
                 memory_proposal: false,
+                memory_recall: false,
                 artifacts: false,
                 channels: false,
                 browser: false,
@@ -207,6 +221,7 @@ impl CompanionFeatures {
             images: false,
             memory: false,
             memory_proposal: false,
+            memory_recall: false,
             artifacts: false,
             channels: false,
             browser: false,
@@ -220,6 +235,7 @@ impl CompanionFeatures {
                 "images" => f.images = true,
                 "memory" => f.memory = true,
                 "memory-proposal" => f.memory_proposal = true,
+                "memory-recall" => f.memory_recall = true,
                 "artifacts" => f.artifacts = true,
                 "channels" => f.channels = true,
                 "browser" => f.browser = true,
@@ -239,6 +255,7 @@ impl CompanionFeatures {
             "transcribe_audio" | "query_audio_transcription" => true,
             "append_user_memory" => self.memory,
             "propose_user_memory" => self.memory_proposal,
+            "memory_recall" => self.memory_recall,
             "present_task_files" => self.artifacts,
             name if crate::acp::channel_tools::CHANNEL_TOOL_NAMES.contains(&name) => self.channels,
             name if crate::browser::BROWSER_AGENT_TOOL_NAMES.contains(&name) => self.browser,
@@ -251,6 +268,28 @@ impl CompanionFeatures {
             _ => false,
         }
     }
+}
+
+/// Return the embedded MCP tool schema filtered by the same feature gates used
+/// by stdio `tools/list`. In-process HTTP callers must use this rather than
+/// filtering independently so hidden tools and direct calls stay consistent.
+pub fn filtered_tools(features: CompanionFeatures) -> Result<Value, serde_json::Error> {
+    let all: Value = serde_json::from_str(TOOL_SCHEMA_JSON)?;
+    let Some(tools) = all.as_array() else {
+        return Ok(all);
+    };
+    Ok(Value::Array(
+        tools
+            .iter()
+            .filter(|tool| {
+                tool.get("name")
+                    .and_then(Value::as_str)
+                    .map(|name| features.allows_tool(name))
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect(),
+    ))
 }
 
 /// Process arguments threaded through every `tools/call` so the dispatcher
@@ -280,6 +319,9 @@ pub struct InflightEntry {
     /// response (no broker-side cancel — the query/cancel itself must not touch
     /// the task).
     external_handle: Option<String>,
+    /// Set on the first poll of a delegation broker round-trip. A cancel that
+    /// wins before this point must not create an orphan pre-cancel handle.
+    broker_dispatched: Option<Arc<AtomicBool>>,
     /// Tripped by the cancel handler to wake the round-trip task.
     cancel_tx: oneshot::Sender<()>,
 }
@@ -318,6 +360,98 @@ impl InflightCalls {
     }
 }
 
+/// Reusable in-process facade for HTTP handlers. Each clone shares the same
+/// request-id registry, so a cancel request can race a direct call exactly as a
+/// stdio `notifications/cancelled` frame races `tools/call`.
+#[derive(Clone)]
+pub struct CompanionBridge {
+    context: CompanionContext,
+    backend: DelegationBackend,
+    inflight: Arc<InflightCalls>,
+}
+
+impl CompanionBridge {
+    /// Build a bridge for one authenticated companion launch. `context.token`
+    /// is the internal [`super::listener::TokenRegistry`] token; callers must
+    /// not substitute an HTTP bearer token.
+    pub fn new(context: CompanionContext, backend: DelegationBackend) -> Self {
+        Self {
+            context,
+            backend,
+            inflight: Arc::new(InflightCalls::new()),
+        }
+    }
+
+    pub fn in_process(
+        context: CompanionContext,
+        listener: Arc<super::listener::DelegationListener>,
+    ) -> Self {
+        Self::new(context, DelegationBackend::in_process(listener))
+    }
+
+    pub fn tools(&self) -> Result<Value, serde_json::Error> {
+        filtered_tools(self.context.features)
+    }
+
+    fn with_inflight(
+        context: CompanionContext,
+        backend: DelegationBackend,
+        inflight: Arc<InflightCalls>,
+    ) -> Self {
+        Self {
+            context,
+            backend,
+            inflight,
+        }
+    }
+
+    /// Run one tool through the canonical companion validator and renderer.
+    /// The caller owns `after_relay` and must await it only after constructing
+    /// or delivering the successful HTTP response.
+    pub async fn direct_call(
+        &self,
+        request_id: Value,
+        tool_name: impl Into<String>,
+        arguments: Value,
+    ) -> SpawnResult {
+        self.prepare_direct_call(request_id, tool_name, arguments)
+            .await
+            .run()
+            .await
+    }
+
+    /// Validate and register a direct call without polling its domain future.
+    /// Returning from this method is the cancellation dispatch barrier.
+    pub async fn prepare_direct_call(
+        &self,
+        request_id: Value,
+        tool_name: impl Into<String>,
+        arguments: Value,
+    ) -> PreparedDirectCall {
+        let params = json!({
+            "name": tool_name.into(),
+            "arguments": arguments,
+        });
+        match build_tools_call_spawn(self.clone(), request_id, params).await {
+            LineAction::Respond(response) => PreparedDirectCall::ready(SpawnResult {
+                response: Some(response),
+                after_relay: None,
+            }),
+            LineAction::Spawn(call) => PreparedDirectCall {
+                future: call.future,
+            },
+            LineAction::Silent => unreachable!("direct tools/call cannot be silent"),
+        }
+    }
+
+    /// Cancel a direct call by the same JSON request id supplied to
+    /// [`Self::direct_call`]. Returns false when the call already completed or
+    /// was never registered.
+    pub async fn cancel(&self, request_id: Value, reason: Option<String>) -> bool {
+        cancel_inflight_call(self, request_id, reason).await
+    }
+}
+
 /// Canonicalize a JSON-RPC `id` to a string suitable as a `HashMap` key.
 /// JSON-RPC permits string OR number ids; we collapse both via
 /// `serde_json::to_string` so a numeric `42` and string `"42"` stay
@@ -340,8 +474,9 @@ pub enum LineAction {
 
 /// Resolution of a spawned `tools/call`: the response to relay to the agent
 /// (`None` = cancellation won, so suppress per the MCP spec) plus an optional
-/// action the binary runs ONLY after that response is successfully written to
-/// the agent's stdout.
+/// retryable action that runs only after authenticated agent delivery. Legacy
+/// stdio runs it after a successful stdout write; HTTP reserves a delivery
+/// receipt and runs it only after the next authenticated `delivery_ack`.
 ///
 /// `after_relay` exists for `check_user_feedback`: marking the pulled notes
 /// `Delivered` (the broker `CommitFeedback`) must happen strictly AFTER the
@@ -350,9 +485,44 @@ pub enum LineAction {
 /// a note delivered that a failed/never-reached write (or a companion dying mid
 /// teardown) never put in front of the agent, breaking at-least-once delivery.
 /// Every other tool leaves this `None`.
+type PostRelayFactory = dyn Fn() -> BoxFuture<'static, bool> + Send + Sync;
+
+#[derive(Clone)]
+pub struct PostRelayAction {
+    factory: Arc<PostRelayFactory>,
+}
+
+impl PostRelayAction {
+    fn new(factory: impl Fn() -> BoxFuture<'static, bool> + Send + Sync + 'static) -> Self {
+        Self {
+            factory: Arc::new(factory),
+        }
+    }
+
+    pub async fn run(&self) -> bool {
+        (self.factory)().await
+    }
+}
+
 pub struct SpawnResult {
     pub response: Option<JsonRpcResponse>,
-    pub after_relay: Option<futures_util::future::BoxFuture<'static, ()>>,
+    pub after_relay: Option<PostRelayAction>,
+}
+
+pub struct PreparedDirectCall {
+    future: futures_util::future::BoxFuture<'static, SpawnResult>,
+}
+
+impl PreparedDirectCall {
+    fn ready(result: SpawnResult) -> Self {
+        Self {
+            future: Box::pin(async move { result }),
+        }
+    }
+
+    pub async fn run(self) -> SpawnResult {
+        self.future.await
+    }
 }
 
 /// Materialized async tools/call ready to drive in a tokio task. The binary
@@ -377,6 +547,8 @@ pub async fn dispatch_line(
     inflight: Arc<InflightCalls>,
     line: &str,
 ) -> LineAction {
+    let backend = DelegationBackend::socket(ctx.socket_path.clone());
+    let bridge = CompanionBridge::with_inflight(ctx.clone(), backend, Arc::clone(&inflight));
     let req: JsonRpcRequest = match serde_json::from_str(line) {
         Ok(r) => r,
         Err(e) => {
@@ -388,7 +560,7 @@ pub async fn dispatch_line(
     // the only notification we act on.
     if req.id.is_none() {
         if req.method == "notifications/cancelled" {
-            handle_cancel_notification(ctx, &inflight, &req.params).await;
+            handle_cancel_notification(&bridge, &req.params).await;
         }
         return LineAction::Silent;
     }
@@ -407,11 +579,8 @@ pub async fn dispatch_line(
             }),
         )),
         "tools/list" => {
-            // The embedded schema is a JSON array of every tool the companion
-            // can carry; filter to the groups enabled for this launch so a
-            // disabled feature's tools never surface to the LLM.
-            let all: Value = match serde_json::from_str(TOOL_SCHEMA_JSON) {
-                Ok(v) => v,
+            let tools = match filtered_tools(ctx.features) {
+                Ok(tools) => tools,
                 Err(e) => {
                     return LineAction::Respond(err(
                         id,
@@ -420,23 +589,9 @@ pub async fn dispatch_line(
                     ));
                 }
             };
-            let tools = match all.as_array() {
-                Some(arr) => Value::Array(
-                    arr.iter()
-                        .filter(|t| {
-                            t.get("name")
-                                .and_then(|v| v.as_str())
-                                .map(|n| ctx.features.allows_tool(n))
-                                .unwrap_or(false)
-                        })
-                        .cloned()
-                        .collect(),
-                ),
-                None => all,
-            };
             LineAction::Respond(ok(id, json!({ "tools": tools })))
         }
-        "tools/call" => build_tools_call_spawn(ctx.clone(), inflight, id, req.params).await,
+        "tools/call" => build_tools_call_spawn(bridge, id, req.params).await,
         _ => LineAction::Respond(err(id, -32601, format!("method not found: {}", req.method))),
     }
 }
@@ -475,9 +630,10 @@ pub fn companion_ready_report_after_tools_list(
 /// Deliver readiness out-of-band so a stuck host bridge cannot block the MCP
 /// stdin loop. This bound is shorter than the host-side readiness wait.
 pub async fn send_companion_ready_report(socket_path: String, report: BrokerCompanionReadyRequest) {
+    let backend = DelegationBackend::socket(socket_path);
     match tokio::time::timeout(
         COMPANION_READY_REPORT_TIMEOUT,
-        client_companion_ready_round_trip(&socket_path, &report),
+        backend.round_trip(BrokerMessage::CompanionReady(report)),
     )
     .await
     {
@@ -487,322 +643,517 @@ pub async fn send_companion_ready_report(socket_path: String, report: BrokerComp
     }
 }
 
+fn broker_round_trip(
+    backend: DelegationBackend,
+    message: BrokerMessage,
+) -> futures_util::future::BoxFuture<'static, std::io::Result<BrokerResponse>> {
+    Box::pin(async move { backend.round_trip(message).await })
+}
+
+fn memory_backend_round_trip(
+    backend: DelegationBackend,
+    message: BrokerMessage,
+    operation: &'static str,
+) -> futures_util::future::BoxFuture<'static, std::io::Result<BrokerResponse>> {
+    Box::pin(async move { backend.memory_round_trip(message, operation).await })
+}
+
 /// Build the spawned-call descriptor for a `tools/call` (or, when the
 /// arguments are obviously bogus, a synchronous error response). Registers
 /// the inflight entry and returns a future the binary should drive.
-async fn build_tools_call_spawn(
-    ctx: CompanionContext,
-    inflight: Arc<InflightCalls>,
-    id: Value,
-    params: Value,
-) -> LineAction {
+async fn build_tools_call_spawn(bridge: CompanionBridge, id: Value, params: Value) -> LineAction {
     let raw_name = params
         .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    // Strip any MCP namespace prefix (e.g. "mcp__iyw_claw_mcp__append_user_memory"
-    // → "append_user_memory"). Some Responses API hosts (Codex CLI) forward the
-    // full namespace-prefixed name to the MCP server rather than stripping it
-    // before dispatch; we normalise here so routing works regardless.
     let name = strip_namespace_prefix(&raw_name);
     let arguments = params.get("arguments").cloned().unwrap_or(Value::Null);
-    let socket = ctx.socket_path.clone();
-    // Defense in depth: tools/list already hides tools whose feature group is
-    // off, but a misbehaving client could still call one by name. A disabled
-    // tool is rejected uniformly as "unknown tool" — indistinguishable from a
-    // genuinely nonexistent one (no leak that the feature exists but is off),
-    // and matching the legacy unknown-tool rejection shape.
-    if !ctx.features.allows_tool(&name) {
+    let parent_tool_use_id = params
+        .get("_meta")
+        .and_then(|meta| meta.get("tool_use_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    if !bridge.context.features.allows_tool(&name) {
         return LineAction::Respond(err(id, -32602, format!("unknown tool: {name}")));
     }
-    match name.as_str() {
-        "show_image" => register_and_spawn_local(inflight, id, arguments, ctx.working_dir).await,
-        "analyze_image" => register_and_spawn_image_analysis(inflight, id, arguments, ctx).await,
-        "transcribe_audio" => {
-            register_and_spawn_audio(inflight, id, arguments, ctx, AudioToolCall::Transcribe).await
-        }
-        "query_audio_transcription" => {
-            register_and_spawn_audio(inflight, id, arguments, ctx, AudioToolCall::Query).await
+    let family = tool_family(&name);
+    let invocation = ToolInvocation {
+        id,
+        name,
+        arguments,
+        parent_tool_use_id,
+    };
+    match family {
+        ToolFamily::Media => dispatch_media_tool(bridge, invocation).await,
+        ToolFamily::Automation => dispatch_automation_tool(bridge, invocation).await,
+        ToolFamily::Channel => dispatch_channel_tool(bridge, invocation).await,
+        ToolFamily::Browser => dispatch_browser_tool(bridge, invocation).await,
+        ToolFamily::Artifacts => dispatch_artifacts_tool(bridge, invocation).await,
+        ToolFamily::Memory => dispatch_memory_tool(bridge, invocation).await,
+        ToolFamily::Delegation => dispatch_delegation_tool(bridge, invocation).await,
+        ToolFamily::Unknown => LineAction::Respond(err(
+            invocation.id,
+            -32602,
+            format!("unknown tool: {}", invocation.name),
+        )),
+    }
+}
+
+struct ToolInvocation {
+    id: Value,
+    name: String,
+    arguments: Value,
+    parent_tool_use_id: String,
+}
+
+#[derive(Clone, Copy)]
+enum ToolFamily {
+    Media,
+    Automation,
+    Channel,
+    Browser,
+    Artifacts,
+    Memory,
+    Delegation,
+    Unknown,
+}
+
+fn tool_family(name: &str) -> ToolFamily {
+    match name {
+        "show_image" | "analyze_image" | "transcribe_audio" | "query_audio_transcription" => {
+            ToolFamily::Media
         }
         "list_scheduled_task_projects"
         | "list_scheduled_tasks"
         | "create_scheduled_task"
         | "update_scheduled_task"
-        | "delete_scheduled_task" => {
-            let operation = match name.as_str() {
-                "list_scheduled_task_projects" => ScheduledTaskOperation::ListProjects,
-                "list_scheduled_tasks" => ScheduledTaskOperation::List,
-                "create_scheduled_task" => ScheduledTaskOperation::Create,
-                "update_scheduled_task" => ScheduledTaskOperation::Update,
-                _ => ScheduledTaskOperation::Delete,
-            };
-            let req = ScheduledTaskRequest {
-                operation,
-                input: arguments,
-                caller_agent_type: ctx.agent_type.clone(),
-            };
-            let round_trip =
-                Box::pin(async move { client_automation_round_trip(&socket, &req).await });
-            register_and_spawn(inflight, id, None, round_trip, render_automation_result).await
+        | "delete_scheduled_task" => ToolFamily::Automation,
+        channel if crate::acp::channel_tools::CHANNEL_TOOL_NAMES.contains(&channel) => {
+            ToolFamily::Channel
         }
-        channel_tool if crate::acp::channel_tools::CHANNEL_TOOL_NAMES.contains(&channel_tool) => {
-            let req = BrokerChannelRequest {
-                token: ctx.token.clone(),
-                tool: channel_tool.to_string(),
-                input: arguments,
-            };
-            let round_trip =
-                Box::pin(async move { client_channel_round_trip(&socket, &req).await });
-            register_and_spawn(inflight, id, None, round_trip, render_channel_result).await
+        browser if crate::browser::BROWSER_AGENT_TOOL_NAMES.contains(&browser) => {
+            ToolFamily::Browser
         }
-        browser_tool if crate::browser::BROWSER_AGENT_TOOL_NAMES.contains(&browser_tool) => {
-            let req = BrokerBrowserRequest {
-                token: ctx.token.clone(),
-                tool: browser_tool.to_string(),
-                input: arguments,
-            };
-            let round_trip =
-                Box::pin(async move { client_browser_round_trip(&socket, &req).await });
-            register_and_spawn(inflight, id, None, round_trip, render_browser_result).await
-        }
-        "present_task_files" => {
-            let files = match parse_artifact_files(&arguments) {
-                Ok(files) => files,
-                Err(message) => return LineAction::Respond(err(id, -32602, message)),
-            };
-            let req = BrokerArtifactsRequest {
-                token: ctx.token.clone(),
-                files,
-            };
-            let round_trip =
-                Box::pin(async move { client_artifacts_round_trip(&socket, &req).await });
-            register_and_spawn(inflight, id, None, round_trip, render_artifacts_result).await
-        }
-        "append_user_memory" => {
-            let content = match arguments.get("content").and_then(Value::as_str) {
-                Some(content) if !content.trim().is_empty() => content.to_string(),
-                _ => {
-                    return LineAction::Respond(err(
-                        id,
-                        -32602,
-                        "append_user_memory requires non-empty string `content`",
-                    ));
-                }
-            };
-            if content.chars().count() > crate::user_memory::USER_MEMORY_MAX_APPEND_CHARS {
-                return LineAction::Respond(err(
-                    id,
-                    -32602,
-                    format!(
-                        "append_user_memory content exceeds {} characters",
-                        crate::user_memory::USER_MEMORY_MAX_APPEND_CHARS
-                    ),
-                ));
-            }
-            let req = BrokerMemoryAppendRequest {
-                token: ctx.token.clone(),
-                content,
-            };
-            let round_trip = Box::pin(async move {
-                memory_round_trip_result(
-                    client_memory_append_round_trip(&socket, &req).await,
-                    "append",
-                )
-            });
-            register_and_spawn(inflight, id, None, round_trip, render_memory_append_result).await
-        }
-        "propose_user_memory" => {
-            let proposal = match serde_json::from_value::<crate::user_memory::AgentMemoryProposal>(
-                arguments,
-            ) {
-                Ok(proposal) if !proposal.content.trim().is_empty() => proposal,
-                _ => {
-                    return LineAction::Respond(err(
-                        id,
-                        -32602,
-                        "propose_user_memory requires `content` and a valid `signal`",
-                    ));
-                }
-            };
-            if proposal.content.chars().count()
-                > crate::user_memory::USER_MEMORY_MAX_CANDIDATE_CHARS
-            {
-                return LineAction::Respond(err(
-                    id,
-                    -32602,
-                    format!(
-                        "propose_user_memory content exceeds {} characters",
-                        crate::user_memory::USER_MEMORY_MAX_CANDIDATE_CHARS
-                    ),
-                ));
-            }
-            let req = BrokerMemoryProposalRequest {
-                token: ctx.token.clone(),
-                content: proposal.content,
-                signal: proposal.signal,
-            };
-            let round_trip = Box::pin(async move {
-                memory_round_trip_result(
-                    client_memory_proposal_round_trip(&socket, &req).await,
-                    "proposal",
-                )
-            });
-            register_and_spawn(
-                inflight,
-                id,
-                None,
-                round_trip,
-                render_memory_proposal_result,
-            )
-            .await
-        }
-        "delegate_to_agent" => {
-            // MCP clients (Codex / Claude Code) generally do NOT populate
-            // `_meta.tool_use_id` when calling an MCP server. We still surface it
-            // when present (the most precise binding), but a missing one is
-            // expected — the broker falls back to claiming the most recent
-            // `delegate_to_agent` tool_call_id observed on the parent's ACP
-            // event stream.
-            let tool_use_id = params
-                .get("_meta")
-                .and_then(|m| m.get("tool_use_id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            // Mint an external_handle so a `notifications/cancelled` during setup
-            // tears down the just-started child via `cancel_by_external_handle`.
-            let external_handle = uuid::Uuid::new_v4().to_string();
-            let req = BrokerRequest {
-                token: ctx.token.clone(),
-                parent_connection_id: ctx.parent_connection_id.clone(),
-                parent_tool_use_id: tool_use_id,
-                external_handle: Some(external_handle.clone()),
-                input: arguments,
-            };
-            let round_trip = Box::pin(async move { client_round_trip(&socket, &req).await });
-            register_and_spawn(
-                inflight,
-                id,
-                Some(external_handle),
-                round_trip,
-                render_task_report,
-            )
-            .await
-        }
-        "get_delegation_status" => {
-            // Normalize the `task_ids` array: trim, drop empty/whitespace
-            // entries, de-dup (order-preserving). A non-string entry violates the
-            // schema's `items: string` contract and is rejected outright (rather
-            // than silently polling a subset); an all-empty / missing array maps
-            // to `Ok(empty)`, rejected below.
-            let task_ids = match normalize_status_task_ids(&arguments) {
-                Ok(ids) if !ids.is_empty() => ids,
-                Ok(_) => {
-                    return LineAction::Respond(err(
-                        id,
-                        -32602,
-                        "get_delegation_status requires a non-empty task_ids array \
-                         (one or more task ids)",
-                    ));
-                }
-                Err(msg) => return LineAction::Respond(err(id, -32602, msg)),
-            };
-            let wait_ms = arguments.get("wait_ms").and_then(|v| v.as_u64());
-            let req = BrokerStatusRequest {
-                token: ctx.token.clone(),
-                task_ids,
-                wait_ms,
-            };
-            // No external_handle: canceling a status query only suppresses its
-            // response — it must not touch the task itself. The status round-trip
-            // returns a `{tasks:[..]}` envelope, so it renders via
-            // `render_status_result` — uniformly one `{tasks:[..]}` entry per id,
-            // whether the poll asked for a single id or a whole fan-out.
-            let round_trip = Box::pin(async move { client_status_round_trip(&socket, &req).await });
-            register_and_spawn(inflight, id, None, round_trip, render_status_result).await
-        }
-        "cancel_delegation" => {
-            let task_id = match arguments.get("task_id").and_then(|v| v.as_str()) {
-                Some(s) if !s.is_empty() => s.to_string(),
-                _ => {
-                    return LineAction::Respond(err(
-                        id,
-                        -32602,
-                        "cancel_delegation requires a non-empty string task_id",
-                    ));
-                }
-            };
-            let req = BrokerCancelTaskRequest {
-                token: ctx.token.clone(),
-                task_id,
-            };
-            let round_trip =
-                Box::pin(async move { client_cancel_task_round_trip(&socket, &req).await });
-            register_and_spawn(inflight, id, None, round_trip, render_task_report).await
-        }
-        "check_user_feedback" => {
-            let req = BrokerFeedbackRequest {
-                token: ctx.token.clone(),
-            };
-            // Feedback uses a dedicated spawn so it can COMMIT delivery only when
-            // the round-trip wins the cancel race (i.e. the result actually goes
-            // to the agent). A cancel that suppresses the response sends no
-            // commit, leaving the notes pending for the next check.
-            register_and_spawn_feedback(inflight, id, socket, ctx.token.clone(), req).await
-        }
-        "ask_user_question" => {
-            // Validate + parse the schema HERE so a malformed call gets a
-            // synchronous -32602 the LLM can fix, rather than round-tripping bad
-            // data. Stable per-question ids are minted now and flow through to
-            // the answer correlation.
-            let questions = match parse_questions(&arguments) {
-                Ok(qs) => qs,
-                Err(msg) => return LineAction::Respond(err(id, -32602, msg)),
-            };
-            let req = BrokerAskRequest {
-                token: ctx.token.clone(),
-                questions,
-            };
-            // No external_handle: canceling a blocking ask only suppresses its
-            // response. The companion dropping the round-trip future closes the
-            // socket, which the listener observes (peer-close) to tear the
-            // pending question down — no broker-side cancel to dispatch.
-            let round_trip = Box::pin(async move { client_ask_round_trip(&socket, &req).await });
-            register_and_spawn(inflight, id, None, round_trip, render_ask_result).await
-        }
-        "get_session_info" => {
-            // `session_id` is the iyw-claw conversation id the agent read out of a
-            // `iyw-claw://session/<id>` reference. Accept a JSON number or a numeric
-            // string (some hosts stringify integer args); reject anything else
-            // synchronously so the LLM can fix it.
-            let session_id = match parse_session_id(&arguments) {
-                Some(id) => id,
-                None => {
-                    return LineAction::Respond(err(
-                        id,
-                        -32602,
-                        "get_session_info requires an integer `session_id` \
-                         (the number in the iyw-claw://session/<id> reference)",
-                    ));
-                }
-            };
-            // Default to a modest recent-message window; `0` means metadata-only.
-            // Robust against stringified / oversized values (see helper).
-            let max_messages = parse_max_messages(&arguments);
-            let req = BrokerSessionRequest {
-                token: ctx.token.clone(),
-                session_id,
-                max_messages: Some(max_messages),
-            };
-            // No external_handle: a read-only lookup has nothing to cancel
-            // broker-side — canceling only suppresses the response.
-            let round_trip =
-                Box::pin(async move { client_session_round_trip(&socket, &req).await });
-            register_and_spawn(inflight, id, None, round_trip, render_session_result).await
-        }
-        other => LineAction::Respond(err(id, -32602, format!("unknown tool: {other}"))),
+        "present_task_files" => ToolFamily::Artifacts,
+        "append_user_memory" | "propose_user_memory" | "memory_recall" => ToolFamily::Memory,
+        "delegate_to_agent"
+        | "get_delegation_status"
+        | "cancel_delegation"
+        | "check_user_feedback"
+        | "ask_user_question"
+        | "get_session_info" => ToolFamily::Delegation,
+        _ => ToolFamily::Unknown,
     }
+}
+
+async fn dispatch_media_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let CompanionBridge {
+        context,
+        backend,
+        inflight,
+    } = bridge;
+    match call.name.as_str() {
+        "show_image" => {
+            register_and_spawn_local(
+                inflight,
+                call.id,
+                call.arguments,
+                context.working_dir,
+                context.token,
+                backend,
+            )
+            .await
+        }
+        "analyze_image" => {
+            register_and_spawn_image_analysis(inflight, call.id, call.arguments, context, backend)
+                .await
+        }
+        "transcribe_audio" => {
+            register_and_spawn_audio(
+                inflight,
+                call.id,
+                call.arguments,
+                context,
+                backend,
+                AudioToolCall::Transcribe,
+            )
+            .await
+        }
+        "query_audio_transcription" => {
+            register_and_spawn_audio(
+                inflight,
+                call.id,
+                call.arguments,
+                context,
+                backend,
+                AudioToolCall::Query,
+            )
+            .await
+        }
+        _ => unreachable!("media family contains only media tools"),
+    }
+}
+
+async fn dispatch_automation_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let operation = match call.name.as_str() {
+        "list_scheduled_task_projects" => ScheduledTaskOperation::ListProjects,
+        "list_scheduled_tasks" => ScheduledTaskOperation::List,
+        "create_scheduled_task" => ScheduledTaskOperation::Create,
+        "update_scheduled_task" => ScheduledTaskOperation::Update,
+        _ => ScheduledTaskOperation::Delete,
+    };
+    let request = ScheduledTaskRequest {
+        operation,
+        input: call.arguments,
+        caller_agent_type: bridge.context.agent_type.clone(),
+        session_token: Some(bridge.context.token.clone()),
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::Automation(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_automation_result,
+    )
+    .await
+}
+
+async fn dispatch_channel_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let request = BrokerChannelRequest {
+        token: bridge.context.token,
+        tool: call.name,
+        input: call.arguments,
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::Channel(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_channel_result,
+    )
+    .await
+}
+
+async fn dispatch_browser_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let request = BrokerBrowserRequest {
+        token: bridge.context.token,
+        tool: call.name,
+        input: call.arguments,
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::Browser(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_browser_result,
+    )
+    .await
+}
+
+async fn dispatch_artifacts_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let files = match parse_artifact_files(&call.arguments) {
+        Ok(files) => files,
+        Err(message) => return LineAction::Respond(err(call.id, -32602, message)),
+    };
+    let request = BrokerArtifactsRequest {
+        token: bridge.context.token,
+        files,
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::Artifacts(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_artifacts_result,
+    )
+    .await
+}
+
+async fn dispatch_memory_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let name = call.name.clone();
+    match name.as_str() {
+        "append_user_memory" => spawn_memory_append(bridge, call).await,
+        "propose_user_memory" => spawn_memory_proposal(bridge, call).await,
+        "memory_recall" => spawn_memory_recall(bridge, call).await,
+        _ => unreachable!("memory family contains only memory tools"),
+    }
+}
+
+async fn spawn_memory_append(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let ToolInvocation { id, arguments, .. } = call;
+    let content = match arguments.get("content").and_then(Value::as_str) {
+        Some(content) if !content.trim().is_empty() => content.to_string(),
+        _ => {
+            return LineAction::Respond(err(
+                id,
+                -32602,
+                "append_user_memory requires non-empty string `content`",
+            ));
+        }
+    };
+    if content.chars().count() > crate::user_memory::USER_MEMORY_MAX_APPEND_CHARS {
+        return LineAction::Respond(err(
+            id,
+            -32602,
+            format!(
+                "append_user_memory content exceeds {} characters",
+                crate::user_memory::USER_MEMORY_MAX_APPEND_CHARS
+            ),
+        ));
+    }
+    let request = BrokerMemoryAppendRequest {
+        token: bridge.context.token,
+        content,
+    };
+    let round_trip = memory_backend_round_trip(
+        bridge.backend,
+        BrokerMessage::MemoryAppend(request),
+        "append",
+    );
+    let round_trip = Box::pin(async move { memory_round_trip_result(round_trip.await, "append") });
+    register_and_spawn(
+        bridge.inflight,
+        id,
+        None,
+        round_trip,
+        render_memory_append_result,
+    )
+    .await
+}
+
+async fn spawn_memory_proposal(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let ToolInvocation { id, arguments, .. } = call;
+    let proposal =
+        match serde_json::from_value::<crate::user_memory::AgentMemoryProposal>(arguments) {
+            Ok(proposal) if !proposal.content.trim().is_empty() => proposal,
+            _ => {
+                return LineAction::Respond(err(
+                    id,
+                    -32602,
+                    "propose_user_memory requires `content` and a valid `signal`",
+                ));
+            }
+        };
+    if proposal.content.chars().count() > crate::user_memory::USER_MEMORY_MAX_CANDIDATE_CHARS {
+        return LineAction::Respond(err(
+            id,
+            -32602,
+            format!(
+                "propose_user_memory content exceeds {} characters",
+                crate::user_memory::USER_MEMORY_MAX_CANDIDATE_CHARS
+            ),
+        ));
+    }
+    let request = BrokerMemoryProposalRequest {
+        token: bridge.context.token,
+        content: proposal.content,
+        signal: proposal.signal,
+    };
+    let round_trip = memory_backend_round_trip(
+        bridge.backend,
+        BrokerMessage::MemoryProposal(request),
+        "proposal",
+    );
+    let round_trip =
+        Box::pin(async move { memory_round_trip_result(round_trip.await, "proposal") });
+    register_and_spawn(
+        bridge.inflight,
+        id,
+        None,
+        round_trip,
+        render_memory_proposal_result,
+    )
+    .await
+}
+
+async fn spawn_memory_recall(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let ToolInvocation { id, arguments, .. } = call;
+    let query = match arguments.get("query").and_then(Value::as_str) {
+        Some(query) if !query.trim().is_empty() => query.to_string(),
+        _ => {
+            return LineAction::Respond(err(
+                id,
+                -32602,
+                "memory_recall requires non-empty string `query`",
+            ));
+        }
+    };
+    if query.chars().count() > crate::user_memory::USER_MEMORY_MAX_RECALL_QUERY_CHARS {
+        return LineAction::Respond(err(
+            id,
+            -32602,
+            format!(
+                "memory_recall query exceeds {} characters",
+                crate::user_memory::USER_MEMORY_MAX_RECALL_QUERY_CHARS
+            ),
+        ));
+    }
+    let limit = arguments.get("limit").and_then(Value::as_u64).map(|value| {
+        value.clamp(1, crate::user_memory::USER_MEMORY_MAX_RECALL_LIMIT as u64) as usize
+    });
+    let request = BrokerMemoryRecallRequest {
+        token: bridge.context.token,
+        query,
+        limit,
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::MemoryRecall(request));
+    let round_trip = Box::pin(async move { memory_round_trip_result(round_trip.await, "recall") });
+    register_and_spawn(
+        bridge.inflight,
+        id,
+        None,
+        round_trip,
+        render_memory_recall_result,
+    )
+    .await
+}
+
+async fn dispatch_delegation_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let name = call.name.clone();
+    match name.as_str() {
+        "delegate_to_agent" => spawn_delegation(bridge, call).await,
+        "get_delegation_status" => spawn_delegation_status(bridge, call).await,
+        "cancel_delegation" => spawn_delegation_cancel(bridge, call).await,
+        "check_user_feedback" => spawn_feedback(bridge, call).await,
+        "ask_user_question" => spawn_question(bridge, call).await,
+        "get_session_info" => spawn_session_info(bridge, call).await,
+        _ => unreachable!("delegation family contains only delegation tools"),
+    }
+}
+
+async fn spawn_delegation(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let external_handle = uuid::Uuid::new_v4().to_string();
+    let request = BrokerRequest {
+        token: bridge.context.token,
+        parent_connection_id: bridge.context.parent_connection_id,
+        parent_tool_use_id: call.parent_tool_use_id,
+        external_handle: Some(external_handle.clone()),
+        input: call.arguments,
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::Call(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        Some(external_handle),
+        round_trip,
+        render_task_report,
+    )
+    .await
+}
+
+async fn spawn_delegation_status(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let task_ids = match normalize_status_task_ids(&call.arguments) {
+        Ok(task_ids) if !task_ids.is_empty() => task_ids,
+        Ok(_) => {
+            return LineAction::Respond(err(
+                call.id,
+                -32602,
+                "get_delegation_status requires a non-empty task_ids array (one or more task ids)",
+            ));
+        }
+        Err(message) => return LineAction::Respond(err(call.id, -32602, message)),
+    };
+    let request = BrokerStatusRequest {
+        token: bridge.context.token,
+        task_ids,
+        wait_ms: call.arguments.get("wait_ms").and_then(Value::as_u64),
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::Status(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_status_result,
+    )
+    .await
+}
+
+async fn spawn_delegation_cancel(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let task_id = match call.arguments.get("task_id").and_then(Value::as_str) {
+        Some(task_id) if !task_id.is_empty() => task_id.to_string(),
+        _ => {
+            return LineAction::Respond(err(
+                call.id,
+                -32602,
+                "cancel_delegation requires a non-empty string task_id",
+            ));
+        }
+    };
+    let request = BrokerCancelTaskRequest {
+        token: bridge.context.token,
+        task_id,
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::CancelTask(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_task_report,
+    )
+    .await
+}
+
+async fn spawn_feedback(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let token = bridge.context.token;
+    let request = BrokerFeedbackRequest {
+        token: token.clone(),
+    };
+    register_and_spawn_feedback(bridge.inflight, call.id, bridge.backend, token, request).await
+}
+
+async fn spawn_question(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let questions = match parse_questions(&call.arguments) {
+        Ok(questions) => questions,
+        Err(message) => return LineAction::Respond(err(call.id, -32602, message)),
+    };
+    let request = BrokerAskRequest {
+        token: bridge.context.token,
+        questions,
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::Ask(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_ask_result,
+    )
+    .await
+}
+
+async fn spawn_session_info(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let session_id = match parse_session_id(&call.arguments) {
+        Some(session_id) => session_id,
+        None => {
+            return LineAction::Respond(err(
+                call.id,
+                -32602,
+                "get_session_info requires an integer `session_id` (the number in the iyw-claw://session/<id> reference)",
+            ));
+        }
+    };
+    let request = BrokerSessionRequest {
+        token: bridge.context.token,
+        session_id,
+        max_messages: Some(parse_max_messages(&call.arguments)),
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::SessionInfo(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_session_result,
+    )
+    .await
 }
 
 /// Strip any MCP namespace prefix from a tool name, returning the bare name.
@@ -832,6 +1183,8 @@ async fn register_and_spawn_local(
     id: Value,
     arguments: Value,
     working_dir: PathBuf,
+    token: String,
+    backend: DelegationBackend,
 ) -> LineAction {
     let (cancel_tx, cancel_rx) = oneshot::channel();
     let id_key = request_id_key(&id);
@@ -840,6 +1193,7 @@ async fn register_and_spawn_local(
             id_key.clone(),
             InflightEntry {
                 external_handle: None,
+                broker_dispatched: None,
                 cancel_tx,
             },
         )
@@ -848,9 +1202,36 @@ async fn register_and_spawn_local(
     let task_key = id_key.clone();
     let task_inflight = inflight.clone();
     let future = Box::pin(async move {
+        let mut cancel_rx = cancel_rx;
+        let mutation_lease = if backend.is_in_process() {
+            let lease = tokio::select! {
+                biased;
+                _ = &mut cancel_rx => {
+                    let _ = task_inflight.take(&task_key).await;
+                    return SpawnResult { response: None, after_relay: None };
+                }
+                lease = backend.acquire_mutation(&token) => lease,
+            };
+            let Some(lease) = lease else {
+                let response = Some(err(
+                    response_id,
+                    -32001,
+                    "show_image is unavailable because its host authority is revoked",
+                ));
+                let _ = task_inflight.take(&task_key).await;
+                return SpawnResult {
+                    response,
+                    after_relay: None,
+                };
+            };
+            Some(lease)
+        } else {
+            None
+        };
+        let _mutation_lease = mutation_lease;
         let response = tokio::select! {
             biased;
-            _ = cancel_rx => None,
+            _ = &mut cancel_rx => None,
             result = crate::acp::delegation::image_tool::execute(arguments, working_dir) => {
                 Some(ok(response_id, result))
             }
@@ -873,6 +1254,7 @@ async fn register_and_spawn_image_analysis(
     id: Value,
     arguments: Value,
     ctx: CompanionContext,
+    backend: DelegationBackend,
 ) -> LineAction {
     let (cancel_tx, cancel_rx) = oneshot::channel();
     let id_key = request_id_key(&id);
@@ -881,6 +1263,7 @@ async fn register_and_spawn_image_analysis(
             id_key.clone(),
             InflightEntry {
                 external_handle: None,
+                broker_dispatched: None,
                 cancel_tx,
             },
         )
@@ -889,7 +1272,7 @@ async fn register_and_spawn_image_analysis(
     let task_key = id_key.clone();
     let task_inflight = inflight.clone();
     let future = Box::pin(async move {
-        let analyze = execute_image_analysis_call(response_id, arguments, ctx);
+        let analyze = execute_image_analysis_call(response_id, arguments, ctx, backend);
         tokio::pin!(analyze);
         let response = tokio::select! {
             biased;
@@ -913,6 +1296,7 @@ async fn execute_image_analysis_call(
     response_id: Value,
     arguments: Value,
     ctx: CompanionContext,
+    backend: DelegationBackend,
 ) -> JsonRpcResponse {
     let prepared =
         match crate::acp::delegation::image_tool::prepare_analysis(arguments, &ctx.working_dir)
@@ -929,7 +1313,10 @@ async fn execute_image_analysis_call(
         detail: prepared.detail,
         image_bytes: prepared.image_bytes,
     };
-    let result = match client_image_analysis_round_trip(&ctx.socket_path, &request).await {
+    let result = match backend
+        .round_trip(BrokerMessage::ImageAnalysis(request))
+        .await
+    {
         Ok(response) => render_image_analysis_result(&response.outcome),
         Err(_) => image_analysis_error_result(
             "image_analysis_transport_failed",
@@ -950,6 +1337,7 @@ async fn register_and_spawn_audio(
     id: Value,
     arguments: Value,
     ctx: CompanionContext,
+    backend: DelegationBackend,
     call: AudioToolCall,
 ) -> LineAction {
     let (cancel_tx, cancel_rx) = oneshot::channel();
@@ -959,6 +1347,7 @@ async fn register_and_spawn_audio(
             id_key.clone(),
             InflightEntry {
                 external_handle: None,
+                broker_dispatched: None,
                 cancel_tx,
             },
         )
@@ -967,7 +1356,7 @@ async fn register_and_spawn_audio(
     let task_key = id_key.clone();
     let task_inflight = inflight.clone();
     let future = Box::pin(async move {
-        let execute = execute_audio_call(response_id, arguments, ctx, call);
+        let execute = execute_audio_call(response_id, arguments, ctx, backend, call);
         tokio::pin!(execute);
         let response = tokio::select! {
             biased;
@@ -991,16 +1380,21 @@ async fn execute_audio_call(
     response_id: Value,
     arguments: Value,
     ctx: CompanionContext,
+    backend: DelegationBackend,
     call: AudioToolCall,
 ) -> JsonRpcResponse {
     let result = match call {
-        AudioToolCall::Transcribe => execute_audio_transcription(arguments, ctx).await,
-        AudioToolCall::Query => execute_audio_query(arguments, ctx).await,
+        AudioToolCall::Transcribe => execute_audio_transcription(arguments, ctx, backend).await,
+        AudioToolCall::Query => execute_audio_query(arguments, ctx, backend).await,
     };
     ok(response_id, result)
 }
 
-async fn execute_audio_transcription(arguments: Value, ctx: CompanionContext) -> Value {
+async fn execute_audio_transcription(
+    arguments: Value,
+    ctx: CompanionContext,
+    backend: DelegationBackend,
+) -> Value {
     let input = match crate::acp::delegation::audio_tool::prepare_transcribe(arguments) {
         Ok(input) => input,
         Err(result) => return result,
@@ -1011,7 +1405,10 @@ async fn execute_audio_transcription(arguments: Value, ctx: CompanionContext) ->
         language: input.language,
         options: input.options,
     };
-    match client_audio_transcription_round_trip(&ctx.socket_path, &request).await {
+    match backend
+        .round_trip(BrokerMessage::AudioTranscription(request))
+        .await
+    {
         Ok(response) => render_audio_result(response.outcome),
         Err(_) => crate::acp::delegation::audio_tool::error_result(
             "audio_transcription_transport_failed",
@@ -1020,7 +1417,11 @@ async fn execute_audio_transcription(arguments: Value, ctx: CompanionContext) ->
     }
 }
 
-async fn execute_audio_query(arguments: Value, ctx: CompanionContext) -> Value {
+async fn execute_audio_query(
+    arguments: Value,
+    ctx: CompanionContext,
+    backend: DelegationBackend,
+) -> Value {
     let input = match crate::acp::delegation::audio_tool::prepare_query(arguments) {
         Ok(input) => input,
         Err(result) => return result,
@@ -1029,7 +1430,10 @@ async fn execute_audio_query(arguments: Value, ctx: CompanionContext) -> Value {
         token: ctx.token,
         job_id: input.job_id.trim().to_string(),
     };
-    match client_audio_transcription_query_round_trip(&ctx.socket_path, &request).await {
+    match backend
+        .round_trip(BrokerMessage::AudioTranscriptionQuery(request))
+        .await
+    {
         Ok(response) => render_audio_result(response.outcome),
         Err(_) => crate::acp::delegation::audio_tool::error_result(
             "audio_transcription_transport_failed",
@@ -1142,11 +1546,15 @@ async fn register_and_spawn(
 ) -> LineAction {
     let (cancel_tx, cancel_rx) = oneshot::channel();
     let id_key = request_id_key(&id);
+    let broker_dispatched = external_handle
+        .as_ref()
+        .map(|_| Arc::new(AtomicBool::new(false)));
     inflight
         .register(
             id_key.clone(),
             InflightEntry {
                 external_handle,
+                broker_dispatched: broker_dispatched.clone(),
                 cancel_tx,
             },
         )
@@ -1156,6 +1564,12 @@ async fn register_and_spawn(
     let id_key_for_task = id_key.clone();
     let inflight_for_task = inflight.clone();
     let future = Box::pin(async move {
+        let tracked_round_trip = async move {
+            if let Some(dispatched) = broker_dispatched {
+                dispatched.store(true, Ordering::Release);
+            }
+            round_trip.await
+        };
         // Race the UDS round-trip against the cancel signal. Cancel wins →
         // suppress the response per MCP spec; for `delegate_to_agent` the cancel
         // notification handler is responsible for dispatching the broker-side
@@ -1167,7 +1581,7 @@ async fn register_and_spawn(
                 let _ = inflight_for_task.take(&id_key_for_task).await;
                 None
             }
-            rt = round_trip => {
+            rt = tracked_round_trip => {
                 let _ = inflight_for_task.take(&id_key_for_task).await;
                 match rt {
                     Ok(resp) => Some(ok(id_for_response, render(&resp.outcome))),
@@ -1278,7 +1692,7 @@ fn image_analysis_error_result(code: &str, message: &str) -> Value {
 async fn register_and_spawn_feedback(
     inflight: Arc<InflightCalls>,
     id: Value,
-    socket: String,
+    backend: DelegationBackend,
     token: String,
     req: BrokerFeedbackRequest,
 ) -> LineAction {
@@ -1289,6 +1703,7 @@ async fn register_and_spawn_feedback(
             id_key.clone(),
             InflightEntry {
                 external_handle: None,
+                broker_dispatched: None,
                 cancel_tx,
             },
         )
@@ -1297,6 +1712,7 @@ async fn register_and_spawn_feedback(
     let id_for_response = id.clone();
     let id_key_for_task = id_key.clone();
     let inflight_for_task = inflight.clone();
+    let feedback_backend = backend.clone();
     let future = Box::pin(async move {
         tokio::select! {
             biased;
@@ -1308,7 +1724,7 @@ async fn register_and_spawn_feedback(
                     after_relay: None,
                 }
             }
-            rt = client_feedback_round_trip(&socket, &req) => {
+            rt = feedback_backend.round_trip(BrokerMessage::Feedback(req)) => {
                 let _ = inflight_for_task.take(&id_key_for_task).await;
                 match rt {
                     Ok(resp) => {
@@ -1320,13 +1736,10 @@ async fn register_and_spawn_feedback(
                         // (at-least-once at the agent-facing boundary).
                         let outcome = resp.outcome;
                         let response = ok(id_for_response, render_feedback_result(&outcome));
-                        let commit: futures_util::future::BoxFuture<'static, ()> =
-                            Box::pin(async move {
-                                commit_feedback_after_delivery(&socket, &token, &outcome).await;
-                            });
+                        let commit = feedback_commit(backend, token, &outcome);
                         SpawnResult {
                             response: Some(response),
-                            after_relay: Some(commit),
+                            after_relay: commit,
                         }
                     }
                     Err(e) => SpawnResult {
@@ -1349,44 +1762,78 @@ async fn register_and_spawn_feedback(
     })
 }
 
-/// Send a `CommitFeedback` for the note ids the listener embedded in the
-/// response (`_commit_ids`). Fire-and-forget, bounded by [`BROKER_CANCEL_BUDGET`]:
-/// a failed commit just leaves the notes pending for the next check.
-async fn commit_feedback_after_delivery(socket: &str, token: &str, outcome: &Value) {
-    let ids: Vec<String> = outcome
+/// Build a retryable `CommitFeedback` for the note ids the listener embedded in
+/// the response (`_commit_ids`). Each attempt is bounded by
+/// [`BROKER_CANCEL_BUDGET`]; a failed attempt leaves the notes pending and lets
+/// HTTP retain the receipt for retry. Legacy stdio records the failed attempt
+/// and leaves the notes available to the next feedback check.
+fn feedback_commit(
+    backend: DelegationBackend,
+    token: String,
+    outcome: &Value,
+) -> Option<PostRelayAction> {
+    let ids = outcome
         .get("_commit_ids")
         .and_then(|v| v.as_array())
         .map(|a| {
             a.iter()
                 .filter_map(|x| x.as_str().map(str::to_string))
-                .collect()
+                .collect::<Vec<String>>()
         })
         .unwrap_or_default();
     if ids.is_empty() {
-        return;
+        return None;
     }
+    Some(PostRelayAction::new(move || {
+        let backend = backend.clone();
+        let token = token.clone();
+        let ids = ids.clone();
+        Box::pin(async move { commit_feedback_after_delivery(&backend, &token, ids).await })
+    }))
+}
+
+async fn commit_feedback_after_delivery(
+    backend: &DelegationBackend,
+    token: &str,
+    ids: Vec<String>,
+) -> bool {
     let req = BrokerCommitFeedbackRequest {
         token: token.to_string(),
         ids,
     };
-    let _ = tokio::time::timeout(BROKER_CANCEL_BUDGET, client_commit_feedback(socket, &req)).await;
+    matches!(
+        tokio::time::timeout(
+            BROKER_CANCEL_BUDGET,
+            backend.round_trip(BrokerMessage::CommitFeedback(req)),
+        )
+        .await,
+        Ok(Ok(_))
+    )
 }
 
 /// Handle a `notifications/cancelled` notification. Looks up the in-flight
 /// call by `requestId` and fires its cancel channel. Unknown ids are
 /// silently ignored per MCP spec.
-async fn handle_cancel_notification(
-    ctx: &CompanionContext,
-    inflight: &Arc<InflightCalls>,
-    params: &Value,
-) {
+async fn handle_cancel_notification(bridge: &CompanionBridge, params: &Value) {
     let request_id = match params.get("requestId") {
         Some(v) => v.clone(),
         None => return,
     };
+    let reason = params
+        .get("reason")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let _ = cancel_inflight_call(bridge, request_id, reason).await;
+}
+
+async fn cancel_inflight_call(
+    bridge: &CompanionBridge,
+    request_id: Value,
+    reason: Option<String>,
+) -> bool {
     let id_key = request_id_key(&request_id);
-    let Some(entry) = inflight.take(&id_key).await else {
-        return;
+    let Some(entry) = bridge.inflight.take(&id_key).await else {
+        return false;
     };
     let _ = entry.cancel_tx.send(());
     // Only `delegate_to_agent` carries an external_handle. For
@@ -1394,8 +1841,15 @@ async fn handle_cancel_notification(
     // broker-side — suppressing the (possibly long-poll) response is the whole
     // effect, and dispatching a broker `Cancel` would wrongly target a task.
     let Some(external_handle) = entry.external_handle else {
-        return;
+        return true;
     };
+    if !entry
+        .broker_dispatched
+        .as_ref()
+        .is_some_and(|dispatched| dispatched.load(Ordering::Acquire))
+    {
+        return true;
+    }
     // Single broker-side cancel per notification: the round-trip task
     // observes `cancel_rx` and only suppresses its response. If we ALSO
     // dispatched a cancel from the task we'd hit the broker twice — the
@@ -1409,14 +1863,12 @@ async fn handle_cancel_notification(
     // here guarantees the cancel either lands or hits a known cap
     // before the next stdin line is read.
     let cancel_req = BrokerCancelRequest {
-        token: ctx.token.clone(),
+        token: bridge.context.token.clone(),
         external_handle,
-        reason: params
-            .get("reason")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        reason,
     };
-    send_broker_cancel(&ctx.socket_path, &cancel_req).await;
+    send_broker_cancel(&bridge.backend, &cancel_req).await;
+    true
 }
 
 /// Drain every in-flight `tools/call` entry and dispatch a broker cancel
@@ -1431,6 +1883,7 @@ pub async fn drain_and_cancel_all(
     inflight: &Arc<InflightCalls>,
     reason: &str,
 ) {
+    let backend = DelegationBackend::socket(ctx.socket_path.clone());
     for entry in inflight.drain_all().await {
         // Wake the round-trip task if it's still scheduled, so it can
         // exit promptly when the runtime tears down.
@@ -1440,12 +1893,19 @@ pub async fn drain_and_cancel_all(
         let Some(external_handle) = entry.external_handle else {
             continue;
         };
+        if !entry
+            .broker_dispatched
+            .as_ref()
+            .is_some_and(|dispatched| dispatched.load(Ordering::Acquire))
+        {
+            continue;
+        }
         let cancel_req = BrokerCancelRequest {
             token: ctx.token.clone(),
             external_handle,
             reason: Some(reason.to_string()),
         };
-        send_broker_cancel(&ctx.socket_path, &cancel_req).await;
+        send_broker_cancel(&backend, &cancel_req).await;
     }
 }
 
@@ -2015,6 +2475,37 @@ pub fn render_memory_proposal_result(outcome: &Value) -> Value {
         (true, true) => "Memory candidate observation recorded; user confirmation is recommended.",
         (true, false) => "Memory candidate observation recorded.",
         (false, _) => "No new memory candidate observation was recorded.",
+    };
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": false,
+        "structuredContent": outcome.clone(),
+    })
+}
+
+/// Render read-only memory results without implying that a stale index or an
+/// abstained query found a durable answer.
+pub fn render_memory_recall_result(outcome: &Value) -> Value {
+    if let Some(message) = outcome.get("error").and_then(Value::as_str) {
+        return json!({
+            "content": [{ "type": "text", "text": memory_error_text(message) }],
+            "isError": true,
+            "structuredContent": normalized_memory_error(outcome, "memory_recall_failed"),
+        });
+    }
+    let items = outcome
+        .get("items")
+        .and_then(Value::as_array)
+        .map(|items| serde_json::to_string(items).unwrap_or_else(|_| "[]".to_string()))
+        .unwrap_or_else(|| "[]".to_string());
+    let abstained = outcome
+        .get("abstained")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let text = if abstained {
+        "No matching user memory was found; do not infer an answer from this tool."
+    } else {
+        &items
     };
     json!({
         "content": [{ "type": "text", "text": text }],

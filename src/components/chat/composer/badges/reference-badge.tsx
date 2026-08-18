@@ -15,7 +15,7 @@ import {
 import type { ReactNode } from "react"
 
 import { AgentIcon } from "@/components/agent-icon"
-import { type AgentType } from "@/lib/types"
+import { isAgentType } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 import type { ReferenceAttrs } from "../types"
@@ -94,7 +94,8 @@ export function ReferenceIcon({
         )
       break
     case "agent": {
-      const agentType = meta?.agentType ?? (data.id as AgentType)
+      const agentType =
+        meta?.agentType ?? (isAgentType(data.id) ? data.id : null)
       icon = agentType ? (
         <AgentIcon agentType={agentType} className={ICON_CLASS} />
       ) : (

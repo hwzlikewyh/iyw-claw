@@ -54,6 +54,7 @@ pub struct ChannelIdParams {
 pub struct SaveTokenParams {
     pub channel_id: i32,
     pub token: String,
+    pub config_patch_json: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -131,11 +132,12 @@ pub async fn save_chat_channel_token(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<SaveTokenParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    cc_commands::save_chat_channel_token_core(
+    cc_commands::save_chat_channel_token_with_patch_core(
         &state.db,
         &state.chat_channel_manager,
         params.channel_id,
         &params.token,
+        params.config_patch_json,
     )
     .await?;
     Ok(Json(()))
@@ -149,9 +151,15 @@ pub async fn get_chat_channel_has_token(
 }
 
 pub async fn delete_chat_channel_token(
+    Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ChannelIdOnlyParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    cc_commands::delete_chat_channel_token_core(params.channel_id)?;
+    cc_commands::delete_chat_channel_token_core(
+        &state.db,
+        &state.chat_channel_manager,
+        params.channel_id,
+    )
+    .await?;
     Ok(Json(()))
 }
 

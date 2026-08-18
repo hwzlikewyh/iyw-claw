@@ -1,16 +1,25 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 use std::time::{Duration, Instant};
 
 use sacp_tokio::AcpAgent;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
+use tokio_util::sync::CancellationToken;
 
 use crate::acp::error::AcpError;
-use crate::acp::runtime_host::AgentRuntimeHost;
+use crate::acp::runtime_host::{AgentRuntimeHost, RuntimeHostReservation};
+use crate::acp::runtime_host_policy::{RuntimeHostCapabilities, RuntimeHostPolicy};
+use crate::acp::stderr_tail::StderrTail;
 use crate::models::agent::AgentType;
+
+mod retirement;
+pub(crate) mod startup;
+
+use retirement::HostRetirements;
+use startup::HostStartups;
 
 const MAX_WARM_IDLE_HOSTS: usize = 2;
 
@@ -18,13 +27,32 @@ const MAX_WARM_IDLE_HOSTS: usize = 2;
 pub(crate) struct RuntimeHostKey {
     pub(super) agent_type: AgentType,
     pub(super) process_fingerprint: String,
+    pub(super) definition_fingerprint: String,
+    pub(super) runtime_version: String,
+    pub(super) policy_revision: Option<u64>,
+    pub(super) capabilities: RuntimeHostCapabilities,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) struct RuntimeHostIdentity {
+    pub(crate) definition_fingerprint: String,
+    pub(crate) runtime_version: String,
+    pub(crate) policy: RuntimeHostPolicy,
 }
 
 impl RuntimeHostKey {
-    pub(crate) fn new(agent_type: AgentType, process_fingerprint: String) -> Self {
+    pub(crate) fn new(
+        agent_type: AgentType,
+        process_fingerprint: String,
+        identity: RuntimeHostIdentity,
+    ) -> Self {
         Self {
             agent_type,
             process_fingerprint,
+            definition_fingerprint: identity.definition_fingerprint,
+            runtime_version: identity.runtime_version,
+            policy_revision: identity.policy.revision,
+            capabilities: identity.policy.capabilities,
         }
     }
 
@@ -39,6 +67,17 @@ impl RuntimeHostKey {
 pub(crate) struct RuntimeHostRegistry {
     hosts: Mutex<HashMap<RuntimeHostKey, Arc<AgentRuntimeHost>>>,
     spawn_locks: Mutex<HashMap<RuntimeHostKey, Arc<SpawnLockEntry>>>,
+    lifecycle: RwLock<()>,
+    closed: AtomicBool,
+    shutdown: CancellationToken,
+    retirements: HostRetirements,
+    startups: HostStartups,
+}
+
+pub(crate) struct RuntimeHostShutdownReport {
+    pub(crate) stopped_hosts: usize,
+    pub(crate) startup_tasks_reaped: usize,
+    pub(crate) completed: bool,
 }
 
 struct SpawnLockEntry {
@@ -61,7 +100,12 @@ struct SpawnLockLease {
 
 impl Drop for SpawnLockLease {
     fn drop(&mut self) {
-        self.entry.users.fetch_sub(1, Ordering::AcqRel);
+        let _ = self
+            .entry
+            .users
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |users| {
+                users.checked_sub(1)
+            });
     }
 }
 
@@ -70,25 +114,85 @@ impl RuntimeHostRegistry {
         &self,
         key: RuntimeHostKey,
         agent: AcpAgent,
-    ) -> Result<Arc<AgentRuntimeHost>, AcpError> {
-        self.acquire_inner(key, agent, None).await
+        stderr_tail: Arc<StderrTail>,
+    ) -> Result<RuntimeHostReservation, AcpError> {
+        self.acquire_inner(key, agent, stderr_tail, None).await
     }
 
     pub(crate) async fn acquire_traced(
         &self,
         key: RuntimeHostKey,
         agent: AcpAgent,
+        stderr_tail: Arc<StderrTail>,
         trace: crate::acp::startup_trace::StartupTrace,
-    ) -> Result<Arc<AgentRuntimeHost>, AcpError> {
-        self.acquire_inner(key, agent, Some(trace)).await
+    ) -> Result<RuntimeHostReservation, AcpError> {
+        self.acquire_inner(key, agent, stderr_tail, Some(trace))
+            .await
+    }
+
+    pub(crate) async fn start_owned(
+        &self,
+        key: RuntimeHostKey,
+        agent: AcpAgent,
+        stderr_tail: Arc<StderrTail>,
+    ) -> Result<RuntimeHostReservation, AcpError> {
+        self.start_owned_inner(key, agent, stderr_tail, None).await
+    }
+
+    pub(crate) async fn start_owned_traced(
+        &self,
+        key: RuntimeHostKey,
+        agent: AcpAgent,
+        stderr_tail: Arc<StderrTail>,
+        trace: crate::acp::startup_trace::StartupTrace,
+    ) -> Result<RuntimeHostReservation, AcpError> {
+        self.start_owned_inner(key, agent, stderr_tail, Some(trace))
+            .await
+    }
+
+    async fn start_owned_inner(
+        &self,
+        key: RuntimeHostKey,
+        agent: AcpAgent,
+        stderr_tail: Arc<StderrTail>,
+        trace: Option<crate::acp::startup_trace::StartupTrace>,
+    ) -> Result<RuntimeHostReservation, AcpError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(registry_closed_error());
+        }
+        let _lifecycle = self.lifecycle.read().await;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(registry_closed_error());
+        }
+        if let Some(trace) = trace.as_ref() {
+            trace.bind_host_key(key.fingerprint_prefix());
+        }
+        let host = AgentRuntimeHost::start(
+            key,
+            agent,
+            stderr_tail,
+            self.shutdown.child_token(),
+            trace,
+            &self.startups,
+        )
+        .await?;
+        Ok(RuntimeHostReservation::new(host))
     }
 
     async fn acquire_inner(
         &self,
         key: RuntimeHostKey,
         agent: AcpAgent,
+        stderr_tail: Arc<StderrTail>,
         trace: Option<crate::acp::startup_trace::StartupTrace>,
-    ) -> Result<Arc<AgentRuntimeHost>, AcpError> {
+    ) -> Result<RuntimeHostReservation, AcpError> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(registry_closed_error());
+        }
+        let _lifecycle = self.lifecycle.read().await;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(registry_closed_error());
+        }
         self.prune_hosts(Some(&key)).await;
         if let Some(trace) = trace.as_ref() {
             trace.bind_host_key(key.fingerprint_prefix());
@@ -100,15 +204,16 @@ impl RuntimeHostRegistry {
             }
             return Ok(host);
         }
-        self.spawn_host(key, agent, trace).await
+        self.spawn_host(key, agent, stderr_tail, trace).await
     }
 
     async fn spawn_host(
         &self,
         key: RuntimeHostKey,
         agent: AcpAgent,
+        stderr_tail: Arc<StderrTail>,
         trace: Option<crate::acp::startup_trace::StartupTrace>,
-    ) -> Result<Arc<AgentRuntimeHost>, AcpError> {
+    ) -> Result<RuntimeHostReservation, AcpError> {
         let wait_started = Instant::now();
         let spawn_lock = self.spawn_lock(&key).await;
         let _spawn_guard = spawn_lock.entry.lock.lock().await;
@@ -119,14 +224,30 @@ impl RuntimeHostRegistry {
             }
             return Ok(host);
         }
-        let host = AgentRuntimeHost::start(key.clone(), agent, trace).await?;
-        self.hosts
-            .lock()
-            .await
-            .insert(key.clone(), Arc::clone(&host));
+        let cancel = self.shutdown.child_token();
+        let host = AgentRuntimeHost::start(
+            key.clone(),
+            agent,
+            stderr_tail,
+            cancel,
+            trace,
+            &self.startups,
+        )
+        .await?;
+        let mut reservation = RuntimeHostReservation::new(host);
+        let mut hosts = self.hosts.lock().await;
+        if self.closed.load(Ordering::Acquire) {
+            drop(hosts);
+            reservation.shutdown().await;
+            return Err(registry_closed_error());
+        }
+        hosts.insert(key.clone(), reservation.clone_host());
+        // Do not await between durable registration and releasing startup tracking.
+        reservation.mark_published();
+        drop(hosts);
         self.prune_hosts(Some(&key)).await;
-        host.log_acquired("spawned", wait_started.elapsed());
-        Ok(host)
+        reservation.log_acquired("spawned", wait_started.elapsed());
+        Ok(reservation)
     }
 
     async fn spawn_lock(&self, key: &RuntimeHostKey) -> SpawnLockLease {
@@ -138,91 +259,8 @@ impl RuntimeHostRegistry {
         entry.users.fetch_add(1, Ordering::AcqRel);
         SpawnLockLease { entry }
     }
+}
 
-    async fn ready_host(&self, key: &RuntimeHostKey) -> Option<Arc<AgentRuntimeHost>> {
-        let mut hosts = self.hosts.lock().await;
-        match hosts.get(key) {
-            Some(host) if host.is_healthy() && host.reserve_route() => Some(Arc::clone(host)),
-            Some(_) => {
-                hosts.remove(key);
-                None
-            }
-            None => None,
-        }
-    }
-
-    async fn prune_hosts(&self, preserve: Option<&RuntimeHostKey>) {
-        let removed = self.take_prunable_hosts(preserve).await;
-        if removed.is_empty() {
-            self.prune_orphan_spawn_locks(preserve).await;
-            return;
-        }
-        let keys = removed.iter().map(|(key, _)| key).collect::<HashSet<_>>();
-        self.spawn_locks
-            .lock()
-            .await
-            .retain(|key, entry| !keys.contains(key) || entry.users.load(Ordering::Acquire) != 0);
-        for (_, host) in removed {
-            tokio::spawn(async move { host.shutdown().await });
-        }
-        self.prune_orphan_spawn_locks(preserve).await;
-    }
-
-    async fn prune_orphan_spawn_locks(&self, preserve: Option<&RuntimeHostKey>) {
-        let live_keys = self
-            .hosts
-            .lock()
-            .await
-            .keys()
-            .cloned()
-            .collect::<HashSet<_>>();
-        self.spawn_locks.lock().await.retain(|key, entry| {
-            preserve == Some(key)
-                || live_keys.contains(key)
-                || entry.users.load(Ordering::Acquire) != 0
-        });
-    }
-
-    async fn take_prunable_hosts(
-        &self,
-        preserve: Option<&RuntimeHostKey>,
-    ) -> Vec<(RuntimeHostKey, Arc<AgentRuntimeHost>)> {
-        let mut hosts = self.hosts.lock().await;
-        let mut keys = hosts
-            .iter()
-            .filter(|(_, host)| !host.is_healthy())
-            .map(|(key, _)| key.clone())
-            .collect::<HashSet<_>>();
-        let mut idle = hosts
-            .iter()
-            .filter(|(key, host)| preserve != Some(*key) && !host.has_live_routes())
-            .map(|(key, host)| (host.created_at(), key.clone()))
-            .collect::<Vec<_>>();
-        idle.sort_by_key(|(created_at, _)| *created_at);
-        let preserved_idle =
-            preserve.is_some_and(|key| hosts.get(key).is_some_and(|host| !host.has_live_routes()));
-        let keep_idle = MAX_WARM_IDLE_HOSTS.saturating_sub(usize::from(preserved_idle));
-        let excess = idle.len().saturating_sub(keep_idle);
-        keys.extend(idle.into_iter().take(excess).map(|(_, key)| key));
-        keys.into_iter()
-            .filter_map(|key| hosts.remove(&key).map(|host| (key, host)))
-            .collect()
-    }
-
-    pub(crate) async fn shutdown_all(&self) -> usize {
-        let hosts = self
-            .hosts
-            .lock()
-            .await
-            .drain()
-            .map(|(_, host)| host)
-            .collect::<Vec<_>>();
-        self.spawn_locks.lock().await.clear();
-        let count = hosts.len();
-        for host in hosts {
-            host.shutdown().await;
-        }
-        tracing::info!(count, "[ACP][host] shared runtime hosts stopped");
-        count
-    }
+fn registry_closed_error() -> AcpError {
+    AcpError::protocol("ACP runtime Host registry is shutting down")
 }

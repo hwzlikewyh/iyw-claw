@@ -1,38 +1,29 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tokio::io::AsyncWriteExt;
-use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::acp::capability_policy::{monitor_file_upload, require_file_upload};
 use crate::app_error::AppCommandError;
 use crate::commands::chat_image::CHAT_IMAGE_SOURCE_MAX_BYTES;
 use crate::commands::remote_proxy::{self, RemoteChatImageFile, RemoteProxyState};
 use crate::db::AppDatabase;
 
-const UPLOAD_DIR: &str = ".remote-chat-image-upload";
 const CHUNK_MAX_BYTES: usize = 512 * 1024;
 const FILE_NAME_MAX_CHARS: usize = 180;
-const STALE_UPLOAD_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
-struct UploadEntry {
-    path: PathBuf,
-    file_name: String,
-    mime_type: String,
-    expected_bytes: u64,
-    received_bytes: u64,
-}
-
-#[derive(Default)]
-pub struct RemoteChatImageUploadState {
-    uploads: Mutex<HashMap<Uuid, UploadEntry>>,
-}
-
+mod upload_state;
+pub use upload_state::{cleanup_stale_uploads, RemoteChatImageUploadState};
+use upload_state::{
+    create_upload_staging_file, ensure_upload_root, image_mime_for_name, monitor_upload_revocation,
+    remove_upload_file, validate_upload_file, BeginUploadStaging, UploadEntry, UploadRevocation,
+    UPLOAD_DIR,
+};
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BeginUploadResult {
@@ -59,23 +50,6 @@ fn sanitize_file_name(raw: &str) -> String {
         "image".to_string()
     } else {
         cleaned.to_string()
-    }
-}
-
-fn image_mime_for_name(file_name: &str) -> Result<&'static str, AppCommandError> {
-    let extension = Path::new(file_name)
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    match extension.as_str() {
-        "png" => Ok("image/png"),
-        "jpg" | "jpeg" => Ok("image/jpeg"),
-        "webp" => Ok("image/webp"),
-        "gif" => Ok("image/gif"),
-        _ => Err(AppCommandError::invalid_input(
-            "Image file extension is not supported",
-        )),
     }
 }
 
@@ -112,34 +86,6 @@ fn upload_root(app: &AppHandle) -> Result<PathBuf, AppCommandError> {
     Ok(data_dir.join(UPLOAD_DIR))
 }
 
-pub fn cleanup_stale_uploads(data_dir: &Path) {
-    let root = data_dir.join(UPLOAD_DIR);
-    let Ok(entries) = std::fs::read_dir(&root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        if path.extension().and_then(|value| value.to_str()) != Some("part")
-            || Uuid::parse_str(stem).is_err()
-        {
-            continue;
-        }
-        let is_stale = entry
-            .metadata()
-            .and_then(|metadata| metadata.modified())
-            .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
-            .is_ok_and(|age| age >= STALE_UPLOAD_AGE);
-        if is_stale {
-            if let Err(error) = std::fs::remove_file(path) {
-                tracing::warn!(target: "chat.image", %error, "failed to clean stale image upload");
-            }
-        }
-    }
-}
-
 #[tauri::command]
 pub async fn remote_chat_image_upload_begin(
     app: AppHandle,
@@ -148,29 +94,42 @@ pub async fn remote_chat_image_upload_begin(
     mime_type: String,
     expected_bytes: u64,
 ) -> Result<BeginUploadResult, AppCommandError> {
+    let monitor = monitor_file_upload(None).await?;
     let (file_name, mime_type) = validate_descriptor(&file_name, &mime_type, expected_bytes)?;
+    let mut uploads = state.uploads.lock().await;
     let root = upload_root(&app)?;
-    tokio::fs::create_dir_all(&root)
-        .await
-        .map_err(AppCommandError::io)?;
+    let root_was_present = ensure_upload_root(&monitor, &root).await?;
     let upload_id = Uuid::new_v4();
     let path = root.join(format!("{}.part", upload_id.simple()));
-    tokio::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&path)
-        .await
-        .map_err(AppCommandError::io)?;
-    state.uploads.lock().await.insert(
+    let staging = BeginUploadStaging {
+        upload_id,
+        root: &root,
+        path: &path,
+        root_was_present,
+    };
+    create_upload_staging_file(&monitor, &staging).await?;
+    let revoked = monitor.cancellation();
+    let finished = CancellationToken::new();
+    uploads.insert(
         upload_id,
         UploadEntry {
-            path,
+            path: path.clone(),
             file_name: file_name.clone(),
             mime_type: mime_type.clone(),
             expected_bytes,
             received_bytes: 0,
+            monitor,
+            finished: finished.clone(),
         },
     );
+    drop(uploads);
+    monitor_upload_revocation(UploadRevocation {
+        uploads: Arc::clone(&state.uploads),
+        upload_id,
+        path,
+        revoked,
+        finished,
+    });
     tracing::info!(target: "chat.image", %upload_id, %file_name, %mime_type, expected_bytes, "began chunked image upload");
     Ok(BeginUploadResult {
         upload_id: upload_id.to_string(),
@@ -184,6 +143,7 @@ pub async fn remote_chat_image_upload_append(
     offset: u64,
     chunk: Vec<u8>,
 ) -> Result<u64, AppCommandError> {
+    require_file_upload().await?;
     if chunk.is_empty() || chunk.len() > CHUNK_MAX_BYTES {
         return Err(AppCommandError::invalid_input(
             "Invalid image upload chunk size",
@@ -194,6 +154,7 @@ pub async fn remote_chat_image_upload_append(
     let entry = uploads
         .get_mut(&upload_id)
         .ok_or_else(|| AppCommandError::not_found("Image upload was not found"))?;
+    entry.monitor.error_if_revoked()?;
     let next = offset
         .checked_add(chunk.len() as u64)
         .filter(|value| *value <= entry.expected_bytes && *value <= CHAT_IMAGE_SOURCE_MAX_BYTES)
@@ -203,45 +164,30 @@ pub async fn remote_chat_image_upload_append(
             "Image upload offset mismatch",
         ));
     }
-    let metadata = tokio::fs::symlink_metadata(&entry.path)
-        .await
+    let metadata = entry
+        .monitor
+        .run_until_revoked(tokio::fs::symlink_metadata(&entry.path))
+        .await?
         .map_err(AppCommandError::io)?;
     if !metadata.file_type().is_file() || metadata.len() != offset {
         return Err(AppCommandError::invalid_input(
             "Image upload file state mismatch",
         ));
     }
-    let mut file = tokio::fs::OpenOptions::new()
-        .append(true)
-        .open(&entry.path)
-        .await
+    let mut file = entry
+        .monitor
+        .run_until_revoked(tokio::fs::OpenOptions::new().append(true).open(&entry.path))
+        .await?
         .map_err(AppCommandError::io)?;
-    file.write_all(&chunk).await.map_err(AppCommandError::io)?;
+    entry
+        .monitor
+        .run_until_revoked(file.write_all(&chunk))
+        .await?
+        .map_err(AppCommandError::io)?;
+    entry.monitor.require_current().await?;
     entry.received_bytes = next;
     tracing::debug!(target: "chat.image", %upload_id, offset, chunk_bytes = chunk.len(), received_bytes = next, "appended image upload chunk");
     Ok(next)
-}
-
-async fn validate_completed_upload(entry: &UploadEntry) -> Result<(), AppCommandError> {
-    image_mime_for_name(&entry.file_name)?;
-    let metadata = tokio::fs::symlink_metadata(&entry.path)
-        .await
-        .map_err(AppCommandError::io)?;
-    if !metadata.file_type().is_file()
-        || metadata.len() != entry.expected_bytes
-        || entry.received_bytes != entry.expected_bytes
-    {
-        return Err(AppCommandError::invalid_input("Image upload is incomplete"));
-    }
-    Ok(())
-}
-
-async fn remove_upload_file(upload_id: Uuid, path: &Path) {
-    if let Err(error) = tokio::fs::remove_file(path).await {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            tracing::warn!(target: "chat.image", %upload_id, %error, "failed to clean image upload file");
-        }
-    }
 }
 
 #[tauri::command]
@@ -255,6 +201,7 @@ pub async fn remote_chat_image_upload_finish(
     session_id: Option<String>,
     chat_dir: Option<String>,
 ) -> Result<Value, AppCommandError> {
+    require_file_upload().await?;
     let upload_id = parse_upload_id(&upload_id)?;
     let entry = state
         .uploads
@@ -262,17 +209,29 @@ pub async fn remote_chat_image_upload_finish(
         .await
         .remove(&upload_id)
         .ok_or_else(|| AppCommandError::not_found("Image upload was not found"))?;
-    let result = async {
-        validate_completed_upload(&entry).await?;
+    if let Err(error) = validate_upload_file(&entry).await {
+        entry.finished.cancel();
+        remove_upload_file(upload_id, &entry.path).await;
+        return Err(error);
+    }
+    let UploadEntry {
+        path,
+        file_name,
+        mime_type,
+        monitor,
+        finished,
+        ..
+    } = entry;
+    let operation = async {
         if let Some(connection_id) = connection_id {
             remote_proxy::upload_chat_image_file_to_remote(
                 db.inner(),
                 proxy.inner().as_ref(),
                 RemoteChatImageFile {
                     connection_id,
-                    path: entry.path.clone(),
-                    file_name: entry.file_name.clone(),
-                    mime_type: entry.mime_type.clone(),
+                    path: path.clone(),
+                    file_name: file_name.clone(),
+                    mime_type: mime_type.clone(),
                     session_id,
                     chat_dir,
                 },
@@ -282,12 +241,13 @@ pub async fn remote_chat_image_upload_finish(
             let prepared = crate::commands::chat_image::prepare_chat_image_core(
                 &db.conn,
                 crate::commands::chat_image::PrepareChatImageRequest {
-                    path: entry.path.clone(),
+                    path: path.clone(),
                     data_dir: crate::commands::chat_image::effective_app_data_dir(&app)?,
                     chat_dir: chat_dir.map(PathBuf::from),
                     session_id,
-                    display_name: Some(entry.file_name.clone()),
+                    display_name: Some(file_name.clone()),
                 },
+                &monitor,
             )
             .await?;
             serde_json::to_value(prepared).map_err(|error| {
@@ -295,9 +255,13 @@ pub async fn remote_chat_image_upload_finish(
                     .with_detail(error.to_string())
             })
         }
-    }
-    .await;
-    remove_upload_file(upload_id, &entry.path).await;
+    };
+    let result = match monitor.run_until_revoked(operation).await {
+        Ok(result) => result,
+        Err(error) => Err(error),
+    };
+    finished.cancel();
+    remove_upload_file(upload_id, &path).await;
     result
 }
 
@@ -308,6 +272,7 @@ pub async fn remote_chat_image_upload_abort(
 ) -> Result<(), AppCommandError> {
     let upload_id = parse_upload_id(&upload_id)?;
     if let Some(entry) = state.uploads.lock().await.remove(&upload_id) {
+        entry.finished.cancel();
         remove_upload_file(upload_id, &entry.path).await;
         tracing::info!(target: "chat.image", %upload_id, "aborted chunked image upload");
     }

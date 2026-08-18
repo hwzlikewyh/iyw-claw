@@ -59,6 +59,11 @@ fn extract_zip_entry(
     let relative = entry
         .enclosed_name()
         .ok_or_else(|| AppCommandError::invalid_input("Agent archive contains an unsafe path"))?;
+    if has_unsafe_zip_entry_type(entry) {
+        return Err(AppCommandError::invalid_input(
+            "Agent ZIP contains an unsafe entry",
+        ));
+    }
     if entry.size() > MAX_SINGLE_FILE_BYTES {
         return Err(AppCommandError::invalid_input(
             "Agent archive contains an oversized file",
@@ -80,6 +85,13 @@ fn extract_zip_entry(
     (written <= remaining)
         .then_some(written)
         .ok_or_else(|| AppCommandError::invalid_input("Agent archive expands beyond the limit"))
+}
+
+fn has_unsafe_zip_entry_type(entry: &zip::read::ZipFile<'_>) -> bool {
+    entry
+        .unix_mode()
+        .map(|mode| mode & 0o170000)
+        .is_some_and(|kind| !matches!(kind, 0 | 0o040000 | 0o100000))
 }
 
 fn extract_tar<R: Read>(reader: R, destination: &Path) -> Result<(), AppCommandError> {

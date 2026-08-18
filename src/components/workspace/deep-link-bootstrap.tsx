@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react"
 import { toast } from "sonner"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabStore, useTabActions } from "@/contexts/tab-context"
-import type { AgentType } from "@/lib/types"
+import { isAgentType, type AgentType } from "@/lib/types"
 
 /**
  * Handles `/workspace?folderId=X&conversationId=Y&agent=Z` URLs.
@@ -26,7 +26,7 @@ export function DeepLinkBootstrap() {
     const params = new URLSearchParams(window.location.search)
     const rawFolderId = params.get("folderId")
     const rawConversationId = params.get("conversationId")
-    const rawAgent = params.get("agent") as AgentType | null
+    const rawAgent = params.get("agent")
 
     if (!rawFolderId && !rawConversationId) return
 
@@ -47,7 +47,7 @@ export function DeepLinkBootstrap() {
 
         if (folderId == null || !Number.isFinite(folderId)) return
         if (conversationId == null || !Number.isFinite(conversationId)) return
-        if (!rawAgent) return
+        if (!isAgentType(rawAgent)) return
 
         // Read at run time: this effect fires once when hydration completes,
         // and getState() sees exactly the lists as of that moment.
@@ -169,11 +169,11 @@ export function PetFocusBridge() {
         }>("workspace://focus-conversation", (payload) => {
           const folderId = Number(payload?.folderId)
           const conversationId = Number(payload?.conversationId)
-          const agent = payload?.agent as AgentType | undefined
+          const agent = payload?.agent
           if (
             !Number.isFinite(folderId) ||
             !Number.isFinite(conversationId) ||
-            !agent
+            !isAgentType(agent)
           ) {
             return
           }

@@ -102,8 +102,28 @@ impl DelegationListener {
     where
         C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
     {
+        let Some(active_entry) = self.tokens.lookup(&request.token).await else {
+            return Ok(());
+        };
+        if active_entry.parent_connection_id != entry.parent_connection_id {
+            return Ok(());
+        }
         let input_for_cancel = request.input.clone();
         let caller_for_cancel = caller.clone();
+        let mutates =
+            channel_request_mutates(&request.tool, &request.input, expected_version.is_some());
+        let _mutation = if mutates {
+            match self
+                .tokens
+                .acquire_mutation_commit(&request.token, &active_entry)
+                .await
+            {
+                Some(lease) => Some(lease),
+                None => return Ok(()),
+            }
+        } else {
+            None
+        };
         let execute = async {
             match expected_version {
                 Some(version) => {
@@ -122,14 +142,16 @@ impl DelegationListener {
         let mut probe = [0u8; 1];
         let outcome = tokio::select! {
             outcome = &mut execute => Some(outcome),
-            _ = entry.cancellation.cancelled() => None,
+            _ = active_entry.cancellation.cancelled() => None,
             _ = conn.read(&mut probe) => None,
         };
         drop(execute);
         let Some(outcome) = outcome else {
-            self.channel_tools
-                .cancel_request(&caller_for_cancel, &request.tool, &input_for_cancel)
-                .await;
+            if mutates {
+                self.channel_tools
+                    .cancel_request(&caller_for_cancel, &request.tool, &input_for_cancel)
+                    .await;
+            }
             return Ok(());
         };
         write_outcome(conn, outcome).await
@@ -190,6 +212,22 @@ fn confirmation_error(confirmed: Option<bool>, token_valid: bool) -> Option<&'st
         (Some(true), true) => None,
         (Some(false), true) => Some("CONFIRMATION_DECLINED"),
         (None, true) => Some("CONFIRMATION_EXPIRED"),
+    }
+}
+
+fn channel_request_mutates(tool: &str, input: &serde_json::Value, confirmed: bool) -> bool {
+    if confirmed {
+        return true;
+    }
+    match tool {
+        "list_message_channels" | "list_channel_targets" | "list_channel_messages" => false,
+        "manage_channel_credential" => {
+            input.get("operation").and_then(serde_json::Value::as_str) != Some("status")
+        }
+        "manage_channel_settings" => {
+            input.get("operation").and_then(serde_json::Value::as_str) != Some("get")
+        }
+        _ => true,
     }
 }
 

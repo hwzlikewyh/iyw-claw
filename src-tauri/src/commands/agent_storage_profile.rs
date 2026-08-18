@@ -20,6 +20,7 @@ pub(crate) fn is_user_global_profile_path(
         AgentType::KimiCode => home.join(".kimi-code"),
         AgentType::Pi => home.join(".pi").join("agent"),
         AgentType::Grok => home.join(".grok"),
+        AgentType::Cursor | AgentType::DeepSeek | AgentType::Custom(_) => return false,
     };
     comparable_path(candidate) == comparable_path(&expected)
 }

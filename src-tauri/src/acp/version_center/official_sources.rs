@@ -16,13 +16,22 @@ pub(crate) fn fallback_npm_agent_install(
             "version center Agent is not npm-based",
         )));
     };
+    let effective_version = if agent_type == AgentType::DeepSeek {
+        crate::acp::deepseek_config::fallback_tool_version(agent_type).ok_or_else(|| {
+            ManagedNpmInstallError::Rejected(contract_error(
+                "DeepSeek Harness trusted version is unavailable",
+            ))
+        })?
+    } else {
+        requested_version
+    };
     let package_name = package_name(package);
     let registry = "https://registry.npmjs.org".to_string();
     let mut packages = vec![ManagedNpmPackage {
         component_key: registry::registry_id_for(agent_type).to_string(),
         package_name: package_name.to_string(),
-        install_spec: format!("{package_name}@{requested_version}"),
-        package_version: requested_version.to_string(),
+        install_spec: format!("{package_name}@{effective_version}"),
+        package_version: effective_version.to_string(),
         registry: registry.clone(),
         integrity: String::new(),
         source_key: "official-npm-registry".to_string(),
@@ -40,7 +49,7 @@ pub(crate) fn fallback_npm_agent_install(
         });
     }
     Ok(ManagedNpmInstall {
-        version: requested_version.to_string(),
+        version: effective_version.to_string(),
         revision: 0,
         effective_policy: "manual".to_string(),
         packages,

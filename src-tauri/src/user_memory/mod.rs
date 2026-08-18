@@ -1,4 +1,6 @@
 mod append;
+#[cfg(feature = "memory-bench")]
+pub mod bench;
 mod candidate_api_types;
 mod candidate_lifecycle;
 mod candidate_references;
@@ -12,10 +14,38 @@ mod correction;
 mod fs;
 mod harvest;
 mod helpers;
+mod index;
+mod index_checkpoint;
+mod index_fts;
+mod index_integrity;
+mod index_parse;
+mod index_types;
+mod index_verification;
 mod journal;
 mod launch_context;
 mod migration;
 mod platform;
+mod recall;
+mod recall_config;
+mod recall_conflict;
+mod recall_execute;
+mod recall_execute_record;
+mod recall_fallback;
+mod recall_fallback_scan;
+#[cfg(test)]
+mod recall_fallback_tests;
+mod recall_fts;
+mod recall_hydrate;
+mod recall_query;
+mod recall_query_fts;
+mod recall_rank;
+mod recall_result;
+mod recall_scope;
+mod recall_shadow;
+mod recall_status;
+mod recall_temporal;
+mod recall_types;
+mod recall_validity;
 mod recovery;
 mod service;
 mod settings_projection;
@@ -34,6 +64,11 @@ pub use harvest::{
     UserMemoryHarvestRescanPreview, UserMemoryHarvestRescanResult, UserMemoryHarvestState,
     UserMemoryHarvestStatus, UserMemoryHarvestSubmitResult, USER_MEMORY_HARVEST_FILE,
     USER_MEMORY_HARVEST_SCHEMA_VERSION,
+};
+pub use recall_scope::UserMemoryRecallScope;
+pub use recall_types::{
+    UserMemoryIndexStatus, UserMemoryRecallItem, UserMemoryRecallRequest, UserMemoryRecallResult,
+    USER_MEMORY_MAX_RECALL_LIMIT, USER_MEMORY_MAX_RECALL_QUERY_CHARS,
 };
 pub use service::UserMemoryService;
 pub use transaction::{

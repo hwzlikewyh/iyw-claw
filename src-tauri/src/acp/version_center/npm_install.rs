@@ -8,6 +8,7 @@ use crate::acp::error::AcpError;
 use crate::acp::npm_runtime;
 use crate::acp::registry;
 use crate::acp::version_center::fallback::{self, AgentFallbackReason};
+use crate::acp::version_center::inventory::{self, ORIGIN_MANAGED, STATUS_ACTIVE};
 use crate::models::agent::AgentType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,6 +110,87 @@ pub(crate) async fn confirm_npm_agent_install(
         )));
     }
     Ok(confirmed)
+}
+
+/// 安装前校验 npm 实际使用的 Node；受管运行时还必须与已验证库存一致。
+pub(crate) async fn ensure_npm_node_requirement(
+    conn: &DatabaseConnection,
+    agent_type: AgentType,
+) -> Result<(), AcpError> {
+    let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type) else {
+        return Ok(());
+    };
+    let required = semver::Version::parse(required)
+        .map_err(|_| contract_error("trusted Agent Node.js requirement is invalid"))?;
+    let active_version = inventory::list_tool_settings(conn)
+        .await?
+        .into_iter()
+        .find(|setting| setting.tool_id == "node")
+        .and_then(|setting| setting.active_version);
+    if let Some(active_version) = active_version {
+        validate_managed_node_inventory(conn, agent_type, &required, &active_version).await?;
+    }
+    let environment = std::collections::BTreeMap::new();
+    let required_text = required.to_string();
+    crate::acp::preflight::enforce_minimum_node_version(&environment, &required_text)
+        .await
+        .map_err(|detail| node_path_requirement_error(agent_type, &required, &detail))
+}
+
+async fn validate_managed_node_inventory(
+    conn: &DatabaseConnection,
+    agent_type: AgentType,
+    required: &semver::Version,
+    active_version: &str,
+) -> Result<(), AcpError> {
+    let active = inventory::list_tool_installations(conn, "node")
+        .await?
+        .into_iter()
+        .find(|installation| {
+            installation.version == active_version
+                && installation.status == STATUS_ACTIVE
+                && installation.verified
+                && installation.origin == ORIGIN_MANAGED
+        })
+        .ok_or_else(|| managed_node_requirement_error(agent_type, required, active_version))?;
+    let installed = semver::Version::parse(&active.version)
+        .map_err(|_| managed_node_requirement_error(agent_type, required, active_version))?;
+    if installed >= *required {
+        return Ok(());
+    }
+    tracing::warn!(
+        agent = registry::registry_id_for(agent_type),
+        installed_node = %installed,
+        required_node = %required,
+        "[agent-version-center] npx Agent install blocked by managed Node.js requirement"
+    );
+    Err(managed_node_requirement_error(
+        agent_type,
+        required,
+        active_version,
+    ))
+}
+
+fn managed_node_requirement_error(
+    agent_type: AgentType,
+    required: &semver::Version,
+    installed: &str,
+) -> AcpError {
+    AcpError::DownloadFailed(format!(
+        "{} requires Node.js >= {required}; active managed Node.js is {installed}",
+        registry::get_agent_meta(agent_type).name,
+    ))
+}
+
+fn node_path_requirement_error(
+    agent_type: AgentType,
+    required: &semver::Version,
+    detail: &str,
+) -> AcpError {
+    AcpError::DownloadFailed(format!(
+        "{} requires Node.js >= {required}: {detail}",
+        registry::get_agent_meta(agent_type).name,
+    ))
 }
 
 fn install_from_offer(

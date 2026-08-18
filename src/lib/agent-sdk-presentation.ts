@@ -1,17 +1,16 @@
 import {
   AGENT_LABELS,
-  ALL_AGENT_TYPES,
+  isAgentType,
   type AcpAgentInfo,
   type AgentType,
 } from "@/lib/types"
+import { getAgentLabel, refreshCustomAgentNames } from "@/lib/custom-agents"
 
 export const AGENT_SDK_ALIASES = AGENT_LABELS
 
 export function getAgentDisplayName(agentType: AgentType): string {
-  return AGENT_SDK_ALIASES[agentType]
+  return getAgentLabel(agentType)
 }
-
-const VISIBLE_AGENT_TYPES = new Set<AgentType>(ALL_AGENT_TYPES)
 
 const BRAND_TEXT_REPLACEMENTS: ReadonlyArray<readonly [RegExp, string]> = [
   [/Codex CLI/g, "星河"],
@@ -50,8 +49,9 @@ export function presentAgentSdkAgents(
   agents: AcpAgentInfo[],
   describeAlias: (name: string) => string
 ): AcpAgentInfo[] {
+  refreshCustomAgentNames(agents)
   return agents
-    .filter((agent) => VISIBLE_AGENT_TYPES.has(agent.agent_type))
+    .filter((agent) => isAgentType(agent.agent_type))
     .map((agent) => {
       const alias = getAgentDisplayName(agent.agent_type)
       return {

@@ -1,3 +1,7 @@
+use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::path::Path;
+
 use serde::Serialize;
 use std::sync::Mutex;
 
@@ -293,6 +297,37 @@ fn build_node_version_check(current_version: Option<&str>, required: &str) -> Ch
     }
 }
 
+/// Enforce the Node.js floor for a launch using the same parser and check
+/// semantics as the settings preflight. The PATH comes from the launch
+/// environment so managed Node takes precedence exactly as it will for npx.
+pub(crate) async fn enforce_minimum_node_version(
+    environment: &BTreeMap<String, String>,
+    required: &str,
+) -> Result<(), String> {
+    let path = environment
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
+        .map(|(_, value)| OsString::from(value.as_str()))
+        .or_else(|| std::env::var_os("PATH"));
+    let node_path = which::which_in("node", path.as_deref(), Path::new("."))
+        .map_err(|_| "Node.js is not installed or not available in the launch PATH".to_string())?;
+    let output = crate::process::tokio_command(&node_path)
+        .envs(environment)
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|error| format!("failed to execute Node.js for version check: {error}"))?;
+    if !output.status.success() {
+        return Err("Node.js version check failed".to_string());
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let check = build_node_version_check(Some(&version), required);
+    match check.status {
+        CheckStatus::Pass => Ok(()),
+        CheckStatus::Fail | CheckStatus::Warn => Err(check.message),
+    }
+}
+
 /// Preflight for `Uvx` agents (Python ACP agents launched via `uvx`, e.g.
 /// Hermes). Private storage requires its managed uvx; legacy system discovery
 /// is reported only before storage initialization.
@@ -425,7 +460,7 @@ async fn check_binary_environment(
 
     // Check platform support
     let current = registry::current_platform();
-    let platform_supported = platforms.iter().any(|p| p.platform == current);
+    let platform_supported = registry::binary_platform_supported(agent_type, platforms);
 
     let platform_check = if platform_supported {
         CheckItem {

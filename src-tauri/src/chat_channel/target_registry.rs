@@ -41,6 +41,15 @@ pub async fn register_default(
                 provider_payload: None,
             })
         }
+        "wecom_agent" => {
+            string_field(&config, "default_user_id").map(|user_id| ChannelMessageTarget {
+                channel_id: channel.id,
+                chat_id: Some(user_id),
+                thread_key: None,
+                thread_kind: Some("wecom_agent_user".to_string()),
+                provider_payload: None,
+            })
+        }
         _ => None,
     };
     let Some(target) = target else {
@@ -100,6 +109,7 @@ fn target_kind(target: &ChannelMessageTarget) -> &'static str {
     match target.thread_kind.as_deref() {
         Some("wecom_chat") => "wecom_chat",
         Some("wecom_ai_bot") => "wecom_ai_bot",
+        Some("wecom_agent_user") => "wecom_agent_user",
         Some("dingtalk_chat") => "dingtalk_chat",
         Some("lark_chat") => "lark_chat",
         Some("weixin_context") => "weixin_context",

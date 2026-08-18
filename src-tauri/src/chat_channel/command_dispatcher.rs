@@ -159,7 +159,6 @@ pub fn spawn_command_dispatcher(
                     &db_conn,
                     &manager,
                     cmd.channel_id,
-                    text,
                     message,
                     target,
                     Some(&trace_id),
@@ -177,7 +176,6 @@ pub fn spawn_command_dispatcher(
                             &db_conn,
                             &manager,
                             cmd.channel_id,
-                            text,
                             message,
                             target,
                             Some(&trace_id),
@@ -419,7 +417,7 @@ async fn dispatch_natural_message(
         natural_router::route_natural_message(db, bridge, channel_id, sender_id, text, lang).await;
     tracing::info!(
         channel_id,
-        decision = ?decision,
+        decision = natural_route_name(&decision),
         "[ChatChannel] natural route selected"
     );
 
@@ -520,6 +518,20 @@ async fn dispatch_natural_message(
             );
             DispatchResponse::current(RichMessage::info(message), target)
         }
+    }
+}
+
+fn natural_route_name(decision: &NaturalRouteDecision) -> &'static str {
+    match decision {
+        NaturalRouteDecision::ContinueSession => "continue_session",
+        NaturalRouteDecision::ApprovePermission { .. } => "approve_permission",
+        NaturalRouteDecision::DenyPermission => "deny_permission",
+        NaturalRouteDecision::CancelSession => "cancel_session",
+        NaturalRouteDecision::StartTask { .. } => "start_task",
+        NaturalRouteDecision::ShowStatus => "show_status",
+        NaturalRouteDecision::ShowToday => "show_today",
+        NaturalRouteDecision::SearchHistory { .. } => "search_history",
+        NaturalRouteDecision::AskClarification { .. } => "ask_clarification",
     }
 }
 

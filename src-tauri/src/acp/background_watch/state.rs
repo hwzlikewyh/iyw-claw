@@ -32,6 +32,13 @@ pub(super) struct WatchState {
     pub(super) turn_origins: HashMap<String, Option<String>>,
     pub(super) last_emitted_outstanding: u32,
     pub(super) last_episode_base: u64,
+    /// A ledger-matched foreground prompt whose first assistant record has not
+    /// been observed yet. Claude may write additional user-shaped records for
+    /// the same submission before that reply.
+    pub(super) foreground_awaiting_reply: bool,
+    /// The matched transcript `promptId`. Without one, side records cannot be
+    /// distinguished safely from unrelated background initiators.
+    pub(super) foreground_submission_id: Option<String>,
     last_disk_activity: Option<std::time::Instant>,
 }
 
@@ -48,6 +55,8 @@ impl WatchState {
             turn_origins: HashMap::new(),
             last_emitted_outstanding: 0,
             last_episode_base: 0,
+            foreground_awaiting_reply: false,
+            foreground_submission_id: None,
             last_disk_activity: None,
         }
     }
@@ -62,7 +71,26 @@ impl WatchState {
         self.turn_origins.clear();
         self.last_emitted_outstanding = 0;
         self.last_episode_base = 0;
+        self.close_foreground_submission();
         self.last_disk_activity = None;
+    }
+
+    pub(super) fn begin_foreground_submission(&mut self, submission_id: Option<String>) {
+        self.foreground_awaiting_reply = true;
+        self.foreground_submission_id = submission_id;
+    }
+
+    pub(super) fn close_foreground_submission(&mut self) {
+        self.foreground_awaiting_reply = false;
+        self.foreground_submission_id = None;
+    }
+
+    pub(super) fn is_foreground_side_record(&self, submission_id: Option<&str>) -> bool {
+        self.foreground_awaiting_reply
+            && self
+                .foreground_submission_id
+                .as_deref()
+                .is_some_and(|expected| Some(expected) == submission_id)
     }
 
     pub(super) fn poll_delay(&self) -> std::time::Duration {
@@ -84,6 +112,11 @@ impl WatchState {
         prompting: bool,
         ended_abnormally: bool,
     ) -> Option<AcpEvent> {
+        // Level-triggered cleanup prevents a prompt that ended between watcher
+        // polls from leaving a stale submission window behind.
+        if !prompting {
+            self.close_foreground_submission();
+        }
         self.accounting.begin_tick(prompting, ended_abnormally);
         let max_age = crate::acp::session_state::background_keepalive_max_age()
             .to_std()
@@ -113,6 +146,7 @@ impl WatchState {
             self.tail.reset(metadata.len());
             self.episode = None;
             self.mode = Mode::Foreground;
+            self.close_foreground_submission();
             return Some(Vec::new());
         }
         self.tail.read_new_lines(&self.file).ok()

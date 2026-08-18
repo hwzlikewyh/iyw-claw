@@ -241,11 +241,11 @@ export function SearchCommandDialog({
 
       {/* Agent filter (conversations tab only) */}
       {activeTab === "conversations" && availableAgents.length > 1 && (
-        <div className="flex items-center gap-1 px-3 py-2 border-b">
+        <div className="flex flex-wrap items-center gap-1 px-3 py-2 border-b">
           <button
             onClick={() => setAgentFilter(null)}
             className={cn(
-              "h-6 text-xs px-2 rounded-md transition-colors",
+              "h-6 shrink-0 text-xs px-2 rounded-md transition-colors",
               agentFilter === null
                 ? "bg-secondary text-secondary-foreground"
                 : "text-muted-foreground hover:text-foreground"
@@ -258,7 +258,7 @@ export function SearchCommandDialog({
               key={at}
               onClick={() => setAgentFilter(at)}
               className={cn(
-                "flex items-center gap-1.5 h-6 text-xs px-2 rounded-md transition-colors",
+                "flex h-6 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
                 agentFilter === at
                   ? "bg-secondary text-secondary-foreground"
                   : "text-muted-foreground hover:text-foreground"

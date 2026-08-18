@@ -4,6 +4,7 @@ use std::sync::Arc;
 use axum::{extract::Extension, Json};
 use serde::Deserialize;
 
+use crate::acp::capability_policy::monitor_file_upload;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::chat_image::{
@@ -22,6 +23,7 @@ pub async fn prepare_chat_image(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<PrepareChatImageParams>,
 ) -> Result<Json<PreparedChatImage>, AppCommandError> {
+    let monitor = monitor_file_upload(None).await?;
     prepare_chat_image_core(
         &state.db.conn,
         PrepareChatImageRequest {
@@ -31,6 +33,7 @@ pub async fn prepare_chat_image(
             session_id: params.session_id,
             display_name: None,
         },
+        &monitor,
     )
     .await
     .map(Json)

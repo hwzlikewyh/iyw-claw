@@ -304,6 +304,8 @@ impl UserMemoryService {
         &self,
         execute: bool,
     ) -> Result<UserMemoryCandidateIndexRebuildResult, AppCommandError> {
+        let (_io_guard, _file_guard) = self.acquire_locks().await?;
+        self.recover_pending_transaction().await?;
         let root = self.resolved_root()?.to_path_buf();
         let mut state = candidate_store::read_state(&root)?;
         let mut affected = 0u32;
@@ -328,6 +330,7 @@ impl UserMemoryService {
         }
         if execute {
             candidate_store::write_state(&root, &state)?;
+            self.schedule_index_refresh();
         }
         Ok(UserMemoryCandidateIndexRebuildResult {
             affected,

@@ -13,7 +13,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { AGENT_LABELS } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { cn } from "@/lib/utils"
 
 type ConnectionStatusLabelKey =
@@ -107,7 +107,7 @@ export function StatusBarConnection() {
   const style = STATUS_STYLE[status]
   if (!style) return null
 
-  const label = AGENT_LABELS[agentType]
+  const label = getAgentDisplayName(agentType)
   const statusLabel = t(style.labelKey)
   const tooltipText =
     status === "error" && activeConn?.error

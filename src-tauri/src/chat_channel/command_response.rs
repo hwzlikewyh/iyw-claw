@@ -109,7 +109,6 @@ pub(super) async fn send_dispatch_message(
     db: &DatabaseConnection,
     manager: &ChatChannelManager,
     channel_id: i32,
-    command_text: &str,
     message: DispatchMessage,
     target: ChannelMessageTarget,
     trace_id: Option<&str>,
@@ -135,7 +134,10 @@ pub(super) async fn send_dispatch_message(
         Ok(sent_id) => ("sent", None, Some(sent_id.0)),
         Err(error) => {
             tracing::error!(
-                "[ChatChannel] failed to send response for {command_text:?} to channel {channel_id}: {error}"
+                channel_id,
+                error = %error,
+                trace_id = trace_id.unwrap_or(""),
+                "[ChatChannel] failed to send response"
             );
             ("failed", Some("CHANNEL_SEND_FAILED".to_string()), None)
         }
@@ -168,26 +170,30 @@ async fn send_long_message(
     message: &RichMessage,
 ) -> Result<SentMessageId, ChatChannelError> {
     let text = message.to_plain_text();
-    // Providers cap message length (WeCom 2048 bytes, Weixin similar); 1500
-    // chars is a conservative safe size.
+    // Providers cap UTF-8 bytes (WeCom 2048 bytes, Weixin similar). Keep room
+    // for provider envelopes and split the fully rendered fallback only once.
     let chunks = split_utf8_chunks(&text, 1500);
     let mut last_id: Option<SentMessageId> = None;
     for chunk in chunks {
-        let mut partial = message.clone();
-        partial.body = chunk.to_string();
-        partial.fields = Vec::new();
+        let partial = RichMessage {
+            title: None,
+            body: chunk.to_string(),
+            fields: Vec::new(),
+            level: message.level,
+        };
         let id = manager.send_to_target(target, &partial).await?;
         last_id = Some(id);
     }
     last_id.ok_or_else(|| ChatChannelError::SendFailed("empty message".to_string()))
 }
 
-/// Split on char boundaries so multibyte text is never torn.
-fn split_utf8_chunks(text: &str, max_chars: usize) -> Vec<&str> {
+/// Split by UTF-8 byte size without tearing a code point.
+fn split_utf8_chunks(text: &str, max_bytes: usize) -> Vec<&str> {
+    assert!(max_bytes >= 4, "chunk size must fit any UTF-8 code point");
     let mut chunks = Vec::new();
     let mut rest = text;
-    while rest.chars().count() > max_chars {
-        let mut cut = max_chars;
+    while rest.len() > max_bytes {
+        let mut cut = max_bytes;
         while !rest.is_char_boundary(cut) {
             cut -= 1;
         }
@@ -197,4 +203,28 @@ fn split_utf8_chunks(text: &str, max_chars: usize) -> Vec<&str> {
     }
     chunks.push(rest);
     chunks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_utf8_chunks;
+
+    #[test]
+    fn splits_ascii_by_byte_budget() {
+        let text = "a".repeat(3_001);
+        let chunks = split_utf8_chunks(&text, 1_500);
+        assert_eq!(
+            chunks.iter().map(|chunk| chunk.len()).collect::<Vec<_>>(),
+            [1_500, 1_500, 1]
+        );
+        assert_eq!(chunks.concat(), text);
+    }
+
+    #[test]
+    fn splits_multibyte_text_by_byte_budget() {
+        let text = "消息渠道".repeat(600);
+        let chunks = split_utf8_chunks(&text, 1_500);
+        assert!(chunks.iter().all(|chunk| chunk.len() <= 1_500));
+        assert_eq!(chunks.concat(), text);
+    }
 }

@@ -336,8 +336,8 @@ interface MessageInputProps {
   isEditingQueueItem?: boolean
   onSaveQueueEdit?: (draft: PromptDraft) => void
   onCancelQueueEdit?: () => void
-  /** Fork the session and send `draft`. Return false when preflight rejects the
-   *  request so the composer keeps the current draft. */
+  /** Fork the session and send `draft`. A synchronous false keeps the draft;
+   *  accepted attempts clear immediately and the parent re-queues async failures. */
   onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
   /** Open the live-feedback dialog (from the "+" menu). When omitted the entry
    *  is hidden (feature off). */

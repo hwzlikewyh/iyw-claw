@@ -17,16 +17,30 @@ pub async fn take_secure_targets(
     }
     for target in targets {
         if let Err(error) = crate::keyring_store::delete_channel_target(&target.target_id) {
-            let _ = restore_secure_targets(&backup);
-            return Err(DbError::Migration(error));
+            return match restore_secure_targets(&backup) {
+                Ok(()) => Err(DbError::Migration(error)),
+                Err(rollback_error) => Err(DbError::Migration(format!(
+                    "{error}; channel target rollback failed: {rollback_error}"
+                ))),
+            };
         }
     }
     Ok(backup)
 }
 
 pub fn restore_secure_targets(targets: &[(String, String)]) -> Result<(), DbError> {
+    let mut failures = Vec::new();
     for (target_id, payload) in targets {
-        crate::keyring_store::set_channel_target(target_id, payload).map_err(DbError::Migration)?;
+        if let Err(error) = crate::keyring_store::set_channel_target(target_id, payload) {
+            failures.push(error);
+        }
+    }
+    if !failures.is_empty() {
+        return Err(DbError::Migration(format!(
+            "failed to restore {} channel target credential(s): {}",
+            failures.len(),
+            failures.join("; ")
+        )));
     }
     Ok(())
 }

@@ -17,11 +17,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslations } from "next-intl"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { SnapshotEditor } from "@/components/settings/delegation-agent-defaults-editor"
-import {
-  AGENT_LABELS,
-  type AgentDelegationDefaults,
-  type AgentType,
-} from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
+import { type AgentDelegationDefaults, type AgentType } from "@/lib/types"
 import {
   getFixedAgentOptions,
   hasAuthoritativeFixedAgentOptions,
@@ -203,7 +200,7 @@ export function DelegationAgentDefaultsPanel({
                   : "text-muted-foreground hover:text-foreground")
               }
             >
-              {AGENT_LABELS[agent.agent_type]}
+              {getAgentDisplayName(agent.agent_type)}
             </button>
           ))}
         </div>

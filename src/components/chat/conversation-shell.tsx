@@ -10,6 +10,7 @@ import type {
   PromptDraft,
   PromptInputBlock,
   QuestionAnswer,
+  SessionFailureRecord,
   SessionConfigOptionInfo,
   SessionModeInfo,
   AvailableCommandInfo,
@@ -27,6 +28,8 @@ import { QuestionDialog } from "@/components/chat/question-dialog"
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
 import { ChannelConfirmationCard } from "@/components/chat/channel-confirmation-card"
 import { AgentInputWaitingDisplay } from "@/components/chat/agent-input-waiting-display"
+import { SessionFailureBanner } from "@/components/chat/session-failure-banner"
+import type { SessionFailureAction } from "@/lib/session-failures"
 
 interface ConversationShellProps {
   status: ConnectionStatus | null
@@ -35,6 +38,12 @@ interface ConversationShellProps {
   agentName?: string
   error: string | null
   claudeApiRetry: ClaudeApiRetryState | null
+  sessionFailures: SessionFailureRecord[]
+  onSessionFailureAction?: (
+    action: SessionFailureAction,
+    failure: SessionFailureRecord
+  ) => void
+  onSessionFailureDismiss: (ids: string[]) => void
   pendingPermission: PendingPermission | null
   pendingQuestion: PendingQuestion | null
   /** Awaiting-answer multiple-choice `ask_user_question`. */
@@ -117,6 +126,9 @@ export function ConversationShell({
   agentName,
   error,
   claudeApiRetry,
+  sessionFailures,
+  onSessionFailureAction,
+  onSessionFailureDismiss,
   pendingPermission,
   pendingQuestion,
   pendingAskQuestion,
@@ -316,6 +328,12 @@ export function ConversationShell({
           </div>
         )}
       </div>
+
+      <SessionFailureBanner
+        failures={sessionFailures}
+        onAction={onSessionFailureAction}
+        onDismiss={onSessionFailureDismiss}
+      />
 
       {retryLineText && (
         <div className="border-t border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-destructive">

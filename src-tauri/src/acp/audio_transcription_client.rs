@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::str::FromStr;
 use std::time::Duration;
 
 use reqwest::header::{HeaderName, HeaderValue, CONTENT_LENGTH};

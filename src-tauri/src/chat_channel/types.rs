@@ -1,6 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+pub use super::channel_config_types::{
+    DingtalkConfig, LarkConfig, WecomAiBotConfig, WecomConfig, WeixinConfig,
+};
+pub use super::wecom_agent_types::{WecomAgentConfig, WecomAgentSecrets};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelType {
@@ -12,60 +17,6 @@ pub enum ChannelType {
     WecomAgent,
     Weixin,
     Dingtalk,
-}
-
-// ── Per-channel strong typed configs ──
-
-/// WeCom (企业微信) rides on the `wecom-cli` companion (`@wecom/cli`), which
-/// owns credentials (QR-scan auth) and message transport. The channel config
-/// only carries iyw-claw-side behavior.
-#[derive(Debug, Clone, Deserialize)]
-pub struct WecomConfig {
-    /// Chat to deliver app-initiated notifications (daily report, events) to.
-    /// Incoming chats always reply to their own chat via the message target.
-    #[serde(default)]
-    pub default_chatid: String,
-    /// 1 = direct chat, 2 = group chat (matches wecom-cli `chat_type`).
-    #[serde(default = "default_wecom_chat_type")]
-    pub default_chat_type: u8,
-    /// Message poll cadence. wecom-cli only supports polling, no push.
-    #[serde(default)]
-    pub poll_interval_secs: Option<u64>,
-}
-
-fn default_wecom_chat_type() -> u8 {
-    1
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct WecomAiBotConfig {
-    pub bot_id: String,
-    #[serde(default)]
-    pub default_chatid: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct WecomAgentConfig {
-    pub corp_id: String,
-    pub agent_id: String,
-    #[serde(default)]
-    pub callback_path: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct LarkConfig {
-    pub app_id: String,
-    pub chat_id: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct WeixinConfig {
-    pub base_url: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct DingtalkConfig {
-    pub client_id: String,
 }
 
 impl std::fmt::Display for ChannelType {

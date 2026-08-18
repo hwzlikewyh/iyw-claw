@@ -36,6 +36,9 @@ mod m20260812_000001_agent_input_ordering;
 mod m20260812_000003_chat_channel_agent_tools;
 mod m20260814_000001_skill_activation_policy;
 mod m20260816_000001_chat_channel_sender_context_weixin_context;
+mod m20260816_000002_memory_recall_index;
+mod m20260817_000001_memory_recall_temporal_index;
+mod m20260817_000002_capability_preference;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -78,6 +81,9 @@ impl MigratorTrait for Migrator {
             Box::new(m20260812_000003_chat_channel_agent_tools::Migration),
             Box::new(m20260814_000001_skill_activation_policy::Migration),
             Box::new(m20260816_000001_chat_channel_sender_context_weixin_context::Migration),
+            Box::new(m20260816_000002_memory_recall_index::Migration),
+            Box::new(m20260817_000001_memory_recall_temporal_index::Migration),
+            Box::new(m20260817_000002_capability_preference::Migration),
         ]
     }
 }

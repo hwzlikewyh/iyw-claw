@@ -24,13 +24,14 @@ pub fn enforce_automatic_mode(mut draft: AutomationDraft) -> AutomationDraft {
 
 fn automatic_mode_id(raw: &str) -> Option<&'static str> {
     let agent = serde_json::from_value::<AgentType>(Value::String(raw.to_string())).ok()?;
-    Some(match agent {
-        AgentType::Codex => "agent-full-access",
-        AgentType::ClaudeCode | AgentType::CodeBuddy | AgentType::Grok => "bypassPermissions",
-        AgentType::Gemini => "yolo",
-        AgentType::OpenCode => "build",
-        AgentType::Cline => "act",
-        AgentType::OpenClaw | AgentType::Hermes | AgentType::KimiCode => "default",
-        AgentType::Pi => "medium",
-    })
+    match agent {
+        AgentType::Codex => Some("agent-full-access"),
+        AgentType::ClaudeCode | AgentType::CodeBuddy | AgentType::Grok => Some("bypassPermissions"),
+        AgentType::Gemini => Some("yolo"),
+        AgentType::OpenCode => Some("build"),
+        AgentType::Cline => Some("act"),
+        AgentType::OpenClaw | AgentType::Hermes | AgentType::KimiCode => Some("default"),
+        AgentType::Pi => Some("medium"),
+        AgentType::Cursor | AgentType::DeepSeek | AgentType::Custom(_) => None,
+    }
 }

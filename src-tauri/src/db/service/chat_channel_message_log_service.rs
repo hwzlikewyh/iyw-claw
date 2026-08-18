@@ -5,7 +5,7 @@ use sea_orm::{
     QueryFilter, QueryOrder, QuerySelect, Set,
 };
 
-use crate::db::entities::chat_channel_message_log;
+use crate::db::entities::{chat_channel, chat_channel_message_log};
 use crate::db::error::DbError;
 
 #[allow(clippy::too_many_arguments)]
@@ -103,12 +103,14 @@ pub async fn create_log_for_target_returning(
     provider_message_id: Option<String>,
     target_id: Option<String>,
 ) -> Result<chat_channel_message_log::Model, DbError> {
+    let (content_preview, error_detail) =
+        protected_log_fields(conn, channel_id, content_preview, error_detail).await?;
     let active = chat_channel_message_log::ActiveModel {
         id: NotSet,
         channel_id: Set(channel_id),
         direction: Set(direction.to_string()),
         message_type: Set(message_type.to_string()),
-        content_preview: Set(truncate_preview(content_preview)),
+        content_preview: Set(content_preview),
         status: Set(status.to_string()),
         error_detail: Set(error_detail),
         trace_id: Set(trace_id),
@@ -117,6 +119,43 @@ pub async fn create_log_for_target_returning(
         created_at: Set(Utc::now()),
     };
     Ok(active.insert(conn).await?)
+}
+
+async fn protected_log_fields(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    content: &str,
+    error_detail: Option<String>,
+) -> Result<(String, Option<String>), DbError> {
+    let channel = chat_channel::Entity::find_by_id(channel_id)
+        .one(conn)
+        .await?;
+    let sensitive = channel
+        .as_ref()
+        .map(|model| model.channel_type == "wecom_agent")
+        .unwrap_or(true);
+    if !sensitive {
+        return Ok((truncate_preview(content), error_detail));
+    }
+    Ok((
+        format!("[content redacted; chars={}]", content.chars().count()),
+        stable_error_detail(error_detail),
+    ))
+}
+
+fn stable_error_detail(detail: Option<String>) -> Option<String> {
+    detail.map(|value| {
+        if value.len() <= 64
+            && !value.is_empty()
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+        {
+            value
+        } else {
+            "CHANNEL_MESSAGE_FAILED".to_string()
+        }
+    })
 }
 
 pub async fn list_filtered(

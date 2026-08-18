@@ -15,6 +15,9 @@ use crate::workspace_transfer::WorkspaceTransferManager;
 pub struct AppState {
     pub db: AppDatabase,
     pub agent_catalog: crate::acp::version_center::CatalogStore,
+    pub capability_policy: crate::acp::capability_policy::CapabilityPolicyStore,
+    pub capability_policy_refresh:
+        Arc<crate::acp::capability_policy::CapabilityPolicyRefreshRuntime>,
     pub connection_manager: ConnectionManager,
     pub terminal_manager: TerminalManager,
     pub event_broadcaster: Arc<WebEventBroadcaster>,
@@ -88,6 +91,37 @@ pub fn default_terminal_manager() -> TerminalManager {
 
 pub fn default_chat_channel_manager() -> ChatChannelManager {
     ChatChannelManager::new()
+}
+
+pub async fn build_capability_policy_stack(
+    conn: sea_orm::DatabaseConnection,
+) -> (
+    crate::acp::capability_policy::CapabilityPolicyStore,
+    Arc<crate::acp::capability_policy::CapabilityPolicyRefreshRuntime>,
+) {
+    use crate::acp::capability_policy::{
+        install_runtime_enforcer, AppMetadataPolicyCache, CapabilityEnforcer,
+        CapabilityPolicyRefreshRuntime, CapabilityPolicyStore, RefreshConfig,
+        SnapshotValidationRules,
+    };
+    use crate::acp::version_center::CapabilityPolicyHttpFetcher;
+
+    let cache = Arc::new(AppMetadataPolicyCache::new(conn.clone()));
+    let store = CapabilityPolicyStore::new(cache, SnapshotValidationRules::default());
+    if let Err(error) = store.restore_cache().await {
+        tracing::warn!(
+            error = %error,
+            "[capability-policy] ignored invalid persisted snapshot"
+        );
+    }
+    install_runtime_enforcer(CapabilityEnforcer::new(conn.clone(), store.clone()));
+    let fetcher = Arc::new(CapabilityPolicyHttpFetcher::new(conn));
+    let runtime = Arc::new(CapabilityPolicyRefreshRuntime::start(
+        store.clone(),
+        fetcher,
+        RefreshConfig::default(),
+    ));
+    (store, runtime)
 }
 
 /// Build the delegation broker + token registry + per-process UDS socket

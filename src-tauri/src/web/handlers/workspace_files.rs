@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
+use crate::acp::capability_policy::monitor_file_upload;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::workspace_transfer::{DownloadKind, DownloadTicketIssued, DownloadTicketSpec};
@@ -228,6 +229,7 @@ pub async fn upload_workspace_file(
     Extension(state): Extension<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadWorkspaceFileResult>, AppCommandError> {
+    let monitor = monitor_file_upload(None).await?;
     let _permit = state
         .workspace_transfer
         .workspace_upload_semaphore
@@ -242,28 +244,41 @@ pub async fn upload_workspace_file(
     let mut relative_path: Option<String> = None;
     let mut result: Option<UploadWorkspaceFileResult> = None;
 
-    while let Some(mut field) = multipart.next_field().await.map_err(|e| {
-        AppCommandError::io_error("Invalid multipart upload").with_detail(e.to_string())
-    })? {
+    while let Some(mut field) = monitor
+        .run_until_revoked(multipart.next_field())
+        .await?
+        .map_err(|e| {
+            AppCommandError::io_error("Invalid multipart upload").with_detail(e.to_string())
+        })?
+    {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "root_path" | "rootPath" => {
-                root_path = Some(field.text().await.map_err(|e| {
-                    AppCommandError::io_error("Failed to read root_path field")
-                        .with_detail(e.to_string())
-                })?);
+                root_path = Some(
+                    monitor
+                        .run_until_revoked(field.text())
+                        .await?
+                        .map_err(|e| {
+                            AppCommandError::io_error("Failed to read root_path field")
+                                .with_detail(e.to_string())
+                        })?,
+                );
             }
             "target_path" | "targetPath" => {
-                target_path = Some(field.text().await.map_err(|e| {
-                    AppCommandError::io_error("Failed to read target_path field")
-                        .with_detail(e.to_string())
-                })?);
+                target_path = Some(monitor.run_until_revoked(field.text()).await?.map_err(
+                    |e| {
+                        AppCommandError::io_error("Failed to read target_path field")
+                            .with_detail(e.to_string())
+                    },
+                )?);
             }
             "relative_path" | "relativePath" => {
-                relative_path = Some(field.text().await.map_err(|e| {
-                    AppCommandError::io_error("Failed to read relative_path field")
-                        .with_detail(e.to_string())
-                })?);
+                relative_path = Some(monitor.run_until_revoked(field.text()).await?.map_err(
+                    |e| {
+                        AppCommandError::io_error("Failed to read relative_path field")
+                            .with_detail(e.to_string())
+                    },
+                )?);
             }
             "file" => {
                 if result.is_some() {
@@ -348,10 +363,14 @@ pub async fn upload_workspace_file(
 
                 let mut written: u64 = 0;
                 let stream_result: Result<(), AppCommandError> = async {
-                    while let Some(chunk) = field.chunk().await.map_err(|e| {
-                        AppCommandError::io_error("Failed to read upload chunk")
-                            .with_detail(e.to_string())
-                    })? {
+                    while let Some(chunk) = monitor
+                        .run_until_revoked(field.chunk())
+                        .await?
+                        .map_err(|e| {
+                            AppCommandError::io_error("Failed to read upload chunk")
+                                .with_detail(e.to_string())
+                        })?
+                    {
                         let new_total = written.saturating_add(chunk.len() as u64);
                         out.write_all(&chunk).await.map_err(|e| {
                             AppCommandError::io_error("Failed to write chunk")
@@ -388,6 +407,10 @@ pub async fn upload_workspace_file(
                 // still has the narrow race but it's the best we can do
                 // there, and the user is uploading into their own
                 // workspace so the race window has no security impact.
+                if let Err(error) = monitor.require_current().await {
+                    let _ = tokio::fs::remove_file(&staging_path).await;
+                    return Err(error);
+                }
                 let commit_method: &str;
                 match tokio::fs::hard_link(&staging_path, &final_abs).await {
                     Ok(()) => {
@@ -417,6 +440,11 @@ pub async fn upload_workspace_file(
                 if let Err(err) = ensure_inside_root(&root, &final_abs) {
                     let _ = tokio::fs::remove_file(&final_abs).await;
                     return Err(err);
+                }
+
+                if let Err(error) = monitor.require_current().await {
+                    let _ = tokio::fs::remove_file(&final_abs).await;
+                    return Err(error);
                 }
 
                 // Sanity verification: the API has been observed to
@@ -462,7 +490,7 @@ pub async fn upload_workspace_file(
             }
             _ => {
                 // Drain unknown fields to keep the parser moving.
-                let _ = field.bytes().await;
+                let _ = monitor.run_until_revoked(field.bytes()).await?;
             }
         }
     }

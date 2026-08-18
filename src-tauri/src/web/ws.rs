@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::{
@@ -46,6 +47,36 @@ fn apply_cleanup_signal(
 // clients (web / remote desktop) continue to work while transports migrate.
 // Phase 4 will retire this channel.
 const WS_READY_CHANNEL: &str = "__ready__";
+const WS_LAG_LOG_WINDOW: Duration = Duration::from_secs(10);
+const WS_SHUTDOWN_SEND_TIMEOUT: Duration = Duration::from_millis(500);
+
+#[derive(Default)]
+struct LagWarningThrottle {
+    last_emit: Option<Instant>,
+    occurrences: u64,
+    dropped: u64,
+}
+
+impl LagWarningThrottle {
+    fn record(&mut self, dropped: u64) -> Option<(u64, u64)> {
+        self.occurrences = self.occurrences.saturating_add(1);
+        self.dropped = self.dropped.saturating_add(dropped);
+
+        let now = Instant::now();
+        if self
+            .last_emit
+            .is_some_and(|last_emit| now.saturating_duration_since(last_emit) < WS_LAG_LOG_WINDOW)
+        {
+            return None;
+        }
+
+        self.last_emit = Some(now);
+        let summary = (self.occurrences, self.dropped);
+        self.occurrences = 0;
+        self.dropped = 0;
+        Some(summary)
+    }
+}
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -64,7 +95,7 @@ async fn handle_ws_connection(
     // Late handshake guard: if shutdown already fired before this task
     // even started, exit before subscribing to anything else.
     if shutdown_signal.is_triggered() {
-        let _ = socket.send(Message::Close(None)).await;
+        let _ = send_with_timeout(&mut socket, Message::Close(None)).await;
         return;
     }
 
@@ -113,8 +144,8 @@ async fn handle_ws_connection(
     });
     match serde_json::to_string(&ready_payload) {
         Ok(text) => {
-            if let Err(e) = socket.send(Message::Text(text.into())).await {
-                tracing::warn!("[WS][WARN] failed to send __ready__ frame: {e}");
+            if !send_with_timeout(&mut socket, Message::Text(text.into())).await {
+                tracing::warn!("[WS][WARN] failed to send __ready__ frame");
                 return;
             }
         }
@@ -124,22 +155,27 @@ async fn handle_ws_connection(
         }
     }
 
+    let mut lag_warning_throttle = LagWarningThrottle::default();
+
     loop {
         tokio::select! {
             // Server-initiated shutdown: notify any active attach
             // subscriptions before closing so the client can decide
             // whether to retry on the next reconnect.
             _ = shutdown_signal.wait() => {
-                for sub_id in subscriptions.keys() {
+                let subscription_ids = subscriptions.keys().cloned().collect::<Vec<_>>();
+                for sub_id in subscription_ids {
                     let frame = ServerMsg::Detached {
-                        subscription_id: sub_id.clone(),
+                        subscription_id: sub_id,
                         reason: DetachReason::ServerShutdown,
                     };
                     if let Ok(text) = serde_json::to_string(&frame) {
-                        let _ = socket.send(Message::Text(text.into())).await;
+                        if !send_with_timeout(&mut socket, Message::Text(text.into())).await {
+                            break;
+                        }
                     }
                 }
-                let _ = socket.send(Message::Close(None)).await;
+                let _ = send_with_timeout(&mut socket, Message::Close(None)).await;
                 break;
             }
 
@@ -162,7 +198,7 @@ async fn handle_ws_connection(
                     Some(msg) => {
                         match serde_json::to_string(&msg) {
                             Ok(text) => {
-                                if socket.send(Message::Text(text.into())).await.is_err() {
+                                if !send_with_timeout(&mut socket, Message::Text(text.into())).await {
                                     break;
                                 }
                             }
@@ -185,13 +221,20 @@ async fn handle_ws_connection(
                 match result {
                     Ok(event) => {
                         if let Ok(msg) = serde_json::to_string(&event) {
-                            if socket.send(Message::Text(msg.into())).await.is_err() {
+                            if !send_with_timeout(&mut socket, Message::Text(msg.into())).await {
                                 break;
                             }
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("[WS][WARN] global receiver lagged, skipped {n} events");
+                        if let Some((occurrences, dropped)) = lag_warning_throttle.record(n) {
+                            tracing::warn!(
+                                occurrences,
+                                dropped,
+                                window_seconds = WS_LAG_LOG_WINDOW.as_secs(),
+                                "[WS][WARN] global receiver lagged"
+                            );
+                        }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         break;
@@ -235,6 +278,13 @@ async fn handle_ws_connection(
     for (_, sub) in subscriptions.drain() {
         sub.handle.abort();
     }
+}
+
+async fn send_with_timeout(socket: &mut WebSocket, message: Message) -> bool {
+    matches!(
+        tokio::time::timeout(WS_SHUTDOWN_SEND_TIMEOUT, socket.send(message)).await,
+        Ok(Ok(()))
+    )
 }
 
 async fn handle_client_msg(

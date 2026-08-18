@@ -13,13 +13,13 @@ use super::session_bridge::{ActiveSession, SessionBridge};
 pub use super::session_dispatch::{
     handle_post_action, CommandMessageResult, CommandPostAction, SessionCommandMessage,
 };
+use super::session_picker::{chat_selectable_agents, is_chat_selectable_agent, parse_chat_agent};
 pub use super::session_picker::{handle_agent_picker, handle_callback, handle_folder_picker};
 use super::session_runtime;
 use super::session_topic;
 use super::session_topic_messages;
 use super::types::{ChannelMessageTarget, MessageLevel, RichMessage};
 use crate::acp::manager::ConnectionManager;
-use crate::acp::registry::all_acp_agents;
 use crate::acp::types::{ConnectionStatus, PromptInputBlock};
 use crate::commands::conversation_title::{self, ConversationTitleContext};
 use crate::db::entities::conversation;
@@ -185,7 +185,7 @@ async fn list_agents(
     lang: Lang,
     prefix: &str,
 ) -> RichMessage {
-    let agents = all_acp_agents();
+    let agents = chat_selectable_agents();
     let ctx = sender_context_service::get_or_create(db, channel_id, sender_id)
         .await
         .ok();
@@ -215,7 +215,7 @@ async fn select_agent_by_index(
     lang: Lang,
     prefix: &str,
 ) -> RichMessage {
-    let agents = all_acp_agents();
+    let agents = chat_selectable_agents();
     if idx == 0 || idx > agents.len() {
         return RichMessage::info(i18n::agent_index_out_of_range(lang, prefix));
     }
@@ -240,6 +240,9 @@ async fn select_agent_by_name(
             return RichMessage::info(format!("{}{}", i18n::unknown_agent_label(lang), name));
         }
     };
+    if !is_chat_selectable_agent(at) {
+        return RichMessage::info(format!("{}{}", i18n::unknown_agent_label(lang), name));
+    }
 
     let at_str = agent_type_to_string(at);
     let _ = sender_context_service::update_agent(db, channel_id, sender_id, Some(at_str)).await;
@@ -1362,8 +1365,7 @@ fn agent_type_to_string(at: AgentType) -> String {
 }
 
 fn parse_agent_type(name: &str) -> Option<AgentType> {
-    let normalized = name.to_lowercase().replace([' ', '-'], "_");
-    serde_json::from_value(serde_json::Value::String(normalized)).ok()
+    parse_chat_agent(name)
 }
 
 fn resolve_agent_type(
@@ -1373,10 +1375,12 @@ fn resolve_agent_type(
 ) -> Option<AgentType> {
     if let Some(ref at_str) = sender_agent {
         if let Some(at) = parse_agent_type(at_str) {
-            return Some(at);
+            return is_chat_selectable_agent(at).then_some(at);
         }
     }
-    channel_default.or_else(|| folder_default.as_ref().copied())
+    channel_default
+        .or_else(|| folder_default.as_ref().copied())
+        .filter(|agent| is_chat_selectable_agent(*agent))
 }
 
 fn truncate_title(s: &str) -> String {

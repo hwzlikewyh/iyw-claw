@@ -33,7 +33,7 @@ pub fn startup_profile_env(
     config: &AgentStorageConfig,
 ) -> BTreeMap<String, OsString> {
     let mut env = BTreeMap::new();
-    for agent_type in crate::acp::registry::all_acp_agents() {
+    for agent_type in crate::acp::registry::all_identity_agents() {
         let registry_id = crate::acp::registry::registry_id_for(agent_type);
         let profile_env = config
             .profile_overrides
@@ -61,7 +61,7 @@ pub fn startup_profile_env_is_complete(
     paths: &AgentStoragePaths,
     mut current: impl FnMut(&str) -> Option<OsString>,
 ) -> bool {
-    crate::acp::registry::all_acp_agents()
+    crate::acp::registry::all_identity_agents()
         .into_iter()
         .all(|agent_type| {
             paths.profile(agent_type).env.keys().all(|key| {
@@ -104,7 +104,16 @@ pub(crate) fn override_profile_env(
         AgentType::KimiCode => single_profile_env(root, "KIMI_CODE_HOME"),
         AgentType::Pi => single_profile_env(root, "PI_CODING_AGENT_DIR"),
         AgentType::Grok => single_profile_env(root, "GROK_HOME"),
+        AgentType::DeepSeek => deepseek_profile_env(root),
+        AgentType::Cursor | AgentType::Custom(_) => BTreeMap::new(),
     }
+}
+
+fn deepseek_profile_env(root: &Path) -> BTreeMap<&'static str, PathBuf> {
+    let mut env = BTreeMap::new();
+    env.insert("DSH_HOME", root.to_path_buf());
+    env.insert("DEEPSEEK_ACP_SESSIONS_ROOT", root.join("sessions"));
+    env
 }
 
 fn single_profile_env(root: &Path, env_key: &'static str) -> BTreeMap<&'static str, PathBuf> {

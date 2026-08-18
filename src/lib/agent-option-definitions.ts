@@ -1,8 +1,10 @@
 import type {
   AgentType,
+  BuiltinAgentType,
   SessionModeInfo,
   SessionModeStateInfo,
 } from "@/lib/types"
+import { isCustomAgentType } from "@/lib/types"
 import type { GatewayModel } from "@/lib/gateway-model-catalog"
 
 type LocalModelDefinition = GatewayModel
@@ -33,7 +35,7 @@ const LOCAL_MODEL_CAPABILITY_DEFAULTS: Pick<
   maxOutputTokens: null,
 }
 
-export const AGENT_MODEL_IDS: Record<AgentType, readonly string[]> = {
+export const AGENT_MODEL_IDS: Record<BuiltinAgentType, readonly string[]> = {
   codex: ["gpt-5.4", "deepseek-v4-pro", "deepseek-v4-flash"],
   claude_code: ["claude-opus-4-6", "gpt-5.4"],
   gemini: ["gemini-3.1-pro-preview", "gpt-5.4"],
@@ -53,6 +55,8 @@ export const AGENT_MODEL_IDS: Record<AgentType, readonly string[]> = {
   cline: ["deepseek-v4-pro", "deepseek-v4-flash", "qwen3.7-max"],
   kimi_code: ["deepseek-v4-pro", "deepseek-v4-flash", "qwen3.7-max"],
   pi: ["deepseek-v4-pro", "deepseek-v4-flash", "qwen3.7-max"],
+  cursor: [],
+  deepseek: [],
 }
 
 const LOCAL_MODELS: readonly LocalModelDefinition[] = [
@@ -134,7 +138,7 @@ const defaultMode = (description: string): SessionModeInfo => ({
   description,
 })
 
-const AGENT_MODES: Record<AgentType, SessionModeInfo[]> = {
+const AGENT_MODES: Record<BuiltinAgentType, SessionModeInfo[]> = {
   codex: [
     {
       id: "read-only",
@@ -213,9 +217,12 @@ const AGENT_MODES: Record<AgentType, SessionModeInfo[]> = {
     { id: "high", name: "高强度", description: "使用较高推理强度" },
     { id: "xhigh", name: "极高强度", description: "使用最高推理强度" },
   ],
+  cursor: [defaultMode("按 Agent 默认策略执行")],
+  deepseek: [defaultMode("按 Agent 默认策略执行")],
 }
 
 export function getLocalAgentModelIds(agentType: AgentType): string[] {
+  if (isCustomAgentType(agentType)) return []
   return [...AGENT_MODEL_IDS[agentType]]
 }
 
@@ -230,6 +237,7 @@ export function deriveAgentModels(
 }
 
 export function getLocalModels(agentType: AgentType): GatewayModel[] {
+  if (isCustomAgentType(agentType)) return []
   const byId = new Map(LOCAL_MODELS.map((model) => [model.id, model]))
   return AGENT_MODEL_IDS[agentType].flatMap((id) => {
     const model = byId.get(id)
@@ -238,7 +246,9 @@ export function getLocalModels(agentType: AgentType): GatewayModel[] {
 }
 
 export function getAgentModeState(agentType: AgentType): SessionModeStateInfo {
-  const availableModes = AGENT_MODES[agentType]
+  const availableModes = isCustomAgentType(agentType)
+    ? [defaultMode("按 Agent 默认策略执行")]
+    : AGENT_MODES[agentType]
   return {
     current_mode_id: availableModes[0]?.id ?? "default",
     available_modes: availableModes,

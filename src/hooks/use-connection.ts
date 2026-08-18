@@ -24,6 +24,7 @@ import type {
   SessionConfigOptionInfo,
   SessionModeStateInfo,
   PromptInputBlock,
+  SessionFailureRecord,
 } from "@/lib/types"
 
 const DEFAULT_PROMPT_CAPABILITIES: PromptCapabilitiesInfo = {
@@ -31,6 +32,9 @@ const DEFAULT_PROMPT_CAPABILITIES: PromptCapabilitiesInfo = {
   audio: false,
   embedded_context: false,
 }
+
+const EMPTY_SESSION_FAILURES: SessionFailureRecord[] = []
+const EMPTY_AGENT_INPUTS: AgentInputItem[] = []
 
 export interface UseConnectionReturn {
   connectionId: string | null
@@ -64,6 +68,7 @@ export interface UseConnectionReturn {
   pendingAskQuestion: PendingQuestionState | null
   pendingChannelConfirmation: PendingChannelConfirmationState | null
   claudeApiRetry: ClaudeApiRetryState | null
+  sessionFailures: SessionFailureRecord[]
   error: string | null
   loadError: string | null
   /** True when the running session is on stale (launch-time) config after a
@@ -205,13 +210,14 @@ export function useConnection(contextKey: string): UseConnectionReturn {
     connection?.configOptions ?? cached?.configOptions ?? null
   const availableCommands = connection?.availableCommands ?? null
   const pendingPermission = connection?.pendingPermission ?? null
-  const agentInputs = connection?.agentInputs ?? []
+  const agentInputs = connection?.agentInputs ?? EMPTY_AGENT_INPUTS
   const pendingUserMessage = connection?.pendingUserMessage ?? null
   const pendingQuestion = connection?.pendingQuestion ?? null
   const pendingAskQuestion = connection?.pendingAskQuestion ?? null
   const pendingChannelConfirmation =
     connection?.pendingChannelConfirmation ?? null
   const claudeApiRetry = connection?.claudeApiRetry ?? null
+  const sessionFailures = connection?.sessionFailures ?? EMPTY_SESSION_FAILURES
   const error = connection?.error ?? null
   const loadError = connection?.loadError ?? null
   const configStale = connection?.configStale ?? false
@@ -318,6 +324,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       pendingAskQuestion,
       pendingChannelConfirmation,
       claudeApiRetry,
+      sessionFailures,
       error,
       loadError,
       configStale,
@@ -358,6 +365,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       pendingAskQuestion,
       pendingChannelConfirmation,
       claudeApiRetry,
+      sessionFailures,
       error,
       loadError,
       configStale,

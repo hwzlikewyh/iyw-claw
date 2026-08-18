@@ -14,6 +14,7 @@ import {
 } from "@/lib/adapters/tool-kind-classifier"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
 import { isBackgroundTaskToolCall } from "@/lib/background-task"
+import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { feedbackCheckHasContent } from "@/lib/feedback-check"
 import {
   isPlanLikeToolName,
@@ -1216,7 +1217,10 @@ export function groupConsecutiveToolCalls(
       // Claude Code background-task polls (TaskOutput/TaskStop) render through a
       // dedicated <BackgroundTaskCard> that merges a task's repeated polls, so
       // they break the run instead of folding into a "执行 N 个任务" tool-group.
-      !isBackgroundTaskToolCall(part)
+      !isBackgroundTaskToolCall(part) &&
+      // Context compaction has a dedicated lifecycle card and must not appear
+      // as a generic single-tool group.
+      !isContextCompactionMeta(part.meta)
     ) {
       buffer.push(part)
       continue

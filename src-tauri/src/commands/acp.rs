@@ -27,10 +27,10 @@ use crate::acp::types::{
 #[cfg(feature = "tauri-runtime")]
 use crate::acp::types::{ConnectionInfo, ForkResultInfo, PromptInputBlock};
 use crate::acp::version_center::{
-    confirm_npm_agent_install, confirm_uvx_agent_install, fallback_npm_agent_install,
-    fallback_uvx_agent_install, install_runtime_bundle, push_pending_activation,
-    resolve_npm_agent_install, resolve_uvx_agent_install, InstalledRuntimeBundle,
-    PendingActivation, RuntimeBundleRequest,
+    confirm_npm_agent_install, confirm_uvx_agent_install, ensure_npm_node_requirement,
+    fallback_npm_agent_install, fallback_uvx_agent_install, install_runtime_bundle,
+    push_pending_activation, resolve_npm_agent_install, resolve_uvx_agent_install,
+    InstalledRuntimeBundle, PendingActivation, RuntimeBundleRequest,
 };
 use crate::commands::experts::{
     central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, ExpertLinkState,
@@ -522,7 +522,7 @@ pub(crate) fn verify_agent_installed(
         registry::AgentDistribution::Binary { cmd, platforms, .. } => {
             let paths = active_agent_storage_paths()?;
             let platform = registry::current_platform();
-            if !platforms.iter().any(|p| p.platform == platform) {
+            if !registry::binary_platform_supported(agent_type, platforms) {
                 return Err(AcpError::PlatformNotSupported(format!(
                     "{} is not available on {platform}",
                     meta.name
@@ -5426,6 +5426,31 @@ pub(crate) fn skill_storage_spec(agent_type: AgentType) -> Option<SkillStorageSp
             global_dirs: vec![crate::parsers::grok::resolve_grok_home_dir().join("skills")],
             project_rel_dirs: vec![".grok/skills"],
         }),
+        AgentType::Cursor => {
+            let mut global_dirs = with_user_shared_agent_skills(vec![home_dir_or_default()
+                .join(".cursor")
+                .join("skills")]);
+            global_dirs.push(home_dir_or_default().join(".cursor").join("skills-cursor"));
+            Some(SkillStorageSpec {
+                kind: SkillStorageKind::SkillDirectoryOnly,
+                global_dirs,
+                project_rel_dirs: vec![".cursor/skills", ".agents/skills"],
+            })
+        }
+        AgentType::DeepSeek => {
+            let mut global_dirs =
+                vec![crate::parsers::deepseek::resolve_dsh_home_dir().join("skills")];
+            if AgentStoragePaths::active().is_none() {
+                global_dirs
+                    .push(crate::parsers::deepseek::resolve_dsh_agents_home_dir().join("skills"));
+            }
+            Some(SkillStorageSpec {
+                kind: SkillStorageKind::SkillDirectoryOrMarkdownFile,
+                global_dirs,
+                project_rel_dirs: vec![".dsh/skills", ".agents/skills"],
+            })
+        }
+        AgentType::Custom(_) => None,
     }
 }
 
@@ -5480,11 +5505,29 @@ pub(crate) fn scoped_skill_dirs(
                 .ok_or_else(|| {
                     AcpError::protocol("workspace_path is required for project scoped skills")
                 })?;
+            let base = skill_workspace_base(agent_type, workspace);
             Ok(spec
                 .project_rel_dirs
                 .iter()
-                .map(|relative| PathBuf::from(workspace).join(relative))
+                .map(|relative| base.join(relative))
                 .collect())
+        }
+    }
+}
+
+pub(crate) fn skill_workspace_base(agent_type: AgentType, workspace: &str) -> PathBuf {
+    let workspace = PathBuf::from(workspace);
+    if agent_type != AgentType::DeepSeek {
+        return workspace;
+    }
+    let mut current = workspace.as_path();
+    loop {
+        if current.join(".git").exists() {
+            return current.to_path_buf();
+        }
+        match current.parent() {
+            Some(parent) if parent != current => current = parent,
+            _ => return workspace,
         }
     }
 }
@@ -5644,6 +5687,12 @@ fn is_reserved_shared_skill_id(skill_id: &str) -> bool {
     is_bundled_expert_id(skill_id)
         || crate::commands::office_tools::is_officecli_skill_id(skill_id)
         || crate::commands::internet_tools::is_internet_tool_skill_id(skill_id)
+}
+
+pub(crate) fn set_shared_skill_read_only(skill: &mut AgentSkillItem) {
+    if is_reserved_shared_skill_id(&skill.id) && !is_bundled_market_override(&skill.id) {
+        skill.read_only = true;
+    }
 }
 
 fn ensure_shared_skill_writable(skill_id: &str) -> Result<(), AcpError> {
@@ -7476,10 +7525,14 @@ fn remove_shared_skill_publications_locked(skill_id: &str) -> Result<(), AcpErro
 /// these in the `$` autocomplete and the Skills settings list — but any
 /// write to those files would clobber the CLI's own assets.
 fn is_read_only_skill_path(agent_type: AgentType, skill_path: &Path) -> bool {
-    if agent_type != AgentType::Codex {
-        return false;
-    }
-    let ro_root = codex_home_dir().join("skills").join(".system");
+    let ro_root = match agent_type {
+        AgentType::Codex => codex_home_dir().join("skills").join(".system"),
+        AgentType::Cursor => home_dir_or_default().join(".cursor").join("skills-cursor"),
+        AgentType::DeepSeek => crate::parsers::deepseek::resolve_dsh_home_dir()
+            .join("skills")
+            .join(".system"),
+        _ => return false,
+    };
     skill_path.starts_with(&ro_root)
 }
 
@@ -7917,9 +7970,29 @@ fn locate_disabled_skill_across_dirs(
 }
 
 pub(crate) fn set_skill_read_only(agent_type: AgentType, skill: &mut AgentSkillItem) {
-    if is_read_only_skill_path(agent_type, Path::new(&skill.path)) {
+    let path = Path::new(&skill.path);
+    if is_read_only_skill_path(agent_type, path)
+        || is_native_global_skill_read_only(agent_type, skill)
+    {
         skill.read_only = true;
     }
+}
+
+fn is_native_global_skill_read_only(agent_type: AgentType, skill: &AgentSkillItem) -> bool {
+    if skill.scope != AgentSkillScope::Global
+        || !matches!(agent_type, AgentType::Cursor | AgentType::DeepSeek)
+    {
+        return false;
+    }
+    let path = Path::new(&skill.path);
+    let managed_source = shared_skill_path(&skill.id);
+    let managed = classify_link(path, &managed_source) == ExpertLinkState::LinkedToIywClaw
+        || shared_copy_marker_matches(path, &managed_source, &skill.id);
+    if managed {
+        return false;
+    }
+    skill_storage_spec(agent_type)
+        .is_some_and(|spec| spec.global_dirs.iter().any(|root| path.starts_with(root)))
 }
 
 fn disabled_path_for_active_skill(skill: &AgentSkillItem) -> Result<PathBuf, AcpError> {
@@ -7995,6 +8068,11 @@ fn agent_env_keys(agent_type: AgentType) -> (&'static str, &'static str, &'stati
         ),
         AgentType::CodeBuddy => ("CODEBUDDY_BASE_URL", "CODEBUDDY_API_KEY", "CODEBUDDY_MODEL"),
         AgentType::Grok => ("GROK_XAI_API_BASE_URL", "XAI_API_KEY", "GROK_DEFAULT_MODEL"),
+        AgentType::DeepSeek => (
+            "DEEPSEEK_BASE_URL",
+            "DEEPSEEK_API_KEY",
+            "DEEPSEEK_ACP_MODEL",
+        ),
         _ => ("OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_MODEL"),
     }
 }
@@ -8069,6 +8147,8 @@ fn managed_profile_env_keys(agent_type: AgentType) -> &'static [&'static str] {
             "PI_CODING_AGENT_SESSION_DIR",
         ],
         AgentType::Grok => &["GROK_HOME"],
+        AgentType::DeepSeek => &["DSH_HOME", "DEEPSEEK_ACP_SESSIONS_ROOT"],
+        AgentType::Cursor | AgentType::Custom(_) => &[],
     }
 }
 
@@ -8079,6 +8159,24 @@ fn remove_managed_profile_env(agent_type: AgentType, runtime_env: &mut BTreeMap<
             .iter()
             .any(|candidate| key.eq_ignore_ascii_case(candidate))
     });
+}
+
+fn restore_verified_host_profile_env(
+    agent_type: AgentType,
+    runtime_env: &mut BTreeMap<String, String>,
+) {
+    if agent_type != AgentType::DeepSeek {
+        return;
+    }
+    for key in managed_profile_env_keys(agent_type) {
+        let Some(value) = std::env::var_os(key)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string_lossy().into_owned())
+        else {
+            continue;
+        };
+        runtime_env.insert((*key).to_string(), value);
+    }
 }
 
 /// Claude Code provider-model JSON keys → ANTHROPIC_*_MODEL env var names.
@@ -8116,6 +8214,7 @@ const CLAUDE_MODEL_KEY_MAP: &[(&str, &str)] = &[
 ///   root `model` in `config.toml` is handled separately by
 ///   `provider_codex_model_action`).
 /// - CodeBuddy: returns `CODEBUDDY_MODEL`.
+/// - DeepSeek: returns `DEEPSEEK_ACP_MODEL`.
 /// - Others: returns `OPENAI_MODEL`.
 pub(crate) fn parse_provider_model(
     agent_type: AgentType,
@@ -8153,6 +8252,12 @@ pub(crate) fn parse_provider_model(
         AgentType::CodeBuddy => {
             out.insert(
                 "CODEBUDDY_MODEL".to_string(),
+                trimmed_raw.map(str::to_string),
+            );
+        }
+        AgentType::DeepSeek => {
+            out.insert(
+                "DEEPSEEK_ACP_MODEL".to_string(),
                 trimmed_raw.map(str::to_string),
             );
         }
@@ -8378,6 +8483,9 @@ fn cascade_update_agent_config(
             // Grok receives gateway credentials through its launch environment;
             // never overwrite its native config.toml or cached login state.
         }
+        AgentType::Cursor | AgentType::DeepSeek | AgentType::Custom(_) => {
+            // These identities do not have a reviewed provider-config writer.
+        }
     }
     Ok(())
 }
@@ -8556,15 +8664,14 @@ pub(crate) async fn build_session_runtime_env(
     let setting = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
-    let installed = setting
+    let installed_version = setting
         .as_ref()
         .and_then(|model| model.installed_version.as_deref())
-        .is_some_and(|version| !version.is_empty());
-    if !installed {
-        return Err(AcpError::SdkNotInstalled(format!(
-            "{agent_type} is not installed"
-        )));
-    }
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+        .ok_or_else(|| AcpError::SdkNotInstalled(format!("{agent_type} is not installed")))?;
+    crate::acp::deepseek_config::validate_tool_version(agent_type, installed_version)
+        .map_err(AcpError::protocol)?;
     let platform = crate::acp::version_center::platform_projection(&db.conn, agent_type).await;
     if !platform.launch_allowed() {
         return Err(AcpError::protocol(format!(
@@ -8625,31 +8732,43 @@ pub(crate) async fn build_session_runtime_env(
     .await?;
     crate::acp::runtime_context::prepend_tool_dirs(Some(&paths), &mut runtime_env);
     crate::wecom_ai::inject_runtime_environment(data_dir, &mut runtime_env).map_err(|error| {
-        AcpError::protocol(format!("managed WeCom CLI environment is unavailable: {error}"))
+        AcpError::protocol(format!(
+            "managed WeCom CLI environment is unavailable: {error}"
+        ))
     })?;
+    if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type) {
+        crate::acp::preflight::enforce_minimum_node_version(&runtime_env, required)
+            .await
+            .map_err(|error| {
+                AcpError::protocol(format!(
+                    "{agent_type} launch blocked: {error}; requires Node.js >={required}"
+                ))
+            })?;
+    }
     crate::acp::automation_tools::inject_scheduled_task_env(agent_type, &mut runtime_env);
     runtime_env.remove(MANAGED_AGENT_VERSION_ENV);
-    if let Some(version) = setting
-        .as_ref()
-        .and_then(|model| model.installed_version.as_deref())
-        .map(str::trim)
-        .filter(|version| !version.is_empty())
-    {
-        runtime_env.insert(MANAGED_AGENT_VERSION_ENV.to_string(), version.to_string());
-        if agent_type == AgentType::Pi {
-            let paths = active_agent_storage_paths()?;
-            let pi_command = if let Some(command) =
-                npm_runtime::resolve_private_npm_command(&paths, agent_type, version, "pi")
-            {
-                command
-            } else {
-                npm_runtime::preferred_private_npm_command_path(&paths, agent_type, version, "pi")?
-            };
-            runtime_env.insert(
-                "PI_ACP_PI_COMMAND".to_string(),
-                pi_command.to_string_lossy().into_owned(),
-            );
-        }
+    runtime_env.insert(
+        MANAGED_AGENT_VERSION_ENV.to_string(),
+        installed_version.to_string(),
+    );
+    if agent_type == AgentType::Pi {
+        let paths = active_agent_storage_paths()?;
+        let pi_command = if let Some(command) =
+            npm_runtime::resolve_private_npm_command(&paths, agent_type, installed_version, "pi")
+        {
+            command
+        } else {
+            npm_runtime::preferred_private_npm_command_path(
+                &paths,
+                agent_type,
+                installed_version,
+                "pi",
+            )?
+        };
+        runtime_env.insert(
+            "PI_ACP_PI_COMMAND".to_string(),
+            pi_command.to_string_lossy().into_owned(),
+        );
     }
 
     // codex resume no longer needs a `MODEL_PROVIDER` pin: codex-acp 1.0.1
@@ -8668,6 +8787,9 @@ pub(crate) async fn build_session_runtime_env(
     if agent_type == AgentType::OpenClaw && session_id.is_none() {
         runtime_env.insert("OPENCLAW_RESET_SESSION".into(), "1".into());
     }
+
+    crate::acp::trusted_agents::restrict_configured_runtime_env(agent_type, &mut runtime_env);
+    restore_verified_host_profile_env(agent_type, &mut runtime_env);
 
     Ok(runtime_env)
 }
@@ -9326,7 +9448,6 @@ pub(crate) async fn acp_get_agent_status_core(
     db: &AppDatabase,
 ) -> Result<crate::acp::types::AcpAgentStatus, AcpError> {
     let storage = AgentStoragePaths::active();
-    let platform = registry::current_platform();
     let meta = registry::get_agent_meta(agent_type);
     let setting = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
         .await
@@ -9348,7 +9469,10 @@ pub(crate) async fn acp_get_agent_status_core(
                     .ok()
                     .flatten()
             });
-            (platforms.iter().any(|p| p.platform == platform), detected)
+            (
+                registry::binary_platform_supported(agent_type, platforms),
+                detected,
+            )
         }
         registry::AgentDistribution::Uvx { system_cmd, .. } => (
             uvx_agent_launchable(*system_cmd),
@@ -9361,7 +9485,9 @@ pub(crate) async fn acp_get_agent_status_core(
     Ok(crate::acp::types::AcpAgentStatus {
         agent_type,
         available,
-        enabled: setting.map(|m| m.enabled).unwrap_or(true),
+        enabled: setting
+            .map(|model| model.enabled)
+            .unwrap_or_else(|| agent_setting_service::default_enabled(agent_type)),
         installed_version,
     })
 }
@@ -9376,8 +9502,7 @@ pub async fn acp_get_agent_status(
 }
 
 pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgentInfo>, AcpError> {
-    let platform = registry::current_platform();
-    let agent_types = registry::all_acp_agents();
+    let agent_types = registry::all_identity_agents();
 
     let defaults = agent_types
         .iter()
@@ -9427,9 +9552,6 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
         if migrated {
-            agent_setting_service::reset_enabled_to_defaults(&db.conn, &agent_types)
-                .await
-                .map_err(|e| AcpError::protocol(e.to_string()))?;
             break;
         }
     }
@@ -9462,7 +9584,7 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
                         .map(|_| version.to_string())
                 });
                 (
-                    platforms.iter().any(|p| p.platform == platform),
+                    registry::binary_platform_supported(agent_type, platforms),
                     "binary",
                     detected,
                 )
@@ -9692,20 +9814,24 @@ async fn ensure_agent_install_allowed(
 }
 
 fn requested_agent_version(
+    agent_type: AgentType,
     requested: Option<&str>,
     listed: Option<&str>,
     recommended: Option<&str>,
     registry_version: Option<&str>,
 ) -> Result<String, AcpError> {
-    if let Some(value) = requested.filter(|value| !value.trim().is_empty()) {
-        return sanitize_custom_version(value)
-            .ok_or_else(|| AcpError::protocol("invalid Agent version"));
-    }
-    recommended
-        .and_then(normalize_version_candidate)
-        .or_else(|| listed.and_then(normalize_version_candidate))
-        .or_else(|| registry_version.and_then(normalize_version_candidate))
-        .ok_or_else(|| AcpError::protocol("Agent platform has no recommended version"))
+    let selected = if let Some(value) = requested.filter(|value| !value.trim().is_empty()) {
+        sanitize_custom_version(value).ok_or_else(|| AcpError::protocol("invalid Agent version"))?
+    } else {
+        recommended
+            .and_then(normalize_version_candidate)
+            .or_else(|| listed.and_then(normalize_version_candidate))
+            .or_else(|| registry_version.and_then(normalize_version_candidate))
+            .ok_or_else(|| AcpError::protocol("Agent platform has no recommended version"))?
+    };
+    crate::acp::deepseek_config::validate_tool_version(agent_type, &selected)
+        .map_err(AcpError::protocol)?;
+    Ok(selected)
 }
 
 struct ManagedAgentRecord<'a> {
@@ -9870,6 +9996,7 @@ pub(crate) async fn acp_update_agent_preferences_core(
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
     if enabled_state_changed(previous_enabled, enabled) {
+        crate::acp::capability_policy::notify_runtime_policy_change();
         reconcile_agent_enablement_best_effort(db, agent_type, enabled).await;
     }
 
@@ -9984,6 +10111,7 @@ pub(crate) async fn acp_update_agent_env_core(
     // (removed) when empty. Codex's root `model` in config.toml is handled the
     // same way.
     let mut merged_env = env;
+    crate::acp::deepseek_config::normalize_runtime_env(agent_type, &mut merged_env)?;
     let mut codex_action = CodexModelAction::NoOp;
     // When a Claude provider is bound, capture the inputs to also rewrite the
     // on-disk config.env below. Claude's model fields live in config.env, which
@@ -10050,6 +10178,7 @@ pub(crate) async fn acp_update_agent_env_core(
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
     if enabled_state_changed(previous_enabled, enabled) {
+        crate::acp::capability_policy::notify_runtime_policy_change();
         reconcile_agent_enablement_best_effort(db, agent_type, enabled).await;
     }
 
@@ -10596,6 +10725,7 @@ pub(crate) async fn acp_download_agent_binary_core(
     let result = match meta.distribution {
         registry::AgentDistribution::Binary { .. } => {
             let requested = requested_agent_version(
+                agent_type,
                 version_override.as_deref(),
                 None,
                 platform_access.recommended_version.as_deref(),
@@ -10830,6 +10960,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             }
 
             let requested = requested_agent_version(
+                agent_type,
                 version_override.as_deref(),
                 registry_version.as_deref(),
                 platform.recommended_version.as_deref(),
@@ -10867,6 +10998,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 }
                 Err(error) => return Err(error.into_error()),
             };
+            ensure_npm_node_requirement(&db.conn, agent_type).await?;
             let sources = managed
                 .packages
                 .iter()
@@ -10885,12 +11017,12 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                     format!("Agent source resolved by version center ({sources})")
                 },
             );
-            let resolved = managed.version.clone();
+            let planned_version = managed.version.clone();
             emit_agent_install_event(
                 emitter,
                 &task_id,
                 AgentInstallEventKind::Log,
-                format!("Installing {} v{resolved}", meta.name),
+                format!("Installing {} v{planned_version}", meta.name),
             );
             let mut required_commands = vec![cmd];
             if agent_type == AgentType::Pi {
@@ -10951,6 +11083,12 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                         let authorized_version = managed.version.clone();
                         managed = fallback_npm_agent_install(agent_type, &authorized_version)
                             .map_err(|error| error.into_error())?;
+                        emit_agent_install_event(
+                            emitter,
+                            &task_id,
+                            AgentInstallEventKind::Log,
+                            format!("Installing official fallback v{}", managed.version),
+                        );
                         install_managed_npm_packages(
                             &paths,
                             agent_type,
@@ -10999,6 +11137,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 .as_ref()
                 .map(|value| value.effective_policy.as_str())
                 .unwrap_or(&managed.effective_policy);
+            let resolved = managed.version.clone();
             record_managed_agent(
                 &db.conn,
                 agent_type,
@@ -11031,6 +11170,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 .map_err(|e| AcpError::protocol(e.to_string()))?;
 
             let requested = requested_agent_version(
+                agent_type,
                 version_override.as_deref(),
                 registry_version.as_deref(),
                 platform.recommended_version.as_deref(),
@@ -11650,23 +11790,22 @@ fn inventory_skill_locations(
     agent_type: AgentType,
     workspace_path: Option<&str>,
 ) -> Vec<AgentSkillLocation> {
-    let Some(spec) = skill_storage_spec(agent_type) else {
+    if skill_storage_spec(agent_type).is_none() {
         return Vec::new();
-    };
+    }
     let shared_dir = shared_skills_dir();
     let mut locations = vec![AgentSkillLocation {
         scope: AgentSkillScope::Global,
         path: shared_dir.to_string_lossy().to_string(),
         exists: shared_dir.exists(),
     }];
-    if let Some(workspace) = workspace_path.filter(|value| !value.trim().is_empty()) {
-        locations.extend(spec.project_rel_dirs.iter().map(|relative| {
-            let path = PathBuf::from(workspace).join(relative);
-            AgentSkillLocation {
-                scope: AgentSkillScope::Project,
-                path: path.to_string_lossy().to_string(),
-                exists: path.exists(),
-            }
+    if let Ok(project_dirs) =
+        scoped_skill_dirs(agent_type, AgentSkillScope::Project, workspace_path)
+    {
+        locations.extend(project_dirs.into_iter().map(|path| AgentSkillLocation {
+            scope: AgentSkillScope::Project,
+            path: path.to_string_lossy().to_string(),
+            exists: path.exists(),
         }));
     }
     locations
@@ -11713,25 +11852,26 @@ async fn acp_list_agent_skills_legacy(
         skills_by_key.entry(key).or_insert(skill);
     }
 
-    if let Some(workspace) = workspace_path.as_deref().map(str::trim) {
-        if !workspace.is_empty() {
-            for relative in &spec.project_rel_dirs {
-                let project_dir = PathBuf::from(workspace).join(relative);
-                locations.push(AgentSkillLocation {
-                    scope: AgentSkillScope::Project,
-                    path: project_dir.to_string_lossy().to_string(),
-                    exists: project_dir.exists(),
-                });
-                let listed = list_skills_from_dir(
-                    AgentSkillScope::Project,
-                    &project_dir,
-                    spec.kind,
-                    include_disabled,
-                )?;
-                for skill in listed {
-                    let key = format!("project:{}", skill.id);
-                    skills_by_key.entry(key).or_insert(skill);
-                }
+    if let Ok(project_dirs) = scoped_skill_dirs(
+        agent_type,
+        AgentSkillScope::Project,
+        workspace_path.as_deref(),
+    ) {
+        for project_dir in project_dirs {
+            locations.push(AgentSkillLocation {
+                scope: AgentSkillScope::Project,
+                path: project_dir.to_string_lossy().to_string(),
+                exists: project_dir.exists(),
+            });
+            let listed = list_skills_from_dir(
+                AgentSkillScope::Project,
+                &project_dir,
+                spec.kind,
+                include_disabled,
+            )?;
+            for skill in listed {
+                let key = format!("project:{}", skill.id);
+                skills_by_key.entry(key).or_insert(skill);
             }
         }
     }
@@ -11921,6 +12061,11 @@ pub async fn acp_save_agent_skill_core(
         let targets = installed_enabled_skill_agent_types(conn, agent_type).await?;
         let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
+        if locate_read_only_global_native_skill(agent_type, &spec, &id).is_some() {
+            return Err(AcpError::protocol(format!(
+                "native Skill '{id}' must be explicitly taken over before saving"
+            )));
+        }
         let _guard = shared_skill_mutation_guard();
         let official_install = official.unwrap_or(false);
         if !official_install {
@@ -12225,6 +12370,11 @@ pub async fn acp_delete_agent_skill(
     if scope == AgentSkillScope::Global {
         let _paths = require_private_agent_storage_for_write()?;
         ensure_shared_skill_writable(&id)?;
+        if locate_read_only_global_native_skill(agent_type, &spec, &id).is_some() {
+            return Err(AcpError::protocol(format!(
+                "native Skill '{id}' must be explicitly taken over before deleting"
+            )));
+        }
         let _guard = shared_skill_mutation_guard();
         let skill_path = shared_skill_path(&id);
         if !skill_path.join("SKILL.md").is_file() {

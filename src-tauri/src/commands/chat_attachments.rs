@@ -3,7 +3,13 @@ use std::path::{Path, PathBuf};
 #[cfg(feature = "tauri-runtime")]
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
+#[cfg(feature = "tauri-runtime")]
+use crate::acp::capability_policy::monitor_file_upload;
+use crate::acp::capability_policy::CapabilityRevocationMonitor;
 use crate::app_error::AppCommandError;
+
+mod copy;
+use copy::copy_attachment;
 
 const LOCAL_ATTACHMENT_UPLOAD_MAX_BYTES: usize = 100 * 1024 * 1024;
 #[cfg(feature = "tauri-runtime")]
@@ -138,7 +144,9 @@ pub async fn stage_chat_attachment_core(
     data_dir: &Path,
     chat_dir: &Path,
     source_path: &Path,
+    monitor: &CapabilityRevocationMonitor,
 ) -> Result<StagedChatAttachment, AppCommandError> {
+    monitor.require_current().await?;
     let chat_dir = ensure_managed_chat_dir(data_dir, chat_dir).await?;
     let source = canonical_source(source_path).await?;
     let source_size = tokio::fs::metadata(&source)
@@ -155,9 +163,13 @@ pub async fn stage_chat_attachment_core(
         .ok_or_else(|| AppCommandError::invalid_input("Attachment file name is missing"))?;
     let attachment_dir = new_attachment_dir(&chat_dir.join("attachments")).await?;
     let destination = attachment_dir.join(file_name);
-    if let Err(error) = tokio::fs::copy(&source, &destination).await {
+    if let Err(error) = copy_attachment(&source, &destination, monitor).await {
         let _ = tokio::fs::remove_dir_all(&attachment_dir).await;
-        return Err(AppCommandError::io(error));
+        return Err(error);
+    }
+    if let Err(error) = monitor.require_current().await {
+        let _ = tokio::fs::remove_dir_all(&attachment_dir).await;
+        return Err(error);
     }
     Ok(StagedChatAttachment {
         path: user_facing_path(&destination),
@@ -170,7 +182,9 @@ pub async fn stage_chat_attachment_bytes_core(
     session_id: Option<&str>,
     file_name: &str,
     bytes: &[u8],
+    monitor: &CapabilityRevocationMonitor,
 ) -> Result<StagedChatAttachment, AppCommandError> {
+    monitor.require_current().await?;
     if bytes.is_empty() {
         return Err(AppCommandError::invalid_input("Attachment file is empty"));
     }
@@ -191,10 +205,18 @@ pub async fn stage_chat_attachment_bytes_core(
     };
     let attachment_dir = new_attachment_dir(&base).await?;
     let destination = attachment_dir.join(sanitize_file_name(file_name));
-    if let Err(error) = tokio::fs::write(&destination, bytes).await {
+    if let Err(error) = monitor
+        .run_until_revoked(tokio::fs::write(&destination, bytes))
+        .await
+        .and_then(|result| result.map_err(AppCommandError::io))
+    {
         let _ = tokio::fs::remove_dir_all(&attachment_dir).await;
-        return Err(AppCommandError::io(error));
+        return Err(error);
     }
+    monitor.require_current().await.map_err(|error| {
+        let _ = std::fs::remove_dir_all(&attachment_dir);
+        error
+    })?;
     Ok(StagedChatAttachment {
         path: user_facing_path(&destination),
     })
@@ -208,6 +230,7 @@ pub async fn stage_chat_attachment(
     source_path: String,
 ) -> Result<StagedChatAttachment, AppCommandError> {
     use tauri::Manager;
+    let monitor = monitor_file_upload(None).await?;
     let data_dir = app
         .path()
         .app_data_dir()
@@ -216,7 +239,13 @@ pub async fn stage_chat_attachment(
             AppCommandError::io_error("App data directory unavailable")
                 .with_detail(error.to_string())
         })?;
-    stage_chat_attachment_core(&data_dir, Path::new(&chat_dir), Path::new(&source_path)).await
+    stage_chat_attachment_core(
+        &data_dir,
+        Path::new(&chat_dir),
+        Path::new(&source_path),
+        &monitor,
+    )
+    .await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -230,6 +259,7 @@ pub async fn stage_chat_attachment_bytes(
 ) -> Result<StagedChatAttachment, AppCommandError> {
     use tauri::Manager;
 
+    let monitor = monitor_file_upload(None).await?;
     if data_base64.len() > MAX_ATTACHMENT_BASE64_LEN {
         return Err(AppCommandError::invalid_input(
             "Attachment exceeds the size limit",
@@ -253,6 +283,7 @@ pub async fn stage_chat_attachment_bytes(
         session_id.as_deref(),
         &file_name,
         &bytes,
+        &monitor,
     )
     .await
 }

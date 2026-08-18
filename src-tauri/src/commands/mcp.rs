@@ -2459,7 +2459,11 @@ pub(crate) fn upsert_server_for_agent_type(
         AgentType::CodeBuddy => upsert_codebuddy_server(id, spec),
         AgentType::KimiCode => upsert_kimi_code_server(id, spec),
         AgentType::Grok => grok::upsert_server(id, spec),
-        AgentType::OpenClaw | AgentType::Pi => Ok(()),
+        AgentType::OpenClaw
+        | AgentType::Pi
+        | AgentType::Cursor
+        | AgentType::DeepSeek
+        | AgentType::Custom(_) => Ok(()),
     }
 }
 
@@ -2478,7 +2482,11 @@ pub(crate) fn remove_server_for_agent_type(
         AgentType::CodeBuddy => remove_codebuddy_server(id),
         AgentType::KimiCode => remove_kimi_code_server(id),
         AgentType::Grok => grok::remove_server(id),
-        AgentType::OpenClaw | AgentType::Pi => Ok(false),
+        AgentType::OpenClaw
+        | AgentType::Pi
+        | AgentType::Cursor
+        | AgentType::DeepSeek
+        | AgentType::Custom(_) => Ok(false),
     }
 }
 
@@ -2500,6 +2508,7 @@ pub fn read_servers_for_agent_type(
         // third-party extension), so iyw-claw manages no MCP servers for pi (v1).
         AgentType::Pi => Ok(BTreeMap::new()),
         AgentType::Grok => grok::read_servers(),
+        AgentType::Cursor | AgentType::DeepSeek | AgentType::Custom(_) => Ok(BTreeMap::new()),
     }
 }
 

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+pub use crate::acp::session_failure::SessionFailureRecord;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PromptInputBlock {
@@ -118,6 +120,13 @@ pub enum AcpEvent {
         request_id: String,
         tool_call: serde_json::Value,
         options: Vec<PermissionOptionInfo>,
+        /// Number of requests waiting behind the single visible card.
+        #[serde(default)]
+        queued: u32,
+    },
+    /// Queue depth changed without replacing the visible permission card.
+    PermissionQueueDepth {
+        depth: u32,
     },
     /// User responded to (or the connection drained) a previously-pending
     /// permission request. The responder.respond() side of the SACP exchange
@@ -209,6 +218,10 @@ pub enum AcpEvent {
         /// When present, the frontend renders a localized message keyed on
         /// this code; otherwise it falls back to `message`.
         code: Option<String>,
+        /// Redacted, bounded diagnostic evidence for errors that can be
+        /// investigated in-app. Kept separate from the one-line message.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<String>,
         /// Whether this Error signals connection-level death — i.e. the
         /// `run_connection` task is about to emit `Disconnected` and tear
         /// the session down. Non-terminal Errors (turn failure, `SetMode`
@@ -235,6 +248,11 @@ pub enum AcpEvent {
         /// Stable machine-readable identifier — currently
         /// `"resource_not_found"` for JSON-RPC -32002.
         code: String,
+    },
+    /// JetBrains AIR typed session-failure upsert. Consumers retain the
+    /// highest revision for each stable id and infer lifecycle resolution.
+    SessionFailure {
+        record: SessionFailureRecord,
     },
     /// Available slash commands updated
     AvailableCommands {

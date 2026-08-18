@@ -24,6 +24,8 @@ export interface Alert {
   message: string
   detail?: string
   actions?: AlertAction[]
+  /** Redacted multi-line diagnostic evidence, collapsed by default. */
+  evidence?: string
   timestamp: number
 }
 
@@ -34,7 +36,8 @@ interface AlertContextValue {
     level: AlertLevel,
     message: string,
     detail?: string,
-    actions?: AlertAction[]
+    actions?: AlertAction[],
+    evidence?: string
   ) => string
   dismissAlert: (id: string) => void
   clearAll: () => void
@@ -79,12 +82,21 @@ export function AlertProvider({ children }: { children: ReactNode }) {
       level: AlertLevel,
       message: string,
       detail?: string,
-      actions?: AlertAction[]
+      actions?: AlertAction[],
+      evidence?: string
     ) => {
       const id = `alert-${++seq}-${Date.now()}`
       dispatch({
         type: "push",
-        alert: { id, level, message, detail, actions, timestamp: Date.now() },
+        alert: {
+          id,
+          level,
+          message,
+          detail,
+          actions,
+          evidence,
+          timestamp: Date.now(),
+        },
       })
       return id
     },

@@ -40,6 +40,7 @@ export function PermissionDialog({
     [permission?.tool_call]
   )
   if (!permission) return null
+  const queued = permission.queued ?? 0
 
   const hasFileChanges = parsed.fileChanges.length > 0
   const hasPlan =
@@ -72,9 +73,16 @@ export function PermissionDialog({
           </div>
           <p className="text-xs text-muted-foreground">{t("subtitle")}</p>
         </div>
-        <Badge variant="outline" className="shrink-0 text-[10px]">
-          {formatKindLabel(parsed.normalizedKind, t("kindFallbackTool"))}
-        </Badge>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {queued > 0 && (
+            <Badge variant="secondary" className="text-[10px] tabular-nums">
+              {t("queuedCount", { count: queued })}
+            </Badge>
+          )}
+          <Badge variant="outline" className="text-[10px]">
+            {formatKindLabel(parsed.normalizedKind, t("kindFallbackTool"))}
+          </Badge>
+        </div>
       </div>
 
       <div className="mt-3 max-h-[min(36vh,18rem)] space-y-2 overflow-y-auto pr-1">

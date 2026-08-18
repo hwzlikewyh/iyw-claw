@@ -4,6 +4,7 @@ pub mod agent_setting;
 pub mod app_metadata;
 pub mod automation;
 pub mod automation_run;
+pub mod capability_preference;
 pub mod chat_channel;
 pub mod chat_channel_agent_audit;
 pub mod chat_channel_message_log;

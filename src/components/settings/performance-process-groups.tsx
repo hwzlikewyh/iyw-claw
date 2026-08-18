@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { ProcessGroupSection } from "@/components/settings/performance-process-group-section"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
-import type { AgentType } from "@/lib/types"
+import { isAgentType } from "@/lib/types"
 
 export interface AppProcessInfo {
   pid: number
@@ -60,7 +60,7 @@ function fallbackGroup(
 }
 
 function agentDisplayName(agentType: string): string {
-  return getAgentDisplayName(agentType as AgentType) || agentType
+  return isAgentType(agentType) ? getAgentDisplayName(agentType) : agentType
 }
 
 function groupRank(group: ProcessGroup): number {
