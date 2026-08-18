@@ -5,9 +5,9 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 
 use crate::app_error::AppCommandError;
 
-const MAX_ATTACHMENT_BYTES: usize = 2 * 1024 * 1024;
+const LOCAL_ATTACHMENT_UPLOAD_MAX_BYTES: usize = 100 * 1024 * 1024;
 #[cfg(feature = "tauri-runtime")]
-const MAX_ATTACHMENT_BASE64_LEN: usize = MAX_ATTACHMENT_BYTES.div_ceil(3) * 4;
+const MAX_ATTACHMENT_BASE64_LEN: usize = LOCAL_ATTACHMENT_UPLOAD_MAX_BYTES.div_ceil(3) * 4;
 const MAX_ATTACHMENT_NAME_CHARS: usize = 180;
 const CONVERSATION_ATTACHMENTS_DIR: &str = "conversation-attachments";
 
@@ -141,6 +141,15 @@ pub async fn stage_chat_attachment_core(
 ) -> Result<StagedChatAttachment, AppCommandError> {
     let chat_dir = ensure_managed_chat_dir(data_dir, chat_dir).await?;
     let source = canonical_source(source_path).await?;
+    let source_size = tokio::fs::metadata(&source)
+        .await
+        .map_err(AppCommandError::io)?
+        .len();
+    if source_size > LOCAL_ATTACHMENT_UPLOAD_MAX_BYTES as u64 {
+        return Ok(StagedChatAttachment {
+            path: user_facing_path(&source),
+        });
+    }
     let file_name = source
         .file_name()
         .ok_or_else(|| AppCommandError::invalid_input("Attachment file name is missing"))?;
@@ -165,7 +174,7 @@ pub async fn stage_chat_attachment_bytes_core(
     if bytes.is_empty() {
         return Err(AppCommandError::invalid_input("Attachment file is empty"));
     }
-    if bytes.len() > MAX_ATTACHMENT_BYTES {
+    if bytes.len() > LOCAL_ATTACHMENT_UPLOAD_MAX_BYTES {
         return Err(AppCommandError::invalid_input(
             "Attachment exceeds the size limit",
         ));
