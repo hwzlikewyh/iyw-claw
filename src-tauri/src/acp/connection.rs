@@ -226,6 +226,7 @@ fn merge_agent_env(
     // Windows self-managed dir, or `~/.local/bin` under a GUI launch.
     prepend_officecli_path(&mut merged);
     prepend_internet_tools_path(&mut merged);
+    crate::wecom_ai::reapply_runtime_path(&mut merged);
 
     merged.into_iter().collect()
 }
@@ -713,6 +714,7 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                 &inherited_path,
                 cfg!(windows),
             );
+            crate::wecom_ai::reapply_runtime_path(&mut merged_env);
             if agent_type == AgentType::Pi {
                 let private_pi =
                     npm_runtime::resolve_private_npm_command(&storage, agent_type, version, "pi")
@@ -1241,6 +1243,7 @@ pub(crate) async fn spawn_agent_connection(
         crate::acp::agent_storage::AgentStoragePaths::active().as_ref(),
         &mut terminal_base_env,
     );
+    crate::wecom_ai::inherit_terminal_environment(&runtime_env, &mut terminal_base_env);
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<ConnectionCommand>(32);
     let cancellation = tokio_util::sync::CancellationToken::new();

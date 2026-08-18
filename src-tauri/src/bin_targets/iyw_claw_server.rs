@@ -523,6 +523,10 @@ async fn async_main() -> ExitCode {
     // Install bundled expert skills into the central store
     // (`~/.iyw-claw/skills/`). Runs in the background; failures are logged
     // but non-fatal.
+    let wecom_ai_data_dir = state.data_dir.clone();
+    tokio::spawn(async move {
+        iyw_claw_lib::wecom_ai::ensure_cli_best_effort(&wecom_ai_data_dir, "server-startup").await;
+    });
     let managed_distribution_db = state.db.conn.clone();
     let system_skills_data_dir = state.data_dir.clone();
     let system_skills_emitter = state.emitter.clone();

@@ -8581,6 +8581,7 @@ pub(crate) async fn build_session_runtime_env(
         )));
     }
 
+    crate::wecom_ai::ensure_cli_best_effort(data_dir, "agent-launch").await;
     reconcile_agent_skills_before_launch(db, agent_type).await;
 
     crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
@@ -8623,6 +8624,9 @@ pub(crate) async fn build_session_runtime_env(
     )
     .await?;
     crate::acp::runtime_context::prepend_tool_dirs(Some(&paths), &mut runtime_env);
+    crate::wecom_ai::inject_runtime_environment(data_dir, &mut runtime_env).map_err(|error| {
+        AcpError::protocol(format!("managed WeCom CLI environment is unavailable: {error}"))
+    })?;
     crate::acp::automation_tools::inject_scheduled_task_env(agent_type, &mut runtime_env);
     runtime_env.remove(MANAGED_AGENT_VERSION_ENV);
     if let Some(version) = setting
