@@ -60,6 +60,20 @@ en = "Creates, edits, and verifies reusable Agent skills."
 "zh-CN" = "创建、编辑并验证可复用的 Agent 技能。"
 
 [[expert]]
+id = "wecom-unified"
+category = "workflow"
+icon = "Building2"
+sort_order = 225
+
+[expert.display_name]
+en = "WeCom Unified"
+"zh-CN" = "企业微信套件"
+
+[expert.description]
+en = "Works with WeCom contacts, documents, mail, schedules, tasks, and messages."
+"zh-CN" = "使用企业微信通讯录、文档、邮件、日程、待办和消息能力。"
+
+[[expert]]
 id = "imagegen"
 category = "codex_native"
 icon = "Image"

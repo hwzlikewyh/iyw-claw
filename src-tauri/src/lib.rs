@@ -44,6 +44,7 @@ mod terminal;
 pub mod update;
 pub mod user_memory;
 pub mod web;
+pub mod wecom_ai;
 #[cfg(target_os = "windows")]
 mod windows_file_clipboard;
 pub mod workspace_state;
@@ -634,6 +635,11 @@ mod tauri_app {
                 // Install bundled expert skills into the central store
                 // (`~/.iyw-claw/skills/`). Runs in the background and does
                 // not block startup; failures are logged but non-fatal.
+                let wecom_ai_data_dir = effective_data_dir.clone();
+                tauri::async_runtime::spawn(async move {
+                    crate::wecom_ai::ensure_cli_best_effort(&wecom_ai_data_dir, "desktop-startup")
+                        .await;
+                });
                 let managed_distribution_db = db.conn.clone();
                 let system_skills_data_dir = effective_data_dir.clone();
                 let system_skills_emitter =
