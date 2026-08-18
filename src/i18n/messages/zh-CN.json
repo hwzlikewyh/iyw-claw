@@ -2691,10 +2691,14 @@
       "chatInput": {
         "connecting": "连接中...",
         "agentResponding": "{agent} 正在响应...",
+        "startingKernel": "正在启动 {agent} 内核...",
+        "waitingForAgent": "正在等待 {agent} 响应...",
+        "agentGenerating": "{agent} 正在生成...",
         "sendMessage": "发送消息..."
       },
       "messageInput": {
         "askAnything": "请开始输入...",
+        "conversationStarting": "正在发起对话...",
         "removeAttachmentAria": "移除 {name}",
         "attachFiles": "附加文件",
         "attachLocalUpload": "附加本地文件",
@@ -2826,8 +2830,12 @@
               }
             },
             "reasoning": {
+              "none": {
+                "name": "不思考",
+                "description": "不使用额外推理。"
+              },
               "off": {
-                "name": "关闭",
+                "name": "不思考",
                 "description": "关闭额外推理。"
               },
               "minimal": {
@@ -2847,7 +2855,7 @@
                 "description": "为复杂任务使用更深推理。"
               },
               "xhigh": {
-                "name": "极高",
+                "name": "最高",
                 "description": "使用最高推理深度。"
               }
             },

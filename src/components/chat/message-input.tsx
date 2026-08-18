@@ -294,6 +294,7 @@ interface MessageInputProps {
     modeId?: string | null
   ) => void | Promise<boolean>
   placeholder?: string
+  animatePlaceholder?: boolean
   defaultPath?: string
   disabled?: boolean
   autoFocus?: boolean
@@ -787,6 +788,7 @@ function modelPickerGroups(
 export function MessageInput({
   onSend,
   placeholder,
+  animatePlaceholder = false,
   defaultPath,
   disabled = false,
   autoFocus = false,
@@ -874,7 +876,6 @@ export function MessageInput({
   const skillPrefix = agentType === "codex" ? "$" : "/"
   const { shortcuts } = useShortcutSettings()
   const effectiveDraftStorageKey = draftStorageKey ?? null
-  const resolvedPlaceholder = placeholder ?? t("askAnything")
   // The "+" menu's expert / daily-office skill shortcuts mirror the welcome-page
   // quick actions: localized labels (`tQa` reads the same namespace those cards
   // use), the bundled experts, and per-agent skill-enabled gating.
@@ -903,6 +904,10 @@ export function MessageInput({
   const attachmentsRef = useRef<InputAttachment[]>([])
   const [sendPending, setSendPending] = useState(false)
   const sendPendingRef = useRef(false)
+  const resolvedPlaceholder = sendPending
+    ? t("conversationStarting")
+    : (placeholder ?? t("askAnything"))
+  const showPlaceholderActivity = sendPending || animatePlaceholder
   const composerMutationVersionRef = useRef(0)
   const programmaticResetRef = useRef(false)
   const setAttachments = useCallback(
@@ -4071,7 +4076,11 @@ export function MessageInput({
                 isExternalMenuOpen={slashMenuOpen && slashAutocompleteCount > 0}
                 onExternalMenuKeyDown={handleExternalMenuKeyDown}
                 partialText={voice.partialText}
-                className="min-h-0 flex-1"
+                className={cn(
+                  "min-h-0 flex-1",
+                  showPlaceholderActivity &&
+                    "iyw-claw-composer-placeholder-active"
+                )}
               />
               <div className="flex shrink-0 items-center justify-between gap-1 px-2 pb-2">
                 <div className="flex min-w-0 items-center gap-1">

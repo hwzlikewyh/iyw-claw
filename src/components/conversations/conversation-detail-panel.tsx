@@ -509,7 +509,7 @@ const ConversationTabView = memo(function ConversationTabView({
   // session object on every streaming batch (~60/s, via SET_LIVE_MESSAGE); a
   // whole-object selector here would re-render this keep-alive panel (and the
   // composer subtree it wraps) on every streaming token, even though none of
-  // these three fields change mid-stream. `useShallow` keeps the returned slice
+  // these scalar fields change mid-stream. `useShallow` keeps the returned slice
   // reference-stable across batches, so the panel re-renders only when one of
   // them actually changes. (message-list-view subscribes to the session's
   // liveMessage separately to render the live stream.)
@@ -517,6 +517,7 @@ const ConversationTabView = memo(function ConversationTabView({
     sessionStats: effectiveSessionStats,
     externalId: runtimeExternalId,
     syncState: runtimeSyncState,
+    hasLiveResponseContent,
   } = useConversationRuntimeStore(
     useShallow((s) => {
       const session = s.byConversationId.get(effectiveConversationId)
@@ -524,6 +525,7 @@ const ConversationTabView = memo(function ConversationTabView({
         sessionStats: session?.sessionStats ?? null,
         externalId: session?.externalId ?? null,
         syncState: session?.syncState ?? "idle",
+        hasLiveResponseContent: Boolean(session?.liveMessage?.content.length),
       }
     })
   )
@@ -1930,6 +1932,7 @@ const ConversationTabView = memo(function ConversationTabView({
               onFocus={handleFocus}
               onSend={handleSend}
               onCancel={handleCancel}
+              responseStarted={hasLiveResponseContent}
               modes={connectionModes}
               configOptions={connectionConfigOptions}
               selectedModeId={selectedModeId}

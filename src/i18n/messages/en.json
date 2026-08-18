@@ -2691,10 +2691,14 @@
       "chatInput": {
         "connecting": "Connecting...",
         "agentResponding": "{agent} is responding...",
+        "startingKernel": "Starting the {agent} runtime...",
+        "waitingForAgent": "Waiting for {agent} to respond...",
+        "agentGenerating": "{agent} is generating...",
         "sendMessage": "Send a message..."
       },
       "messageInput": {
         "askAnything": "Ask anything...",
+        "conversationStarting": "Starting conversation...",
         "removeAttachmentAria": "Remove {name}",
         "attachFiles": "Attach files",
         "attachLocalUpload": "Upload local file",
@@ -2826,6 +2830,10 @@
               }
             },
             "reasoning": {
+              "none": {
+                "name": "No reasoning",
+                "description": "Do not use additional reasoning."
+              },
               "off": {
                 "name": "Off",
                 "description": "Disable extra reasoning."
@@ -2847,7 +2855,7 @@
                 "description": "Use deeper reasoning for complex tasks."
               },
               "xhigh": {
-                "name": "Extra high",
+                "name": "Maximum",
                 "description": "Use maximum reasoning depth."
               }
             },

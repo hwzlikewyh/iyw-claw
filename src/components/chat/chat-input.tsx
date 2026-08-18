@@ -64,6 +64,8 @@ interface ChatInputProps {
   feedbackAddDisabled?: boolean
   /** Keep the composer usable while the selected Agent connects silently. */
   allowOfflineCompose?: boolean
+  /** Whether the current prompting turn has produced its first live block. */
+  responseStarted?: boolean
   injectContent?: ComposerInjectContent | null
   onInjectConsumed?: () => void
   /** Drop the input's own horizontal padding when an ancestor already supplies
@@ -113,6 +115,7 @@ export const ChatInput = memo(function ChatInput({
   onAddFeedback,
   feedbackAddDisabled,
   allowOfflineCompose = true,
+  responseStarted = false,
   injectContent,
   onInjectConsumed,
   flush = false,
@@ -121,6 +124,15 @@ export const ChatInput = memo(function ChatInput({
   const t = useTranslations("Folder.chat.chatInput")
   const isConnected = status === "connected"
   const isPrompting = status === "prompting"
+  const resolvedAgentName = agentName ?? "Agent"
+  const activityPlaceholder =
+    status === "connecting"
+      ? t("startingKernel", { agent: resolvedAgentName })
+      : isPrompting
+        ? responseStarted
+          ? t("agentGenerating", { agent: resolvedAgentName })
+          : t("waitingForAgent", { agent: resolvedAgentName })
+        : null
 
   return (
     <div
@@ -147,6 +159,7 @@ export const ChatInput = memo(function ChatInput({
         defaultPath={defaultPath}
         disabled={allowOfflineCompose ? false : !isConnected && !isPrompting}
         isPrompting={isPrompting}
+        animatePlaceholder={activityPlaceholder !== null}
         onCancel={onCancel}
         modes={modes}
         configOptions={configOptions}
@@ -175,11 +188,7 @@ export const ChatInput = memo(function ChatInput({
         feedbackAddDisabled={feedbackAddDisabled}
         injectContent={injectContent}
         onInjectConsumed={onInjectConsumed}
-        placeholder={
-          isPrompting
-            ? t("agentResponding", { agent: agentName ?? "Agent" })
-            : t("sendMessage")
-        }
+        placeholder={activityPlaceholder ?? t("sendMessage")}
         className={cn(tall ? "min-h-30" : "min-h-24", "max-h-60")}
       />
     </div>
