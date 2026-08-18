@@ -12,7 +12,7 @@ pub(crate) struct RuntimeHostReservation {
 }
 
 impl RuntimeHostReservation {
-    pub(super) fn new(host: Arc<AgentRuntimeHost>) -> Self {
+    pub(crate) fn new(host: Arc<AgentRuntimeHost>) -> Self {
         Self {
             host,
             armed: true,
@@ -20,7 +20,7 @@ impl RuntimeHostReservation {
         }
     }
 
-    pub(super) fn new_shared(host: Arc<AgentRuntimeHost>) -> Self {
+    pub(crate) fn new_shared(host: Arc<AgentRuntimeHost>) -> Self {
         Self {
             host,
             armed: true,
@@ -28,11 +28,11 @@ impl RuntimeHostReservation {
         }
     }
 
-    pub(super) fn clone_host(&self) -> Arc<AgentRuntimeHost> {
+    pub(crate) fn clone_host(&self) -> Arc<AgentRuntimeHost> {
         Arc::clone(&self.host)
     }
 
-    pub(super) fn mark_published(&mut self) {
+    pub(crate) fn mark_published(&mut self) {
         self.host.mark_published();
         self.shared = true;
     }

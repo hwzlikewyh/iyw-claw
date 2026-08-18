@@ -328,8 +328,8 @@ async fn force_stop_entrypoints(app: &tauri::AppHandle, reason: ShutdownReason) 
     let (disconnected, connection_completed) =
         disconnect_connections(app, FORCED_CONNECTION_TIMEOUT).await;
     let (builtin_result, legacy_result) = shutdown_entrypoint_services(
-        builtin_mcp.as_ref(),
-        legacy_listener.as_ref(),
+        builtin_mcp.as_ref().map(|state| state.inner()),
+        legacy_listener.as_ref().map(|state| state.inner()),
         FORCED_SERVICE_TIMEOUT,
     )
     .await;
@@ -369,8 +369,8 @@ async fn stop_entrypoints_inner(app: &tauri::AppHandle, reason: ShutdownReason) 
     let (disconnected, connection_completed) = disconnect_connections_with_retry(app, reason).await;
     let (builtin_mcp_completed, legacy_listener_completed) =
         shutdown_entrypoint_services_with_retry(
-            builtin_mcp.as_ref(),
-            legacy_listener.as_ref(),
+            builtin_mcp.as_ref().map(|state| state.inner()),
+            legacy_listener.as_ref().map(|state| state.inner()),
             reason,
         )
         .await;
