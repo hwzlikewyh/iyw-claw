@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use rmcp::model::{CallToolResult, Content};
 use rmcp::ErrorData;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::acp::delegation::companion::PostRelayAction;
 
@@ -27,6 +27,11 @@ struct PendingReceipt {
     callback: PostRelayAction,
 }
 
+enum DeliveryAckOutcome {
+    Unavailable,
+    Committed,
+    EffectUnknown,
+}
 impl DeliveryReceiptRegistry {
     pub(super) fn reserve(
         &self,
@@ -56,32 +61,31 @@ impl DeliveryReceiptRegistry {
         Some(receipt)
     }
 
-    pub(super) async fn acknowledge_and_commit(
+    async fn acknowledge_and_commit(
         &self,
         parent_connection_id: &str,
         receipt: &str,
-    ) -> bool {
+    ) -> DeliveryAckOutcome {
         let callback = {
             let mut entries = self.lock();
             prune_expired(&mut entries);
-            let entry = entries.get_mut(receipt).filter(|entry| {
-                entry.relayed
-                    && !entry.committing
-                    && entry.parent_connection_id == parent_connection_id
-            });
-            entry.map(|entry| {
-                entry.committing = true;
-                entry.callback.clone()
-            })
-        };
-        let Some(callback) = callback else {
-            return false;
+            let Some(entry) = entries.get_mut(receipt) else {
+                return DeliveryAckOutcome::Unavailable;
+            };
+            if !entry.relayed || entry.parent_connection_id != parent_connection_id {
+                return DeliveryAckOutcome::Unavailable;
+            }
+            if entry.committing {
+                return DeliveryAckOutcome::EffectUnknown;
+            }
+            entry.committing = true;
+            entry.callback.clone()
         };
         let committed = callback.run().await;
         let mut entries = self.lock();
         if committed {
             entries.remove(receipt);
-            return true;
+            return DeliveryAckOutcome::Committed;
         }
         if let Some(entry) = entries
             .get_mut(receipt)
@@ -89,7 +93,7 @@ impl DeliveryReceiptRegistry {
         {
             entry.committing = false;
         }
-        false
+        DeliveryAckOutcome::EffectUnknown
     }
 
     pub(super) async fn acknowledge_required(
@@ -97,16 +101,20 @@ impl DeliveryReceiptRegistry {
         parent_connection_id: &str,
         receipt: &str,
     ) -> Result<(), ErrorData> {
-        if self
+        match self
             .acknowledge_and_commit(parent_connection_id, receipt)
             .await
         {
-            return Ok(());
+            DeliveryAckOutcome::Committed => Ok(()),
+            DeliveryAckOutcome::Unavailable => Err(ErrorData::invalid_params(
+                "delivery receipt is unavailable",
+                None,
+            )),
+            DeliveryAckOutcome::EffectUnknown => Err(ErrorData::invalid_params(
+                "delivery acknowledgement outcome is unknown",
+                Some(json!({ "effectMayHaveOccurred": true })),
+            )),
         }
-        Err(ErrorData::invalid_params(
-            "delivery receipt is unavailable",
-            None,
-        ))
     }
 
     pub(super) fn attach(

@@ -174,7 +174,10 @@ impl RuntimeHostRegistry {
             self.prune_orphan_spawn_locks(preserve).await;
             return;
         }
-        let keys = removed.iter().map(|(key, _)| key).collect::<HashSet<_>>();
+        let keys = removed
+            .iter()
+            .map(|(key, _)| key.clone())
+            .collect::<HashSet<_>>();
         self.retirements
             .retire(removed.into_iter().map(|(_, host)| host).collect());
         self.spawn_locks

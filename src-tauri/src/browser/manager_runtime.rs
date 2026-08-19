@@ -196,6 +196,9 @@ impl BrowserSessionManager {
             shutdown_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             runtime,
             tabs: Arc::new(super::tabs::BrowserTabRegistry::default()),
+            tab_cleanups: Arc::new(
+                super::tab_cleanup_registry::PendingTabCleanupRegistry::default(),
+            ),
             streams: Arc::new(super::stream::BrowserStreamRegistry::default()),
             observer: Arc::new(tokio::sync::Mutex::new(None)),
             agent_turn_leases: Arc::new(super::agent_turn_leases::AgentTurnLeaseRegistry::default()),

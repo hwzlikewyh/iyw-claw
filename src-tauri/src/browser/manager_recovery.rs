@@ -8,7 +8,7 @@ use super::error::BrowserError;
 use super::manager::BrowserSessionManager;
 use super::records::{RecoveryPlan, RecoveryTab};
 use super::runtime::{BrowserRuntime, BrowserRuntimeContext};
-use super::tab_launch::{cleanup_tab, launch_tab};
+use super::tab_launch::launch_tab;
 
 const RECOVERY_ATTEMPTS: usize = 2;
 const RECOVERY_RETRY_DELAY: Duration = Duration::from_millis(500);
@@ -163,7 +163,15 @@ impl BrowserSessionManager {
         tab: RecoveryTab,
         cancellation: CancellationToken,
     ) -> Result<(), BrowserError> {
-        let launched = match launch_tab(runtime, &tab.ticket, &tab.url, cancellation).await {
+        let launched = match launch_tab(
+            &self.tab_cleanups,
+            runtime,
+            &tab.ticket,
+            &tab.url,
+            cancellation,
+        )
+        .await
+        {
             Ok(launched) => launched,
             Err(error) => {
                 self.fail_recovery_tab(&tab).await;
@@ -174,7 +182,7 @@ impl BrowserSessionManager {
         let watch = match self.tabs.insert(launched.handle).await {
             Ok(watch) => watch,
             Err(handle) => {
-                let _ = cleanup_tab(handle, true).await;
+                let _ = self.cleanup_or_retain_tab_handle(handle, true).await;
                 self.fail_recovery_tab(&tab).await;
                 return Err(recovery_error());
             }
@@ -184,7 +192,7 @@ impl BrowserSessionManager {
             .await
         {
             if let Some(handle) = self.tabs.take(&tab.ticket.tab_id).await {
-                let _ = cleanup_tab(handle, true).await;
+                let _ = self.cleanup_or_retain_tab_handle(handle, true).await;
             }
             self.fail_recovery_tab(&tab).await;
             return Err(error);

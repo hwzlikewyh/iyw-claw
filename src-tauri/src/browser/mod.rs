@@ -81,6 +81,10 @@ mod tab_actions;
 #[cfg(feature = "tauri-runtime")]
 mod tab_binding;
 #[cfg(feature = "tauri-runtime")]
+mod tab_cleanup;
+#[cfg(feature = "tauri-runtime")]
+mod tab_cleanup_registry;
+#[cfg(feature = "tauri-runtime")]
 mod tab_launch;
 #[cfg(feature = "tauri-runtime")]
 mod tab_metadata;

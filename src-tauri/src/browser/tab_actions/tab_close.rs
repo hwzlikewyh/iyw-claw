@@ -3,11 +3,15 @@ use serde_json::json;
 use super::super::command_runner::AgentBrowserCli;
 use super::super::error::{BrowserError, BrowserErrorCode};
 use super::super::manager::BrowserSessionManager;
-use super::super::process::{kill_tree_checked, ProcessRecord};
+use super::super::process::{find_processes_by_exact_session, kill_tree_checked, ProcessRecord};
 use super::super::records::TabTicket;
-use super::super::tab_launch::{cleanup_tab_ref, close_target_by_id};
+use super::super::tab_cleanup::{cleanup_tab_ref, close_target_by_id};
 use super::super::tabs::TabRuntimeHandle;
 use super::super::types::BrowserStateSnapshot;
+
+mod logging;
+
+use logging::{log_no_runtime_cleanup, log_tab_close_cleanup, log_target_retry};
 
 const TAB_CLOSE_CLEANUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const TARGET_CLOSE_ATTEMPTS: usize = 3;
@@ -46,7 +50,7 @@ impl BrowserSessionManager {
             .await;
         if result.is_err() {
             if let Some(handle) = handle {
-                self.tabs.restore_for_cleanup(vec![handle]).await;
+                self.tab_cleanups.retain_handles(vec![handle], true).await;
             }
         }
         result?;
@@ -58,6 +62,10 @@ impl BrowserSessionManager {
         &self,
         tab_id: &str,
     ) -> Result<BrowserStateSnapshot, BrowserError> {
+        if let Some(result) = self.tab_cleanups.retry_tab(tab_id).await {
+            result?;
+            return Ok(self.snapshot().await);
+        }
         let Some(handle) = self.tabs.take(tab_id).await else {
             tracing::info!(
                 target: "iyw_claw_browser",
@@ -71,7 +79,7 @@ impl BrowserSessionManager {
             .complete_tab_close_cleanup(&ticket, Some(&handle))
             .await;
         if result.is_err() {
-            self.tabs.restore_for_cleanup(vec![handle]).await;
+            self.tab_cleanups.retain_handles(vec![handle], true).await;
         }
         result?;
         self.spawn_runtime_idle_check("tab_cleanup_retried");
@@ -118,8 +126,7 @@ impl BrowserSessionManager {
         &self,
         handle: TabRuntimeHandle,
     ) -> Result<(), BrowserError> {
-        let (target_result, session_result) = self.cleanup_runtime_handle(&handle).await;
-        target_result.and(session_result)
+        self.cleanup_or_retain_tab_handle(handle, true).await
     }
 
     async fn cleanup_runtime_handle(
@@ -209,6 +216,18 @@ async fn force_cleanup(
 
 async fn force_session_cleanup(cleanup: &CleanupFallback) -> Result<(), BrowserError> {
     kill_tree_checked(&cleanup.daemon).await?;
+    let remaining = find_processes_by_exact_session(
+        cleanup.cli.executable_path(),
+        &cleanup.session,
+        "agent-browser-daemon",
+    );
+    if !remaining.is_empty() {
+        return Err(BrowserError::new(
+            BrowserErrorCode::BrowserInternal,
+            "An exact browser tab session process remained alive after forced cleanup",
+        )
+        .retryable(true));
+    }
     let _ = tokio::fs::remove_file(cleanup.cli.pid_path(&cleanup.session)).await;
     let _ = tokio::fs::remove_file(cleanup.cli.target_path(&cleanup.session)).await;
     Ok(())
@@ -258,59 +277,4 @@ fn fallback_target_error() -> BrowserError {
         "The browser target cleanup timed out",
     )
     .retryable(true)
-}
-
-fn log_target_retry(cleanup: &CleanupFallback, attempt: usize, error: &BrowserError) {
-    tracing::warn!(
-        target: "iyw_claw_browser",
-        browser_tab_id = %cleanup.tab_id,
-        target_id = %cleanup.target_id,
-        attempt,
-        max_attempts = TARGET_CLOSE_ATTEMPTS,
-        error_code = ?error.code,
-        error_message = %error.message,
-        "browser target close retry failed"
-    );
-}
-
-fn log_no_runtime_cleanup(ticket: &TabTicket) {
-    tracing::info!(
-        target: "iyw_claw_browser",
-        browser_tab_id = %ticket.tab_id,
-        operation_id = %ticket.operation_id,
-        "browser tab close needed no runtime cleanup"
-    );
-}
-
-fn log_tab_close_cleanup(
-    ticket: &TabTicket,
-    target_result: &Result<(), BrowserError>,
-    session_result: &Result<(), BrowserError>,
-) {
-    log_cleanup_error(ticket, "target", target_result.as_ref().err());
-    log_cleanup_error(ticket, "daemon", session_result.as_ref().err());
-    if target_result.is_ok() && session_result.is_ok() {
-        tracing::info!(
-            target: "iyw_claw_browser",
-            browser_tab_id = %ticket.tab_id,
-            operation_id = %ticket.operation_id,
-            runtime_generation = ticket.runtime_generation,
-            "browser tab resources closed"
-        );
-    }
-}
-
-fn log_cleanup_error(ticket: &TabTicket, stage: &str, error: Option<&BrowserError>) {
-    let Some(error) = error else { return };
-    tracing::warn!(
-        target: "iyw_claw_browser",
-        browser_tab_id = %ticket.tab_id,
-        operation_id = %ticket.operation_id,
-        runtime_generation = ticket.runtime_generation,
-        cleanup_stage = stage,
-        error_code = ?error.code,
-        error_message = %error.message,
-        retryable = error.retryable,
-        "browser tab resource cleanup failed after logical removal"
-    );
 }

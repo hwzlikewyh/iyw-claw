@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
@@ -15,19 +15,20 @@ use super::cdp_maps::update_protocol_maps;
 use super::error::BrowserError;
 use super::manager::BrowserSessionManager;
 
+mod write;
+use write::send_with_timeout;
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const OBSERVER_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const SOCKET_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
-
 struct CdpRequest {
     method: String,
     params: Value,
     session_id: Option<String>,
     response: oneshot::Sender<Result<Value, BrowserError>>,
 }
-
 #[derive(Debug, Clone)]
 pub(super) struct CdpObserverHandle {
     commands: mpsc::Sender<CdpRequest>,
@@ -303,14 +304,4 @@ where
         .await?;
     }
     Ok(())
-}
-
-async fn send_with_timeout<S>(sink: &mut S, message: Message, timeout: Duration) -> Result<(), ()>
-where
-    S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
-{
-    tokio::time::timeout(timeout, sink.send(message))
-        .await
-        .map_err(|_| ())?
-        .map_err(|_| ())
 }

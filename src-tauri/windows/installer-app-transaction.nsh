@@ -288,11 +288,13 @@ Function IywClawRestartOldAppIfRequested
   Push "iyw-claw.exe"
   Call IywClawFindCurrentUserProcess
   Pop $R0
-  StrCmp $R0 "2" 0 restart_old_app_done
+  ; The process helper returns 0=found, 1=absent, 2=check failed.
+  StrCmp $R0 "1" 0 restart_old_app_done
   DetailPrint "正在重新启动旧版本 iyw-claw..."
-  ; The helper plugin is unavailable while hooks are parsed. The rollback
-  ; path is best-effort and can launch through the current installer token.
-  Exec '"$IywClawAppDir\iyw-claw.exe" $IywClawRestartArgs'
+  ; Hooks are parsed before Tauri's additional plugin directory is registered.
+  ; ShellExecute keeps this current-user installer flow out of the plugin path
+  ; and lets the Windows shell launch the restored app without blocking rollback.
+  ExecShell "open" "$IywClawAppDir\iyw-claw.exe" "$IywClawRestartArgs"
 
   restart_old_app_done:
 FunctionEnd

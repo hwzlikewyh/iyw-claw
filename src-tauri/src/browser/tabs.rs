@@ -100,13 +100,6 @@ impl BrowserTabRegistry {
             })
             .collect()
     }
-
-    pub async fn restore_for_cleanup(&self, handles: Vec<TabRuntimeHandle>) {
-        let mut inner = self.inner.lock().await;
-        for handle in handles {
-            inner.entry(handle.tab_id.clone()).or_insert(handle);
-        }
-    }
 }
 
 impl TabExitWatch {

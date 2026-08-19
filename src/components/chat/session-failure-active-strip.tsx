@@ -148,8 +148,17 @@ function FailureStripControls({
   onToggleDetails,
 }: FailureStripControlsProps) {
   const t = useTranslations("Folder.chat.sessionFailure")
-  const actions =
-    onAction && !warning ? knownSessionFailureActions(failure) : []
+  const actionButtons =
+    onAction && !warning
+      ? knownSessionFailureActions(failure).map((action) => (
+          <FailureActionButton
+            key={action}
+            action={action}
+            failure={failure}
+            onAction={onAction}
+          />
+        ))
+      : null
   const DetailsChevron = expanded ? ChevronDown : ChevronRight
   return (
     <>
@@ -158,14 +167,7 @@ function FailureStripControls({
           {t("moreIncidents", { count: hiddenCount })}
         </span>
       )}
-      {actions.map((action) => (
-        <FailureActionButton
-          key={action}
-          action={action}
-          failure={failure}
-          onAction={onAction}
-        />
-      ))}
+      {actionButtons}
       {details && (
         <button
           type="button"

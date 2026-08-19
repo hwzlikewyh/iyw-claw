@@ -1,9 +1,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::acp::channel_tools::confirmation::SessionChannelConfirmationAccess;
-use crate::acp::question::SessionQuestionAccess;
-
 use super::cleanup::{CleanupSnapshot, CleanupStep, CleanupTicket};
 use super::{LeaseManager, LeaseShutdownReport};
 
@@ -16,7 +13,7 @@ impl LeaseManager {
     }
 
     pub(super) async fn begin_shutdown(self: &Arc<Self>) -> (usize, bool) {
-        let revoked = self.begin_revoke_all().await;
+        let revoked = self.enqueue_shutdown_cleanup().await;
         self.parent_tasks.abort_all().await;
         (revoked, self.parent_tasks.reap_all().await)
     }
@@ -34,7 +31,7 @@ impl LeaseManager {
         self.audit_shutdown(revoked, parent_tasks_reaped).await
     }
 
-    async fn begin_revoke_all(&self) -> usize {
+    async fn enqueue_shutdown_cleanup(&self) -> usize {
         let _lifecycle = self.lifecycle.lock().await;
         let mut parents = self.shutdown_parent_ids().await;
         parents.extend(self.pending_cleanup.parent_ids());

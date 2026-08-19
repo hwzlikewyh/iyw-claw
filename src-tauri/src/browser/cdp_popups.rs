@@ -6,7 +6,7 @@ use super::manager::BrowserSessionManager;
 use super::records::TabTicket;
 use super::runtime::BrowserRuntimeContext;
 use super::tab_actions::validated_url;
-use super::tab_launch::{bind_existing_tab, cleanup_tab};
+use super::tab_launch::bind_existing_tab;
 
 impl BrowserSessionManager {
     pub(super) async fn adopt_popup(
@@ -101,11 +101,18 @@ impl BrowserSessionManager {
         target_id: String,
         cancellation: tokio_util::sync::CancellationToken,
     ) -> Result<(), BrowserError> {
-        let launched = bind_existing_tab(runtime, ticket, &target_id, cancellation).await?;
+        let launched = bind_existing_tab(
+            &self.tab_cleanups,
+            runtime,
+            ticket,
+            &target_id,
+            cancellation,
+        )
+        .await?;
         let watch = match self.tabs.insert(launched.handle).await {
             Ok(watch) => watch,
             Err(handle) => {
-                let _ = cleanup_tab(handle, true).await;
+                let _ = self.cleanup_or_retain_tab_handle(handle, true).await;
                 return Err(BrowserError::new(
                     BrowserErrorCode::BrowserInternal,
                     "The popup browser tab could not be registered",
@@ -122,7 +129,7 @@ impl BrowserSessionManager {
         );
         if let Err(error) = commit {
             if let Some(handle) = self.tabs.take(&ticket.tab_id).await {
-                let _ = cleanup_tab(handle, true).await;
+                let _ = self.cleanup_or_retain_tab_handle(handle, true).await;
             }
             return Err(error);
         }

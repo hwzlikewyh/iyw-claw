@@ -31,6 +31,7 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.name }}
+    timeout-minutes: 120
     permissions:
       contents: write
     strategy:
@@ -278,8 +279,8 @@ jobs:
           fi
 
       # externalBin staging can succeed while the NSIS template accidentally
-      # omits an item. Install into a CI-only temporary root and prove both
-      # generic and versioned MCP binaries are present and byte-identical.
+      # omits a sidecar. Install into a CI-only temporary root and verify every
+      # supported bundled sidecar is present and byte-identical to its source.
       - name: Verify installed NSIS sidecars
         if: contains(matrix.target, 'windows')
         shell: bash

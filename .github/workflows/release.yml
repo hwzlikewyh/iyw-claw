@@ -60,13 +60,14 @@ jobs:
             fi
 
             tag="v$version"
+            tag_exists=false
             if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              tag_exists=true
               draft="$(gh release view "$tag" --repo "$REPOSITORY" --json isDraft --jq '.isDraft')"
               if [[ "$draft" != "true" ]]; then
                 echo "::error::Release tag $tag already exists and is not a draft."
                 exit 1
               fi
-              echo "Reusing existing draft tag $tag with the current default branch source."
             fi
 
             node scripts/set-version.mjs "$version"
@@ -78,9 +79,20 @@ jobs:
             if ! git diff --cached --quiet; then
               git commit -m "chore(release): v$version"
             fi
-            git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"
-            if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            source_ref="$(git rev-parse HEAD)"
+            if [[ "$tag_exists" == true ]]; then
+              git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+              tag_ref="$(git rev-list -n 1 "$tag^{commit}")"
+              if [[ "$tag_ref" != "$source_ref" ]]; then
+                echo "::error::Draft tag $tag points to $tag_ref, but this release source is $source_ref. Refusing to mix assets from different commits."
+                exit 1
+              fi
+              echo "Reusing existing draft tag $tag at source commit $source_ref."
+            else
               git tag -a "$tag" -m "Release $tag"
+            fi
+            git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"
+            if [[ "$tag_exists" == false ]]; then
               git push origin "refs/tags/$tag"
             fi
           else
