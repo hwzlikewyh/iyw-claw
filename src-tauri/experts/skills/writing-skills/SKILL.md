@@ -1,6 +1,12 @@
 ---
 name: writing-skills
 description: Use when creating new skills, editing existing skills, or verifying skills work before deployment
+routing:
+  capability: implement and verify Skill content
+  coreTriggers: [create edit or verify a Skill before deployment]
+  exclusions: [install an unchanged existing Skill]
+  aliases: [write skill, verify skill]
+  invocation: Read SKILL.md and follow its authoring and pressure-test workflow.
 ---
 
 # Writing Skills

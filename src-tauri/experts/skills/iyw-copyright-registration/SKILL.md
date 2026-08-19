@@ -1,6 +1,12 @@
 ---
 name: iyw-copyright-registration
 description: 在爱原物 IYW（i.iyw.cn）为客户准备、检查并批量提交美术作品版权登记，支持账号会话确认、作品与权利保证书上传、未发表或已发表资料填写、单证多图、提交结果核验和失败排查。用户提到 iyw 版权登记、爱原物版权、批量提交版权、上传权利保证书、版权登记自动化或在 IYW 后台提交美术作品登记时使用。
+routing:
+  capability: IYW 美术作品版权登记
+  coreTriggers: [提交或检查 IYW 版权登记]
+  exclusions: [通用版权法律咨询]
+  aliases: [爱原物版权, 批量版权登记]
+  invocation: 先读 SKILL.md 并核对批次资料，再按文档操作后台。
 ---
 
 # IYW 版权登记

@@ -5,6 +5,12 @@ description: >
   多张图片拼成 PSD、海报/设计稿拆成多个图层、白底转透明、颜色聚类拆层、把 Codex/AI 生图结果拆成元素图再合成 PSD、
   或希望输出 layered PSD、可在 Photoshop/Photopea 中编辑的分层栅格文件时，应该使用此 skill。
   在 Codex 中使用时，默认结合 imagegen skill：先用 Codex 视觉/生图能力理解、补齐或重建元素，再用本 skill 的脚本落地 PSD。
+routing:
+  capability: convert images into editable layered PSD files
+  coreTriggers: [图片转 PSD 或拆分图层]
+  exclusions: [只需普通图片编辑或单张平面输出]
+  aliases: [image2psd, 分层 PSD]
+  invocation: Read SKILL.md and use its scripts; inspect inputs before conversion.
 ---
 
 # BGGG Creator Image2PSD

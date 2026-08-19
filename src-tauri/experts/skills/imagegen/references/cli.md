@@ -79,12 +79,14 @@ Read [codex-network.md](codex-network.md) only for sandbox/network failures.
 ## Display
 
 After every successful command, resolve each output to an absolute path and
-call `show_image` (namespaced: `mcp__iyw-claw-mcp__show_image`) because the CLI
-writes local files and a Markdown image cannot reliably expose a local path to
-the conversation webview. If a separate workflow returns a final public HTTPS
-URL, display that URL with `![Generated image](URL)` instead. If no display tool
-is available for a local result, return the absolute paths and state that inline
-rendering was unavailable; do not retry under a guessed name.
+follow the parent Skill's display workflow because a Markdown image cannot
+reliably expose a local path to the conversation webview. Use a directly visible
+`show_image` tool or search/read/invoke through the complete IYW Capability
+Gateway trio; never construct a namespace or stable id. If a separate workflow
+returns a final public HTTPS URL, display that URL with
+`![Generated image](URL)` instead. If no display route is available for a local
+result, return the absolute paths and state that inline rendering was
+unavailable; do not retry under a guessed name.
 
 ## Transparency
 

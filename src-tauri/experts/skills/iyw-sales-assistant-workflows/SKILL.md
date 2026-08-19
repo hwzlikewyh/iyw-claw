@@ -1,6 +1,12 @@
 ---
 name: iyw-sales-assistant-workflows
 description: 编排励销与爱原物 CRM 完成 AI 销售助理客户开发，包括外销/内销平台获客、企业与联系人采集、CRM 查重和 4/5/10 星保护、最近六个月线索评分、招聘与联系方式核验、针对性趋势及 AI 资料匹配、销售开场话术和桌面客户包生成。用户提到 AI 销售助理、励销获客、CRM 客户归属、销售线索评分、阿里国际站/1688 等平台找客户、销售产品包或客户资料回传时使用。
+routing:
+  capability: IYW AI 销售线索开发与客户包
+  coreTriggers: [励销获客或 CRM 线索评分回传]
+  exclusions: [通用销售文案且无需客户数据]
+  aliases: [AI 销售助理, 销售客户包]
+  invocation: 先读 SKILL.md，按查重保护和评分顺序执行内置 CLI。
 ---
 
 # IYW AI Sales Assistant Workflows

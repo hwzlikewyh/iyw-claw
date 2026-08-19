@@ -94,6 +94,7 @@ mod session_recovery;
 pub mod session_state;
 pub mod skill_package;
 pub(crate) mod skill_tree_hash;
+pub mod skill_routing;
 pub(crate) mod startup_trace;
 pub(crate) mod stderr_tail;
 pub mod terminal_runtime;

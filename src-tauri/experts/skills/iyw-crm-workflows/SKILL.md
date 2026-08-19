@@ -1,6 +1,12 @@
 ---
 name: iyw-crm-workflows
 description: 通过内置 Python CLI 登录彩虹设计网 IYW CRM、保存并复用 ASP.NET Cookie 会话，以及按客户名称或完整筛选字段分页查询客户数据。用户提到 CRM、彩虹设计网销售管理系统、crm.chdesign.com.cn、CRM 登录、客户搜索、客户列表或基于已捕获 CRM 请求自动化查询时使用。
+routing:
+  capability: IYW CRM 登录与客户查询
+  coreTriggers: [查询彩虹设计网 CRM 客户数据]
+  exclusions: [其他 CRM 或销售策略咨询]
+  aliases: [IYW CRM, 彩虹设计网 CRM]
+  invocation: 先读 SKILL.md，仅使用内置 CLI 和已确认接口。
 ---
 
 # IYW CRM Workflows

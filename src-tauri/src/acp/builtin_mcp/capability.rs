@@ -1,6 +1,12 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::capability_metadata::{
+    capability_aliases, capability_category, digest, first_sentence, public_text, public_value,
+    required_inputs, search_score,
+};
+use super::capability_registry::{stable_capability_id, validate_bindings, RegistryError};
+use super::capability_schema;
 use super::features::FeatureSnapshot;
 
 const DEFAULT_SEARCH_LIMIT: usize = 8;
@@ -11,6 +17,11 @@ const MAX_SEARCH_QUERY_CHARS: usize = 256;
 pub(super) struct CapabilitySummary {
     pub capability_id: &'static str,
     pub summary: String,
+    pub category: String,
+    pub aliases: Vec<String>,
+    pub required_inputs: Vec<String>,
+    pub schema_digest: String,
+    pub status: &'static str,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -18,6 +29,13 @@ pub(super) struct CapabilityDetail {
     pub capability_id: &'static str,
     pub description: String,
     pub input_schema: Value,
+    pub category: String,
+    pub aliases: Vec<String>,
+    pub required_inputs: Vec<String>,
+    pub schema_digest: String,
+    pub status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<&'static str>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,10 +57,15 @@ struct EmbeddedTool {
 struct CatalogEntry {
     id: &'static str,
     tool: EmbeddedTool,
+    category: String,
+    aliases: Vec<String>,
+    required_inputs: Vec<String>,
+    schema_digest: String,
 }
 
 pub(super) struct CapabilityCatalog {
     entries: Vec<CatalogEntry>,
+    catalog_digest: String,
 }
 
 impl CapabilityCatalog {
@@ -50,15 +73,38 @@ impl CapabilityCatalog {
         let tools = serde_json::from_str::<Vec<EmbeddedTool>>(
             crate::acp::delegation::companion::TOOL_SCHEMA_JSON,
         )?;
+        validate_bindings(tools.iter().map(|tool| tool.name.as_str()))?;
         let entries = tools
             .into_iter()
-            .map(|tool| {
+            .map(|mut tool| {
                 let id = stable_capability_id(&tool.name)
                     .ok_or_else(|| CatalogError::MissingStableId(tool.name.clone()))?;
-                Ok(CatalogEntry { id, tool })
+                tool.input_schema = public_value(tool.input_schema);
+                let schema_digest = digest(&tool.input_schema)?;
+                Ok(CatalogEntry {
+                    id,
+                    category: capability_category(id),
+                    aliases: capability_aliases(id),
+                    required_inputs: required_inputs(&tool.input_schema),
+                    schema_digest,
+                    tool,
+                })
             })
             .collect::<Result<Vec<_>, CatalogError>>()?;
-        Ok(Self { entries })
+        let catalog_digest = digest(
+            &entries
+                .iter()
+                .map(|entry| (&entry.id, &entry.schema_digest))
+                .collect::<Vec<_>>(),
+        )?;
+        Ok(Self {
+            entries,
+            catalog_digest,
+        })
+    }
+
+    pub(super) fn digest(&self) -> &str {
+        &self.catalog_digest
     }
 
     pub(super) fn search(
@@ -100,11 +146,22 @@ impl CapabilityCatalog {
         features: &FeatureSnapshot,
         capability_id: &str,
     ) -> Option<CapabilityDetail> {
-        let entry = self.find_available(features, capability_id)?;
+        let entry = self.find(capability_id)?;
+        let available = features.should_list(&entry.tool.name);
         Some(CapabilityDetail {
             capability_id: entry.id,
             description: public_text(&entry.tool.description),
             input_schema: public_value(entry.tool.input_schema.clone()),
+            category: entry.category.clone(),
+            aliases: entry.aliases.clone(),
+            required_inputs: entry.required_inputs.clone(),
+            schema_digest: entry.schema_digest.clone(),
+            status: if available {
+                "available"
+            } else {
+                "unavailable"
+            },
+            unavailable_reason: (!available).then_some("disabled_for_session"),
         })
     }
 
@@ -113,10 +170,14 @@ impl CapabilityCatalog {
         features: &FeatureSnapshot,
         capability_id: &str,
         arguments: Value,
-    ) -> Option<ResolvedCapability> {
-        let entry = self.find_available(features, capability_id)?;
-        features.authorize_call(&entry.tool.name).ok()?;
-        Some(ResolvedCapability {
+    ) -> Result<ResolvedCapability, ResolveError> {
+        let entry = self.find(capability_id).ok_or(ResolveError::Unknown)?;
+        features
+            .authorize_call(&entry.tool.name)
+            .map_err(|_| ResolveError::Unavailable)?;
+        capability_schema::validate(&entry.tool.input_schema, &arguments)
+            .map_err(|error| ResolveError::InvalidArguments(format!("{}: {error}", entry.id)))?;
+        Ok(ResolvedCapability {
             tool_name: entry.tool.name.clone(),
             arguments,
             delivery_ack: None,
@@ -132,64 +193,31 @@ impl CapabilityCatalog {
             .filter(|entry| features.should_list(&entry.tool.name))
     }
 
-    fn find_available<'a>(
-        &'a self,
-        features: &FeatureSnapshot,
-        capability_id: &str,
-    ) -> Option<&'a CatalogEntry> {
-        self.entries
-            .iter()
-            .find(|entry| entry.id == capability_id && features.should_list(&entry.tool.name))
+    fn find(&self, capability_id: &str) -> Option<&CatalogEntry> {
+        self.entries.iter().find(|entry| entry.id == capability_id)
     }
 }
 
 fn search_match(entry: &CatalogEntry, query: &str) -> Option<(usize, CapabilitySummary)> {
-    let haystack = format!("{} {}", entry.id, entry.tool.description).to_ascii_lowercase();
-    let score = query
-        .split_whitespace()
-        .filter(|token| haystack.contains(token))
-        .count();
-    if score == 0 && !haystack.contains(query) {
-        return None;
-    }
-    let exact_bonus = usize::from(entry.id.eq_ignore_ascii_case(query)) * 100;
+    let score = search_score(
+        entry.id,
+        &entry.category,
+        &entry.aliases,
+        &entry.tool.description,
+        query,
+    )?;
     Some((
-        score + exact_bonus,
+        score,
         CapabilitySummary {
             capability_id: entry.id,
             summary: public_text(&first_sentence(&entry.tool.description)),
+            category: entry.category.clone(),
+            aliases: entry.aliases.clone(),
+            required_inputs: entry.required_inputs.clone(),
+            schema_digest: entry.schema_digest.clone(),
+            status: "available",
         },
     ))
-}
-
-fn first_sentence(description: &str) -> String {
-    description
-        .split_once(". ")
-        .map_or(description, |(first, _)| first)
-        .trim()
-        .to_string()
-}
-
-fn public_text(text: &str) -> String {
-    CAPABILITY_BINDINGS
-        .iter()
-        .fold(text.to_string(), |value, (tool_name, capability_id)| {
-            value.replace(tool_name, capability_id)
-        })
-}
-
-fn public_value(value: Value) -> Value {
-    match value {
-        Value::String(text) => Value::String(public_text(&text)),
-        Value::Array(values) => Value::Array(values.into_iter().map(public_value).collect()),
-        Value::Object(values) => Value::Object(
-            values
-                .into_iter()
-                .map(|(key, value)| (key, public_value(value)))
-                .collect(),
-        ),
-        other => other,
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -198,6 +226,18 @@ pub(super) enum CatalogError {
     Decode(#[from] serde_json::Error),
     #[error("companion tool `{0}` has no stable capability id")]
     MissingStableId(String),
+    #[error(transparent)]
+    Registry(#[from] RegistryError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(super) enum ResolveError {
+    #[error("unknown capability id")]
+    Unknown,
+    #[error("capability is unavailable for this session")]
+    Unavailable,
+    #[error("arguments do not match the capability schema: {0}")]
+    InvalidArguments(String),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -209,65 +249,3 @@ pub(super) enum SearchError {
     #[error("limit must be between 1 and {MAX_SEARCH_LIMIT}")]
     InvalidLimit,
 }
-
-fn stable_capability_id(tool_name: &str) -> Option<&'static str> {
-    CAPABILITY_BINDINGS
-        .iter()
-        .find_map(|(name, id)| (*name == tool_name).then_some(*id))
-}
-
-pub(super) fn tool_name_for_capability_id(capability_id: &str) -> Option<&'static str> {
-    CAPABILITY_BINDINGS
-        .iter()
-        .find_map(|(name, id)| (*id == capability_id).then_some(*name))
-}
-
-const CAPABILITY_BINDINGS: [(&str, &str); 38] = [
-    (
-        "list_scheduled_task_projects",
-        "iyw.automation.projects.list.v1",
-    ),
-    ("list_scheduled_tasks", "iyw.automation.tasks.list.v1"),
-    ("create_scheduled_task", "iyw.automation.tasks.create.v1"),
-    ("update_scheduled_task", "iyw.automation.tasks.update.v1"),
-    ("delete_scheduled_task", "iyw.automation.tasks.delete.v1"),
-    ("browser_list_tabs", "iyw.browser.tabs.list.v1"),
-    ("browser_open", "iyw.browser.page.open.v1"),
-    ("browser_snapshot", "iyw.browser.page.snapshot.v1"),
-    ("browser_click", "iyw.browser.element.click.v1"),
-    ("browser_fill", "iyw.browser.element.fill.v1"),
-    ("browser_press", "iyw.browser.keyboard.press.v1"),
-    ("browser_scroll", "iyw.browser.page.scroll.v1"),
-    ("browser_wait", "iyw.browser.page.wait.v1"),
-    ("browser_screenshot", "iyw.browser.page.screenshot.v1"),
-    ("browser_close_tab", "iyw.browser.tabs.close.v1"),
-    ("present_task_files", "iyw.artifacts.present.v1"),
-    ("delegate_to_agent", "iyw.delegation.tasks.create.v1"),
-    ("get_delegation_status", "iyw.delegation.tasks.read.v1"),
-    ("cancel_delegation", "iyw.delegation.tasks.cancel.v1"),
-    ("check_user_feedback", "iyw.interaction.feedback.read.v1"),
-    ("ask_user_question", "iyw.interaction.question.ask.v1"),
-    ("get_session_info", "iyw.session.info.read.v1"),
-    ("transcribe_audio", "iyw.audio.transcription.create.v1"),
-    (
-        "query_audio_transcription",
-        "iyw.audio.transcription.read.v1",
-    ),
-    ("show_image", "iyw.image.present.v1"),
-    ("analyze_image", "iyw.image.analyze.v1"),
-    ("append_user_memory", "iyw.memory.confirmed.append.v1"),
-    ("propose_user_memory", "iyw.memory.candidate.propose.v1"),
-    ("memory_recall", "iyw.memory.recall.search.v1"),
-    ("list_message_channels", "iyw.channels.list.v1"),
-    ("save_message_channel", "iyw.channels.save.v1"),
-    ("delete_message_channel", "iyw.channels.delete.v1"),
-    (
-        "manage_channel_credential",
-        "iyw.channels.credentials.manage.v1",
-    ),
-    ("operate_message_channel", "iyw.channels.operate.v1"),
-    ("list_channel_targets", "iyw.channels.targets.list.v1"),
-    ("list_channel_messages", "iyw.channels.messages.list.v1"),
-    ("send_channel_messages", "iyw.channels.messages.send.v1"),
-    ("manage_channel_settings", "iyw.channels.settings.manage.v1"),
-];

@@ -1,6 +1,12 @@
 ---
 name: using-superpowers
 description: Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including clarifying questions
+routing:
+  capability: initialize Skill discovery rules
+  coreTriggers: [a new conversation starts]
+  exclusions: [a dispatched subagent already has a bounded task]
+  aliases: [skill bootstrap, using superpowers]
+  invocation: Read SKILL.md before responding and follow its discovery gate.
 ---
 
 <SUBAGENT-STOP>

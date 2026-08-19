@@ -5632,6 +5632,7 @@ pub(crate) fn build_skill_item(
 ) -> AgentSkillItem {
     let content_path = skill_content_path(layout, &path);
     let description = read_skill_description(&content_path);
+    let routing = crate::acp::skill_routing::read_skill_routing(&content_path);
     let name =
         read_skill_display_name(&path, &content_path).unwrap_or_else(|| skill_name_from_id(&id));
     let market = read_market_skill_marker(&path);
@@ -5646,6 +5647,9 @@ pub(crate) fn build_skill_item(
         layout,
         path: path.to_string_lossy().to_string(),
         description,
+        routing: routing.card,
+        routing_status: routing.status,
+        routing_error: routing.error,
         enabled,
         copy_mode: false,
         read_only: bundled_read_only,
@@ -5657,6 +5661,14 @@ pub(crate) fn build_skill_item(
         publisher_type: market.as_ref().map(|value| value.publisher_type.clone()),
         market_content_sha256: market.map(|value| value.content_sha256),
     }
+}
+
+fn refresh_skill_metadata(skill: &mut AgentSkillItem, content_path: &Path) {
+    skill.description = read_skill_description(content_path);
+    let routing = crate::acp::skill_routing::read_skill_routing(content_path);
+    skill.routing = routing.card;
+    skill.routing_status = routing.status;
+    skill.routing_error = routing.error;
 }
 
 const DISABLED_SKILLS_DIR: &str = ".iyw-claw-disabled";
@@ -11720,6 +11732,9 @@ fn inventory_skill_for_agent(
             .map(|value| value.path.clone())
             .unwrap_or_else(|| observation.canonical_path.clone()),
         description: skill.description,
+        routing: skill.routing,
+        routing_status: skill.routing_status,
+        routing_error: skill.routing_error,
         enabled: actual_enabled,
         copy_mode: location.is_some_and(|value| value.projection_source.is_some()),
         read_only: observation.read_only,
@@ -12150,7 +12165,7 @@ pub async fn acp_save_agent_skill_core(
                 AcpError::protocol(format!("failed to remove previous skill entry: {e}"))
             })?;
         }
-        skill.description = read_skill_description(&content_path);
+        refresh_skill_metadata(&mut skill, &content_path);
         return Ok(skill);
     }
 
@@ -12170,7 +12185,7 @@ pub async fn acp_save_agent_skill_core(
     fs::write(&content_path, content)
         .map_err(|e| AcpError::protocol(format!("failed to write skill content: {e}")))?;
 
-    skill.description = read_skill_description(&content_path);
+    refresh_skill_metadata(&mut skill, &content_path);
 
     Ok(skill)
 }

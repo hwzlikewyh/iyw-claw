@@ -47,16 +47,24 @@ fn build_logical(observations: Vec<SkillObservation>) -> LogicalSkillInventoryIt
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let routing_description_chars = first
-        .description
-        .as_deref()
-        .map(|value| value.chars().count())
-        .unwrap_or_default();
+    let routing_description_chars = first.routing.as_ref().map_or_else(
+        || {
+            first
+                .description
+                .as_deref()
+                .map(|value| value.chars().count())
+                .unwrap_or_default()
+        },
+        crate::acp::skill_routing::SkillRoutingCard::character_count,
+    );
     LogicalSkillInventoryItem {
         skill_id: first.skill_id.clone(),
         scope: first.scope,
         name: first.name.clone(),
         description: first.description.clone(),
+        routing: first.routing.clone(),
+        routing_status: first.routing_status,
+        routing_error: first.routing_error.clone(),
         routing_description_chars,
         routing_description_over_limit: routing_description_chars > ROUTING_DESCRIPTION_MAX_CHARS,
         status: analysis.status,

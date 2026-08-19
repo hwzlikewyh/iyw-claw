@@ -1,10 +1,11 @@
 use base64::Engine;
 
+use crate::acp::skill_routing::{
+    parse_skill_routing, read_frontmatter, ROUTING_DESCRIPTION_MAX_CHARS,
+};
 use crate::app_error::AppCommandError;
 
 use super::types::{SkillMarketUploadFile, SkillPackageType};
-
-pub(crate) const ROUTING_DESCRIPTION_MAX_CHARS: usize = 240;
 
 pub(super) fn validate_routing_descriptions(
     files: &[SkillMarketUploadFile],
@@ -60,86 +61,14 @@ fn validate_skill_entry(file: &SkillMarketUploadFile) -> Result<(), AppCommandEr
             "Shorten the routing sentence without dropping required routing facts",
         ));
     }
-    let card = frontmatter.get("routing").ok_or_else(|| {
+    parse_skill_routing(content).map_err(|error| {
         routing_error(
             &file.path,
-            "must define a routing card",
-            "Include capability, coreTriggers, exclusions, aliases, and invocation",
+            error.to_string(),
+            "Include concise capability, coreTriggers, exclusions, aliases, and invocation fields",
         )
     })?;
-    validate_routing_card(&file.path, card)?;
-    let card_chars = routing_card_chars(card);
-    if card_chars > ROUTING_DESCRIPTION_MAX_CHARS {
-        return Err(routing_error(
-            &file.path,
-            &format!("routing card has {card_chars} characters; maximum is {ROUTING_DESCRIPTION_MAX_CHARS}"),
-            "Shorten routing fields without dropping exclusions or invocation",
-        ));
-    }
     Ok(())
-}
-
-fn validate_routing_card(path: &str, value: &serde_yaml::Value) -> Result<(), AppCommandError> {
-    let Some(map) = value.as_mapping() else {
-        return Err(routing_error(
-            path,
-            "routing card must be a mapping",
-            "Use a YAML object",
-        ));
-    };
-    for field in ["capability", "invocation"] {
-        let Some(value) = map_field(map, field) else {
-            return Err(routing_error(
-                path,
-                &format!("routing card is missing {field}"),
-                "Add the required routing field",
-            ));
-        };
-        if value.as_str().is_none_or(|text| text.trim().is_empty()) {
-            return Err(routing_error(
-                path,
-                &format!("routing card {field} must be non-empty"),
-                "Use concise routing text",
-            ));
-        }
-    }
-    for field in ["coreTriggers", "exclusions", "aliases"] {
-        let Some(value) = map_field(map, field) else {
-            return Err(routing_error(
-                path,
-                &format!("routing card is missing {field}"),
-                "Add the required routing list",
-            ));
-        };
-        if !value.is_sequence() {
-            return Err(routing_error(
-                path,
-                &format!("routing card {field} must be a list"),
-                "Use a YAML list, even when it is empty",
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn map_field<'a>(map: &'a serde_yaml::Mapping, field: &str) -> Option<&'a serde_yaml::Value> {
-    let snake = match field {
-        "coreTriggers" => "core_triggers",
-        _ => field,
-    };
-    map.get(field).or_else(|| map.get(snake))
-}
-
-fn read_frontmatter(content: &str) -> Option<serde_yaml::Value> {
-    let mut lines = content.lines();
-    if lines.next()?.trim() != "---" {
-        return None;
-    }
-    let yaml = lines
-        .take_while(|line| !matches!(line.trim(), "---" | "..."))
-        .collect::<Vec<_>>()
-        .join("\n");
-    serde_yaml::from_str(&yaml).ok()
 }
 
 fn frontmatter_description(value: &serde_yaml::Value) -> Option<String> {
@@ -150,15 +79,6 @@ fn frontmatter_description(value: &serde_yaml::Value) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-}
-
-fn routing_card_chars(value: &serde_yaml::Value) -> usize {
-    match value {
-        serde_yaml::Value::String(text) => text.chars().count(),
-        serde_yaml::Value::Sequence(values) => values.iter().map(routing_card_chars).sum(),
-        serde_yaml::Value::Mapping(map) => map.values().map(routing_card_chars).sum(),
-        _ => 0,
-    }
 }
 
 fn routing_error(
