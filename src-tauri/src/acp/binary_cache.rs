@@ -89,10 +89,14 @@ fn active_uv_version_dir(uv_root: &Path) -> Option<PathBuf> {
 }
 
 fn managed_runtime_platform() -> &'static str {
-    match std::env::consts::ARCH {
-        "x86_64" => "win-x64",
-        "aarch64" => "win-arm64",
-        "x86" => "win-x86",
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => "win-x64",
+        ("windows", "aarch64") => "win-arm64",
+        ("windows", "x86") => "win-x86",
+        ("macos", "x86_64") => "darwin-x64",
+        ("macos", "aarch64") => "darwin-arm64",
+        ("linux", "x86_64") => "linux-x64",
+        ("linux", "aarch64") => "linux-arm64",
         _ => "unknown",
     }
 }

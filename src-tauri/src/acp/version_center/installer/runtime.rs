@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use super::manifest::read_marker;
 use crate::acp::version_center::capability;
+use crate::acp::version_center::inventory::is_verified_origin;
 use crate::app_error::AppCommandError;
 
 #[derive(Debug, Deserialize)]
@@ -13,20 +15,56 @@ struct CurrentPointer {
 }
 
 pub fn managed_tool_executable(name: &str) -> Option<PathBuf> {
+    let data_dir = std::env::var_os("IYW_CLAW_DATA_DIR")?;
+    managed_tool_executable_at(Path::new(&data_dir), name, None)
+}
+
+pub(super) async fn active_tool_is_healthy(data_dir: &Path, tool_id: &str, version: &str) -> bool {
+    let Ok(component_dir) = runtime_dir(data_dir, tool_id, version) else {
+        return false;
+    };
+    let Some(marker) = read_marker(&component_dir).await else {
+        return false;
+    };
+    marker.schema == 1
+        && marker.component_id == tool_id
+        && marker.component_kind == "runtime_tool"
+        && marker.version == version
+        && marker.target == capability::current_target()
+        && marker.arch == capability::current_arch()
+        && is_verified_origin(&marker.origin)
+        && marker
+            .artifact_id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty())
+        && marker
+            .sha256
+            .as_deref()
+            .is_some_and(|hash| !hash.is_empty())
+        && managed_tool_executable_at(data_dir, tool_id, Some(version)).is_some()
+}
+
+fn managed_tool_executable_at(
+    data_dir: &Path,
+    name: &str,
+    expected_version: Option<&str>,
+) -> Option<PathBuf> {
     let (tool_id, relative) = match name {
-        "git" => ("git", Path::new("cmd").join("git.exe")),
-        "node" => ("node", PathBuf::from("node.exe")),
-        "npm" => ("node", PathBuf::from("npm.cmd")),
-        "uv" => ("uv", PathBuf::from("uv.exe")),
-        "uvx" => ("uv", PathBuf::from("uvx.exe")),
+        "git" => ("git", git_relative_path()),
+        "node" => ("node", node_relative_path()),
+        "npm" => ("node", npm_relative_path()),
+        "uv" => ("uv", uv_relative_path("uv")),
+        "uvx" => ("uv", uv_relative_path("uvx")),
         _ => return None,
     };
-    let data_dir = std::env::var_os("IYW_CLAW_DATA_DIR")?;
-    let root = PathBuf::from(data_dir).join("runtime").join(tool_id);
+    let root = data_dir.join("runtime").join(tool_id);
     let raw = std::fs::read_to_string(root.join("current.json")).ok()?;
     let pointer = serde_json::from_str::<CurrentPointer>(&raw).ok()?;
     if semver::Version::parse(&pointer.version).is_err() || pointer.platform != platform_dir_name()
     {
+        return None;
+    }
+    if expected_version.is_some_and(|expected| pointer.version != expected) {
         return None;
     }
     let candidate = root
@@ -127,11 +165,47 @@ fn pointer_path(data_dir: &Path, tool_id: &str) -> Result<PathBuf, AppCommandErr
     Ok(data_dir.join("runtime").join(tool_id).join("current.json"))
 }
 
-fn platform_dir_name() -> &'static str {
-    match capability::current_arch() {
-        "x86_64" => "win-x64",
-        "aarch64" => "win-arm64",
-        "x86" => "win-x86",
+pub(super) fn platform_dir_name() -> &'static str {
+    match (capability::current_target(), capability::current_arch()) {
+        ("windows", "x86_64") => "win-x64",
+        ("windows", "aarch64") => "win-arm64",
+        ("windows", "x86") => "win-x86",
+        ("macos", "x86_64") => "darwin-x64",
+        ("macos", "aarch64") => "darwin-arm64",
+        ("linux", "x86_64") => "linux-x64",
+        ("linux", "aarch64") => "linux-arm64",
         _ => "unknown",
+    }
+}
+
+fn git_relative_path() -> PathBuf {
+    if cfg!(windows) {
+        Path::new("cmd").join("git.exe")
+    } else {
+        Path::new("bin").join("git")
+    }
+}
+
+fn node_relative_path() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from("node.exe")
+    } else {
+        Path::new("bin").join("node")
+    }
+}
+
+fn npm_relative_path() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from("npm.cmd")
+    } else {
+        Path::new("bin").join("npm")
+    }
+}
+
+fn uv_relative_path(name: &str) -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(format!("{name}.exe"))
+    } else {
+        PathBuf::from(name)
     }
 }

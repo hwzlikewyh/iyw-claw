@@ -60,6 +60,7 @@ pub(super) async fn prepare_fresh(
     Ok(PreparedToolComponent::Fresh {
         offer,
         marker,
+        origin: super::super::inventory::ORIGIN_MANAGED,
         stage,
         payload,
         final_dir,

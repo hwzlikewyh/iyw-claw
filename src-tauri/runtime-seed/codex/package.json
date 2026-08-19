@@ -1,0 +1,9 @@
+{
+  "name": "iyw-claw-codex-runtime-seed",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@agentclientprotocol/codex-acp": "1.4.0",
+    "@openai/codex": "0.147.0"
+  }
+}

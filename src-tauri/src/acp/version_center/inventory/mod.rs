@@ -8,7 +8,8 @@ pub use agents::{
     set_agent_pin,
 };
 pub use tools::{
-    activate_tool, list_tool_installations, list_tool_settings, record_tool_ready, set_tool_pin,
+    activate_tool, activate_tool_with_origin, list_tool_installations, list_tool_settings,
+    record_tool_ready, set_tool_pin,
 };
 
 pub type AgentInstallation = crate::db::entities::agent_installation::Model;
@@ -18,6 +19,11 @@ pub type ManagedToolSetting = crate::db::entities::managed_tool_setting::Model;
 pub const STATUS_READY: &str = "ready";
 pub const STATUS_ACTIVE: &str = "active";
 pub const ORIGIN_MANAGED: &str = "managed";
+pub const ORIGIN_BUNDLED: &str = "bundled";
+
+pub fn is_verified_origin(origin: &str) -> bool {
+    matches!(origin, ORIGIN_MANAGED | ORIGIN_BUNDLED)
+}
 
 #[derive(Debug, Clone)]
 pub struct ReadyAgentInstallation<'a> {

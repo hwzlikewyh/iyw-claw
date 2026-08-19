@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use super::init::emit_init_event;
 use super::manifest::{marker_matches, read_marker, OwnershipMarker};
-use super::runtime::runtime_dir;
+use super::runtime::{active_tool_is_healthy, runtime_dir};
 use crate::acp::version_center::capability;
 use crate::acp::version_center::client::AgentPlatformClient;
 use crate::acp::version_center::inventory::ORIGIN_MANAGED;
@@ -29,6 +29,7 @@ pub(super) enum PreparedToolComponent {
     Fresh {
         offer: ToolOffer,
         marker: OwnershipMarker,
+        origin: &'static str,
         stage: PathBuf,
         payload: PathBuf,
         final_dir: PathBuf,
@@ -92,7 +93,33 @@ async fn prepare_tool_component(
 ) -> Result<PreparedToolComponent, AppCommandError> {
     emit_init_event(emitter, task_id, "resolving", Some(tool_id), "");
     let current_version = active.get(tool_id).cloned().unwrap_or_default();
-    let offer = resolve_offer(conn, tool_id, &current_version, channel).await?;
+    let healthy_version = healthy_active_version(data_dir, tool_id, active).await;
+    let offer = match resolve_offer(conn, tool_id, &current_version, channel).await {
+        Ok(offer) => offer,
+        Err(error) => {
+            let Some(version) = healthy_version else {
+                return Err(error);
+            };
+            tracing::warn!(
+                tool_id,
+                version,
+                error_code = ?error.code,
+                "[agent-version-center] resolve unavailable; keeping healthy active tool"
+            );
+            return Ok(PreparedToolComponent::Keep { version });
+        }
+    };
+    if let Some(version) =
+        healthy_version.filter(|version| version_at_least(version, &offer.version))
+    {
+        tracing::info!(
+            tool_id,
+            active_version = %version,
+            offered_version = %offer.version,
+            "[agent-version-center] active tool satisfies offer; skipping update"
+        );
+        return Ok(PreparedToolComponent::Keep { version });
+    }
     let marker = ownership_marker(tool_id, &offer);
     let final_dir = runtime_dir(data_dir, tool_id, &offer.version)?;
     let marker_ok = read_marker(&final_dir)
@@ -123,6 +150,27 @@ async fn prepare_tool_component(
         final_dir,
     )
     .await
+}
+
+pub(super) async fn healthy_active_version(
+    data_dir: &Path,
+    tool_id: &str,
+    active: &BTreeMap<String, String>,
+) -> Option<String> {
+    let version = active.get(tool_id)?;
+    active_tool_is_healthy(data_dir, tool_id, version)
+        .await
+        .then(|| version.clone())
+}
+
+fn version_at_least(active: &str, offered: &str) -> bool {
+    let (Ok(active), Ok(offered)) = (
+        semver::Version::parse(active),
+        semver::Version::parse(offered),
+    ) else {
+        return false;
+    };
+    active >= offered
 }
 
 async fn resolve_offer(

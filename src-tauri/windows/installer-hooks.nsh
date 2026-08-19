@@ -177,9 +177,11 @@ FunctionEnd
   ${If} $UpdateMode = 1
     DetailPrint "已保留运行环境、受管组件、配置、数据和日志。"
   ${Else}
-    ; Node.js、Git、uv、Skill 与 Agent CLI 不再随安装包附带：首次启动时由
-    ; 桌面初始化流程按后端版本中心计划下载并原子激活。
-    DetailPrint "首次启动将按托管分发计划初始化运行环境，不会占用安装包体积。"
+    !if "${ARCH}" == "x64"
+      DetailPrint "首次启动将校验并导入内置运行环境；异常时自动回退到在线托管分发。"
+    !else
+      DetailPrint "首次启动将按在线托管分发计划初始化运行环境。"
+    !endif
   ${EndIf}
 !macroend
 
