@@ -64,9 +64,6 @@ export function UserMemoryDiagnosticsPanel({
 }: UserMemoryDiagnosticsPanelProps) {
   const t = useTranslations("UserMemorySettings")
   const [candidates, setCandidates] = useState<UserMemoryCandidateSummary[]>([])
-  const [candidateRevision, setCandidateRevision] = useState<string | null>(
-    null
-  )
   const [harvest, setHarvest] = useState<UserMemoryHarvestStatus | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -78,7 +75,6 @@ export function UserMemoryDiagnosticsPanel({
       try {
         const page = await loadAllCandidates(list)
         setCandidates(page.candidates)
-        setCandidateRevision(page.revision)
       } catch (error) {
         setActionError(toErrorMessage(error))
       }
@@ -108,31 +104,8 @@ export function UserMemoryDiagnosticsPanel({
   }, [])
 
   return (
-    <section className="space-y-3 rounded-xl border bg-card p-4">
-      <div className="flex items-center gap-2">
-        <Activity className="h-4 w-4 text-muted-foreground" aria-hidden />
-        <div>
-          <h2 className="text-sm font-semibold">{t("diagnostics.title")}</h2>
-          <p className="text-xs text-muted-foreground">
-            {t("diagnostics.description")}
-          </p>
-        </div>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <StorageDiagnostics settings={settings} />
-        <CompanionDiagnostics
-          companion={settings.companionHealth}
-          capabilities={settings.projectedCapabilities?.codex}
-        />
-      </div>
-
-      <UserMemoryHarvestPanel
-        harvest={harvest}
-        busy={busy}
-        refresh={refreshHarvest}
-        onError={setActionError}
-      />
+    <section className="space-y-3">
+      <UserMemoryCandidatesPanel candidates={candidates} />
 
       {actionError && (
         <div
@@ -143,14 +116,41 @@ export function UserMemoryDiagnosticsPanel({
         </div>
       )}
 
-      <UserMemoryCandidatesPanel
-        settings={settings}
-        candidates={candidates}
-        revision={candidateRevision}
-        busy={busy}
-        onChanged={loadState}
-        onError={setActionError}
-      />
+      <details className="overflow-hidden rounded-xl border bg-card">
+        <summary className="cursor-pointer list-none px-4 py-3 marker:hidden">
+          <span className="flex items-start gap-2">
+            <Activity
+              className="mt-0.5 h-4 w-4 text-muted-foreground"
+              aria-hidden
+            />
+            <span>
+              <span className="block text-sm font-semibold">
+                {t("diagnostics.title")}
+              </span>
+              <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                {t("diagnostics.description")}
+              </span>
+            </span>
+          </span>
+        </summary>
+
+        <div className="space-y-4 border-t px-4 py-3">
+          <div className="grid gap-4 md:grid-cols-2">
+            <StorageDiagnostics settings={settings} />
+            <CompanionDiagnostics
+              companion={settings.companionHealth}
+              capabilities={settings.projectedCapabilities?.codex}
+            />
+          </div>
+
+          <UserMemoryHarvestPanel
+            harvest={harvest}
+            busy={busy}
+            refresh={refreshHarvest}
+            onError={setActionError}
+          />
+        </div>
+      </details>
     </section>
   )
 }
@@ -164,7 +164,7 @@ function StorageDiagnostics({
   const availability = settings.availability
   const candidateDiagnostic = settings.candidateDiagnostic
   return (
-    <div className="rounded-md border bg-muted/20 p-3 text-xs">
+    <div className="min-w-0 text-xs">
       <div className="mb-1 flex items-center gap-1.5 font-medium">
         <Database className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
         {t("diagnostics.root")}
@@ -217,7 +217,7 @@ function CompanionDiagnostics({
   const t = useTranslations("UserMemorySettings")
   const isReady = companion?.status === "ready"
   return (
-    <div className="rounded-md border bg-muted/20 p-3 text-xs">
+    <div className="min-w-0 text-xs">
       <div className="mb-1 flex items-center gap-1.5 font-medium">
         <HeartPulse className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
         {t("diagnostics.companion")}
