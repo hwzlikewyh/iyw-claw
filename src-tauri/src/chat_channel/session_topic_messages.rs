@@ -1,6 +1,4 @@
-use super::i18n::{self, Lang};
-use super::types::RichMessage;
-use crate::models::agent::AgentType;
+use super::i18n::Lang;
 
 pub(super) fn active_session(lang: Lang, prefix: &str) -> String {
     match lang {
@@ -44,25 +42,6 @@ pub(super) fn resume_failed(lang: Lang, conversation_id: i32, detail: &str) -> S
             "This topic is bound to conversation #{conversation_id}, but failed to resume the Agent: {detail}"
         ),
     }
-}
-
-pub(super) fn general_task_created(
-    lang: Lang,
-    agent_type: AgentType,
-    conversation_id: i32,
-    folder_name: &str,
-) -> RichMessage {
-    let body = match lang {
-        Lang::ZhCn | Lang::ZhTw => format!(
-            "已创建新 topic 并启动任务：[{}] #{} @ {}",
-            agent_type, conversation_id, folder_name
-        ),
-        _ => format!(
-            "Created a new topic and started task: [{}] #{} @ {}",
-            agent_type, conversation_id, folder_name
-        ),
-    };
-    RichMessage::info(body).with_title(i18n::task_started_title(lang))
 }
 
 pub(super) fn topic_title(task_description: &str) -> String {

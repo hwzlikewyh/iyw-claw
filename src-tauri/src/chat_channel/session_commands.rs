@@ -485,21 +485,12 @@ pub async fn handle_task(
         .await;
     }
 
-    let started_message =
-        RichMessage::info(format!("[{}] #{} @ {}", agent_type, conv.id, folder.name))
-            .with_title(i18n::task_started_title(lang));
-    let extra_responses = if target.is_telegram_general_topic() && session_target != *target {
-        vec![(
-            session_topic_messages::general_task_created(lang, agent_type, conv.id, &folder.name),
-            target.clone(),
-        )]
-    } else {
-        Vec::new()
-    };
     CommandMessageResult {
-        message: started_message,
+        // 会话已在后台创建；不向外部渠道暴露 Agent、会话号或工作区等内核元数据。
+        // 保留 post_action，让真正的任务提示和后续 Agent 回复继续发送。
+        message: RichMessage::info(""),
         response_target: session_target.clone(),
-        extra_responses,
+        extra_responses: Vec::new(),
         post_action: Some(CommandPostAction::SendLinkedPrompt {
             connection_id,
             folder_id,

@@ -1096,21 +1096,6 @@ pub fn failed_to_start_agent_label(lang: Lang) -> &'static str {
     }
 }
 
-pub fn task_started_title(lang: Lang) -> &'static str {
-    match lang {
-        Lang::ZhCn => "任务已启动",
-        Lang::ZhTw => "任務已啟動",
-        Lang::Ja => "タスク開始",
-        Lang::Ko => "작업 시작됨",
-        Lang::Es => "Tarea iniciada",
-        Lang::De => "Aufgabe gestartet",
-        Lang::Fr => "Tâche démarrée",
-        Lang::Pt => "Tarefa iniciada",
-        Lang::Ar => "تم بدء المهمة",
-        Lang::En => "Task Started",
-    }
-}
-
 // Sessions (/sessions)
 pub fn sessions_title(lang: Lang) -> &'static str {
     match lang {
