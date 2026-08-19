@@ -2,7 +2,7 @@
   "bundle": {
     "externalBin": [
       "binaries/iyw-claw-mcp",
-      "binaries/iyw-claw-mcp-0.1.90",
+      "binaries/iyw-claw-mcp-0.1.91",
       "binaries/agent-browser"
     ],
     "resources": {
