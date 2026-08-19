@@ -213,13 +213,48 @@ function stagedHashes(target, version) {
   return hashes
 }
 
+function logInstallRoot(root) {
+  try {
+    const entries = readdirSync(root, { recursive: true })
+    if (entries.length === 0) {
+      log("NSIS temporary root is empty after installer failure")
+      return
+    }
+    log("NSIS temporary root contents after installer failure:")
+    for (const entry of entries.slice(0, 200)) {
+      const path = join(root, entry)
+      let size = "unknown"
+      try {
+        size = String(lstatSync(path).size)
+      } catch {
+        // The installer may remove a file while the diagnostic snapshot runs.
+      }
+      log(`  ${entry} (${size} bytes)`)
+    }
+    if (entries.length > 200) log(`  ... ${entries.length - 200} more entries`)
+  } catch (error) {
+    log(`could not inspect NSIS temporary root: ${error.message}`)
+  }
+}
+
 function verifyNsisInstaller(installer, target, version) {
   if (process.platform !== "win32") die("NSIS verification requires Windows")
   logFile("NSIS installer", installer, version)
   const installRoot = mkdtempSync(join(tmpdir(), NSIS_INSTALL_PREFIX))
   try {
     log(`installing NSIS bundle into temporary root: ${installRoot}`)
-    execFileSync(installer, ["/S", `/D=${installRoot}`], { stdio: "inherit" })
+    try {
+      execFileSync(installer, ["/S", `/D=${installRoot}`], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+    } catch (error) {
+      log(`NSIS installer exit status: ${error.status ?? "unknown"}`)
+      if (error.stdout) log(`NSIS stdout: ${String(error.stdout).trim()}`)
+      if (error.stderr) log(`NSIS stderr: ${String(error.stderr).trim()}`)
+      logInstallRoot(installRoot)
+      throw error
+    }
     verifyInstalledSidecars(
       resolveInstalledApp(installRoot),
       target,
