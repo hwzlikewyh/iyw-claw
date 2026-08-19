@@ -3690,6 +3690,7 @@ export function MessageInput({
                 value: item.value,
                 name: item.name,
                 description: item.description,
+                iconUrl: item.iconUrl,
               })),
             }))
           : kind.groups.length > 0
@@ -3700,6 +3701,7 @@ export function MessageInput({
                   value: item.value,
                   name: item.name,
                   description: item.description,
+                  iconUrl: item.iconUrl,
                 })),
               }))
             : [
@@ -3710,6 +3712,7 @@ export function MessageInput({
                     value: item.value,
                     name: item.name,
                     description: item.description,
+                    iconUrl: item.iconUrl,
                   })),
                 },
               ]

@@ -2,6 +2,7 @@ export interface GatewayModel {
   id: string
   name: string
   description: string | null
+  iconUrl?: string | null
   efforts: string[]
   defaultEffort: string | null
   fastModeSupported: boolean
@@ -104,6 +105,10 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
       ? (raw.fast_mode as Record<string, unknown>)
       : {}
   const capabilities = parseCapabilities(raw.capabilities)
+  const iconUrl =
+    typeof raw.icon_url === "string" && raw.icon_url.trim()
+      ? raw.icon_url.trim()
+      : undefined
   const limits =
     raw.limits && typeof raw.limits === "object"
       ? (raw.limits as Record<string, unknown>)
@@ -118,6 +123,7 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
       typeof raw.description === "string" && raw.description.trim()
         ? raw.description.trim()
         : null,
+    ...(iconUrl ? { iconUrl } : {}),
     efforts,
     defaultEffort,
     fastModeSupported: fastMode.supported === true,

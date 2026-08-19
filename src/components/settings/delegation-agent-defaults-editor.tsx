@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { orderSessionSelectors } from "@/lib/session-selector-order"
+import { ModelIcon } from "@/components/chat/model-icon"
 import type { AgentOptionsSnapshot, SessionConfigOptionInfo } from "@/lib/types"
 
 const DEFAULT_SENTINEL = "__iyw_claw_default__"
@@ -191,6 +192,9 @@ function ConfigOptionRow({
                       key={`${group.group}-${item.value}`}
                       value={item.value}
                     >
+                      {option.id === "model" ? (
+                        <ModelIcon src={item.iconUrl} />
+                      ) : null}
                       {item.name}
                     </SelectItem>
                   ))}
@@ -198,6 +202,9 @@ function ConfigOptionRow({
               ))
             : option.kind.options.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
+                  {option.id === "model" ? (
+                    <ModelIcon src={item.iconUrl} />
+                  ) : null}
                   {item.name}
                 </SelectItem>
               ))}

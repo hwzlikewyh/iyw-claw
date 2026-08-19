@@ -1086,6 +1086,7 @@ export interface SessionConfigSelectOptionInfo {
   value: string
   name: string
   description?: string | null
+  iconUrl?: string | null
 }
 
 export interface SessionConfigSelectGroupInfo {

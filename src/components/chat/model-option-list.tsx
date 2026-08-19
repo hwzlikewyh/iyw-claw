@@ -6,6 +6,7 @@ import { Virtualizer, type VirtualizerHandle } from "virtua"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
+import { ModelIcon } from "@/components/chat/model-icon"
 import {
   filterModelGroups,
   flattenModelGroups,
@@ -233,7 +234,11 @@ export function ModelOptionList({
                         )}
                       >
                         <span className="flex size-4 shrink-0 items-center justify-center pt-0.5">
-                          {selected ? <Check className="size-4" /> : null}
+                          {row.option.iconUrl ? (
+                            <ModelIcon src={row.option.iconUrl} />
+                          ) : selected ? (
+                            <Check className="size-4" />
+                          ) : null}
                         </span>
                         <DropdownRadioItemContent
                           label={row.option.name}
