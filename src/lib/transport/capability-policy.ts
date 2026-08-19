@@ -136,11 +136,10 @@ export async function getClientFileUploadPreference(): Promise<ClientFileUploadP
       })
     )
   )
-  const values = rows.map((items) =>
-    items.some(
-      (item) => item.capability === "file_upload" && item.enabled === true
-    )
-  )
+  const values = rows.map((items) => {
+    const upload = items.find((item) => item.capability === "file_upload")
+    return upload?.enabled ?? true
+  })
   return {
     enabled: values.every(Boolean),
     mixed: values.some(Boolean) && !values.every(Boolean),
@@ -191,11 +190,11 @@ export async function listAgentCapabilityPreferences(
     subjectId: platformId,
   })
   const result: Record<AgentCapability, boolean> = {
-    host_execution: false,
-    host_read: false,
-    host_write: false,
-    terminal: false,
-    mcp: false,
+    host_execution: true,
+    host_read: true,
+    host_write: true,
+    terminal: true,
+    mcp: true,
   }
   for (const row of rows) {
     if (row.capability in result) {
