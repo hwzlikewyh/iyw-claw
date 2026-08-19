@@ -751,7 +751,7 @@
   },
   {
     "name": "propose_user_memory",
-    "description": "Submit one conservative candidate when the user explicitly gives a reusable correction, preference, or fact but has not clearly asked for permanent storage. This records an observation for later confirmation; it does not update active memory. Never submit secrets, inferred sensitive traits, repository facts, temporary progress, one-off task details, or agent reflections, and never claim that a proposal is already remembered.",
+    "description": "Submit one conservative internal observation when a reusable correction, preference, or fact may be durable but the Agent is not yet confident enough to append it to active memory. This records activity for later Agent maintenance; it does not require user confirmation. Never submit secrets, inferred sensitive traits, repository facts, temporary progress, one-off task details, or agent reflections, and never claim that a proposal is already durable memory.",
     "inputSchema": {
       "type": "object",
       "required": ["content", "signal"],
@@ -773,7 +773,7 @@
   },
   {
     "name": "memory_recall",
-    "description": "Read matching host-confirmed user memory for the current launch. This is read-only, bounded, and may abstain when the index is stale or no evidence matches. Do not treat an empty result as proof that a fact is false.",
+    "description": "Read matching user memory for the current launch when it materially helps the task. This is read-only, bounded, and may abstain when the index is stale or no evidence matches. The Agent decides whether to use it; do not treat an empty result as proof that a fact is false.",
     "inputSchema": {
       "type": "object",
       "required": ["query"],

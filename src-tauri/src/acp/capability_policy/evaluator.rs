@@ -29,11 +29,16 @@ pub struct CapabilityRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DecisionSource {
+    LocalDefault,
     RemotePolicy,
     TrustedCache,
     LegacyLastTrusted,
     NoTrustedPolicy,
 }
+
+// Remote capability enforcement is temporarily disabled while the local
+// desktop and Agent capability path is the product default.
+const REMOTE_POLICY_ENFORCEMENT_ENABLED: bool = false;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -81,10 +86,13 @@ pub fn evaluate(
     now: DateTime<Utc>,
 ) -> CapabilityDecision {
     if let Some(code) = local_denial(request) {
-        return deny(view, code);
+        return deny_local(code);
     }
     if !subject_matches(request) {
-        return deny(view, DenialCode::SubjectCapabilityMismatch);
+        return deny_local(DenialCode::SubjectCapabilityMismatch);
+    }
+    if !REMOTE_POLICY_ENFORCEMENT_ENABLED {
+        return allow_local();
     }
     evaluate_remote(request, view, now)
 }
@@ -220,6 +228,26 @@ fn allow(view: &PolicySnapshotView) -> CapabilityDecision {
         revision: view.snapshot.as_ref().map(|snapshot| snapshot.revision),
         expires_at: view.snapshot.as_ref().map(|snapshot| snapshot.expires_at),
         denial_code: None,
+    }
+}
+
+fn allow_local() -> CapabilityDecision {
+    CapabilityDecision {
+        enabled: true,
+        source: DecisionSource::LocalDefault,
+        revision: None,
+        expires_at: None,
+        denial_code: None,
+    }
+}
+
+fn deny_local(code: DenialCode) -> CapabilityDecision {
+    CapabilityDecision {
+        enabled: false,
+        source: DecisionSource::LocalDefault,
+        revision: None,
+        expires_at: None,
+        denial_code: Some(code),
     }
 }
 

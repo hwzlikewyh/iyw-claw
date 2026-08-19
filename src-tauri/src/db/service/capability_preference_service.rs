@@ -42,7 +42,8 @@ pub async fn get_enabled(
     validate_key("capability", capability)?;
     Ok(find_one(conn, subject_kind, subject_id, capability)
         .await?
-        .is_some_and(|model| model.enabled))
+        .map(|model| model.enabled)
+        .unwrap_or(true))
 }
 
 pub async fn upsert(

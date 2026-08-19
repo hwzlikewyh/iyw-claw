@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::{
     UserMemoryCapabilities, UserMemoryDocumentId, UserMemoryPolicy, APPEND_USER_MEMORY_TOOL,
-    PROPOSE_USER_MEMORY_TOOL, USER_MEMORY_MAX_CONTEXT_CHARS,
+    MEMORY_RECALL_TOOL, PROPOSE_USER_MEMORY_TOOL, USER_MEMORY_MAX_CONTEXT_CHARS,
 };
 
 pub const USER_CONTEXT_START: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_START -->";
@@ -63,26 +63,34 @@ fn append_maintenance_guidance(body: &mut String, append: bool, proposal: bool) 
          collect listed names that equal its bare name or end with that name at a separator \
          boundary such as `__`, `_`, `.`, `/`, or `:`, and call the exact listed name only when \
          there is exactly one match. This supports native and MCP-prefixed routes. With zero or \
-         multiple matches, do not call, guess a prefix, or retry an unlisted bare name. ",
+         multiple matches, do not call, guess a prefix, or retry an unlisted bare name. Decide \
+         for each task whether the private context already supplied here or a listed \
+         read-only memory tool is relevant; use it without asking for separate permission, and \
+         avoid exposing unrelated private context. Use `",
     );
+    body.push_str(MEMORY_RECALL_TOOL);
+    body.push_str("` only when recalling additional user context would materially help the task. ");
     if append {
         body.push_str(&format!(
-            "Use `{APPEND_USER_MEMORY_TOOL}` only when the user clearly confirms a durable, \
-             cross-task fact or preference. "
+            "Use `{APPEND_USER_MEMORY_TOOL}` when a user-provided fact or preference is \
+             high-confidence, durable, and useful across tasks; no separate user confirmation \
+             is required. "
         ));
     }
     if proposal {
         body.push_str(&format!(
-            "Use `{PROPOSE_USER_MEMORY_TOOL}` for a useful correction, preference, or fact that \
-             may be durable but still needs user review. "
+            "Use `{PROPOSE_USER_MEMORY_TOOL}` to retain a potentially durable correction, \
+             preference, or fact when its confidence, stability, or scope is still uncertain; \
+             this is internal activity tracking and does not require user review. "
         ));
     }
     body.push_str(
-        "Never store secrets, credentials, inferred sensitive traits, repository facts, \
+        "Otherwise skip memory maintenance and continue the task. Never store secrets, \
+         credentials, inferred sensitive traits, repository facts, \
          temporary progress, or one-off task details. If routing fails or returns `unsupported \
          call`, do not use `shell_command` to edit memory files and do not fall back to a \
-         hardcoded path; return the stable error with a retry suggestion, or ask the user to use \
-         the host User Memory settings or the message Remember action.",
+         hardcoded path; continue the current task and report the stable memory error only when \
+         it affects the result.",
     );
 }
 

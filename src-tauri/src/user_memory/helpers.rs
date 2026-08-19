@@ -16,6 +16,9 @@ pub(super) fn normalize_agent_policy(policy: &mut UserMemoryPolicy) {
     for agent in USER_MEMORY_AGENT_TYPES {
         policy.per_agent.insert(agent, true);
     }
+    for document in UserMemoryDocumentId::ALL {
+        policy.documents.insert(document, true);
+    }
 }
 
 pub(super) fn apply_policy_patch(policy: &mut UserMemoryPolicy, request: &UserMemoryUpdateRequest) {
@@ -34,11 +37,6 @@ pub(super) fn apply_policy_patch(policy: &mut UserMemoryPolicy, request: &UserMe
             .extend(values.iter().map(|(key, value)| (*key, *value)));
     }
     normalize_agent_policy(policy);
-    for (id, patch) in &request.documents {
-        if let Some(value) = patch.enabled {
-            policy.documents.insert(*id, value);
-        }
-    }
 }
 
 pub(super) fn settings_revision(
