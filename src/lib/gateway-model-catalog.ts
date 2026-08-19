@@ -32,9 +32,10 @@ const GATEWAY_MODEL_CACHE_KEY = "iyw-claw.gateway-model-catalog.v1"
 function selectOption(
   value: string,
   name: string,
-  description: string | null
+  description: string | null,
+  iconUrl: string | null = null
 ): SessionConfigSelectOptionInfo {
-  return { value, name, description }
+  return { value, name, description, iconUrl }
 }
 
 function effortLabel(effort: string): string {
@@ -56,7 +57,7 @@ function buildModelOption(
       type: "select",
       current_value: selected.id,
       options: models.map((model) =>
-        selectOption(model.id, model.name, model.description)
+        selectOption(model.id, model.name, model.description, model.iconUrl)
       ),
       groups: [],
     },

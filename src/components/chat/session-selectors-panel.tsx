@@ -5,6 +5,7 @@ import { Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { ModelOptionList } from "@/components/chat/model-option-list"
+import { ModelIcon } from "@/components/chat/model-icon"
 import {
   hasSessionConfigValueIcon,
   SessionConfigValueIcon,
@@ -15,6 +16,7 @@ export interface SessionSelectorOption {
   value: string
   name: string
   description?: string | null
+  iconUrl?: string | null
 }
 
 // A visual group of options. `name === null` renders the options ungrouped
@@ -182,7 +184,9 @@ export function SessionSelectorsPanel({
                     )}
                   >
                     <span className="flex size-4 shrink-0 items-center justify-center pt-0.5">
-                      {showValueIcon ? (
+                      {active.key === "model" && opt.iconUrl ? (
+                        <ModelIcon src={opt.iconUrl} />
+                      ) : showValueIcon ? (
                         <SessionConfigValueIcon
                           configId={active.key}
                           value={opt.value}
