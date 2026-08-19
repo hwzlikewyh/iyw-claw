@@ -11,9 +11,12 @@ use super::{
 };
 use crate::acp::runtime_host_policy;
 use crate::app_error::AppCommandError;
-use crate::db::service::agent_setting_service;
+use crate::db::service::{agent_setting_service, capability_preference_service};
 use crate::models::agent::AgentType;
 
+const AGENT_SUBJECT_KIND: &str = "agent";
+const CLIENT_SUBJECT_KIND: &str = "client";
+const CLIENT_SUBJECT_ID: &str = "global";
 #[derive(Clone)]
 pub struct CapabilityEnforcer {
     pub(super) conn: DatabaseConnection,
@@ -92,9 +95,14 @@ impl CapabilityEnforcer {
             subject: PolicySubject::Client,
             capability,
             compiled_support: capability.compiled_support(),
-            // Capability preferences are policy metadata only; local execution
-            // is always enabled and the remote policy remains authoritative.
-            local_enabled: true,
+            local_enabled: capability_preference_service::get_enabled(
+                &self.conn,
+                CLIENT_SUBJECT_KIND,
+                CLIENT_SUBJECT_ID,
+                capability.key(),
+            )
+            .await
+            .map_err(AppCommandError::from)?,
             runtime_verified,
         };
         Ok(evaluate(&request, &self.store.view().await, Utc::now()))
@@ -129,11 +137,22 @@ impl CapabilityEnforcer {
         capability: Capability,
         runtime_verified: bool,
     ) -> Result<CapabilityRequest, AppCommandError> {
-        let platform_id = self.platform_id(agent_type).await?;
-        let local_enabled = self.agent_local_enabled(agent_type, capability).await?;
+        let platform_id = crate::acp::version_center::platform_id(&self.conn, agent_type)
+            .await
+            .ok();
+        if platform_id.is_none() {
+            tracing::debug!(
+                agent = %agent_type,
+                "[capability-policy] local mode is using the registry identity"
+            );
+        }
+        let local_enabled = self
+            .agent_local_enabled(agent_type, platform_id.as_deref(), capability)
+            .await?;
         Ok(CapabilityRequest {
             subject: PolicySubject::Agent(AgentSubject {
-                platform_id,
+                platform_id: platform_id
+                    .unwrap_or_else(|| crate::acp::registry::registry_id_for(agent_type).into()),
                 is_existing_agent: agent_type.is_legacy_builtin(),
             }),
             capability,
@@ -143,22 +162,10 @@ impl CapabilityEnforcer {
         })
     }
 
-    async fn platform_id(&self, agent_type: AgentType) -> Result<String, AppCommandError> {
-        crate::acp::version_center::platform_id(&self.conn, agent_type)
-            .await
-            .map_err(|error| {
-                tracing::warn!(
-                    agent = %agent_type,
-                    error = %error,
-                    "[capability-policy] Agent platform identity is unavailable"
-                );
-                denied(DenialCode::RemotePolicyUnknownAgent)
-            })
-    }
-
     async fn agent_local_enabled(
         &self,
         agent_type: AgentType,
+        platform_id: Option<&str>,
         capability: Capability,
     ) -> Result<bool, AppCommandError> {
         if capability == Capability::AgentLaunch {
@@ -170,9 +177,32 @@ impl CapabilityEnforcer {
                 .map(|value| value.enabled)
                 .unwrap_or_else(|| agent_setting_service::default_enabled(agent_type)));
         }
-        // Capability preferences are policy metadata only; local execution
-        // is always enabled and the remote policy remains authoritative.
-        Ok(true)
+        let Some(platform_id) = platform_id else {
+            return Ok(true);
+        };
+        let enabled = self.agent_preference(platform_id, capability).await?;
+        if capability.requires_host_execution() {
+            return Ok(enabled
+                && self
+                    .agent_preference(platform_id, Capability::HostExecution)
+                    .await?);
+        }
+        Ok(enabled)
+    }
+
+    async fn agent_preference(
+        &self,
+        platform_id: &str,
+        capability: Capability,
+    ) -> Result<bool, AppCommandError> {
+        capability_preference_service::get_enabled(
+            &self.conn,
+            AGENT_SUBJECT_KIND,
+            platform_id,
+            capability.key(),
+        )
+        .await
+        .map_err(AppCommandError::from)
     }
 }
 

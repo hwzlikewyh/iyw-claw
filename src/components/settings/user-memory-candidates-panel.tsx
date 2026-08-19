@@ -1,214 +1,128 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
+import { Bot, Check, CircleDot, SkipForward } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
-import { toErrorMessage } from "@/lib/app-error"
+import { getAgentLabel } from "@/lib/custom-agents"
 import {
-  USER_MEMORY_CANDIDATE_STATUS_ORDER,
-  type UserMemoryCandidateResolveRequest,
   type UserMemoryCandidateStatus,
   type UserMemoryCandidateSummary,
-  type UserMemorySettingsSnapshot,
 } from "@/lib/user-memory-documents"
-import {
-  CandidateRow,
-  ConfirmDialog,
-  isMergeTarget,
-  MergeDialog,
-} from "./user-memory-candidate-dialogs"
 
 interface UserMemoryCandidatesPanelProps {
-  settings: UserMemorySettingsSnapshot
   candidates: UserMemoryCandidateSummary[]
-  revision: string | null
-  busy: boolean
-  onChanged: () => Promise<void>
-  onError: (message: string) => void
+}
+
+const ACTIVE_STATUSES: UserMemoryCandidateStatus[] = [
+  "tentative",
+  "emerging",
+  "pending_confirmation",
+]
+
+function formatTime(value: string): string {
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString()
+}
+
+function statusIcon(status: UserMemoryCandidateStatus) {
+  if (status === "confirmed") return Check
+  if (status === "rejected" || status === "superseded") return SkipForward
+  return CircleDot
+}
+
+function statusTone(status: UserMemoryCandidateStatus): string {
+  if (status === "confirmed") return "text-emerald-500"
+  if (status === "rejected" || status === "superseded") {
+    return "text-muted-foreground"
+  }
+  return "text-amber-500"
 }
 
 export function UserMemoryCandidatesPanel({
-  settings,
   candidates,
-  revision,
-  busy,
-  onChanged,
-  onError,
 }: UserMemoryCandidatesPanelProps) {
   const t = useTranslations("UserMemorySettings")
-  const [loading, setLoading] = useState(false)
-  const [confirmCandidate, setConfirmCandidate] =
-    useState<UserMemoryCandidateSummary | null>(null)
-  const [editedContent, setEditedContent] = useState("")
-  const [mergeCandidate, setMergeCandidate] =
-    useState<UserMemoryCandidateSummary | null>(null)
-  const [mergeTarget, setMergeTarget] = useState("")
-
-  const grouped = useMemo(() => {
-    const groups = new Map<
-      UserMemoryCandidateStatus,
-      UserMemoryCandidateSummary[]
-    >()
-    for (const status of USER_MEMORY_CANDIDATE_STATUS_ORDER)
-      groups.set(status, [])
-    for (const candidate of candidates) {
-      groups.get(candidate.status)?.push(candidate)
-    }
-    return groups
-  }, [candidates])
-
-  async function resolve(
-    candidate: UserMemoryCandidateSummary,
-    resolution: UserMemoryCandidateResolveRequest["resolution"]
-  ) {
-    if (!revision) return
-    const apiModule = await import("@/lib/api")
-    const call = (
-      apiModule as {
-        resolveUserMemoryCandidate?: (
-          request: UserMemoryCandidateResolveRequest
-        ) => Promise<unknown>
-      }
-    ).resolveUserMemoryCandidate
-    if (typeof call !== "function") return
-    setLoading(true)
-    try {
-      await call({
-        candidateId: candidate.id,
-        expectedRevision: revision,
-        resolution,
-      })
-      toast.success(t("diagnostics.candidates.done"))
-      await onChanged()
-    } catch (error) {
-      onError(toErrorMessage(error))
-    } finally {
-      setLoading(false)
-      setConfirmCandidate(null)
-      setMergeCandidate(null)
-    }
-  }
-
-  async function remove(candidate: UserMemoryCandidateSummary) {
-    if (!revision) return
-    const apiModule = await import("@/lib/api")
-    const call = (
-      apiModule as {
-        deleteUserMemoryCandidate?: (request: {
-          candidateId: string
-          expectedRevision: string
-        }) => Promise<unknown>
-      }
-    ).deleteUserMemoryCandidate
-    if (typeof call !== "function") return
-    setLoading(true)
-    try {
-      await call({ candidateId: candidate.id, expectedRevision: revision })
-      toast.success(t("diagnostics.candidates.done"))
-      await onChanged()
-    } catch (error) {
-      onError(toErrorMessage(error))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const counts = settings.candidateCounts ?? {}
+  const activities = useMemo(
+    () =>
+      [...candidates].sort(
+        (left, right) =>
+          Date.parse(right.lastObservedAt) - Date.parse(left.lastObservedAt)
+      ),
+    [candidates]
+  )
 
   return (
-    <div className="rounded-md border bg-muted/20 p-3 text-xs">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="font-medium">{t("diagnostics.candidates.title")}</span>
-        <span className="text-muted-foreground">
+    <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
+        <div className="flex min-w-0 gap-2">
+          <Bot
+            className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+            aria-hidden
+          />
+          <div>
+            <h2 className="text-sm font-semibold">
+              {t("diagnostics.candidates.title")}
+            </h2>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+              {t("diagnostics.candidates.activityDescription")}
+            </p>
+          </div>
+        </div>
+        <Badge variant="outline" className="shrink-0 text-[10px]">
           {t("diagnostics.candidates.total", { count: candidates.length })}
-        </span>
+        </Badge>
       </div>
-      {candidates.length === 0 ? (
-        <p className="text-muted-foreground">
+
+      {activities.length === 0 ? (
+        <p className="px-4 py-5 text-xs text-muted-foreground">
           {t("diagnostics.candidates.empty")}
         </p>
       ) : (
-        <div className="space-y-3">
-          {USER_MEMORY_CANDIDATE_STATUS_ORDER.map((status) => {
-            const list = grouped.get(status) ?? []
-            if (list.length === 0) return null
+        <ul className="max-h-80 divide-y overflow-y-auto">
+          {activities.map((candidate) => {
+            const StatusIcon = statusIcon(candidate.status)
+            const sources = candidate.sourceAgents
+              .map(getAgentLabel)
+              .join(" · ")
+            const active = ACTIVE_STATUSES.includes(candidate.status)
             return (
-              <div key={status}>
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="font-medium">
-                    {t(`diagnostics.candidates.${status}`)}
-                  </span>
-                  <Badge variant="outline" className="text-[10px]">
-                    {list.length}
-                  </Badge>
-                  {(counts[status] ?? 0) > 0 && (
-                    <span className="text-[10px] text-muted-foreground">
-                      {counts[status]}
-                    </span>
-                  )}
-                </div>
-                <ul className="space-y-2">
-                  {list.map((candidate) => (
-                    <CandidateRow
-                      key={candidate.id}
-                      candidate={candidate}
-                      canMerge={candidates.some((item) =>
-                        isMergeTarget(item, candidate.id)
-                      )}
-                      busy={busy || loading}
-                      onConfirm={() => {
-                        setEditedContent(candidate.content)
-                        setConfirmCandidate(candidate)
-                      }}
-                      onReject={() =>
-                        void resolve(candidate, { type: "reject" })
-                      }
-                      onMerge={() => {
-                        setMergeTarget("")
-                        setMergeCandidate(candidate)
-                      }}
-                      onDelete={() => void remove(candidate)}
+              <li key={candidate.id} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm leading-5">
+                      {candidate.content}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                      {candidate.signal} ·{" "}
+                      {t("diagnostics.candidates.observationCount", {
+                        count: candidate.observationCount,
+                      })}
+                      {` · ${t("diagnostics.candidates.confidence", {
+                        value: candidate.confidence,
+                      })}`}
+                      {sources ? ` · ${sources}` : ""}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {formatTime(candidate.lastObservedAt)}
+                    </p>
+                  </div>
+                  <span
+                    className={`flex shrink-0 items-center gap-1 text-[11px] font-medium ${statusTone(candidate.status)}`}
+                  >
+                    <StatusIcon
+                      className={active ? "h-3 w-3 animate-pulse" : "h-3 w-3"}
+                      aria-hidden
                     />
-                  ))}
-                </ul>
-              </div>
+                    {t(`diagnostics.candidates.${candidate.status}`)}
+                  </span>
+                </div>
+              </li>
             )
           })}
-        </div>
+        </ul>
       )}
-
-      <ConfirmDialog
-        candidate={confirmCandidate}
-        content={editedContent}
-        loading={loading}
-        onContentChange={setEditedContent}
-        onClose={() => setConfirmCandidate(null)}
-        onSubmit={() => {
-          if (!confirmCandidate) return
-          void resolve(confirmCandidate, {
-            type: "confirm",
-            editedContent: editedContent.trim(),
-          })
-        }}
-      />
-
-      <MergeDialog
-        candidate={mergeCandidate}
-        candidates={candidates}
-        target={mergeTarget}
-        loading={loading}
-        onTargetChange={setMergeTarget}
-        onClose={() => setMergeCandidate(null)}
-        onSubmit={() => {
-          if (!mergeCandidate || !mergeTarget) return
-          void resolve(mergeCandidate, {
-            type: "supersede_by_candidate",
-            candidateId: mergeTarget,
-          })
-        }}
-      />
     </div>
   )
 }

@@ -9,7 +9,7 @@ use crate::acp::capability_policy::{
 use crate::acp::registry;
 use crate::acp::version_center::{platform_id, CatalogStore};
 use crate::app_error::AppCommandError;
-use crate::db::service::agent_setting_service;
+use crate::db::service::{agent_setting_service, capability_preference_service};
 
 pub async fn decision_core(
     conn: &DatabaseConnection,
@@ -33,11 +33,13 @@ pub async fn require_existing_agent_capability_core(
     capability: Capability,
     runtime_verified: bool,
 ) -> Result<(), AppCommandError> {
-    let platform_id = platform_id(conn, agent_type).await?;
-    let local_enabled = existing_agent_local_enabled(conn, agent_type, capability).await?;
+    let platform_id = platform_id(conn, agent_type).await.ok();
+    let local_enabled =
+        existing_agent_local_enabled(conn, agent_type, platform_id.as_deref(), capability).await?;
     let request = CapabilityRequest {
         subject: PolicySubject::Agent(AgentSubject {
-            platform_id,
+            platform_id: platform_id
+                .unwrap_or_else(|| crate::acp::registry::registry_id_for(agent_type).into()),
             is_existing_agent: agent_type.is_legacy_builtin(),
         }),
         capability,
@@ -54,21 +56,20 @@ async fn build_policy_request(
     request: &CapabilityDecisionRequest,
 ) -> Result<CapabilityRequest, AppCommandError> {
     match request.subject_kind {
-        CapabilitySubjectKind::Client => build_client_request(request).await,
+        CapabilitySubjectKind::Client => build_client_request(conn, request).await,
         CapabilitySubjectKind::Agent => build_agent_request(conn, catalog, request).await,
     }
 }
 
 async fn build_client_request(
+    conn: &DatabaseConnection,
     request: &CapabilityDecisionRequest,
 ) -> Result<CapabilityRequest, AppCommandError> {
     Ok(CapabilityRequest {
         subject: PolicySubject::Client,
         capability: request.capability,
         compiled_support: request.capability.compiled_support(),
-        // Capability preferences are policy metadata only; local execution
-        // is always enabled and the remote policy remains authoritative.
-        local_enabled: true,
+        local_enabled: local_preference(conn, request).await?,
         runtime_verified: true,
     })
 }
@@ -100,9 +101,20 @@ async fn build_agent_request(
             .map(|value| value.enabled)
             .unwrap_or_else(|| agent_type.is_some_and(agent_setting_service::default_enabled))
     } else {
-        // Capability preferences are policy metadata only; local execution
-        // is always enabled and the remote policy remains authoritative.
-        true
+        let enabled = local_preference(conn, request).await?;
+        if request.capability.requires_host_execution() {
+            enabled
+                && capability_preference_service::get_enabled(
+                    conn,
+                    CapabilitySubjectKind::Agent.key(),
+                    &request.subject_id,
+                    Capability::HostExecution.key(),
+                )
+                .await
+                .map_err(AppCommandError::from)?
+        } else {
+            enabled
+        }
     };
     let runtime_verified = setting
         .as_ref()
@@ -123,6 +135,7 @@ async fn build_agent_request(
 async fn existing_agent_local_enabled(
     conn: &DatabaseConnection,
     agent_type: crate::models::agent::AgentType,
+    platform_id: Option<&str>,
     capability: Capability,
 ) -> Result<bool, AppCommandError> {
     if capability == Capability::AgentLaunch {
@@ -134,9 +147,43 @@ async fn existing_agent_local_enabled(
             .map(|value| value.enabled)
             .unwrap_or_else(|| agent_setting_service::default_enabled(agent_type)));
     }
-    // Capability preferences are policy metadata only; local execution is
-    // always enabled and the remote policy remains authoritative.
-    Ok(true)
+    let Some(platform_id) = platform_id else {
+        return Ok(true);
+    };
+    let enabled = capability_preference_service::get_enabled(
+        conn,
+        CapabilitySubjectKind::Agent.key(),
+        platform_id,
+        capability.key(),
+    )
+    .await
+    .map_err(AppCommandError::from)?;
+    if capability.requires_host_execution() {
+        return Ok(enabled
+            && capability_preference_service::get_enabled(
+                conn,
+                CapabilitySubjectKind::Agent.key(),
+                platform_id,
+                Capability::HostExecution.key(),
+            )
+            .await
+            .map_err(AppCommandError::from)?);
+    }
+    Ok(enabled)
+}
+
+async fn local_preference(
+    conn: &DatabaseConnection,
+    request: &CapabilityDecisionRequest,
+) -> Result<bool, AppCommandError> {
+    capability_preference_service::get_enabled(
+        conn,
+        request.subject_kind.key(),
+        &request.subject_id,
+        request.capability.key(),
+    )
+    .await
+    .map_err(AppCommandError::from)
 }
 
 fn require_enabled(decision: CapabilityDecision) -> Result<(), AppCommandError> {

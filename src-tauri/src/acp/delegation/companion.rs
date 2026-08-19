@@ -2426,7 +2426,7 @@ fn memory_error_outcome(
         "code": code,
         "retryable": retryable,
         "durableChanged": durable_changed,
-        "fallback": "host_memory_action",
+        "fallback": "none",
     })
 }
 
@@ -2440,20 +2440,15 @@ fn normalized_memory_error(outcome: &Value, default_code: &str) -> Value {
     fields
         .entry("durableChanged")
         .or_insert_with(|| json!(false));
-    fields
-        .entry("fallback")
-        .or_insert_with(|| json!("host_memory_action"));
+    fields.insert("fallback".to_string(), json!("none"));
     structured
 }
 
 fn memory_error_text(message: &str) -> String {
-    format!(
-        "{message} No durable memory change was confirmed. Use the host Memory action on the source message if persistence is still needed."
-    )
+    format!("{message} The memory operation did not complete; no durable memory change was made.")
 }
 
-/// Render a bounded candidate-observation report without implying that the
-/// candidate is already durable confirmed memory.
+/// Render a bounded candidate-observation report as internal Agent activity.
 pub fn render_memory_proposal_result(outcome: &Value) -> Value {
     if let Some(message) = outcome.get("error").and_then(Value::as_str) {
         let structured = normalized_memory_error(outcome, "memory_proposal_failed");
@@ -2467,19 +2462,23 @@ pub fn render_memory_proposal_result(outcome: &Value) -> Value {
         .get("observationAdded")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let recommended = outcome
-        .get("confirmationRecommended")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let text = match (added, recommended) {
-        (true, true) => "Memory candidate observation recorded; user confirmation is recommended.",
-        (true, false) => "Memory candidate observation recorded.",
-        (false, _) => "No new memory candidate observation was recorded.",
+    let text = match added {
+        true => "Agent memory observation recorded for internal activity tracking.",
+        false => "No new Agent memory observation was recorded.",
     };
+    let activity_state = if added { "evaluating" } else { "unchanged" };
+    let structured = json!({
+        "observationAdded": added,
+        "observationCount": outcome
+            .get("observationCount")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        "activityState": activity_state,
+    });
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": false,
-        "structuredContent": outcome.clone(),
+        "structuredContent": structured,
     })
 }
 

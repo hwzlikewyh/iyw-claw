@@ -97,7 +97,7 @@ fn observe_candidate(
     // Controlled similarity merge: same signal, non-terminal, and the new
     // normalized wording is a character-multiset variant of an existing
     // candidate (e.g. "prefer dark theme" vs "prefer the dark theme").
-    // Wording differences are preserved so the user can review both forms.
+    // Wording differences are preserved for later Agent maintenance.
     if let Some(candidate) = state.candidates.iter_mut().find(|candidate| {
         candidate.signal == signal
             && !candidate.status.is_terminal()
@@ -106,7 +106,7 @@ fn observe_candidate(
         return observe_existing(candidate, source, Some(content));
     }
     if state.candidates.len() >= USER_MEMORY_MAX_CANDIDATES {
-        prune_terminal_oldest(state);
+        reclaim_oldest_candidate(state);
     }
     if state.candidates.len() >= USER_MEMORY_MAX_CANDIDATES {
         return Err(AppCommandError::invalid_input(
@@ -190,11 +190,11 @@ fn observe_existing(
     })
 }
 
-/// Reclaim the oldest resolved (terminal) candidates so learning never stops
-/// permanently at the cap. Referenced targets remain until their references
-/// are normalized; active candidates are never touched by this path.
-fn prune_terminal_oldest(state: &mut UserMemoryLearningState) {
-    let mut terminal = state
+/// Reclaim one unreferenced candidate at capacity so learning cannot stop
+/// permanently. Resolved history is preferred; otherwise the oldest active
+/// observation is autonomously skipped before it is removed.
+fn reclaim_oldest_candidate(state: &mut UserMemoryLearningState) {
+    let mut reclaimable = state
         .candidates
         .iter()
         .enumerate()
@@ -202,26 +202,26 @@ fn prune_terminal_oldest(state: &mut UserMemoryLearningState) {
             if candidate_references::references_candidate(state, &candidate.id) {
                 None
             } else {
-                candidate.resolved_at.as_deref().and_then(|resolved_at| {
-                    chrono::DateTime::parse_from_rfc3339(resolved_at)
-                        .ok()
-                        .map(|resolved_at| (index, resolved_at))
-                })
+                let timestamp = candidate
+                    .resolved_at
+                    .as_deref()
+                    .unwrap_or(&candidate.last_observed_at);
+                chrono::DateTime::parse_from_rfc3339(timestamp)
+                    .ok()
+                    .map(|timestamp| (index, candidate.status.is_terminal(), timestamp))
             }
         })
         .collect::<Vec<_>>();
-    terminal.sort_by_key(|(_, resolved_at)| resolved_at.clone());
-    let reclaim = state
-        .candidates
-        .len()
-        .saturating_sub(USER_MEMORY_MAX_CANDIDATES - 1);
-    let mut reclaim_indexes = terminal
-        .into_iter()
-        .take(reclaim)
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    reclaim_indexes.sort_unstable_by(|left, right| right.cmp(left));
-    for index in reclaim_indexes {
+    reclaimable.sort_by_key(|(_, terminal, timestamp)| (!terminal, timestamp.clone()));
+    if let Some((index, terminal, _)) = reclaimable.first().cloned() {
+        let candidate = &state.candidates[index];
+        tracing::info!(
+            candidate_id = %candidate.id,
+            previous_status = ?candidate.status,
+            observation_count = candidate.observation_count,
+            autonomous_skip = !terminal,
+            "[user-memory] reclaimed oldest candidate at capacity"
+        );
         state.candidates.remove(index);
     }
 }
