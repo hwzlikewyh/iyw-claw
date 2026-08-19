@@ -4953,6 +4953,10 @@
     "markerProtected": "条目标记保护",
     "markerProtectedHint": "该文档包含由系统管理的条目标记（iyw-memory-…），此处保持只读以保护条目身份和历史。",
     "markerProtectedSaveBlocked": "系统管理的条目标记发生变化，已阻止保存",
+    "manual": {
+      "title": "用户维护内容",
+      "description": "单独保存长期信息；Agent 按当前任务自主决定何时读取。"
+    },
     "policy": {
       "title": "自动管理",
       "description": "关键能力默认开启，Agent 自主决定记录、更新、跳过和读取。",

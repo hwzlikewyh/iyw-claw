@@ -187,6 +187,11 @@ function LoadedMemorySettings({ state, health }: LoadedProps) {
         <ErrorNotice message={health.detail ?? t("status.unavailable")} />
       )}
       {state.error && <ErrorNotice message={state.error} />}
+      <UserMemoryPolicyPanel
+        draft={state.draft}
+        disabled={state.saving}
+        onChange={state.setDraft}
+      />
       <UserMemoryDiagnosticsPanel
         settings={state.settings}
         busy={state.saving}
@@ -200,11 +205,6 @@ function LoadedMemorySettings({ state, health }: LoadedProps) {
         saving={state.saving}
         onDocumentChange={state.setActiveDocumentId}
         onDraftChange={state.setDraft}
-      />
-      <UserMemoryPolicyPanel
-        draft={state.draft}
-        disabled={state.saving}
-        onChange={state.setDraft}
       />
     </SettingsPageLayout>
   )
