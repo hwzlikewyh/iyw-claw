@@ -171,6 +171,20 @@ en = "Runs captured Lixiao enterprise search and account workflows."
 "zh-CN" = "执行励销企业搜索和账号工作流。"
 
 [[expert]]
+id = "iyw-copyright-registration"
+category = "workflow"
+icon = "Copyright"
+sort_order = 415
+
+[expert.display_name]
+en = "IYW Copyright Registration"
+"zh-CN" = "爱原物版权登记"
+
+[expert.description]
+en = "Prepares, validates, and submits IYW copyright registrations."
+"zh-CN" = "准备、检查并提交爱原物版权登记申请。"
+
+[[expert]]
 id = "iyw-crm-workflows"
 category = "workflow"
 icon = "Contact"

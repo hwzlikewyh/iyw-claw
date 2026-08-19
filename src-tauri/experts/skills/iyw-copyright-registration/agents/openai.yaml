@@ -1,0 +1,4 @@
+interface:
+  display_name: "IYW 版权登记"
+  short_description: "在爱原物平台安全检查并批量提交美术作品版权登记申请"
+  default_prompt: "Use $iyw-copyright-registration to validate the source files and submit IYW copyright registrations safely."

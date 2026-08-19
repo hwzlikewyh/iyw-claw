@@ -57,6 +57,8 @@ static IYW_IMAGE_WORKFLOWS_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-image-workflows");
 static LIXIAO_WORKFLOWS_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/lixiao-workflows");
+static IYW_COPYRIGHT_REGISTRATION_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-copyright-registration");
 static IYW_CRM_WORKFLOWS_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-crm-workflows");
 static IYW_SALES_ASSISTANT_WORKFLOWS_BUNDLE: Dir<'_> =
@@ -577,6 +579,7 @@ fn bundled_skill_dir(expert_id: &str) -> Option<&'static Dir<'static>> {
         "skill-installer" => Some(&SKILL_INSTALLER_BUNDLE),
         "iyw-image-workflows" => Some(&IYW_IMAGE_WORKFLOWS_BUNDLE),
         "lixiao-workflows" => Some(&LIXIAO_WORKFLOWS_BUNDLE),
+        "iyw-copyright-registration" => Some(&IYW_COPYRIGHT_REGISTRATION_BUNDLE),
         "iyw-crm-workflows" => Some(&IYW_CRM_WORKFLOWS_BUNDLE),
         "iyw-sales-assistant-workflows" => Some(&IYW_SALES_ASSISTANT_WORKFLOWS_BUNDLE),
         "self-improving" => Some(&SELF_IMPROVING_BUNDLE),
