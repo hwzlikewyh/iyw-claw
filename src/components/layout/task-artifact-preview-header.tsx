@@ -4,9 +4,12 @@ import type { ReactNode } from "react"
 import {
   ArrowLeft,
   ExternalLink,
+  Fullscreen,
   Folder,
   FolderSearch,
   Link,
+  Maximize2,
+  Minimize2,
   MoreHorizontal,
   PanelsTopLeft,
   Waypoints,
@@ -26,15 +29,33 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { TaskArtifactInfo } from "@/lib/api"
 
+interface TaskArtifactPreviewHeaderProps {
+  artifact: TaskArtifactInfo
+  actions: TaskArtifactActions
+  onBack?: () => void
+  isAppFullscreen?: boolean
+  isSystemFullscreen?: boolean
+  onToggleAppFullscreen?: () => void
+  onToggleSystemFullscreen?: () => Promise<void>
+}
+
+interface ArtifactHeaderActionsProps {
+  actions: TaskArtifactActions
+  isAppFullscreen: boolean
+  isSystemFullscreen: boolean
+  onToggleAppFullscreen?: () => void
+  onToggleSystemFullscreen?: () => Promise<void>
+}
+
 export function TaskArtifactPreviewHeader({
   artifact,
   actions,
   onBack,
-}: {
-  artifact: TaskArtifactInfo
-  actions: TaskArtifactActions
-  onBack?: () => void
-}) {
+  isAppFullscreen = false,
+  isSystemFullscreen = false,
+  onToggleAppFullscreen,
+  onToggleSystemFullscreen,
+}: TaskArtifactPreviewHeaderProps) {
   const t = useTranslations("Folder.taskArtifacts")
   const subtitle =
     artifact.kind === "directory"
@@ -42,12 +63,6 @@ export function TaskArtifactPreviewHeader({
       : artifact.kind === "url"
         ? artifact.path
         : (actions.target?.ioPath ?? artifact.displayName)
-  const TypeIcon =
-    artifact.kind === "directory"
-      ? Folder
-      : artifact.kind === "url"
-        ? Link
-        : PanelsTopLeft
   return (
     <header className="flex h-12 min-w-0 items-center gap-1 border-b px-3 pr-12">
       {onBack && (
@@ -62,17 +77,102 @@ export function TaskArtifactPreviewHeader({
           <ArrowLeft className="size-4" />
         </Button>
       )}
-      <TypeIcon className="size-4 shrink-0 text-muted-foreground" />
+      <ArtifactTypeIcon kind={artifact.kind} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{artifact.displayName}</p>
         <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
       </div>
-      <ArtifactHeaderActions actions={actions} />
+      <ArtifactHeaderActions
+        actions={actions}
+        isAppFullscreen={isAppFullscreen}
+        isSystemFullscreen={isSystemFullscreen}
+        onToggleAppFullscreen={onToggleAppFullscreen}
+        onToggleSystemFullscreen={onToggleSystemFullscreen}
+      />
     </header>
   )
 }
 
-function ArtifactHeaderActions({ actions }: { actions: TaskArtifactActions }) {
+function ArtifactTypeIcon({ kind }: { kind: TaskArtifactInfo["kind"] }) {
+  const className = "size-4 shrink-0 text-muted-foreground"
+  if (kind === "directory") return <Folder className={className} />
+  if (kind === "url") return <Link className={className} />
+  return <PanelsTopLeft className={className} />
+}
+
+function ArtifactHeaderActions({
+  actions,
+  isAppFullscreen,
+  isSystemFullscreen,
+  onToggleAppFullscreen,
+  onToggleSystemFullscreen,
+}: ArtifactHeaderActionsProps) {
+  return (
+    <>
+      <ArtifactFullscreenActions
+        isAppFullscreen={isAppFullscreen}
+        isSystemFullscreen={isSystemFullscreen}
+        onToggleAppFullscreen={onToggleAppFullscreen}
+        onToggleSystemFullscreen={onToggleSystemFullscreen}
+      />
+      <ArtifactLocationActions actions={actions} />
+      <ArtifactMoreMenu actions={actions} />
+    </>
+  )
+}
+
+function ArtifactFullscreenActions({
+  isAppFullscreen,
+  isSystemFullscreen,
+  onToggleAppFullscreen,
+  onToggleSystemFullscreen,
+}: Omit<ArtifactHeaderActionsProps, "actions">) {
+  const t = useTranslations("Folder.taskArtifacts")
+  return (
+    <>
+      {onToggleAppFullscreen && (
+        <ArtifactActionButton
+          label={
+            isAppFullscreen
+              ? t("exitPreviewFullscreen")
+              : t("previewFullscreen")
+          }
+          icon={
+            isAppFullscreen ? (
+              <Minimize2 className="size-4" />
+            ) : (
+              <Maximize2 className="size-4" />
+            )
+          }
+          onClick={onToggleAppFullscreen}
+        />
+      )}
+      {isAppFullscreen && onToggleSystemFullscreen && (
+        <ArtifactActionButton
+          label={
+            isSystemFullscreen
+              ? t("exitSystemFullscreen")
+              : t("systemFullscreen")
+          }
+          icon={
+            isSystemFullscreen ? (
+              <Minimize2 className="size-4" />
+            ) : (
+              <Fullscreen className="size-4" />
+            )
+          }
+          onClick={onToggleSystemFullscreen}
+        />
+      )}
+    </>
+  )
+}
+
+function ArtifactLocationActions({
+  actions,
+}: {
+  actions: TaskArtifactActions
+}) {
   const t = useTranslations("Folder.taskArtifacts")
   return (
     <>
@@ -97,25 +197,31 @@ function ArtifactHeaderActions({ actions }: { actions: TaskArtifactActions }) {
           onClick={actions.openWorkspace}
         />
       )}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("moreActions")}
-            title={t("moreActions")}
-          >
-            <MoreHorizontal className="size-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          className={TASK_ARTIFACT_MENU_CONTENT_CLASS}
-          align="end"
-        >
-          <TaskArtifactDropdownMenuItems actions={actions} />
-        </DropdownMenuContent>
-      </DropdownMenu>
     </>
+  )
+}
+
+function ArtifactMoreMenu({ actions }: { actions: TaskArtifactActions }) {
+  const t = useTranslations("Folder.taskArtifacts")
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("moreActions")}
+          title={t("moreActions")}
+        >
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        className={TASK_ARTIFACT_MENU_CONTENT_CLASS}
+        align="end"
+      >
+        <TaskArtifactDropdownMenuItems actions={actions} />
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -126,7 +232,7 @@ function ArtifactActionButton({
 }: {
   label: string
   icon: ReactNode
-  onClick: () => Promise<void>
+  onClick: () => void | Promise<void>
 }) {
   return (
     <Button
