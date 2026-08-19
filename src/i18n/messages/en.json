@@ -4897,7 +4897,7 @@
       "sessions": "Requests",
       "sessionsHint": "Daily average ~{average}",
       "pointsUsed": "Points used",
-      "pointsUsedHint": "Settled account points",
+      "pointsUsedHint": "Only includes points incurred within the assistant",
       "cacheHitRate": "Cache hit rate",
       "cacheHitRateHint": "{tokens} tokens"
     },

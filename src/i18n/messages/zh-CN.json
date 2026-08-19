@@ -4897,7 +4897,7 @@
       "sessions": "总请求数",
       "sessionsHint": "日均 ~{average}",
       "pointsUsed": "已用点数",
-      "pointsUsedHint": "账户实际结算点数",
+      "pointsUsedHint": "仅统计在原助理内使用产生的点数",
       "cacheHitRate": "缓存命中率",
       "cacheHitRateHint": "{tokens} Token"
     },
