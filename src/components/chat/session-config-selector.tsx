@@ -18,6 +18,7 @@ import {
   SessionConfigValueIcon,
 } from "@/components/chat/session-config-value-icon"
 import { ReasoningEffortSlider } from "@/components/chat/reasoning-effort-slider"
+import { ModelIcon } from "@/components/chat/model-icon"
 import type { ModelOptionGroup } from "@/lib/model-config-groups"
 import type { SessionConfigOptionInfo } from "@/lib/types"
 
@@ -122,7 +123,9 @@ export function InlineSessionConfigSelector({
                       value={item.value}
                       title={item.name}
                     >
-                      {hasSessionConfigValueIcon(option.id) ? (
+                      {option.id === "model" ? (
+                        <ModelIcon src={item.iconUrl} />
+                      ) : hasSessionConfigValueIcon(option.id) ? (
                         <span className="flex size-4 shrink-0 items-center justify-center">
                           <SessionConfigValueIcon
                             configId={option.id}
@@ -144,7 +147,9 @@ export function InlineSessionConfigSelector({
                   value={item.value}
                   title={item.name}
                 >
-                  {hasSessionConfigValueIcon(option.id) ? (
+                  {option.id === "model" ? (
+                    <ModelIcon src={item.iconUrl} />
+                  ) : hasSessionConfigValueIcon(option.id) ? (
                     <span className="flex size-4 shrink-0 items-center justify-center">
                       <SessionConfigValueIcon
                         configId={option.id}
