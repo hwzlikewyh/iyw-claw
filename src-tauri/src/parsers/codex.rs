@@ -29,6 +29,47 @@ impl CodexParser {
         Self { base_dir }
     }
 
+    /// Load Codex's append-only session title index. The transcript remains the
+    /// fallback source, so a missing/unreadable index or a malformed line is
+    /// deliberately ignored. Later non-empty records for the same session win.
+    pub(crate) fn load_thread_name_index(&self) -> HashMap<String, String> {
+        let mut titles = HashMap::new();
+        let Some(home_dir) = self.base_dir.parent() else {
+            return titles;
+        };
+        let Ok(file) = fs::File::open(home_dir.join("session_index.jsonl")) else {
+            return titles;
+        };
+
+        for line in BufReader::new(file).lines() {
+            let line = match line {
+                Ok(line) => line,
+                Err(_) => break,
+            };
+            if line.trim().is_empty() {
+                continue;
+            }
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let session_id = value
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty());
+            let thread_name = value
+                .get("thread_name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|name| !name.is_empty());
+            if let (Some(id), Some(name)) = (session_id, thread_name) {
+                titles.insert(id.to_string(), truncate_str(name, 100));
+            }
+        }
+
+        titles
+    }
+
     /// Test-only constructor that lets callers point the parser at a fixture
     /// directory instead of `~/.codex/sessions`.
 
@@ -282,6 +323,10 @@ impl AgentParser for CodexParser {
             return Ok(conversations);
         }
 
+        // Apply this outside `summary_cache`: changing only session_index.jsonl
+        // must refresh a title even when the rollout itself is unchanged.
+        let indexed_titles = self.load_thread_name_index();
+
         for entry in WalkDir::new(&self.base_dir)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -298,7 +343,12 @@ impl AgentParser for CodexParser {
             match super::summary_cache::get_or_parse(AgentType::Codex, &path, || {
                 self.parse_jsonl_summary(&path)
             }) {
-                Ok(Some(summary)) => conversations.push(summary),
+                Ok(Some(mut summary)) => {
+                    if let Some(title) = indexed_titles.get(&summary.id) {
+                        summary.title = Some(title.clone());
+                    }
+                    conversations.push(summary);
+                }
                 _ => continue,
             }
         }
@@ -325,7 +375,11 @@ impl AgentParser for CodexParser {
             }
             let fname = path.file_name().unwrap_or_default().to_string_lossy();
             if fname.contains(conversation_id) {
-                return self.parse_conversation_detail(&path, conversation_id);
+                let mut detail = self.parse_conversation_detail(&path, conversation_id)?;
+                if let Some(title) = self.load_thread_name_index().get(conversation_id) {
+                    detail.summary.title = Some(title.clone());
+                }
+                return Ok(detail);
             }
         }
 

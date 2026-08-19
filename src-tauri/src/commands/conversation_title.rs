@@ -8,7 +8,9 @@ use crate::db::error::DbError;
 use crate::db::service::conversation_service;
 use crate::web::event_bridge::EventEmitter;
 
-use super::conversations::{emit_conversation_upsert, sync_conversation_title_to_channels_core};
+use super::conversations::{
+    notify_conversation_title_updates, spawn_conversation_title_channel_sync,
+};
 
 type TitleLock = AsyncMutex<()>;
 type TitleLockRegistry = Mutex<HashMap<i32, Weak<TitleLock>>>;
@@ -43,13 +45,7 @@ async fn lock_conversation(conversation_id: i32) -> OwnedMutexGuard<()> {
 }
 
 async fn notify_title_changed(context: &ConversationTitleContext<'_>, conversation_id: i32) {
-    emit_conversation_upsert(context.emitter, context.conn, conversation_id).await;
-    sync_conversation_title_to_channels_core(
-        context.conn,
-        context.chat_channel_manager,
-        conversation_id,
-    )
-    .await;
+    drop(notify_conversation_title_updates(context, vec![conversation_id]).await);
 }
 
 pub(crate) async fn update_manual(
@@ -57,8 +53,9 @@ pub(crate) async fn update_manual(
     conversation_id: i32,
     title: String,
 ) -> Result<(), DbError> {
-    let _guard = lock_conversation(conversation_id).await;
+    let guard = lock_conversation(conversation_id).await;
     conversation_service::update_title(context.conn, conversation_id, title).await?;
+    drop(guard);
     notify_title_changed(context, conversation_id).await;
     Ok(())
 }
@@ -68,10 +65,11 @@ pub(crate) async fn refresh_auto(
     conversation_id: i32,
     title: &str,
 ) -> Result<bool, DbError> {
-    let _guard = lock_conversation(conversation_id).await;
+    let guard = lock_conversation(conversation_id).await;
     let changed =
         conversation_service::refresh_auto_title(context.conn, conversation_id, title.to_string())
             .await?;
+    drop(guard);
     if changed {
         notify_title_changed(context, conversation_id).await;
     }
@@ -79,16 +77,9 @@ pub(crate) async fn refresh_auto(
 }
 
 pub(crate) async fn sync_channels(context: &ConversationTitleContext<'_>, conversation_id: i32) {
-    let _guard = lock_conversation(conversation_id).await;
-    sync_conversation_title_to_channels_core(
-        context.conn,
-        context.chat_channel_manager,
-        conversation_id,
-    )
-    .await;
+    spawn_conversation_title_channel_sync(context, conversation_id);
 }
 
 pub(crate) async fn notify_current(context: &ConversationTitleContext<'_>, conversation_id: i32) {
-    let _guard = lock_conversation(conversation_id).await;
     notify_title_changed(context, conversation_id).await;
 }

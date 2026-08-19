@@ -24,15 +24,22 @@ pub async fn list_all_conversations(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ListAllConversationsParams>,
 ) -> Result<Json<Vec<DbConversationSummary>>, AppCommandError> {
+    let title_context = ConversationTitleContext {
+        conn: &state.db.conn,
+        emitter: &state.emitter,
+        chat_channel_manager: &state.chat_channel_manager,
+    };
     Ok(Json(
         conv_commands::list_all_conversations_core(
-            &state.db.conn,
-            params.folder_ids,
-            params.agent_type,
-            params.search,
-            params.sort_by,
-            params.status,
-            params.include_children.unwrap_or(false),
+            &title_context,
+            conv_commands::ListAllConversationsOptions {
+                folder_ids: params.folder_ids,
+                agent_type: params.agent_type,
+                search: params.search,
+                sort_by: params.sort_by,
+                status: params.status,
+                include_children: params.include_children.unwrap_or(false),
+            },
         )
         .await?,
     ))
