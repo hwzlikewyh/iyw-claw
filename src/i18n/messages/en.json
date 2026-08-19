@@ -4967,6 +4967,10 @@
     "markerProtected": "Entry markers protected",
     "markerProtectedHint": "This document contains system-managed entry markers (iyw-memory-…) and is read-only here to preserve entry identity and history.",
     "markerProtectedSaveBlocked": "Saving was blocked because system-managed entry markers changed",
+    "manual": {
+      "title": "User-maintained content",
+      "description": "Save durable information directly; Agents decide when it is relevant to the current task."
+    },
     "policy": {
       "title": "Automatic management",
       "description": "Key capabilities are on by default; Agents decide when to record, update, skip, and read.",

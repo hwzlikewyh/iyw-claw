@@ -34,9 +34,8 @@ type EditorView = UserMemoryDocumentEditorProps & {
 
 function DocumentEditorHeader({
   activeDocumentId,
-  document,
   onDocumentChange,
-}: Pick<EditorView, "activeDocumentId" | "document" | "onDocumentChange">) {
+}: Pick<EditorView, "activeDocumentId" | "onDocumentChange">) {
   const t = useTranslations("UserMemorySettings")
   return (
     <div className="border-b px-4 py-3">
@@ -46,11 +45,9 @@ function DocumentEditorHeader({
           aria-hidden
         />
         <div>
-          <h2 className="text-sm font-semibold">
-            {t("policy.documentsTitle")}
-          </h2>
+          <h2 className="text-sm font-semibold">{t("manual.title")}</h2>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-            {t(document.descriptionKey)}
+            {t("manual.description")}
           </p>
         </div>
       </div>
@@ -167,7 +164,6 @@ export function UserMemoryDocumentEditor({
     <section className="overflow-hidden rounded-xl border bg-card">
       <DocumentEditorHeader
         activeDocumentId={activeDocumentId}
-        document={document}
         onDocumentChange={onDocumentChange}
       />
       <DocumentEditorBody
