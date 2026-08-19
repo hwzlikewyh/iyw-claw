@@ -91,21 +91,21 @@ Function ${Prefix}IywClawAnyKnownProcessRunning
   Call ${Prefix}IywClawFindCurrentUserProcess
   Pop $R0
   StrCmp $R0 "0" main_process_running 0
-  StrCmp $R0 "2" check_browser process_check_failed
+  StrCmp $R0 "1" check_browser process_check_failed
 
   check_browser:
     Push "agent-browser.exe"
     Call ${Prefix}IywClawFindCurrentUserProcess
     Pop $R0
     StrCmp $R0 "0" browser_process_running 0
-    StrCmp $R0 "2" check_generic_mcp process_check_failed
+    StrCmp $R0 "1" check_generic_mcp process_check_failed
 
   check_generic_mcp:
     Push "iyw-claw-mcp.exe"
     Call ${Prefix}IywClawFindCurrentUserProcess
     Pop $R0
     StrCmp $R0 "0" mcp_process_running 0
-    StrCmp $R0 "2" check_versioned_mcp process_check_failed
+    StrCmp $R0 "1" check_versioned_mcp process_check_failed
 
   check_versioned_mcp:
     Call ${Prefix}IywClawCheckVersionedMcp
