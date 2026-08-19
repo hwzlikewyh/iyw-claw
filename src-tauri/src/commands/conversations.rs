@@ -13,6 +13,7 @@ use crate::db::service::{conversation_service, folder_service, import_service, t
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
 use crate::models::*;
+use crate::parsers::codex::CodexParser;
 use crate::parsers::{history_parsers, parser_for_agent, path_eq_for_matching, ParseError};
 use crate::web::event_bridge::{
     emit_event, ConversationChange, EventEmitter, TabsChanged, CONVERSATION_CHANGED_EVENT,
@@ -21,17 +22,52 @@ use crate::web::event_bridge::{
 
 use super::conversation_title::{self, ConversationTitleContext};
 
-pub async fn list_all_conversations_core(
-    conn: &sea_orm::DatabaseConnection,
-    folder_ids: Option<Vec<i32>>,
-    agent_type: Option<AgentType>,
-    search: Option<String>,
-    sort_by: Option<String>,
-    status: Option<String>,
-    include_children: bool,
+#[derive(Default)]
+pub(crate) struct ListAllConversationsOptions {
+    pub(crate) folder_ids: Option<Vec<i32>>,
+    pub(crate) agent_type: Option<AgentType>,
+    pub(crate) search: Option<String>,
+    pub(crate) sort_by: Option<String>,
+    pub(crate) status: Option<String>,
+    pub(crate) include_children: bool,
+}
+
+pub(crate) async fn list_all_conversations_core(
+    context: &ConversationTitleContext<'_>,
+    options: ListAllConversationsOptions,
 ) -> Result<Vec<DbConversationSummary>, AppCommandError> {
+    let codex_titles = match tokio::task::spawn_blocking(|| {
+        CodexParser::new().load_thread_name_index()
+    })
+    .await
+    {
+        Ok(titles) => titles,
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "conversation list: failed to load Codex session titles; continuing without refresh"
+            );
+            HashMap::new()
+        }
+    };
+    // Refresh before applying DB filters so an index title is visible on this
+    // same list response. The refresh service returns only rows it changed.
+    let refreshed_ids = crate::db::service::codex_title_service::refresh_codex_auto_titles(
+        context.conn,
+        &codex_titles,
+    )
+    .await;
+    drop(notify_conversation_title_updates(context, refreshed_ids).await);
+    let ListAllConversationsOptions {
+        folder_ids,
+        agent_type,
+        search,
+        sort_by,
+        status,
+        include_children,
+    } = options;
     conversation_service::list_all(
-        conn,
+        context.conn,
         folder_ids,
         agent_type,
         search,
@@ -46,6 +82,7 @@ pub async fn list_all_conversations_core(
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn list_all_conversations(
+    app: tauri::AppHandle,
     db: tauri::State<'_, AppDatabase>,
     folder_ids: Option<Vec<i32>>,
     agent_type: Option<AgentType>,
@@ -54,14 +91,25 @@ pub async fn list_all_conversations(
     status: Option<String>,
     include_children: Option<bool>,
 ) -> Result<Vec<DbConversationSummary>, AppCommandError> {
+    use tauri::Manager;
+
+    let emitter = EventEmitter::Tauri(app.clone());
+    let chat_channel_manager = app.state::<crate::chat_channel::manager::ChatChannelManager>();
+    let context = ConversationTitleContext {
+        conn: &db.conn,
+        emitter: &emitter,
+        chat_channel_manager: &chat_channel_manager,
+    };
     list_all_conversations_core(
-        &db.conn,
-        folder_ids,
-        agent_type,
-        search,
-        sort_by,
-        status,
-        include_children.unwrap_or(false),
+        &context,
+        ListAllConversationsOptions {
+            folder_ids,
+            agent_type,
+            search,
+            sort_by,
+            status,
+            include_children: include_children.unwrap_or(false),
+        },
     )
     .await
 }
@@ -1525,27 +1573,72 @@ pub(crate) async fn update_conversation_title_core(
         .map_err(AppCommandError::from)
 }
 
-pub async fn sync_conversation_title_to_channels_core(
+async fn sync_conversation_title_until_current(
     conn: &sea_orm::DatabaseConnection,
     chat_channel_manager: &crate::chat_channel::manager::ChatChannelManager,
     conversation_id: i32,
 ) {
-    match conversation_service::get_by_id(conn, conversation_id).await {
-        Ok(conversation) => {
-            if let Some(title) = conversation.title.as_deref() {
-                chat_channel_manager
-                    .sync_conversation_title(conn, conversation_id, title)
-                    .await;
+    let mut sent: Option<String> = None;
+    loop {
+        let summary = match conversation_service::get_by_id(conn, conversation_id).await {
+            Ok(summary) => summary,
+            Err(error) => {
+                tracing::warn!(
+                    conversation_id,
+                    error = %error,
+                    "[conversations] failed to load authoritative title for channel sync"
+                );
+                return;
             }
+        };
+        let Some(title) = summary.title else {
+            return;
+        };
+        if sent.as_deref() == Some(title.as_str()) {
+            return;
         }
-        Err(error) => {
-            tracing::warn!(
-                conversation_id,
-                error = %error,
-                "[conversations] failed to load authoritative title for channel sync"
-            );
+        chat_channel_manager
+            .sync_conversation_title(conn, conversation_id, &title)
+            .await;
+        sent = Some(title);
+    }
+}
+
+pub(crate) fn spawn_conversation_title_channel_sync(
+    context: &ConversationTitleContext<'_>,
+    conversation_id: i32,
+) {
+    let conn = context.conn.clone();
+    let chat_channel_manager = context.chat_channel_manager.clone_ref();
+    drop(tokio::spawn(async move {
+        sync_conversation_title_until_current(&conn, &chat_channel_manager, conversation_id).await;
+    }));
+}
+
+/// Emit sidebar updates inline and propagate channel titles in detached tasks.
+/// The detached tasks re-read the authoritative DB title before each send so
+/// rapid renames converge on the latest value without blocking callers.
+pub(crate) async fn notify_conversation_title_updates(
+    context: &ConversationTitleContext<'_>,
+    changed_ids: Vec<i32>,
+) -> tokio::task::JoinHandle<()> {
+    let mut unique_ids = HashSet::new();
+    let mut conversation_ids = Vec::new();
+    for conversation_id in changed_ids {
+        if unique_ids.insert(conversation_id) {
+            emit_conversation_upsert(context.emitter, context.conn, conversation_id).await;
+            conversation_ids.push(conversation_id);
         }
     }
+
+    let conn = context.conn.clone();
+    let chat_channel_manager = context.chat_channel_manager.clone_ref();
+    tokio::spawn(async move {
+        for conversation_id in conversation_ids {
+            sync_conversation_title_until_current(&conn, &chat_channel_manager, conversation_id)
+                .await;
+        }
+    })
 }
 
 #[cfg(feature = "tauri-runtime")]
