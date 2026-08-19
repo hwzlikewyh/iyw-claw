@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
 
 use sea_orm::DatabaseConnection;
 
@@ -11,11 +13,19 @@ use crate::paths::{ResolvedUserMemoryRoot, UserMemoryPathError, UserMemoryRootSo
 use super::fs;
 use super::harvest::HarvestQueue;
 use super::helpers::{apply_policy_patch, conflict};
+use super::recall_config::{configured_recall_index_enabled, configured_recall_tool_enabled};
 use super::transaction::document_resource;
 use super::{
     project_settings_capabilities, UserMemoryDocumentId, UserMemoryGeneration,
     UserMemoryMigrationReport, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
 };
+
+#[derive(Debug, Default)]
+pub(super) struct IndexRefreshState {
+    pub requested: bool,
+    pub running: bool,
+    pub retry_not_before: Option<Instant>,
+}
 
 pub(super) const POLICY_KEY: &str = "user_memory.settings";
 
@@ -24,6 +34,11 @@ pub struct UserMemoryService {
     pub(super) db: DatabaseConnection,
     pub(super) root: Result<ResolvedUserMemoryRoot, UserMemoryPathError>,
     pub(super) io_lock: Arc<tokio::sync::Mutex<()>>,
+    pub(super) index_refresh_lock: Arc<tokio::sync::Mutex<()>>,
+    pub(super) index_refresh_state: Arc<Mutex<IndexRefreshState>>,
+    pub(super) index_verified: Arc<AtomicBool>,
+    pub(super) recall_index_enabled: bool,
+    pub(super) recall_tool_enabled: bool,
     pub(super) migration_blocked_documents: Arc<RwLock<BTreeSet<UserMemoryDocumentId>>>,
     pub(super) migration_report: Arc<RwLock<Option<UserMemoryMigrationReport>>>,
     pub(super) harvest: HarvestQueue,
@@ -59,6 +74,11 @@ impl UserMemoryService {
             db,
             root,
             io_lock: Arc::new(tokio::sync::Mutex::new(())),
+            index_refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
+            index_refresh_state: Arc::new(Mutex::new(IndexRefreshState::default())),
+            index_verified: Arc::new(AtomicBool::new(false)),
+            recall_index_enabled: configured_recall_index_enabled(),
+            recall_tool_enabled: configured_recall_tool_enabled(),
             migration_blocked_documents: Arc::new(RwLock::new(BTreeSet::new())),
             migration_report: Arc::new(RwLock::new(None)),
             harvest: HarvestQueue::default(),
@@ -217,13 +237,14 @@ impl UserMemoryService {
     ) -> Result<(tokio::sync::OwnedMutexGuard<()>, File), AppCommandError> {
         let io_guard = self.io_lock.clone().lock_owned().await;
         let root = self.resolved_root()?.to_path_buf();
-        let file_guard = tokio::task::spawn_blocking(move || fs::acquire_file_lock(&root))
-            .await
-            .map_err(|error| {
-                AppCommandError::task_execution_failed("User memory lock task failed")
-                    .with_detail(error.to_string())
-            })??;
-        Ok((io_guard, file_guard))
+        tokio::task::spawn_blocking(move || {
+            fs::acquire_file_lock(&root).map(|file_guard| (io_guard, file_guard))
+        })
+        .await
+        .map_err(|error| {
+            AppCommandError::task_execution_failed("User memory lock task failed")
+                .with_detail(error.to_string())
+        })?
     }
 }
 

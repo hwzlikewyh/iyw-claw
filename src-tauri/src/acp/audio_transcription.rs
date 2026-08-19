@@ -115,34 +115,59 @@ impl AudioTranscriptionAccess for HostAudioTranscriptionService {
         working_dir: &Path,
         request: BrokerAudioTranscriptionRequest,
     ) -> Value {
+        let monitor = match crate::acp::capability_policy::monitor_file_upload(None).await {
+            Ok(monitor) => monitor,
+            Err(error) => return capability_error_result(&error),
+        };
         let language = match normalize_language(request.language.as_deref()) {
             Ok(language) => language,
             Err(error) => return error_result(error),
         };
-        let file = match prepare_audio_file(working_dir, &request.path).await {
-            Ok(file) => file,
-            Err(error) => return error_result(error),
+        let file = match monitor
+            .run_until_revoked(prepare_audio_file(working_dir, &request.path))
+            .await
+        {
+            Ok(Ok(file)) => file,
+            Ok(Err(error)) => return error_result(error),
+            Err(error) => return capability_error_result(&error),
         };
         tracing::info!(file_name = %file.file_name, size_bytes = file.size_bytes, "[AudioTranscription] uploading audio file");
-        let ticket = match audio_transcription_client::initialize(&self.db.conn, &file).await {
-            Ok(ticket) => ticket,
-            Err(error) => return error_result(error),
-        };
-        if let Err(error) = audio_transcription_client::upload(file, &ticket).await {
-            return error_result(error);
-        }
-        let job = match audio_transcription_client::submit(
-            &self.db.conn,
-            ticket,
-            &language,
-            request.options,
-        )
-        .await
+        let ticket = match monitor
+            .run_until_revoked(audio_transcription_client::initialize(&self.db.conn, &file))
+            .await
         {
-            Ok(job) => job,
-            Err(error) => return error_result(error),
+            Ok(Ok(ticket)) => ticket,
+            Ok(Err(error)) => return error_result(error),
+            Err(error) => return capability_error_result(&error),
         };
-        wait_for_completion(&self.db.conn, job).await
+        match monitor
+            .run_until_revoked(audio_transcription_client::upload(file, &ticket))
+            .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => return error_result(error),
+            Err(error) => return capability_error_result(&error),
+        }
+        let job = match monitor
+            .run_until_revoked(audio_transcription_client::submit(
+                &self.db.conn,
+                ticket,
+                &language,
+                request.options,
+            ))
+            .await
+        {
+            Ok(Ok(job)) => job,
+            Ok(Err(error)) => return error_result(error),
+            Err(error) => return capability_error_result(&error),
+        };
+        match monitor
+            .run_until_revoked(wait_for_completion(&self.db.conn, job))
+            .await
+        {
+            Ok(result) => result,
+            Err(error) => capability_error_result(&error),
+        }
     }
 
     async fn query(&self, request: BrokerAudioTranscriptionQueryRequest) -> Value {
@@ -294,5 +319,16 @@ fn error_result(error: AudioToolFailure) -> Value {
         "content": [{ "type": "text", "text": error.message }],
         "isError": true,
         "structuredContent": { "code": error.code, "error": error.message },
+    })
+}
+
+fn capability_error_result(error: &crate::app_error::AppCommandError) -> Value {
+    json!({
+        "content": [{ "type": "text", "text": "Audio transcription is disabled by capability policy." }],
+        "isError": true,
+        "structuredContent": {
+            "code": error.detail.as_deref().unwrap_or("remote_policy_denied"),
+            "error": "Audio transcription is disabled by capability policy.",
+        },
     })
 }

@@ -6,6 +6,14 @@ on:
       release_tag:
         required: true
         type: string
+      source_ref:
+        required: false
+        type: string
+        default: ""
+      frontend_artifact:
+        required: false
+        type: string
+        default: release-frontend-out
 
 env:
   RUST_BACKTRACE: short
@@ -40,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ inputs.source_ref || inputs.release_tag }}
 
       - name: Checkout release tooling
         uses: actions/checkout@v4
@@ -77,10 +85,11 @@ jobs:
           node-version: 24
           cache: "pnpm"
 
-      - name: Build frontend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm build
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.frontend_artifact }}
+          path: out
 
       - name: Build server and MCP companion
         working-directory: src-tauri
@@ -187,7 +196,7 @@ jobs:
         run: |
           set -euo pipefail
           archive="dist/${{ matrix.artifact }}.tar.gz"
-          pnpm dlx @tauri-apps/cli@2.10.1 signer sign "$archive"
+          pnpm dlx @tauri-apps/cli@2.11.4 signer sign "$archive"
           test -f "$archive.sig"
           (
             cd dist
@@ -202,7 +211,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           $archive = "dist/${{ matrix.artifact }}.zip"
-          pnpm dlx @tauri-apps/cli@2.10.1 signer sign $archive
+          pnpm dlx @tauri-apps/cli@2.11.4 signer sign $archive
           if (-not (Test-Path "$archive.sig")) {
             throw "signature not produced for $archive"
           }

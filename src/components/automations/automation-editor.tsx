@@ -37,8 +37,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { automationComputeNextRun } from "@/lib/api"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
-import { AGENT_LABELS } from "@/lib/types"
 import type {
   AgentType,
   Automation,
@@ -233,7 +233,7 @@ export function AutomationEditor({
         : agentType
       const automaticMode = automaticAgentMode(persistedAgentType)
       const label_snapshot = {
-        agent_label: AGENT_LABELS[agentType] ?? agentType,
+        agent_label: getAgentDisplayName(agentType),
         ...(folderName ? { folder_label: folderName } : {}),
         ...snapshotLabels(snapshot, automaticMode?.id ?? null, config_values),
         ...(automaticMode ? { mode_label: automaticMode.name } : {}),

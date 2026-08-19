@@ -59,6 +59,20 @@ en = "Creates, edits, and verifies reusable Agent skills."
 "zh-CN" = "创建、编辑并验证可复用的 Agent 技能。"
 
 [[expert]]
+id = "iyw-capability-gateway"
+category = "meta"
+icon = "Network"
+sort_order = 220
+
+[expert.display_name]
+en = "IYW Capability Gateway"
+"zh-CN" = "爱原物能力网关"
+
+[expert.description]
+en = "Discovers and invokes IYW capabilities through stable capability ids."
+"zh-CN" = "通过稳定能力 ID 发现并调用爱原物能力。"
+
+[[expert]]
 id = "wecom-unified"
 category = "workflow"
 icon = "Building2"

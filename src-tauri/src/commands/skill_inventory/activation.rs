@@ -9,7 +9,7 @@ use super::types::{
     SkillActivationApplyStatus, SkillActivationSetRequest, SkillActivationSetResult,
     SkillInventorySnapshot,
 };
-use super::{skill_inventory_list_core, workspace_key};
+use super::{skill_inventory_list_core, workspace_key, workspace_key_for_agent};
 
 pub async fn skill_activation_set_core(
     conn: &DatabaseConnection,
@@ -27,7 +27,7 @@ pub async fn skill_activation_set_core(
     let policy_workspace_key = match request.scope {
         crate::acp::types::AgentSkillScope::Global => String::new(),
         crate::acp::types::AgentSkillScope::Project => {
-            workspace_key(request.workspace_path.as_deref())
+            workspace_key_for_agent(request.agent_type, request.workspace_path.as_deref())
         }
     };
     skill_activation_policy_service::upsert(

@@ -105,6 +105,9 @@ pub fn private_npm_install_args_with_registry(
         OsString::from("--global"),
         OsString::from("--json"),
         OsString::from("--include=optional"),
+        OsString::from("--no-audit"),
+        OsString::from("--no-fund"),
+        OsString::from("--prefer-offline"),
         OsString::from(format!("--registry={registry}")),
         path_arg("--prefix=", prefix),
         path_arg("--cache=", cache),
@@ -313,15 +316,19 @@ pub fn private_npm_staging_prefix(paths: &AgentStoragePaths, agent_type: AgentTy
 
 fn resolve_npm_command_from_prefix(prefix: &Path, command: &str) -> Option<PathBuf> {
     let bin_dir = npm_prefix_bin_dir(prefix);
+    let local_bin = prefix.join("node_modules").join(".bin");
 
     #[cfg(windows)]
     let candidates = [
         bin_dir.join(format!("{command}.cmd")),
         bin_dir.join(format!("{command}.exe")),
         bin_dir.join(command),
+        local_bin.join(format!("{command}.cmd")),
+        local_bin.join(format!("{command}.exe")),
+        local_bin.join(command),
     ];
     #[cfg(not(windows))]
-    let candidates = [bin_dir.join(command)];
+    let candidates = [bin_dir.join(command), local_bin.join(command)];
 
     candidates
         .into_iter()

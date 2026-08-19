@@ -19,11 +19,23 @@ impl WatchState {
         cwd: &str,
         changed_turns: &mut Vec<MessageTurn>,
     ) {
+        if value.get("type").and_then(|kind| kind.as_str()) == Some("assistant") {
+            self.close_foreground_submission();
+        }
         if let Some(initiator) = turn_initiator_text(&value) {
             if ledger.consume_matching(&initiator) {
                 self.collect_changed_turns(cwd, changed_turns);
                 self.episode = None;
                 self.mode = Mode::Foreground;
+                self.begin_foreground_submission(record_submission_id(&value).map(str::to_string));
+                return;
+            }
+            if self.is_foreground_side_record(record_submission_id(&value))
+                && notification_task_id(&initiator).is_none()
+            {
+                // Claude writes slash-command stdout, injected instructions,
+                // and metadata as user records before the first model reply.
+                // The ACP wire already owns that foreground submission.
                 return;
             }
             self.start_episode_if_needed(&initiator, cwd, changed_turns);
@@ -146,6 +158,13 @@ fn user_text(blocks: &[serde_json::Value]) -> Option<String> {
 
 fn notification_task_id(text: &str) -> Option<String> {
     TaskNotification::parse(text.trim_start()).map(|notification| notification.task_id)
+}
+
+fn record_submission_id(value: &serde_json::Value) -> Option<&str> {
+    value
+        .get("promptId")
+        .and_then(|prompt_id| prompt_id.as_str())
+        .filter(|prompt_id| !prompt_id.is_empty())
 }
 
 fn strip_private_user_context_from_record(value: &mut serde_json::Value) {

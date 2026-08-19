@@ -83,8 +83,18 @@ pub fn set_channel_token(channel_id: i32, token: &str) -> Result<(), String> {
 
 #[cfg(feature = "tauri-runtime")]
 pub fn get_channel_token(channel_id: i32) -> Option<String> {
-    let entry = keyring::Entry::new(SERVICE_NAME, &channel_token_key(channel_id)).ok()?;
-    entry.get_password().ok()
+    try_get_channel_token(channel_id).ok().flatten()
+}
+
+#[cfg(feature = "tauri-runtime")]
+pub fn try_get_channel_token(channel_id: i32) -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new(SERVICE_NAME, &channel_token_key(channel_id))
+        .map_err(|e| format!("keyring init error: {e}"))?;
+    match entry.get_password() {
+        Ok(token) => Ok(Some(token)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("keyring read error: {e}")),
+    }
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -105,7 +115,12 @@ pub fn set_channel_token(channel_id: i32, token: &str) -> Result<(), String> {
 
 #[cfg(not(feature = "tauri-runtime"))]
 pub fn get_channel_token(channel_id: i32) -> Option<String> {
-    crate::server_secret_store::get(&channel_token_key(channel_id))
+    try_get_channel_token(channel_id).ok().flatten()
+}
+
+#[cfg(not(feature = "tauri-runtime"))]
+pub fn try_get_channel_token(channel_id: i32) -> Result<Option<String>, String> {
+    crate::server_secret_store::try_get(&channel_token_key(channel_id))
 }
 
 #[cfg(not(feature = "tauri-runtime"))]

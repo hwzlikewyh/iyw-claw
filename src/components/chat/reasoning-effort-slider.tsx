@@ -15,12 +15,14 @@ import type { SessionConfigOptionInfo } from "@/lib/types"
 
 /** The canonical effort-level order used to map option values → slider index. */
 const EFFORT_ORDER: string[] = [
+  "none",
   "off",
   "minimal",
   "low",
   "medium",
   "high",
   "xhigh",
+  "max",
 ]
 
 function normalizedValue(v: string): string {

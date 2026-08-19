@@ -69,6 +69,97 @@ use crate::acp::delegation::types::{
 use crate::acp::types::DelegationResultSummary;
 use crate::models::AgentType;
 
+pub(crate) const DELEGATION_ACK_PREFIX: &str = "Delegation successful. task_id=";
+pub(crate) const DELEGATION_ACK_SUFFIX: &str =
+    ". Call get_delegation_status with this id in the task_ids \
+array (optionally wait_ms) to collect the result, or cancel_delegation to stop it.";
+
+fn parse_delegation_ack_text(text: &str) -> Result<Option<String>, ()> {
+    let text = text.trim();
+    let has_marker = text.contains(DELEGATION_ACK_PREFIX) || text.contains("task_id=");
+    let Some(task_id) = text
+        .strip_prefix(DELEGATION_ACK_PREFIX)
+        .and_then(|rest| rest.strip_suffix(DELEGATION_ACK_SUFFIX))
+    else {
+        return if has_marker { Err(()) } else { Ok(None) };
+    };
+    let parsed = uuid::Uuid::parse_str(task_id).map_err(|_| ())?;
+    Ok(Some(parsed.to_string()))
+}
+
+fn validate_structured_task_id(
+    object: &serde_json::Map<String, serde_json::Value>,
+    task_id: &str,
+) -> Result<(), ()> {
+    let Some(value) = object
+        .get("structuredContent")
+        .and_then(|value| value.get("task_id"))
+    else {
+        return Ok(());
+    };
+    let parsed = uuid::Uuid::parse_str(value.as_str().ok_or(())?).map_err(|_| ())?;
+    (parsed.to_string() == task_id).then_some(()).ok_or(())
+}
+
+fn parse_structured_delegation_ack(value: &serde_json::Value) -> Result<Option<String>, ()> {
+    let Some(object) = value.as_object() else {
+        return Ok(None);
+    };
+    let Some([block]) = object
+        .get("content")
+        .and_then(|value| value.as_array())
+        .map(Vec::as_slice)
+    else {
+        return if value.to_string().contains("task_id=") {
+            Err(())
+        } else {
+            Ok(None)
+        };
+    };
+    if block.get("type").and_then(|value| value.as_str()) != Some("text") {
+        return Ok(None);
+    }
+    let Some(task_id) = parse_delegation_ack_text(
+        block
+            .get("text")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default(),
+    )?
+    else {
+        return Ok(None);
+    };
+    if object.get("isError").and_then(|value| value.as_bool()) != Some(false) {
+        return Err(());
+    }
+    validate_structured_task_id(object, &task_id)?;
+    Ok(Some(task_id))
+}
+
+fn parse_delegation_ack_payload(payload: &str) -> Result<Option<String>, ()> {
+    let trimmed = payload.trim();
+    match serde_json::from_str::<serde_json::Value>(trimmed) {
+        Ok(value) => parse_structured_delegation_ack(&value),
+        Err(_) => parse_delegation_ack_text(trimmed),
+    }
+}
+
+pub(crate) fn delegation_ack_task_id(
+    content: Option<&str>,
+    raw_output: Option<&str>,
+) -> Option<String> {
+    let mut found: Option<String> = None;
+    for payload in [content, raw_output].into_iter().flatten() {
+        let Some(task_id) = parse_delegation_ack_payload(payload).ok()? else {
+            continue;
+        };
+        if found.as_ref().is_some_and(|existing| existing != &task_id) {
+            return None;
+        }
+        found = Some(task_id);
+    }
+    found
+}
+
 /// Default per-parent byte budget for cached completed-task result text. The
 /// completed-cache lets `get_delegation_status` / `cancel_delegation` return a
 /// finished task's result after the lifecycle resolved it; once a parent's
@@ -174,6 +265,7 @@ impl Default for DelegationConfig {
 /// signal. A terminal event instead migrates the entry into `completed` (same
 /// lock) and wakes any `get_delegation_status` long-poll via the broker's
 /// `result_notify`.
+#[derive(Clone)]
 struct RunningTask {
     child_connection_id: String,
     child_conversation_id: i32,
@@ -189,6 +281,41 @@ struct RunningTask {
     /// When the child started running (after `send_prompt` succeeded). Used to
     /// compute a real `duration_ms` at terminal time.
     started_at: Instant,
+    /// Serializes a delayed real-id replay with terminal meta/event I/O. Only
+    /// present while this task started from a synthetic late binding.
+    late_binding_gate: Option<Arc<Mutex<()>>>,
+}
+
+/// Broker-owned teardown state for a task canceled by its parent. Keeping this
+/// in `PendingInner` makes the slow I/O retryable after the caller's future is
+/// dropped (or a detached worker is aborted).
+#[derive(Clone)]
+struct CanceledTeardown {
+    task: RunningTask,
+    duration_ms: u64,
+    phase: TeardownPhase,
+    processing: Arc<Mutex<()>>,
+}
+
+#[derive(Clone, Copy)]
+enum TeardownPhase {
+    Meta,
+    Event,
+    Cancel,
+    Disconnect,
+}
+
+/// Wakes a competing/retry worker whenever the current worker releases its
+/// per-task processing guard, including panic and task-abort paths.
+struct TeardownProcessingLease {
+    _processing: tokio::sync::OwnedMutexGuard<()>,
+    notify: Arc<Notify>,
+}
+
+impl Drop for TeardownProcessingLease {
+    fn drop(&mut self) {
+        self.notify.notify_waiters();
+    }
 }
 
 /// A terminal delegation result retained so `get_delegation_status` /
@@ -316,6 +443,10 @@ struct PendingInner {
     /// order. Keys and stamps share this sequence but are never cross-compared
     /// (keys match by identity, stamps only by `<` against other stamps).
     seq: u64,
+    /// Parent-canceled tasks remain here until every terminal projection and
+    /// child teardown step has completed. The queue is broker-owned rather than
+    /// held by the caller or a detached worker, so a later cancel can retry it.
+    canceled_teardowns: HashMap<String, CanceledTeardown>,
 }
 
 /// One in-flight `handle_request` setup tracked for parent-cancel coverage.
@@ -413,6 +544,89 @@ impl PendingInner {
         let v = self.seq;
         self.seq = self.seq.wrapping_add(1);
         v
+    }
+
+    fn enqueue_canceled_teardown(&mut self, call_id: String, task: RunningTask, duration_ms: u64) {
+        self.canceled_teardowns
+            .entry(call_id)
+            .or_insert(CanceledTeardown {
+                task,
+                duration_ms,
+                phase: TeardownPhase::Meta,
+                processing: Arc::new(Mutex::new(())),
+            });
+    }
+
+    fn enqueue_turn_canceled_tasks(&mut self, keys: Vec<String>) {
+        let drained = drain_and_record_canceled(self, keys.clone(), "parent canceled");
+        for (call_id, (task, duration_ms)) in keys.into_iter().zip(drained) {
+            self.enqueue_canceled_teardown(call_id, task, duration_ms);
+        }
+    }
+
+    fn enqueue_connection_canceled_tasks(&mut self, parent_connection_id: &str, keys: Vec<String>) {
+        for call_id in keys {
+            let task = self.running.remove(&call_id).expect("key just observed");
+            let duration_ms = task.started_at.elapsed().as_millis() as u64;
+            if self.late_binding_pins.contains(&call_id) {
+                let completed = build_completed(
+                    &task.parent_connection_id,
+                    task.child_conversation_id,
+                    task.agent_type,
+                    duration_ms,
+                    &canceled_outcome(task.child_conversation_id, "parent canceled"),
+                );
+                if let Some(projection) = late_completion_projection(&completed) {
+                    self.late_binding_terminals
+                        .insert(call_id.clone(), projection);
+                }
+            } else {
+                self.clear_late_binding_state(&call_id);
+            }
+            self.enqueue_canceled_teardown(call_id, task, duration_ms);
+        }
+        self.drop_completed_for_parent(parent_connection_id);
+    }
+
+    /// Claim one queued teardown for `parent_connection_id`. The processing
+    /// mutex serializes retries. Its owned guard resets automatically if the
+    /// worker future is canceled before the current phase is committed.
+    fn claim_canceled_teardown(
+        &mut self,
+        parent_connection_id: &str,
+    ) -> Option<(String, CanceledTeardown, tokio::sync::OwnedMutexGuard<()>)> {
+        let call_ids: Vec<String> = self
+            .canceled_teardowns
+            .iter()
+            .filter(|(_, teardown)| teardown.task.parent_connection_id == parent_connection_id)
+            .map(|(call_id, _)| call_id.clone())
+            .collect();
+        for call_id in call_ids {
+            let Some(teardown) = self.canceled_teardowns.get(&call_id) else {
+                continue;
+            };
+            let Ok(processing) = Arc::clone(&teardown.processing).try_lock_owned() else {
+                continue;
+            };
+            return Some((call_id, teardown.clone(), processing));
+        }
+        None
+    }
+
+    fn has_canceled_teardown_for_parent(&self, parent_connection_id: &str) -> bool {
+        self.canceled_teardowns
+            .values()
+            .any(|teardown| teardown.task.parent_connection_id == parent_connection_id)
+    }
+
+    fn advance_canceled_teardown(&mut self, call_id: &str, phase: TeardownPhase) {
+        if let Some(teardown) = self.canceled_teardowns.get_mut(call_id) {
+            teardown.phase = phase;
+        }
+    }
+
+    fn finish_canceled_teardown(&mut self, call_id: &str) {
+        self.canceled_teardowns.remove(call_id);
     }
 
     /// Register an in-flight setup at `handle_request` entry, returning its
@@ -561,7 +775,9 @@ impl PendingInner {
         if let Some(ids) = self.completed_order.remove(parent_connection_id) {
             for id in ids {
                 self.completed.remove(&id);
-                self.clear_late_binding_state(&id);
+                if !self.late_binding_pins.contains(&id) {
+                    self.clear_late_binding_state(&id);
+                }
             }
         }
         let projected_ids: Vec<String> = self
@@ -571,7 +787,9 @@ impl PendingInner {
             .map(|(call_id, _)| call_id.clone())
             .collect();
         for call_id in projected_ids {
-            self.clear_late_binding_state(&call_id);
+            if !self.late_binding_pins.contains(&call_id) {
+                self.clear_late_binding_state(&call_id);
+            }
         }
     }
 }
@@ -806,11 +1024,7 @@ fn running_ack(
     // Embed the literal task_id in the message so it survives clients that only
     // surface the MCP `content` text (not `structuredContent`) — without it the
     // LLM couldn't call get_delegation_status / cancel_delegation.
-    let message = format!(
-        "Delegation successful. task_id={call_id}. Call get_delegation_status \
-         with this id in the task_ids array (optionally wait_ms) to collect the \
-         result, or cancel_delegation to stop it."
-    );
+    let message = format!("{DELEGATION_ACK_PREFIX}{call_id}{DELEGATION_ACK_SUFFIX}");
     DelegationTaskReport {
         task_id: Some(call_id),
         status: TaskStatus::Running,
@@ -974,7 +1188,7 @@ fn child_canceled_reason(terminal_error: Option<&str>) -> String {
     }
 }
 
-/// Set of MCP-side `external_handle` tokens for which the companion
+/// Set of parent-scoped MCP-side `external_handle` tokens for which the companion
 /// already received `notifications/cancelled` BEFORE the matching
 /// `handle_request` reached the pending-registration phase. Without
 /// this pre-cancel buffer, a fast cancel that lands during the
@@ -996,8 +1210,8 @@ struct PreCanceledHandles {
 
 #[derive(Default)]
 struct PreCanceledState {
-    set: HashSet<String>,
-    order: VecDeque<String>,
+    set: HashSet<(String, String)>,
+    order: VecDeque<(String, String)>,
 }
 
 const PRE_CANCELED_CAP: usize = 256;
@@ -1016,11 +1230,11 @@ const PRE_CANCELED_CAP: usize = 256;
 ///   to [`PENDING_TOOL_CALL_TTL`] eviction so an anonymous ACP id whose
 ///   MCP round-trip never arrives can't linger and FIFO-mis-bind a later
 ///   delegation. KEYED entries carry no count cap: they are drained only
-///   by their exact-match claim, by terminal tombstoning
-///   (`tombstone_pending_tool_call`), or by per-parent teardown — because
-///   the host may serialize a delegation's round-trip arbitrarily far
-///   behind earlier long-running ones, so a count cap would drop a
-///   still-pending keyed id and orphan its card.
+///   by their exact-match claim, by terminal resolution
+///   (`resolve_terminal_tool_call_by_task_id`), or by per-parent teardown —
+///   because the host may serialize a delegation's round-trip arbitrarily far
+///   behind earlier long-running ones, so a count cap would drop a still-pending
+///   keyed id and orphan its card.
 /// * `consumed` — ids that were already claimed by a prior
 ///   round-trip. NEITHER subject to TTL eviction NOR to a per-bucket
 ///   cap: a delegated child agent may run for minutes to hours, and
@@ -1094,12 +1308,19 @@ struct LateToolCallBinding {
     child_connection_id: String,
     child_conversation_id: i32,
     agent_type: AgentType,
+    gate: Arc<Mutex<()>>,
 }
 
 enum ToolCallRegistration {
     AlreadyConsumed,
     Duplicate,
     Queued,
+    LateBound(LateToolCallBinding),
+}
+
+enum TerminalToolCallResolution {
+    Ignored,
+    Tombstoned,
     LateBound(LateToolCallBinding),
 }
 
@@ -1193,6 +1414,42 @@ impl ToolCallTrackerBucket {
         self.pending.remove(pending_position);
         self.consumed.push_back((tool_call_id.to_string(), now));
         Some(binding)
+    }
+
+    fn resolve_terminal_tool_call(
+        &mut self,
+        tool_call_id: &str,
+        task_id: Option<&str>,
+        now: Instant,
+    ) -> TerminalToolCallResolution {
+        if self.consumed.iter().any(|(id, _)| id == tool_call_id) {
+            return TerminalToolCallResolution::Ignored;
+        }
+        let pending_position = self
+            .pending
+            .iter()
+            .position(|pending| pending.tool_call_id == tool_call_id);
+        let binding_position = task_id.and_then(|task_id| {
+            self.late_bindings
+                .iter()
+                .position(|binding| binding.call_id == task_id)
+        });
+        if let Some(position) = binding_position {
+            let Some(binding) = self.late_bindings.remove(position) else {
+                return TerminalToolCallResolution::Ignored;
+            };
+            if let Some(position) = pending_position {
+                self.pending.remove(position);
+            }
+            self.consumed.push_back((tool_call_id.to_string(), now));
+            return TerminalToolCallResolution::LateBound(binding);
+        }
+        if let Some(position) = pending_position {
+            self.pending.remove(position);
+            self.consumed.push_back((tool_call_id.to_string(), now));
+            return TerminalToolCallResolution::Tombstoned;
+        }
+        TerminalToolCallResolution::Ignored
     }
 
     fn cancel_late_binding(&mut self, call_id: &str, now: Instant) -> bool {
@@ -1346,6 +1603,9 @@ pub struct DelegationBroker {
     /// Woken after every terminal `record_completed` so a `get_delegation_status`
     /// long-poll wakes the instant its task finishes instead of busy-polling.
     result_notify: Arc<Notify>,
+    /// Coordinates concurrent/retry workers that drain parent-canceled child
+    /// teardowns without sharing wakeups with result-status long polls.
+    teardown_notify: Arc<Notify>,
 }
 
 impl DelegationBroker {
@@ -1401,6 +1661,7 @@ impl DelegationBroker {
             pre_canceled_handles: Arc::new(PreCanceledHandles::default()),
             config: Arc::new(Mutex::new(DelegationConfig::default())),
             result_notify: Arc::new(Notify::new()),
+            teardown_notify: Arc::new(Notify::new()),
         }
     }
 
@@ -1760,11 +2021,11 @@ impl DelegationBroker {
         }
     }
 
-    /// Tombstone a parent `tool_call_id` whose `delegate_to_agent` reached a
-    /// TERMINAL ACP status (`completed`/`failed`) so a stale keyed pending entry
-    /// can't mis-bind a later delegation. The lifecycle dispatcher calls this
-    /// from its terminal-`ToolCallUpdate` branch, keyed on `tool_call_id`
-    /// (a bare terminal update carries no parseable key).
+    /// Resolve a TERMINAL parent `tool_call_id` under one tracker lock. An exact
+    /// `(parent_connection_id, task_id)` match claims the late binding whose
+    /// `call_id` equals that task id and records the real ACP id as consumed.
+    /// Without that identity, the method can only tombstone an already-pending
+    /// real id; it never selects a binding by key, FIFO, or global order.
     ///
     /// The hazard: keyed pending entries are retained regardless of age (see the
     /// retain block in `take_matching_tool_call_at`), so if a `delegate_to_agent`
@@ -1782,35 +2043,42 @@ impl DelegationBroker {
     /// serialized sibling still awaiting its (observed 77s-late) round-trip is
     /// NON-terminal while it waits — so this never evicts a live entry.
     ///
-    /// Records `consumed` ONLY when an entry was actually removed: this runs for
-    /// EVERY terminal tool-call update (the vast majority are non-delegations),
-    /// and `consumed` has no TTL/cap, so recording unconditionally would grow it
-    /// with every completed tool call. Recording on a real removal still drops an
-    /// out-of-order re-registration of the same id via the Tier-1 consumed check
-    /// in `register_pending_tool_call_with_key_at`. Returns whether an entry was
-    /// removed (for the dispatcher's gated log).
+    /// Duplicate terminal events see the consumed id and no-op. A wrong parent,
+    /// canceled/expired binding, or unknown task id cannot cross-claim another
+    /// parent's binding. Returns whether a pending id was tombstoned; exact late
+    /// binding has its own completion log in `apply_late_tool_call_binding`.
+    pub async fn resolve_terminal_tool_call_by_task_id(
+        &self,
+        parent_connection_id: &str,
+        tool_call_id: &str,
+        task_id: Option<&str>,
+    ) -> bool {
+        let resolution = {
+            let mut map = self.tool_calls.inner.lock().await;
+            let Some(bucket) = map.get_mut(parent_connection_id) else {
+                return false;
+            };
+            bucket.resolve_terminal_tool_call(tool_call_id, task_id, Instant::now())
+        };
+        match resolution {
+            TerminalToolCallResolution::Ignored => false,
+            TerminalToolCallResolution::Tombstoned => true,
+            TerminalToolCallResolution::LateBound(binding) => {
+                self.apply_late_tool_call_binding(binding, tool_call_id.to_string())
+                    .await;
+                false
+            }
+        }
+    }
+
+    /// Backward-compatible unkeyed terminal tombstone path.
     pub async fn tombstone_pending_tool_call(
         &self,
         parent_connection_id: &str,
         tool_call_id: &str,
     ) -> bool {
-        let mut map = self.tool_calls.inner.lock().await;
-        // No bucket → nothing registered for this parent; nothing to tombstone
-        // and nothing to record (unlike `consume_explicit_tool_call`, no
-        // MCP-before-ACP race can land a terminal status before registration on
-        // the single ordered ACP stream, so we never pre-create a bucket here).
-        let Some(bucket) = map.get_mut(parent_connection_id) else {
-            return false;
-        };
-        let before = bucket.pending.len();
-        bucket.pending.retain(|p| p.tool_call_id != tool_call_id);
-        let removed = bucket.pending.len() != before;
-        if removed && !bucket.consumed.iter().any(|(id, _)| id == tool_call_id) {
-            bucket
-                .consumed
-                .push_back((tool_call_id.to_string(), Instant::now()));
-        }
-        removed
+        self.resolve_terminal_tool_call_by_task_id(parent_connection_id, tool_call_id, None)
+            .await
     }
 
     /// Correlate an MCP `delegate_to_agent` round-trip to the parent's
@@ -1907,6 +2175,7 @@ impl DelegationBroker {
         binding: LateToolCallBinding,
         tool_call_id: String,
     ) {
+        let _gate = binding.gate.lock().await;
         self.persist_late_tool_call_binding(&binding, &tool_call_id)
             .await;
         self.publish_late_binding_started(&binding, &tool_call_id)
@@ -2032,19 +2301,20 @@ impl DelegationBroker {
         .await;
     }
 
-    /// Remove `handle` from the pre-cancel set, returning whether it was
+    /// Remove `(parent, handle)` from the pre-cancel set, returning whether it was
     /// present. Used by `handle_request` at two checkpoints (entry + just
     /// after pending registration) so a cancel that lost the race with the
     /// MCP round-trip still wins. The set is single-shot per handle —
     /// taking it here means a subsequent `cancel_by_external_handle` will
     /// have to find the pending entry on its own.
-    async fn take_pre_canceled_handle(&self, handle: &str) -> bool {
+    async fn take_pre_canceled_handle(&self, parent_connection_id: &str, handle: &str) -> bool {
+        let key = (parent_connection_id.to_string(), handle.to_string());
         let mut state = self.pre_canceled_handles.inner.lock().await;
-        if state.set.remove(handle) {
+        if state.set.remove(&key) {
             // Best-effort companion-side cleanup of `order` so a later
             // FIFO eviction doesn't burn a slot. Linear scan is fine —
             // PRE_CANCELED_CAP is small.
-            if let Some(pos) = state.order.iter().position(|h| h == handle) {
+            if let Some(pos) = state.order.iter().position(|candidate| candidate == &key) {
                 state.order.remove(pos);
             }
             true
@@ -2053,15 +2323,16 @@ impl DelegationBroker {
         }
     }
 
-    /// Insert `handle` into the pre-cancel set with FIFO eviction at
+    /// Insert `(parent, handle)` into the pre-cancel set with FIFO eviction at
     /// [`PRE_CANCELED_CAP`]. Idempotent — re-inserting an existing handle
     /// is a no-op.
-    async fn buffer_pre_canceled_handle(&self, handle: String) {
+    async fn buffer_pre_canceled_handle(&self, parent_connection_id: &str, handle: String) {
+        let key = (parent_connection_id.to_string(), handle);
         let mut state = self.pre_canceled_handles.inner.lock().await;
-        if !state.set.insert(handle.clone()) {
+        if !state.set.insert(key.clone()) {
             return;
         }
-        state.order.push_back(handle);
+        state.order.push_back(key);
         while state.order.len() > PRE_CANCELED_CAP {
             if let Some(evicted) = state.order.pop_front() {
                 state.set.remove(&evicted);
@@ -2078,6 +2349,18 @@ impl DelegationBroker {
     pub async fn drop_pending_tool_calls_for_parent(&self, parent_connection_id: &str) {
         self.drop_tool_calls_for_parent(parent_connection_id, false)
             .await;
+        self.drop_pre_canceled_handles_for_parent(parent_connection_id)
+            .await;
+    }
+
+    async fn drop_pre_canceled_handles_for_parent(&self, parent_connection_id: &str) {
+        let mut state = self.pre_canceled_handles.inner.lock().await;
+        state
+            .set
+            .retain(|(parent, _)| parent != parent_connection_id);
+        state
+            .order
+            .retain(|(parent, _)| parent != parent_connection_id);
     }
 
     /// Core of the tool_call-tracker drop, shared by the two cancel scopes.
@@ -2193,6 +2476,13 @@ impl DelegationBroker {
         )
     )]
     pub async fn start_delegation(&self, mut req: DelegationRequest) -> DelegationTaskReport {
+        if !crate::acp::registry::is_executable_identity(req.agent_type) {
+            tracing::warn!(
+                agent_type = %req.agent_type,
+                "[delegation] rejected untrusted Agent identity before launch"
+            );
+            return report_err(req.agent_type, DelegationError::InvalidAgentType, None);
+        }
         // Register this setup as the VERY FIRST thing — before the pre-cancel
         // check's `.await` and the (possibly multi-second) claim poll — so a
         // parent cancel landing ANYWHERE from here to park reaches it, not just
@@ -2216,7 +2506,10 @@ impl DelegationBroker {
         // spawning anything — the caller will not be receiving our
         // response either way (the companion suppresses it per MCP spec).
         if let Some(handle) = req.external_handle.as_deref() {
-            if self.take_pre_canceled_handle(handle).await {
+            if self
+                .take_pre_canceled_handle(&req.parent_connection_id, handle)
+                .await
+            {
                 self.drop_inflight(inflight_id).await;
                 // Bailing here BEFORE the claim path means this delegation never
                 // consumes the ACP `tool_call_id` the lifecycle keyed for it. As
@@ -2546,7 +2839,11 @@ impl DelegationBroker {
             child_connection_id: child_connection_id.clone(),
             child_conversation_id,
             agent_type: req.agent_type,
+            gate: Arc::new(Mutex::new(())),
         });
+        let late_binding_gate = late_binding
+            .as_ref()
+            .map(|binding| Arc::clone(&binding.gate));
         let (disposition, claimed_late_binding) = {
             // Parent cancellation takes these locks in the same order. The
             // running/completed transition and late-binding arm therefore form
@@ -2638,6 +2935,7 @@ impl DelegationBroker {
                             agent_type: req.agent_type,
                             external_handle: req.external_handle.clone(),
                             started_at,
+                            late_binding_gate: late_binding_gate.clone(),
                         },
                     );
                 }
@@ -2724,7 +3022,10 @@ impl DelegationBroker {
         // doesn't double-finalize), record the canceled result, and return a
         // canceled report instead of the Running ack.
         if let Some(handle) = req.external_handle.as_deref() {
-            if self.take_pre_canceled_handle(handle).await {
+            if self
+                .take_pre_canceled_handle(&req.parent_connection_id, handle)
+                .await
+            {
                 // Capture the elapsed ONCE at terminalization (under the lock,
                 // when the running task is removed) so the completed-cache, the
                 // parent-card meta, and the returned report all report the same
@@ -2841,6 +3142,10 @@ impl DelegationBroker {
             }
         };
         if let Some((task, duration_ms)) = task {
+            let _gate = match task.late_binding_gate.as_ref() {
+                Some(gate) => Some(gate.lock().await),
+                None => None,
+            };
             self.finalize_delegation(
                 &task.parent_connection_id,
                 &task.parent_tool_use_id,
@@ -2987,20 +3292,28 @@ impl DelegationBroker {
             .await;
     }
 
-    /// Cancel the pending delegation whose `external_handle` matches.
+    /// Cancel the pending delegation whose parent and `external_handle` match.
     /// Called by the MCP listener on receipt of `notifications/cancelled`
     /// from a companion. When no matching pending entry exists (the
     /// cancel arrived before `handle_request` reached the
     /// pending-registration phase) the handle is stashed in
     /// `pre_canceled_handles` so the in-flight request can drain itself
     /// when it tries to register or shortly after.
-    pub async fn cancel_by_external_handle(&self, external_handle: &str, reason: String) {
+    pub async fn cancel_by_external_handle(
+        &self,
+        parent_connection_id: &str,
+        external_handle: &str,
+        reason: String,
+    ) {
         let (drained, bindings) = {
             let mut inner = self.pending.inner.lock().await;
             let bindings: Vec<(String, String)> = inner
                 .running
                 .iter()
-                .filter(|(_, v)| v.external_handle.as_deref() == Some(external_handle))
+                .filter(|(_, task)| {
+                    task.parent_connection_id == parent_connection_id
+                        && task.external_handle.as_deref() == Some(external_handle)
+                })
                 .map(|(call_id, task)| (call_id.clone(), task.parent_connection_id.clone()))
                 .collect();
             let keys = bindings
@@ -3016,7 +3329,7 @@ impl DelegationBroker {
             // Race: the cancel beat the handle's `running` registration. Buffer
             // it (capped, FIFO-evicted) so `start_delegation` can drain itself on
             // the next checkpoint instead of proceeding to spawn the child.
-            self.buffer_pre_canceled_handle(external_handle.to_string())
+            self.buffer_pre_canceled_handle(parent_connection_id, external_handle.to_string())
                 .await;
             return;
         }
@@ -3098,10 +3411,9 @@ impl DelegationBroker {
     /// `consumed`) since the connection is going away. Runs fully inline — the
     /// connection is already exiting, so there is no next prompt to unblock.
     pub async fn cancel_by_parent(&self, parent_connection_id: &str) {
-        let drained = self
-            .drain_for_parent_cancel(parent_connection_id, false)
+        self.drain_for_parent_cancel(parent_connection_id, false)
             .await;
-        self.finalize_parent_cancel(drained).await;
+        let _ = self.spawn_parent_cancel_worker(parent_connection_id).await;
     }
 
     /// Cascade-cancel every pending delegation owned by `parent_connection_id`
@@ -3123,20 +3435,27 @@ impl DelegationBroker {
     /// mis-bind the next same-key delegation on this live connection — see
     /// `drop_tool_calls_for_parent`.
     pub async fn cancel_by_parent_turn(&self, parent_connection_id: &str) {
-        let drained = self
-            .drain_for_parent_cancel(parent_connection_id, true)
+        self.drain_for_parent_cancel(parent_connection_id, true)
             .await;
-        // The fast drain above already ran inline (scoped to the just-ended
-        // turn); background only the slow child teardown.
+        // Dropping a Tokio JoinHandle detaches the owned worker. Its queued
+        // teardown remains broker-visible until every phase completes.
+        drop(self.spawn_parent_cancel_worker(parent_connection_id));
+    }
+
+    fn spawn_parent_cancel_worker(
+        &self,
+        parent_connection_id: &str,
+    ) -> tokio::task::JoinHandle<()> {
         let broker = self.clone();
+        let parent_connection_id = parent_connection_id.to_string();
         tokio::spawn(async move {
-            broker.finalize_parent_cancel(drained).await;
-        });
+            broker.finalize_parent_cancel(&parent_connection_id).await;
+        })
     }
 
     /// Fast, lock-guarded part of a parent cancel: drop/tombstone this parent's
     /// tool_call tracker (per `keep_consumed`, see `drop_tool_calls_for_parent`)
-    /// and remove every running task it owns, returning them for the (slow)
+    /// and remove every running task it owns, queueing them for the (slow)
     /// child teardown. Touches only the two broker mutexes — no spawner I/O — so
     /// it is safe to await inline in the connection loop before the next prompt
     /// is accepted.
@@ -3146,12 +3465,8 @@ impl DelegationBroker {
     /// connection's LLM can still query it; a **connection teardown** (`false`)
     /// drops the parent's whole completed-cache instead — the parent is gone, so
     /// nothing will query it.
-    async fn drain_for_parent_cancel(
-        &self,
-        parent_connection_id: &str,
-        keep_consumed: bool,
-    ) -> Vec<(RunningTask, u64)> {
-        let drained = {
+    async fn drain_for_parent_cancel(&self, parent_connection_id: &str, keep_consumed: bool) {
+        {
             // Lock order is tracker -> pending, shared with late-binding arm.
             // This makes tracker cleanup and running-task cancellation one
             // atomic handoff: an old setup cannot recreate a binding afterward.
@@ -3180,27 +3495,21 @@ impl DelegationBroker {
             if keep_consumed {
                 // Turn cancel: connection stays alive → keep each canceled
                 // result queryable.
-                drain_and_record_canceled(&mut inner, keys, "parent canceled")
+                inner.enqueue_turn_canceled_tasks(keys);
             } else {
                 // Connection teardown: just remove the running tasks and drop the
                 // whole completed-cache for this parent. No completed entry to
                 // match, but still capture the elapsed once (at drain time) so
                 // the teardown meta doesn't recompute it later.
-                let drained: Vec<(RunningTask, u64)> = keys
-                    .into_iter()
-                    .map(|k| {
-                        let task = inner.running.remove(&k).expect("key just observed");
-                        inner.clear_late_binding_state(&k);
-                        let duration_ms = task.started_at.elapsed().as_millis() as u64;
-                        (task, duration_ms)
-                    })
-                    .collect();
-                inner.drop_completed_for_parent(parent_connection_id);
-                drained
+                inner.enqueue_connection_canceled_tasks(parent_connection_id, keys);
             }
-        };
+        }
+        if !keep_consumed {
+            self.drop_pre_canceled_handles_for_parent(parent_connection_id)
+                .await;
+        }
         self.result_notify.notify_waiters();
-        drained
+        self.teardown_notify.notify_waiters();
     }
 
     /// Slow part of a parent cancel: for each drained task, patch the parent
@@ -3209,11 +3518,113 @@ impl DelegationBroker {
     /// `drain_for_parent_cancel` under the lock, so this is pure I/O. Split out
     /// so a turn cancel can background it without delaying the fast, turn-scoped
     /// drain.
-    async fn finalize_parent_cancel(&self, drained: Vec<(RunningTask, u64)>) {
-        for (task, duration_ms) in drained {
-            // A turn was in flight → cancel + disconnect.
-            self.teardown_canceled_child(&task, duration_ms, true).await;
+    async fn finalize_parent_cancel(&self, parent_connection_id: &str) {
+        loop {
+            let notified = self.teardown_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let (claimed, still_pending) = {
+                let mut inner = self.pending.inner.lock().await;
+                let claimed = inner.claim_canceled_teardown(parent_connection_id);
+                let still_pending = inner.has_canceled_teardown_for_parent(parent_connection_id);
+                (claimed, still_pending)
+            };
+            match claimed {
+                Some((call_id, teardown, processing)) => {
+                    let _lease = TeardownProcessingLease {
+                        _processing: processing,
+                        notify: Arc::clone(&self.teardown_notify),
+                    };
+                    self.finalize_canceled_teardown_step(&call_id, &teardown)
+                        .await;
+                }
+                None if still_pending => notified.await,
+                None => break,
+            }
         }
+    }
+
+    async fn finalize_canceled_teardown_step(&self, call_id: &str, teardown: &CanceledTeardown) {
+        match teardown.phase {
+            TeardownPhase::Meta => self.finalize_canceled_meta(call_id, teardown).await,
+            TeardownPhase::Event => self.finalize_canceled_event(call_id, teardown).await,
+            TeardownPhase::Cancel => self.finalize_canceled_cancel(call_id, teardown).await,
+            TeardownPhase::Disconnect => self.finalize_canceled_disconnect(call_id, teardown).await,
+        }
+    }
+
+    async fn finalize_canceled_meta(&self, call_id: &str, teardown: &CanceledTeardown) {
+        let _gate = match teardown.task.late_binding_gate.as_ref() {
+            Some(gate) => Some(gate.lock().await),
+            None => None,
+        };
+        self.write_meta_if_real(
+            &teardown.task.parent_connection_id,
+            &teardown.task.parent_tool_use_id,
+            build_delegation_meta(
+                "failed",
+                Some(&teardown.task.child_connection_id),
+                Some(teardown.task.child_conversation_id),
+                Some("canceled"),
+                None,
+                Some(teardown.duration_ms),
+            ),
+        )
+        .await;
+        let mut inner = self.pending.inner.lock().await;
+        inner.advance_canceled_teardown(call_id, TeardownPhase::Event);
+    }
+
+    async fn finalize_canceled_event(&self, call_id: &str, teardown: &CanceledTeardown) {
+        let _gate = match teardown.task.late_binding_gate.as_ref() {
+            Some(gate) => Some(gate.lock().await),
+            None => None,
+        };
+        self.emit_completed_if_real(
+            &teardown.task.parent_connection_id,
+            &teardown.task.parent_tool_use_id,
+            &teardown.task.child_connection_id,
+            teardown.task.child_conversation_id,
+            teardown.task.agent_type,
+            DelegationResultSummary::Err {
+                error_code: "canceled".to_string(),
+            },
+        )
+        .await;
+        let mut inner = self.pending.inner.lock().await;
+        inner.advance_canceled_teardown(call_id, TeardownPhase::Cancel);
+    }
+
+    async fn finalize_canceled_cancel(&self, call_id: &str, teardown: &CanceledTeardown) {
+        if let Err(error) = self
+            .spawner
+            .cancel(&teardown.task.child_connection_id)
+            .await
+        {
+            tracing::warn!(
+                child_connection_id = %teardown.task.child_connection_id,
+                error = %error,
+                "[delegation] parent-canceled child cancel request failed; disconnecting anyway"
+            );
+        }
+        let mut inner = self.pending.inner.lock().await;
+        inner.advance_canceled_teardown(call_id, TeardownPhase::Disconnect);
+    }
+
+    async fn finalize_canceled_disconnect(&self, call_id: &str, teardown: &CanceledTeardown) {
+        if let Err(error) = self
+            .spawner
+            .disconnect(&teardown.task.child_connection_id)
+            .await
+        {
+            tracing::warn!(
+                child_connection_id = %teardown.task.child_connection_id,
+                error = %error,
+                "[delegation] parent-canceled child disconnect reported an error"
+            );
+        }
+        let mut inner = self.pending.inner.lock().await;
+        inner.finish_canceled_teardown(call_id);
     }
 
     /// Shared canceled-child teardown: best-effort `failed`/`canceled` meta
@@ -3234,6 +3645,10 @@ impl DelegationBroker {
         duration_ms: u64,
         cancel_turn: bool,
     ) {
+        let _gate = match task.late_binding_gate.as_ref() {
+            Some(gate) => Some(gate.lock().await),
+            None => None,
+        };
         self.write_meta_if_real(
             &task.parent_connection_id,
             &task.parent_tool_use_id,

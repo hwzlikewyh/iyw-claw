@@ -96,7 +96,8 @@ mod tauri_commands {
     use super::external::ExternalConflict;
     use super::manifest::{BackupManifest, BackupPreview};
     use super::restore::{
-        stage_restore_core, ExternalRestoreMode, StageRestoreContext, StagedRestore,
+        cleanup_failed_stage, stage_restore_core, ExternalRestoreMode, StageRestoreContext,
+        StagedRestore,
     };
 
     const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -164,7 +165,13 @@ mod tauri_commands {
         src_path: String,
         passphrase: Option<String>,
     ) -> Result<BackupPreview, AppCommandError> {
-        inspect_backup_core(Path::new(&src_path), passphrase.as_deref()).await
+        let monitor = crate::acp::capability_policy::monitor_file_upload(None).await?;
+        monitor
+            .run_until_revoked(inspect_backup_core(
+                Path::new(&src_path),
+                passphrase.as_deref(),
+            ))
+            .await?
     }
 
     #[tauri::command]
@@ -172,7 +179,13 @@ mod tauri_commands {
         src_path: String,
         passphrase: Option<String>,
     ) -> Result<Vec<ExternalConflict>, AppCommandError> {
-        scan_external_conflicts_core(Path::new(&src_path), passphrase.as_deref()).await
+        let monitor = crate::acp::capability_policy::monitor_file_upload(None).await?;
+        monitor
+            .run_until_revoked(scan_external_conflicts_core(
+                Path::new(&src_path),
+                passphrase.as_deref(),
+            ))
+            .await?
     }
 
     #[tauri::command]
@@ -190,6 +203,14 @@ mod tauri_commands {
         let _ = &db;
         let data_dir = resolve_data_dir(&app)?;
         let (op_id, cancel) = transfer.register_transfer().await;
+        let monitor =
+            match crate::acp::capability_policy::monitor_file_upload(Some(cancel.clone())).await {
+                Ok(monitor) => monitor,
+                Err(error) => {
+                    transfer.finish_transfer(&op_id).await;
+                    return Err(error);
+                }
+            };
         let emitter = EventEmitter::Tauri(app.clone());
         let result = stage_restore_core(
             Path::new(&src_path),
@@ -201,9 +222,13 @@ mod tauri_commands {
                 emitter: &emitter,
                 op_id: &op_id,
                 cancel: &cancel,
+                monitor: &monitor,
             },
         )
         .await;
+        if result.is_err() {
+            cleanup_failed_stage(&data_dir, &op_id).await;
+        }
         transfer.finish_transfer(&op_id).await;
         result
     }

@@ -275,6 +275,13 @@ pub(super) async fn install_tool_component(
         });
     }
 
+    // 在发布 active pointer 或 inventory 状态前先验证候选版本。
+    emit_init_event(emitter, task_id, "health_check", Some(tool_id), "");
+    if let Err(error) = probe_payload(&final_dir, tool_id, &offer.version).await {
+        quarantine_component(data_dir, &final_dir).await?;
+        return Err(error);
+    }
+
     let previous_pointer = read_current_pointer(data_dir, tool_id).await?;
     write_current_pointer(data_dir, tool_id, &offer.version).await?;
     if let Err(error) = inventory::activate_tool(
@@ -306,14 +313,6 @@ pub(super) async fn install_tool_component(
     );
     write_manifest(data_dir, manifest).await?;
 
-    // health check：从客户端 allowlist 探针验证激活后的版本可执行。
-    emit_init_event(emitter, task_id, "health_check", Some(tool_id), "");
-    if let Err(error) = probe_payload(&final_dir, tool_id, &offer.version).await {
-        // 回滚 LKG 并隔离失败版本，保留诊断。
-        super::runtime::restore_current_pointer(data_dir, tool_id, previous_pointer).await?;
-        quarantine_component(data_dir, &final_dir).await?;
-        return Err(error);
-    }
     Ok(ComponentOutcome {
         version: offer.version,
         deferred: false,

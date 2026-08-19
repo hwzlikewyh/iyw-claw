@@ -10,5 +10,6 @@ pub(crate) fn automatic_mode_id(agent_type: AgentType) -> &'static str {
         AgentType::Cline => "act",
         AgentType::OpenClaw | AgentType::Hermes | AgentType::KimiCode => "default",
         AgentType::Pi => "medium",
+        AgentType::Cursor | AgentType::DeepSeek | AgentType::Custom(_) => "default",
     }
 }

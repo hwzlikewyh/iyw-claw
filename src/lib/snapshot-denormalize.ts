@@ -11,6 +11,7 @@ import type {
   PendingQuestionState,
   PromptCapabilitiesInfo,
   SessionConfigOptionInfo,
+  SessionFailureRecord,
   SessionModeStateInfo,
   SessionUsageUpdateInfo,
   ToolCallState,
@@ -66,6 +67,8 @@ export interface SnapshotPatch {
   configStaleKind: ConfigStaleKind | null
   backgroundOutstanding: number
   lastError: string | null
+  lastErrorDetails: string | null
+  sessionFailures: SessionFailureRecord[]
   eventSeq: number
   /** Live sub-agent delegations carried by the snapshot. Consumed directly at
    *  the attach call sites to re-seed `DelegationProvider` bindings (see
@@ -108,6 +111,7 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
           // after a refresh.
           tool_call: wire.pending_permission.tool_call,
           options: wire.pending_permission.options,
+          queued: wire.pending_permission.queued,
         }
       : null,
     // The snapshot shape already matches PendingQuestionState; pass through.
@@ -126,6 +130,10 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
     configStaleKind: wire.config_stale_kind ?? null,
     backgroundOutstanding: wire.background_outstanding ?? 0,
     lastError: normalizeLastError(wire.last_error),
+    lastErrorDetails: wire.last_error?.details?.trim()
+      ? wire.last_error.details
+      : null,
+    sessionFailures: wire.session_failures ?? [],
     eventSeq: wire.event_seq,
     activeDelegations: wire.active_delegations ?? [],
     agentInputs: wire.agent_inputs ?? [],

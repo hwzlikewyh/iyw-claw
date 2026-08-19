@@ -60,6 +60,12 @@ fn payload_has_content(payload: &AgentInputPayload) -> bool {
     })
 }
 
+async fn require_payload_file_upload(payload: &AgentInputPayload) -> Result<(), AcpError> {
+    crate::acp::capability_policy::require_prompt_file_upload(&payload.blocks)
+        .await
+        .map_err(AcpError::from_capability_error)
+}
+
 pub async fn submit_agent_input_core(
     db: &AppDatabase,
     manager: &ConnectionManager,
@@ -69,6 +75,7 @@ pub async fn submit_agent_input_core(
     payload: AgentInputPayload,
 ) -> Result<AgentInputItem, AcpError> {
     validate_submit(conversation_id, &message_id, &payload)?;
+    require_payload_file_upload(&payload).await?;
     manager
         .submit_agent_input(db, &connection_id, conversation_id, message_id, payload)
         .await
@@ -83,6 +90,7 @@ pub async fn queue_agent_input_core(
     payload: AgentInputPayload,
 ) -> Result<AgentInputItem, AcpError> {
     validate_submit(conversation_id, &message_id, &payload)?;
+    require_payload_file_upload(&payload).await?;
     let started_at = std::time::Instant::now();
     let conversation = conversation_service::get_by_id(&db.conn, conversation_id)
         .await

@@ -1033,12 +1033,40 @@
         "pendingActivation": "{name} {version} 已安装，将在下一次新建 Agent 连接时启用"
       }
     },
+    "capabilities": {
+      "clientTitle": "客户端权限",
+      "agentTitle": "Agent 主机权限",
+      "fileUpload": "文件上传",
+      "host_execution": "主机执行总闸",
+      "host_read": "读取文件",
+      "host_write": "写入文件",
+      "terminal": "终端",
+      "mcp": "MCP 工具",
+      "runtimeMismatch": "运行端未同步",
+      "managedDenied": "平台未放行",
+      "platformUnavailable": "暂未取得 Agent 平台身份。",
+      "saveFailed": "无法保存能力偏好"
+    },
     "configManagement": "配置管理",
     "envVars": "环境变量",
     "nativeJsonConfig": "原生 JSON 配置",
     "modelHintDefault": "留空则使用系统默认模型。",
     "generalConfigDescriptionClaude": "支持 API URL、API Key 与 Claude 模型快捷配置，并与原生 JSON 配置联动。",
     "generalConfigDescriptionDefault": "支持重要配置输入（API URL、API Key、Model）和原生 JSON 配置管理。",
+    "deepseek": {
+      "configManagement": "DeepSeek Harness 配置",
+      "configDescription": "配置受管 ACP 运行时使用的 DeepSeek API 地址和凭据。",
+      "baseUrlLabel": "基础 URL",
+      "baseUrlHint": "请输入不含凭据、查询参数或片段的 HTTP(S) 地址。",
+      "baseUrlInvalid": "请输入不含凭据、查询参数或片段的有效 HTTP(S) 地址。",
+      "apiKeyLabel": "API Key",
+      "apiKeyHint": "凭据保存在受管 Agent 环境中，不会写入日志。",
+      "providerLabel": "供应商路由",
+      "providerHint": "DeepSeek Harness 使用的可选路由标识。",
+      "providerInvalid": "最多输入 64 个字母、数字、点、连字符或下划线，并以字母或数字开头。",
+      "modelLabel": "模型",
+      "modelHint": "可选模型名称；留空时使用供应商默认模型。"
+    },
     "overview": {
       "managedBySdk": "由 Agent SDK 连接",
       "enabled": "已启用",
@@ -1211,6 +1239,7 @@
       "saveHermesConfig": "保存 Hermes 配置",
       "saveCodeBuddyConfig": "保存 CodeBuddy 配置",
       "saveKimiCodeConfig": "保存 Kimi Code 配置",
+      "saveDeepSeekConfig": "保存 DeepSeek 配置",
       "customInstall": "自定义安装",
       "saveKimiCodeRawConfig": "保存 config.toml"
     },
@@ -1536,6 +1565,8 @@
       "saveCodeBuddyFailed": "保存 CodeBuddy 配置失败",
       "kimiCodeSaved": "Kimi Code 配置已保存",
       "saveKimiCodeFailed": "保存 Kimi Code 配置失败",
+      "deepseekSaved": "DeepSeek 配置已保存",
+      "saveDeepSeekFailed": "保存 DeepSeek 配置失败",
       "modelProviderRequired": "请先选择一个模型供应商再保存。",
       "affectedRunningSessions": "{count} 个进行中的会话需重连以应用更改",
       "providerConnected": "已连接 {providerId}",
@@ -1791,6 +1822,13 @@
       "reloaded": "当前会话已重新加载",
       "reload": "重新加载",
       "activeConversationIndicator": "当前激活会话",
+      "pointsGate": {
+        "insufficientTitle": "点数不足",
+        "insufficientDescription": "当前账号点数不足，请充值后重试。",
+        "unknownTitle": "无法确认点数",
+        "unknownDescription": "暂时无法获取账号点数，请稍后重试。",
+        "dismiss": "知道了"
+      },
       "newConversation": "新建会话",
       "closeConversation": "关闭会话",
       "copyText": "复制文本",
@@ -1917,7 +1955,8 @@
       },
       "alerts": {
         "title": "告警",
-        "empty": "暂无告警信息"
+        "empty": "暂无告警信息",
+        "details": "详情"
       },
       "stats": {
         "conversations": "{count} 个会话",
@@ -2648,6 +2687,9 @@
           "turnFailedUnknown": "{agent} 以未知的停止原因结束了本轮回复。",
           "grokModelSwitchIncompatibleAgent": "{agent} 无法在已有对话中切换到该模型，请新建会话以使用它。",
           "turnFailedEmpty": "{agent} 本轮没有产生任何回复就结束了，请检查代理配置。",
+          "turnFailedEmptyProtocol": "{agent} 本轮产生了输出，但原助理无法解析，可能是 Agent 版本与协议不匹配。",
+          "turnFailedEmptyMetadata": "{agent} 本轮只收到状态更新，没有收到任何回复。",
+          "detailsInAlerts": "请在状态栏的“告警”中展开详情，查看 Agent 输出。",
           "compactionNotApplied": "{agent} 已结束压缩请求，但没有写入新的压缩摘要，压缩未生效。请检查代理日志后重试。"
         },
         "unableReadAgentConfig": "无法读取 Agent 配置：{message}",
@@ -2691,10 +2733,14 @@
       "chatInput": {
         "connecting": "连接中...",
         "agentResponding": "{agent} 正在响应...",
+        "startingKernel": "正在启动 {agent} 内核...",
+        "waitingForAgent": "正在等待 {agent} 响应...",
+        "agentGenerating": "{agent} 正在生成...",
         "sendMessage": "发送消息..."
       },
       "messageInput": {
         "askAnything": "请开始输入...",
+        "conversationStarting": "正在发起对话...",
         "removeAttachmentAria": "移除 {name}",
         "attachFiles": "附加文件",
         "attachLocalUpload": "附加本地文件",
@@ -2826,8 +2872,12 @@
               }
             },
             "reasoning": {
+              "none": {
+                "name": "不思考",
+                "description": "不使用额外推理。"
+              },
               "off": {
-                "name": "关闭",
+                "name": "不思考",
                 "description": "关闭额外推理。"
               },
               "minimal": {
@@ -2847,7 +2897,7 @@
                 "description": "为复杂任务使用更深推理。"
               },
               "xhigh": {
-                "name": "极高",
+                "name": "最高",
                 "description": "使用最高推理深度。"
               }
             },
@@ -2972,7 +3022,8 @@
       },
       "agentSelector": {
         "noEnabledAgents": "暂无已启用的 Agent",
-        "openAgentsSettings": "打开 Agents 设置"
+        "openAgentsSettings": "打开 Agents 设置",
+        "moreAgents": "更多 Agent（{count}）"
       },
       "subAgentOverlay": {
         "title": "子智能体",
@@ -2998,6 +3049,7 @@
       },
       "permissionDialog": {
         "subtitle": "Agent 请求继续当前轮次的权限。",
+        "queuedCount": "还有 {count} 项待审批",
         "kindFallbackTool": "工具",
         "command": "命令",
         "cwd": "工作目录：{cwd}",
@@ -3342,6 +3394,12 @@
           "submitted": "计划已提交",
           "switched": "切换模式"
         },
+        "contextCompaction": {
+          "compacting": "正在压缩上下文",
+          "compacted": "上下文已压缩",
+          "compactedTokens": "上下文已压缩：{before} → {after} 个 token",
+          "failed": "上下文压缩失败"
+        },
         "backgroundTask": {
           "title": "后台任务",
           "titleWithId": "后台任务 · {id}",
@@ -3459,6 +3517,26 @@
         "opWait": "获取子智能体结果",
         "opClose": "结束子智能体",
         "opResume": "恢复子智能体"
+      },
+      "sessionFailure": {
+        "category": {
+          "connection": "连接异常",
+          "access": "访问受限",
+          "limit": "已达限制",
+          "request": "请求被拒绝",
+          "service": "服务异常",
+          "unknown": "会话异常"
+        },
+        "action": {
+          "retry": "重试",
+          "login": "去登录",
+          "newSession": "新建会话"
+        },
+        "recovered": "已恢复",
+        "retryUnavailable": "没有可重发的消息。",
+        "toggleDetails": "展开/收起详情",
+        "dismiss": "忽略",
+        "moreIncidents": "另 {count} 条"
       },
       "backgroundTasks": {
         "running": "{count} 个后台任务运行中",
@@ -3647,6 +3725,158 @@
     "connect": "连接",
     "disconnect": "断开",
     "test": "测试连接",
+    "market": {
+      "title": "消息渠道",
+      "description": "管理外部消息入口、连接状态与 Agent 回复。",
+      "views": {
+        "connected": "已接入 {count}",
+        "market": "渠道市场"
+      },
+      "search": "搜索渠道",
+      "filters": {
+        "all": "全部接入方式",
+        "scan": "扫码接入",
+        "stream": "长连接",
+        "callback": "回调接入"
+      },
+      "tags": {
+        "recommended": "推荐",
+        "noPublic": "免公网回调",
+        "httpsRequired": "需公网 HTTPS"
+      },
+      "cards": {
+        "weixin": {
+          "name": "微信",
+          "kind": "个人微信 · iLink",
+          "description": "扫码登录，适合个人私聊；无需开发者参数，不支持普通微信群。",
+          "action": "扫码接入"
+        },
+        "wecom_ai_bot": {
+          "name": "企业微信智能机器人",
+          "kind": "WebSocket 长连接",
+          "description": "使用 Bot ID 与 Secret 接入机器人会话，不支持扫码授权。",
+          "action": "查看教程并配置"
+        },
+        "wecom_agent": {
+          "name": "企业微信自建应用",
+          "kind": "加密回调 + 应用消息",
+          "description": "使用 CorpID、AgentID 与应用 Secret，处理企业内部应用会话并支持主动通知。",
+          "action": "检查条件并接入"
+        },
+        "lark": {
+          "name": "飞书",
+          "kind": "自建应用 · 长连接",
+          "description": "使用 App ID 与 App Secret，通过长连接接收事件并回复消息。",
+          "action": "查看教程并配置"
+        },
+        "dingtalk": {
+          "name": "钉钉",
+          "kind": "应用机器人 · Stream",
+          "description": "使用 Client ID 与 Client Secret，通过 Stream 模式收发消息。",
+          "action": "查看教程并配置"
+        }
+      },
+      "footerNote": "微信会立即进入扫码；其他渠道先展示对应教程并校验参数，完成前不会出现在已接入列表。",
+      "continueDraft": "继续配置 · {stage}",
+      "states": {
+        "pending_auth": "等待授权",
+        "pending_callback": "等待回调",
+        "ready": "已完成"
+      },
+      "abandonDraft": "放弃配置",
+      "abandonTitle": "放弃渠道配置",
+      "abandonDescription": "将删除该草稿及其安全凭证，此操作无法撤销。",
+      "noConnected": "尚未接入渠道。请切换到渠道市场开始配置。",
+      "callbackVerified": "回调已验证",
+      "callbackPending": "等待回调验证",
+      "inboundVerified": "已收到消息",
+      "weixinReauthRequired": "已保存的微信登录无法验证，请重新扫码。",
+      "status": {
+        "connected": "出站凭证可用",
+        "connecting": "正在连接",
+        "disconnected": "已断开",
+        "error": "连接异常"
+      },
+      "toggleChannel": "启用或停用渠道",
+      "moreActions": "更多操作",
+      "keepDraft": "退出并保留草稿",
+      "enableChannel": "完成并启用",
+      "finishSetup": "完成渠道设置",
+      "defaultUserId": "默认接收人 UserID（可选）",
+      "defaultUserIdPlaceholder": "例如 zhangsan",
+      "defaultUserIdHint": "用于每日报告和主动通知；真实入站消息始终回复原发送人。",
+      "configureTitle": "配置{channel}",
+      "openAdmin": "打开平台管理后台",
+      "verifyCredential": "验证参数并继续",
+      "larkFieldsRequired": "请输入 App ID 和默认 Chat ID。",
+      "regenerate": "重新生成",
+      "show": "显示",
+      "hide": "隐藏",
+      "copy": "复制",
+      "continue": "继续",
+      "draftNames": {
+        "weixin": "待配置微信",
+        "wecom_ai_bot": "待配置企微智能机器人",
+        "wecom_agent": "待配置企微自建应用",
+        "lark": "待配置飞书",
+        "dingtalk": "待配置钉钉"
+      },
+      "guides": {
+        "wecom_ai_bot": {
+          "title": "获取 Bot ID 与 Secret",
+          "one": "在企业微信管理后台进入智能机器人并新建机器人。",
+          "two": "在机器人详情复制 Bot ID，并查看或重置 Secret。",
+          "three": "保存前确认机器人消息权限可用；该接入使用 WebSocket，不需要公网回调。"
+        },
+        "lark": {
+          "title": "创建飞书自建应用",
+          "one": "在飞书开放平台创建企业自建应用并获取 App ID、App Secret。",
+          "two": "开启机器人能力和消息事件权限，并发布应用版本。",
+          "three": "填写用于主动通知的默认 Chat ID；消息入站会回复实际会话。"
+        },
+        "dingtalk": {
+          "title": "创建钉钉应用机器人",
+          "one": "在钉钉开放平台创建企业内部应用并添加机器人。",
+          "two": "从应用凭证页复制 Client ID 与 Client Secret。",
+          "three": "启用 Stream 模式，无需配置公网回调地址。"
+        }
+      },
+      "wecomAgent": {
+        "title": "接入企业微信自建应用",
+        "webRunning": "内置 Web 服务正在运行。仍需由反向代理或隧道提供公网 HTTPS。",
+        "webNotRunning": "未检测到内置 Web 服务。桌面端需先在 Web 服务设置中启动；服务器部署请确认当前 API 服务持续运行。",
+        "externalUrl": "公网 HTTPS 地址",
+        "externalUrlHint": "只填写可从公网访问的基地址，不要包含回调路径、查询参数或片段。",
+        "conditionConfirm": "我已确认该地址转发到当前 iyw-claw 实例，且应用运行期间可以持续接收回调。",
+        "parametersRequired": "请填写有效的公网 HTTPS 地址、CorpID、数字 AgentID 和应用 Secret。",
+        "corpId": "CorpID（企业 ID）",
+        "agentId": "AgentID（应用 ID）",
+        "appSecret": "应用 Secret",
+        "callbackUrl": "回调 URL",
+        "callbackVerified": "企业微信已完成 GET 验签和解密，回调验证通过。",
+        "waitingCallback": "等待企业微信验证回调。请在管理后台保存 XML 格式的 API 接收配置。",
+        "callbackPollFailed": "暂时无法刷新回调验证状态，正在继续重试。",
+        "credentialsRetained": "已保存的回调凭证仍然有效，出于安全原因不再重复显示。可继续等待验证，或明确重新生成。",
+        "regenerateTitle": "替换回调凭证？",
+        "regenerateDescription": "现有回调 URL、Token 和 EncodingAESKey 将立即失效。你需要重新填写应用 Secret，并同步更新企业微信管理后台。",
+        "regenerateAction": "替换凭证",
+        "manualLoopRequired": "完整回环需从企微发送真实消息",
+        "reportUserRequired": "启用每日报告前请填写默认接收人 UserID。",
+        "steps": {
+          "1": "1 接入条件",
+          "2": "2 应用参数",
+          "3": "3 配置回调",
+          "4": "4 完成启用"
+        },
+        "guideTitle": "参数从哪里获取",
+        "guide": {
+          "corp": "我的企业 → 企业信息 → 企业 ID，复制为 CorpID。",
+          "agent": "应用管理 → 自建 → 目标应用，在详情中查看 AgentID，并由管理员查看 Secret。",
+          "callback": "目标应用 → 接收消息 → 设置 API 接收，填写右侧 URL、Token、EncodingAESKey，格式选择 XML。"
+        },
+        "scopeWarning": "自建应用只处理应用会话，不读取企业任意群聊。成员必须位于应用可见范围内。"
+      }
+    },
     "tabs": {
       "channels": "渠道",
       "commands": "指令",

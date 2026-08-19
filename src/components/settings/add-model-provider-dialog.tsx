@@ -25,8 +25,9 @@ import { createModelProvider } from "@/lib/api"
 import {
   MODEL_PROVIDER_AGENT_TYPES,
   AGENT_LABELS,
+  isBuiltinAgentType,
   serializeClaudeProviderModel,
-  type AgentType,
+  type BuiltinAgentType,
   type ClaudeProviderModel,
 } from "@/lib/types"
 
@@ -48,7 +49,7 @@ export function AddModelProviderDialog({
   const [name, setName] = useState("")
   const [apiUrl, setApiUrl] = useState("")
   const [apiKey, setApiKey] = useState("")
-  const [agentType, setAgentType] = useState<AgentType>(
+  const [agentType, setAgentType] = useState<BuiltinAgentType>(
     MODEL_PROVIDER_AGENT_TYPES[0]
   )
   const [singleModel, setSingleModel] = useState("")
@@ -72,7 +73,7 @@ export function AddModelProviderDialog({
     [onOpenChange, resetForm]
   )
 
-  const handleAgentTypeChange = useCallback((next: AgentType) => {
+  const handleAgentTypeChange = useCallback((next: BuiltinAgentType) => {
     setAgentType(next)
     setSingleModel("")
     setClaudeModel({})
@@ -195,7 +196,9 @@ export function AddModelProviderDialog({
             <label className="text-xs font-medium">{t("agentType")}</label>
             <Select
               value={agentType}
-              onValueChange={(v) => handleAgentTypeChange(v as AgentType)}
+              onValueChange={(value) => {
+                if (isBuiltinAgentType(value)) handleAgentTypeChange(value)
+              }}
             >
               <SelectTrigger className="h-8 text-xs">
                 <SelectValue />

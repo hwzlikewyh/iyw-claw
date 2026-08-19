@@ -292,8 +292,9 @@ interface MessageInputProps {
   onSend: (
     draft: PromptDraft,
     modeId?: string | null
-  ) => void | Promise<boolean>
+  ) => boolean | void | Promise<boolean>
   placeholder?: string
+  animatePlaceholder?: boolean
   defaultPath?: string
   disabled?: boolean
   autoFocus?: boolean
@@ -321,7 +322,7 @@ interface MessageInputProps {
    *  non-tiled session keeps the plain default border. Independent of
    *  `isActive` (which still drives auto-focus/connect). */
   showActiveFlow?: boolean
-  onEnqueue?: (draft: PromptDraft, modeId: string | null) => void
+  onEnqueue?: (draft: PromptDraft, modeId: string | null) => boolean | void
   /** Id of the queue item being edited — the stable key for (re)hydration, so
    *  switching between two items with identical display text still reloads. */
   editingItemId?: string | null
@@ -338,7 +339,7 @@ interface MessageInputProps {
   /** Fork the session and send `draft`. Fire-and-forget: the input consumes the
    *  draft synchronously (clears on click); the parent re-queues it if the fork
    *  can't run, so it is never lost. */
-  onForkSend?: (draft: PromptDraft, modeId?: string | null) => void
+  onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
   /** Open the live-feedback dialog (from the "+" menu). When omitted the entry
    *  is hidden (feature off). */
   onAddFeedback?: () => void
@@ -787,6 +788,7 @@ function modelPickerGroups(
 export function MessageInput({
   onSend,
   placeholder,
+  animatePlaceholder = false,
   defaultPath,
   disabled = false,
   autoFocus = false,
@@ -874,7 +876,6 @@ export function MessageInput({
   const skillPrefix = agentType === "codex" ? "$" : "/"
   const { shortcuts } = useShortcutSettings()
   const effectiveDraftStorageKey = draftStorageKey ?? null
-  const resolvedPlaceholder = placeholder ?? t("askAnything")
   // The "+" menu's expert / daily-office skill shortcuts mirror the welcome-page
   // quick actions: localized labels (`tQa` reads the same namespace those cards
   // use), the bundled experts, and per-agent skill-enabled gating.
@@ -903,6 +904,10 @@ export function MessageInput({
   const attachmentsRef = useRef<InputAttachment[]>([])
   const [sendPending, setSendPending] = useState(false)
   const sendPendingRef = useRef(false)
+  const resolvedPlaceholder = sendPending
+    ? t("conversationStarting")
+    : (placeholder ?? t("askAnything"))
+  const showPlaceholderActivity = sendPending || animatePlaceholder
   const composerMutationVersionRef = useRef(0)
   const programmaticResetRef = useRef(false)
   const setAttachments = useCallback(
@@ -3328,7 +3333,11 @@ export function MessageInput({
 
     // Prompting mode: enqueue instead of sending
     if (isPrompting && onEnqueue) {
-      onEnqueue(draft, showModeSelector ? effectiveModeId : null)
+      const accepted = onEnqueue(
+        draft,
+        showModeSelector ? effectiveModeId : null
+      )
+      if (accepted === false) return
       resetComposer()
       return
     }
@@ -3348,7 +3357,7 @@ export function MessageInput({
     }
     const snapshot = capturePendingSend(draft)
     sendPendingRef.current = true
-    let result: void | Promise<boolean>
+    let result: boolean | void | Promise<boolean>
     try {
       result = onSend(draft, showModeSelector ? effectiveModeId : null)
     } catch (error) {
@@ -3358,8 +3367,12 @@ export function MessageInput({
       rejectPendingSend(snapshot)
       return
     }
+    if (result === false) {
+      sendPendingRef.current = false
+      return
+    }
     resetComposer()
-    if (!result || typeof result.then !== "function") {
+    if (result === undefined || result === true) {
       sendPendingRef.current = false
       return
     }
@@ -3425,7 +3438,11 @@ export function MessageInput({
     // fire-and-forget and clear the input immediately, so there is no in-flight
     // editable window. If the fork can't run (queue non-empty / disconnected /
     // failure) the parent re-queues the draft, so it is never lost.
-    onForkSend(draft, showModeSelector ? effectiveModeId : null)
+    const accepted = onForkSend(
+      draft,
+      showModeSelector ? effectiveModeId : null
+    )
+    if (accepted === false) return
     resetComposer()
   }, [
     onForkSend,
@@ -4071,7 +4088,11 @@ export function MessageInput({
                 isExternalMenuOpen={slashMenuOpen && slashAutocompleteCount > 0}
                 onExternalMenuKeyDown={handleExternalMenuKeyDown}
                 partialText={voice.partialText}
-                className="min-h-0 flex-1"
+                className={cn(
+                  "min-h-0 flex-1",
+                  showPlaceholderActivity &&
+                    "iyw-claw-composer-placeholder-active"
+                )}
               />
               <div className="flex shrink-0 items-center justify-between gap-1 px-2 pb-2">
                 <div className="flex min-w-0 items-center gap-1">

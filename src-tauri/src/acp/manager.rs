@@ -1,8 +1,13 @@
 use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
+
+use futures::future::join_all;
 use tokio::sync::Mutex;
 
 use sea_orm::{
@@ -14,6 +19,7 @@ use crate::acp::agent_image_input::{
     prepare_codex_image_inputs, validate_codex_image_inputs, CodexImageScope,
 };
 use crate::acp::connection::{spawn_agent_connection, AgentConnection, ConnectionCommand};
+use crate::acp::connection_tasks::ConnectionTaskRegistry;
 use crate::acp::error::AcpError;
 use crate::acp::feedback::{
     bounded_feedback_batch, FeedbackItem, FeedbackStatus, PendingFeedback, SessionFeedbackAccess,
@@ -58,6 +64,69 @@ use crate::web::event_bridge::{emit_with_state, emit_with_state_gated, EventEmit
 /// event payload so a large paste can't bloat the ring buffer, the per-channel
 /// IM message, or the webhook body.
 const USER_PROMPT_PREVIEW_MAX_CHARS: usize = 500;
+const HERMES_HOME_LIVE_COUNT_CAP: usize = 1024;
+const CONNECTION_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
+const CONNECTION_CLEANUP_POLL: Duration = Duration::from_millis(10);
+
+pub struct ConnectionShutdownReport {
+    pub disconnected: usize,
+    pub completed: bool,
+}
+
+async fn wait_for_connection_cleanup(
+    connection_id: String,
+    cleanup_completed: Arc<AtomicBool>,
+) -> bool {
+    let deadline = Instant::now() + CONNECTION_CLEANUP_TIMEOUT;
+    while !cleanup_completed.load(Ordering::Acquire) {
+        let now = Instant::now();
+        if now >= deadline {
+            tracing::warn!(
+                connection_id,
+                timeout_ms = CONNECTION_CLEANUP_TIMEOUT.as_millis(),
+                "[ACP] connection async cleanup timed out during shutdown"
+            );
+            return false;
+        }
+        tokio::time::sleep((deadline - now).min(CONNECTION_CLEANUP_POLL)).await;
+    }
+    true
+}
+
+async fn cleanup_connection_authorities(
+    connection_id: String,
+    builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
+    delegation: Option<crate::acp::connection::DelegationInjection>,
+) -> (String, bool) {
+    let cleanup = async {
+        if let Some(client) = builtin_mcp {
+            client.revoke_parent(&connection_id).await;
+        }
+        if let Some(injection) = delegation {
+            injection.tokens.revoke_by_parent(&connection_id).await;
+            injection.broker.cancel_by_parent(&connection_id).await;
+            injection
+                .questions
+                .cancel_questions_by_parent(&connection_id)
+                .await;
+            injection
+                .confirmations
+                .cancel_channel_confirmations_by_parent(&connection_id)
+                .await;
+        }
+    };
+    let completed = tokio::time::timeout(CONNECTION_CLEANUP_TIMEOUT, cleanup)
+        .await
+        .is_ok();
+    if !completed {
+        tracing::error!(
+            connection_id,
+            timeout_ms = CONNECTION_CLEANUP_TIMEOUT.as_millis(),
+            "[ACP] connection authority cleanup timed out during shutdown"
+        );
+    }
+    (connection_id, completed)
+}
 
 /// True for ids in the parsers' turn-id namespace (`turn-<digits>`), which every
 /// parser assigns via `format!("turn-{}", n)`. A broadcast `message_id` must
@@ -250,6 +319,8 @@ async fn wait_for_session_started(
 
 pub struct ConnectionManager {
     pub(crate) connections: Arc<Mutex<HashMap<String, AgentConnection>>>,
+    connection_tasks: Arc<ConnectionTaskRegistry>,
+    shutdown_cleanup_pending: Arc<Mutex<HashSet<String>>>,
     runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
     /// Per-(agent, working_dir, session_id) async mutex. Held across the
     /// dedup-lookup + spawn + SessionStarted-wait critical section so two
@@ -270,12 +341,18 @@ pub struct ConnectionManager {
     /// init. `Arc<OnceLock>` so the inner `Self` cloned from `clone_ref` sees
     /// the install too — the lock is set once at startup and never mutated.
     delegation_injection: Arc<std::sync::OnceLock<crate::acp::connection::DelegationInjection>>,
+    /// Ready process-wide HTTP MCP client installed by desktop/server bootstrap.
+    /// The lifecycle owner stays at the entrypoint; connection clones can only
+    /// issue and revoke their own session authority.
+    builtin_mcp: Arc<std::sync::OnceLock<crate::acp::builtin_mcp::BuiltinMcpClient>>,
     /// Canonical user-memory service installed once during bootstrap. Shared by
     /// every shallow manager clone so all session entry points capture context
     /// from the same backend-owned store.
     user_memory_service: Arc<std::sync::OnceLock<Arc<crate::user_memory::UserMemoryService>>>,
     version_center_db: Arc<std::sync::OnceLock<DatabaseConnection>>,
     version_center_data_dir: Arc<std::sync::OnceLock<PathBuf>>,
+    capability_policy:
+        Arc<std::sync::OnceLock<crate::acp::capability_policy::CapabilityPolicyStore>>,
     agent_activation_locks: Arc<Mutex<HashMap<AgentType, Arc<Mutex<()>>>>>,
     /// Per-agent-type serialization for `probe_agent_options`. Without
     /// this, rapid agent-tab clicks in the settings UI would fan out one
@@ -325,13 +402,17 @@ impl ConnectionManager {
     pub fn new() -> Self {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
+            connection_tasks: Arc::new(Default::default()),
+            shutdown_cleanup_pending: Arc::new(Mutex::new(HashSet::new())),
             runtime_hosts: Arc::new(Default::default()),
             spawn_locks: Arc::new(Mutex::new(HashMap::new())),
             spawn_handshake_timeout: spawn_handshake_timeout_from_env(),
             delegation_injection: Arc::new(std::sync::OnceLock::new()),
+            builtin_mcp: Arc::new(std::sync::OnceLock::new()),
             user_memory_service: Arc::new(std::sync::OnceLock::new()),
             version_center_db: Arc::new(std::sync::OnceLock::new()),
             version_center_data_dir: Arc::new(std::sync::OnceLock::new()),
+            capability_policy: Arc::new(std::sync::OnceLock::new()),
             agent_activation_locks: Arc::new(Mutex::new(HashMap::new())),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
@@ -344,13 +425,17 @@ impl ConnectionManager {
     pub fn clone_ref(&self) -> Self {
         Self {
             connections: self.connections.clone(),
+            connection_tasks: self.connection_tasks.clone(),
+            shutdown_cleanup_pending: self.shutdown_cleanup_pending.clone(),
             runtime_hosts: self.runtime_hosts.clone(),
             spawn_locks: self.spawn_locks.clone(),
             spawn_handshake_timeout: self.spawn_handshake_timeout,
             delegation_injection: self.delegation_injection.clone(),
+            builtin_mcp: self.builtin_mcp.clone(),
             user_memory_service: self.user_memory_service.clone(),
             version_center_db: self.version_center_db.clone(),
             version_center_data_dir: self.version_center_data_dir.clone(),
+            capability_policy: self.capability_policy.clone(),
             agent_activation_locks: self.agent_activation_locks.clone(),
             probe_locks: self.probe_locks.clone(),
             pending_questions: self.pending_questions.clone(),
@@ -366,6 +451,10 @@ impl ConnectionManager {
         let _ = self.delegation_injection.set(injection);
     }
 
+    pub fn install_builtin_mcp(&self, client: crate::acp::builtin_mcp::BuiltinMcpClient) {
+        let _ = self.builtin_mcp.set(client);
+    }
+
     pub fn install_user_memory(&self, service: Arc<crate::user_memory::UserMemoryService>) {
         let _ = self.user_memory_service.set(service);
     }
@@ -373,6 +462,48 @@ impl ConnectionManager {
     pub fn install_version_center(&self, conn: DatabaseConnection, data_dir: PathBuf) {
         let _ = self.version_center_db.set(conn);
         let _ = self.version_center_data_dir.set(data_dir);
+    }
+
+    pub fn install_capability_policy(
+        &self,
+        store: crate::acp::capability_policy::CapabilityPolicyStore,
+    ) {
+        let _ = self.capability_policy.set(store);
+    }
+
+    pub(crate) async fn authorize_agent_install(
+        &self,
+        agent_type: AgentType,
+    ) -> Result<(), AcpError> {
+        self.require_agent_launch_policy(agent_type, true).await
+    }
+
+    async fn require_agent_launch_policy(
+        &self,
+        agent_type: AgentType,
+        runtime_verified: bool,
+    ) -> Result<(), AcpError> {
+        let conn = self
+            .version_center_db
+            .get()
+            .ok_or_else(|| AcpError::protocol("Agent platform authorization is not initialized"))?;
+        let store = self
+            .capability_policy
+            .get()
+            .ok_or_else(|| AcpError::protocol("Agent capability policy is not initialized"))?;
+        let result = crate::commands::capability_policy::require_existing_agent_capability_core(
+            conn,
+            store,
+            agent_type,
+            crate::acp::capability_policy::Capability::AgentLaunch,
+            runtime_verified,
+        )
+        .await;
+        result.map_err(|error| {
+            let mapped = AcpError::from_capability_error(error);
+            tracing::warn!(agent = %agent_type, error = %mapped, "[capability-policy] Agent launch denied");
+            mapped
+        })
     }
 
     pub(super) fn agent_image_data_dir(&self) -> Result<&Path, AcpError> {
@@ -401,6 +532,9 @@ impl ConnectionManager {
         conversation_id: Option<i32>,
         blocks: Vec<PromptInputBlock>,
     ) -> Result<Vec<PromptInputBlock>, AcpError> {
+        crate::acp::capability_policy::require_prompt_file_upload(&blocks)
+            .await
+            .map_err(AcpError::from_capability_error)?;
         if agent_type != AgentType::Codex || !has_prompt_images(&blocks) {
             return Ok(blocks);
         }
@@ -414,6 +548,9 @@ impl ConnectionManager {
         state: &Arc<tokio::sync::RwLock<SessionState>>,
         blocks: &[PromptInputBlock],
     ) -> Result<(), AcpError> {
+        crate::acp::capability_policy::require_prompt_file_upload(blocks)
+            .await
+            .map_err(AcpError::from_capability_error)?;
         if agent_type != AgentType::Codex || !has_prompt_images(blocks) {
             return Ok(());
         }
@@ -456,6 +593,10 @@ impl ConnectionManager {
         self.delegation_injection.get().cloned()
     }
 
+    fn builtin_mcp_snapshot(&self) -> Option<crate::acp::builtin_mcp::BuiltinMcpClient> {
+        self.builtin_mcp.get().cloned()
+    }
+
     pub(crate) fn user_memory_host_bridge_available(&self) -> bool {
         self.delegation_injection
             .get()
@@ -481,6 +622,7 @@ impl ConnectionManager {
         )
         .await?;
         crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)?;
+        self.require_agent_launch_policy(agent_type, true).await?;
         crate::acp::connection::prewarm_agent_runtime(
             agent_type,
             runtime_env,
@@ -598,6 +740,22 @@ impl ConnectionManager {
         user_memory_origin: crate::user_memory::UserMemoryOrigin,
         startup_trace: crate::acp::startup_trace::StartupTrace,
     ) -> Result<String, AcpError> {
+        let mut runtime_env = runtime_env;
+        crate::acp::trusted_agents::restrict_configured_runtime_env(agent_type, &mut runtime_env);
+        if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type) {
+            crate::acp::preflight::enforce_minimum_node_version(&runtime_env, required)
+                .await
+                .map_err(|error| {
+                    AcpError::protocol(format!(
+                        "{agent_type} launch blocked: {error}; requires Node.js >={required}"
+                    ))
+                })?;
+        }
+        if !crate::acp::registry::is_executable_identity(agent_type) {
+            return Err(AcpError::protocol(
+                "Agent identity is not trusted for execution",
+            ));
+        }
         // Connection dedup: when resuming an agent session (session_id is
         // Some), look for a live AgentConnection that already represents
         // the same external session in the same working_dir for the same
@@ -605,6 +763,7 @@ impl ConnectionManager {
         // spawning a fresh process — this is what makes a browser refresh
         // mid-turn re-attach to the existing live state rather than orphan it.
         let working_dir_path = working_dir.as_ref().map(PathBuf::from);
+        self.require_agent_launch_policy(agent_type, true).await?;
 
         // Acquire a per-(agent, working_dir, session_id) async mutex so two
         // concurrent connects for the same logical session can't both miss
@@ -688,6 +847,7 @@ impl ConnectionManager {
         // installs the SessionStarted dedup signal on the state, registers
         // a cleanup hook, and returns the rx half of the signal. Any spawn
         // failure short-circuits before we touch the rx wait.
+        self.require_agent_launch_policy(agent_type, true).await?;
         let session_started_rx = spawn_agent_connection(
             connection_id.clone(),
             agent_type,
@@ -697,12 +857,14 @@ impl ConnectionManager {
             owner_window_label,
             emitter,
             self.connections.clone(),
+            self.connection_tasks.clone(),
             self.runtime_hosts.clone(),
             startup_trace,
             preferred_mode_id,
             preferred_config_values,
             user_memory_context,
             self.delegation_snapshot(),
+            self.builtin_mcp_snapshot(),
             Some(version_center_db.clone()),
         )
         .await?;
@@ -1031,6 +1193,7 @@ impl ConnectionManager {
                     ),
                     agent_type,
                     code: Some("prompt_stall_timeout".to_string()),
+                    details: None,
                     terminal: false,
                 },
             )
@@ -1167,6 +1330,7 @@ impl ConnectionManager {
         user_messages: Vec<(String, Vec<crate::acp::UserMessageBlock>)>,
         private_context: Option<Arc<str>>,
         accepted: Option<tokio::sync::oneshot::Sender<()>>,
+        upload_monitor: Option<&crate::acp::capability_policy::CapabilityRevocationMonitor>,
     ) -> Result<(), AcpError> {
         // Reject an empty prompt BEFORE touching the concurrency gate. An empty
         // prompt produces no turn — and thus no `TurnComplete` to clear the gate
@@ -1179,6 +1343,9 @@ impl ConnectionManager {
                 "prompt must contain at least one content block".to_string(),
             ));
         }
+        crate::acp::capability_policy::require_prompt_file_upload(&blocks)
+            .await
+            .map_err(AcpError::from_capability_error)?;
         let (cmd_tx, state_arc) = self.wait_for_connection_launch(conn_id).await?;
         let agent_type = state_arc.read().await.agent_type;
         self.validate_agent_image_inputs(agent_type, &state_arc, &blocks)
@@ -1201,14 +1368,28 @@ impl ConnectionManager {
             .reserve()
             .await
             .map_err(|_| AcpError::ProcessExited)?;
+        let hermes_shared_home_connections =
+            self.hermes_shared_home_connection_count(conn_id).await;
+        if let Some(monitor) = upload_monitor {
+            monitor
+                .require_current()
+                .await
+                .map_err(AcpError::from_capability_error)?;
+        }
         let launch_context = {
             let mut s = state_arc.write().await;
+            if let Some(monitor) = upload_monitor {
+                monitor
+                    .error_if_revoked()
+                    .map_err(AcpError::from_capability_error)?;
+            }
             if s.turn_in_flight || s.turn_completion_pending {
                 return Err(AcpError::TurnInProgress);
             }
             s.turn_in_flight = true;
             s.turn_generation = s.turn_generation.saturating_add(1);
-            s.memory_turn_tracker.begin_accepted_turn();
+            let turn_nonce = s.memory_turn_tracker.begin_accepted_turn();
+            s.begin_context_plan_receipt(turn_nonce, hermes_shared_home_connections);
             if s.user_context_injected {
                 None
             } else {
@@ -1227,6 +1408,17 @@ impl ConnectionManager {
             accepted,
         });
         Ok(())
+    }
+
+    pub(super) async fn hermes_shared_home_connection_count(&self, conn_id: &str) -> Option<u16> {
+        let connections = self.connections.lock().await;
+        let home_hash = connections.get(conn_id)?.hermes_home_hash.as_ref()?;
+        let count = connections
+            .values()
+            .filter(|connection| connection.hermes_home_hash.as_ref() == Some(home_hash))
+            .take(HERMES_HOME_LIVE_COUNT_CAP)
+            .count();
+        Some(count as u16)
     }
 
     /// Clone the connection's `prompt_lock` under a short connections-map lock.
@@ -1269,15 +1461,31 @@ impl ConnectionManager {
         conn_id: &str,
         blocks: Vec<PromptInputBlock>,
     ) -> Result<(), AcpError> {
+        let upload_monitor = crate::acp::capability_policy::monitor_prompt_file_upload(&blocks)
+            .await
+            .map_err(AcpError::from_capability_error)?;
         let prompt_lock = self.clone_prompt_lock(conn_id).await?;
         let _guard = prompt_lock.lock_owned().await;
+        if let Some(monitor) = upload_monitor.as_ref() {
+            monitor
+                .require_current()
+                .await
+                .map_err(AcpError::from_capability_error)?;
+        }
         let (_, state) = self.wait_for_connection_launch(conn_id).await?;
         let agent_type = state.read().await.agent_type;
         let blocks = self
             .prepare_agent_image_inputs(agent_type, &state, None, blocks)
             .await?;
-        self.send_prompt_inner(conn_id, blocks, Vec::new(), None, None)
-            .await
+        self.send_prompt_inner(
+            conn_id,
+            blocks,
+            Vec::new(),
+            None,
+            None,
+            upload_monitor.as_ref(),
+        )
+        .await
     }
 
     /// Send a prompt while ensuring a `Conversation` DB row is bound to this
@@ -1365,6 +1573,9 @@ impl ConnectionManager {
         user_messages_override: Option<Vec<(String, Vec<crate::acp::UserMessageBlock>)>>,
         accepted: Option<tokio::sync::oneshot::Sender<()>>,
     ) -> Result<Option<i32>, AcpError> {
+        let upload_monitor = crate::acp::capability_policy::monitor_prompt_file_upload(&blocks)
+            .await
+            .map_err(AcpError::from_capability_error)?;
         log_prompt_image_summary(conn_id, client_message_id.as_deref(), &blocks);
         // Reject an empty prompt up front, BEFORE any side effects: linking /
         // creating the conversation row, flipping it to InProgress, or emitting
@@ -1404,6 +1615,12 @@ impl ConnectionManager {
         let prompt_lock = self.clone_prompt_lock(conn_id).await?;
         let _prompt_guard = prompt_lock.lock_owned().await;
         self.wait_for_connection_launch(conn_id).await?;
+        if let Some(monitor) = upload_monitor.as_ref() {
+            monitor
+                .require_current()
+                .await
+                .map_err(AcpError::from_capability_error)?;
+        }
 
         // Snapshot what we need from the connection map under one short lock.
         // The conversation-linked check happens INSIDE the prompt lock so
@@ -1695,6 +1912,12 @@ impl ConnectionManager {
         // lifecycle subscriber's PendingReview write also never fires and the
         // row would be stuck until a follow-up `send_prompt_linked` re-flipped it.
         let agent_blocks = prepared_agent_blocks.unwrap_or(blocks);
+        if let Some(monitor) = upload_monitor.as_ref() {
+            monitor
+                .require_current()
+                .await
+                .map_err(AcpError::from_capability_error)?;
+        }
         match self
             .send_prompt_inner(
                 conn_id,
@@ -1702,6 +1925,7 @@ impl ConnectionManager {
                 user_messages,
                 image_context,
                 accepted,
+                upload_monitor.as_ref(),
             )
             .await
         {
@@ -2489,21 +2713,99 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect_all(&self) -> usize {
-        let removed: Vec<_> = {
-            let mut connections = self.connections.lock().await;
-            connections.drain().map(|(_, conn)| conn).collect()
+        self.disconnect_all_checked().await.disconnected
+    }
+
+    pub async fn disconnect_all_checked(&self) -> ConnectionShutdownReport {
+        let _shutdown_gate = self.connection_tasks.begin_shutdown().await;
+        // Keep entries in the manager until their background task's cleanup
+        // guard runs. If an outer shutdown budget cancels this future, a later
+        // forced pass can still see and cancel the unfinished connections.
+        let pending: Vec<(String, Arc<AtomicBool>)> = {
+            let connections = self.connections.lock().await;
+            for connection in connections.values() {
+                connection.request_disconnect();
+            }
+            connections
+                .values()
+                .map(|connection| {
+                    (
+                        connection.id.clone(),
+                        Arc::clone(&connection.cleanup_completed),
+                    )
+                })
+                .collect()
         };
-        let disconnected = removed.len();
-        for connection in removed {
-            connection.request_disconnect();
+        let disconnected = pending.len();
+        let task_ids = self.connection_tasks.ids().await;
+        {
+            let mut cleanup_pending = self.shutdown_cleanup_pending.lock().await;
+            cleanup_pending.extend(task_ids);
+            cleanup_pending.extend(pending.iter().map(|(id, _)| id.clone()));
         }
-        let stopped_hosts = self.runtime_hosts.shutdown_all().await;
+        let cleanup_waits = pending
+            .iter()
+            .cloned()
+            .map(|(connection_id, cleanup_completed)| {
+                wait_for_connection_cleanup(connection_id, cleanup_completed)
+            })
+            .collect::<Vec<_>>();
+        join_all(cleanup_waits).await;
+        let tasks_completed = self.connection_tasks.abort_and_reap_all().await;
+        let residual_connections = {
+            let mut connections = self.connections.lock().await;
+            let count = connections.len();
+            connections.clear();
+            count
+        };
+        let cleanup_completed = pending
+            .iter()
+            .filter(|(_, completed)| completed.load(Ordering::Acquire))
+            .count();
+        let authority_ids = self
+            .shutdown_cleanup_pending
+            .lock()
+            .await
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let builtin_mcp = self.builtin_mcp_snapshot();
+        let delegation = self.delegation_snapshot();
+        let authority_results = join_all(authority_ids.into_iter().map(|connection_id| {
+            cleanup_connection_authorities(connection_id, builtin_mcp.clone(), delegation.clone())
+        }))
+        .await;
+        {
+            let mut cleanup_pending = self.shutdown_cleanup_pending.lock().await;
+            for (connection_id, authority_completed) in authority_results {
+                if authority_completed {
+                    cleanup_pending.remove(&connection_id);
+                }
+            }
+        }
+        let authority_pending = self.shutdown_cleanup_pending.lock().await.len();
+        let host_shutdown = self.runtime_hosts.shutdown_all().await;
+        let completed = tasks_completed
+            && cleanup_completed == disconnected
+            && authority_pending == 0
+            && host_shutdown.completed;
         tracing::info!(
             disconnected,
-            stopped_hosts,
+            stopped_hosts = host_shutdown.stopped_hosts,
+            startup_tasks_reaped = host_shutdown.startup_tasks_reaped,
+            host_shutdown_completed = host_shutdown.completed,
+            cleanup_completed,
+            cleanup_timed_out = disconnected.saturating_sub(cleanup_completed),
+            residual_connections,
+            tasks_completed,
+            authority_pending,
+            completed,
             "[ACP] disconnected all connections"
         );
-        disconnected
+        ConnectionShutdownReport {
+            disconnected,
+            completed,
+        }
     }
 
     pub async fn list_connections(&self) -> Vec<ConnectionInfo> {

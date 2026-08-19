@@ -27,7 +27,10 @@ pub(crate) async fn finish_settlement(manager: &ConnectionManager, conn_id: &str
         return;
     };
     persist_consumption(&db, &state, &emitter, conn_id, generation, &background).await;
-    let Some(adopted_generation) = adopt_generation(&state, conn_id, generation).await else {
+    let shared_home_connections = manager.hermes_shared_home_connection_count(conn_id).await;
+    let Some(adopted_generation) =
+        adopt_generation(&state, conn_id, generation, shared_home_connections).await
+    else {
         return;
     };
     mark_conversation_in_progress(&db, &state, &emitter, conn_id, adopted_generation).await;
@@ -119,6 +122,7 @@ async fn adopt_generation(
     state: &Arc<tokio::sync::RwLock<SessionState>>,
     conn_id: &str,
     generation: i64,
+    hermes_shared_home_connections: Option<u16>,
 ) -> Option<i64> {
     let mut snapshot = state.write().await;
     if snapshot.turn_generation != generation || !snapshot.turn_completion_pending {
@@ -135,7 +139,8 @@ async fn adopt_generation(
     snapshot.turn_generation = next_generation;
     snapshot.turn_in_flight = true;
     snapshot.turn_completion_pending = false;
-    snapshot.memory_turn_tracker.begin_accepted_turn();
+    let turn_nonce = snapshot.memory_turn_tracker.begin_accepted_turn();
+    snapshot.begin_context_plan_receipt(turn_nonce, hermes_shared_home_connections);
     if let Some(turn) = snapshot.native_background_turn.as_mut() {
         turn.adopted_generation = Some(next_generation);
     }

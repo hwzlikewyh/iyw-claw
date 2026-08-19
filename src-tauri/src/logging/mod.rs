@@ -11,10 +11,12 @@
 //!   handle, and the event emitter wired in once `AppState` exists).
 //! - [`layer`] is the custom `tracing` layer that converts events into
 //!   [`hub::LogRecord`]s.
+//! - `budget` caps the daily file sink and resumes from the current file size.
 
 pub(crate) mod agent_retention;
 mod agent_retention_policy;
 mod agent_retention_scan;
+mod budget;
 pub mod emergency;
 mod emergency_redact;
 pub mod hub;

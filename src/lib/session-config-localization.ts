@@ -32,12 +32,14 @@ const MODE_NAME_KEYS: Record<string, string> = {
 }
 
 const REASONING_VALUE_KEYS: Record<string, string> = {
+  none: "none",
   off: "off",
   minimal: "minimal",
   low: "low",
   medium: "medium",
   high: "high",
   xhigh: "xhigh",
+  max: "xhigh",
   "extra-high": "xhigh",
   extra_high: "xhigh",
 }

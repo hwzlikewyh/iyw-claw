@@ -110,11 +110,9 @@ Read [references/cli.md](references/cli.md) for flags and
    Dry-run does not require a token or access the network.
 4. Run the live CLI. Do not automatically retry a request that may incur cost.
 5. Treat only a zero exit code plus an existing output file as success.
-6. Display every final image. Resolve the tool name once from the tools
-   actually available to you — match any name whose suffix is `show_image`.
-   The server is registered as `iyw-claw-mcp`, so under MCP namespacing the
-   name is `mcp__iyw-claw-mcp__show_image`; some runtimes expose it bare as
-   `show_image`. Call it once per final image, in requested/server order:
+6. Display every final image. First resolve a directly visible tool whose name
+   ends in `show_image`. If one exists, call it once per final image, in
+   requested/server order:
 
 ```json
 {
@@ -127,10 +125,18 @@ Read [references/cli.md](references/cli.md) for flags and
 `show_image` also accepts a final HTTPS URL. Use it instead of returning only a
 Markdown link so iyw-claw renders the image as a native conversation image.
 
-If no such tool is in your list, skip display: return each absolute path or
-final HTTPS URL and state that inline rendering was unavailable. A
-name-not-found error means the tool is absent, not misspelled — renaming never
-fixes it, so take this fallback on the first failure, not the second. Never
+If no direct `show_image` tool is visible but the current tool list exposes
+`search_iyw_capabilities`, `read_iyw_capability`, and
+`invoke_iyw_capability` together, either bare or under one shared namespace,
+follow the IYW Capability Gateway workflow. Search for an image-display
+capability, read its schema, then invoke the exact returned capability id once
+per final image. Do not guess a capability id or combine gateway tools from
+different namespaces.
+
+If neither route exists, skip display: return each absolute path or final HTTPS
+URL and state that inline rendering was unavailable. A name-not-found error
+means the direct tool is absent, not misspelled; check the gateway once, then
+take the fallback. Never
 guess a name variant and never claim an image was displayed.
 
 ## Output Rules

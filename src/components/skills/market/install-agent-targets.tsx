@@ -5,7 +5,8 @@ import { Bot, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
-import { AGENT_LABELS, type AgentType } from "@/lib/types"
+import { getAgentLabel } from "@/lib/custom-agents"
+import type { AgentType } from "@/lib/types"
 
 export function AgentTargets({
   selected,
@@ -84,7 +85,7 @@ function AgentTargetRow({
       />
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-medium">
-          {AGENT_LABELS[agentType]}
+          {getAgentLabel(agentType)}
         </span>
         <span className="block truncate text-[10px] text-muted-foreground">
           {t("install.targetVersion", { version })}

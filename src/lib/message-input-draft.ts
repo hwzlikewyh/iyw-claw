@@ -155,8 +155,37 @@ export function buildConversationDraftStorageKey(
   return `conv:${conversationId}`
 }
 
-export function buildNewConversationDraftStorageKey(): string {
-  return "new"
+const NEW_CONVERSATION_DRAFT_PREFIX = "draft:"
+export const LEGACY_NEW_CONVERSATION_DRAFT_KEY = "new"
+
+export function buildNewConversationDraftStorageKey(tabId: string): string {
+  return `${NEW_CONVERSATION_DRAFT_PREFIX}${tabId}`
+}
+
+export function moveMessageInputDraft(fromKey: string, toKey: string): void {
+  if (fromKey === toKey) return
+  const loaded = loadMessageInputDraftV2(fromKey)
+  if (!loaded) return
+  if (loaded.kind === "doc") {
+    saveMessageInputDraftV2(toKey, loaded.doc)
+  } else {
+    saveMessageInputDraft(toKey, loaded.markdown)
+  }
+  clearMessageInputDraftV2(fromKey)
+}
+
+let legacyDraftAdopted = false
+
+/** Preserve the former shared draft by handing it to the first empty draft tab. */
+export function adoptLegacyNewConversationDraft(toKey: string): void {
+  if (legacyDraftAdopted) return
+  if (!loadMessageInputDraftV2(LEGACY_NEW_CONVERSATION_DRAFT_KEY)) {
+    legacyDraftAdopted = true
+    return
+  }
+  if (loadMessageInputDraftV2(toKey)) return
+  legacyDraftAdopted = true
+  moveMessageInputDraft(LEGACY_NEW_CONVERSATION_DRAFT_KEY, toKey)
 }
 
 export function loadMessageInputDraft(draftKey: string): string | null {

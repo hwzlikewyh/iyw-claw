@@ -16,8 +16,13 @@ pub mod automation_draft;
 pub mod backup;
 #[cfg(feature = "tauri-runtime")]
 pub mod browser;
+pub mod capability_policy;
+#[cfg(feature = "tauri-runtime")]
+pub mod capability_policy_tauri;
 pub mod chat_attachments;
 pub mod chat_channel;
+mod chat_channel_delete;
+mod chat_channel_token;
 pub mod chat_image;
 mod chat_image_upload;
 pub mod computer_use;

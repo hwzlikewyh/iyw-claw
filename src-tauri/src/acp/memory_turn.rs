@@ -4,16 +4,34 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use sha2::{Digest, Sha256};
 
 const ACTIVE_MASK: u64 = 1;
-const NONCE_SHIFT: u32 = 1;
+const APPEND_CALL_MASK: u64 = 1 << 1;
+const PROPOSAL_CALL_MASK: u64 = 1 << 2;
+const RECALL_CALL_MASK: u64 = 1 << 3;
+const CALL_MASK: u64 = APPEND_CALL_MASK | PROPOSAL_CALL_MASK | RECALL_CALL_MASK;
+const NONCE_SHIFT: u32 = 4;
 const SOURCE_ID_DOMAIN: &[u8] = b"iyw-claw:user-memory-source:v1\0";
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum MemoryCapabilityCall {
+    Append,
+    Propose,
+    Recall,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct MemoryCapabilityCalls {
+    pub append: bool,
+    pub propose: bool,
+    pub recall: bool,
+}
 
 /// Per-connection authority for candidate-memory provenance.
 ///
-/// The low bit records whether a turn is active; the remaining bits hold the
-/// monotonic nonce. Packing both values into one atomic prevents mismatched
-/// nonce/active reads. The commit lease gate makes proposal writes linearize
-/// with completion: completion clears active first, then waits for any already
-/// authorized synchronous commit to finish before returning.
+/// The low bits record active/called state and the remaining bits hold the
+/// monotonic nonce. Packing them into one atomic prevents an old call from
+/// being attributed to the next turn. The commit lease gate makes proposal
+/// writes linearize with completion: completion clears active first, then waits
+/// for any already authorized synchronous commit to finish before returning.
 #[derive(Debug, Default)]
 pub struct MemoryTurnTracker {
     state: AtomicU64,
@@ -46,7 +64,7 @@ impl MemoryTurnTracker {
         }
     }
 
-    pub fn complete_turn(&self) {
+    pub fn deactivate_turn(&self) {
         let mut leases = self.lock_commit_leases();
         self.state.fetch_and(!ACTIVE_MASK, Ordering::AcqRel);
         while *leases != 0 {
@@ -54,9 +72,33 @@ impl MemoryTurnTracker {
         }
     }
 
+    pub(crate) fn finish_turn(&self) -> MemoryCapabilityCalls {
+        let mut leases = self.lock_commit_leases();
+        let completed = self
+            .state
+            .fetch_and(!(ACTIVE_MASK | CALL_MASK), Ordering::AcqRel);
+        while *leases != 0 {
+            leases = self.wait_for_commit_leases(leases);
+        }
+        MemoryCapabilityCalls::from_state(completed)
+    }
+
     pub fn active_nonce(&self) -> Option<u64> {
         let state = self.state.load(Ordering::Acquire);
         (state & ACTIVE_MASK != 0).then_some(state >> NONCE_SHIFT)
+    }
+
+    pub(crate) fn record_call(&self, capability: MemoryCapabilityCall) {
+        let mask = match capability {
+            MemoryCapabilityCall::Append => APPEND_CALL_MASK,
+            MemoryCapabilityCall::Propose => PROPOSAL_CALL_MASK,
+            MemoryCapabilityCall::Recall => RECALL_CALL_MASK,
+        };
+        let _ = self
+            .state
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |state| {
+                (state & ACTIVE_MASK != 0).then_some(state | mask)
+            });
     }
 
     pub(crate) fn acquire_commit_lease(
@@ -95,6 +137,16 @@ impl MemoryTurnTracker {
         self.commits_drained
             .wait(leases)
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+impl MemoryCapabilityCalls {
+    fn from_state(state: u64) -> Self {
+        Self {
+            append: state & APPEND_CALL_MASK != 0,
+            propose: state & PROPOSAL_CALL_MASK != 0,
+            recall: state & RECALL_CALL_MASK != 0,
+        }
     }
 }
 

@@ -8,7 +8,9 @@ Var IywClawRoot
 
 Function IywClawIsMainProcessRunning
   ; 仅检查安装器当前用户，其他登录会话不能改变本次恢复策略。
-  nsis_tauri_utils::FindProcessCurrentUser "iyw-claw.exe"
+  Call IywClawBuildAccountFilter
+  Push "iyw-claw.exe"
+  Call IywClawFindCurrentUserProcess
   Pop $R5
   StrCmp $R5 "0" iyw_process_running 0
   Push "0"

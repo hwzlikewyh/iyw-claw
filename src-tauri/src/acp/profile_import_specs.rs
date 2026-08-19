@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::profile_import::{
-    import_entry, ProfileImportEntry, ProfileImportSpec, ProfileSourceRoots,
+    import_entry, import_sessions_entry, ProfileImportEntry, ProfileImportSpec, ProfileSourceRoots,
 };
 use crate::models::agent::AgentType;
 
@@ -105,6 +105,7 @@ const PI: &[&str] = &[
     "themes",
     "packages",
 ];
+const DEEPSEEK: &[&str] = &[".credentials.yaml"];
 
 pub(super) fn build_profile_import_specs(
     paths: &AgentStoragePaths,
@@ -121,6 +122,7 @@ pub(super) fn build_profile_import_specs(
         codebuddy_spec(paths, sources),
         direct_spec(paths, sources, AgentType::KimiCode, KIMI),
         direct_spec(paths, sources, AgentType::Pi, PI),
+        deepseek_spec(paths, sources),
     ]
 }
 
@@ -165,6 +167,14 @@ fn codebuddy_spec(paths: &AgentStoragePaths, sources: &ProfileSourceRoots) -> Pr
         sources.codebuddy_mcp_path(),
         ".codebuddy.json",
     ));
+    spec
+}
+
+fn deepseek_spec(paths: &AgentStoragePaths, sources: &ProfileSourceRoots) -> ProfileImportSpec {
+    let source = sources.profile(AgentType::DeepSeek);
+    let mut spec = direct_spec(paths, sources, AgentType::DeepSeek, DEEPSEEK);
+    spec.entries
+        .push(import_sessions_entry(&source, "sessions", "sessions"));
     spec
 }
 

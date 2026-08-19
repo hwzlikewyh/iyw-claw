@@ -1,4 +1,4 @@
-import { ALL_AGENT_TYPES, type AgentType } from "@/lib/types"
+import { ALL_AGENT_TYPES, isAgentType } from "@/lib/types"
 import { randomUUID } from "@/lib/utils"
 
 import type { ReferenceAttrs } from "./types"
@@ -68,6 +68,7 @@ export function parseIywClawReferenceUri(
   const agent = uri.match(AGENT_URI)
   if (agent) {
     const type = agent[1]
+    if (!isAgentType(type)) return null
     return {
       refType: "agent",
       // The transcript link text is `@name`; strip a single leading `@` so the
@@ -75,7 +76,7 @@ export function parseIywClawReferenceUri(
       id: type,
       label: (label || type).replace(/^@/, "") || type,
       uri,
-      meta: { agentType: type as AgentType },
+      meta: { agentType: type },
     }
   }
 

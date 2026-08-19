@@ -17,6 +17,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
+use crate::acp::capability_policy::{monitor_file_upload, CapabilityRevocationMonitor};
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::backup::core::{self, BackupInputs, BackupOptions};
@@ -147,9 +148,11 @@ pub async fn backup_upload(
     Extension(state): Extension<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadResult>, AppCommandError> {
+    let monitor = monitor_file_upload(None).await?;
     let upload_dir = state.data_dir.join(RESTORE_UPLOAD_DIR);
-    tokio::fs::create_dir_all(&upload_dir)
-        .await
+    monitor
+        .run_until_revoked(tokio::fs::create_dir_all(&upload_dir))
+        .await?
         .map_err(AppCommandError::io)?;
     let id = uuid::Uuid::new_v4().simple().to_string();
     let dest = upload_dir.join(format!("{id}.bin"));
@@ -163,7 +166,12 @@ pub async fn backup_upload(
 
     // Stream into the temp file; on ANY failure (read error, write error, over
     // cap) delete the partial file so a failed/aborted upload doesn't linger.
-    match receive_upload(&mut multipart, &dest, max_bytes).await {
+    let target = BackupUploadTarget {
+        dest: &dest,
+        max_bytes,
+        monitor: &monitor,
+    };
+    match receive_upload(&mut multipart, target).await {
         Ok(file_name) => Ok(Json(UploadResult {
             upload_id: id,
             file_name,
@@ -175,40 +183,63 @@ pub async fn backup_upload(
     }
 }
 
+struct BackupUploadTarget<'a> {
+    dest: &'a PathBuf,
+    max_bytes: Option<u64>,
+    monitor: &'a CapabilityRevocationMonitor,
+}
+
 async fn receive_upload(
     multipart: &mut Multipart,
-    dest: &PathBuf,
-    max_bytes: Option<u64>,
+    target: BackupUploadTarget<'_>,
 ) -> Result<String, AppCommandError> {
     let mut file_name = String::new();
     let mut received = false;
     let mut written: u64 = 0;
-    while let Some(mut field) = multipart.next_field().await.map_err(|e| {
-        AppCommandError::io_error("Invalid multipart upload").with_detail(e.to_string())
-    })? {
+    while let Some(mut field) = target
+        .monitor
+        .run_until_revoked(multipart.next_field())
+        .await?
+        .map_err(|e| {
+            AppCommandError::io_error("Invalid multipart upload").with_detail(e.to_string())
+        })?
+    {
         if field.name() != Some("file") {
             continue;
         }
         file_name = field.file_name().unwrap_or("backup").to_string();
-        let mut out = tokio::fs::File::create(dest)
-            .await
+        let mut out = target
+            .monitor
+            .run_until_revoked(tokio::fs::File::create(target.dest))
+            .await?
             .map_err(AppCommandError::io)?;
-        while let Some(chunk) = field.chunk().await.map_err(|e| {
-            AppCommandError::io_error("Failed to read upload chunk").with_detail(e.to_string())
-        })? {
+        while let Some(chunk) = target
+            .monitor
+            .run_until_revoked(field.chunk())
+            .await?
+            .map_err(|e| {
+                AppCommandError::io_error("Failed to read upload chunk").with_detail(e.to_string())
+            })?
+        {
             written = written.saturating_add(chunk.len() as u64);
-            if let Some(limit) = max_bytes {
+            if let Some(limit) = target.max_bytes {
                 if written > limit {
                     return Err(AppCommandError::invalid_input(
                         "Uploaded backup exceeds the configured size limit",
                     ));
                 }
             }
-            out.write_all(&chunk)
-                .await
+            target
+                .monitor
+                .run_until_revoked(out.write_all(&chunk))
+                .await?
                 .map_err(crate::commands::backup::map_disk_full)?;
         }
-        out.flush().await.map_err(AppCommandError::io)?;
+        target
+            .monitor
+            .run_until_revoked(out.flush())
+            .await?
+            .map_err(AppCommandError::io)?;
         received = true;
     }
     if !received {
@@ -216,6 +247,7 @@ async fn receive_upload(
             "Multipart upload is missing the `file` field",
         ));
     }
+    target.monitor.require_current().await?;
     Ok(file_name)
 }
 
@@ -231,8 +263,14 @@ pub async fn backup_inspect(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<InspectParams>,
 ) -> Result<Json<BackupPreview>, AppCommandError> {
+    let monitor = monitor_file_upload(None).await?;
     let src = resolve_upload(&state, &params.upload_id)?;
-    let preview = core::inspect_backup_core(&src, params.passphrase.as_deref()).await?;
+    let preview = monitor
+        .run_until_revoked(core::inspect_backup_core(
+            &src,
+            params.passphrase.as_deref(),
+        ))
+        .await??;
     Ok(Json(preview))
 }
 
@@ -240,8 +278,14 @@ pub async fn backup_scan_external_conflicts(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<InspectParams>,
 ) -> Result<Json<Vec<crate::commands::backup::external::ExternalConflict>>, AppCommandError> {
+    let monitor = monitor_file_upload(None).await?;
     let src = resolve_upload(&state, &params.upload_id)?;
-    let conflicts = core::scan_external_conflicts_core(&src, params.passphrase.as_deref()).await?;
+    let conflicts = monitor
+        .run_until_revoked(core::scan_external_conflicts_core(
+            &src,
+            params.passphrase.as_deref(),
+        ))
+        .await??;
     Ok(Json(conflicts))
 }
 
@@ -268,8 +312,21 @@ pub async fn backup_restore_stage(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<StageParams>,
 ) -> Result<Json<StageResult>, AppCommandError> {
-    let src = resolve_upload(&state, &params.upload_id)?;
     let (op_id, cancel) = state.workspace_transfer.register_transfer().await;
+    let monitor = match monitor_file_upload(Some(cancel.clone())).await {
+        Ok(monitor) => monitor,
+        Err(error) => {
+            state.workspace_transfer.finish_transfer(&op_id).await;
+            return Err(error);
+        }
+    };
+    let src = match resolve_upload(&state, &params.upload_id) {
+        Ok(src) => src,
+        Err(error) => {
+            state.workspace_transfer.finish_transfer(&op_id).await;
+            return Err(error);
+        }
+    };
     let staged = restore::stage_restore_core(
         &src,
         params.passphrase.as_deref(),
@@ -280,9 +337,13 @@ pub async fn backup_restore_stage(
             emitter: &state.emitter,
             op_id: &op_id,
             cancel: &cancel,
+            monitor: &monitor,
         },
     )
     .await;
+    if staged.is_err() {
+        restore::cleanup_failed_stage(&state.data_dir, &op_id).await;
+    }
     state.workspace_transfer.finish_transfer(&op_id).await;
     let staged = staged?;
 

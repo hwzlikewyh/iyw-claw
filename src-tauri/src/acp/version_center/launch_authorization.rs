@@ -13,6 +13,8 @@ pub(crate) async fn authorize_agent_version_launch(
     agent_type: AgentType,
     version: &str,
 ) -> Result<(), AppCommandError> {
+    crate::acp::deepseek_config::validate_tool_version(agent_type, version)
+        .map_err(AppCommandError::configuration_invalid)?;
     let setting = agent_setting(conn, agent_type).await?;
     authorize_agent_version(conn, agent_type, version, &setting).await
 }
@@ -45,17 +47,40 @@ async fn authorize_agent_version(
         },
     )
     .await;
-    validate_resolution(conn, agent_type, version, resolution).await
+    validate_resolution(
+        conn,
+        agent_type,
+        version,
+        setting.pinned_version.as_deref(),
+        resolution,
+    )
+    .await
 }
 
 async fn validate_resolution(
     conn: &DatabaseConnection,
     agent_type: AgentType,
     version: &str,
+    pinned_version: Option<&str>,
     resolution: Result<super::types::AgentOffer, AppCommandError>,
 ) -> Result<(), AppCommandError> {
     match resolution {
         Ok(offer) if offer.version == version => Ok(()),
+        Ok(offer) if is_trusted_deepseek_fallback(agent_type, version) => {
+            if offer.required || !pin_allows_fallback(pinned_version, version) {
+                return Err(AppCommandError::configuration_invalid(
+                    "Agent launch version was rejected",
+                ));
+            }
+            validate_official_deepseek_fallback(conn, agent_type, version).await?;
+            tracing::warn!(
+                agent_type = ?agent_type,
+                version,
+                offered_version = %offer.version,
+                "[agent-version-center] activating verified DeepSeek fallback instead of newer Fusion offer"
+            );
+            Ok(())
+        }
         Ok(_) => Err(AppCommandError::configuration_invalid(
             "Agent launch version was rejected",
         )),
@@ -71,6 +96,41 @@ async fn validate_resolution(
         }
         Err(error) => Err(error),
     }
+}
+
+async fn validate_official_deepseek_fallback(
+    conn: &DatabaseConnection,
+    agent_type: AgentType,
+    version: &str,
+) -> Result<(), AppCommandError> {
+    let verified = super::inventory::list_agent_installations(conn, agent_type)
+        .await
+        .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?
+        .into_iter()
+        .any(|installation| {
+            installation.version == version
+                && installation.verified
+                && installation.platform == crate::acp::registry::current_platform()
+                && installation.source_key.as_deref() == Some("official-npm-registry")
+        });
+    if !verified {
+        return Err(AppCommandError::configuration_invalid(
+            "DeepSeek fallback installation is not verified",
+        ));
+    }
+    super::installer::validate_local_agent_runtime(conn, agent_type, version).await
+}
+
+fn is_trusted_deepseek_fallback(agent_type: AgentType, version: &str) -> bool {
+    crate::acp::deepseek_config::fallback_tool_version(agent_type)
+        .is_some_and(|fallback| version.trim() == fallback)
+}
+
+fn pin_allows_fallback(pinned_version: Option<&str>, version: &str) -> bool {
+    pinned_version
+        .map(str::trim)
+        .filter(|pinned| !pinned.is_empty())
+        .is_none_or(|pinned| pinned == version)
 }
 
 async fn agent_setting(

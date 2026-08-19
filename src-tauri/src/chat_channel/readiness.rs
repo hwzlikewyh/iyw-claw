@@ -13,56 +13,15 @@
 //! installation state only.
 
 use sea_orm::DatabaseConnection;
-use serde::Serialize;
 
 use super::config_patch::parse_config_object;
 use super::manager::ChatChannelManager;
+pub use super::readiness_types::{ChannelReadinessReport, ReadinessStage};
 use super::reconcile;
 use crate::acp::agent_storage::AgentStoragePaths;
 use crate::db::entities::chat_channel;
 use crate::db::service::{chat_channel_service, folder_service};
 use crate::models::agent::AgentType;
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadinessStage {
-    /// Machine key: saved | credential | transport | inbound | workspace |
-    /// agent | gateway | roundtrip.
-    pub key: String,
-    pub ok: bool,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChannelReadinessReport {
-    pub channel_id: i32,
-    pub name: String,
-    pub channel_type: String,
-    /// Desired state from the DB (never conflated with connectivity).
-    pub enabled: bool,
-    /// Last persisted runtime state (from the reconcile path).
-    pub runtime_status: String,
-    /// Live transport state from the manager.
-    pub transport_connected: bool,
-    pub saved: bool,
-    pub credential_ready: bool,
-    pub inbound_verified: bool,
-    pub workspace_ready: bool,
-    pub agent_ready: bool,
-    pub gateway_ready: bool,
-    pub roundtrip_ready: bool,
-    /// First failing stage key, e.g. `credential` — every failure maps to a
-    /// readiness stage.
-    pub error_code: Option<String>,
-    pub error_message: Option<String>,
-    pub last_error: Option<String>,
-    pub last_error_at: Option<String>,
-    pub last_connected_at: Option<String>,
-    pub last_inbound_at: Option<String>,
-    pub inbound_count: u64,
-    pub stages: Vec<ReadinessStage>,
-}
 
 pub async fn evaluate_readiness(
     db: &DatabaseConnection,
@@ -109,6 +68,15 @@ pub async fn evaluate_readiness(
         },
     );
 
+    let callback_verified = callback_verified(model);
+    if model.channel_type == super::types::ChannelType::WecomAgent.to_string() {
+        push(
+            "callback",
+            callback_verified,
+            (!callback_verified).then(|| "回调地址尚未通过企业微信验证".to_string()),
+        );
+    }
+
     // inbound (requires a live transport that has actually delivered a message)
     let (last_inbound_at, inbound_count) = manager.inbound_stats(model.id).await;
     let inbound_verified = transport_connected && inbound_count > 0;
@@ -135,6 +103,7 @@ pub async fn evaluate_readiness(
     let roundtrip_ready = saved
         && credential.0
         && transport_connected
+        && callback_verified
         && inbound_verified
         && workspace.0
         && agent.0
@@ -160,6 +129,7 @@ pub async fn evaluate_readiness(
         enabled: model.enabled,
         runtime_status: model.runtime_status.clone(),
         transport_connected,
+        callback_verified,
         saved,
         credential_ready: credential.0,
         inbound_verified,
@@ -192,12 +162,26 @@ pub async fn evaluate_all(
     };
     let mut reports = Vec::with_capacity(models.len());
     for model in models {
-        if model.channel_type == super::types::ChannelType::WecomAgent.to_string() {
-            continue;
-        }
         reports.push(evaluate_readiness(db, manager, &model).await);
     }
     reports
+}
+
+fn callback_verified(model: &chat_channel::Model) -> bool {
+    if model.channel_type != super::types::ChannelType::WecomAgent.to_string() {
+        return true;
+    }
+    parse_config_object(&model.config_json)
+        .ok()
+        .and_then(|config| {
+            config
+                .get("callback_verified_at")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .is_some()
 }
 
 /// `channel_workspace_root` must exist and the daily folder must be creatable

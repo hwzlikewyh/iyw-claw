@@ -8,7 +8,7 @@ use super::{
     UserMemoryCandidateDiagnostic, UserMemoryCandidateDiagnosticReason, UserMemoryCapabilityInputs,
     UserMemoryContextSnapshot, UserMemoryDocumentId, UserMemoryOrigin, UserMemoryPolicy,
     UserMemoryPolicyAccess, UserMemoryResourceAccess, UserMemoryService, APPEND_USER_MEMORY_TOOL,
-    PROPOSE_USER_MEMORY_TOOL,
+    MEMORY_RECALL_TOOL, PROPOSE_USER_MEMORY_TOOL,
 };
 
 impl UserMemoryService {
@@ -32,20 +32,65 @@ impl UserMemoryService {
         }
         if self.root_resolution().is_err() {
             let policy = self.load_policy_unrecovered().await?;
-            return Ok(build_context(
+            let mut snapshot = build_context(
                 policy,
                 agent_type,
                 origin,
                 unavailable_resources(),
                 BTreeMap::new(),
-            ));
+            );
+            snapshot.recall_tool_enabled = self.recall_tool_enabled;
+            return Ok(snapshot);
         }
-        let (_guard, _file_guard) = self.acquire_locks().await?;
-        let policy = self.load_policy().await?;
-        let (resources, documents) = self.context_resources(&policy);
-        Ok(build_context(
-            policy, agent_type, origin, resources, documents,
-        ))
+        let snapshot = {
+            let (_guard, _file_guard) = self.acquire_locks().await?;
+            let policy = self.load_policy().await?;
+            let (resources, documents) = self.context_resources(&policy);
+            build_context(policy, agent_type, origin, resources, documents)
+        };
+        let mut snapshot = snapshot;
+        snapshot.recall_tool_enabled = self.recall_tool_enabled;
+        snapshot.recall_index_generation = self.ready_recall_index_generation().await;
+        Ok(snapshot)
+    }
+
+    async fn ready_recall_index_generation(&self) -> Option<i64> {
+        if !self.recall_index_enabled {
+            return None;
+        }
+        if !self.index_verified_for_process() {
+            self.ensure_index_refresh();
+            return None;
+        }
+        let status = match self.index_status().await {
+            Ok(status) => status,
+            Err(error) => {
+                tracing::debug!(error = %error, "[memory-index] launch checkpoint unavailable");
+                self.schedule_index_refresh_if_due();
+                return None;
+            }
+        };
+        if status.status == "ready_fallback" {
+            self.schedule_degraded_index_refresh_if_due();
+            return None;
+        }
+        if status.status != "ready" {
+            self.schedule_index_refresh_if_due();
+            return None;
+        }
+        let current_digest = match self.read_index_source_digest().await {
+            Ok(digest) => digest,
+            Err(error) => {
+                tracing::debug!(error = %error, "[memory-index] launch source digest unavailable");
+                self.schedule_index_refresh_if_due();
+                return None;
+            }
+        };
+        if status.source_digest.as_deref() != Some(current_digest.as_str()) {
+            self.schedule_index_refresh_if_due();
+            return None;
+        }
+        status.index_generation
     }
 
     fn context_resources(
@@ -104,6 +149,9 @@ fn build_context(
     };
     UserMemoryContextSnapshot {
         revision: context_revision(&policy, &documents, &capability_inputs),
+        recall_index_generation: None,
+        recall_tool_enabled: false,
+        historical_context_generation: None,
         effective_fingerprint: String::new(),
         rendered: None,
         memory_write_enabled: false,
@@ -156,6 +204,7 @@ fn compatibility_runtime_environment() -> super::UserMemoryRuntimeEnvironment {
             advertised_tools: vec![
                 APPEND_USER_MEMORY_TOOL.to_string(),
                 PROPOSE_USER_MEMORY_TOOL.to_string(),
+                MEMORY_RECALL_TOOL.to_string(),
             ],
             detail: None,
         },

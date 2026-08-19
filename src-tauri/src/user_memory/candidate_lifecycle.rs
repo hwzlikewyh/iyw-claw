@@ -62,6 +62,7 @@ impl UserMemoryService {
         let outcome = observe_candidate(&mut state, content, signal, source)?;
         if outcome.observation_added {
             candidate_store::write_state(root, &state)?;
+            self.schedule_index_refresh();
         }
         let revision = candidate_store::revision(&state)?;
         Ok(UserMemoryProposalResult {

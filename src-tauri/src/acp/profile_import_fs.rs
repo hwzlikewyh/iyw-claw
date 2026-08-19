@@ -40,7 +40,7 @@ fn validate_specs(
     paths: &AgentStoragePaths,
     specs: &[ProfileImportSpec],
 ) -> Result<(), ProfileImportError> {
-    let destinations: HashSet<PathBuf> = registry::all_acp_agents()
+    let destinations: HashSet<PathBuf> = registry::all_identity_agents()
         .into_iter()
         .map(|agent| paths.profile(agent).root)
         .collect();
@@ -128,6 +128,7 @@ fn copy_import_entry(
         &destination,
         &canonical_root,
         &entry.source_relative,
+        entry.include_sessions,
         &mut ancestors,
         report,
     )
@@ -138,10 +139,11 @@ fn copy_allowed_node(
     destination: &Path,
     source_root: &Path,
     relative: &Path,
+    include_sessions: bool,
     ancestors: &mut HashSet<PathBuf>,
     report: &mut ProfileImportReport,
 ) -> Result<(), ProfileImportError> {
-    if is_excluded(relative) {
+    if is_excluded(relative, include_sessions) {
         return Ok(());
     }
     let link_metadata = fs::symlink_metadata(source).map_err(|error| io_error(source, error))?;
@@ -163,6 +165,7 @@ fn copy_allowed_node(
             destination,
             source_root,
             relative,
+            include_sessions,
             ancestors,
             report,
         );
@@ -178,6 +181,7 @@ fn copy_allowed_dir(
     destination: &Path,
     source_root: &Path,
     relative: &Path,
+    include_sessions: bool,
     ancestors: &mut HashSet<PathBuf>,
     report: &mut ProfileImportReport,
 ) -> Result<(), ProfileImportError> {
@@ -200,6 +204,7 @@ fn copy_allowed_dir(
             &destination.join(&name),
             source_root,
             &relative.join(&name),
+            include_sessions,
             ancestors,
             report,
         )?;
@@ -246,32 +251,33 @@ fn copy_existing_tree(source: &Path, destination: &Path) -> Result<(), ProfileIm
     Ok(())
 }
 
-fn is_excluded(path: &Path) -> bool {
+fn is_excluded(path: &Path, include_sessions: bool) -> bool {
     path.components().any(|component| {
         let Component::Normal(name) = component else {
             return true;
         };
         let name = name.to_string_lossy().to_ascii_lowercase();
-        matches!(
-            name.as_str(),
-            "session"
-                | "sessions"
-                | "conversation"
-                | "conversations"
-                | "log"
-                | "logs"
-                | "cache"
-                | "caches"
-                | "download"
-                | "downloads"
-                | "tmp"
-                | "temp"
-                | "runtime"
-                | "runtimes"
-                | "node_modules"
-                | ".git"
-                | "lock"
-                | "locks"
-        ) || name.ends_with(".lock")
+        let is_session = matches!(name.as_str(), "session" | "sessions");
+        (!include_sessions && is_session)
+            || matches!(
+                name.as_str(),
+                "conversation"
+                    | "conversations"
+                    | "log"
+                    | "logs"
+                    | "cache"
+                    | "caches"
+                    | "download"
+                    | "downloads"
+                    | "tmp"
+                    | "temp"
+                    | "runtime"
+                    | "runtimes"
+                    | "node_modules"
+                    | ".git"
+                    | "lock"
+                    | "locks"
+            )
+            || name.ends_with(".lock")
     })
 }

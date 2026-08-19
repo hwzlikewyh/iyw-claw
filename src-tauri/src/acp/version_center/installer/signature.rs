@@ -1,5 +1,7 @@
 use base64::Engine;
 use minisign_verify::{PublicKey, Signature};
+use std::io::Read;
+use std::path::Path;
 
 use crate::app_error::AppCommandError;
 
@@ -47,6 +49,57 @@ pub fn verify_agent_signature(bytes: &[u8], signature_text: &str) -> Result<(), 
     })?;
     public_key.verify(bytes, &signature, true).map_err(|error| {
         AppCommandError::invalid_input("Agent release signature verification failed")
+            .with_detail(error.to_string())
+    })
+}
+
+pub fn verify_agent_file_signature(
+    path: &Path,
+    signature_text: &str,
+) -> Result<(), AppCommandError> {
+    if signature_text.trim().is_empty() {
+        tracing::warn!(
+            "[managed-agent-install] unsigned Agent artifact accepted with size and SHA-256 verification"
+        );
+        return Ok(());
+    }
+    let public_key = parse_public_key(required_agent_public_key()?)?;
+    let signature = decode_agent_signature(signature_text)?;
+    let mut verifier = public_key.verify_stream(&signature).map_err(|error| {
+        AppCommandError::invalid_input(
+            "Agent release signature must support streaming verification",
+        )
+        .with_detail(error.to_string())
+    })?;
+    let mut file = std::fs::File::open(path).map_err(AppCommandError::io)?;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(AppCommandError::io)?;
+        if read == 0 {
+            break;
+        }
+        verifier.update(&buffer[..read]);
+    }
+    verifier.finalize().map_err(|error| {
+        AppCommandError::invalid_input("Agent release signature verification failed")
+            .with_detail(error.to_string())
+    })
+}
+
+fn required_agent_public_key() -> Result<&'static str, AppCommandError> {
+    AGENT_RELEASE_PUBLIC_KEY
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            AppCommandError::configuration_invalid(
+                "Agent release signing key is not compiled into this build",
+            )
+        })
+}
+
+fn decode_agent_signature(signature_text: &str) -> Result<Signature, AppCommandError> {
+    Signature::decode(signature_text.trim()).map_err(|error| {
+        AppCommandError::invalid_input("Agent release signature is invalid")
             .with_detail(error.to_string())
     })
 }

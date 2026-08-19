@@ -170,6 +170,7 @@ fn write_event_inner(event: &str, status: &str, stage: &str, detail: Option<Stri
         return;
     };
     line.push('\n');
+    super::budget::record_essential_write(line.len());
     let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
         return;
     };

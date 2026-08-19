@@ -56,20 +56,53 @@ Function ${Prefix}IywClawCheckVersionedMcp
     Push "2"
 FunctionEnd
 
+Function ${Prefix}IywClawFindCurrentUserProcess
+  ; Avoid depending on nsis_tauri_utils during hook parsing. Tauri 2.11.x
+  ; registers the additional plugin directory after installer hooks are
+  ; included, so a hook-time plugin call breaks unsigned Windows builds.
+  Pop $R8
+  StrCmp $IywClawAccountFilter "" process_check_failed 0
+  nsExec::Exec 'cmd.exe /D /C tasklist.exe /FI "USERNAME eq $IywClawAccountFilter" /FI "IMAGENAME eq $R8" /FO TABLE /NH > "$PLUGINSDIR\iyw-claw-process-check.txt"'
+  Pop $R0
+  StrCmp $R0 "0" process_tasklist_ready process_check_failed
+
+  process_tasklist_ready:
+    nsExec::Exec 'cmd.exe /D /C findstr.exe /B /I /C:"$R8" "$PLUGINSDIR\iyw-claw-process-check.txt" >NUL'
+    Pop $R0
+    Delete "$PLUGINSDIR\iyw-claw-process-check.txt"
+    StrCmp $R0 "0" process_found 0
+    StrCmp $R0 "1" process_absent process_check_failed
+
+  process_found:
+    Push "0"
+    Return
+
+  process_absent:
+    Push "1"
+    Return
+
+  process_check_failed:
+    Delete "$PLUGINSDIR\iyw-claw-process-check.txt"
+    Push "2"
+FunctionEnd
+
 Function ${Prefix}IywClawAnyKnownProcessRunning
-  nsis_tauri_utils::FindProcessCurrentUser "iyw-claw.exe"
+  Push "iyw-claw.exe"
+  Call ${Prefix}IywClawFindCurrentUserProcess
   Pop $R0
   StrCmp $R0 "0" main_process_running 0
   StrCmp $R0 "2" check_browser process_check_failed
 
   check_browser:
-    nsis_tauri_utils::FindProcessCurrentUser "agent-browser.exe"
+    Push "agent-browser.exe"
+    Call ${Prefix}IywClawFindCurrentUserProcess
     Pop $R0
     StrCmp $R0 "0" browser_process_running 0
     StrCmp $R0 "2" check_generic_mcp process_check_failed
 
   check_generic_mcp:
-    nsis_tauri_utils::FindProcessCurrentUser "iyw-claw-mcp.exe"
+    Push "iyw-claw-mcp.exe"
+    Call ${Prefix}IywClawFindCurrentUserProcess
     Pop $R0
     StrCmp $R0 "0" mcp_process_running 0
     StrCmp $R0 "2" check_versioned_mcp process_check_failed

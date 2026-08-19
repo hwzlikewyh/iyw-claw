@@ -76,7 +76,9 @@ impl UserMemoryService {
             self.rollback_after_error(&prepared).await;
             return Err(error);
         }
-        journal::remove(self.resolved_root()?)
+        journal::remove(self.resolved_root()?)?;
+        self.schedule_index_refresh();
+        Ok(())
     }
 
     pub(super) async fn recover_transaction(
@@ -92,7 +94,9 @@ impl UserMemoryService {
         };
         self.preflight(target)?;
         self.apply_generation(target).await?;
-        journal::remove(self.resolved_root()?)
+        journal::remove(self.resolved_root()?)?;
+        self.schedule_index_refresh();
+        Ok(())
     }
 
     async fn rollback_after_error(&self, prepared: &UserMemoryTransactionJournal) {

@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import { BarChart3 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
-import { AGENT_LABELS } from "@/lib/types"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { AgentIcon } from "@/components/agent-icon"
 import {
   Popover,
@@ -54,7 +54,7 @@ export function StatusBarStats() {
             <div key={a.agent_type} className="flex items-center gap-2 text-xs">
               <AgentIcon agentType={a.agent_type} className="w-3.5 h-3.5" />
               <span className="text-muted-foreground">
-                {AGENT_LABELS[a.agent_type]}
+                {getAgentDisplayName(a.agent_type)}
               </span>
               <span className="ml-auto text-muted-foreground">
                 {a.conversation_count}

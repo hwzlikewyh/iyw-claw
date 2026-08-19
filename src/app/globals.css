@@ -1702,6 +1702,41 @@ body {
   pointer-events: none;
 }
 
+@keyframes iyw-claw-composer-placeholder-shimmer {
+  from {
+    background-position: 120% center;
+  }
+  to {
+    background-position: -120% center;
+  }
+}
+
+.iyw-claw-composer-placeholder-active
+  .ProseMirror
+  p.is-editor-empty:first-child::before {
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--muted-foreground) 20%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 80%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: iyw-claw-composer-placeholder-shimmer 1.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iyw-claw-composer-placeholder-active
+    .ProseMirror
+    p.is-editor-empty:first-child::before {
+    color: var(--muted-foreground);
+    background-image: none;
+    animation: none;
+  }
+}
+
 /* Inline reference badges (atom node view). */
 .iyw-claw-composer .iyw-claw-reference {
   cursor: default;

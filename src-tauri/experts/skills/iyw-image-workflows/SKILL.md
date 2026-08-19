@@ -310,14 +310,17 @@ uv run --project $skillDir --python 3.13 python $knowledgeCli `
 - 只把 `ok: true` 视为 CLI 成功。
 - `queued` 和 `running` 都不是最终成功。
 - 只在状态为 `succeeded` 且存在图片 URL 时声明任务完成。
-- 生成完成后，先在当前可用工具中解析展示工具：匹配后缀为 `show_image` 的名称
-  （裸名，或命名空间形式 `mcp__<server>__show_image`；server 注册名为
-  `iyw-claw-mcp`，即 `mcp__iyw-claw-mcp__show_image`）。
-- 解析到：按服务端顺序对每个最终 HTTPS URL 调用一次，让结果以原生图片块显示在
-  爱原物对话框中；该工具自己读取 URL，不要为了展示手动下载。
-- 工具列表中没有：跳过展示，返回每个最终 HTTPS URL 并说明无法内联渲染。不要猜测
-  名称变体，也不要声称已经展示。名称找不到的报错表示工具不存在，而非拼写错误，
-  改名永远无效——第一次失败就走兜底。
+- 生成完成后，先在当前可用工具中解析展示能力。若存在后缀为 `show_image` 的直连
+  工具（裸名或命名空间形式），按服务端顺序对每个最终 HTTPS URL 调用一次；该工具
+  自己读取 URL，不要为了展示手动下载。
+- 若没有直连 `show_image`，但当前工具列表在同一命名空间下同时暴露
+  `search_iyw_capabilities`、`read_iyw_capability`、
+  `invoke_iyw_capability`，则遵循 IYW Capability Gateway 流程：搜索图片展示能力、
+  读取 schema，再按返回的精确 capability ID 对每个 URL 调用一次。不得猜 ID，也不得
+  拼接不同命名空间的三个 gateway。
+- 两条路径都不存在时，跳过展示，返回每个最终 HTTPS URL 并说明无法内联渲染。
+  名称找不到表示直连工具不存在；检查一次 gateway 后立即兜底，不要猜名称变体，
+  也不要声称已经展示。
 - 只有用户明确要求保存到本地，或后续操作必须使用本地文件时，才下载结果图片。
 - 创建请求超时或结果不确定时，只查询原 task ID，不要重建任务。
 - 仅重试 `retryable: true` 的只读请求；不要自动重试收费创建请求。

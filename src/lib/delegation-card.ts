@@ -11,7 +11,7 @@
  */
 
 import { extractEmbeddedJsonObject } from "@/lib/embedded-json"
-import { type AgentType } from "@/lib/types"
+import { isAgentType, type AgentType } from "@/lib/types"
 import {
   type DelegationBinding,
   type DelegationStatus,
@@ -36,19 +36,6 @@ export type ParsedInput = {
   task: string | null
   workingDir: string | null
 }
-
-const KNOWN_AGENT_TYPES: ReadonlySet<string> = new Set<AgentType>([
-  "claude_code",
-  "codex",
-  "open_code",
-  "gemini",
-  "cline",
-  "open_claw",
-  "hermes",
-  "code_buddy",
-  "kimi_code",
-  "pi",
-])
 
 export type ParsedMeta = {
   status: DelegationStatus
@@ -216,7 +203,7 @@ export function parseInput(raw: string | null | undefined): ParsedInput {
   }
   const at = typeof obj.agent_type === "string" ? obj.agent_type : null
   return {
-    agentType: at && KNOWN_AGENT_TYPES.has(at) ? (at as AgentType) : null,
+    agentType: isAgentType(at) ? at : null,
     task: typeof obj.task === "string" ? obj.task : null,
     workingDir: typeof obj.working_dir === "string" ? obj.working_dir : null,
   }

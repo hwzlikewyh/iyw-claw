@@ -17,7 +17,7 @@ import {
   type SkillMarketV2FileNode,
   type SkillMarketV2Version,
 } from "@/lib/skill-market"
-import { AGENT_LABELS } from "@/lib/types"
+import { getAgentLabel } from "@/lib/custom-agents"
 import { cn } from "@/lib/utils"
 
 interface Props {
@@ -156,7 +156,7 @@ function InstallTargets({ detail }: { detail: SkillMarketV2Detail }) {
           >
             <Bot className="size-4 text-muted-foreground" />
             <span className="min-w-0 flex-1 text-xs font-medium">
-              {AGENT_LABELS[agentType]}
+              {getAgentLabel(agentType)}
             </span>
             <span className="text-right text-[10px] text-muted-foreground">
               {t("install.targetVersion", {

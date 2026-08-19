@@ -25,13 +25,19 @@ import { toast } from "sonner"
 import { useAcpActions, useAcpEvent } from "@/contexts/acp-connections-context"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
-import { useTabActions, useTabStore } from "@/contexts/tab-context"
+import {
+  useTabActions,
+  useTabStore,
+  type TabItem,
+} from "@/contexts/tab-context"
+import { groupOfTab, isReparentUnmount } from "@/stores/tab-store"
 import { useSessionStats } from "@/contexts/session-stats-context"
 import { useTaskContext } from "@/contexts/task-context"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import { useConnectionLifecycle } from "@/hooks/use-connection-lifecycle"
 import { useDocumentVisibility } from "@/hooks/use-document-visibility"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { useMessageQueue, type QueuedMessage } from "@/hooks/use-message-queue"
 import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
 import { MessageListView } from "@/components/message/message-list-view"
@@ -47,6 +53,11 @@ import { AgentSelector } from "@/components/chat/agent-selector"
 import { ChatInput } from "@/components/chat/chat-input"
 import { WelcomeHero } from "@/components/chat/welcome-hero"
 import { QuickActions } from "@/components/chat/quick-actions"
+import {
+  ConversationPointsDialog,
+  getConversationPointsBlockReason,
+  type ConversationPointsBlockReason,
+} from "@/components/conversations/conversation-points-gate"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -76,6 +87,7 @@ import { TurnBusyError } from "@/lib/turn-busy"
 import {
   getConversationIdByExternalIdFromStore,
   getRuntimeSession,
+  getTimelineTurns,
   useConversationRuntimeActions,
   useConversationRuntimeStore,
 } from "@/stores/conversation-runtime-store"
@@ -103,6 +115,10 @@ import {
 } from "@/lib/fixed-agent-options"
 import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
 import { planSessionConfigSync } from "@/lib/session-config-compat"
+import {
+  lastUserPromptText,
+  type SessionFailureAction,
+} from "@/lib/session-failures"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
 import {
   getSavedModeId,
@@ -112,12 +128,14 @@ import {
   saveModePreference,
 } from "@/lib/selector-prefs-storage"
 import {
+  adoptLegacyNewConversationDraft,
   buildConversationDraftStorageKey,
   buildNewConversationDraftStorageKey,
   clearMessageInputDraft,
   saveMessageInputDraft,
   subscribeMessageInputDraftPresence,
 } from "@/lib/message-input-draft"
+import { computeRects, leafIds, type GroupRect } from "@/lib/tab-group-layout"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -137,6 +155,8 @@ import {
 } from "@/lib/export-conversation"
 import { resolveActiveSessionDetails } from "./active-session-details"
 import { SessionDetailsDialog } from "./session-details-dialog"
+import { GroupSplitHandle } from "./group-split-handle"
+import { TabBar } from "@/components/tabs/tab-bar"
 
 interface ConversationTabViewProps {
   tabId: string
@@ -151,6 +171,7 @@ interface ConversationTabViewProps {
    *  also governs auto-focus/connect and is true even for a lone session. */
   showActiveFlow: boolean
   reloadSignal: number
+  groupId: string
 }
 
 function buildOptimisticUserTurnFromDraft(
@@ -241,15 +262,36 @@ const ConversationTabView = memo(function ConversationTabView({
   isVisible,
   showActiveFlow,
   reloadSignal,
+  groupId,
 }: ConversationTabViewProps) {
   const isDocumentVisible = useDocumentVisibility()
-  const { status: accountStatus } = useIywAccount()
+  const { status: accountStatus, profile: accountProfile } = useIywAccount()
+  const [pointsDialogReason, setPointsDialogReason] =
+    useState<ConversationPointsBlockReason | null>(null)
+  const currentPointsBlockReason = getConversationPointsBlockReason(
+    accountStatus,
+    accountProfile?.balance_points
+  )
+  const ensureConversationPointsAvailable = useCallback(() => {
+    if (currentPointsBlockReason === null) return true
+    console.warn("[conversation-points] blocked prompt submission", {
+      tabId,
+      accountStatus,
+      reason: currentPointsBlockReason,
+    })
+    setPointsDialogReason(currentPointsBlockReason)
+    return false
+  }, [accountStatus, currentPointsBlockReason, tabId])
+  useEffect(() => {
+    if (currentPointsBlockReason === null) setPointsDialogReason(null)
+  }, [currentPointsBlockReason])
   const [catalogVersion, setCatalogVersion] = useState(0)
   const t = useTranslations("Folder.conversation")
   const tWelcome = useTranslations("Folder.chat.welcomeInputPanel")
   const tAgentInput = useTranslations("Folder.chat.agentInput")
   const sharedT = useTranslations("Folder.chat.shared")
   const tConfig = useTranslations("Folder.chat.messageInput")
+  const tSessionFailure = useTranslations("Folder.chat.sessionFailure")
   const refreshConversations = useAppWorkspaceStore(
     (s) => s.refreshConversations
   )
@@ -509,7 +551,7 @@ const ConversationTabView = memo(function ConversationTabView({
   // session object on every streaming batch (~60/s, via SET_LIVE_MESSAGE); a
   // whole-object selector here would re-render this keep-alive panel (and the
   // composer subtree it wraps) on every streaming token, even though none of
-  // these three fields change mid-stream. `useShallow` keeps the returned slice
+  // these scalar fields change mid-stream. `useShallow` keeps the returned slice
   // reference-stable across batches, so the panel re-renders only when one of
   // them actually changes. (message-list-view subscribes to the session's
   // liveMessage separately to render the live stream.)
@@ -517,6 +559,7 @@ const ConversationTabView = memo(function ConversationTabView({
     sessionStats: effectiveSessionStats,
     externalId: runtimeExternalId,
     syncState: runtimeSyncState,
+    hasLiveResponseContent,
   } = useConversationRuntimeStore(
     useShallow((s) => {
       const session = s.byConversationId.get(effectiveConversationId)
@@ -524,6 +567,7 @@ const ConversationTabView = memo(function ConversationTabView({
         sessionStats: session?.sessionStats ?? null,
         externalId: session?.externalId ?? null,
         syncState: session?.syncState ?? "idle",
+        hasLiveResponseContent: Boolean(session?.liveMessage?.content.length),
       }
     })
   )
@@ -564,8 +608,13 @@ const ConversationTabView = memo(function ConversationTabView({
     if (dbConversationId != null) {
       return buildConversationDraftStorageKey(dbConversationId)
     }
-    return buildNewConversationDraftStorageKey()
-  }, [dbConversationId])
+    return buildNewConversationDraftStorageKey(tabId)
+  }, [dbConversationId, tabId])
+  useEffect(() => {
+    if (dbConversationId == null) {
+      adoptLegacyNewConversationDraft(draftStorageKey)
+    }
+  }, [dbConversationId, draftStorageKey])
   const [hasUnsavedDraft, setHasUnsavedDraft] = useState(false)
   const [hasEphemeralDraft, setHasEphemeralDraft] = useState(false)
   useEffect(
@@ -598,6 +647,10 @@ const ConversationTabView = memo(function ConversationTabView({
     // live on this conversation, attach to its connection instead of spawning.
     conversationId: dbConversationId ?? undefined,
     attachOnlyOnActivate: hasPersistedConversation,
+    isTransientUnmount: useCallback(
+      () => isReparentUnmount(useTabStore.getState(), tabId, groupId),
+      [groupId, tabId]
+    ),
   })
   const { status: connStatus, sessionId: connSessionId } = conn
   const messageQueue = useMessageQueue()
@@ -615,6 +668,8 @@ const ConversationTabView = memo(function ConversationTabView({
     startEditing: mqStartEditing,
     cancelEditing: mqCancelEditing,
   } = messageQueue
+  const msgQueueLength = msgQueue.length
+  const msgQueueHeadBlocked = msgQueue[0]?.blocked
   const [outboxFlushPending, setOutboxFlushPending] = useState<string | null>(
     null
   )
@@ -804,13 +859,14 @@ const ConversationTabView = memo(function ConversationTabView({
     if (!connectionReady) return
     if (runtimeSyncState === "awaiting_persist") return
     if (outboxFlushPending) return
-    if (msgQueue.length === 0) return
-    if (msgQueue[0]?.blocked) return
+    if (msgQueueLength === 0) return
+    if (msgQueueHeadBlocked) return
     // setTimeout (not microtask) so a COMPLETE_TURN commit settles first AND so
     // a just-bounced retry waits out the backoff window before re-sending.
     const wait = flushRetryDelayMs(Date.now(), lastFlushBounceAtRef.current)
     const timer = setTimeout(() => {
       if (!connectionReadyRef.current) return
+      if (!ensureConversationPointsAvailable()) return
       const next = autoSendQueueRef.current()
       if (next) {
         // Mark this as the queue auto-flush: it sends the dequeued head now and,
@@ -825,9 +881,10 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [
     connectionReady,
     runtimeSyncState,
-    msgQueue.length,
-    msgQueue[0]?.blocked,
+    msgQueueLength,
+    msgQueueHeadBlocked,
     outboxFlushPending,
+    ensureConversationPointsAvailable,
   ])
 
   // Mirror the connection's liveMessage into the runtime session OUTSIDE React.
@@ -960,6 +1017,13 @@ const ConversationTabView = memo(function ConversationTabView({
       // re-queues at the TAIL.
       opts?: { fromQueueFlush?: boolean; queuedMessage?: QueuedMessage }
     ) => {
+      const fromQueueFlush = opts?.fromQueueFlush ?? false
+      if (!ensureConversationPointsAvailable()) {
+        if (fromQueueFlush && opts?.queuedMessage) {
+          mqRequeueItemFront({ ...opts.queuedMessage, blocked: true })
+        }
+        return false
+      }
       // Capture the tab's chat-draft state + eager scratch dir synchronously.
       // The user may submit before the Agent connects; that branch queues below
       // and the existing flush effect resumes this same handler once ready.
@@ -975,7 +1039,6 @@ const ConversationTabView = memo(function ConversationTabView({
         setAgentConnectError(tWelcome("enableAgentFirstPlaceholder"))
         return
       }
-      const fromQueueFlush = opts?.fromQueueFlush ?? false
       if (shouldQueueBeforeConnection(connectionReady, fromQueueFlush)) {
         const conversationId = dbConvIdRef.current
         if (conversationId != null) {
@@ -1236,7 +1299,7 @@ const ConversationTabView = memo(function ConversationTabView({
               effectiveConversationId
             )
           }
-          clearMessageInputDraft(buildNewConversationDraftStorageKey())
+          clearMessageInputDraft(draftStorageKey)
           refreshConversations()
 
           // Now that the row exists, kick off the actual prompt with the
@@ -1268,10 +1331,7 @@ const ConversationTabView = memo(function ConversationTabView({
           setHasSentMessage(false)
           const draftText = draft.displayText.trim()
           if (draftText) {
-            saveMessageInputDraft(
-              buildNewConversationDraftStorageKey(),
-              draftText
-            )
+            saveMessageInputDraft(draftStorageKey, draftText)
           }
           if (mountedRef.current) {
             setAgentConnectError(tWelcome("createConversationFailed"))
@@ -1297,6 +1357,7 @@ const ConversationTabView = memo(function ConversationTabView({
       connectionReady,
       effectiveConversationId,
       ensureConnected,
+      draftStorageKey,
       folderId,
       hasPersistedConversation,
       lifecycleSend,
@@ -1315,11 +1376,15 @@ const ConversationTabView = memo(function ConversationTabView({
       upsertFolder,
       usableAgentCount,
       conn.connectionId,
+      conn.promptCapabilities.image,
+      ensureConversationPointsAvailable,
+      t,
     ]
   )
 
   const handlePromptingSubmit = useCallback(
     (draft: PromptDraft, selectedModeIdArg: string | null) => {
+      if (!ensureConversationPointsAvailable()) return false
       const messageId = `agent-input-${randomUUID()}`
       const conversationId = dbConvIdRef.current
       const fallbackToLocalQueue = () =>
@@ -1327,7 +1392,7 @@ const ConversationTabView = memo(function ConversationTabView({
 
       if (conversationId == null) {
         fallbackToLocalQueue()
-        return
+        return true
       }
 
       fallbackToLocalQueue()
@@ -1350,8 +1415,14 @@ const ConversationTabView = memo(function ConversationTabView({
           )
           toast.error(tAgentInput("durableQueueFailed"))
         })
+      return true
     },
-    [mqEnqueueAgentInput, mqRemove, tAgentInput]
+    [
+      ensureConversationPointsAvailable,
+      mqEnqueueAgentInput,
+      mqRemove,
+      tAgentInput,
+    ]
   )
 
   const handleDeleteAgentInput = useCallback(
@@ -1374,6 +1445,7 @@ const ConversationTabView = memo(function ConversationTabView({
       const connectionId = conn.connectionId
       const conversationId = dbConvIdRef.current
       if (!connectionId || conversationId == null) return
+      if (!ensureConversationPointsAvailable()) return
       void retryAgentInput(connectionId, conversationId, messageId).catch(
         (error) => {
           console.error("[agent-input] retry failed", { messageId, error })
@@ -1381,7 +1453,7 @@ const ConversationTabView = memo(function ConversationTabView({
         }
       )
     },
-    [conn.connectionId, tAgentInput]
+    [conn.connectionId, ensureConversationPointsAvailable, tAgentInput]
   )
 
   const handleReorderAgentInputs = useCallback(
@@ -1405,6 +1477,7 @@ const ConversationTabView = memo(function ConversationTabView({
       const connectionId = conn.connectionId
       const conversationId = dbConvIdRef.current
       if (!connectionId || conversationId == null) return
+      if (!ensureConversationPointsAvailable()) return
       void forceAgentInputsThrough(
         connectionId,
         conversationId,
@@ -1419,7 +1492,7 @@ const ConversationTabView = memo(function ConversationTabView({
         toast.error(tAgentInput("safeForceFailed"))
       })
     },
-    [conn.connectionId, tAgentInput]
+    [conn.connectionId, ensureConversationPointsAvailable, tAgentInput]
   )
 
   // Sync handleSend ref for auto-send effect (declared before handleSend)
@@ -1427,7 +1500,7 @@ const ConversationTabView = memo(function ConversationTabView({
     handleSendRef.current = handleSend
   }, [handleSend])
 
-  const handleForkSend = useCallback(
+  const executeForkSend = useCallback(
     // Fire-and-forget: the input clears the draft synchronously on click (like a
     // normal send), so there is no in-flight editable window. If the fork can't
     // run right now — disconnected, or the queue is non-empty (a fork is an
@@ -1499,6 +1572,15 @@ const ConversationTabView = memo(function ConversationTabView({
       setExternalId,
       t,
     ]
+  )
+
+  const handleForkSend = useCallback(
+    (draft: PromptDraft, selectedModeIdArg?: string | null) => {
+      if (!ensureConversationPointsAvailable()) return false
+      void executeForkSend(draft, selectedModeIdArg)
+      return true
+    },
+    [ensureConversationPointsAvailable, executeForkSend]
   )
 
   const handleOpenAgentsSettings = useCallback(() => {
@@ -1588,6 +1670,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const handleAnswerQuestion = useCallback(
     (answer: string) => {
       if (connStatus !== "connected") return
+      if (!ensureConversationPointsAvailable()) return
       const optimisticTurn: MessageTurn = {
         id: `optimistic-${randomUUID()}`,
         role: "user",
@@ -1626,6 +1709,7 @@ const ConversationTabView = memo(function ConversationTabView({
       mqEnqueue,
       connStatus,
       effectiveConversationId,
+      ensureConversationPointsAvailable,
       lifecycleSend,
       setSyncState,
     ]
@@ -1728,6 +1812,49 @@ const ConversationTabView = memo(function ConversationTabView({
     })
     closeTab(tabId)
   }, [closeTab, folder, openNewConversationTab, tabId, workingDirForConnection])
+
+  const detailTurns = detail?.turns
+  const handleSessionFailureAction = useCallback(
+    (action: SessionFailureAction) => {
+      switch (action) {
+        case "retry": {
+          const text =
+            lastUserPromptText(
+              getTimelineTurns(effectiveConversationId).map(({ turn }) => turn)
+            ) ?? lastUserPromptText(detailTurns)
+          if (!text) {
+            toast.warning(tSessionFailure("retryUnavailable"))
+            return
+          }
+          mqEnqueue(
+            { blocks: [{ type: "text", text }], displayText: text },
+            selectedModeId
+          )
+          break
+        }
+        case "login":
+          handleOpenAgentsSettings()
+          break
+        case "new_session":
+          handleOpenNewSession()
+          break
+      }
+    },
+    [
+      detailTurns,
+      effectiveConversationId,
+      handleOpenAgentsSettings,
+      handleOpenNewSession,
+      mqEnqueue,
+      selectedModeId,
+      tSessionFailure,
+    ]
+  )
+
+  const handleSessionFailureDismiss = useCallback(
+    (ids: string[]) => acpActions.dismissSessionFailures(tabId, ids),
+    [acpActions, tabId]
+  )
 
   const handleContinueWithContext = useCallback(async () => {
     if (dbConversationId == null || !folder || contextPrimerLoading) return
@@ -1833,6 +1960,13 @@ const ConversationTabView = memo(function ConversationTabView({
       agentName={getAgentDisplayName(selectedAgent)}
       error={conn.error}
       claudeApiRetry={conn.claudeApiRetry}
+      sessionFailures={conn.sessionFailures}
+      onSessionFailureAction={
+        conn.connectionId !== null && !conn.isViewer
+          ? handleSessionFailureAction
+          : undefined
+      }
+      onSessionFailureDismiss={handleSessionFailureDismiss}
       pendingPermission={conn.pendingPermission}
       pendingQuestion={conn.pendingQuestion}
       pendingAskQuestion={conn.pendingAskQuestion}
@@ -1898,6 +2032,7 @@ const ConversationTabView = memo(function ConversationTabView({
             <QuickActions onSelect={handleQuickAction} />
             <div className="flex justify-center">
               <AgentSelector
+                align="center"
                 defaultAgentType={selectedAgent}
                 onSelect={handleAgentSelect}
                 onFallback={handleAgentFallback}
@@ -1930,6 +2065,7 @@ const ConversationTabView = memo(function ConversationTabView({
               onFocus={handleFocus}
               onSend={handleSend}
               onCancel={handleCancel}
+              responseStarted={hasLiveResponseContent}
               modes={connectionModes}
               configOptions={connectionConfigOptions}
               selectedModeId={selectedModeId}
@@ -1944,7 +2080,7 @@ const ConversationTabView = memo(function ConversationTabView({
               isActive={isActive}
               showActiveFlow={showActiveFlow}
               queue={msgQueue}
-              onEnqueue={mqEnqueue}
+              onEnqueue={handlePromptingSubmit}
               onQueueReorder={mqReorder}
               onQueueEdit={handleQueueEdit}
               onQueueDelete={mqRemove}
@@ -2007,9 +2143,170 @@ const ConversationTabView = memo(function ConversationTabView({
         submitting={feedback.submitting}
         agentName={getAgentDisplayName(selectedAgent)}
       />
+      <ConversationPointsDialog
+        reason={pointsDialogReason}
+        onDismiss={() => setPointsDialogReason(null)}
+      />
     </ConversationShell>
   )
 })
+
+interface ConversationTabMountProps {
+  tab: TabItem
+  groupId: string
+  index: number
+  selectedTabId: string | undefined
+  activeTabId: string | null
+  groupVisible: boolean
+  canTile: boolean
+  multipleVisible: boolean
+  folderPath?: string
+  reloadSignal: number
+  setTabRef: (tabId: string, element: HTMLDivElement | null) => void
+  switchTab: (tabId: string) => void
+}
+
+function ConversationTabMount({
+  tab,
+  groupId,
+  index,
+  selectedTabId,
+  activeTabId,
+  groupVisible,
+  canTile,
+  multipleVisible,
+  folderPath,
+  reloadSignal,
+  setTabRef,
+  switchTab,
+}: ConversationTabMountProps) {
+  const t = useTranslations("Folder.conversation")
+  const active = tab.id === activeTabId
+  const visible = canTile || tab.id === selectedTabId
+  return (
+    <div
+      ref={(element) => setTabRef(tab.id, element)}
+      className={cn(
+        canTile
+          ? cn(
+              "relative h-full min-w-[24rem] flex-1 overflow-hidden",
+              index > 0 && "border-l border-border"
+            )
+          : visible
+            ? "h-full"
+            : "absolute inset-0 invisible pointer-events-none"
+      )}
+      onPointerDownCapture={
+        visible && !active ? () => switchTab(tab.id) : undefined
+      }
+    >
+      {multipleVisible && active && (
+        <span className="sr-only">{t("activeConversationIndicator")}</span>
+      )}
+      <ConversationTabView
+        tabId={tab.id}
+        conversationId={tab.conversationId}
+        agentType={tab.agentType}
+        workingDir={tab.workingDir ?? folderPath}
+        isActive={active}
+        isVisible={groupVisible && visible}
+        showActiveFlow={multipleVisible && active}
+        reloadSignal={reloadSignal}
+        groupId={groupId}
+      />
+    </div>
+  )
+}
+
+interface ConversationGroupShellProps {
+  groupId: string
+  rect: GroupRect
+  tabs: TabItem[]
+  selectedTabId: string | undefined
+  activeTabId: string | null
+  groupVisible: boolean
+  showStrip: boolean
+  tileMode: boolean
+  dragOver: boolean
+  folderPaths: ReadonlyMap<number, string>
+  reloadByTabId: Record<string, number>
+  setTabRef: (tabId: string, element: HTMLDivElement | null) => void
+  switchTab: (tabId: string) => void
+}
+
+const FULL_GROUP_RECT: GroupRect = { x: 0, y: 0, w: 100, h: 100 }
+
+function ConversationGroupShell({
+  groupId,
+  rect,
+  tabs,
+  selectedTabId,
+  activeTabId,
+  groupVisible,
+  showStrip,
+  tileMode,
+  dragOver,
+  folderPaths,
+  reloadByTabId,
+  setTabRef,
+  switchTab,
+}: ConversationGroupShellProps) {
+  const canTile = tileMode && tabs.length > 1
+  return (
+    <div
+      data-conv-group-shell={groupId}
+      className={cn(
+        "absolute flex min-h-0 flex-col overflow-hidden",
+        !groupVisible && "invisible pointer-events-none"
+      )}
+      style={{
+        left: `${rect.x}%`,
+        top: `${rect.y}%`,
+        width: `${rect.w}%`,
+        height: `${rect.h}%`,
+      }}
+    >
+      <div className={showStrip ? "h-10 shrink-0" : "hidden"}>
+        {showStrip && <TabBar groupId={groupId} />}
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <ScrollArea
+          x={canTile ? "scroll" : "hidden"}
+          y="hidden"
+          className="h-full w-full"
+        >
+          <div
+            className={cn(
+              "relative h-full",
+              canTile && "flex min-w-full flex-row"
+            )}
+          >
+            {tabs.map((tab, index) => (
+              <ConversationTabMount
+                key={tab.id}
+                tab={tab}
+                groupId={groupId}
+                index={index}
+                selectedTabId={selectedTabId}
+                activeTabId={activeTabId}
+                groupVisible={groupVisible}
+                canTile={canTile}
+                multipleVisible={showStrip || canTile}
+                folderPath={folderPaths.get(tab.folderId)}
+                reloadSignal={reloadByTabId[tab.id] ?? 0}
+                setTabRef={setTabRef}
+                switchTab={switchTab}
+              />
+            ))}
+          </div>
+        </ScrollArea>
+        {dragOver && (
+          <div className="pointer-events-none absolute inset-0 z-20 bg-primary/5 ring-2 ring-inset ring-primary/30" />
+        )}
+      </div>
+    </div>
+  )
+}
 
 export function ConversationDetailPanel() {
   const t = useTranslations("Folder.conversation")
@@ -2025,9 +2322,20 @@ export function ConversationDetailPanel() {
   const allFolders = useAppWorkspaceStore((s) => s.allFolders)
   const tabs = useTabStore((s) => s.tabs)
   const activeTabId = useTabStore((s) => s.activeTabId)
-  const isTileMode = useTabStore((s) => s.isTileMode)
-  const { openNewConversationTab, closeTab, switchTab, onPreviewTabReplaced } =
-    useTabActions()
+  const groupLayout = useTabStore((s) => s.groupLayout)
+  const groupOf = useTabStore((s) => s.groupOf)
+  const groupSelection = useTabStore((s) => s.groupSelection)
+  const tileByGroup = useTabStore((s) => s.tileByGroup)
+  const dragOverGroupId = useTabStore((s) => s.tabDrag?.overGroupId ?? null)
+  const {
+    openNewConversationTab,
+    closeTab,
+    switchTab,
+    onPreviewTabReplaced,
+    resizeGroupSplit,
+    endTabDrag,
+  } = useTabActions()
+  const isMobile = useIsMobile()
   const newConversation = useMemo(() => {
     const activeTab = tabs.find((tab) => tab.id === activeTabId)
     if (!activeTab || activeTab.conversationId != null) return null
@@ -2340,97 +2648,109 @@ export function ConversationDetailPanel() {
     }
   }, [folder, hasNoTabs, newConversation?.workingDir, openNewConversationTab])
 
-  const canTile = isTileMode && tabs.length > 1
-
+  const { groups: groupRects, handles: groupHandles } = useMemo(
+    () => computeRects(groupLayout),
+    [groupLayout]
+  )
+  const orderedGroupIds = useMemo(() => leafIds(groupLayout), [groupLayout])
+  const isSplit = orderedGroupIds.length > 1
+  const desktopSplit = isSplit && !isMobile
+  const activeGroupId = activeTabId
+    ? groupOfTab(groupOf, groupLayout, activeTabId)
+    : orderedGroupIds[0]
+  const tabsByGroup = useMemo(() => {
+    const grouped = new Map<string, TabItem[]>()
+    for (const groupId of orderedGroupIds) grouped.set(groupId, [])
+    for (const tab of tabs) {
+      const groupId = groupOfTab(groupOf, groupLayout, tab.id)
+      grouped.get(groupId)?.push(tab)
+    }
+    return grouped
+  }, [groupLayout, groupOf, orderedGroupIds, tabs])
+  const folderPaths = useMemo(
+    () => new Map(allFolders.map((item) => [item.id, item.path])),
+    [allFolders]
+  )
   const tileTabRefs = useRef<Map<string, HTMLDivElement | null>>(new Map())
+  const groupContainerRef = useRef<HTMLDivElement | null>(null)
+  const setTabRef = useCallback(
+    (tabId: string, element: HTMLDivElement | null) => {
+      if (element) tileTabRefs.current.set(tabId, element)
+      else tileTabRefs.current.delete(tabId)
+    },
+    []
+  )
 
   useEffect(() => {
-    if (!canTile || !activeTabId) return
-    const el = tileTabRefs.current.get(activeTabId)
-    if (!el) return
-    el.scrollIntoView({
-      behavior: "smooth",
-      inline: "center",
-      block: "nearest",
-    })
-  }, [canTile, activeTabId])
+    for (const groupId of orderedGroupIds) {
+      if (isMobile && groupId !== activeGroupId) continue
+      if (!tileByGroup[groupId]) continue
+      const selected = groupSelection[groupId]
+      if ((tabsByGroup.get(groupId)?.length ?? 0) < 2 || !selected) continue
+      tileTabRefs.current.get(selected)?.scrollIntoView({
+        behavior: "smooth",
+        inline: "center",
+        block: "nearest",
+      })
+    }
+  }, [
+    activeGroupId,
+    groupSelection,
+    isMobile,
+    orderedGroupIds,
+    tabsByGroup,
+    tileByGroup,
+  ])
+
+  useEffect(() => {
+    const drag = useTabStore.getState().tabDrag
+    if (drag && !tabs.some((tab) => tab.id === drag.tabId)) endTabDrag()
+  }, [endTabDrag, tabs])
 
   if (hasNoTabs) {
     return null
   }
-
-  const tabElements = tabs.map((tab, index) => {
-    const active = tab.id === activeTabId
-    return (
-      <div
-        key={tab.id}
-        ref={(el) => {
-          if (el) {
-            tileTabRefs.current.set(tab.id, el)
-          } else {
-            tileTabRefs.current.delete(tab.id)
-          }
-        }}
-        className={cn(
-          canTile
-            ? cn(
-                "relative h-full min-w-[24rem] flex-1 overflow-hidden",
-                index > 0 && "border-l border-border"
-              )
-            : active
-              ? "h-full"
-              : "absolute inset-0 invisible pointer-events-none"
-        )}
-        onPointerDownCapture={
-          canTile && !active ? () => switchTab(tab.id) : undefined
-        }
-      >
-        {/* The visible active cue is now the composer's flowing gradient border
-            (see message-input.tsx); keep a non-visual cue for assistive tech in
-            tiled mode, where the old top-center icon used to provide it. */}
-        {canTile && active && (
-          <span className="sr-only">{t("activeConversationIndicator")}</span>
-        )}
-        <ConversationTabView
-          tabId={tab.id}
-          conversationId={tab.conversationId}
-          agentType={tab.agentType}
-          workingDir={
-            tab.workingDir ??
-            allFolders.find((f) => f.id === tab.folderId)?.path
-          }
-          isActive={active}
-          isVisible={active || canTile}
-          showActiveFlow={canTile && active}
-          reloadSignal={reloadByTabId[tab.id] ?? 0}
-        />
-      </div>
-    )
-  })
 
   return (
     <>
       <ContextMenu onOpenChange={handleContextMenuOpenChange}>
         <ContextMenuTrigger asChild>
           <div
+            ref={groupContainerRef}
             className="relative h-full min-h-0 overflow-hidden"
             onPointerDown={handleContextMenuTriggerPointerDown}
           >
-            {/* Stable wrapper across canTile flip — otherwise sibling tabs remount and a live streaming response is torn down. */}
-            <ScrollArea
-              x={canTile ? "scroll" : "hidden"}
-              y="hidden"
-              className="h-full w-full"
-            >
-              <div
-                className={cn(
-                  "relative h-full",
-                  canTile && "flex min-w-full flex-row"
-                )}
-              >
-                {tabElements}
-              </div>
-            </ScrollArea>
+            {orderedGroupIds.map((groupId) => (
+              <ConversationGroupShell
+                key={groupId}
+                groupId={groupId}
+                rect={
+                  isMobile
+                    ? FULL_GROUP_RECT
+                    : (groupRects.get(groupId) ?? FULL_GROUP_RECT)
+                }
+                tabs={tabsByGroup.get(groupId) ?? []}
+                selectedTabId={groupSelection[groupId]}
+                activeTabId={activeTabId}
+                groupVisible={!isMobile || groupId === activeGroupId}
+                showStrip={desktopSplit}
+                tileMode={!!tileByGroup[groupId]}
+                dragOver={dragOverGroupId === groupId}
+                folderPaths={folderPaths}
+                reloadByTabId={reloadByTabId}
+                setTabRef={setTabRef}
+                switchTab={switchTab}
+              />
+            ))}
+            {desktopSplit &&
+              groupHandles.map((handle) => (
+                <GroupSplitHandle
+                  key={`${handle.splitId}:${handle.index}`}
+                  handle={handle}
+                  containerRef={groupContainerRef}
+                  onResize={resizeGroupSplit}
+                />
+              ))}
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent>

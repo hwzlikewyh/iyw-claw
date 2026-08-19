@@ -2,7 +2,7 @@ use std::path::Path;
 
 use sea_orm::DatabaseConnection;
 
-use super::resumable::download_resumable;
+use super::resumable::{download_agent_resumable, MAX_AGENT_ARCHIVE_BYTES};
 use crate::acp::error::AcpError;
 use crate::acp::version_center::capability::{self, RUNTIME};
 use crate::acp::version_center::client::AgentPlatformClient;
@@ -10,7 +10,6 @@ use crate::acp::version_center::types::{AgentOffer, DownloadRequest, DownloadTic
 use crate::app_error::{AppCommandError, AppErrorCode};
 
 const MAX_TICKET_REFRESHES: u8 = 2;
-
 pub(super) enum AgentDownloadError {
     Unavailable(AcpError),
     Rejected(AcpError),
@@ -41,7 +40,7 @@ pub(super) async fn download_archive(
         request_ticket(conn, offer, current_version, channel, allow_policy_missing).await?;
     on_progress("Downloading Agent artifact from version center");
     for refreshes in 0..=MAX_TICKET_REFRESHES {
-        let result = download_resumable(
+        let result = download_agent_resumable(
             offer.delivery.artifact_id.as_deref().unwrap_or_default(),
             &ticket.url,
             archive,
@@ -80,7 +79,7 @@ async fn request_ticket(
 ) -> Result<DownloadTicket, AgentDownloadError> {
     let artifact_id = offer.delivery.artifact_id.as_deref().ok_or_else(|| {
         AgentDownloadError::Rejected(AcpError::DownloadFailed(
-            "binary Agent offer has no artifact".into(),
+            "Agent offer has no artifact".into(),
         ))
     })?;
     let ticket = AgentPlatformClient::download_agent(
@@ -113,6 +112,7 @@ fn validate_ticket(ticket: &DownloadTicket) -> Result<(), AppCommandError> {
         && parsed.username().is_empty()
         && parsed.password().is_none()
         && ticket.size > 0
+        && ticket.size as u64 <= MAX_AGENT_ARCHIVE_BYTES
         && ticket.sha256.len() == 64
         && ticket.sha256.bytes().all(|byte| byte.is_ascii_hexdigit());
     valid

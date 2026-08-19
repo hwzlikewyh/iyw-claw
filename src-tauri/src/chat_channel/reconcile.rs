@@ -14,12 +14,13 @@
 
 use sea_orm::DatabaseConnection;
 
-use super::backends;
-use super::error::ChatChannelError;
 use super::manager::ChatChannelManager;
-use super::types::{ChannelConnectionStatus, ChannelRuntimeStatus, ChannelType};
+use super::reconcile_connect::{
+    connection_status_label, reconcile_connect, requires_backend_rebuild,
+};
+pub use super::reconcile_credentials::credential_ready;
+use super::types::{ChannelConnectionStatus, ChannelRuntimeStatus};
 use crate::app_error::AppCommandError;
-use crate::db::entities::chat_channel;
 use crate::db::service::chat_channel_service;
 
 /// Machine-readable reason for telemetry/logging.
@@ -64,50 +65,22 @@ impl ReconcileOutcome {
     }
 }
 
-/// Per-type credential readiness. WeCom owns credentials inside wecom-cli
-/// (QR-scan auth) and must NOT be gated on a channel token
-/// (IYW-CHANNEL-003); all official API transports use the keyring token.
-pub async fn credential_ready(
-    _db: &DatabaseConnection,
-    model: &chat_channel::Model,
-) -> Result<(), String> {
-    let channel_type = parse_channel_type(model).map_err(|e| e.to_string())?;
-    match channel_type {
-        ChannelType::Wecom => {
-            if !backends::wecom::cli_installed() {
-                return Err("wecom-cli 未安装，请先点击授权安装".to_string());
-            }
-            match backends::wecom::auth_status().await {
-                Ok(true) => Ok(()),
-                Ok(false) => Err("企微尚未完成扫码授权，请先在设置中完成授权".to_string()),
-                Err(error) => Err(format!("企微授权状态检查失败：{error}")),
-            }
-        }
-        ChannelType::Lark
-        | ChannelType::Weixin
-        | ChannelType::WecomAiBot
-        | ChannelType::WecomAgent
-        | ChannelType::Dingtalk => {
-            if crate::keyring_store::get_channel_token(model.id).is_none() {
-                let hint = match channel_type {
-                    ChannelType::Weixin => "请先扫码完成微信授权",
-                    ChannelType::Dingtalk => "请先保存 Client Secret",
-                    ChannelType::WecomAiBot => "请先保存 Bot Secret",
-                    _ => "请先保存 App Secret",
-                };
-                Err(format!("缺少渠道凭据（{hint}）"))
-            } else {
-                Ok(())
-            }
-        }
-    }
-}
-
 /// Reconcile one channel to `desired_enabled`. `reason` is a short kebab
 /// label for structured logs, e.g. `create`, `enable`, `edit`, `credential`,
 /// `qr_completed`, `app_start`, `manual`.
 #[allow(clippy::too_many_arguments)]
 pub async fn reconcile_channel(
+    db: &DatabaseConnection,
+    manager: &ChatChannelManager,
+    id: i32,
+    desired_enabled: bool,
+    reason: ReconcileReason,
+) -> Result<ReconcileOutcome, AppCommandError> {
+    let _guard = super::operation_lock::lock_channel(id).await;
+    reconcile_channel_unlocked(db, manager, id, desired_enabled, reason).await
+}
+
+pub(crate) async fn reconcile_channel_unlocked(
     db: &DatabaseConnection,
     manager: &ChatChannelManager,
     id: i32,
@@ -121,9 +94,11 @@ pub async fn reconcile_channel(
 
     // Disable / delete / credential revoke path: idempotent stop.
     if !desired_enabled {
-        if manager.remove_channel(id).await.is_ok() {
-            manager.emit_channel_status(id, "disconnected").await;
-        }
+        manager
+            .remove_channel(id)
+            .await
+            .map_err(AppCommandError::from)?;
+        manager.emit_channel_status(id, "disconnected").await;
         let updated = chat_channel_service::update_runtime(
             db,
             id,
@@ -282,89 +257,6 @@ pub async fn reconcile_channel(
     Ok(outcome)
 }
 
-fn connection_status_label(status: Option<ChannelConnectionStatus>) -> &'static str {
-    match status {
-        Some(ChannelConnectionStatus::Connected) => "connected",
-        Some(ChannelConnectionStatus::Connecting) => "connecting",
-        Some(ChannelConnectionStatus::Disconnected) => "disconnected",
-        Some(ChannelConnectionStatus::Error) => "error",
-        None => "missing",
-    }
-}
-
-fn requires_backend_rebuild(reason: ReconcileReason) -> bool {
-    matches!(reason, "edit" | "credential" | "qr_completed")
-}
-
-/// Build + start the backend for an enabled channel, performing a safe
-/// reconnect: on failure the previously running backend is restored.
-async fn reconcile_connect(
-    db: &DatabaseConnection,
-    manager: &ChatChannelManager,
-    model: &chat_channel::Model,
-) -> Result<(), ChatChannelError> {
-    let channel_type = parse_channel_type(model)?;
-    let config: serde_json::Value = serde_json::from_str(&model.config_json).map_err(|e| {
-        ChatChannelError::ConfigurationInvalid(format!(
-            "渠道配置不是有效 JSON（{e}）；请重新保存配置修复"
-        ))
-    })?;
-
-    // Credential gate BEFORE factory construction (IYW-CHANNEL-003).
-    if let Err(message) = credential_ready(db, model).await {
-        return Err(ChatChannelError::AuthenticationFailed(message));
-    }
-
-    let token = match channel_type {
-        ChannelType::Wecom => String::new(),
-        ChannelType::Lark
-        | ChannelType::Weixin
-        | ChannelType::WecomAiBot
-        | ChannelType::WecomAgent
-        | ChannelType::Dingtalk => {
-            crate::keyring_store::get_channel_token(model.id).unwrap_or_default()
-        }
-    };
-
-    let previous = manager.take_backend(model.id).await;
-
-    // Build the new backend inside the same fallible block so a config error
-    // restores the previous (last-known-good) backend instead of dropping it.
-    let result = async {
-        let backend = backends::create_backend(model.id, channel_type, &config, token, db.clone())
-            .map_err(|e| ChatChannelError::ConfigurationInvalid(e.to_string()))?;
-        manager
-            .upsert_channel(
-                model.id,
-                model.name.clone(),
-                channel_type,
-                std::sync::Arc::from(backend),
-            )
-            .await
-    }
-    .await;
-
-    match result {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            // Last-known-good rollback: restore the previous backend if the
-            // new config/credential failed to build or start.
-            if let Some(previous_backend) = previous {
-                let restore = manager
-                    .restore_backend(model.id, model.name.clone(), channel_type, previous_backend)
-                    .await;
-                if let Err(restore_error) = restore {
-                    tracing::error!(
-                        "[reconcile] channel {} restore failed: {restore_error}",
-                        model.id
-                    );
-                }
-            }
-            Err(error)
-        }
-    }
-}
-
 /// Reconcile every enabled channel at app start.
 pub async fn reconcile_all_enabled(
     manager: &ChatChannelManager,
@@ -383,10 +275,4 @@ pub async fn reconcile_all_enabled(
             tracing::error!("[reconcile] channel {} ({reason}) errored: {error}", ch.id);
         }
     }
-}
-
-fn parse_channel_type(model: &chat_channel::Model) -> Result<ChannelType, ChatChannelError> {
-    serde_json::from_value(serde_json::Value::String(model.channel_type.clone())).map_err(|_| {
-        ChatChannelError::ConfigurationInvalid(format!("未知渠道类型：{}", model.channel_type))
-    })
 }

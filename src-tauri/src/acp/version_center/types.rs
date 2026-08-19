@@ -119,6 +119,12 @@ pub struct AgentDelivery {
     pub arch: String,
     pub recipe_schema_version: u32,
     #[serde(default)]
+    pub node_required: String,
+    #[serde(default)]
+    pub uv_required: String,
+    #[serde(default)]
+    pub python_required: String,
+    #[serde(default)]
     pub artifact_id: Option<String>,
     #[serde(default, deserialize_with = "null_as_default")]
     pub components: Vec<DeliveryComponent>,

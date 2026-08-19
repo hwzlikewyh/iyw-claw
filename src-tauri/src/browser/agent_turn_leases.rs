@@ -162,9 +162,12 @@ impl AgentTurnLeaseRegistry {
         snapshot
             .file_choosers
             .retain(|chooser| visible.contains(&chooser.browser_tab_id));
-        snapshot
-            .downloads
-            .retain(|download| visible.contains(&download.browser_tab_id));
+        snapshot.downloads.retain(|download| {
+            download
+                .browser_tab_id
+                .as_ref()
+                .is_some_and(|tab_id| visible.contains(tab_id))
+        });
     }
 
     pub async fn is_empty(&self) -> bool {

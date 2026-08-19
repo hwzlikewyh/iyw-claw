@@ -13,15 +13,15 @@ use sacp::schema::{
     BlobResourceContents, CancelNotification, ContentBlock, ContentChunk, EmbeddedResource,
     EmbeddedResourceResource, ImageContent, LoadSessionRequest, LoadSessionResponse,
     NewSessionRequest, NewSessionResponse, PermissionOptionKind, Plan, PlanEntryPriority,
-    PlanEntryStatus, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, ResourceLink, ResumeSessionRequest, ResumeSessionResponse,
-    SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
-    SessionConfigSelectGroup, SessionConfigSelectOption, SessionConfigSelectOptions, SessionId,
-    SessionModeState, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+    PlanEntryStatus, PromptRequest, RequestPermissionRequest, RequestPermissionResponse,
+    ResourceLink, ResumeSessionRequest, ResumeSessionResponse, SessionConfigKind,
+    SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectGroup,
+    SessionConfigSelectOption, SessionConfigSelectOptions, SessionId, SessionModeState,
+    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
     SetSessionConfigOptionResponse, SetSessionModeRequest, StopReason, TerminalExitStatus,
     TextContent, TextResourceContents, ToolCallContent,
 };
-use sacp::schema::{HttpHeader, McpServer, McpServerHttp, McpServerSse, McpServerStdio};
+use sacp::schema::{ErrorCode, HttpHeader, McpServer, McpServerHttp, McpServerSse, McpServerStdio};
 use sacp::util::MatchDispatch;
 use sacp::{Agent, ConnectionTo, Dispatch, Responder, SessionMessage, UntypedMessage};
 use sacp_tokio::AcpAgent;
@@ -32,16 +32,23 @@ use crate::acp::agent_input_capabilities::NativeSteerOutcome;
 use crate::acp::agent_storage::AgentStoragePaths;
 use crate::acp::automatic_mode::automatic_mode_id;
 use crate::acp::background_watch;
+use crate::acp::capability_policy::{runtime_enforcer, Capability, CapabilityRevocationMonitor};
 use crate::acp::error::AcpError;
 use crate::acp::file_system_runtime::FileSystemRuntime;
 use crate::acp::npm_runtime;
+use crate::acp::permission_queue::{PermissionQueue, QueuedPermission};
+use crate::acp::permission_runtime::{PermissionRequestMeta, PermissionRuntime};
 use crate::acp::registry::{self, AgentDistribution};
 use crate::acp::session_config_compat::resolve_preferred_session_config;
 use crate::acp::session_recovery::{
     RecoveryBudget, RecoveryFailure, RecoveryProgress, RecoveryStage,
 };
 use crate::acp::session_state::{SessionState, ToolCallStatus};
+use crate::acp::stderr_tail::StderrTail;
 use crate::acp::terminal_runtime::{TerminalRuntime, TerminalRuntimeError};
+use crate::acp::turn_output::{
+    finish_turn_reason, DropLogThrottle, DropSite, EmptyTurnReport, TurnOutputProbe,
+};
 use crate::acp::types::{
     AcpEvent, AvailableCommandInfo, ConnectionInfo, ConnectionStatus, PermissionOptionInfo,
     PlanEntryInfo, PromptCapabilitiesInfo, PromptInputBlock, SessionConfigKindInfo,
@@ -54,7 +61,8 @@ use crate::network::proxy;
 use crate::web::event_bridge::{emit_with_state, EventEmitter};
 
 const DEFAULT_COMMAND_COLOR_ENV: [(&str, &str); 1] = [("CLICOLOR_FORCE", "1")];
-const IYW_CLAW_MCP_SERVER_NAME: &str = "iyw-claw-mcp";
+const IYW_CLAW_MCP_SERVER_PREFIX: &str = "iyw-claw-builtin-";
+const IYW_CLAW_MCP_SERVER_MAX_CHARS: usize = 32;
 const LOCAL_FILE_PROMPT_PREFIX: &str =
     "Local file path (use filesystem tools, not MCP resources): ";
 
@@ -138,9 +146,9 @@ fn log_stdio_debug_line(agent_name: &str, direction: &str, line: &str) {
     );
 }
 
-fn log_agent_stderr(agent_name: &str, line: &str, builtin_prompt: &str) {
+fn capture_agent_stderr(stderr_tail: &StderrTail, line: &str, builtin_prompt: &str) {
     let line = redact_builtin_prompt(line, builtin_prompt);
-    tracing::info!("[ACP][{agent_name}][stderr] {line}");
+    stderr_tail.push(&line);
 }
 
 fn redact_builtin_prompt(value: &str, builtin_prompt: &str) -> String {
@@ -220,6 +228,7 @@ fn merge_agent_env(
     for (key, value) in proxy::current_proxy_env_vars() {
         merged.insert(key, value);
     }
+    ensure_loopback_proxy_bypass(&mut merged);
 
     // Ensure agent-invoked `officecli …` (from an enabled office skill) resolves
     // even when iyw-claw installed the binary outside the user's shell PATH — the
@@ -229,6 +238,52 @@ fn merge_agent_env(
     crate::wecom_ai::reapply_runtime_path(&mut merged);
 
     merged.into_iter().collect()
+}
+
+fn ensure_loopback_proxy_bypass(env: &mut BTreeMap<String, String>) {
+    const REQUIRED: [&str; 4] = ["127.0.0.1", "localhost", "::1", "[::1]"];
+    let matching_keys = env
+        .keys()
+        .filter(|key| key.eq_ignore_ascii_case("NO_PROXY"))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut entries = Vec::<String>::new();
+    for key in matching_keys {
+        if let Some(value) = env.remove(&key) {
+            append_proxy_bypass_entries(&mut entries, &value);
+        }
+    }
+    for (key, value) in std::env::vars() {
+        if key.eq_ignore_ascii_case("NO_PROXY") {
+            append_proxy_bypass_entries(&mut entries, &value);
+        }
+    }
+    for required in REQUIRED {
+        if !entries
+            .iter()
+            .any(|entry| entry.eq_ignore_ascii_case(required))
+        {
+            entries.push(required.to_string());
+        }
+    }
+    let value = entries.join(",");
+    env.insert("NO_PROXY".to_string(), value.clone());
+    env.insert("no_proxy".to_string(), value);
+}
+
+fn append_proxy_bypass_entries(entries: &mut Vec<String>, value: &str) {
+    for candidate in value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        if !entries
+            .iter()
+            .any(|entry| entry.eq_ignore_ascii_case(candidate))
+        {
+            entries.push(candidate.to_string());
+        }
+    }
 }
 
 /// Prepend `dir` to the PATH entry of `env`, seeding from `fallback_path` when
@@ -393,6 +448,16 @@ impl Drop for ConnectionCleanupGuard {
     }
 }
 
+struct ConnectionTaskCompletion {
+    completed: Arc<AtomicBool>,
+}
+
+impl Drop for ConnectionTaskCompletion {
+    fn drop(&mut self) {
+        self.completed.store(true, Ordering::Release);
+    }
+}
+
 async fn run_with_async_cleanup<T>(
     run: impl Future<Output = T>,
     cleanup: impl Future<Output = ()>,
@@ -481,9 +546,21 @@ async fn cleanup_delegation_resources(
 
 async fn cleanup_connection_resources(
     injection: Option<&DelegationInjection>,
+    builtin_mcp: Option<&crate::acp::builtin_mcp::BuiltinMcpClient>,
+    http_lease_issued: &AtomicBool,
     connection_id: &str,
     mut prompt_bridges: crate::acp::builtin_prompt_bridge::PreparedPromptBridges,
 ) {
+    if let Some(client) = builtin_mcp {
+        client.revoke_parent(connection_id).await;
+        http_lease_issued.store(false, Ordering::Release);
+    } else if http_lease_issued.load(Ordering::Acquire) {
+        tracing::error!(
+            connection_id,
+            transport = "http",
+            "[ACP] issued HTTP MCP lease lost its process client during cleanup"
+        );
+    }
     cleanup_delegation_resources(injection, connection_id).await;
     if let Err(error) = prompt_bridges.release() {
         tracing::warn!(
@@ -493,6 +570,30 @@ async fn cleanup_connection_resources(
             "[ACP] built-in prompt bridge cleanup failed"
         );
     }
+}
+
+async fn cleanup_http_fallback_resources(
+    injection: Option<&DelegationInjection>,
+    builtin_mcp: Option<&crate::acp::builtin_mcp::BuiltinMcpClient>,
+    http_lease_issued: &AtomicBool,
+    connection_id: &str,
+    state: &Arc<RwLock<SessionState>>,
+) {
+    if let Some(client) = builtin_mcp {
+        client.revoke_parent(connection_id).await;
+        http_lease_issued.store(false, Ordering::Release);
+    } else if http_lease_issued.load(Ordering::Acquire) {
+        tracing::error!(
+            connection_id,
+            transport = "http",
+            "[ACP] fallback could not revoke the missing HTTP MCP client"
+        );
+    }
+    cleanup_delegation_resources(injection, connection_id).await;
+    let mut session = state.write().await;
+    session.delegation_token = None;
+    session.feedback_tool_available = false;
+    session.agent_pid = None;
 }
 
 /// Represents a single active ACP agent connection.
@@ -507,6 +608,10 @@ pub struct AgentConnection {
     pub cancellation: tokio_util::sync::CancellationToken,
     /// Becomes true once the session command loop can consume Disconnect.
     pub disconnect_command_ready: Arc<AtomicBool>,
+    /// Shared completion flag used by shutdown retries. Unlike a one-shot
+    /// completion channel, it can be observed more than once when an outer
+    /// timeout cancels `disconnect_all` before the task finishes.
+    pub(crate) cleanup_completed: Arc<AtomicBool>,
     /// 后端权威的会话状态。所有 `emit_with_state` 写入此状态并自增 seq。
     /// 使用 `Arc<RwLock<_>>` 让 spawn 出的连接 task 与外部 snapshot 读取共享。
     pub state: Arc<RwLock<SessionState>>,
@@ -533,6 +638,9 @@ pub struct AgentConnection {
     /// no-op save (identical values) stays silent. Starts equal to
     /// `config_fingerprint`.
     pub last_observed_fingerprint: String,
+    /// Domain-separated identity of the effective Hermes home. Immutable and
+    /// content-free; used only to detect unsafe shared-home concurrency.
+    pub(crate) hermes_home_hash: Option<String>,
 }
 
 impl AgentConnection {
@@ -623,6 +731,29 @@ struct AgentLaunchSpec<'a> {
     runtime_env: &'a BTreeMap<String, String>,
     cwd: &'a Path,
     builtin_prompt: &'a str,
+    stderr_tail: &'a Arc<StderrTail>,
+}
+
+struct AgentRebuildSpec {
+    agent_type: AgentType,
+    runtime_env: BTreeMap<String, String>,
+    process_cwd: PathBuf,
+    builtin_prompt: Arc<str>,
+    additional_file_system_roots: Vec<PathBuf>,
+}
+
+async fn rebuild_agent(
+    spec: &AgentRebuildSpec,
+    stderr_tail: &Arc<StderrTail>,
+) -> Result<AcpAgent, AcpError> {
+    build_agent(AgentLaunchSpec {
+        agent_type: spec.agent_type,
+        runtime_env: &spec.runtime_env,
+        cwd: &spec.process_cwd,
+        builtin_prompt: &spec.builtin_prompt,
+        stderr_tail,
+    })
+    .await
 }
 
 fn shared_runtime_host_enabled(agent_type: AgentType) -> bool {
@@ -637,6 +768,14 @@ fn shared_runtime_host_enabled(agent_type: AgentType) -> bool {
                 "0" | "false" | "off"
             )
         })
+}
+
+fn stderr_tail_for_runtime_host(agent_type: AgentType) -> Arc<StderrTail> {
+    if shared_runtime_host_enabled(agent_type) {
+        Arc::new(StderrTail::disabled())
+    } else {
+        Arc::new(StderrTail::new())
+    }
 }
 
 fn runtime_host_process_cwd<'a>(
@@ -657,8 +796,10 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
         runtime_env,
         cwd,
         builtin_prompt,
+        stderr_tail,
     } = spec;
-    let meta = registry::get_agent_meta(agent_type);
+    let meta = registry::try_get_agent_meta(agent_type)
+        .ok_or_else(|| AcpError::protocol("Agent identity is not trusted for execution"))?;
     debug_assert_eq!(meta.agent_type, agent_type);
 
     let agent = match meta.distribution {
@@ -783,13 +924,13 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                 }
             }
             let refs: Vec<&str> = parts.iter().map(|s| s.as_str()).collect();
-            let agent_name = meta.name.to_string();
             let prompt_for_log = builtin_prompt.to_string();
+            let tail = Arc::clone(stderr_tail);
             AcpAgent::from_args(&refs)
                 .map(|a| {
                     a.with_debug(move |line, dir| {
                         if dir == sacp_tokio::LineDirection::Stderr {
-                            log_agent_stderr(&agent_name, line, &prompt_for_log);
+                            capture_agent_stderr(&tail, line, &prompt_for_log);
                         }
                     })
                 })
@@ -811,15 +952,19 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                 )
             })?;
             let platform = registry::current_platform();
-            let _ = platforms
-                .iter()
-                .find(|p| p.platform == platform)
-                .ok_or_else(|| {
-                    AcpError::PlatformNotSupported(format!(
-                        "{} is not available on {platform}",
-                        meta.name
-                    ))
-                })?;
+            if !registry::binary_platform_supported(agent_type, platforms) {
+                return Err(AcpError::PlatformNotSupported(format!(
+                    "{} is not available on {platform}",
+                    meta.name
+                )));
+            }
+            if platforms.is_empty() {
+                tracing::debug!(
+                    agent = meta.name,
+                    agent_type = %agent_type,
+                    "trusted ManagedBinary platform delegated to Fusion artifact"
+                );
+            }
 
             // Session-page connect must never trigger a download. Resolve only
             // the explicitly active version so pin/switch/rollback decisions
@@ -859,7 +1004,6 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                 .unwrap_or(0);
             let mut server = McpServerStdio::new(meta.name, &binary_str);
             let cmd_args: Vec<String> = args.iter().map(|a| (*a).to_string()).collect();
-            let cmd_args_for_log = cmd_args.clone();
             if !cmd_args.is_empty() {
                 server = server.args(cmd_args);
             }
@@ -872,23 +1016,24 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                     .collect();
                 server = server.env(env_vars);
             }
-            // Spawn-time diagnostic dump: binary identity, args, and env
-            // key list (values omitted — they may contain API keys). If
-            // the connection hangs later, these lines pin down exactly
-            // which binary was invoked and how.
+            // Log only bounded launch metadata. Full paths, arguments, and
+            // environment values can contain user or credential material.
             tracing::info!(
-                "[ACP][{}] binary_path={} size={} platform={} args={:?} env_keys={:?}",
-                meta.name,
-                binary_str,
+                agent = meta.name,
+                binary_name = binary_path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("<unknown>"),
                 binary_size,
-                registry::current_platform(),
-                cmd_args_for_log,
-                env_key_list
+                platform = registry::current_platform(),
+                arg_count = args.len(),
+                env_key_count = env_key_list.len(),
+                "[ACP] managed binary resolved"
             );
 
             // Stdio logging policy:
-            // - stderr is always on: it's the agent's own diagnostic
-            //   output (ANSI log lines) and does not contain user data.
+            // - stderr is captured in a redacted, bounded in-memory ring and
+            //   is never written as raw INFO output.
             // - stdin / stdout carry JSON-RPC traffic that includes
             //   prompt text, tool-call arguments, file read/write
             //   contents, and permission-response payloads — all of
@@ -897,25 +1042,29 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
             //   the `IYW_CLAW_ACP_DEBUG=1` env var so production builds
             //   don't persist user content into OS-level log files
             //   (Console.app on macOS, journald on Linux).
-            // - Max line length is kept short so what does get logged
-            //   captures the JSON-RPC envelope (method, id) rather
-            //   than large payload bodies.
+            // - Debug logging extracts only the JSON-RPC envelope metadata;
+            //   it never writes the complete frame.
             let stdio_debug_enabled = std::env::var("IYW_CLAW_ACP_DEBUG")
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false);
             let agent_name = meta.name.to_string();
+            let prompt_for_log = builtin_prompt.to_string();
+            let tail = Arc::clone(stderr_tail);
             Ok(
                 AcpAgent::new(sacp::schema::McpServer::Stdio(server)).with_debug(
                     move |line, dir| {
-                        let (tag, enabled) = match dir {
-                            sacp_tokio::LineDirection::Stderr => ("stderr", true),
-                            sacp_tokio::LineDirection::Stdout => ("stdout", stdio_debug_enabled),
-                            sacp_tokio::LineDirection::Stdin => ("stdin", stdio_debug_enabled),
-                        };
-                        if !enabled {
-                            return;
+                        match dir {
+                            sacp_tokio::LineDirection::Stderr => {
+                                capture_agent_stderr(&tail, line, &prompt_for_log);
+                            }
+                            sacp_tokio::LineDirection::Stdout if stdio_debug_enabled => {
+                                log_stdio_debug_line(&agent_name, "stdout", line);
+                            }
+                            sacp_tokio::LineDirection::Stdin if stdio_debug_enabled => {
+                                log_stdio_debug_line(&agent_name, "stdin", line);
+                            }
+                            _ => {}
                         }
-                        log_stdio_debug_line(&agent_name, tag, line);
                     },
                 ),
             )
@@ -938,7 +1087,23 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
             let mut merged_env = merge_agent_env(env, runtime_env)
                 .into_iter()
                 .collect::<BTreeMap<_, _>>();
-            for (key, value) in crate::acp::binary_cache::uv_runtime_env(&storage) {
+            let active_version = runtime_env
+                .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
+                .map(String::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    AcpError::SdkNotInstalled(format!(
+                        "{} is not installed. Please install it in Agent Settings.",
+                        meta.name
+                    ))
+                })?;
+            let uv_env = crate::acp::version_center::uvx_bundle_env(
+                &storage,
+                agent_type,
+                active_version,
+            )
+            .unwrap_or_else(|| crate::acp::binary_cache::uv_runtime_env(&storage));
+            for (key, value) in uv_env {
                 merged_env.insert(key.to_string(), value.to_string_lossy().into_owned());
             }
             let mut parts: Vec<String> = Vec::new();
@@ -954,16 +1119,6 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                 parts.extend(crate::commands::acp::uvx_python_args(python));
                 parts.push("--offline".into());
                 parts.push("--from".into());
-                let active_version = runtime_env
-                    .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
-                    .map(String::as_str)
-                    .filter(|value| !value.trim().is_empty())
-                    .ok_or_else(|| {
-                        AcpError::SdkNotInstalled(format!(
-                            "{} is not installed. Please install it in Agent Settings.",
-                            meta.name
-                        ))
-                    })?;
                 if !crate::acp::binary_cache::is_uvx_agent_version_prepared(
                     &storage,
                     agent_type,
@@ -993,13 +1148,13 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                 )));
             }
             let refs: Vec<&str> = parts.iter().map(|s| s.as_str()).collect();
-            let agent_name = meta.name.to_string();
             let prompt_for_log = builtin_prompt.to_string();
+            let tail = Arc::clone(stderr_tail);
             AcpAgent::from_args(&refs)
                 .map(|a| {
                     a.with_debug(move |line, dir| {
                         if dir == sacp_tokio::LineDirection::Stderr {
-                            log_agent_stderr(&agent_name, line, &prompt_for_log);
+                            capture_agent_stderr(&tail, line, &prompt_for_log);
                         }
                     })
                 })
@@ -1045,14 +1200,17 @@ pub(crate) async fn spawn_agent_connection(
     owner_window_label: String,
     emitter: EventEmitter,
     connections: Arc<tokio::sync::Mutex<HashMap<String, AgentConnection>>>,
+    connection_tasks: Arc<crate::acp::connection_tasks::ConnectionTaskRegistry>,
     runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
     startup_trace: crate::acp::startup_trace::StartupTrace,
     preferred_mode_id: Option<String>,
     preferred_config_values: BTreeMap<String, String>,
     user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
     delegation_injection: Option<DelegationInjection>,
+    builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
     version_center_db: Option<sea_orm::DatabaseConnection>,
 ) -> Result<tokio::sync::oneshot::Receiver<()>, AcpError> {
+    let spawn_gate = connection_tasks.begin_spawn().await?;
     // 恢复会话（session_id 为 Some）走 reconcile_resumed_session：保持策略
     // 代际，只刷新允许热更新的安全字段；新建会话走完整 reconcile。两种路径
     // 都先经过 provider overlay 门，失败都会阻止 spawn。
@@ -1081,6 +1239,8 @@ pub(crate) async fn spawn_agent_connection(
         ))
     })?;
 
+    let hermes_memory = crate::context_governor::diagnose_hermes_memory(agent_type, &runtime_env);
+
     // Create the authoritative session state up front. Subsequent emit_with_state
     // calls write through this state and increment its seq counter so the first
     // event the frontend sees has seq=1, not the placeholder 0 from Phase 0.
@@ -1096,7 +1256,13 @@ pub(crate) async fn spawn_agent_connection(
         .map(|model| model.trim())
         .filter(|model| !model.is_empty())
         .map(str::to_string);
+    initial_state.managed_agent_version = runtime_env
+        .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
+        .map(String::as_str)
+        .filter(|version| !version.trim().is_empty())
+        .map(str::to_string);
     initial_state.startup_trace = Some(startup_trace.clone());
+    initial_state.hermes_memory = hermes_memory.native_memory;
     initial_state.user_memory_context = user_memory_context;
     if session_id.is_some() {
         // The external session already retains the user-memory envelope in its
@@ -1144,6 +1310,7 @@ pub(crate) async fn spawn_agent_connection(
     // nothing at all reaches the log. Emit + log here so the failure is
     // attributable to a concrete path.
     let process_prepare_stage = startup_trace.stage("process_prepare");
+    let stderr_tail = stderr_tail_for_runtime_host(agent_type);
     let launch = async {
         let storage = AgentStoragePaths::active().ok_or_else(|| {
             AcpError::SdkNotInstalled(
@@ -1163,17 +1330,20 @@ pub(crate) async fn spawn_agent_connection(
         .await?;
         let process_fingerprint =
             crate::commands::acp::fingerprint_config(agent_type, &prepared.environment);
+        let process_cwd =
+            runtime_host_process_cwd(agent_type, &storage, &launch_cwd).to_path_buf();
         let agent = build_agent(AgentLaunchSpec {
             agent_type,
             runtime_env: &prepared.environment,
-            cwd: runtime_host_process_cwd(agent_type, &storage, &launch_cwd),
+            cwd: &process_cwd,
             builtin_prompt: &prepared.prompt.text,
+            stderr_tail: &stderr_tail,
         })
         .await?;
-        Ok::<_, AcpError>((agent, prepared, process_fingerprint))
+        Ok::<_, AcpError>((agent, prepared, process_fingerprint, process_cwd))
     }
     .await;
-    let (agent, prepared_prompt, process_fingerprint) = match launch {
+    let (agent, prepared_prompt, process_fingerprint, process_cwd) = match launch {
         Ok(launch) => {
             process_prepare_stage.finish("ok");
             launch
@@ -1198,6 +1368,7 @@ pub(crate) async fn spawn_agent_connection(
                     message: error.to_string(),
                     agent_type: agent_type.to_string(),
                     code,
+                    details: None,
                     // Terminal: the connection was never inserted into the map
                     // and no `run_connection` task will follow this.
                     terminal: true,
@@ -1216,11 +1387,20 @@ pub(crate) async fn spawn_agent_connection(
         }
     };
     let crate::acp::builtin_prompt_injection::PreparedBuiltinPrompt {
-        environment: _launch_environment,
+        environment: launch_environment,
         prompt: builtin_prompt,
         bridges: prompt_bridges,
         openclaw,
     } = prepared_prompt;
+    let agent_rebuild = AgentRebuildSpec {
+        agent_type,
+        runtime_env: launch_environment,
+        process_cwd,
+        builtin_prompt: Arc::clone(&builtin_prompt.text),
+        additional_file_system_roots: crate::acp::deepseek_config::managed_file_system_roots(
+            agent_type,
+        ),
+    };
 
     // Forward only the iyw-claw git credential helper keys into the terminal
     // runtime — not the agent's API tokens or model provider credentials.
@@ -1248,6 +1428,8 @@ pub(crate) async fn spawn_agent_connection(
     let (cmd_tx, cmd_rx) = mpsc::channel::<ConnectionCommand>(32);
     let cancellation = tokio_util::sync::CancellationToken::new();
     let disconnect_command_ready = Arc::new(AtomicBool::new(false));
+    let http_lease_issued = Arc::new(AtomicBool::new(false));
+    let cleanup_completed = Arc::new(AtomicBool::new(false));
     let conn_id = connection_id.clone();
     let emitter_clone = emitter.clone();
     let cleanup_connections = connections.clone();
@@ -1260,6 +1442,7 @@ pub(crate) async fn spawn_agent_connection(
     // Insert the entry BEFORE spawning the background task so that a
     // fast-failing `run_connection` can never remove it before it was
     // inserted (would otherwise leak the entry).
+    let task_connection_id = connection_id.clone();
     connections.lock().await.insert(
         connection_id.clone(),
         AgentConnection {
@@ -1270,27 +1453,40 @@ pub(crate) async fn spawn_agent_connection(
             cmd_tx,
             cancellation: cancellation.clone(),
             disconnect_command_ready: Arc::clone(&disconnect_command_ready),
+            cleanup_completed: Arc::clone(&cleanup_completed),
             state: Arc::clone(&session_state),
             emitter: emitter.clone(),
             prompt_lock: Arc::new(tokio::sync::Mutex::new(())),
             last_observed_fingerprint: config_fingerprint.clone(),
             config_fingerprint,
+            hermes_home_hash: hermes_memory.home_hash,
         },
     );
 
-    tokio::spawn(async move {
+    let (task_registered_tx, task_registered_rx) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        let _parent_cancellation_guard = cancellation.clone().drop_guard();
         let connection_started_at = std::time::Instant::now();
+        let _completion = ConnectionTaskCompletion {
+            completed: cleanup_completed,
+        };
         // RAII guard: runs on normal exit AND on panic unwinding, so a
         // panic inside `run_connection` can't leak a stale map entry.
         let _cleanup = ConnectionCleanupGuard {
             connections: cleanup_connections,
             connection_id: cleanup_connection_id,
         };
+        if task_registered_rx.await.is_err() {
+            return;
+        }
 
         let cleanup_injection = delegation_injection.clone();
+        let cleanup_builtin_mcp = builtin_mcp.clone();
+        let cleanup_http_lease_issued = Arc::clone(&http_lease_issued);
         let result = run_with_async_cleanup(
             run_connection(
                 agent,
+                agent_rebuild,
                 conn_id.clone(),
                 agent_type,
                 working_dir,
@@ -1303,15 +1499,24 @@ pub(crate) async fn spawn_agent_connection(
                 preferred_mode_id,
                 preferred_config_values,
                 delegation_injection,
+                builtin_mcp,
                 builtin_prompt,
                 openclaw.session_key,
                 process_fingerprint,
                 runtime_hosts,
                 version_center_db,
+                stderr_tail,
                 cancellation,
                 disconnect_command_ready,
+                http_lease_issued,
             ),
-            cleanup_connection_resources(cleanup_injection.as_ref(), &conn_id, prompt_bridges),
+            cleanup_connection_resources(
+                cleanup_injection.as_ref(),
+                cleanup_builtin_mcp.as_ref(),
+                cleanup_http_lease_issued.as_ref(),
+                &conn_id,
+                prompt_bridges,
+            ),
         )
         .await;
         let connection_failed = result.is_err();
@@ -1335,7 +1540,7 @@ pub(crate) async fn spawn_agent_connection(
             .await;
             if !recovery_handled {
                 let code = e.code().map(String::from);
-                let detail = safe_prompt_error_detail(&e.to_string());
+                let detail = safe_error_detail(&e.to_string());
                 // The frontend gets an `AcpEvent::Error` from here, but until this
                 // log existed the backend recorded nothing: a failure inside
                 // `connect_with` (the OS-level process spawn) left only the
@@ -1357,6 +1562,7 @@ pub(crate) async fn spawn_agent_connection(
                         message: e.to_string(),
                         agent_type: agent_type.to_string(),
                         code,
+                        details: None,
                         // The only genuinely terminal emit site: `run_connection`
                         // is unwinding and the next event is `Disconnected`.
                         // The lifecycle worker uses this flag to decide whether
@@ -1409,6 +1615,9 @@ pub(crate) async fn spawn_agent_connection(
         // `_cleanup` is dropped here — removes the connection entry from
         // the manager map. Same drop semantics apply on panic unwinding.
     });
+    connection_tasks.register(task_connection_id, task).await;
+    let _ = task_registered_tx.send(());
+    drop(spawn_gate);
 
     Ok(session_started_rx)
 }
@@ -1440,26 +1649,43 @@ pub(crate) async fn prewarm_agent_runtime(
     )
     .await?;
     let fingerprint = crate::commands::acp::fingerprint_config(agent_type, &prepared.environment);
+    let stderr_tail = stderr_tail_for_runtime_host(agent_type);
     let agent = build_agent(AgentLaunchSpec {
         agent_type,
         runtime_env: &prepared.environment,
         cwd: runtime_host_process_cwd(agent_type, &storage, storage.root()),
         builtin_prompt: &prepared.prompt.text,
+        stderr_tail: &stderr_tail,
     })
     .await?;
-    let host = runtime_hosts
-        .acquire(
-            crate::acp::runtime_host::RuntimeHostKey::new(agent_type, fingerprint),
-            agent,
-        )
-        .await?;
-    host.release_route_reservation();
+    let host_key = runtime_host_key(agent_type, fingerprint).await?;
+    let _reservation = runtime_hosts.acquire(host_key, agent, stderr_tail).await?;
     Ok(true)
 }
 
-/// Shared state for pending permission responders.
-pub(crate) type PendingPermissions =
-    Arc<tokio::sync::Mutex<HashMap<String, Responder<RequestPermissionResponse>>>>;
+async fn runtime_host_key(
+    agent_type: AgentType,
+    process_fingerprint: String,
+) -> Result<crate::acp::runtime_host::RuntimeHostKey, AcpError> {
+    let identity = crate::acp::trusted_agents::runtime_identity(agent_type).ok_or_else(|| {
+        AcpError::protocol(format!(
+            "ACP runtime Host identity is not trusted for {agent_type}"
+        ))
+    })?;
+    let policy = crate::acp::runtime_host_policy::resolve(agent_type).await;
+    Ok(crate::acp::runtime_host::RuntimeHostKey::new(
+        agent_type,
+        process_fingerprint,
+        crate::acp::runtime_host::RuntimeHostIdentity {
+            definition_fingerprint: identity.definition_fingerprint,
+            runtime_version: identity.runtime_version,
+            policy,
+        },
+    ))
+}
+
+/// Shared permission responders and their single visible FIFO queue.
+pub(crate) type PendingPermissions = crate::acp::permission_runtime::PendingPermissions;
 
 fn map_session_modes(mode_state: &SessionModeState) -> SessionModeStateInfo {
     SessionModeStateInfo {
@@ -1840,7 +2066,7 @@ async fn emit_session_recovery_failure(
     context.progress.finish();
     context.state.write().await.mark_recovery_failed();
     let code = failure.stable_code();
-    let message = failure.message();
+    let message = safe_error_detail(&failure.message());
     tracing::warn!(
         connection_id = context.connection_id,
         agent_type = %context.agent_type,
@@ -1947,6 +2173,29 @@ fn agent_delivers_wire_mcp(agent_type: AgentType) -> bool {
 
 fn agent_supports_iyw_claw_mcp(agent_type: AgentType) -> bool {
     registry::get_agent_meta(agent_type).supports_mcp && agent_delivers_wire_mcp(agent_type)
+}
+
+fn intersect_trusted_session_capabilities(
+    agent_type: AgentType,
+    runtime_resume: bool,
+    runtime_load: bool,
+) -> (bool, bool) {
+    let Some(definition) = crate::acp::trusted_agents::definition_for_agent(agent_type) else {
+        return (runtime_resume, runtime_load);
+    };
+    let supports_resume = runtime_resume && definition.capabilities.resume;
+    let supports_load = runtime_load && definition.capabilities.load;
+    if runtime_resume != supports_resume || runtime_load != supports_load {
+        tracing::warn!(
+            agent_type = %agent_type,
+            runtime_resume,
+            runtime_load,
+            trusted_resume = definition.capabilities.resume,
+            trusted_load = definition.capabilities.load,
+            "[ACP] ignored session recovery capabilities outside trusted definition"
+        );
+    }
+    (supports_resume, supports_load)
 }
 
 fn agent_reads_native_mcp_config(agent_type: AgentType) -> bool {
@@ -2068,24 +2317,45 @@ fn companion_features_arg(
 /// stash for revocation, plus whether the `check_user_feedback` tool was exposed
 /// to this agent (so the session can gate submit + UI on its real capability).
 struct CompanionInjection {
-    token: String,
+    /// Present only for the legacy sidecar readiness handshake. HTTP authority
+    /// is kept inside the process registry and is never copied into SessionState.
+    readiness_token: Option<String>,
     feedback_available: bool,
     memory_tools_expected: bool,
 }
 
 struct PreparedCompanion {
-    server: McpServerStdio,
+    server: McpServer,
     injection: CompanionInjection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BuiltinMcpRoute {
+    Http { server_name: String },
+    Legacy,
+    Unavailable,
+}
+
+impl BuiltinMcpRoute {
+    fn http_server_name(&self) -> Option<&str> {
+        match self {
+            Self::Http { server_name } => Some(server_name),
+            Self::Legacy | Self::Unavailable => None,
+        }
+    }
 }
 
 struct CompanionLaunchPreparation {
     health: crate::user_memory::CompanionHealthSnapshot,
     companion: Option<PreparedCompanion>,
+    route: BuiltinMcpRoute,
+    policy_monitor: Option<CapabilityRevocationMonitor>,
 }
 
 struct MemoryLaunchAccess {
     confirmed_append: bool,
     candidate_proposal: bool,
+    recall: bool,
     turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
 }
 
@@ -2109,9 +2379,15 @@ async fn user_memory_runtime_after_companion_ready(
             host_bridge_available: true,
         };
     }
+    let Some(readiness_token) = companion.readiness_token.as_deref() else {
+        return crate::user_memory::UserMemoryRuntimeEnvironment {
+            companion_health: health.clone(),
+            host_bridge_available: true,
+        };
+    };
     let Some(report) = injection
         .tokens
-        .wait_for_companion_ready(&companion.token, COMPANION_READY_WAIT_TIMEOUT)
+        .wait_for_companion_ready(readiness_token, COMPANION_READY_WAIT_TIMEOUT)
         .await
     else {
         tracing::warn!(
@@ -2211,19 +2487,24 @@ async fn finalize_user_memory_launch(
 /// companion tools silently. Skipping leaves the agent functional without the
 /// built-in companion features when iyw-claw-mcp didn't make it into the install.
 ///
-/// The server is registered under the name `iyw-claw-mcp` (hyphens), so an
-/// agent that namespaces MCP tools sees names such as
-/// `mcp__iyw-claw-mcp__analyze_image`; callers must tolerate both forms.
-async fn prepare_iyw_claw_mcp(
+/// Each launch uses an opaque, bounded `iyw-claw-builtin-<uuid-prefix>` server
+/// name so MCP authority cannot be inferred or reused across parent
+/// connections. The 32-character ceiling is required by DeepSeek Harness and
+/// remains conservative for other clients. Agents that namespace MCP tools
+/// must discover the current name from the injected server configuration rather
+/// than relying on a fixed prefix.
+struct ResolvedCompanionFeatures {
+    features: crate::acp::delegation::companion::CompanionFeatures,
+    features_arg: String,
+    feedback_available: bool,
+    memory_tools_expected: bool,
+}
+
+async fn resolve_companion_features(
     injection: &DelegationInjection,
-    parent_connection_id: &str,
-    working_dir: &Path,
-    agent_type: AgentType,
-    memory_access: MemoryLaunchAccess,
     health: &crate::user_memory::CompanionHealthSnapshot,
-) -> Option<PreparedCompanion> {
-    // `images` carries both display and analysis tools for every MCP-capable
-    // session. Remaining feature groups stay independently settings-gated.
+    memory_access: &MemoryLaunchAccess,
+) -> ResolvedCompanionFeatures {
     let has_tool = |name: &str| health.advertised_tools.iter().any(|tool| tool == name);
     let delegation_enabled = injection.broker.config_snapshot().await.enabled
         && [
@@ -2233,12 +2514,13 @@ async fn prepare_iyw_claw_mcp(
         ]
         .into_iter()
         .all(has_tool);
-    let feedback_enabled = injection.feedback.is_enabled().await && has_tool("check_user_feedback");
+    let feedback_available =
+        injection.feedback.is_enabled().await && has_tool("check_user_feedback");
     let ask_enabled = injection.ask.is_enabled().await && has_tool("ask_user_question");
     let sessions_enabled = injection.sessions.is_enabled().await && has_tool("get_session_info");
     let mut features_arg = companion_features_arg(
         delegation_enabled,
-        feedback_enabled,
+        feedback_available,
         ask_enabled,
         sessions_enabled,
         memory_access.confirmed_append,
@@ -2250,12 +2532,43 @@ async fn prepare_iyw_claw_mcp(
     )) && crate::browser::BROWSER_AGENT_TOOL_NAMES
         .iter()
         .all(|tool| has_tool(tool));
+    append_optional_companion_features(&mut features_arg, memory_access, browser_enabled);
+    let features = crate::acp::delegation::companion::CompanionFeatures::parse(Some(&features_arg));
+    ResolvedCompanionFeatures {
+        features,
+        features_arg,
+        feedback_available,
+        memory_tools_expected: memory_access.confirmed_append
+            || memory_access.candidate_proposal
+            || memory_access.recall,
+    }
+}
+
+fn append_optional_companion_features(
+    features_arg: &mut String,
+    memory_access: &MemoryLaunchAccess,
+    browser_enabled: bool,
+) {
     if browser_enabled {
         features_arg.push_str(",browser");
     }
     if memory_access.candidate_proposal {
         features_arg.push_str(",memory-proposal");
     }
+    if memory_access.recall {
+        features_arg.push_str(",memory-recall");
+    }
+}
+
+async fn prepare_iyw_claw_mcp(
+    injection: &DelegationInjection,
+    parent_connection_id: &str,
+    working_dir: &Path,
+    agent_type: AgentType,
+    memory_access: MemoryLaunchAccess,
+    health: &crate::user_memory::CompanionHealthSnapshot,
+) -> Option<PreparedCompanion> {
+    let resolved = resolve_companion_features(injection, health, &memory_access).await;
     let Some(binary_path) = health.selected_path.clone() else {
         tracing::warn!(
             connection_id = parent_connection_id,
@@ -2272,7 +2585,7 @@ async fn prepare_iyw_claw_mcp(
     tracing::info!(
         connection_id = parent_connection_id,
         agent = ?agent_type,
-        features = %features_arg,
+        features = %resolved.features_arg,
         binary = %binary_path.display(),
         data_dir = ?companion_data_dir,
         "[ACP] injecting iyw-claw-mcp companion"
@@ -2280,6 +2593,9 @@ async fn prepare_iyw_claw_mcp(
     let token = uuid::Uuid::new_v4().to_string();
     let opaque_source_id =
         crate::acp::memory_turn::derive_opaque_source_id(&token, parent_connection_id);
+    let memory_workspace_key = crate::commands::skill_inventory::workspace_key(Some(
+        working_dir.to_string_lossy().as_ref(),
+    ));
     injection
         .tokens
         .register_companion(
@@ -2287,16 +2603,19 @@ async fn prepare_iyw_claw_mcp(
             crate::acp::delegation::listener::TokenEntry {
                 parent_connection_id: parent_connection_id.to_string(),
                 working_dir: working_dir.to_path_buf(),
+                memory_workspace_key,
                 agent_type,
                 memory_write_enabled: memory_access.confirmed_append,
                 memory_proposal_enabled: memory_access.candidate_proposal,
+                memory_recall_enabled: memory_access.recall,
                 opaque_source_id,
                 memory_turn_tracker: memory_access.turn_tracker,
                 cancellation: tokio_util::sync::CancellationToken::new(),
+                mutation_gate: crate::acp::delegation::mutation_gate::MutationGate::new(),
             },
         )
         .await;
-    let mut server = McpServerStdio::new(IYW_CLAW_MCP_SERVER_NAME, binary_path);
+    let mut server = McpServerStdio::new(builtin_mcp_server_name(), binary_path);
     if let Some(data_dir) = companion_data_dir {
         server = server.env(vec![sacp::schema::EnvVariable::new(
             "IYW_CLAW_DATA_DIR",
@@ -2323,44 +2642,534 @@ async fn prepare_iyw_claw_mcp(
         std::process::id().to_string(),
         // Tool groups to expose this launch (image tools are always enabled).
         "--features".to_string(),
-        features_arg,
+        resolved.features_arg,
         "--working-dir".to_string(),
         working_dir.to_string_lossy().to_string(),
     ]);
     Some(PreparedCompanion {
-        server,
+        server: McpServer::Stdio(server),
         injection: CompanionInjection {
-            token,
-            feedback_available: feedback_enabled,
-            memory_tools_expected: memory_access.confirmed_append
-                || memory_access.candidate_proposal,
+            readiness_token: Some(token),
+            feedback_available: resolved.feedback_available,
+            memory_tools_expected: resolved.memory_tools_expected,
         },
     })
 }
 
-async fn prepare_companion_launch(
-    injection: Option<&DelegationInjection>,
-    connection_id: &str,
-    working_dir: &Path,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuiltinMcpTransportMode {
+    Auto,
+    Http,
+    Legacy,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SessionRequestStage {
+    New,
+    Load,
+    Resume,
+}
+
+impl SessionRequestStage {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::New => "new",
+            Self::Load => "load",
+            Self::Resume => "resume",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct BuiltinHttpRejection {
+    stage: SessionRequestStage,
+    server_name: String,
+    source: sacp::Error,
+}
+
+#[derive(Clone, Copy)]
+struct HttpRejectionContext<'a> {
+    mode: BuiltinMcpTransportMode,
+    route: &'a BuiltinMcpRoute,
+    stage: SessionRequestStage,
+}
+
+#[derive(Debug)]
+enum ConnectionAttemptError {
+    Protocol(sacp::Error),
+    BuiltinHttpRejected(BuiltinHttpRejection),
+}
+
+impl From<sacp::Error> for ConnectionAttemptError {
+    fn from(error: sacp::Error) -> Self {
+        Self::Protocol(error)
+    }
+}
+
+fn classify_builtin_http_rejection(
+    context: HttpRejectionContext<'_>,
+    error: &sacp::Error,
+) -> Option<BuiltinHttpRejection> {
+    let server_name = context.route.http_server_name()?;
+    (context.mode == BuiltinMcpTransportMode::Auto
+        && is_explicit_http_mcp_rejection(error, server_name))
+    .then(|| BuiltinHttpRejection {
+        stage: context.stage,
+        server_name: server_name.to_string(),
+        source: error.clone(),
+    })
+}
+
+fn is_explicit_http_mcp_rejection(error: &sacp::Error, server_name: &str) -> bool {
+    if !matches!(error.code, ErrorCode::InvalidParams) {
+        return false;
+    }
+    let server_name = server_name.to_ascii_lowercase();
+    if rejection_text_matches(&error.message, &server_name) {
+        return true;
+    }
+    let Some(data) = error.data.as_ref() else {
+        return false;
+    };
+    RejectionEvidence::new(&server_name).matches(data, 0)
+}
+
+fn rejection_text_matches(value: &str, server_name: &str) -> bool {
+    let value = value.to_ascii_lowercase();
+    value.contains(server_name) && has_explicit_http_rejection(&value)
+}
+
+struct RejectionEvidence<'a> {
+    server_name: &'a str,
+    remaining_nodes: usize,
+}
+
+impl<'a> RejectionEvidence<'a> {
+    fn new(server_name: &'a str) -> Self {
+        Self {
+            server_name,
+            remaining_nodes: 64,
+        }
+    }
+
+    fn matches(&mut self, value: &serde_json::Value, depth: usize) -> bool {
+        self.matches_with_scope(value, depth, false)
+    }
+
+    fn matches_with_scope(
+        &mut self,
+        value: &serde_json::Value,
+        depth: usize,
+        server_scoped: bool,
+    ) -> bool {
+        if depth > 4 || self.remaining_nodes == 0 {
+            return false;
+        }
+        self.remaining_nodes -= 1;
+        match value {
+            serde_json::Value::String(text) => {
+                rejection_text_matches(text, self.server_name)
+                    || (server_scoped && has_explicit_http_rejection(text))
+            }
+            serde_json::Value::Array(items) => items
+                .iter()
+                .any(|item| self.matches_with_scope(item, depth + 1, server_scoped)),
+            serde_json::Value::Object(fields) => self.matches_object(fields, depth, server_scoped),
+            _ => false,
+        }
+    }
+
+    fn matches_object(
+        &mut self,
+        fields: &serde_json::Map<String, serde_json::Value>,
+        depth: usize,
+        server_scoped: bool,
+    ) -> bool {
+        let mut server_identified = server_scoped;
+        let mut http_marker = false;
+        let mut rejection_marker = false;
+        let mut rejection_target = false;
+        let mut explicit_target_present = false;
+        let mut explicit_rejection = false;
+        let mut explicit_http_rejection = false;
+        for (key, item) in fields {
+            if let Some(text) = scalar_evidence(item) {
+                if rejection_text_matches(&text, self.server_name) {
+                    return true;
+                }
+                if is_server_identity_key(key) && text.contains(self.server_name) {
+                    server_identified = true;
+                }
+                http_marker |= has_http_field_marker_for(key, &text);
+                rejection_marker |= has_rejection_marker(&text);
+                if is_rejection_target_key(key) {
+                    explicit_target_present = true;
+                    rejection_target |= has_http_rejection_target(&text);
+                }
+                explicit_rejection |=
+                    is_rejection_reason_key(key) && is_explicit_rejection_value(&text);
+                explicit_http_rejection |= has_explicit_http_rejection(&text);
+            }
+        }
+        // Only combine scalar fields that belong to this one object. Nested
+        // objects/arrays are evaluated independently below; otherwise a
+        // server id from one node could be paired with an HTTP error from an
+        // unrelated sibling node and trigger a false fallback.
+        let target_matches = !explicit_target_present || rejection_target;
+        let reason_matches = if explicit_target_present {
+            rejection_target
+        } else {
+            explicit_rejection || explicit_http_rejection
+        };
+        if server_identified && http_marker && rejection_marker && target_matches && reason_matches
+        {
+            return true;
+        }
+        for (key, item) in fields {
+            let keyed_server = key.eq_ignore_ascii_case(self.server_name);
+            if (keyed_server || is_rejection_evidence_key(key))
+                && self.matches_with_scope(item, depth + 1, server_scoped || keyed_server)
+            {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+fn scalar_evidence(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(text) => Some(text.to_ascii_lowercase()),
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::Bool(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn is_server_identity_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "name" | "server" | "servername" | "mcpserver" | "url"
+    )
+}
+
+fn has_http_field_marker_for(key: &str, value: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    match key.as_str() {
+        "transport" => value.contains("http"),
+        "url" => value.starts_with("http://") || value.starts_with("https://"),
+        _ => has_http_field_marker(value),
+    }
+}
+
+fn is_rejection_evidence_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "message"
+            | "reason"
+            | "error"
+            | "detail"
+            | "code"
+            | "field"
+            | "path"
+            | "parameter"
+            | "name"
+            | "server"
+            | "servername"
+            | "mcpserver"
+            | "type"
+            | "transport"
+            | "url"
+            | "header"
+            | "headers"
+            | "authorization"
+            | "mcpservers"
+            | "mcp_servers"
+            | "mcp-servers"
+            | "errors"
+            | "issues"
+            | "violations"
+            | "causes"
+    )
+}
+
+fn is_rejection_target_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "field" | "path" | "parameter"
+    )
+}
+
+fn is_rejection_reason_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "reason" | "error" | "message" | "detail" | "code" | "status"
+    )
+}
+
+fn has_http_rejection_target(value: &str) -> bool {
+    [
+        "mcpserver",
+        "mcp_server",
+        "mcp-server",
+        "mcp server",
+        "transport",
+        "header",
+        "authorization",
+        "url",
+        "http",
+    ]
+    .iter()
+    .any(|marker| value.contains(marker))
+}
+
+fn is_explicit_rejection_value(value: &str) -> bool {
+    let normalized = value.trim().replace('_', " ").replace('-', " ");
+    matches!(
+        normalized.as_str(),
+        "unsupported"
+            | "not supported"
+            | "does not support"
+            | "not allowed"
+            | "rejected"
+            | "unknown field"
+            | "unrecognized field"
+            | "unexpected field"
+            | "additional field"
+            | "unsupported transport"
+            | "transport unsupported"
+    )
+}
+
+fn has_http_field_marker(value: &str) -> bool {
+    ["http", "header", "authorization", "url", "transport"]
+        .iter()
+        .any(|marker| value.contains(marker))
+}
+
+fn has_rejection_marker(value: &str) -> bool {
+    [
+        "reject",
+        "unsupported",
+        "not support",
+        "does not support",
+        "invalid",
+        "not allowed",
+        "unknown",
+        "unrecognized",
+        "unexpected",
+        "additional field",
+    ]
+    .iter()
+    .any(|marker| value.contains(marker))
+}
+
+fn has_explicit_http_rejection(value: &str) -> bool {
+    let normalized = value
+        .to_ascii_lowercase()
+        .chars()
+        .map(|character| {
+            character
+                .is_ascii_alphanumeric()
+                .then_some(character)
+                .unwrap_or(' ')
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    [
+        "unsupported http",
+        "http unsupported",
+        "http is unsupported",
+        "does not support http",
+        "doesn t support http",
+        "doesnt support http",
+        "not support http",
+        "http not supported",
+        "http is not supported",
+        "invalid http transport",
+        "invalid transport http",
+        "http transport invalid",
+        "http transport is invalid",
+        "unsupported transport http",
+        "transport http not supported",
+        "transport http is unsupported",
+        "rejected http",
+        "rejects http",
+        "http rejected",
+        "http not allowed",
+        "http is not allowed",
+        "does not allow http",
+        "unsupported header",
+        "header unsupported",
+        "headers unsupported",
+        "header is not supported",
+        "headers are not supported",
+        "does not support header",
+        "authorization not allowed",
+        "invalid authorization header",
+    ]
+    .iter()
+    .any(|marker| normalized.contains(marker))
+}
+
+fn classify_recovery_http_rejection(
+    context: HttpRejectionContext<'_>,
+    failure: &RecoveryFailure,
+) -> Option<BuiltinHttpRejection> {
+    let RecoveryFailure::Remote(error) = failure else {
+        return None;
+    };
+    classify_builtin_http_rejection(context, error)
+}
+
+impl BuiltinMcpTransportMode {
+    fn from_env() -> Self {
+        let Ok(raw) = std::env::var("IYW_CLAW_BUILTIN_MCP_TRANSPORT") else {
+            return Self::Auto;
+        };
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "auto" | "" => Self::Auto,
+            "http" => Self::Http,
+            "legacy" => Self::Legacy,
+            value => {
+                tracing::warn!(
+                    value,
+                    "[ACP] invalid IYW_CLAW_BUILTIN_MCP_TRANSPORT; using auto"
+                );
+                Self::Auto
+            }
+        }
+    }
+}
+
+fn in_process_companion_health(
+    client: &crate::acp::builtin_mcp::BuiltinMcpClient,
+) -> crate::user_memory::CompanionHealthSnapshot {
+    crate::user_memory::CompanionHealthSnapshot {
+        status: crate::user_memory::CompanionHealthStatus::Ready,
+        reason: crate::user_memory::CompanionHealthReason::Ready,
+        expected_version: env!("CARGO_PKG_VERSION").to_string(),
+        detected_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        selected_path: None,
+        advertised_tools: client.advertised_tools().to_vec(),
+        detail: None,
+    }
+}
+
+struct CompanionLaunchContext<'a> {
+    injection: Option<&'a DelegationInjection>,
+    builtin_mcp: Option<&'a crate::acp::builtin_mcp::BuiltinMcpClient>,
+    http_lease_issued: &'a AtomicBool,
+    connection_id: &'a str,
+    working_dir: &'a Path,
     agent_type: AgentType,
-    state: &Arc<RwLock<SessionState>>,
+    state: &'a Arc<RwLock<SessionState>>,
+    agent_http_capable: bool,
+    mode: BuiltinMcpTransportMode,
+    parent_cancellation: &'a tokio_util::sync::CancellationToken,
+}
+
+fn http_session_authority(
+    context: &CompanionLaunchContext<'_>,
+    resolved: &ResolvedCompanionFeatures,
+    memory_access: &MemoryLaunchAccess,
+    server_name: &str,
+) -> crate::acp::builtin_mcp::SessionAuthority {
+    crate::acp::builtin_mcp::SessionAuthority::new(
+        crate::acp::builtin_mcp::SessionIdentity::new(
+            context.connection_id.to_string(),
+            context.working_dir.to_path_buf(),
+            context.agent_type,
+            server_name.to_string(),
+        ),
+        crate::acp::builtin_mcp::FeatureSnapshot::capture(resolved.features),
+        crate::acp::builtin_mcp::MemoryPermissions::new(
+            memory_access.confirmed_append,
+            memory_access.candidate_proposal,
+            memory_access.recall,
+        ),
+    )
+    .with_parent_cancellation(context.parent_cancellation)
+}
+
+async fn prepare_http_companion(
+    context: &CompanionLaunchContext<'_>,
+    client: &crate::acp::builtin_mcp::BuiltinMcpClient,
+    injection: &DelegationInjection,
+) -> Result<CompanionLaunchPreparation, crate::acp::builtin_mcp::BuiltinMcpIssueError> {
+    let health = in_process_companion_health(client);
+    let memory_access = project_memory_launch_access(context.state, &health, true).await;
+    let resolved = resolve_companion_features(injection, &health, &memory_access).await;
+    let server_name = builtin_mcp_server_name();
+    let authority = http_session_authority(context, &resolved, &memory_access, &server_name);
+    let bearer = client
+        .issue(authority, Arc::clone(&memory_access.turn_tracker))
+        .await?;
+    context.http_lease_issued.store(true, Ordering::Release);
+    let server =
+        McpServerHttp::new(server_name.clone(), client.endpoint()).headers(vec![HttpHeader::new(
+            "Authorization",
+            format!("Bearer {}", bearer.as_str()),
+        )]);
+    tracing::info!(
+        connection_id = context.connection_id,
+        agent = %context.agent_type,
+        transport = "http",
+        server_name,
+        endpoint = %client.endpoint(),
+        features = %resolved.features_arg,
+        "[ACP] selected built-in MCP transport"
+    );
+    Ok(CompanionLaunchPreparation {
+        health,
+        companion: Some(PreparedCompanion {
+            server: McpServer::Http(server),
+            injection: CompanionInjection {
+                readiness_token: None,
+                feedback_available: resolved.feedback_available,
+                memory_tools_expected: resolved.memory_tools_expected,
+            },
+        }),
+        route: BuiltinMcpRoute::Http { server_name },
+        policy_monitor: None,
+    })
+}
+
+async fn prepare_legacy_companion_launch(
+    context: &CompanionLaunchContext<'_>,
 ) -> CompanionLaunchPreparation {
-    let companion_supported = agent_supports_iyw_claw_mcp(agent_type);
-    let host_bridge_available = injection.is_some_and(|value| value.tokens.listener_ready());
+    let companion_supported = agent_supports_iyw_claw_mcp(context.agent_type);
+    let host_bridge_available = context
+        .injection
+        .is_some_and(|value| value.tokens.listener_ready());
+    if companion_supported && !host_bridge_available {
+        tracing::error!(
+            connection_id = context.connection_id,
+            agent = %context.agent_type,
+            transport = "legacy",
+            injection_installed = context.injection.is_some(),
+            listener_ready = false,
+            "[ACP] legacy built-in MCP unavailable: delegation listener is not ready"
+        );
+        return unavailable_companion_launch();
+    }
     let health = if companion_supported && host_bridge_available {
         crate::acp::companion_health::locate_healthy_companion().await
     } else {
         crate::user_memory::CompanionHealthSnapshot::default()
     };
-    let memory_access = project_memory_launch_access(state, &health, host_bridge_available).await;
+    let memory_access =
+        project_memory_launch_access(context.state, &health, host_bridge_available).await;
     let companion = if health.status == crate::user_memory::CompanionHealthStatus::Ready {
-        match injection {
+        match context.injection {
             Some(value) if companion_supported => {
                 prepare_iyw_claw_mcp(
                     value,
-                    connection_id,
-                    working_dir,
-                    agent_type,
+                    context.connection_id,
+                    context.working_dir,
+                    context.agent_type,
                     memory_access,
                     &health,
                 )
@@ -2371,14 +3180,141 @@ async fn prepare_companion_launch(
     } else {
         if companion_supported && host_bridge_available {
             tracing::warn!(
-                connection_id,
+                connection_id = context.connection_id,
                 reason = ?health.reason,
                 "[ACP] iyw-claw-mcp companion unavailable"
             );
         }
         None
     };
-    CompanionLaunchPreparation { health, companion }
+    CompanionLaunchPreparation {
+        health,
+        companion,
+        route: BuiltinMcpRoute::Legacy,
+        policy_monitor: None,
+    }
+}
+
+fn unavailable_companion_launch() -> CompanionLaunchPreparation {
+    CompanionLaunchPreparation {
+        health: Default::default(),
+        companion: None,
+        route: BuiltinMcpRoute::Unavailable,
+        policy_monitor: None,
+    }
+}
+
+async fn companion_policy_monitor(
+    context: &CompanionLaunchContext<'_>,
+) -> Option<CapabilityRevocationMonitor> {
+    if !agent_supports_iyw_claw_mcp(context.agent_type) {
+        tracing::info!(
+            connection_id = context.connection_id,
+            agent = %context.agent_type,
+            transport = "unavailable",
+            "[ACP] built-in MCP is disabled for this Agent"
+        );
+        return None;
+    }
+    let enforcer = match runtime_enforcer() {
+        Ok(enforcer) => enforcer,
+        Err(error) => {
+            tracing::warn!(
+                connection_id = context.connection_id,
+                agent = %context.agent_type,
+                transport = "unavailable",
+                error = %error,
+                "[capability-policy] MCP enforcer unavailable before issuing authority"
+            );
+            return None;
+        }
+    };
+    match enforcer
+        .monitor_existing_agent(
+            context.agent_type,
+            Capability::Mcp,
+            true,
+            Some(context.parent_cancellation.clone()),
+        )
+        .await
+    {
+        Ok(monitor) => Some(monitor),
+        Err(error) => {
+            tracing::warn!(
+                connection_id = context.connection_id,
+                agent = %context.agent_type,
+                transport = "unavailable",
+                error = %error,
+                "[capability-policy] Built-in MCP denied before issuing authority"
+            );
+            None
+        }
+    }
+}
+
+async fn try_prepare_http_companion(
+    context: &CompanionLaunchContext<'_>,
+) -> Option<CompanionLaunchPreparation> {
+    if context.mode == BuiltinMcpTransportMode::Legacy || !context.agent_http_capable {
+        return None;
+    }
+    let (Some(injection), Some(client)) = (context.injection, context.builtin_mcp) else {
+        return None;
+    };
+    if !client.is_ready() {
+        return None;
+    }
+    match prepare_http_companion(context, client, injection).await {
+        Ok(prepared) => Some(prepared),
+        Err(error) => {
+            tracing::warn!(
+                connection_id = context.connection_id,
+                agent = %context.agent_type,
+                transport = "http",
+                error = %error,
+                "[ACP] failed to issue built-in HTTP MCP authority"
+            );
+            None
+        }
+    }
+}
+
+fn strict_http_unavailable(context: &CompanionLaunchContext<'_>) -> CompanionLaunchPreparation {
+    tracing::warn!(
+        connection_id = context.connection_id,
+        agent = %context.agent_type,
+        agent_http_capable = context.agent_http_capable,
+        service_ready = context.builtin_mcp.is_some_and(|client| client.is_ready()),
+        transport = "unavailable",
+        "[ACP] strict HTTP MCP mode could not be satisfied"
+    );
+    unavailable_companion_launch()
+}
+
+async fn prepare_companion_launch(
+    context: CompanionLaunchContext<'_>,
+) -> CompanionLaunchPreparation {
+    let Some(policy_monitor) = companion_policy_monitor(&context).await else {
+        return unavailable_companion_launch();
+    };
+    let mut prepared = if let Some(prepared) = try_prepare_http_companion(&context).await {
+        prepared
+    } else if context.mode == BuiltinMcpTransportMode::Http {
+        strict_http_unavailable(&context)
+    } else {
+        tracing::info!(
+            connection_id = context.connection_id,
+            agent = %context.agent_type,
+            agent_http_capable = context.agent_http_capable,
+            transport = "legacy",
+            "[ACP] selecting legacy built-in MCP transport"
+        );
+        prepare_legacy_companion_launch(&context).await
+    };
+    if prepared.companion.is_some() {
+        prepared.policy_monitor = Some(policy_monitor);
+    }
+    prepared
 }
 
 async fn project_memory_launch_access(
@@ -2395,6 +3331,7 @@ async fn project_memory_launch_access(
     MemoryLaunchAccess {
         confirmed_append: projected.capabilities.confirmed_append.available,
         candidate_proposal: projected.capabilities.candidate_proposal.available,
+        recall: projected.recall_tool_enabled && projected.capabilities.read_context.available,
         turn_tracker: session.memory_turn_tracker.clone(),
     }
 }
@@ -2495,6 +3432,16 @@ fn canonical_spec_to_mcp_server(name: &str, spec: &serde_json::Value) -> Result<
     }
 }
 
+fn builtin_mcp_server_name() -> String {
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let suffix_len = IYW_CLAW_MCP_SERVER_MAX_CHARS - IYW_CLAW_MCP_SERVER_PREFIX.len();
+    debug_assert!(suffix_len > 0);
+    format!(
+        "{IYW_CLAW_MCP_SERVER_PREFIX}{}",
+        &suffix[..suffix_len.min(suffix.len())]
+    )
+}
+
 /// The main ACP connection loop.
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(
@@ -2509,6 +3456,7 @@ fn canonical_spec_to_mcp_server(name: &str, spec: &serde_json::Value) -> Result<
 )]
 async fn run_connection(
     agent: AcpAgent,
+    agent_rebuild: AgentRebuildSpec,
     connection_id: String,
     agent_type: AgentType,
     working_dir: Option<String>,
@@ -2521,170 +3469,233 @@ async fn run_connection(
     preferred_mode_id: Option<String>,
     preferred_config_values: BTreeMap<String, String>,
     delegation_injection: Option<DelegationInjection>,
+    builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
     builtin_prompt: crate::acp::builtin_agent_prompt::RenderedBuiltinPrompt,
     openclaw_session_key: Option<String>,
     process_fingerprint: String,
     runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
     version_center_db: Option<sea_orm::DatabaseConnection>,
+    stderr_tail: Arc<StderrTail>,
     cancellation: tokio_util::sync::CancellationToken,
     disconnect_command_ready: Arc<AtomicBool>,
+    http_lease_issued: Arc<AtomicBool>,
 ) -> Result<(), AcpError> {
-    let pending_perms: PendingPermissions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
-    // `terminal_base_env` already filtered to just the credential helper
-    // keys upstream — see `spawn_agent_connection` for the rationale and
-    // why we don't forward the full agent runtime_env here.
-    let cwd = resolve_working_dir(working_dir.as_deref());
-    // Default terminals to the session working directory so an agent that calls
-    // `terminal/create` without a `cwd` (e.g. CodeBuddy) runs in the folder the
-    // conversation runs in rather than iyw-claw's own process cwd.
-    let terminal_activity = Arc::clone(&state.read().await.active_terminal_count);
-    let terminal_runtime = Arc::new(
-        TerminalRuntime::with_base_env(terminal_base_env, terminal_activity)
-            .with_default_cwd(Some(cwd.clone())),
-    );
-    let cwd_string = cwd.to_string_lossy().to_string();
-    let file_system_runtime = Arc::new(FileSystemRuntime::new(cwd.clone()));
+    let mut attempt_agent = Some(agent);
+    let mut attempt_mode = BuiltinMcpTransportMode::from_env();
+    let mut attempt_stderr_tail = stderr_tail;
+    let mut force_owned_host = false;
+    let mut fallback_attempted = false;
+    loop {
+        let agent = attempt_agent
+            .take()
+            .ok_or_else(|| AcpError::protocol("ACP connection attempt lost its Agent builder"))?;
+        let stderr_tail = Arc::clone(&attempt_stderr_tail);
+        let pending_perms: PendingPermissions =
+            Arc::new(tokio::sync::Mutex::new(PermissionQueue::default()));
+        // `terminal_base_env` already filtered to just the credential helper
+        // keys upstream — see `spawn_agent_connection` for the rationale and
+        // why we don't forward the full agent runtime_env here.
+        let cwd = resolve_working_dir(working_dir.as_deref());
+        // Default terminals to the session working directory so an agent that calls
+        // `terminal/create` without a `cwd` (e.g. CodeBuddy) runs in the folder the
+        // conversation runs in rather than iyw-claw's own process cwd.
+        let terminal_activity = Arc::clone(&state.read().await.active_terminal_count);
+        let terminal_runtime = Arc::new(
+            TerminalRuntime::with_base_env(terminal_base_env.clone(), terminal_activity)
+                .with_default_cwd(Some(cwd.clone())),
+        );
+        let cwd_string = cwd.to_string_lossy().to_string();
+        let file_system_runtime = Arc::new(FileSystemRuntime::with_additional_roots(
+            cwd.clone(),
+            agent_rebuild.additional_file_system_roots.clone(),
+        ));
 
-    let conn_id = connection_id.clone();
-    let emitter_clone = emitter.clone();
-    let perms = pending_perms.clone();
-    let state_outer = Arc::clone(&state);
-    let prompt_ledger = background_watch::PromptLedger::shared();
-    let _background_watch = background_watch::spawn_if_claude(
-        &connection_id,
-        agent_type,
-        Arc::clone(&state),
-        emitter.clone(),
-        cwd_string.clone(),
-        Arc::clone(&prompt_ledger),
-    );
+        let conn_id = connection_id.clone();
+        let emitter_clone = emitter.clone();
+        let perms = pending_perms.clone();
+        let state_outer = Arc::clone(&state);
+        let prompt_ledger = background_watch::PromptLedger::shared();
+        let _background_watch = background_watch::spawn_if_claude(
+            &connection_id,
+            agent_type,
+            Arc::clone(&state),
+            emitter.clone(),
+            cwd_string.clone(),
+            Arc::clone(&prompt_ledger),
+        );
 
-    let shared_host = shared_runtime_host_enabled(agent_type);
-    let host_key = crate::acp::runtime_host::RuntimeHostKey::new(agent_type, process_fingerprint);
-    let host_started = std::time::Instant::now();
-    let startup_trace = state.read().await.startup_trace.clone();
-    let host_stage = startup_trace
-        .as_ref()
-        .map(|trace| trace.stage("host_lookup_wait_spawn"));
-    let host_result = if shared_host {
-        match startup_trace.clone() {
-            Some(trace) => runtime_hosts.acquire_traced(host_key, agent, trace).await,
-            None => runtime_hosts.acquire(host_key, agent).await,
-        }
-    } else {
-        match startup_trace.clone() {
-            Some(trace) => {
-                crate::acp::runtime_host::AgentRuntimeHost::start_owned_traced(
-                    host_key, agent, trace,
-                )
-                .await
+        let shared_host = !force_owned_host && shared_runtime_host_enabled(agent_type);
+        let host_key = runtime_host_key(agent_type, process_fingerprint.clone()).await?;
+        let host_started = std::time::Instant::now();
+        let startup_trace = state.read().await.startup_trace.clone();
+        let host_stage = startup_trace
+            .as_ref()
+            .map(|trace| trace.stage("host_lookup_wait_spawn"));
+        let host_result = if shared_host {
+            match startup_trace.clone() {
+                Some(trace) => {
+                    runtime_hosts
+                        .acquire_traced(host_key, agent, Arc::clone(&stderr_tail), trace)
+                        .await
+                }
+                None => {
+                    runtime_hosts
+                        .acquire(host_key, agent, Arc::clone(&stderr_tail))
+                        .await
+                }
             }
-            None => crate::acp::runtime_host::AgentRuntimeHost::start_owned(host_key, agent).await,
-        }
-    };
-    let host = match host_result {
-        Ok(host) => {
-            if let Some(stage) = host_stage {
-                stage.finish("ok");
+        } else {
+            match startup_trace.clone() {
+                Some(trace) => {
+                    runtime_hosts
+                        .start_owned_traced(host_key, agent, Arc::clone(&stderr_tail), trace)
+                        .await
+                }
+                None => {
+                    runtime_hosts
+                        .start_owned(host_key, agent, Arc::clone(&stderr_tail))
+                        .await
+                }
             }
-            host
-        }
-        Err(error) => {
-            if let Some(stage) = host_stage {
-                stage.finish("error");
+        };
+        let mut host = match host_result {
+            Ok(host) => {
+                if let Some(stage) = host_stage {
+                    stage.finish("ok");
+                }
+                host
             }
-            return Err(error);
+            Err(error) => {
+                if let Some(stage) = host_stage {
+                    stage.finish("error");
+                }
+                return Err(error);
+            }
+        };
+        let stderr_tail = host.stderr_tail();
+        if let Some(pid) = host.pid() {
+            state.write().await.set_agent_pid(pid);
         }
-    };
-    if let Some(pid) = host.pid() {
-        state.write().await.set_agent_pid(pid);
-    }
-    tracing::info!(
-        connection_id,
-        agent = %agent_type,
-        shared_host,
-        elapsed_ms = host_started.elapsed().as_millis(),
-        "[ACP][startup] runtime Host ready"
-    );
-    let _route_lease = host.register_route(
-        connection_id.clone(),
-        session_id.clone(),
-        crate::acp::runtime_host::RuntimeSessionRoute {
-            state: Arc::clone(&state),
-            emitter: emitter.clone(),
-            permissions: pending_perms.clone(),
-            cwd: cwd_string.clone(),
-            file_system: Arc::clone(&file_system_runtime),
-            terminal: Arc::clone(&terminal_runtime),
-        },
-    )?;
-    let route_binding = _route_lease.binding();
-    let terminal_cleanup = Arc::clone(&terminal_runtime);
-    let cx = host.connection();
-    let init_resp = host.initialize_response();
-    let connection = async move {
-        let state = state_outer;
-        let native_steering_available = agent_type == AgentType::Codex
-            && init_resp
-                .meta
-                .as_ref()
-                .and_then(|meta| meta.get("steering"))
-                .and_then(serde_json::Value::as_object)
-                .and_then(|steering| steering.get("supported"))
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false);
-        state.write().await.native_steering_available = native_steering_available;
         tracing::info!(
-            agent_type = %agent_type,
-            native_steering_available,
-            "[agent-input] native steering capability negotiated"
+            connection_id,
+            agent = %agent_type,
+            shared_host,
+            elapsed_ms = host_started.elapsed().as_millis(),
+            "[ACP][startup] runtime Host ready"
         );
-        emit_prompt_capabilities(
-            &state,
-            &emitter_clone,
-            &init_resp.agent_capabilities.prompt_capabilities,
-        )
-        .await;
+        let host_capabilities = host.capabilities();
+        let runtime_verified = host.runtime_verified();
+        let _route_lease = host.register_route(
+            connection_id.clone(),
+            session_id.clone(),
+            crate::acp::runtime_host::RuntimeSessionRoute {
+                state: Arc::clone(&state),
+                emitter: emitter.clone(),
+                permissions: pending_perms.clone(),
+                cwd: cwd_string.clone(),
+                file_system: Arc::clone(&file_system_runtime),
+                terminal: Arc::clone(&terminal_runtime),
+                elicitation: if agent_type == AgentType::DeepSeek {
+                    delegation_injection.as_ref().map(|injection| {
+                        crate::acp::deepseek_elicitation::ElicitationAccess::new(
+                            Arc::clone(&injection.questions),
+                            injection.ask.clone(),
+                        )
+                    })
+                } else {
+                    None
+                },
+                host_capabilities,
+                runtime_verified,
+            },
+        )?;
+        let route_binding = _route_lease.binding();
+        let terminal_cleanup = Arc::clone(&terminal_runtime);
+        let cx = host.connection();
+        let init_resp = host.initialize_response();
+        let session_id = session_id.clone();
+        let preferred_mode_id = preferred_mode_id.clone();
+        let preferred_config_values = preferred_config_values.clone();
+        let fallback_delegation_injection = delegation_injection.clone();
+        let fallback_builtin_mcp = builtin_mcp.clone();
+        let fallback_http_lease_issued = Arc::clone(&http_lease_issued);
+        let fallback_recovery_in_progress = Arc::clone(&recovery_in_progress);
+        let delegation_injection = delegation_injection.clone();
+        let builtin_mcp = builtin_mcp.clone();
+        let recovery_in_progress = Arc::clone(&recovery_in_progress);
+        let disconnect_command_ready = Arc::clone(&disconnect_command_ready);
+        let http_lease_issued = Arc::clone(&http_lease_issued);
+        let builtin_prompt = builtin_prompt.clone();
+        let openclaw_session_key = openclaw_session_key.clone();
+        let version_center_db = version_center_db.clone();
+        let mut cmd_rx = &mut cmd_rx;
+        let transport_mode = attempt_mode;
+        let attempt_cancellation = cancellation.clone();
+        let authority_parent_cancellation = attempt_cancellation.clone();
+        let connection = async move {
+            let state = state_outer;
+            let native_steering_available = agent_type == AgentType::Codex
+                && init_resp
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("steering"))
+                    .and_then(serde_json::Value::as_object)
+                    .and_then(|steering| steering.get("supported"))
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+            state.write().await.native_steering_available = native_steering_available;
+            tracing::info!(
+                agent_type = %agent_type,
+                native_steering_available,
+                "[agent-input] native steering capability negotiated"
+            );
+            emit_prompt_capabilities(
+                &state,
+                &emitter_clone,
+                &init_resp.agent_capabilities.prompt_capabilities,
+            )
+            .await;
 
-        let supports_fork = init_resp
-            .agent_capabilities
-            .session_capabilities
-            .fork
-            .is_some();
-        let supports_resume = init_resp
-            .agent_capabilities
-            .session_capabilities
-            .resume
-            .is_some();
-        let supports_load = init_resp.agent_capabilities.load_session;
-        state.write().await.set_recovery_capability(
-            agent_type != AgentType::Cline && (supports_load || supports_resume),
-        );
-        tracing::info!(
-            "[ACP] Agent capabilities: load_session={}, fork={}, resume={}",
-            supports_load,
-            supports_fork,
-            supports_resume
-        );
+            let supports_fork = init_resp
+                .agent_capabilities
+                .session_capabilities
+                .fork
+                .is_some();
+            let runtime_supports_resume = init_resp
+                .agent_capabilities
+                .session_capabilities
+                .resume
+                .is_some();
+            let runtime_supports_load = init_resp.agent_capabilities.load_session;
+            let (supports_resume, supports_load) = intersect_trusted_session_capabilities(
+                agent_type,
+                runtime_supports_resume,
+                runtime_supports_load,
+            );
+            state.write().await.set_recovery_capability(
+                agent_type != AgentType::Cline && (supports_load || supports_resume),
+            );
+            tracing::info!(
+                runtime_load = runtime_supports_load,
+                runtime_resume = runtime_supports_resume,
+                "[ACP] Agent capabilities: load_session={}, fork={}, resume={}",
+                supports_load,
+                supports_fork,
+                supports_resume
+            );
 
-        // Whether this agent accepts MCP server entries over the ACP wire
-        // (`session/new`'s `mcpServers`). Almost all do; OpenClaw rejects
-        // any server entry and fails session creation, so it must receive
-        // NONE — neither user-configured servers nor the built-in iyw-claw-mcp
-        // companion. (The `mcpServers` key itself is always serialized as
-        // `[]` by the ACP schema and OpenClaw tolerates the empty list; the
-        // gate only guarantees the list stays empty for it.) This is the
-        // single chokepoint feeding session/new, session/load, and the
-        // load→new fallback, so gating here keeps server entries off the
-        // wire on every path. See `AcpAgentMeta::supports_mcp`.
-        let agent_supports_mcp = registry::get_agent_meta(agent_type).supports_mcp;
+            // OpenClaw rejects non-empty MCP lists and Pi's ACP adapter drops them,
+            // so neither may receive user-configured or built-in wire MCP entries.
+            // This chokepoint feeds new/load/resume and the load-to-new fallback.
+            let agent_supports_mcp = registry::get_agent_meta(agent_type).supports_mcp
+                && agent_delivers_wire_mcp(agent_type);
 
-        // Load MCP servers configured for this agent and filter by the
-        // capabilities the agent just declared. Stdio is mandatory per
-        // ACP spec; HTTP/SSE are gated on `mcp_capabilities.{http,sse}`.
-        let mut mcp_servers: Vec<McpServer> = if agent_supports_mcp {
+            // Load MCP servers configured for this agent and filter by the
+            // capabilities the agent just declared. Stdio is mandatory per
+            // ACP spec; HTTP/SSE are gated on `mcp_capabilities.{http,sse}`.
             let mcp_caps = &init_resp.agent_capabilities.mcp_capabilities;
-            load_mcp_servers_for_agent(agent_type)
+            let mut mcp_servers: Vec<McpServer> = if agent_supports_mcp {
+                load_mcp_servers_for_agent(agent_type)
                     .into_iter()
                     .filter(|s| match s {
                         McpServer::Stdio(_) => true,
@@ -2713,110 +3724,308 @@ async fn run_connection(
                         _ => false,
                     })
                     .collect()
-        } else {
-            tracing::info!(
+            } else {
+                tracing::info!(
                     "[ACP][{}] supports_mcp=false: skipping all MCP wire forwarding (user servers + iyw-claw-mcp companion)",
                     agent_type
                 );
-            Vec::new()
-        };
-
-        // Build the companion per logical session. Shared Codex Hosts must not
-        // inherit another session's token or cwd through process-level config.
-        let companion_launch = prepare_companion_launch(
-            delegation_injection.as_ref(),
-            &conn_id,
-            &cwd,
-            agent_type,
-            &state,
-        )
-        .await;
-        let companion_health = companion_launch.health;
-        let delegate_injection = companion_launch.companion.map(|prepared| {
-            mcp_servers.push(McpServer::Stdio(prepared.server));
-            prepared.injection
-        });
-        if let Some(ref injected) = delegate_injection {
-            let mut s = state.write().await;
-            s.delegation_token = Some(injected.token.clone());
-            // The agent's actual feedback capability for this session — the
-            // authoritative gate for submit + UI, fixed at launch.
-            s.feedback_tool_available = injected.feedback_available;
-        }
-        // Emit fork support capability
-        emit_with_state(
-            &state,
-            &emitter_clone,
-            AcpEvent::ForkSupported {
-                supported: supports_fork,
-            },
-        )
-        .await;
-
-        let session_request_context = SessionRequestContext {
-            agent_type,
-            cwd: &cwd,
-            mcp_servers: &mcp_servers,
-            builtin_prompt: &builtin_prompt.text,
-            openclaw_session_key: openclaw_session_key.as_deref(),
-        };
-
-        if let Some(sid) = session_id {
-            let recovery_budget = RecoveryBudget::start();
-            let initial_stage = if supports_resume {
-                RecoveryStage::Resume
-            } else {
-                RecoveryStage::Load
+                Vec::new()
             };
-            recovery_in_progress.begin(initial_stage);
 
-            // session/resume restores context without replaying history.
-            // Only a complete remote RPC error leaves this connection
-            // trusted enough for a subsequent session/load request.
-            if supports_resume {
-                let resume_stage = startup_trace
-                    .as_ref()
-                    .map(|trace| trace.stage("session_resume"));
-                let resume_req = build_resume_session_request(
+            // Build the companion per logical session. Shared Codex Hosts must not
+            // inherit another session's token or cwd through process-level config.
+            let CompanionLaunchPreparation {
+                health: companion_health,
+                companion,
+                route: companion_route,
+                policy_monitor: _companion_policy_monitor,
+            } = prepare_companion_launch(CompanionLaunchContext {
+                injection: delegation_injection.as_ref(),
+                builtin_mcp: builtin_mcp.as_ref(),
+                http_lease_issued: http_lease_issued.as_ref(),
+                connection_id: &conn_id,
+                working_dir: &cwd,
+                agent_type,
+                state: &state,
+                agent_http_capable: mcp_caps.http,
+                mode: transport_mode,
+                parent_cancellation: &authority_parent_cancellation,
+            })
+            .await;
+            let delegate_injection = companion.map(|prepared| {
+                mcp_servers.push(prepared.server);
+                prepared.injection
+            });
+            if let Some(ref injected) = delegate_injection {
+                let mut s = state.write().await;
+                s.delegation_token = injected.readiness_token.clone();
+                // The agent's actual feedback capability for this session — the
+                // authoritative gate for submit + UI, fixed at launch.
+                s.feedback_tool_available = injected.feedback_available;
+            }
+            // Emit fork support capability
+            emit_with_state(
+                &state,
+                &emitter_clone,
+                AcpEvent::ForkSupported {
+                    supported: supports_fork,
+                },
+            )
+            .await;
+
+            let session_request_context = SessionRequestContext {
+                agent_type,
+                cwd: &cwd,
+                mcp_servers: &mcp_servers,
+                builtin_prompt: &builtin_prompt.text,
+                openclaw_session_key: openclaw_session_key.as_deref(),
+            };
+
+            if let Some(sid) = session_id {
+                let recovery_budget = RecoveryBudget::start();
+                let initial_stage = if supports_resume {
+                    RecoveryStage::Resume
+                } else {
+                    RecoveryStage::Load
+                };
+                recovery_in_progress.begin(initial_stage);
+
+                // session/resume restores context without replaying history.
+                // Only a complete remote RPC error leaves this connection
+                // trusted enough for a subsequent session/load request.
+                if supports_resume {
+                    let resume_stage = startup_trace
+                        .as_ref()
+                        .map(|trace| trace.stage("session_resume"));
+                    let resume_req = build_resume_session_request(
+                        session_request_context,
+                        SessionId::new(sid.clone()),
+                    );
+                    let resume_result = match recovery_budget.timeout_for(RecoveryStage::Resume) {
+                        Some(timeout) => {
+                            tokio::time::timeout(timeout, send_resume_session(&cx, resume_req))
+                                .await
+                                .unwrap_or(Err(RecoveryFailure::Timeout))
+                        }
+                        None => Err(RecoveryFailure::Timeout),
+                    };
+                    if let Some(stage) = resume_stage {
+                        stage.finish(if resume_result.is_ok() { "ok" } else { "error" });
+                    }
+                    match resume_result {
+                        Ok((resume_resp, grok_models_raw)) => {
+                            let initial_config_options = resume_resp.config_options.clone();
+                            let new_resp = NewSessionResponse::new(SessionId::new(sid.clone()))
+                                .modes(resume_resp.modes)
+                                .config_options(resume_resp.config_options)
+                                .meta(resume_resp.meta);
+                            let grok_meta = (agent_type == AgentType::Grok)
+                                .then(|| new_resp.meta.clone())
+                                .flatten();
+                            let grok_effort_specs = (agent_type == AgentType::Grok).then(|| {
+                                crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref())
+                            });
+                            let mut session = cx.attach_session(new_resp, Default::default())?;
+                            recovery_in_progress.finish();
+                            state.write().await.mark_recovery_succeeded();
+                            tracing::info!(
+                                connection_id = conn_id,
+                                agent_type = %agent_type,
+                                session_id = sid,
+                                stage = "resume",
+                                elapsed_ms = recovery_budget.elapsed_ms(),
+                                remaining_ms = recovery_budget.remaining_ms(),
+                                "[ACP] session recovery succeeded"
+                            );
+                            finalize_user_memory_launch(
+                                &state,
+                                &emitter_clone,
+                                UserMemoryLaunchFinalization {
+                                    injection: delegation_injection.as_ref(),
+                                    companion: delegate_injection.as_ref(),
+                                    health: &companion_health,
+                                    resumed: true,
+                                },
+                                version_center_db.as_ref(),
+                            )
+                            .await;
+
+                            // No drain: session/resume does not replay history,
+                            // so there is nothing to discard. Any buffered
+                            // notification (e.g. an early AvailableCommandsUpdate)
+                            // is consumed and forwarded by run_conversation_loop.
+
+                            emit_with_state(
+                                &state,
+                                &emitter_clone,
+                                AcpEvent::SessionStarted {
+                                    session_id: sid.clone(),
+                                },
+                            )
+                            .await;
+                            emit_session_modes(&state, &emitter_clone, session.modes()).await;
+                            let selectors_stage = startup_trace
+                                .as_ref()
+                                .map(|trace| trace.stage("selectors_ready"));
+                            apply_and_emit_session_config_options(
+                                &cx,
+                                &mut session,
+                                &state,
+                                &emitter_clone,
+                                agent_type,
+                                grok_meta.as_ref(),
+                                grok_effort_specs.as_ref(),
+                                preferred_mode_id.as_deref(),
+                                &preferred_config_values,
+                                initial_config_options.unwrap_or_default(),
+                            )
+                            .await;
+                            emit_selectors_ready(&state, &emitter_clone).await;
+                            if let Some(stage) = selectors_stage {
+                                stage.finish("ok");
+                            }
+
+                            disconnect_command_ready.store(true, Ordering::Release);
+                            let loop_result = run_conversation_loop(
+                                &mut session,
+                                &conn_id,
+                                &emitter_clone,
+                                &state,
+                                agent_type,
+                                &perms,
+                                &mut cmd_rx,
+                                terminal_runtime.clone(),
+                                &cwd_string,
+                                supports_fork,
+                                &prompt_ledger,
+                                delegation_injection.as_ref(),
+                                &stderr_tail,
+                            )
+                            .await;
+                            terminal_runtime.release_all_for_session(&sid).await;
+                            drop(session);
+                            // Explicit return: this arm is NOT in tail position
+                            // (the session/load block follows it), so without
+                            // `return` a successful resume would fall into
+                            // session/load.
+                            return handle_fork_or_exit(
+                                loop_result,
+                                &conn_id,
+                                &emitter_clone,
+                                &state,
+                                agent_type,
+                                &perms,
+                                &mut cmd_rx,
+                                terminal_runtime.clone(),
+                                &cwd,
+                                &cwd_string,
+                                &prompt_ledger,
+                                &route_binding,
+                                delegation_injection.as_ref(),
+                                &stderr_tail,
+                            )
+                            .await
+                            .map_err(ConnectionAttemptError::from);
+                        }
+                        Err(e) => {
+                            if let Some(rejection) = classify_recovery_http_rejection(
+                                HttpRejectionContext {
+                                    mode: transport_mode,
+                                    route: &companion_route,
+                                    stage: SessionRequestStage::Resume,
+                                },
+                                &e,
+                            ) {
+                                return Err(ConnectionAttemptError::BuiltinHttpRejected(rejection));
+                            }
+                            if e.allows_load_fallback() && supports_load {
+                                tracing::warn!(
+                                    connection_id = conn_id,
+                                    agent_type = %agent_type,
+                                    session_id = sid,
+                                    stage = "resume",
+                                    elapsed_ms = recovery_budget.elapsed_ms(),
+                                    remaining_ms = recovery_budget.remaining_ms(),
+                                    category = e.category(),
+                                    error = %safe_error_detail(&e.message()),
+                                    "[ACP] session/resume returned RPC error; trying session/load"
+                                );
+                            } else {
+                                emit_session_recovery_failure(
+                                    SessionRecoveryFailureContext {
+                                        connection_id: &conn_id,
+                                        session_id: &sid,
+                                        agent_type,
+                                        stage: RecoveryStage::Resume,
+                                        supports_resume,
+                                        supports_load,
+                                        budget: &recovery_budget,
+                                        progress: &recovery_in_progress,
+                                        state: &state,
+                                        emitter: &emitter_clone,
+                                    },
+                                    e,
+                                )
+                                .await;
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+
+                if !supports_load {
+                    emit_session_recovery_failure(
+                        SessionRecoveryFailureContext {
+                            connection_id: &conn_id,
+                            session_id: &sid,
+                            agent_type,
+                            stage: RecoveryStage::Load,
+                            supports_resume,
+                            supports_load,
+                            budget: &recovery_budget,
+                            progress: &recovery_in_progress,
+                            state: &state,
+                            emitter: &emitter_clone,
+                        },
+                        RecoveryFailure::Unavailable(
+                            "Agent does not advertise session recovery support".to_string(),
+                        ),
+                    )
+                    .await;
+                    return Ok(());
+                }
+
+                recovery_in_progress.set_stage(RecoveryStage::Load);
+                let load_req = build_load_session_request(
                     session_request_context,
                     SessionId::new(sid.clone()),
                 );
-                let resume_result = match recovery_budget.timeout_for(RecoveryStage::Resume) {
+                let load_stage = startup_trace
+                    .as_ref()
+                    .map(|trace| trace.stage("session_load"));
+                let load_result = match recovery_budget.timeout_for(RecoveryStage::Load) {
                     Some(timeout) => {
-                        tokio::time::timeout(timeout, send_resume_session(&cx, resume_req))
+                        tokio::time::timeout(timeout, send_load_session(&cx, load_req))
                             .await
                             .unwrap_or(Err(RecoveryFailure::Timeout))
                     }
                     None => Err(RecoveryFailure::Timeout),
                 };
-                if let Some(stage) = resume_stage {
-                    stage.finish(if resume_result.is_ok() { "ok" } else { "error" });
+                if let Some(stage) = load_stage {
+                    stage.finish(if load_result.is_ok() { "ok" } else { "error" });
                 }
-                match resume_result {
-                    Ok((resume_resp, grok_models_raw)) => {
-                        let initial_config_options = resume_resp.config_options.clone();
+
+                match load_result {
+                    Ok(load_resp) => {
+                        let initial_config_options = load_resp.config_options.clone();
                         let new_resp = NewSessionResponse::new(SessionId::new(sid.clone()))
-                            .modes(resume_resp.modes)
-                            .config_options(resume_resp.config_options)
-                            .meta(resume_resp.meta);
+                            .modes(load_resp.modes)
+                            .config_options(load_resp.config_options)
+                            .meta(load_resp.meta);
                         let grok_meta = (agent_type == AgentType::Grok)
                             .then(|| new_resp.meta.clone())
                             .flatten();
-                        let grok_effort_specs = (agent_type == AgentType::Grok).then(|| {
-                            crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref())
-                        });
                         let mut session = cx.attach_session(new_resp, Default::default())?;
-                        recovery_in_progress.finish();
-                        state.write().await.mark_recovery_succeeded();
-                        tracing::info!(
-                            connection_id = conn_id,
-                            agent_type = %agent_type,
-                            session_id = sid,
-                            stage = "resume",
-                            elapsed_ms = recovery_budget.elapsed_ms(),
-                            remaining_ms = recovery_budget.remaining_ms(),
-                            "[ACP] session recovery succeeded"
-                        );
                         finalize_user_memory_launch(
                             &state,
                             &emitter_clone,
@@ -2830,10 +4039,110 @@ async fn run_connection(
                         )
                         .await;
 
-                        // No drain: session/resume does not replay history,
-                        // so there is nothing to discard. Any buffered
-                        // notification (e.g. an early AvailableCommandsUpdate)
-                        // is consumed and forwarded by run_conversation_loop.
+                        // Drain historical replay notifications from session/load,
+                        // but forward AvailableCommandsUpdate to the frontend
+                        let mut drained = 0u32;
+                        let mut drain_failure = None;
+                        loop {
+                            let Some(remaining) = recovery_budget.timeout_for(RecoveryStage::Load)
+                            else {
+                                drain_failure = Some(RecoveryFailure::Timeout);
+                                break;
+                            };
+                            let idle_wait = remaining.min(std::time::Duration::from_millis(100));
+                            let msg = match tokio::time::timeout(idle_wait, session.read_update())
+                                .await
+                            {
+                                Ok(Ok(msg)) => msg,
+                                Ok(Err(error)) => {
+                                    drain_failure =
+                                        Some(RecoveryFailure::Transport(error.to_string()));
+                                    break;
+                                }
+                                Err(_) if remaining <= std::time::Duration::from_millis(100) => {
+                                    drain_failure = Some(RecoveryFailure::Timeout);
+                                    break;
+                                }
+                                Err(_) => break,
+                            };
+                            drained += 1;
+                            if let SessionMessage::SessionMessage(dispatch) = msg {
+                                let h = emitter_clone.clone();
+                                let st = Arc::clone(&state);
+                                let dispatch = fix_usage_update_nulls(dispatch);
+                                let _ = MatchDispatch::new(dispatch)
+                                    .if_notification(async |notif: SessionNotification| {
+                                        if matches!(
+                                            notif.update,
+                                            SessionUpdate::AvailableCommandsUpdate(_)
+                                        ) {
+                                            // Historical-replay path only
+                                            // forwards AvailableCommandsUpdate,
+                                            // which never carries tool output or
+                                            // tool-call titles — throwaway state
+                                            // is fine.
+                                            let mut replay_cache = ToolCallOutputCache::default();
+                                            let mut replay_cb_state = CodeBuddyLiveState::default();
+                                            emit_conversation_update(
+                                                &st,
+                                                &h,
+                                                agent_type,
+                                                notif.update,
+                                                None,
+                                                &mut replay_cache,
+                                                &mut replay_cb_state,
+                                            )
+                                            .await;
+                                        }
+                                        Ok(())
+                                    })
+                                    .await
+                                    .otherwise(async |dispatch| {
+                                        maybe_emit_claude_sdk_ext_notification(&st, &h, dispatch)
+                                            .await;
+                                        Ok(())
+                                    })
+                                    .await;
+                            }
+                        }
+                        if let Some(failure) = drain_failure {
+                            drop(session);
+                            emit_session_recovery_failure(
+                                SessionRecoveryFailureContext {
+                                    connection_id: &conn_id,
+                                    session_id: &sid,
+                                    agent_type,
+                                    stage: RecoveryStage::Load,
+                                    supports_resume,
+                                    supports_load,
+                                    budget: &recovery_budget,
+                                    progress: &recovery_in_progress,
+                                    state: &state,
+                                    emitter: &emitter_clone,
+                                },
+                                failure,
+                            )
+                            .await;
+                            return Ok(());
+                        }
+                        if drained > 0 {
+                            tracing::info!(
+                                "[ACP] Drained {drained} historical replay notifications"
+                            );
+                        }
+
+                        recovery_in_progress.finish();
+                        state.write().await.mark_recovery_succeeded();
+                        tracing::info!(
+                            connection_id = conn_id,
+                            agent_type = %agent_type,
+                            session_id = sid,
+                            stage = "load",
+                            replay_notifications = drained,
+                            elapsed_ms = recovery_budget.elapsed_ms(),
+                            remaining_ms = recovery_budget.remaining_ms(),
+                            "[ACP] session recovery succeeded"
+                        );
 
                         emit_with_state(
                             &state,
@@ -2854,7 +4163,7 @@ async fn run_connection(
                             &emitter_clone,
                             agent_type,
                             grok_meta.as_ref(),
-                            grok_effort_specs.as_ref(),
+                            None,
                             preferred_mode_id.as_deref(),
                             &preferred_config_values,
                             initial_config_options.unwrap_or_default(),
@@ -2879,15 +4188,12 @@ async fn run_connection(
                             supports_fork,
                             &prompt_ledger,
                             delegation_injection.as_ref(),
+                            &stderr_tail,
                         )
                         .await;
                         terminal_runtime.release_all_for_session(&sid).await;
                         drop(session);
-                        // Explicit return: this arm is NOT in tail position
-                        // (the session/load block follows it), so without
-                        // `return` a successful resume would fall into
-                        // session/load.
-                        return handle_fork_or_exit(
+                        handle_fork_or_exit(
                             loop_result,
                             &conn_id,
                             &emitter_clone,
@@ -2901,172 +4207,22 @@ async fn run_connection(
                             &prompt_ledger,
                             &route_binding,
                             delegation_injection.as_ref(),
+                            &stderr_tail,
                         )
-                        .await;
+                        .await
+                        .map_err(ConnectionAttemptError::from)
                     }
                     Err(e) => {
-                        if e.allows_load_fallback() && supports_load {
-                            tracing::warn!(
-                                connection_id = conn_id,
-                                agent_type = %agent_type,
-                                session_id = sid,
-                                stage = "resume",
-                                elapsed_ms = recovery_budget.elapsed_ms(),
-                                remaining_ms = recovery_budget.remaining_ms(),
-                                category = e.category(),
-                                error = %e.message(),
-                                "[ACP] session/resume returned RPC error; trying session/load"
-                            );
-                        } else {
-                            emit_session_recovery_failure(
-                                SessionRecoveryFailureContext {
-                                    connection_id: &conn_id,
-                                    session_id: &sid,
-                                    agent_type,
-                                    stage: RecoveryStage::Resume,
-                                    supports_resume,
-                                    supports_load,
-                                    budget: &recovery_budget,
-                                    progress: &recovery_in_progress,
-                                    state: &state,
-                                    emitter: &emitter_clone,
-                                },
-                                e,
-                            )
-                            .await;
-                            return Ok(());
+                        if let Some(rejection) = classify_recovery_http_rejection(
+                            HttpRejectionContext {
+                                mode: transport_mode,
+                                route: &companion_route,
+                                stage: SessionRequestStage::Load,
+                            },
+                            &e,
+                        ) {
+                            return Err(ConnectionAttemptError::BuiltinHttpRejected(rejection));
                         }
-                    }
-                }
-            }
-
-            if !supports_load {
-                emit_session_recovery_failure(
-                    SessionRecoveryFailureContext {
-                        connection_id: &conn_id,
-                        session_id: &sid,
-                        agent_type,
-                        stage: RecoveryStage::Load,
-                        supports_resume,
-                        supports_load,
-                        budget: &recovery_budget,
-                        progress: &recovery_in_progress,
-                        state: &state,
-                        emitter: &emitter_clone,
-                    },
-                    RecoveryFailure::Unavailable(
-                        "Agent does not advertise session recovery support".to_string(),
-                    ),
-                )
-                .await;
-                return Ok(());
-            }
-
-            recovery_in_progress.set_stage(RecoveryStage::Load);
-            let load_req =
-                build_load_session_request(session_request_context, SessionId::new(sid.clone()));
-            let load_stage = startup_trace
-                .as_ref()
-                .map(|trace| trace.stage("session_load"));
-            let load_result = match recovery_budget.timeout_for(RecoveryStage::Load) {
-                Some(timeout) => tokio::time::timeout(timeout, send_load_session(&cx, load_req))
-                    .await
-                    .unwrap_or(Err(RecoveryFailure::Timeout)),
-                None => Err(RecoveryFailure::Timeout),
-            };
-            if let Some(stage) = load_stage {
-                stage.finish(if load_result.is_ok() { "ok" } else { "error" });
-            }
-
-            match load_result {
-                Ok(load_resp) => {
-                    let initial_config_options = load_resp.config_options.clone();
-                    let new_resp = NewSessionResponse::new(SessionId::new(sid.clone()))
-                        .modes(load_resp.modes)
-                        .config_options(load_resp.config_options)
-                        .meta(load_resp.meta);
-                    let grok_meta = (agent_type == AgentType::Grok)
-                        .then(|| new_resp.meta.clone())
-                        .flatten();
-                    let mut session = cx.attach_session(new_resp, Default::default())?;
-                    finalize_user_memory_launch(
-                        &state,
-                        &emitter_clone,
-                        UserMemoryLaunchFinalization {
-                            injection: delegation_injection.as_ref(),
-                            companion: delegate_injection.as_ref(),
-                            health: &companion_health,
-                            resumed: true,
-                        },
-                        version_center_db.as_ref(),
-                    )
-                    .await;
-
-                    // Drain historical replay notifications from session/load,
-                    // but forward AvailableCommandsUpdate to the frontend
-                    let mut drained = 0u32;
-                    let mut drain_failure = None;
-                    loop {
-                        let Some(remaining) = recovery_budget.timeout_for(RecoveryStage::Load)
-                        else {
-                            drain_failure = Some(RecoveryFailure::Timeout);
-                            break;
-                        };
-                        let idle_wait = remaining.min(std::time::Duration::from_millis(100));
-                        let msg = match tokio::time::timeout(idle_wait, session.read_update()).await
-                        {
-                            Ok(Ok(msg)) => msg,
-                            Ok(Err(error)) => {
-                                drain_failure = Some(RecoveryFailure::Transport(error.to_string()));
-                                break;
-                            }
-                            Err(_) if remaining <= std::time::Duration::from_millis(100) => {
-                                drain_failure = Some(RecoveryFailure::Timeout);
-                                break;
-                            }
-                            Err(_) => break,
-                        };
-                        drained += 1;
-                        if let SessionMessage::SessionMessage(dispatch) = msg {
-                            let h = emitter_clone.clone();
-                            let st = Arc::clone(&state);
-                            let dispatch = fix_usage_update_nulls(dispatch);
-                            let _ = MatchDispatch::new(dispatch)
-                                .if_notification(async |notif: SessionNotification| {
-                                    if matches!(
-                                        notif.update,
-                                        SessionUpdate::AvailableCommandsUpdate(_)
-                                    ) {
-                                        // Historical-replay path only
-                                        // forwards AvailableCommandsUpdate,
-                                        // which never carries tool output or
-                                        // tool-call titles — throwaway state
-                                        // is fine.
-                                        let mut replay_cache = ToolCallOutputCache::default();
-                                        let mut replay_cb_state = CodeBuddyLiveState::default();
-                                        emit_conversation_update(
-                                            &st,
-                                            &h,
-                                            agent_type,
-                                            notif.update,
-                                            None,
-                                            &mut replay_cache,
-                                            &mut replay_cb_state,
-                                        )
-                                        .await;
-                                    }
-                                    Ok(())
-                                })
-                                .await
-                                .otherwise(async |dispatch| {
-                                    maybe_emit_claude_sdk_ext_notification(&st, &h, dispatch).await;
-                                    Ok(())
-                                })
-                                .await;
-                        }
-                    }
-                    if let Some(failure) = drain_failure {
-                        drop(session);
                         emit_session_recovery_failure(
                             SessionRecoveryFailureContext {
                                 connection_id: &conn_id,
@@ -3080,249 +4236,202 @@ async fn run_connection(
                                 state: &state,
                                 emitter: &emitter_clone,
                             },
-                            failure,
+                            e,
                         )
                         .await;
-                        return Ok(());
+                        Ok(())
                     }
-                    if drained > 0 {
-                        tracing::info!("[ACP] Drained {drained} historical replay notifications");
-                    }
-
-                    recovery_in_progress.finish();
-                    state.write().await.mark_recovery_succeeded();
-                    tracing::info!(
-                        connection_id = conn_id,
-                        agent_type = %agent_type,
-                        session_id = sid,
-                        stage = "load",
-                        replay_notifications = drained,
-                        elapsed_ms = recovery_budget.elapsed_ms(),
-                        remaining_ms = recovery_budget.remaining_ms(),
-                        "[ACP] session recovery succeeded"
-                    );
-
-                    emit_with_state(
-                        &state,
-                        &emitter_clone,
-                        AcpEvent::SessionStarted {
-                            session_id: sid.clone(),
-                        },
-                    )
-                    .await;
-                    emit_session_modes(&state, &emitter_clone, session.modes()).await;
-                    let selectors_stage = startup_trace
-                        .as_ref()
-                        .map(|trace| trace.stage("selectors_ready"));
-                    apply_and_emit_session_config_options(
-                        &cx,
-                        &mut session,
-                        &state,
-                        &emitter_clone,
-                        agent_type,
-                        grok_meta.as_ref(),
-                        None,
-                        preferred_mode_id.as_deref(),
-                        &preferred_config_values,
-                        initial_config_options.unwrap_or_default(),
-                    )
-                    .await;
-                    emit_selectors_ready(&state, &emitter_clone).await;
-                    if let Some(stage) = selectors_stage {
-                        stage.finish("ok");
-                    }
-
-                    disconnect_command_ready.store(true, Ordering::Release);
-                    let loop_result = run_conversation_loop(
-                        &mut session,
-                        &conn_id,
-                        &emitter_clone,
-                        &state,
-                        agent_type,
-                        &perms,
-                        &mut cmd_rx,
-                        terminal_runtime.clone(),
-                        &cwd_string,
-                        supports_fork,
-                        &prompt_ledger,
-                        delegation_injection.as_ref(),
-                    )
-                    .await;
-                    terminal_runtime.release_all_for_session(&sid).await;
-                    drop(session);
-                    handle_fork_or_exit(
-                        loop_result,
-                        &conn_id,
-                        &emitter_clone,
-                        &state,
-                        agent_type,
-                        &perms,
-                        &mut cmd_rx,
-                        terminal_runtime.clone(),
-                        &cwd,
-                        &cwd_string,
-                        &prompt_ledger,
-                        &route_binding,
-                        delegation_injection.as_ref(),
-                    )
-                    .await
                 }
-                Err(e) => {
-                    emit_session_recovery_failure(
-                        SessionRecoveryFailureContext {
-                            connection_id: &conn_id,
-                            session_id: &sid,
-                            agent_type,
-                            stage: RecoveryStage::Load,
-                            supports_resume,
-                            supports_load,
-                            budget: &recovery_budget,
-                            progress: &recovery_in_progress,
-                            state: &state,
-                            emitter: &emitter_clone,
-                        },
-                        e,
+            } else {
+                // Create new session
+                let new_stage = startup_trace
+                    .as_ref()
+                    .map(|trace| trace.stage("session_new"));
+                let (new_resp, grok_models_raw) =
+                    match send_new_session_with_routing(&cx, session_request_context).await {
+                        Ok(response) => {
+                            if let Some(stage) = new_stage {
+                                stage.finish("ok");
+                            }
+                            response
+                        }
+                        Err(error) => {
+                            if let Some(stage) = new_stage {
+                                stage.finish("error");
+                            }
+                            if let Some(rejection) = classify_builtin_http_rejection(
+                                HttpRejectionContext {
+                                    mode: transport_mode,
+                                    route: &companion_route,
+                                    stage: SessionRequestStage::New,
+                                },
+                                &error,
+                            ) {
+                                return Err(ConnectionAttemptError::BuiltinHttpRejected(rejection));
+                            }
+                            return Err(error.into());
+                        }
+                    };
+                let sid = new_resp.session_id.0.to_string();
+                if !route_binding.bind_session(sid.clone()) {
+                    return Err(sacp::util::internal_error(
+                        "ACP runtime route expired before new session binding",
                     )
-                    .await;
+                    .into());
+                }
+                let initial_config_options = new_resp.config_options.clone();
+                let grok_meta = (agent_type == AgentType::Grok)
+                    .then(|| new_resp.meta.clone())
+                    .flatten();
+                let grok_effort_specs = (agent_type == AgentType::Grok)
+                    .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
+                let mut session = cx.attach_session(new_resp, Default::default())?;
+                finalize_user_memory_launch(
+                    &state,
+                    &emitter_clone,
+                    UserMemoryLaunchFinalization {
+                        injection: delegation_injection.as_ref(),
+                        companion: delegate_injection.as_ref(),
+                        health: &companion_health,
+                        resumed: false,
+                    },
+                    version_center_db.as_ref(),
+                )
+                .await;
+                emit_with_state(
+                    &state,
+                    &emitter_clone,
+                    AcpEvent::SessionStarted {
+                        session_id: sid.clone(),
+                    },
+                )
+                .await;
+                emit_session_modes(&state, &emitter_clone, session.modes()).await;
+                let selectors_stage = startup_trace
+                    .as_ref()
+                    .map(|trace| trace.stage("selectors_ready"));
+                apply_and_emit_session_config_options(
+                    &cx,
+                    &mut session,
+                    &state,
+                    &emitter_clone,
+                    agent_type,
+                    grok_meta.as_ref(),
+                    grok_effort_specs.as_ref(),
+                    preferred_mode_id.as_deref(),
+                    &preferred_config_values,
+                    initial_config_options.unwrap_or_default(),
+                )
+                .await;
+                emit_selectors_ready(&state, &emitter_clone).await;
+                if let Some(stage) = selectors_stage {
+                    stage.finish("ok");
+                }
+
+                disconnect_command_ready.store(true, Ordering::Release);
+                let loop_result = run_conversation_loop(
+                    &mut session,
+                    &conn_id,
+                    &emitter_clone,
+                    &state,
+                    agent_type,
+                    &perms,
+                    &mut cmd_rx,
+                    terminal_runtime.clone(),
+                    &cwd_string,
+                    supports_fork,
+                    &prompt_ledger,
+                    delegation_injection.as_ref(),
+                    &stderr_tail,
+                )
+                .await;
+                terminal_runtime.release_all_for_session(&sid).await;
+                drop(session);
+                handle_fork_or_exit(
+                    loop_result,
+                    &conn_id,
+                    &emitter_clone,
+                    &state,
+                    agent_type,
+                    &perms,
+                    &mut cmd_rx,
+                    terminal_runtime.clone(),
+                    &cwd,
+                    &cwd_string,
+                    &prompt_ledger,
+                    &route_binding,
+                    delegation_injection.as_ref(),
+                    &stderr_tail,
+                )
+                .await
+                .map_err(ConnectionAttemptError::from)
+            }
+        };
+        let result = {
+            tokio::pin!(connection);
+            tokio::select! {
+                biased;
+                result = &mut connection => result,
+                _ = attempt_cancellation.cancelled() => {
+                    let snapshot = state.read().await;
+                    tracing::info!(
+                        connection_id,
+                        agent = %agent_type,
+                        launch_finalized = snapshot.launch_finalized,
+                        session_id = snapshot.external_id.as_deref().unwrap_or(""),
+                        "[ACP] connection establishment canceled"
+                    );
                     Ok(())
                 }
             }
-        } else {
-            // Create new session
-            let new_stage = startup_trace
-                .as_ref()
-                .map(|trace| trace.stage("session_new"));
-            let (new_resp, grok_models_raw) =
-                match send_new_session_with_routing(&cx, session_request_context).await {
-                    Ok(response) => {
-                        if let Some(stage) = new_stage {
-                            stage.finish("ok");
-                        }
-                        response
-                    }
-                    Err(error) => {
-                        if let Some(stage) = new_stage {
-                            stage.finish("error");
-                        }
-                        return Err(error);
-                    }
-                };
-            let sid = new_resp.session_id.0.to_string();
-            if !route_binding.bind_session(sid.clone()) {
-                return Err(sacp::util::internal_error(
-                    "ACP runtime route expired before new session binding",
-                ));
-            }
-            let initial_config_options = new_resp.config_options.clone();
-            let grok_meta = (agent_type == AgentType::Grok)
-                .then(|| new_resp.meta.clone())
-                .flatten();
-            let grok_effort_specs = (agent_type == AgentType::Grok)
-                .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
-            let mut session = cx.attach_session(new_resp, Default::default())?;
-            finalize_user_memory_launch(
-                &state,
-                &emitter_clone,
-                UserMemoryLaunchFinalization {
-                    injection: delegation_injection.as_ref(),
-                    companion: delegate_injection.as_ref(),
-                    health: &companion_health,
-                    resumed: false,
-                },
-                version_center_db.as_ref(),
-            )
+        };
+        PermissionRuntime::new(&state, &emitter, &pending_perms)
+            .close_and_drain("connection_teardown")
             .await;
-            emit_with_state(
-                &state,
-                &emitter_clone,
-                AcpEvent::SessionStarted {
-                    session_id: sid.clone(),
-                },
-            )
-            .await;
-            emit_session_modes(&state, &emitter_clone, session.modes()).await;
-            let selectors_stage = startup_trace
-                .as_ref()
-                .map(|trace| trace.stage("selectors_ready"));
-            apply_and_emit_session_config_options(
-                &cx,
-                &mut session,
-                &state,
-                &emitter_clone,
-                agent_type,
-                grok_meta.as_ref(),
-                grok_effort_specs.as_ref(),
-                preferred_mode_id.as_deref(),
-                &preferred_config_values,
-                initial_config_options.unwrap_or_default(),
-            )
-            .await;
-            emit_selectors_ready(&state, &emitter_clone).await;
-            if let Some(stage) = selectors_stage {
-                stage.finish("ok");
-            }
-
-            disconnect_command_ready.store(true, Ordering::Release);
-            let loop_result = run_conversation_loop(
-                &mut session,
-                &conn_id,
-                &emitter_clone,
-                &state,
-                agent_type,
-                &perms,
-                &mut cmd_rx,
-                terminal_runtime.clone(),
-                &cwd_string,
-                supports_fork,
-                &prompt_ledger,
-                delegation_injection.as_ref(),
-            )
-            .await;
-            terminal_runtime.release_all_for_session(&sid).await;
-            drop(session);
-            handle_fork_or_exit(
-                loop_result,
-                &conn_id,
-                &emitter_clone,
-                &state,
-                agent_type,
-                &perms,
-                &mut cmd_rx,
-                terminal_runtime.clone(),
-                &cwd,
-                &cwd_string,
-                &prompt_ledger,
-                &route_binding,
-                delegation_injection.as_ref(),
-            )
-            .await
+        for session_id in _route_lease.session_ids() {
+            terminal_cleanup.release_all_for_session(&session_id).await;
         }
-    };
-    tokio::pin!(connection);
-
-    let result = tokio::select! {
-        biased;
-        result = &mut connection => result,
-        _ = cancellation.cancelled() => {
-            let snapshot = state.read().await;
-            tracing::info!(
-                connection_id,
-                agent = %agent_type,
-                launch_finalized = snapshot.launch_finalized,
-                session_id = snapshot.external_id.as_deref().unwrap_or(""),
-                "[ACP] connection establishment canceled"
-            );
-            Ok(())
+        drop(_route_lease);
+        if !shared_host {
+            host.shutdown().await;
         }
-    };
-    for session_id in _route_lease.session_ids() {
-        terminal_cleanup.release_all_for_session(&session_id).await;
+        match result {
+            Ok(()) => return Ok(()),
+            Err(ConnectionAttemptError::Protocol(error)) => {
+                return Err(AcpError::protocol(safe_error_detail(&error.to_string())));
+            }
+            Err(ConnectionAttemptError::BuiltinHttpRejected(rejection)) if fallback_attempted => {
+                return Err(AcpError::protocol(safe_error_detail(
+                    &rejection.source.to_string(),
+                )));
+            }
+            Err(ConnectionAttemptError::BuiltinHttpRejected(rejection)) => {
+                tracing::warn!(
+                    connection_id,
+                    agent = %agent_type,
+                    stage = rejection.stage.as_str(),
+                    server_name = rejection.server_name,
+                    classification = "explicit_builtin_http_mcp_rejection",
+                    error_code = i32::from(rejection.source.code),
+                    "[ACP] rebuilding connection with dedicated legacy MCP host"
+                );
+                fallback_recovery_in_progress.finish();
+                cleanup_http_fallback_resources(
+                    fallback_delegation_injection.as_ref(),
+                    fallback_builtin_mcp.as_ref(),
+                    fallback_http_lease_issued.as_ref(),
+                    &connection_id,
+                    &state,
+                )
+                .await;
+                fallback_attempted = true;
+                force_owned_host = true;
+                attempt_mode = BuiltinMcpTransportMode::Legacy;
+                attempt_stderr_tail = Arc::new(StderrTail::new());
+                attempt_agent = Some(rebuild_agent(&agent_rebuild, &attempt_stderr_tail).await?);
+            }
+        }
     }
-    drop(_route_lease);
-    if !shared_host {
-        host.shutdown().await;
-    }
-    result.map_err(|error| AcpError::protocol(error.to_string()))
 }
 
 /// Store the permission responder and emit event to frontend.
@@ -3391,44 +4500,22 @@ pub(crate) async fn handle_permission_request(
         .iter()
         .filter(|option| option.kind.starts_with("allow_"))
         .count();
-    let pending_before = {
-        let mut pending = perms.lock().await;
-        let pending_before = pending.len();
-        pending.insert(request_id.clone(), responder);
-        pending_before
-    };
-    let connection_id = state.read().await.connection_id.clone();
-    if pending_before > 0 {
-        tracing::warn!(
-            connection_id,
-            session_id,
-            request_id,
-            tool_call_id,
-            pending_before,
-            "[ACP] concurrent permission request registered"
-        );
-    } else {
-        tracing::info!(
-            connection_id,
-            session_id,
-            request_id,
-            tool_call_id,
-            option_count,
-            allow_option_count,
-            "[ACP] permission requested"
-        );
-    }
-
-    emit_with_state(
-        state,
-        emitter,
-        AcpEvent::PermissionRequest {
-            request_id,
-            tool_call: tool_call_value,
-            options,
-        },
-    )
-    .await;
+    PermissionRuntime::new(state, emitter, perms)
+        .admit(
+            responder,
+            QueuedPermission {
+                request_id,
+                tool_call: tool_call_value,
+                options,
+            },
+            PermissionRequestMeta {
+                session_id: &session_id,
+                tool_call_id: &tool_call_id,
+                option_count,
+                allow_option_count,
+            },
+        )
+        .await;
 }
 
 fn permission_tool_call_id(value: &serde_json::Value) -> &str {
@@ -3446,97 +4533,9 @@ async fn respond_permission_request(
     request_id: String,
     option_id: String,
 ) {
-    let (connection_id, option_kind, wait_ms) =
-        permission_response_context(state, &request_id, &option_id).await;
-    let (responder, remaining) = {
-        let mut pending = perms.lock().await;
-        let responder = pending.remove(&request_id);
-        (responder, pending.len())
-    };
-    let Some(responder) = responder else {
-        tracing::warn!(
-            connection_id,
-            request_id,
-            remaining,
-            "[ACP] permission response ignored"
-        );
-        return;
-    };
-    let outcome = RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option_id));
-    match responder.respond(RequestPermissionResponse::new(outcome)) {
-        Ok(()) => tracing::info!(
-            connection_id,
-            request_id,
-            option_kind,
-            wait_ms,
-            remaining,
-            "[ACP] permission resolved"
-        ),
-        Err(error) => tracing::warn!(
-            connection_id,
-            request_id,
-            option_kind,
-            wait_ms,
-            remaining,
-            error = %error,
-            "[ACP] permission response delivery failed"
-        ),
-    }
-    emit_with_state(state, emitter, AcpEvent::PermissionResolved { request_id }).await;
-}
-
-async fn permission_response_context(
-    state: &Arc<RwLock<SessionState>>,
-    request_id: &str,
-    option_id: &str,
-) -> (String, String, i64) {
-    let snapshot = state.read().await;
-    let pending = snapshot
-        .pending_permission
-        .as_ref()
-        .filter(|pending| pending.request_id == request_id);
-    let option_kind = pending
-        .and_then(|pending| {
-            pending
-                .options
-                .iter()
-                .find(|option| option.option_id == option_id)
-        })
-        .map(|option| option.kind.clone())
-        .unwrap_or_else(|| "unknown".to_string());
-    let wait_ms = pending
-        .map(|pending| {
-            (chrono::Utc::now() - pending.created_at)
-                .num_milliseconds()
-                .max(0)
-        })
-        .unwrap_or_default();
-    (snapshot.connection_id.clone(), option_kind, wait_ms)
-}
-
-async fn cancel_pending_permissions(
-    perms: &PendingPermissions,
-    connection_id: &str,
-    reason: &'static str,
-) -> usize {
-    let mut pending = perms.lock().await;
-    let count = pending.len();
-    let mut delivery_failures = 0usize;
-    for (_, responder) in pending.drain() {
-        let outcome = RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled);
-        delivery_failures += usize::from(responder.respond(outcome).is_err());
-    }
-    drop(pending);
-    if count > 0 {
-        tracing::info!(
-            connection_id,
-            reason,
-            count,
-            delivery_failures,
-            "[ACP] pending permissions cancelled"
-        );
-    }
-    count
+    PermissionRuntime::new(state, emitter, perms)
+        .resolve(request_id, option_id)
+        .await;
 }
 
 async fn set_session_mode(
@@ -3618,8 +4617,6 @@ async fn set_session_config_option_inner(
 async fn apply_preferred_session_config_options(
     cx: &ConnectionTo<Agent>,
     session: &mut sacp::ActiveSession<'_, Agent>,
-    state: &Arc<RwLock<SessionState>>,
-    emitter: &EventEmitter,
     preferred_config_values: &BTreeMap<String, String>,
     initial_config_options: Vec<SessionConfigOption>,
 ) -> Vec<SessionConfigOption> {
@@ -3786,8 +4783,6 @@ async fn apply_and_emit_session_config_options(
     let updated = apply_preferred_session_config_options(
         cx,
         session,
-        state,
-        emitter,
         preferred_config_values,
         initial_config_options,
     )
@@ -4505,6 +5500,7 @@ async fn handle_fork_or_exit(
     // run_conversation_loop call has the same delegation cascade
     // capability as the original.
     delegation_injection: Option<&DelegationInjection>,
+    stderr_tail: &Arc<StderrTail>,
 ) -> Result<(), sacp::Error> {
     let fork_info = match loop_result {
         Ok(Some(info)) => info,
@@ -4576,6 +5572,7 @@ async fn handle_fork_or_exit(
         true, // fork already succeeded on this process
         prompt_ledger,
         delegation_injection,
+        stderr_tail,
     )
     .await;
     terminal_runtime.release_all_for_session(&new_sid).await;
@@ -4596,6 +5593,7 @@ async fn handle_fork_or_exit(
         prompt_ledger,
         route_binding,
         delegation_injection,
+        stderr_tail,
     ))
     .await
 }
@@ -4686,7 +5684,7 @@ impl PromptLogContext<'_> {
         tool_call_count: usize,
         tool_stats: &ToolCallFailureStats,
     ) {
-        let detail = safe_prompt_error_detail(&error.to_string());
+        let detail = safe_error_detail(&error.to_string());
         tracing::error!(
             connection_id = self.connection_id,
             session_id = %self.session_id,
@@ -4762,10 +5760,10 @@ fn prompt_input_stats(blocks: &[PromptInputBlock]) -> PromptInputStats {
     stats
 }
 
-fn safe_prompt_error_detail(value: &str) -> String {
+fn safe_error_detail(value: &str) -> String {
     const MAX_CHARS: usize = 2_048;
     const SENSITIVE_MARKERS: &[&str] = &[
-        "authorization:",
+        "authorization",
         "bearer ",
         "api_key=",
         "api-key=",
@@ -4851,34 +5849,44 @@ fn is_agent_output_update(agent_type: AgentType, update: &SessionUpdate) -> bool
 /// <https://shashikantjagtap.net/openclaw-acp-what-coding-agent-users-need-to-know-about-protocol-gaps/>.
 /// `empty` is a synthesized reason emitted by `run_conversation_loop` when
 /// the agent reports `EndTurn` without producing any agent output.
-fn turn_failure_error_event(reason_str: &str, agent_type: AgentType) -> Option<AcpEvent> {
-    let (code, message) = match reason_str {
+fn turn_failure_error_event(
+    reason_str: &str,
+    agent_type: AgentType,
+    empty: Option<&EmptyTurnReport>,
+) -> Option<AcpEvent> {
+    let (code, message, details) = match reason_str {
         "refusal" => (
             "turn_failed_refusal",
             format!("{agent_type} refused to continue this turn."),
+            None,
         ),
         "max_tokens" => (
             "turn_failed_max_tokens",
             format!("{agent_type} reached the maximum token limit for this turn."),
+            None,
         ),
         "max_turn_requests" => (
             "turn_failed_max_turn_requests",
             format!("{agent_type} reached the maximum number of allowed requests for this turn."),
+            None,
         ),
         "unknown" => (
             "turn_failed_unknown",
             format!("{agent_type} ended the turn with an unrecognized stop reason."),
+            None,
         ),
-        "empty" => (
-            "turn_failed_empty",
-            format!(
-                "{agent_type} ended the turn without producing any response. \
-                 Please check the agent's configuration."
+        "empty" => match empty {
+            Some(report) => (report.code(), report.message(agent_type), report.details()),
+            None => (
+                "turn_failed_empty",
+                format!("{agent_type} ended the turn without producing any response."),
+                None,
             ),
-        ),
+        },
         "compaction_not_applied" => (
             "compaction_not_applied",
             format!("{agent_type} ended the compact turn without writing a new compacted summary."),
+            None,
         ),
         _ => return None,
     };
@@ -4886,6 +5894,7 @@ fn turn_failure_error_event(reason_str: &str, agent_type: AgentType) -> Option<A
         message,
         agent_type: agent_type.to_string(),
         code: Some(code.to_string()),
+        details,
         // Non-terminal: this Error is paired with a `TurnComplete`
         // carrying the same stop reason. The connection stays alive and
         // the broker's pending entry is drained by `complete_call` with
@@ -4922,11 +5931,16 @@ fn codex_thread_status(update: &SessionUpdate) -> Option<&str> {
         .as_str()
 }
 
-async fn finish_native_background_turn(
-    state: &Arc<RwLock<SessionState>>,
-    emitter: &EventEmitter,
-    session_id: &str,
+struct NativeBackgroundFinishContext<'a> {
+    state: &'a Arc<RwLock<SessionState>>,
+    emitter: &'a EventEmitter,
+    permissions: &'a PendingPermissions,
+    session_id: &'a str,
     agent_type: AgentType,
+}
+
+async fn finish_native_background_turn(
+    context: NativeBackgroundFinishContext<'_>,
     thread_status: &str,
 ) {
     let stop_reason = match thread_status {
@@ -4935,7 +5949,7 @@ async fn finish_native_background_turn(
         _ => return,
     };
     let active = {
-        let mut snapshot = state.write().await;
+        let mut snapshot = context.state.write().await;
         let current_generation = snapshot.turn_generation;
         let turn_in_flight = snapshot.turn_in_flight;
         let Some(turn) = snapshot.native_background_turn.as_mut() else {
@@ -4950,19 +5964,19 @@ async fn finish_native_background_turn(
     if !active {
         return;
     }
-    if let Some(error) = turn_failure_error_event(stop_reason, agent_type) {
-        emit_with_state(state, emitter, error).await;
+    if let Some(error) = turn_failure_error_event(stop_reason, context.agent_type, None) {
+        emit_with_state(context.state, context.emitter, error).await;
     }
-    emit_with_state(
-        state,
-        emitter,
-        AcpEvent::TurnComplete {
-            session_id: session_id.to_string(),
-            stop_reason: stop_reason.to_string(),
-            agent_type: agent_type.to_string(),
-        },
-    )
-    .await;
+    PermissionRuntime::new(context.state, context.emitter, context.permissions)
+        .drain_then_emit(
+            "native_background_turn_completed",
+            AcpEvent::TurnComplete {
+                session_id: context.session_id.to_string(),
+                stop_reason: stop_reason.to_string(),
+                agent_type: context.agent_type.to_string(),
+            },
+        )
+        .await;
 }
 
 /// Returns `Ok(None)` on normal exit (disconnect / channel closed) or
@@ -4984,6 +5998,7 @@ async fn run_conversation_loop<'a>(
     // delegations on parent prompt cancel / non-success TurnComplete.
     // `None` for test paths that don't wire delegation.
     delegation_injection: Option<&DelegationInjection>,
+    stderr_tail: &Arc<StderrTail>,
 ) -> Result<Option<ForkExitInfo>, sacp::Error> {
     // Session-scoped cache for diffing cumulative `raw_output` snapshots
     // into incremental deltas. Shared across the idle loop and the active
@@ -4996,6 +6011,7 @@ async fn run_conversation_loop<'a>(
     // thought/message chunks. See `emit_conversation_update`. Shared across the
     // idle and turn loops.
     let mut cb_state = CodeBuddyLiveState::default();
+    let mut drop_log_throttle = DropLogThrottle::default();
     loop {
         // Wait for either a user command or a session update (e.g. available_commands_update)
         let cmd = loop {
@@ -5018,10 +6034,13 @@ async fn run_conversation_loop<'a>(
                                         emit_conversation_update(&st, &h, agent_type, notif.update, cwd_opt, &mut raw_output_cache, &mut cb_state).await;
                                         if let Some(status) = background_status {
                                             finish_native_background_turn(
-                                                &st,
-                                                &h,
-                                                &session_id,
-                                                agent_type,
+                                                NativeBackgroundFinishContext {
+                                                    state: &st,
+                                                    emitter: &h,
+                                                    permissions: perms,
+                                                    session_id: &session_id,
+                                                    agent_type,
+                                                },
                                                 &status,
                                             )
                                             .await;
@@ -5038,7 +6057,7 @@ async fn run_conversation_loop<'a>(
                         }
                         Ok(_) => {}
                         Err(e) => {
-                            tracing::warn!("[ACP] Ignoring unrecognized session update in idle loop: {e}");
+                            drop_log_throttle.record("idle", &e);
                         }
                     }
                 }
@@ -5090,20 +6109,21 @@ async fn run_conversation_loop<'a>(
                                 message: error,
                                 agent_type: agent_type.to_string(),
                                 code: None,
+                                details: None,
                                 terminal: false,
                             },
                         )
                         .await;
-                        emit_with_state(
-                            state,
-                            emitter,
-                            AcpEvent::TurnComplete {
-                                session_id: session.session_id().0.to_string(),
-                                stop_reason: "cancelled".into(),
-                                agent_type: agent_type.to_string(),
-                            },
-                        )
-                        .await;
+                        PermissionRuntime::new(state, emitter, perms)
+                            .drain_then_emit(
+                                "invalid_image_transport",
+                                AcpEvent::TurnComplete {
+                                    session_id: session.session_id().0.to_string(),
+                                    stop_reason: "cancelled".into(),
+                                    agent_type: agent_type.to_string(),
+                                },
+                            )
+                            .await;
                         prompt_log.interrupted("invalid_image_transport", false, 0);
                         continue;
                     }
@@ -5126,6 +6146,7 @@ async fn run_conversation_loop<'a>(
                             message: "Prompt must contain at least one content block".into(),
                             agent_type: agent_type.to_string(),
                             code: None,
+                            details: None,
                             // Recoverable: idle loop continues, awaiting the
                             // next user command. Connection stays alive.
                             terminal: false,
@@ -5184,13 +6205,7 @@ async fn run_conversation_loop<'a>(
                 terminal_poll_interval
                     .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 let mut disconnect_requested = false;
-                // Tracks whether the agent produced any real output during
-                // this turn (text reply, thinking chunk, or tool call). When
-                // an agent reports `EndTurn` with this still false, we treat
-                // it as a silent failure and synthesize an `"empty"` stop
-                // reason so the user gets an error toast instead of a
-                // confusing `PendingReview` on a blank conversation.
-                let mut turn_had_agent_output = false;
+                let mut output_probe = TurnOutputProbe::new(stderr_tail.mark());
                 let mut tool_call_count = 0usize;
                 // `startedNewTurn` may let the wrapper begin producing the next
                 // turn before the old prompt response has unwound locally. Hold
@@ -5216,7 +6231,8 @@ async fn run_conversation_loop<'a>(
                             let update = match update {
                                 Ok(u) => u,
                                 Err(e) => {
-                                    tracing::warn!("[ACP] Ignoring unrecognized session update: {e}");
+                                    output_probe.note_dropped(DropSite::Decode, &e);
+                                    drop_log_throttle.record(DropSite::Decode.label(), &e);
                                     continue;
                                 }
                             };
@@ -5245,10 +6261,13 @@ async fn run_conversation_loop<'a>(
                                                 if pending_background {
                                                     if let Some(status) = codex_thread_status(&notif.update) {
                                                         finish_native_background_turn(
-                                                            &st,
-                                                            &h,
-                                                            session_id.0.as_ref(),
-                                                            agent_type,
+                                                            NativeBackgroundFinishContext {
+                                                                state: &st,
+                                                                emitter: &h,
+                                                                permissions: perms,
+                                                                session_id: session_id.0.as_ref(),
+                                                                agent_type,
+                                                            },
                                                             status,
                                                         )
                                                         .await;
@@ -5262,19 +6281,23 @@ async fn run_conversation_loop<'a>(
                                                     &notif.update,
                                                     &mut tracked_terminal_tool_calls,
                                                 );
-                                                if is_agent_output_update(agent_type, &notif.update) {
-                                                    turn_had_agent_output = true;
-                                                }
+                                                output_probe.note_update(is_agent_output_update(
+                                                    agent_type,
+                                                    &notif.update,
+                                                ));
                                                 if matches!(&notif.update, SessionUpdate::ToolCall(_)) {
                                                     tool_call_count += 1;
                                                 }
                                                 emit_conversation_update(&st, &h, agent_type, notif.update, cwd_opt, &mut raw_output_cache, &mut cb_state).await;
                                                 if let Some(status) = background_status {
                                                     finish_native_background_turn(
-                                                        &st,
-                                                        &h,
-                                                        session_id.0.as_ref(),
-                                                        agent_type,
+                                                        NativeBackgroundFinishContext {
+                                                            state: &st,
+                                                            emitter: &h,
+                                                            permissions: perms,
+                                                            session_id: session_id.0.as_ref(),
+                                                            agent_type,
+                                                        },
                                                         &status,
                                                     )
                                                     .await;
@@ -5299,7 +6322,8 @@ async fn run_conversation_loop<'a>(
                                         })
                                         .await
                                     {
-                                        tracing::warn!("[ACP] Ignoring dispatch parse error: {e}");
+                                        output_probe.note_dropped(DropSite::Dispatch, &e);
+                                        drop_log_throttle.record(DropSite::Dispatch.label(), &e);
                                     }
                                 }
                                 SessionMessage::StopReason(reason) => {
@@ -5314,14 +6338,12 @@ async fn run_conversation_loop<'a>(
                                         .await;
                                     }
                                     let raw_reason_str = stop_reason_to_str(reason);
-                                    let base_reason = if raw_reason_str == "end_turn"
-                                        && !turn_had_agent_output
-                                        && !is_compaction
-                                    {
-                                        "empty"
-                                    } else {
-                                        raw_reason_str
-                                    };
+                                    let (base_reason, empty_report) = finish_turn_reason(
+                                        &output_probe,
+                                        raw_reason_str,
+                                        stderr_tail,
+                                        !is_compaction,
+                                    );
                                     let reason_str = verified_compaction_stop_reason(
                                         base_reason,
                                         compaction_marker.as_ref(),
@@ -5330,24 +6352,26 @@ async fn run_conversation_loop<'a>(
                                     .await;
                                     prompt_log.completed(
                                         reason_str,
-                                        turn_had_agent_output,
+                                        output_probe.saw_agent_output(),
                                         tool_call_count,
                                     );
-                                    if let Some(err_event) =
-                                        turn_failure_error_event(reason_str, agent_type)
-                                    {
+                                    if let Some(err_event) = turn_failure_error_event(
+                                        reason_str,
+                                        agent_type,
+                                        empty_report.as_ref(),
+                                    ) {
                                         emit_with_state(state, emitter, err_event).await;
                                     }
-                                    emit_with_state(
-                                        state,
-                                        emitter,
-                                        AcpEvent::TurnComplete {
-                                            session_id: sid.0.to_string(),
-                                            stop_reason: reason_str.into(),
-                                            agent_type: agent_type.to_string(),
-                                        },
-                                    )
-                                    .await;
+                                    PermissionRuntime::new(state, emitter, perms)
+                                        .drain_then_emit(
+                                            "turn_completed",
+                                            AcpEvent::TurnComplete {
+                                                session_id: sid.0.to_string(),
+                                                stop_reason: reason_str.into(),
+                                                agent_type: agent_type.to_string(),
+                                            },
+                                        )
+                                        .await;
                                     // Cascade-cancel any pending delegations
                                     // whenever the parent's turn ended for a
                                     // reason other than clean `end_turn`. The
@@ -5385,8 +6409,8 @@ async fn run_conversation_loop<'a>(
                             }
                         }
                         prompt_result = &mut prompt_response => {
-                            let reason = match prompt_result {
-                                Ok(response) => response.stop_reason,
+                            let response = match prompt_result {
+                                Ok(response) => response,
                                 Err(error) => {
                                     let tool_stats = {
                                         let snapshot = state.read().await;
@@ -5396,6 +6420,24 @@ async fn run_conversation_loop<'a>(
                                     return Err(error);
                                 }
                             };
+                            // AIR terminal failures use the prompt response as
+                            // their canonical carrier. Emit before TurnComplete
+                            // so a higher-revision error can supersede a retry
+                            // warning before the clean-boundary settle runs.
+                            let terminal_failure = crate::acp::session_failure::from_air_meta(
+                                response.meta.as_ref(),
+                            );
+                            if let Some(record) = terminal_failure.as_ref() {
+                                emit_with_state(
+                                    state,
+                                    emitter,
+                                    AcpEvent::SessionFailure {
+                                        record: record.clone(),
+                                    },
+                                )
+                                .await;
+                            }
+                            let reason = response.stop_reason;
                             if !tracked_terminal_tool_calls.is_empty() {
                                 poll_tracked_terminal_tool_calls(
                                     terminal_runtime.as_ref(),
@@ -5407,13 +6449,21 @@ async fn run_conversation_loop<'a>(
                                 .await;
                             }
                             let raw_reason_str = stop_reason_to_str(reason);
-                            let base_reason = if raw_reason_str == "end_turn"
-                                && !turn_had_agent_output
-                                && !is_compaction
+                            // Adapters may disguise a typed terminal AIR error
+                            // as end_turn. Its banner is authoritative, so do
+                            // not stack a generic empty-turn diagnosis on it.
+                            let (base_reason, empty_report) = if terminal_failure
+                                .as_ref()
+                                .is_some_and(|record| record.severity == "error")
                             {
-                                "empty"
+                                (raw_reason_str, None)
                             } else {
-                                raw_reason_str
+                                finish_turn_reason(
+                                    &output_probe,
+                                    raw_reason_str,
+                                    stderr_tail,
+                                    !is_compaction,
+                                )
                             };
                             let reason_str = verified_compaction_stop_reason(
                                 base_reason,
@@ -5423,24 +6473,26 @@ async fn run_conversation_loop<'a>(
                             .await;
                             prompt_log.completed(
                                 reason_str,
-                                turn_had_agent_output,
+                                output_probe.saw_agent_output(),
                                 tool_call_count,
                             );
-                            if let Some(err_event) =
-                                turn_failure_error_event(reason_str, agent_type)
-                            {
+                            if let Some(err_event) = turn_failure_error_event(
+                                reason_str,
+                                agent_type,
+                                empty_report.as_ref(),
+                            ) {
                                 emit_with_state(state, emitter, err_event).await;
                             }
-                            emit_with_state(
-                                state,
-                                emitter,
-                                AcpEvent::TurnComplete {
-                                    session_id: sid.0.to_string(),
-                                    stop_reason: reason_str.into(),
-                                    agent_type: agent_type.to_string(),
-                                },
-                            )
-                            .await;
+                            PermissionRuntime::new(state, emitter, perms)
+                                .drain_then_emit(
+                                    "turn_completed",
+                                    AcpEvent::TurnComplete {
+                                        session_id: sid.0.to_string(),
+                                        stop_reason: reason_str.into(),
+                                        agent_type: agent_type.to_string(),
+                                    },
+                                )
+                                .await;
                             // Mirror the StopReason-message branch above:
                             // cascade-cancel on any non-`end_turn` reason
                             // so in-flight delegations don't dangle when
@@ -5501,6 +6553,7 @@ async fn run_conversation_loop<'a>(
                                                     message: format!("Failed to set mode: {e}"),
                                                     agent_type: agent_type.to_string(),
                                                     code: None,
+                                                    details: None,
                                                     // Recoverable: just a failed mode toggle.
                                                     terminal: false,
                                                 },
@@ -5531,6 +6584,7 @@ async fn run_conversation_loop<'a>(
                                                 message: format!("Failed to set config option: {e}"),
                                                 agent_type: agent_type.to_string(),
                                                 code: None,
+                                                details: None,
                                                 // Recoverable: just a failed config-option toggle.
                                                 terminal: false,
                                             },
@@ -5551,28 +6605,25 @@ async fn run_conversation_loop<'a>(
                                         .release_all_for_session(sid.0.as_ref())
                                         .await;
                                     tracked_terminal_tool_calls.clear();
-                                    // Also cancel any pending permission requests
-                                    cancel_pending_permissions(perms, conn_id, "turn_cancelled")
-                                        .await;
                                     prompt_log.completed(
                                         "cancelled",
-                                        turn_had_agent_output,
+                                        output_probe.saw_agent_output(),
                                         tool_call_count,
                                     );
                                     // Immediately emit TurnComplete so the frontend
                                     // transitions out of "prompting" and the user can
                                     // send new messages.  Don't wait for the agent --
                                     // it may be slow to respond or not respond at all.
-                                    emit_with_state(
-                                        state,
-                                        emitter,
-                                        AcpEvent::TurnComplete {
-                                            session_id: sid.0.to_string(),
-                                            stop_reason: "cancelled".into(),
-                                            agent_type: agent_type.to_string(),
-                                        },
-                                    )
-                                    .await;
+                                    PermissionRuntime::new(state, emitter, perms)
+                                        .drain_then_emit(
+                                            "turn_cancelled",
+                                            AcpEvent::TurnComplete {
+                                                session_id: sid.0.to_string(),
+                                                stop_reason: "cancelled".into(),
+                                                agent_type: agent_type.to_string(),
+                                            },
+                                        )
+                                        .await;
                                     // Cascade-cancel any in-flight delegations owned by
                                     // this parent connection. Idempotent with the
                                     // cleanup-guard cancel_by_parent at the end of
@@ -5736,15 +6787,12 @@ async fn run_conversation_loop<'a>(
                                         .release_all_for_session(sid.0.as_ref())
                                         .await;
                                     tracked_terminal_tool_calls.clear();
-                                    cancel_pending_permissions(
-                                        perms,
-                                        conn_id,
-                                        "connection_disconnected",
-                                    )
-                                    .await;
+                                    PermissionRuntime::new(state, emitter, perms)
+                                        .drain("connection_disconnected")
+                                        .await;
                                     prompt_log.interrupted(
                                         "disconnect_requested",
-                                        turn_had_agent_output,
+                                        output_probe.saw_agent_output(),
                                         tool_call_count,
                                     );
                                     disconnect_requested = true;
@@ -5781,10 +6829,13 @@ async fn run_conversation_loop<'a>(
                             continue;
                         };
                         finish_native_background_turn(
-                            state,
-                            emitter,
-                            session.session_id().0.as_ref(),
-                            agent_type,
+                            NativeBackgroundFinishContext {
+                                state,
+                                emitter,
+                                permissions: perms,
+                                session_id: session.session_id().0.as_ref(),
+                                agent_type,
+                            },
                             &status,
                         )
                         .await;
@@ -5815,6 +6866,7 @@ async fn run_conversation_loop<'a>(
                             message: format!("Failed to set mode: {e}"),
                             agent_type: agent_type.to_string(),
                             code: None,
+                            details: None,
                             // Recoverable: idle SetMode failure leaves the
                             // connection alive — same rationale as the
                             // mid-prompt SetMode site above.
@@ -5842,6 +6894,7 @@ async fn run_conversation_loop<'a>(
                             message: format!("Failed to set config option: {e}"),
                             agent_type: agent_type.to_string(),
                             code: None,
+                            details: None,
                             // Recoverable: idle SetConfigOption failure leaves
                             // the connection alive.
                             terminal: false,
@@ -5857,7 +6910,9 @@ async fn run_conversation_loop<'a>(
                 terminal_runtime
                     .release_all_for_session(sid.0.as_ref())
                     .await;
-                cancel_pending_permissions(perms, conn_id, "idle_turn_cancelled").await;
+                PermissionRuntime::new(state, emitter, perms)
+                    .drain("idle_turn_cancelled")
+                    .await;
                 // Cascade-cancel any pending delegations owned by this parent.
                 // Reached when Cancel arrives between prompts (idle path); the
                 // inner Cancel handler covers mid-prompt. Both must trigger
@@ -6489,15 +7544,63 @@ struct CodeBuddyLiveState {
     /// (not content) addressing keeps two runs that share an objective from
     /// colliding in the reducer's id-keyed live block list.
     codex_goal_seq: u64,
+    /// Cursor announces MCP calls as `MCP: tool` before their identity exists
+    /// and never repeats the title/input. Keep only those ids eligible for the
+    /// bounded completion-result recovery below.
+    cursor_generic_mcp_ids: HashSet<String>,
+}
+
+const CURSOR_IDENTITYLESS_MCP_TITLE: &str = "MCP: tool";
+
+struct CursorToolSnapshot<'a> {
+    agent_type: AgentType,
+    tool_call_id: &'a str,
+    title: Option<&'a str>,
+    status: Option<&'a str>,
+    content: &'a mut Option<String>,
+    raw_output: Option<&'a str>,
+}
+
+impl CodeBuddyLiveState {
+    fn recover_cursor_delegation(&mut self, snapshot: CursorToolSnapshot<'_>) -> Option<String> {
+        if snapshot.agent_type != AgentType::Cursor {
+            return None;
+        }
+        if snapshot.title == Some(CURSOR_IDENTITYLESS_MCP_TITLE) {
+            self.cursor_generic_mcp_ids
+                .insert(snapshot.tool_call_id.to_string());
+        }
+        if !matches!(snapshot.status, Some("completed" | "failed")) {
+            return None;
+        }
+        let eligible = self.cursor_generic_mcp_ids.remove(snapshot.tool_call_id);
+        if !eligible {
+            return None;
+        }
+        let task_id = crate::acp::delegation::broker::delegation_ack_task_id(
+            snapshot.content.as_deref(),
+            snapshot.raw_output,
+        )?;
+        *snapshot.content = Some(format!(
+            "{}{}{}",
+            crate::acp::delegation::broker::DELEGATION_ACK_PREFIX,
+            task_id,
+            crate::acp::delegation::broker::DELEGATION_ACK_SUFFIX,
+        ));
+        let title = "delegate_to_agent".to_string();
+        self.title_overrides
+            .insert(snapshot.tool_call_id.to_string(), title.clone());
+        Some(title)
+    }
 }
 
 /// Resolve a tool call's title, honoring an authoritative rewrite recorded for
 /// the session in `overrides` (tool_call_id → resolved title).
 ///
-/// Returns `Some(name)` when this event identifies a CodeBuddy `DeferExecuteTool`
-/// (the inner `mcp__…` name, from `raw_input`) or a sub-agent invocation
-/// (`"agent"`) — recording it — OR when a PRIOR event already classified this
-/// `tool_call_id` and this event lost the marker (the override is re-asserted).
+/// Returns `Some(name)` when this event identifies a built-in capability gateway
+/// invocation, a CodeBuddy `DeferExecuteTool`, or a sub-agent invocation —
+/// recording it — OR when a PRIOR event already classified this `tool_call_id`
+/// and this event lost the marker (the override is re-asserted).
 /// Returns `None` only when the call was never classified, so the caller falls
 /// back to the event's own title.
 ///
@@ -6523,6 +7626,21 @@ fn resolve_rewritten_title(
     meta_marks_subagent: bool,
     overrides: &mut HashMap<String, String>,
 ) -> Option<String> {
+    match crate::acp::builtin_mcp::invoked_tool_name(raw_input) {
+        crate::acp::builtin_mcp::GatewayToolIdentity::Resolved(logical_name) => {
+            tracing::info!(
+                "[ACP][{agent_type}] restored built-in gateway tool identity (tool_call_id={tool_call_id}, on_update={on_update})"
+            );
+            overrides.insert(tool_call_id.to_string(), logical_name.clone());
+            return Some(logical_name);
+        }
+        crate::acp::builtin_mcp::GatewayToolIdentity::UnresolvedGateway => {
+            if let Some(logical_name) = overrides.get(tool_call_id) {
+                return Some(logical_name.clone());
+            }
+        }
+        crate::acp::builtin_mcp::GatewayToolIdentity::NotGateway => {}
+    }
     if let Some(inner) = codebuddy_deferred_tool_name(agent_type, raw_input) {
         tracing::info!(
             "[ACP][{agent_type}] unwrapped DeferExecuteTool to its real MCP tool (tool_call_id={tool_call_id}, on_update={on_update})"
@@ -6674,7 +7792,7 @@ async fn emit_conversation_update(
                 tracing::error!(
                     agent_type = %agent_type,
                     error_kind,
-                    error = %safe_prompt_error_detail(&text.text),
+                    error = %safe_error_detail(&text.text),
                     "[ACP] agent runtime error"
                 );
             }
@@ -6737,7 +7855,7 @@ async fn emit_conversation_update(
             } else {
                 None
             };
-            let content = serialize_tool_call_content(&tc.content, synthesized_edit.is_none())
+            let mut content = serialize_tool_call_content(&tc.content, synthesized_edit.is_none())
                 .map(|c| unwrap_codebuddy_deferred_output(agent_type, &c).unwrap_or(c));
             // Prefer structured content images; fall back to parsing the raw MCP
             // `tools/call` result in `raw_output` for agents that surface the
@@ -6758,8 +7876,9 @@ async fn emit_conversation_update(
                     .map(|text| unwrap_codebuddy_deferred_output(agent_type, &text).unwrap_or(text))
                     .map(|text| structurize_live_output(&text))
             };
-            let raw_output =
-                raw_output_text.and_then(|text| raw_output_cache.seed(&tool_call_id, &text));
+            let raw_output = raw_output_text
+                .as_deref()
+                .and_then(|text| raw_output_cache.seed(&tool_call_id, text));
             let locations = if tc.locations.is_empty() {
                 None
             } else {
@@ -6787,7 +7906,7 @@ async fn emit_conversation_update(
             }
             // Resolve (and record) any authoritative title rewrite so a later
             // status-only update can't downgrade this card (see fn doc).
-            let title = resolve_rewritten_title(
+            let mut title = resolve_rewritten_title(
                 agent_type,
                 &raw_input,
                 &tool_call_id,
@@ -6796,6 +7915,16 @@ async fn emit_conversation_update(
                 &mut cb_state.title_overrides,
             )
             .unwrap_or(tc.title);
+            if let Some(recovered) = cb_state.recover_cursor_delegation(CursorToolSnapshot {
+                agent_type,
+                tool_call_id: &tool_call_id,
+                title: Some(&title),
+                status: Some(status.as_str()),
+                content: &mut content,
+                raw_output: raw_output_text.as_deref(),
+            }) {
+                title = recovered;
+            }
             // Open/close the sub-agent suppression window for this call. `title ==
             // "agent"` iff this is a classified native sub-agent (DeferExecuteTool
             // rewrites to an `mcp__…` name, never "agent").
@@ -6852,7 +7981,7 @@ async fn emit_conversation_update(
             } else {
                 None
             };
-            let content = tcu
+            let mut content = tcu
                 .fields
                 .content
                 .as_deref()
@@ -6879,8 +8008,8 @@ async fn emit_conversation_update(
                     .map(|text| unwrap_codebuddy_deferred_output(agent_type, &text).unwrap_or(text))
                     .map(|text| structurize_live_output(&text))
             };
-            let (raw_output, raw_output_append) = match raw_output_text {
-                Some(text) => match raw_output_cache.consume(&tool_call_id, &text) {
+            let (raw_output, raw_output_append) = match raw_output_text.as_deref() {
+                Some(text) => match raw_output_cache.consume(&tool_call_id, text) {
                     Some((payload, append)) => (Some(payload), Some(append)),
                     None => (None, None),
                 },
@@ -6911,7 +8040,7 @@ async fn emit_conversation_update(
             // its child nesting (`getToolName === "agent"`) don't revert to a
             // generic tool call mid-stream. Falls back to the event's own title
             // for never-classified tool calls.
-            let title = resolve_rewritten_title(
+            let mut title = resolve_rewritten_title(
                 agent_type,
                 &raw_input,
                 &tool_call_id,
@@ -6920,6 +8049,16 @@ async fn emit_conversation_update(
                 &mut cb_state.title_overrides,
             )
             .or(tcu.fields.title);
+            if let Some(recovered) = cb_state.recover_cursor_delegation(CursorToolSnapshot {
+                agent_type,
+                tool_call_id: &tool_call_id,
+                title: title.as_deref(),
+                status: status.as_deref(),
+                content: &mut content,
+                raw_output: raw_output_text.as_deref(),
+            }) {
+                title = Some(recovered);
+            }
             // Keep/close the sub-agent suppression window by status (an update
             // resolving to "agent" is a classified native sub-agent).
             track_subagent_window(
@@ -7065,6 +8204,10 @@ async fn emit_conversation_update(
                     )
                     .await;
                 }
+            }
+
+            if let Some(record) = crate::acp::session_failure::from_air_meta(info.meta.as_ref()) {
+                emit_with_state(state, emitter, AcpEvent::SessionFailure { record }).await;
             }
         }
         other => {

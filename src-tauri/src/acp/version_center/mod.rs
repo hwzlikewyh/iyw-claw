@@ -12,6 +12,9 @@ mod inventory;
 mod launch_authorization;
 mod npm_install;
 mod official_sources;
+mod runtime_bundle_archive;
+mod runtime_bundle_manifest;
+mod runtime_bundle_state;
 mod types;
 mod uvx_install;
 
@@ -20,7 +23,7 @@ pub(crate) use catalog::platform_id;
 pub use catalog::{
     platform_projection, CatalogStore, CatalogView, PlatformAccess, PlatformProjection,
 };
-pub use client::{AgentPlatformClient, CatalogFetch};
+pub use client::{AgentPlatformClient, CapabilityPolicyHttpFetcher, CatalogFetch};
 // Task 06 新增统一初始化入口的再导出（最小改动：仅追加三行，供命令层/前端接线）。
 pub use installer::{
     bootstrap_init_status, bootstrap_initialize, consume_pending_activations_at_startup,
@@ -32,6 +35,9 @@ pub(crate) use installer::{
     pending_agent_activation_version, persisted_activation_revision, runtime_dir,
     write_current_pointer, ManagedBinaryAgentRequest,
 };
+pub(crate) use installer::{
+    install_runtime_bundle, InstalledRuntimeBundle, RuntimeBundleInstallError, RuntimeBundleRequest,
+};
 pub(crate) use installer::{push_pending_activation, PendingActivation};
 pub use inventory::{
     activate_agent, list_agent_installations, list_tool_installations, list_tool_settings,
@@ -40,9 +46,11 @@ pub use inventory::{
 };
 pub(crate) use launch_authorization::authorize_agent_version_launch;
 pub(crate) use npm_install::{
-    confirm_npm_agent_install, resolve_npm_agent_install, ManagedNpmInstall,
+    confirm_npm_agent_install, ensure_npm_node_requirement, resolve_npm_agent_install,
+    ManagedNpmInstall,
 };
 pub(crate) use official_sources::{fallback_npm_agent_install, fallback_uvx_agent_install};
+pub(crate) use runtime_bundle_state::{remove_uvx_bundles, uvx_bundle_env};
 pub(crate) use types::ResolveAgentRequest;
 pub use types::{AgentOffer, CatalogSnapshot, DownloadTicket, ToolOffer, VersionHistory};
 pub(crate) use uvx_install::{confirm_uvx_agent_install, resolve_uvx_agent_install};

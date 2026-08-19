@@ -7,6 +7,7 @@ import {
   notifyRemoteDesktopUnauthorized,
 } from "./transport"
 import { getIywClawToken } from "./transport/web-auth"
+import { requireFileUploadCapability } from "./transport/capability-policy"
 import { notifyWebUnauthorized } from "./transport/web-connection-store"
 import { getCurrentEffectiveAppLocale } from "./i18n"
 import {
@@ -2701,6 +2702,7 @@ export async function stageLocalChatAttachment(
   sourcePath: string,
   chatDir: string
 ): Promise<string> {
+  await requireFileUploadCapability()
   const result = await getShellTransport().call<{ path: string }>(
     "stage_chat_attachment",
     { sourcePath, chatDir }
@@ -2744,6 +2746,7 @@ export async function uploadAttachment(
   sessionId?: string | null,
   chatDir?: string | null
 ): Promise<UploadAttachmentResult> {
+  await requireFileUploadCapability()
   if (file.size === 0) {
     // Skip empty files at the entry — both the web and remote-desktop
     // transports would otherwise dutifully POST a zero-byte multipart part
@@ -2870,6 +2873,7 @@ export async function uploadChatImage(
   file: File,
   options: ChatImageStorageOptions = {}
 ): Promise<PreparedChatImage> {
+  await requireFileUploadCapability()
   if (isDesktop()) {
     const connectionId = getActiveRemoteConnectionId()
     const uploadMime = file.type || options.mimeType || ""
@@ -2912,6 +2916,7 @@ export async function uploadLocalChatImagePathToRemote(
   path: string,
   options: ChatImageStorageOptions = {}
 ): Promise<PreparedChatImage> {
+  await requireFileUploadCapability()
   const connectionId = getActiveRemoteConnectionId()
   if (connectionId === null) {
     throw new Error("No active remote workspace")
@@ -2937,6 +2942,7 @@ export async function uploadLocalPathToRemote(
   path: string,
   sessionId?: string | null
 ): Promise<UploadAttachmentResult> {
+  await requireFileUploadCapability()
   const remoteId = getActiveRemoteConnectionId()
   if (remoteId === null) {
     throw new Error(
@@ -2994,6 +3000,7 @@ export async function prepareChatImagePath(
   source: "local" | "workspace" = "local",
   options: ChatImageStorageOptions = {}
 ): Promise<PreparedChatImage> {
+  await requireFileUploadCapability()
   const transport = source === "local" ? getShellTransport() : getTransport()
   return transport.call("prepare_chat_image", {
     path,
@@ -3100,6 +3107,7 @@ export async function uploadWorkspaceFile(
   args: UploadWorkspaceFileArgs
 ): Promise<UploadWorkspaceFileResult> {
   assertWorkspaceFileApiAvailable("uploadWorkspaceFile")
+  await requireFileUploadCapability()
 
   if (isRemoteDesktopMode()) {
     throw new Error(
@@ -3196,6 +3204,7 @@ export async function uploadWorkspaceLocalPathsToRemote(args: {
   targetPath: string
   entries: RemoteWorkspaceUploadPathEntry[]
 }): Promise<RemoteWorkspaceUploadPathsResult> {
+  await requireFileUploadCapability()
   const connectionId = getActiveRemoteConnectionId()
   if (connectionId === null) {
     throw new Error(
@@ -3759,9 +3768,14 @@ export async function deleteChatChannel(id: number): Promise<void> {
 
 export async function saveChatChannelToken(
   channelId: number,
-  token: string
+  token: string,
+  configPatchJson?: string | null
 ): Promise<void> {
-  return getTransport().call("save_chat_channel_token", { channelId, token })
+  return getTransport().call("save_chat_channel_token", {
+    channelId,
+    token,
+    configPatchJson: configPatchJson ?? null,
+  })
 }
 
 export async function getChatChannelHasToken(
@@ -4316,6 +4330,7 @@ export async function uploadBackupWeb(
   file: File,
   onProgress?: (loaded: number, total: number) => void
 ): Promise<string> {
+  await requireFileUploadCapability()
   return new Promise<string>((resolve, reject) => {
     const token = getIywClawToken()
     const xhr = new XMLHttpRequest()

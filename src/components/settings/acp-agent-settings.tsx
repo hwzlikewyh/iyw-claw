@@ -107,7 +107,11 @@ import type {
   OpenCodeCatalogProvider,
   PreflightResult,
 } from "@/lib/types"
-import { HERMES_PROVIDERS, parseClaudeProviderModel } from "@/lib/types"
+import {
+  HERMES_PROVIDERS,
+  isAgentType,
+  parseClaudeProviderModel,
+} from "@/lib/types"
 import { getLocalAgentModelIds } from "@/lib/agent-option-definitions"
 import {
   OpenCodeConnectDialog,
@@ -130,7 +134,7 @@ import {
   presentAgentSdkAgents,
 } from "@/lib/agent-sdk-presentation"
 import {
-  AGENT_PROFILE_MESSAGE_KEYS,
+  getAgentProfileMessageKeys,
   getAgentVersionState,
   needsManagedRuntimePreparation,
   type AgentVersionState,
@@ -141,8 +145,16 @@ import { relaunchApp } from "@/lib/updater"
 import { OpencodePluginsModal } from "./opencode-plugins-modal"
 import { CodeBuddyConfigPanel } from "./codebuddy-config-panel"
 import { PiConfigPanel } from "./pi-config-panel"
+import {
+  DEEPSEEK_PANEL_ENV_KEYS,
+  DeepSeekConfigPanel,
+} from "./deepseek-config-panel"
 import { AgentStorageSettings } from "./agent-storage-settings"
 import { AgentVersionCenter } from "./agent-version-center"
+import {
+  AgentCapabilityPreferences,
+  ClientCapabilityPreferences,
+} from "./capability-preferences"
 
 interface AgentCheckState {
   result?: PreflightResult
@@ -296,7 +308,7 @@ export function parsePendingAgentInstall(
   try {
     const value = JSON.parse(raw) as Partial<PendingAgentInstall>
     if (
-      typeof value.agentType !== "string" ||
+      !isAgentType(value.agentType) ||
       !["download_binary", "install_npx"].includes(value.actionKind ?? "") ||
       typeof value.createdAt !== "number" ||
       now - value.createdAt > PENDING_AGENT_INSTALL_MAX_AGE_MS ||
@@ -4324,7 +4336,7 @@ export function AcpAgentSettings({
 
   useEffect(() => {
     if (loadingAgents || !agentTypesKey) return
-    const agentTypes = agentTypesKey.split(",") as AgentType[]
+    const agentTypes = agentTypesKey.split(",").filter(isAgentType)
     runAllPreflight(agentTypes).catch((err) => {
       console.error("[Settings] run all preflight failed:", err)
     })
@@ -5151,7 +5163,7 @@ export function AcpAgentSettings({
     ? getAgentVersionState(selectedAgent)
     : null
   const selectedProfile = selectedAgent
-    ? AGENT_PROFILE_MESSAGE_KEYS[selectedAgent.agent_type]
+    ? getAgentProfileMessageKeys(selectedAgent.agent_type)
     : null
   const selectedNeedsRuntimePreparation = selectedAgent
     ? needsManagedRuntimePreparation(selectedAgent, selectedChecks)
@@ -7148,7 +7160,7 @@ export function AcpAgentSettings({
             {visibleAgents.map((agent) => {
               const isChecking = Boolean(checking[agent.agent_type])
               const draft = drafts[agent.agent_type] ?? buildAgentDraft(agent)
-              const profile = AGENT_PROFILE_MESSAGE_KEYS[agent.agent_type]
+              const profile = getAgentProfileMessageKeys(agent.agent_type)
               const versionState = getAgentVersionState(agent)
 
               return (
@@ -7257,9 +7269,11 @@ export function AcpAgentSettings({
                           />
                         </Button>
                       </div>
-                      <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
-                        {t(profile.description)}
-                      </p>
+                      {profile ? (
+                        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
+                          {t(profile.description)}
+                        </p>
+                      ) : null}
                       <div className="flex min-w-0 items-center justify-between gap-3 border-t pt-2 text-[11px]">
                         <span className="min-w-0 truncate font-mono text-foreground/80">
                           {agent.installed_version ?? t("overview.noVersion")}
@@ -7530,6 +7544,12 @@ export function AcpAgentSettings({
                   key={selectedAgent.agent_type}
                   agentType={selectedAgent.agent_type}
                   onChanged={refreshAgents}
+                />
+
+                <ClientCapabilityPreferences />
+                <AgentCapabilityPreferences
+                  key={selectedAgent.registry_id}
+                  registryId={selectedAgent.registry_id}
                 />
 
                 <div className="border-b pb-3">
@@ -9801,6 +9821,32 @@ responses_websockets_v2 = true`}
                       </div>
                     </details>
                   </div>
+                ) : selectedAgent.agent_type === "deepseek" ? (
+                  <DeepSeekConfigPanel
+                    agent={selectedAgent}
+                    saving={selectedIsSavingEnv}
+                    onSaveEnv={async (env, enabled) => {
+                      await persistEnv(
+                        selectedAgent.agent_type,
+                        enabled,
+                        envMapToText(env),
+                        null
+                      )
+                      updateSelectedDraft((current) => ({
+                        ...current,
+                        enabled,
+                        envText: patchEnvText(
+                          current.envText,
+                          Object.fromEntries(
+                            DEEPSEEK_PANEL_ENV_KEYS.map((key) => [
+                              key,
+                              env[key],
+                            ])
+                          )
+                        ),
+                      }))
+                    }}
+                  />
                 ) : selectedAgent.agent_type === "code_buddy" ? (
                   isAgentSdkConfigurationVisible(selectedAgent.agent_type) ? (
                     <CodeBuddyConfigPanel

@@ -26,6 +26,7 @@ jobs:
       contents: write
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
+      source_ref: ${{ steps.release.outputs.source_ref }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,6 +47,8 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           RELEASE_TAG_FROM_PUSH: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -57,9 +60,13 @@ jobs:
             fi
 
             tag="v$version"
-            if git ls-remote --exit-code --tags origin "refs/tags/$tag"; then
-              echo "::error::Release tag $tag already exists."
-              exit 1
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              draft="$(gh release view "$tag" --repo "$REPOSITORY" --json isDraft --jq '.isDraft')"
+              if [[ "$draft" != "true" ]]; then
+                echo "::error::Release tag $tag already exists and is not a draft."
+                exit 1
+              fi
+              echo "Reusing existing draft tag $tag with the current default branch source."
             fi
 
             node scripts/set-version.mjs "$version"
@@ -71,13 +78,17 @@ jobs:
             if ! git diff --cached --quiet; then
               git commit -m "chore(release): v$version"
             fi
-            git tag -a "$tag" -m "Release $tag"
-            git push origin "HEAD:refs/heads/$DEFAULT_BRANCH" "refs/tags/$tag"
+            git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"
+            if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              git tag -a "$tag" -m "Release $tag"
+              git push origin "refs/tags/$tag"
+            fi
           else
             tag="$RELEASE_TAG_FROM_PUSH"
           fi
 
           echo "release_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   create-draft-release:
     needs: prepare-release
@@ -92,10 +103,11 @@ jobs:
       release_url: ${{ steps.release.outputs.release_url }}
       prerelease: ${{ steps.resolve.outputs.prerelease }}
       release_body: ${{ steps.release.outputs.release_body }}
+      source_ref: ${{ needs.prepare-release.outputs.source_ref }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ needs.prepare-release.outputs.source_ref }}
           fetch-depth: 0
 
       - name: Checkout release tooling
@@ -146,8 +158,46 @@ jobs:
               prerelease: process.env.PRERELEASE === "true",
             });
 
-  build-tauri:
+  prepare-frontend:
     needs: create-draft-release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-draft-release.outputs.source_ref || needs.create-draft-release.outputs.release_tag }}
+          fetch-depth: 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "pnpm"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-frontend-out
+          path: out
+          if-no-files-found: error
+          retention-days: 1
+
+  build-tauri:
+    needs:
+      - create-draft-release
+      - prepare-frontend
     permissions:
       contents: write
     uses: ./.github/workflows/release-tauri.yml
@@ -155,16 +205,20 @@ jobs:
       release_id: ${{ needs.create-draft-release.outputs.release_id }}
       release_tag: ${{ needs.create-draft-release.outputs.release_tag }}
       release_body: ${{ needs.create-draft-release.outputs.release_body }}
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
     secrets: inherit
 
   build-server:
-    needs: create-draft-release
+    needs:
+      - create-draft-release
+      - prepare-frontend
     permissions:
       contents: write
     uses: ./.github/workflows/release-server.yml
     with:
       release_tag: ${{ needs.create-draft-release.outputs.release_tag }}
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
     secrets: inherit
 
   publish-release:

@@ -90,6 +90,9 @@ pub async fn install_managed_tool(
         },
     )
     .await?;
+    capability::validate_node_offer_for_active_deepseek(conn, &offer)
+        .await
+        .map_err(AppCommandError::invalid_input)?;
     install_offer(
         conn,
         data_dir,
@@ -406,6 +409,12 @@ async fn install_offer_inner(
         });
     }
 
+    // 在发布 active pointer 或 inventory 状态前先验证候选版本。
+    if let Err(error) = probe_payload(&final_dir, &offer.tool_id, &offer.version).await {
+        quarantine_component(data_dir, &final_dir).await?;
+        return Err(error);
+    }
+
     let previous_pointer = read_current_pointer(data_dir, &offer.tool_id).await?;
     write_current_pointer(data_dir, &offer.tool_id, &offer.version).await?;
     if let Err(error) = inventory::activate_tool(
@@ -438,13 +447,6 @@ async fn install_offer_inner(
             },
         );
         write_manifest(data_dir, &manifest).await?;
-    }
-    // health check：从客户端 allowlist 探针验证激活后的版本可执行。
-    if let Err(error) = probe_payload(&final_dir, &offer.tool_id, &offer.version).await {
-        // 回滚 LKG 并隔离失败版本，保留诊断。
-        restore_current_pointer(data_dir, &offer.tool_id, previous_pointer).await?;
-        quarantine_component(data_dir, &final_dir).await?;
-        return Err(error);
     }
     tracing::info!(
         tool_id = %offer.tool_id,

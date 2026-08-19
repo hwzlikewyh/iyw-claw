@@ -122,7 +122,7 @@ async fn install_archive(request: OfficialBinaryInstall<'_>) -> Result<(), AcpEr
         request.paths,
         registry::registry_id_for(request.agent_type),
         request.version,
-        &executable,
+        Path::new(&executable),
         request.stage,
     )?;
     Ok(())
@@ -189,11 +189,11 @@ async fn stream_archive(response: reqwest::Response, destination: &Path) -> Resu
 }
 
 fn executable_name(cmd: &str) -> String {
-    if cfg!(windows) {
-        format!("{cmd}.exe")
-    } else {
-        cmd.to_string()
+    let path = Path::new(cmd);
+    if cfg!(windows) && path.extension().is_none() {
+        return path.with_extension("exe").to_string_lossy().into_owned();
     }
+    cmd.to_string()
 }
 
 fn app_error(error: crate::app_error::AppCommandError) -> AcpError {

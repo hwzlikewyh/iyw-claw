@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::acp::event_stream::{ConnectionEventStream, RecentEventsBuffer};
 use crate::acp::feedback::{FeedbackItem, FeedbackStatus};
 use crate::acp::question::PendingQuestionState;
+use crate::acp::session_failure::{SessionFailureRecord, SessionFailureTable};
 use crate::acp::types::{
     AcpEvent, AvailableCommandInfo, ConfigStaleKind, ConnectionStatus, EventEnvelope,
     PromptCapabilitiesInfo, PromptInputBlock, SessionConfigKindInfo, SessionConfigOptionInfo,
@@ -157,6 +158,8 @@ pub struct PendingPermissionState {
     pub tool_call: serde_json::Value,
     pub options: Vec<crate::acp::types::PermissionOptionInfo>,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub queued: u32,
 }
 
 /// 上下文 / 模型用量。
@@ -168,6 +171,8 @@ pub struct PendingPermissionState {
 pub struct SessionLastError {
     pub message: String,
     pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -272,6 +277,9 @@ pub struct SessionState {
     pub live_message: Option<LiveMessage>,
     pub active_tool_calls: BTreeMap<String, ToolCallState>,
     pub pending_permission: Option<PendingPermissionState>,
+    /// AIR failure records retained for the connection lifetime. Resolved
+    /// entries remain as revision watermarks so stale events cannot reopen.
+    pub session_failures: SessionFailureTable,
 
     /// The agent's in-flight `ask_user_question` (one set of multiple-choice
     /// questions awaiting the user's answer). Set by `QuestionRequest`, cleared
@@ -325,9 +333,15 @@ pub struct SessionState {
     /// reflects the latest selection). `None` when the agent advertises no
     /// `model` option and no launch preference is available.
     pub current_model: Option<String>,
+    /// Managed package version captured at launch. Internal telemetry only;
+    /// never serialized into the live session contract.
+    pub(crate) managed_agent_version: Option<String>,
     /// Correlates request validation, Host startup, session setup, and the
     /// first prompt without exposing any launch environment values.
     pub(crate) startup_trace: Option<crate::acp::startup_trace::StartupTrace>,
+    /// Hermes-native memory state captured from the effective launch profile.
+    /// Contains no provider name, config content, or credential material.
+    pub(crate) hermes_memory: crate::context_governor::HermesNativeMemoryDiagnostics,
     pub(crate) grok_effort_specs: Option<crate::acp::grok::EffortSpecs>,
     pub prompt_capabilities: Option<PromptCapabilitiesInfo>,
     pub fork_supported: bool,
@@ -492,6 +506,8 @@ pub struct SessionState {
     /// Host-generated active-turn identity. ACP itself has no portable turn id,
     /// so accepted prompts increment this generation before enqueue.
     pub turn_generation: i64,
+    /// Bounded, content-free shadow telemetry for the active turn.
+    pub(crate) context_plan_receipt: Option<crate::context_governor::ContextPlanReceiptSeed>,
     /// True after `TurnComplete` applies until the lifecycle worker finishes
     /// ordered DB settlement for that generation. New prompts wait so an old
     /// `PendingReview` write cannot land after the next turn's `InProgress`.
@@ -541,6 +557,42 @@ impl SessionState {
         self.user_context_injected = true;
     }
 
+    pub(crate) fn begin_context_plan_receipt(
+        &mut self,
+        turn_nonce: u64,
+        hermes_shared_home_connections: Option<u16>,
+    ) {
+        let input = crate::context_governor::ContextPlanStart {
+            connection_id: &self.connection_id,
+            conversation_id: self.conversation_id,
+            workspace: self.working_dir.as_deref(),
+            turn_generation: self.turn_generation,
+            turn_nonce,
+            agent_type: self.agent_type,
+            managed_agent_version: self.managed_agent_version.as_deref(),
+            hermes_memory: self.hermes_memory,
+            hermes_shared_home_connections,
+            memory: &self.user_memory_context,
+            context_loaded: self.user_context_injected
+                || self.user_memory_context.rendered.is_some(),
+        };
+        self.context_plan_receipt = crate::context_governor::start_context_plan(input);
+    }
+
+    fn finish_context_plan_receipt(&mut self, stop_reason: &str) {
+        let memory_calls = self.memory_turn_tracker.finish_turn();
+        let Some(seed) = self.context_plan_receipt.take() else {
+            return;
+        };
+        crate::context_governor::finish_context_plan(
+            seed,
+            crate::context_governor::ContextPlanFinish {
+                stop_reason,
+                memory_calls,
+            },
+        );
+    }
+
     pub fn new(
         connection_id: String,
         agent_type: AgentType,
@@ -562,6 +614,7 @@ impl SessionState {
             live_message: None,
             active_tool_calls: BTreeMap::new(),
             pending_permission: None,
+            session_failures: SessionFailureTable::default(),
             pending_question: None,
             pending_channel_confirmation: None,
             active_delegations: BTreeMap::new(),
@@ -573,7 +626,9 @@ impl SessionState {
             current_mode: None,
             config_options: None,
             current_model: None,
+            managed_agent_version: None,
             startup_trace: None,
+            hermes_memory: Default::default(),
             grok_effort_specs: None,
             prompt_capabilities: None,
             fork_supported: false,
@@ -613,6 +668,7 @@ impl SessionState {
             pending_user_message_started_at: None,
             turn_in_flight: false,
             turn_generation: 0,
+            context_plan_receipt: None,
             turn_completion_pending: false,
             agent_input_notify: Arc::new(tokio::sync::Notify::new()),
             last_turn_ended_abnormally: false,
@@ -693,7 +749,11 @@ impl SessionState {
                     status,
                     ConnectionStatus::Disconnected | ConnectionStatus::Error
                 ) {
-                    self.memory_turn_tracker.complete_turn();
+                    let reason = match status {
+                        ConnectionStatus::Disconnected => "connection_disconnected",
+                        _ => "connection_error",
+                    };
+                    self.finish_context_plan_receipt(reason);
                     self.agent_input_notify.notify_one();
                 }
                 self.status = status.clone();
@@ -743,9 +803,11 @@ impl SessionState {
                 });
             }
             AcpEvent::ContentDelta { text } => {
+                self.session_failures.settle_retry_incidents();
                 self.append_text_delta(text);
             }
             AcpEvent::Thinking { text } => {
+                self.session_failures.settle_retry_incidents();
                 self.append_thinking_delta(text);
             }
             AcpEvent::ToolCall {
@@ -760,6 +822,7 @@ impl SessionState {
                 meta,
                 images,
             } => {
+                self.session_failures.settle_retry_incidents();
                 self.upsert_tool_call(
                     tool_call_id,
                     Some(kind),
@@ -816,6 +879,7 @@ impl SessionState {
                 request_id,
                 tool_call,
                 options,
+                queued,
             } => {
                 let tc_id = extract_tool_call_id(tool_call);
                 self.pending_permission = Some(PendingPermissionState {
@@ -824,7 +888,13 @@ impl SessionState {
                     tool_call: tool_call.clone(),
                     options: options.clone(),
                     created_at: Utc::now(),
+                    queued: *queued,
                 });
+            }
+            AcpEvent::PermissionQueueDepth { depth } => {
+                if let Some(pending) = self.pending_permission.as_mut() {
+                    pending.queued = *depth;
+                }
             }
             AcpEvent::PermissionResolved { request_id } => {
                 // Drop the snapshot's pending_permission iff the resolved
@@ -872,6 +942,9 @@ impl SessionState {
                 }
             }
             AcpEvent::TurnComplete { stop_reason, .. } => {
+                if stop_reason == "end_turn" {
+                    self.session_failures.settle_warnings();
+                }
                 self.turn_completion_pending = true;
                 self.agent_inputs
                     .retain(|input| input.status != crate::acp::AgentInputStatus::Consumed);
@@ -898,7 +971,7 @@ impl SessionState {
                             assistant_input_ref: None,
                             stop_reason: stop_reason.clone(),
                         });
-                self.memory_turn_tracker.complete_turn();
+                self.finish_context_plan_receipt(stop_reason);
                 self.last_turn_ended_abnormally = stop_reason != "end_turn";
                 // Snapshot the just-finished turn's FINAL assistant text — what
                 // `get_delegation_status` returns as the child result. We take
@@ -976,6 +1049,10 @@ impl SessionState {
                 self.agent_input_notify.notify_one();
             }
             AcpEvent::UserMessage { message_id, blocks } => {
+                // Starting a new prompt acknowledges prior failures. Keep the
+                // records as revision watermarks; a continuing incident must
+                // re-arm itself with a higher revision.
+                self.session_failures.settle_all();
                 // Capture the in-flight user prompt so a client attaching
                 // mid-turn renders the user turn from the snapshot (the
                 // one-shot event won't replay for it). Cleared on TurnComplete.
@@ -1087,11 +1164,12 @@ impl SessionState {
             AcpEvent::Error {
                 message,
                 code,
+                details,
                 terminal,
                 ..
             } => {
                 if *terminal {
-                    self.memory_turn_tracker.complete_turn();
+                    self.finish_context_plan_receipt("terminal_error");
                 }
                 // Capture so post-mortem readers (probe path, debug
                 // snapshots) can surface the agent's own error message
@@ -1101,6 +1179,7 @@ impl SessionState {
                 self.last_error = Some(SessionLastError {
                     message: message.clone(),
                     code: code.clone(),
+                    details: details.clone(),
                 });
             }
             AcpEvent::DelegationStarted {
@@ -1165,6 +1244,9 @@ impl SessionState {
             AcpEvent::BackgroundActivity { outstanding, .. } => {
                 self.background_outstanding = *outstanding;
                 self.background_activity_at = Some(Utc::now());
+            }
+            AcpEvent::SessionFailure { record } => {
+                self.session_failures.upsert(record.clone());
             }
             AcpEvent::ClaudeSdkMessage { .. }
             | AcpEvent::SessionLoadFailed { .. }
@@ -1504,6 +1586,7 @@ impl SessionState {
             config_stale: self.config_stale,
             config_stale_kind: self.config_stale_kind,
             last_error: self.last_error.clone(),
+            session_failures: self.session_failures.snapshot(),
             event_seq: self.event_seq,
             turn_generation: self.turn_generation,
         }
@@ -1602,6 +1685,9 @@ pub struct LiveSessionSnapshot {
     pub config_stale_kind: Option<ConfigStaleKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_error: Option<SessionLastError>,
+    /// Full AIR table, including resolved entries used as revision watermarks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub session_failures: Vec<SessionFailureRecord>,
     pub event_seq: u64,
 }
 

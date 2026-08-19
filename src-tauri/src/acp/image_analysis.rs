@@ -185,6 +185,10 @@ async fn analyze_for_connection(
     connection_id: &str,
     request: AnalysisRequest,
 ) -> Value {
+    let monitor = match crate::acp::capability_policy::monitor_file_upload(None).await {
+        Ok(monitor) => monitor,
+        Err(error) => return capability_error_value(&error),
+    };
     let started = Instant::now();
     let (model, agent_type) = match resolve_analysis_session(manager, connection_id).await {
         Ok(session) => session,
@@ -196,7 +200,15 @@ async fn analyze_for_connection(
     };
     let image_count = request.images.len();
     let image_bytes = request.images.iter().map(|image| image.image_bytes).sum();
-    let result = super::image_analysis_client::call_fusion(&token, &model, &request).await;
+    let result = match monitor
+        .run_until_revoked(super::image_analysis_client::call_fusion(
+            &token, &model, &request,
+        ))
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => return capability_error_value(&error),
+    };
     log_result(
         connection_id,
         agent_type,
@@ -282,6 +294,13 @@ fn escape_private_context_markers(text: &str) -> String {
 
 fn error_value(code: &str, message: &str) -> Value {
     json!({ "error": message, "code": code })
+}
+
+fn capability_error_value(error: &crate::app_error::AppCommandError) -> Value {
+    error_value(
+        error.detail.as_deref().unwrap_or("remote_policy_denied"),
+        "Image analysis is disabled by capability policy.",
+    )
 }
 
 fn log_result(

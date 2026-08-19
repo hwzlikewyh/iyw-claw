@@ -24,15 +24,21 @@ fn store_lock() -> &'static Mutex<()> {
 }
 
 pub fn get(key: &str) -> Option<String> {
-    let _guard = store_lock().lock().ok()?;
-    let _file_guard = TokenFileLock::acquire().ok()?;
-    match read_and_migrate() {
-        Ok(tokens) => tokens.get(key).cloned(),
+    match try_get(key) {
+        Ok(value) => value,
         Err(error) => {
             tracing::error!(error = %error, "secret store read failed");
             None
         }
     }
+}
+
+pub fn try_get(key: &str) -> Result<Option<String>, String> {
+    let _guard = store_lock()
+        .lock()
+        .map_err(|_| "secret store lock unavailable".to_string())?;
+    let _file_guard = TokenFileLock::acquire()?;
+    Ok(read_and_migrate()?.get(key).cloned())
 }
 
 pub fn set(key: &str, value: &str) -> Result<(), String> {

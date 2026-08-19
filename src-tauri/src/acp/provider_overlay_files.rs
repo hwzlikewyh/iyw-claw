@@ -128,6 +128,7 @@ fn enforce_provider_overlay_at_root_with_kind(
         AgentType::Codex | AgentType::ClaudeCode => {
             unreachable!("Codex and ClaudeCode are handled by session_config_reconciler above")
         }
+        AgentType::Cursor | AgentType::DeepSeek | AgentType::Custom(_) => Ok(()),
     }
 }
 
@@ -147,6 +148,10 @@ pub(crate) fn active_profile_root(agent: AgentType) -> Result<PathBuf, String> {
         AgentType::KimiCode => required_env_path("KIMI_CODE_HOME"),
         AgentType::Pi => required_env_path("PI_CODING_AGENT_DIR"),
         AgentType::Grok => required_env_path("GROK_HOME"),
+        AgentType::DeepSeek => required_env_path("DSH_HOME"),
+        AgentType::Cursor | AgentType::Custom(_) => AgentStoragePaths::active()
+            .map(|paths| paths.profile(agent).root)
+            .ok_or_else(|| "Agent storage is not initialized".to_string()),
     }
 }
 

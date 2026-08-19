@@ -54,31 +54,35 @@ async fn apply_runtime_event(
             None,
         ),
     };
-    if manager
-        .connection_status_for_generation(channel_id, generation)
+    let update = async {
+        let result = chat_channel_service::update_runtime(
+            db,
+            channel_id,
+            Some(status.as_str().to_string()),
+            error,
+            error_at,
+            connected_at,
+        )
+        .await;
+        if result.is_ok() {
+            manager
+                .emit_channel_status(channel_id, status.as_str())
+                .await;
+        }
+        result
+    };
+    let Some(result) = manager
+        .commit_runtime_if_current(channel_id, generation, expected, update)
         .await
-        != Some(expected)
-    {
+    else {
         tracing::debug!(
             channel_id,
             ?expected,
             "[ChatChannel] ignored stale runtime event"
         );
         return;
-    }
-    if let Err(db_error) = chat_channel_service::update_runtime(
-        db,
-        channel_id,
-        Some(status.as_str().to_string()),
-        error,
-        error_at,
-        connected_at,
-    )
-    .await
-    {
+    };
+    if let Err(db_error) = result {
         tracing::error!(channel_id, error = %db_error, "[ChatChannel] runtime state persistence failed");
     }
-    manager
-        .emit_channel_status(channel_id, status.as_str())
-        .await;
 }

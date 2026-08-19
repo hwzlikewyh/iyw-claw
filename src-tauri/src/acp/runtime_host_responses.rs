@@ -3,6 +3,9 @@ use sacp::Responder;
 
 use crate::acp::file_system_runtime::FileSystemRuntimeError;
 use crate::acp::terminal_runtime::TerminalRuntimeError;
+use crate::app_error::AppCommandError;
+
+const CAPABILITY_DENIED_RPC_CODE: i32 = -32003;
 
 pub(super) fn respond_missing<T: sacp::JsonRpcResponse>(
     responder: Responder<T>,
@@ -26,6 +29,28 @@ pub(super) fn respond_missing<T: sacp::JsonRpcResponse>(
         );
     }
     result
+}
+
+pub(super) fn respond_capability_denied<T: sacp::JsonRpcResponse>(
+    responder: Responder<T>,
+    session_id: &SessionId,
+    error: AppCommandError,
+) -> Result<(), sacp::Error> {
+    tracing::warn!(
+        session_id = %session_id,
+        method = responder.method(),
+        denial_code = error.detail.as_deref().unwrap_or("remote_policy_denied"),
+        "[ACP] runtime host request denied by capability policy"
+    );
+    let data = serde_json::to_value(&error).unwrap_or_else(|_| {
+        serde_json::json!({
+            "code": "permission_denied",
+            "detail": error.detail,
+        })
+    });
+    responder.respond_with_error(
+        sacp::Error::new(CAPABILITY_DENIED_RPC_CODE, "Capability is disabled").data(data),
+    )
 }
 
 pub(super) fn respond_terminal<T: sacp::JsonRpcResponse>(

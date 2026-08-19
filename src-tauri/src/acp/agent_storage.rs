@@ -206,6 +206,15 @@ impl AgentStoragePaths {
             }
             AgentType::Pi => single_profile_env(config_dir.join("pi"), "PI_CODING_AGENT_DIR"),
             AgentType::Grok => single_profile_env(config_dir.join("grok"), "GROK_HOME"),
+            AgentType::DeepSeek => {
+                deepseek_profile_env(config_dir.join("agents").join("deepseek-acp"))
+            }
+            AgentType::Cursor | AgentType::Custom(_) => (
+                config_dir
+                    .join("agents")
+                    .join(crate::acp::registry::registry_id_for(agent_type)),
+                BTreeMap::new(),
+            ),
         };
         AgentProfilePaths { root, env }
     }
@@ -217,6 +226,13 @@ fn single_profile_env(
 ) -> (PathBuf, BTreeMap<&'static str, PathBuf>) {
     let mut env = BTreeMap::new();
     env.insert(env_key, root.clone());
+    (root, env)
+}
+
+fn deepseek_profile_env(root: PathBuf) -> (PathBuf, BTreeMap<&'static str, PathBuf>) {
+    let mut env = BTreeMap::new();
+    env.insert("DSH_HOME", root.clone());
+    env.insert("DEEPSEEK_ACP_SESSIONS_ROOT", root.join("sessions"));
     (root, env)
 }
 

@@ -1,6 +1,7 @@
 pub mod entities;
 pub mod error;
 pub mod migration;
+pub mod restore_memory;
 pub mod service;
 
 use std::path::Path;
@@ -19,6 +20,11 @@ pub struct AppDatabase {
     pub conn: DatabaseConnection,
 }
 
+pub struct DatabaseInitialization {
+    pub database: AppDatabase,
+    pub restore_memory: restore_memory::RestoreMemoryStartup,
+}
+
 pub(crate) fn database_file_name() -> &'static str {
     if cfg!(all(debug_assertions, feature = "tauri-runtime")) {
         "iyw-claw-dev.db"
@@ -31,7 +37,9 @@ pub async fn init_database(
     app_data_dir: impl AsRef<Path>,
     app_version: &str,
 ) -> Result<AppDatabase, DbError> {
-    init_database_inner(app_data_dir, app_version, UserMemoryRestoreRoot::Legacy).await
+    init_database_inner(app_data_dir, app_version, UserMemoryRestoreRoot::Legacy)
+        .await
+        .map(|initialized| initialized.database)
 }
 
 pub async fn init_database_with_user_memory_root(
@@ -39,6 +47,20 @@ pub async fn init_database_with_user_memory_root(
     app_version: &str,
     user_memory_root: Option<&Path>,
 ) -> Result<AppDatabase, DbError> {
+    init_database_inner(
+        app_data_dir,
+        app_version,
+        UserMemoryRestoreRoot::Resolved(user_memory_root),
+    )
+    .await
+    .map(|initialized| initialized.database)
+}
+
+pub async fn init_database_with_restore_state(
+    app_data_dir: impl AsRef<Path>,
+    app_version: &str,
+    user_memory_root: Option<&Path>,
+) -> Result<DatabaseInitialization, DbError> {
     init_database_inner(
         app_data_dir,
         app_version,
@@ -56,15 +78,31 @@ async fn init_database_inner(
     app_data_dir: impl AsRef<Path>,
     app_version: &str,
     user_memory_root: UserMemoryRestoreRoot<'_>,
-) -> Result<AppDatabase, DbError> {
+) -> Result<DatabaseInitialization, DbError> {
     let app_data_dir = app_data_dir.as_ref();
     std::fs::create_dir_all(app_data_dir)?;
+    let restore_source_changed = apply_pending_restore(app_data_dir, user_memory_root)?;
+    crate::commands::backup::restore::cleanup_transient_dirs(app_data_dir);
+    let db_url = database_url(app_data_dir);
+    migrate_database(&db_url).await?;
+    let conn = connect_runtime_database(db_url).await?;
+    service::app_metadata_service::update_app_version(&conn, app_version).await?;
+    let restore_memory =
+        restore_memory::record_restore_source_changed(&conn, app_data_dir, restore_source_changed)
+            .await;
+    Ok(DatabaseInitialization {
+        database: AppDatabase { conn },
+        restore_memory,
+    })
+}
 
-    // Apply any pending restore BEFORE opening a connection — swapping
-    // `iyw-claw.db` under a live SQLite handle would corrupt it. A failure here
-    // aborts startup loudly (leaving the safety snapshot intact) rather than
-    // booting a half-restored data dir.
-    let restore = match user_memory_root {
+fn apply_pending_restore(
+    app_data_dir: &Path,
+    user_memory_root: UserMemoryRestoreRoot<'_>,
+) -> Result<bool, DbError> {
+    use crate::commands::backup::restore::RestoreApplied;
+
+    let result = match user_memory_root {
         UserMemoryRestoreRoot::Legacy => {
             crate::commands::backup::restore::apply_pending_restore_on_startup(app_data_dir)
         }
@@ -75,28 +113,26 @@ async fn init_database_inner(
             )
         }
     };
-    match restore {
-        Ok(crate::commands::backup::restore::RestoreApplied::Applied { .. }) => {}
-        Ok(crate::commands::backup::restore::RestoreApplied::None) => {}
-        Err(e) => return Err(DbError::Io(e)),
+    match result.map_err(DbError::Io)? {
+        RestoreApplied::Applied {
+            restore_source_changed,
+            ..
+        } => Ok(restore_source_changed),
+        RestoreApplied::None => Ok(false),
     }
-    crate::commands::backup::restore::cleanup_transient_dirs(app_data_dir);
+}
 
+fn database_url(app_data_dir: &Path) -> String {
     let db_path = app_data_dir.join(database_file_name());
-    let db_url = format!(
+    format!(
         "sqlite:{}?mode=rwc",
         urlencoding::encode(&db_path.to_string_lossy())
-    );
+    )
+}
 
-    // Apply migrations on a dedicated single connection. The runtime pool below
-    // keeps several connections open for read concurrency, but sea-orm spreads a
-    // migration's statements across whichever pooled connections are free. A
-    // statement that references a column an earlier migration just added (e.g.
-    // the `is_chat` → `kind` backfill) can then land on a connection whose
-    // cached SQLite schema predates the `ALTER TABLE`, producing a flaky
-    // `no such column: "is_chat"` under load. One connection observes every DDL
-    // change in order, so the schema it compiles against is always current.
-    let mut migrate_opts = ConnectOptions::new(db_url.clone());
+async fn migrate_database(db_url: &str) -> Result<(), DbError> {
+    // A single connection observes every DDL change in migration order.
+    let mut migrate_opts = ConnectOptions::new(db_url);
     migrate_opts
         .max_connections(1)
         .min_connections(1)
@@ -105,10 +141,10 @@ async fn init_database_inner(
     configure_sqlite_connections(&mut migrate_opts);
     let migrate_conn = Database::connect(migrate_opts).await?;
     apply_migrations(&migrate_conn).await?;
-    migrate_conn.close().await?;
+    migrate_conn.close().await.map_err(DbError::from)
+}
 
-    // Runtime connection pool. Migrations are already applied above, so the
-    // schema is stable and spreading queries across pooled connections is safe.
+async fn connect_runtime_database(db_url: String) -> Result<DatabaseConnection, DbError> {
     let mut opts = ConnectOptions::new(db_url);
     opts.max_connections(5)
         .min_connections(1)
@@ -116,11 +152,7 @@ async fn init_database_inner(
         .idle_timeout(Duration::from_secs(300))
         .sqlx_logging(false);
     configure_sqlite_connections(&mut opts);
-    let conn = Database::connect(opts).await?;
-
-    service::app_metadata_service::update_app_version(&conn, app_version).await?;
-
-    Ok(AppDatabase { conn })
+    Database::connect(opts).await.map_err(DbError::from)
 }
 
 async fn apply_migrations(conn: &DatabaseConnection) -> Result<(), DbError> {

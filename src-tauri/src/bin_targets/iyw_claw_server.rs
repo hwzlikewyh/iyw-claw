@@ -259,13 +259,15 @@ async fn async_main() -> ExitCode {
         .as_ref()
         .ok()
         .map(|resolved| resolved.path.as_path());
-    let db = iyw_claw_lib::db::init_database_with_user_memory_root(
+    let database_initialization = iyw_claw_lib::db::init_database_with_restore_state(
         &data_dir,
         app_version,
         user_memory_restore_root,
     )
     .await
     .expect("Failed to initialize database");
+    let db = database_initialization.database;
+    let restore_memory = database_initialization.restore_memory;
 
     // Logging phase 2: override the default level from the persisted
     // `logging.level` now that the DB is open. Phase 3 (wiring the emitter)
@@ -353,6 +355,9 @@ async fn async_main() -> ExitCode {
             user_memory_resolution,
         ),
     );
+    restore_memory.schedule_index_refresh(|| {
+        user_memory.schedule_index_refresh();
+    });
     connection_manager.install_user_memory(user_memory.clone());
     connection_manager.install_version_center(db.conn.clone(), data_dir.clone());
     let (
@@ -368,9 +373,14 @@ async fn async_main() -> ExitCode {
         data_dir.clone(),
     );
     let agent_catalog = iyw_claw_lib::acp::version_center::CatalogStore::load(&db.conn).await;
+    let (capability_policy, capability_policy_refresh) =
+        iyw_claw_lib::app_state::build_capability_policy_stack(db.conn.clone()).await;
+    connection_manager.install_capability_policy(capability_policy.clone());
     let state = Arc::new(AppState {
         db,
         agent_catalog,
+        capability_policy,
+        capability_policy_refresh,
         connection_manager,
         terminal_manager: iyw_claw_lib::app_state::default_terminal_manager(),
         event_broadcaster: broadcaster,
@@ -439,86 +449,115 @@ async fn async_main() -> ExitCode {
     )
     .await;
 
-    // Spawn the delegation listener so companion processes can round-trip
-    // through the broker. Path is PID-scoped, so the listener owns it for
-    // the lifetime of the process.
-    {
-        let listener = iyw_claw_lib::acp::delegation::listener::DelegationListener::new(
-            delegation_broker,
-            delegation_tokens,
-            Arc::new(iyw_claw_lib::acp::manager::ConnectionManagerParentLookup {
+    // Build both process MCP transports from the same business listener. HTTP
+    // becomes ready before any Agent-spawning background task; the legacy
+    // listener stays available for Agents without ACP HTTP support.
+    let listener = iyw_claw_lib::acp::delegation::listener::DelegationListener::new(
+        delegation_broker,
+        delegation_tokens,
+        Arc::new(iyw_claw_lib::acp::manager::ConnectionManagerParentLookup {
+            manager: Arc::new(state.connection_manager.clone_ref()),
+        }),
+        Arc::new(
+            iyw_claw_lib::acp::manager::ConnectionManagerFeedbackLookup {
                 manager: Arc::new(state.connection_manager.clone_ref()),
-            }),
-            Arc::new(
-                iyw_claw_lib::acp::manager::ConnectionManagerFeedbackLookup {
-                    manager: Arc::new(state.connection_manager.clone_ref()),
+            },
+        ),
+        Arc::new(
+            iyw_claw_lib::acp::manager::ConnectionManagerQuestionLookup {
+                manager: Arc::new(state.connection_manager.clone_ref()),
+            },
+        ),
+        Arc::new(
+            iyw_claw_lib::commands::session_info::DbSessionInfoLookup::new(Arc::new(
+                iyw_claw_lib::db::AppDatabase {
+                    conn: state.db.conn.clone(),
                 },
-            ),
-            Arc::new(
-                iyw_claw_lib::acp::manager::ConnectionManagerQuestionLookup {
-                    manager: Arc::new(state.connection_manager.clone_ref()),
-                },
-            ),
-            Arc::new(
-                iyw_claw_lib::commands::session_info::DbSessionInfoLookup::new(Arc::new(
-                    iyw_claw_lib::db::AppDatabase {
-                        conn: state.db.conn.clone(),
-                    },
-                )),
-            ),
-            state.user_memory.clone(),
-            Arc::new(
-                iyw_claw_lib::commands::task_artifacts::DbTaskArtifactAccess::new(
-                    Arc::new(iyw_claw_lib::db::AppDatabase {
-                        conn: state.db.conn.clone(),
-                    }),
-                    state.emitter.clone(),
-                ),
-            ),
-            Arc::new(
-                iyw_claw_lib::acp::image_analysis::HostImageAnalysisService::new(
-                    Arc::new(state.connection_manager.clone_ref()),
-                    Arc::new(iyw_claw_lib::db::AppDatabase {
-                        conn: state.db.conn.clone(),
-                    }),
-                ),
-            ),
-            Arc::new(
-                iyw_claw_lib::acp::audio_transcription::HostAudioTranscriptionService::new(
-                    Arc::new(iyw_claw_lib::db::AppDatabase {
-                        conn: state.db.conn.clone(),
-                    }),
-                ),
-            ),
-            Arc::new(
-                iyw_claw_lib::acp::automation_tools::AutomationAgentService::new(
-                    Arc::new(iyw_claw_lib::db::AppDatabase {
-                        conn: state.db.conn.clone(),
-                    }),
-                    state.emitter.clone(),
-                    state.data_dir.clone(),
-                ),
-            ),
-            Arc::new(iyw_claw_lib::acp::channel_tools::ChannelToolService::new(
+            )),
+        ),
+        state.user_memory.clone(),
+        Arc::new(
+            iyw_claw_lib::commands::task_artifacts::DbTaskArtifactAccess::new(
                 Arc::new(iyw_claw_lib::db::AppDatabase {
                     conn: state.db.conn.clone(),
                 }),
-                state.chat_channel_manager.clone_ref(),
-            )),
-            None,
-            Arc::new(
-                iyw_claw_lib::acp::ConnectionManagerChannelConfirmationLookup {
-                    manager: Arc::new(state.connection_manager.clone_ref()),
-                },
+                state.emitter.clone(),
             ),
-        );
-        let socket = delegation_socket_path.clone();
-        tokio::spawn(async move {
-            if let Err(e) = listener.run(socket).await {
-                tracing::info!("[delegation] listener exited: {e}");
+        ),
+        Arc::new(
+            iyw_claw_lib::acp::image_analysis::HostImageAnalysisService::new(
+                Arc::new(state.connection_manager.clone_ref()),
+                Arc::new(iyw_claw_lib::db::AppDatabase {
+                    conn: state.db.conn.clone(),
+                }),
+            ),
+        ),
+        Arc::new(
+            iyw_claw_lib::acp::audio_transcription::HostAudioTranscriptionService::new(Arc::new(
+                iyw_claw_lib::db::AppDatabase {
+                    conn: state.db.conn.clone(),
+                },
+            )),
+        ),
+        Arc::new(
+            iyw_claw_lib::acp::automation_tools::AutomationAgentService::new(
+                Arc::new(iyw_claw_lib::db::AppDatabase {
+                    conn: state.db.conn.clone(),
+                }),
+                state.emitter.clone(),
+                state.data_dir.clone(),
+            ),
+        ),
+        Arc::new(iyw_claw_lib::acp::channel_tools::ChannelToolService::new(
+            Arc::new(iyw_claw_lib::db::AppDatabase {
+                conn: state.db.conn.clone(),
+            }),
+            state.chat_channel_manager.clone_ref(),
+        )),
+        None,
+        Arc::new(
+            iyw_claw_lib::acp::ConnectionManagerChannelConfirmationLookup {
+                manager: Arc::new(state.connection_manager.clone_ref()),
+            },
+        ),
+    );
+    let builtin_mcp_service = match iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService::start(
+        listener.clone(),
+    )
+    .await
+    {
+        Ok(service) => {
+            state
+                .connection_manager
+                .install_builtin_mcp(service.client());
+            Some(service)
+        }
+        Err(error) => {
+            tracing::error!(
+                error = %error,
+                "[builtin_mcp] failed to start process HTTP MCP service; HTTP route unavailable and connection policy will decide fallback"
+            );
+            None
+        }
+    };
+    let legacy_listener_service =
+        match iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService::start(
+            listener,
+            delegation_socket_path.clone(),
+        )
+        .await
+        {
+            Ok(service) => Some(service),
+            Err(error) => {
+                tracing::error!(
+                    error = %error,
+                    transport = "legacy",
+                    companion_features = "unavailable",
+                    "[delegation] failed to start legacy listener; legacy MCP companion is unavailable"
+                );
+                None
             }
-        });
-    }
+        };
 
     // Install bundled expert skills into the central store
     // (`~/.iyw-claw/skills/`). Runs in the background; failures are logged
@@ -690,7 +729,7 @@ async fn async_main() -> ExitCode {
         state.clone(),
         token.clone(),
         static_dir,
-        shutdown_signal,
+        Arc::clone(&shutdown_signal),
     );
 
     // Bind
@@ -699,6 +738,12 @@ async fn async_main() -> ExitCode {
         Ok(listener) => listener,
         Err(e) => {
             tracing::error!("[SERVER] Failed to bind {}: {}", addr, e);
+            let _ = shutdown_server_services(
+                &state,
+                builtin_mcp_service.as_ref(),
+                legacy_listener_service.as_ref(),
+            )
+            .await;
             return ExitCode::from(1);
         }
     };
@@ -734,15 +779,287 @@ async fn async_main() -> ExitCode {
         tracing::info!("  {}", addr);
     }
 
-    // Start serving
-    if let Err(e) = axum::serve(listener, router).await {
+    let shutdown_mcp = builtin_mcp_service.clone();
+    let shutdown_legacy = legacy_listener_service.clone();
+    let shutdown = async move {
+        let result = server_shutdown_signal().await;
+        if let Some(service) = shutdown_mcp.as_ref() {
+            service.quiesce();
+        }
+        if let Some(service) = shutdown_legacy.as_ref() {
+            service.quiesce();
+        }
+        shutdown_signal.trigger();
+        result
+    };
+    let serve_result = serve_until_shutdown(listener, router, shutdown).await;
+    if let Err(e) = &serve_result {
         tracing::error!("[SERVER] Server error: {}", e);
-        return ExitCode::from(1);
     }
-    // Graceful shutdown: release any live office watch preview servers
-    // (kill_on_drop is the backstop, but this frees their ports promptly).
+    let services_completed = shutdown_server_services(
+        &state,
+        builtin_mcp_service.as_ref(),
+        legacy_listener_service.as_ref(),
+    )
+    .await;
+    if serve_result.is_ok() && services_completed {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+const SERVER_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const SERVER_SERVICE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+const SERVER_CONNECTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const FORCED_SERVER_SERVICE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+const FORCED_SERVER_CONNECTION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+
+async fn serve_until_shutdown<F>(
+    listener: tokio::net::TcpListener,
+    router: axum::Router,
+    shutdown_signal: F,
+) -> Result<(), String>
+where
+    F: std::future::Future<Output = Result<(), String>> + Send + 'static,
+{
+    let (shutdown_started_tx, mut shutdown_started_rx) = tokio::sync::oneshot::channel();
+    let signal_failure = Arc::new(std::sync::Mutex::new(None::<String>));
+    let shutdown_failure = Arc::clone(&signal_failure);
+    let shutdown = async move {
+        let result = shutdown_signal.await;
+        if let Err(error) = result {
+            *shutdown_failure
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error);
+        }
+        let _ = shutdown_started_tx.send(());
+    };
+    let mut server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(shutdown)
+            .await
+    });
+    let result = tokio::select! {
+        result = &mut server => flatten_server_result(result),
+        started = &mut shutdown_started_rx => {
+            if started.is_err() {
+                flatten_server_result(server.await)
+            } else {
+                drain_server_task(&mut server).await
+            }
+        }
+    };
+    let signal_error = signal_failure
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take();
+    match signal_error {
+        Some(error) => Err(error),
+        None => result,
+    }
+}
+
+async fn drain_server_task(
+    server: &mut tokio::task::JoinHandle<Result<(), std::io::Error>>,
+) -> Result<(), String> {
+    match tokio::time::timeout(SERVER_DRAIN_TIMEOUT, &mut *server).await {
+        Ok(result) => flatten_server_result(result),
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms = SERVER_DRAIN_TIMEOUT.as_millis(),
+                "[SERVER] graceful drain timed out; aborting HTTP server"
+            );
+            server.abort();
+            let _ = server.await;
+            Ok(())
+        }
+    }
+}
+
+fn flatten_server_result(
+    result: Result<Result<(), std::io::Error>, tokio::task::JoinError>,
+) -> Result<(), String> {
+    match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(error.to_string()),
+        Err(error) => Err(format!("server task failed: {error}")),
+    }
+}
+
+async fn shutdown_server_services(
+    state: &Arc<AppState>,
+    builtin_mcp: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
+    legacy_listener: Option<
+        &Arc<iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService>,
+    >,
+) -> bool {
+    state.web_server_state.shutdown_signal().trigger();
+    if shutdown_server_services_inner(state, builtin_mcp, legacy_listener).await {
+        tracing::error!("[SERVER] MCP or Agent cleanup exceeded its stage budget; forcing a retry");
+        return force_shutdown_server_services(state, builtin_mcp, legacy_listener).await;
+    }
+    true
+}
+
+async fn shutdown_server_entrypoint_services(
+    builtin_mcp: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
+    legacy_listener: Option<
+        &Arc<iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService>,
+    >,
+    timeout: std::time::Duration,
+) -> (bool, bool) {
+    tokio::join!(
+        shutdown_server_builtin_mcp(builtin_mcp, timeout),
+        shutdown_server_legacy_listener(legacy_listener, timeout),
+    )
+}
+
+async fn shutdown_server_builtin_mcp(
+    service: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
+    timeout: std::time::Duration,
+) -> bool {
+    match service {
+        Some(service) => tokio::time::timeout(timeout, service.shutdown())
+            .await
+            .unwrap_or(false),
+        None => true,
+    }
+}
+
+async fn shutdown_server_legacy_listener(
+    service: Option<
+        &Arc<iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService>,
+    >,
+    timeout: std::time::Duration,
+) -> bool {
+    match service {
+        Some(service) => tokio::time::timeout(timeout, service.shutdown())
+            .await
+            .unwrap_or(false),
+        None => true,
+    }
+}
+
+async fn disconnect_server_connections(
+    state: &Arc<AppState>,
+    timeout: std::time::Duration,
+) -> (usize, bool) {
+    match tokio::time::timeout(timeout, state.connection_manager.disconnect_all_checked()).await {
+        Ok(report) => (report.disconnected, report.completed),
+        Err(_) => (0, false),
+    }
+}
+
+async fn disconnect_server_connections_with_retry(state: &Arc<AppState>) -> (usize, bool) {
+    let (mut disconnected, mut completed) =
+        disconnect_server_connections(state, SERVER_CONNECTION_TIMEOUT).await;
+    if !completed {
+        tracing::warn!("[SERVER] Agent cleanup timed out; retrying before MCP service reap");
+        let (retry_disconnected, retry_completed) =
+            disconnect_server_connections(state, FORCED_SERVER_CONNECTION_TIMEOUT).await;
+        disconnected = disconnected.max(retry_disconnected);
+        completed |= retry_completed;
+    }
+    (disconnected, completed)
+}
+
+async fn force_shutdown_server_services(
+    state: &Arc<AppState>,
+    builtin_mcp: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
+    legacy_listener: Option<
+        &Arc<iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService>,
+    >,
+) -> bool {
+    if let Some(service) = builtin_mcp {
+        service.quiesce();
+    }
+    if let Some(service) = legacy_listener {
+        service.quiesce();
+    }
+    let (disconnected, connection_completed) =
+        disconnect_server_connections(state, FORCED_SERVER_CONNECTION_TIMEOUT).await;
+    let (builtin_result, legacy_result) = shutdown_server_entrypoint_services(
+        builtin_mcp,
+        legacy_listener,
+        FORCED_SERVER_SERVICE_TIMEOUT,
+    )
+    .await;
+    tracing::error!(
+        forced_service_timeout_ms = FORCED_SERVER_SERVICE_TIMEOUT.as_millis(),
+        forced_connection_timeout_ms = FORCED_SERVER_CONNECTION_TIMEOUT.as_millis(),
+        builtin_mcp_completed = builtin_result,
+        legacy_listener_completed = legacy_result,
+        disconnected,
+        connection_completed,
+        "[SERVER] forced MCP entrypoint cleanup completed"
+    );
+    builtin_result && legacy_result && connection_completed
+}
+
+async fn shutdown_server_services_inner(
+    state: &Arc<AppState>,
+    builtin_mcp: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
+    legacy_listener: Option<
+        &Arc<iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService>,
+    >,
+) -> bool {
+    if let Some(service) = builtin_mcp {
+        service.quiesce();
+    }
+    if let Some(service) = legacy_listener {
+        service.quiesce();
+    }
     iyw_claw_lib::office_watch::stop_all_office_watches();
-    ExitCode::SUCCESS
+    let (disconnected, connection_completed) =
+        disconnect_server_connections_with_retry(state).await;
+    let (mut builtin_mcp_completed, mut legacy_listener_completed) =
+        shutdown_server_entrypoint_services(builtin_mcp, legacy_listener, SERVER_SERVICE_TIMEOUT)
+            .await;
+    if !(builtin_mcp_completed && legacy_listener_completed) {
+        tracing::warn!(
+            builtin_mcp_completed,
+            legacy_listener_completed,
+            "[SERVER] MCP entrypoint cleanup timed out; retrying service reap"
+        );
+        let (builtin_retry, legacy_retry) = shutdown_server_entrypoint_services(
+            builtin_mcp,
+            legacy_listener,
+            FORCED_SERVER_SERVICE_TIMEOUT,
+        )
+        .await;
+        builtin_mcp_completed |= builtin_retry;
+        legacy_listener_completed |= legacy_retry;
+    }
+    tracing::info!(
+        disconnected,
+        builtin_mcp_completed,
+        legacy_listener_completed,
+        connection_completed,
+        builtin_mcp = builtin_mcp.is_some(),
+        legacy_listener = legacy_listener.is_some(),
+        "[SERVER] process services stopped"
+    );
+    !(builtin_mcp_completed && legacy_listener_completed && connection_completed)
+}
+
+#[cfg(unix)]
+async fn server_shutdown_signal() -> Result<(), String> {
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(|error| format!("SIGTERM handler: {error}"))?;
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            result.map_err(|error| format!("Ctrl+C handler: {error}"))
+        },
+        _ = terminate.recv() => Ok(()),
+    }
+}
+
+#[cfg(not(unix))]
+async fn server_shutdown_signal() -> Result<(), String> {
+    tokio::signal::ctrl_c()
+        .await
+        .map_err(|error| format!("Ctrl+C handler: {error}"))
 }
 
 fn default_data_dir() -> PathBuf {

@@ -16,6 +16,7 @@ pub(crate) struct ManagedUvxInstall {
     pub(crate) package_spec: String,
     pub(crate) index_url: String,
     pub(crate) source_key: String,
+    pub(crate) bundle_offer: Option<AgentOffer>,
 }
 
 pub(crate) async fn resolve_uvx_agent_install(
@@ -66,7 +67,9 @@ pub(crate) async fn confirm_uvx_agent_install(
     let unchanged = confirmed.version == installed.version
         && confirmed.package_spec == installed.package_spec
         && confirmed.index_url == installed.index_url
-        && confirmed.source_key == installed.source_key;
+        && confirmed.source_key == installed.source_key
+        && bundle_identity(confirmed.bundle_offer.as_ref())
+            == bundle_identity(installed.bundle_offer.as_ref());
     unchanged.then_some(confirmed).ok_or_else(|| {
         ManagedNpmInstallError::Rejected(contract_error(
             "version center uvx offer changed before activation",
@@ -78,6 +81,7 @@ fn install_from_offer(
     agent_type: AgentType,
     offer: AgentOffer,
 ) -> Result<ManagedUvxInstall, AcpError> {
+    let bundle_offer = offer.delivery.artifact_id.as_ref().map(|_| offer.clone());
     let registry::AgentDistribution::Uvx { package, .. } =
         registry::get_agent_meta(agent_type).distribution
     else {
@@ -114,7 +118,16 @@ fn install_from_offer(
         package_spec: format!("{package_name}{extras}=={}", offer.version),
         index_url: managed_python_index(&origin.base_url)?,
         source_key: component.source_key.clone(),
+        bundle_offer,
     })
+}
+
+fn bundle_identity(offer: Option<&AgentOffer>) -> Option<(&str, &str)> {
+    let offer = offer?;
+    Some((
+        offer.version_id.as_str(),
+        offer.delivery.artifact_id.as_deref()?,
+    ))
 }
 
 fn managed_python_index(value: &str) -> Result<String, AcpError> {

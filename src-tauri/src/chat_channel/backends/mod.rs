@@ -1,6 +1,7 @@
 pub mod dingtalk;
 pub mod lark;
 pub mod wecom;
+pub mod wecom_agent;
 pub mod wecom_ai_bot;
 pub mod weixin;
 
@@ -89,8 +90,18 @@ pub fn create_backend(
                 channel_id, cfg, token,
             )))
         }
-        ChannelType::WecomAgent => Err(ChatChannelError::ConfigurationInvalid(
-            "WeCom Agent callback backend is not available yet; use WeCom AI Bot".into(),
-        )),
+        ChannelType::WecomAgent => {
+            let cfg: WecomAgentConfig =
+                serde_json::from_value(config.clone()).map_err(|error| {
+                    ChatChannelError::ConfigurationInvalid(format!(
+                        "Invalid WeCom Agent config: {error}"
+                    ))
+                })?;
+            let secrets =
+                WecomAgentSecrets::parse(&token).map_err(ChatChannelError::ConfigurationInvalid)?;
+            Ok(Box::new(wecom_agent::WecomAgentBackend::new(
+                channel_id, cfg, secrets,
+            )?))
+        }
     }
 }

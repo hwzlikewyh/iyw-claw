@@ -14,7 +14,7 @@ pub const USER_MEMORY_MAX_APPEND_CHARS: usize = 1_000;
 pub const USER_MEMORY_MAX_CONTEXT_CHARS: usize = 24_576;
 pub const USER_MEMORY_MIGRATION_RECEIPT_FILE: &str = ".user-memory-migration.json";
 
-pub const USER_MEMORY_AGENT_TYPES: [AgentType; 11] = [
+pub const USER_MEMORY_AGENT_TYPES: [AgentType; 12] = [
     AgentType::ClaudeCode,
     AgentType::Codex,
     AgentType::OpenCode,
@@ -26,6 +26,7 @@ pub const USER_MEMORY_AGENT_TYPES: [AgentType; 11] = [
     AgentType::KimiCode,
     AgentType::Pi,
     AgentType::Grok,
+    AgentType::DeepSeek,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -183,6 +184,9 @@ pub enum UserMemoryOrigin {
 #[derive(Debug, Clone)]
 pub struct UserMemoryContextSnapshot {
     pub revision: String,
+    pub recall_index_generation: Option<i64>,
+    pub(crate) recall_tool_enabled: bool,
+    pub(crate) historical_context_generation: Option<String>,
     pub effective_fingerprint: String,
     pub rendered: Option<Arc<str>>,
     pub memory_write_enabled: bool,
@@ -197,6 +201,9 @@ impl UserMemoryContextSnapshot {
     pub fn pending(origin: UserMemoryOrigin) -> Self {
         Self {
             revision: String::new(),
+            recall_index_generation: None,
+            recall_tool_enabled: false,
+            historical_context_generation: None,
             effective_fingerprint: String::new(),
             rendered: None,
             memory_write_enabled: false,

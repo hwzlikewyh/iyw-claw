@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useMemo, useRef } from "react"
 import { Reorder } from "motion/react"
+import type { PanInfo } from "motion/react"
 import { X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn, handleMiddleClickClose } from "@/lib/utils"
@@ -33,6 +34,16 @@ interface TabItemProps {
   isTouchSorting: boolean
   onTouchSortingStart: (tabId: string) => void
   onTouchSortingEnd: () => void
+  onTabDrag?: (
+    tab: TabItemData,
+    event: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo
+  ) => void
+  onTabDragEnd?: (
+    tab: TabItemData,
+    event: MouseEvent | TouchEvent | PointerEvent,
+    info: PanInfo
+  ) => void
 }
 
 export const TabItem = memo(function TabItem({
@@ -51,6 +62,8 @@ export const TabItem = memo(function TabItem({
   isTouchSorting,
   onTouchSortingStart,
   onTouchSortingEnd,
+  onTabDrag,
+  onTabDragEnd,
 }: TabItemProps) {
   const t = useTranslations("Folder.tabs")
   const itemRef = useRef<HTMLDivElement>(null)
@@ -80,6 +93,30 @@ export const TabItem = memo(function TabItem({
     onEnd: onTouchSortingEnd,
     onDragSettle: clearResidualStyles,
   })
+  const {
+    onDragStart: handleLongPressDragStart,
+    onDragEnd: handleLongPressDragEnd,
+    ...restGestureHandlers
+  } = gestureHandlers
+
+  const handleDragStart = useCallback(() => {
+    handleLongPressDragStart()
+  }, [handleLongPressDragStart])
+
+  const handleDrag = useCallback(
+    (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+      onTabDrag?.(tab, event, info)
+    },
+    [onTabDrag, tab]
+  )
+
+  const handleDragEnd = useCallback(
+    (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+      handleLongPressDragEnd()
+      onTabDragEnd?.(tab, event, info)
+    },
+    [handleLongPressDragEnd, onTabDragEnd, tab]
+  )
 
   const handleClick = useCallback(() => {
     onSwitch(tab.id)
@@ -111,7 +148,10 @@ export const TabItem = memo(function TabItem({
       dragControls={dragControls}
       dragListener={!isCoarsePointer}
       whileDrag={whileDrag}
-      {...gestureHandlers}
+      {...restGestureHandlers}
+      onDragStart={handleDragStart}
+      onDrag={onTabDrag ? handleDrag : undefined}
+      onDragEnd={handleDragEnd}
       onLayoutAnimationComplete={clearResidualStyles}
       className={cn(
         "shrink-0 rounded-full cursor-grab active:cursor-grabbing",

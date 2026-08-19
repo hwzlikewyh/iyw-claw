@@ -8,20 +8,8 @@ use super::{
     ProcessRecord,
 };
 
-fn agent_key(agent_type: AgentType) -> &'static str {
-    match agent_type {
-        AgentType::ClaudeCode => "claude_code",
-        AgentType::Codex => "codex",
-        AgentType::OpenCode => "open_code",
-        AgentType::Gemini => "gemini",
-        AgentType::OpenClaw => "open_claw",
-        AgentType::Cline => "cline",
-        AgentType::Hermes => "hermes",
-        AgentType::CodeBuddy => "code_buddy",
-        AgentType::KimiCode => "kimi_code",
-        AgentType::Pi => "pi",
-        AgentType::Grok => "grok",
-    }
+fn agent_key(agent_type: AgentType) -> String {
+    agent_type.as_wire().into_owned()
 }
 
 fn has_ancestor(mut pid: u32, ancestor: u32, by_pid: &HashMap<u32, &ProcessRecord>) -> bool {
@@ -51,7 +39,7 @@ pub(super) fn apply_runtime_classifications(
             classifications.insert(
                 record.pid,
                 ProcessClassification {
-                    agent_type: Some(agent_key(session.agent_type).to_string()),
+                    agent_type: Some(agent_key(session.agent_type)),
                     group_id: format!("connection-{}", session.connection_id),
                     group_display_name: session.agent_type.to_string(),
                     process_role: if record.pid == root_pid {

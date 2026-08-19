@@ -14,8 +14,10 @@ use crate::app_error::AppCommandError;
 use crate::commands::iyw_account::iyw_account_access_token_core;
 use crate::update::preferences;
 
+mod capability_policy;
 mod config;
 mod error;
+pub use capability_policy::CapabilityPolicyHttpFetcher;
 use config::{endpoint, http_client, INSTALLATION_HEADER};
 use error::{envelope_error, retryable_agent_resolve_error};
 
@@ -218,11 +220,7 @@ async fn decode_response<T: DeserializeOwned>(
         tracing::warn!(
             "[AgentPlatform] HTTP {} — body: {}",
             status,
-            if body.len() > 512 {
-                &body[..512]
-            } else {
-                &body
-            }
+            text_preview(&body, 512)
         );
         return Err(http_status_error(status));
     }
@@ -253,6 +251,10 @@ async fn decode_response<T: DeserializeOwned>(
         AppCommandError::configuration_invalid("Invalid Agent platform response data")
             .with_detail(error.to_string())
     })
+}
+
+fn text_preview(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
 }
 
 fn network_error(error: reqwest::Error) -> AppCommandError {

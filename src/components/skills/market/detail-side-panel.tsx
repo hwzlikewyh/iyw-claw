@@ -12,7 +12,7 @@ import {
   type SkillMarketV2Version,
 } from "@/lib/skill-market"
 import type { SkillMarketActivationSummary } from "@/lib/skill-market-activation"
-import { AGENT_LABELS } from "@/lib/types"
+import { getAgentLabel } from "@/lib/custom-agents"
 import { cn } from "@/lib/utils"
 
 function agentState({
@@ -101,7 +101,7 @@ export function DetailSidePanel(props: DetailSidePanelProps) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs font-medium">
-                      {AGENT_LABELS[agent.agentType]}
+                      {getAgentLabel(agent.agentType)}
                     </span>
                     <span className="block text-[9px] text-muted-foreground">
                       {t("detail.activation.componentCount", {

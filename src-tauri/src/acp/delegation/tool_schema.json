@@ -43,7 +43,37 @@
             "code_buddy",
             "kimi_code",
             "pi",
-            "grok"
+            "grok",
+            "cursor",
+            "deepseek",
+            "custom:agoragentic-acp",
+            "custom:amp-acp",
+            "custom:auggie",
+            "custom:autohand",
+            "custom:cortex-code",
+            "custom:corust-agent",
+            "custom:crow-cli",
+            "custom:deepagents",
+            "custom:devin",
+            "custom:dimcode",
+            "custom:dirac",
+            "custom:factory-droid",
+            "custom:fast-agent",
+            "custom:github-copilot-cli",
+            "custom:glm-acp-agent",
+            "custom:goose",
+            "custom:harn",
+            "custom:junie",
+            "custom:kilo",
+            "custom:minion-code",
+            "custom:mistral-vibe",
+            "custom:nova",
+            "custom:poolside",
+            "custom:qoder",
+            "custom:qwen-code",
+            "custom:sigit",
+            "custom:stakpak",
+            "custom:vtcode"
           ],
           "description": "Optional executor Agent filter."
         }
@@ -101,7 +131,37 @@
             "code_buddy",
             "kimi_code",
             "pi",
-            "grok"
+            "grok",
+            "cursor",
+            "deepseek",
+            "custom:agoragentic-acp",
+            "custom:amp-acp",
+            "custom:auggie",
+            "custom:autohand",
+            "custom:cortex-code",
+            "custom:corust-agent",
+            "custom:crow-cli",
+            "custom:deepagents",
+            "custom:devin",
+            "custom:dimcode",
+            "custom:dirac",
+            "custom:factory-droid",
+            "custom:fast-agent",
+            "custom:github-copilot-cli",
+            "custom:glm-acp-agent",
+            "custom:goose",
+            "custom:harn",
+            "custom:junie",
+            "custom:kilo",
+            "custom:minion-code",
+            "custom:mistral-vibe",
+            "custom:nova",
+            "custom:poolside",
+            "custom:qoder",
+            "custom:qwen-code",
+            "custom:sigit",
+            "custom:stakpak",
+            "custom:vtcode"
           ],
           "description": "Executor Agent. Defaults to the current Agent."
         },
@@ -706,6 +766,29 @@
           "type": "string",
           "enum": ["correction", "preference", "fact"],
           "description": "The explicit user signal that motivated this candidate."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "memory_recall",
+    "description": "Read matching host-confirmed user memory for the current launch. This is read-only, bounded, and may abstain when the index is stale or no evidence matches. Do not treat an empty result as proof that a fact is false.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["query"],
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "A concise fact, preference, stable memory id, alias, or date to look up."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 6
         }
       },
       "additionalProperties": false

@@ -4,7 +4,8 @@
 //! steering notes), `ask_user_question` (block on a multiple-choice card), and
 //! `get_session_info` (resolve a referenced session by id), gated by the
 //! `--features` groups (`delegation` / `feedback` / `ask` / `sessions` /
-//! `images` / `memory` / `memory-proposal` / `browser`).
+//! `images` / `memory` / `memory-proposal` / `memory-recall` / `artifacts` /
+//! `channels` / `browser`).
 //!
 //! The agent's MCP config (injected by iyw-claw via `load_mcp_servers_for_agent`)
 //! spawns this binary with three required flags:
@@ -199,7 +200,12 @@ async fn main() -> ExitCode {
                             // `check_user_feedback`, the delivery commit that
                             // marks the pulled notes `Delivered`.
                             if let Some(after) = after_relay {
-                                after.await;
+                                if !after.run().await {
+                                    let _ = writeln!(
+                                        std::io::stderr(),
+                                        "iyw-claw-mcp: feedback delivery commit failed"
+                                    );
+                                }
                             }
                         });
                     }

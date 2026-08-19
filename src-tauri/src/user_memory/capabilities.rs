@@ -14,6 +14,7 @@ use super::{
 
 pub const APPEND_USER_MEMORY_TOOL: &str = "append_user_memory";
 pub const PROPOSE_USER_MEMORY_TOOL: &str = "propose_user_memory";
+pub const MEMORY_RECALL_TOOL: &str = "memory_recall";
 
 #[derive(Debug, Clone)]
 pub struct UserMemoryPolicyAccess {
@@ -98,10 +99,12 @@ impl UserMemoryContextSnapshot {
             render_user_context(&self.policy, &self.documents, &self.capabilities).map(Arc::from);
         self.effective_fingerprint =
             context_fingerprint(self.rendered.as_deref(), &self.capabilities);
+        self.historical_context_generation = Some(self.revision.clone());
     }
 
     pub fn finalize_resumed_runtime(&mut self, runtime: UserMemoryRuntimeEnvironment) {
         self.finalize_runtime(runtime);
+        self.historical_context_generation = None;
         self.capabilities.read_context = UserMemoryCapabilityResult::default();
         self.memory_write_enabled = self.capabilities.confirmed_append.available;
         // Re-render with read_context cleared: produces maintenance-guidance-only

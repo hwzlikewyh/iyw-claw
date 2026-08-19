@@ -168,6 +168,9 @@ fn verify_migrated_storage(
         }
     }
     for (agent, version) in installed {
+        if !paths.profile(*agent).root.is_dir() {
+            return Err(format!("missing migrated profile for {agent:?}"));
+        }
         let meta = registry::get_agent_meta(*agent);
         let valid = match meta.distribution {
             AgentDistribution::Npx { cmd, .. } => {

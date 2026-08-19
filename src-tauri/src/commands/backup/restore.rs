@@ -21,6 +21,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
+use crate::acp::capability_policy::CapabilityRevocationMonitor;
 use crate::app_error::{AppCommandError, BACKUP_I18N_KEY_ALREADY_PENDING};
 
 use super::archive;
@@ -42,6 +43,7 @@ pub const RESTORED_TRANSCRIPTS_DIR: &str = "restored-transcripts";
 pub const EXPORT_TMP_DIR: &str = ".iyw-claw-backup-tmp";
 /// Transient dir (server mode) holding uploaded archives awaiting inspect/stage.
 pub const UPLOAD_TMP_DIR: &str = ".iyw-claw-restore-upload";
+pub(crate) const RESTORE_SOURCE_CHANGED_MARKER: &str = ".iyw-claw-restore-source-changed";
 
 /// How conflicting files are handled when restoring external transcripts back
 /// to their original CLI locations. Never silent: the UI forces an explicit
@@ -84,7 +86,10 @@ pub struct StagedRestore {
 #[derive(Debug)]
 pub enum RestoreApplied {
     None,
-    Applied { safety_snapshot: Option<PathBuf> },
+    Applied {
+        safety_snapshot: Option<PathBuf>,
+        restore_source_changed: bool,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -93,6 +98,8 @@ struct PendingRestore {
     created_at: String,
     app_version: String,
     latest_migration: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    restore_source_changed: bool,
 }
 
 pub(crate) struct StageRestoreContext<'a> {
@@ -102,6 +109,7 @@ pub(crate) struct StageRestoreContext<'a> {
     pub emitter: &'a EventEmitter,
     pub op_id: &'a str,
     pub cancel: &'a CancellationToken,
+    pub monitor: &'a CapabilityRevocationMonitor,
 }
 
 /// Decrypt + extract + verify a backup into a staging dir and write the pending
@@ -118,7 +126,9 @@ pub(crate) async fn stage_restore_core(
         emitter,
         op_id,
         cancel,
+        monitor,
     } = context;
+    require_stage_active(cancel, monitor).await?;
     // 0. Only one restore may be staged at a time. Fail fast if one is already
     //    pending (the real guard is the atomic no-clobber marker write in step
     //    4; this just avoids wasting extraction work in the common case).
@@ -133,6 +143,7 @@ pub(crate) async fn stage_restore_core(
         .await
         .map_err(spawn_err)??;
     let (zip_path, _guard) = core::obtain_plaintext_zip(src, encrypted, passphrase).await?;
+    require_stage_active(cancel, monitor).await?;
 
     // 2. Read + validate the manifest (version gate).
     let zip_for_manifest = zip_path.clone();
@@ -147,6 +158,7 @@ pub(crate) async fn stage_restore_core(
     // trust the manifest to bound extraction.
     archive::validate_manifest(&manifest)?;
     let stages_user_memory = validate_user_memory_entries(&manifest)?;
+    require_stage_active(cancel, monitor).await?;
 
     // 3. Extract into a fresh staging dir + verify every checksum. Extraction
     //    is manifest-bounded, so the staged set equals the checksum-covered set.
@@ -173,6 +185,7 @@ pub(crate) async fn stage_restore_core(
     })
     .await
     .map_err(spawn_err)??;
+    require_stage_active(cancel, monitor).await?;
     emit(emitter, op_id, BackupPhase::Verifying);
 
     // `uploads/` is an always-managed section: ensure the staged dir exists
@@ -184,6 +197,7 @@ pub(crate) async fn stage_restore_core(
     tokio::fs::create_dir_all(staging_root.join("uploads"))
         .await
         .map_err(AppCommandError::io)?;
+    require_stage_active(cancel, monitor).await?;
 
     // Validate/synthesize candidate state while holding the canonical memory
     // lock. A Phase 1 archive gets an explicit empty schema-v1 candidate state
@@ -206,8 +220,10 @@ pub(crate) async fn stage_restore_core(
         }
 
         // Commit core restore only after all user-memory validation succeeds.
-        write_pending_marker(data_dir, &staging_root, &manifest)?;
+        require_stage_active(cancel, monitor).await?;
+        write_pending_marker(data_dir, &staging_root, &manifest, stages_user_memory)?;
     }
+    require_stage_active(cancel, monitor).await?;
 
     // 5. External transcripts run AFTER the commit and are TRULY non-fatal: the
     //    core restore is already committed, so an external (best-effort,
@@ -225,6 +241,7 @@ pub(crate) async fn stage_restore_core(
                 (None, Vec::new())
             }
         };
+    require_stage_active(cancel, monitor).await?;
 
     emit(emitter, op_id, BackupPhase::Done);
 
@@ -234,6 +251,59 @@ pub(crate) async fn stage_restore_core(
         restored_external_path,
         skipped_conflicts,
     })
+}
+
+async fn require_stage_active(
+    cancel: &CancellationToken,
+    monitor: &CapabilityRevocationMonitor,
+) -> Result<(), AppCommandError> {
+    if cancel.is_cancelled() {
+        return Err(super::cancelled_error());
+    }
+    monitor.require_current().await
+}
+
+pub(crate) async fn cleanup_failed_stage(data_dir: &Path, op_id: &str) {
+    let staging_root = data_dir.join(STAGING_DIR).join(op_id);
+    let marker = data_dir.join(PENDING_MARKER);
+    let remove_staging = match tokio::fs::read(&marker).await {
+        Ok(bytes) => match serde_json::from_slice::<PendingRestore>(&bytes) {
+            Ok(pending) if Path::new(&pending.staging_dir) == staging_root => {
+                match tokio::fs::remove_file(&marker).await {
+                    Ok(()) => true,
+                    Err(error) => {
+                        tracing::warn!(
+                            op_id,
+                            error = %error,
+                            "[RESTORE] failed to remove cancelled pending marker"
+                        );
+                        false
+                    }
+                }
+            }
+            Ok(_) => true,
+            Err(error) => {
+                tracing::warn!(
+                    op_id,
+                    error = %error,
+                    "[RESTORE] preserving staging because pending marker is unreadable"
+                );
+                false
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(error) => {
+            tracing::warn!(
+                op_id,
+                error = %error,
+                "[RESTORE] preserving staging because pending marker could not be read"
+            );
+            false
+        }
+    };
+    if remove_staging {
+        let _ = tokio::fs::remove_dir_all(&staging_root).await;
+    }
 }
 
 /// Remove transient backup/restore scratch dirs left behind by an interrupted
@@ -326,14 +396,16 @@ fn apply_pending_restore_with_optional_paths(
         let _ = std::fs::remove_file(&marker);
         return Ok(RestoreApplied::None);
     }
-    if user_memory_root.is_none() && staged_user_memory_exists(&staging) {
+    let staged_source_changed = staged_user_memory_exists(&staging);
+    let restore_source_changed = pending.restore_source_changed || staged_source_changed;
+    if user_memory_root.is_none() && staged_source_changed {
         tracing::warn!(
             "[RESTORE] user memory root unavailable; preserving the pending restore for retry"
         );
         return Ok(RestoreApplied::None);
     }
 
-    let _memory_guard = if staged_user_memory_exists(&staging) {
+    let _memory_guard = if staged_source_changed {
         let root = user_memory_root.expect("user memory root checked above");
         match crate::user_memory::lock_for_restore_apply(root).map_err(app_error_to_io)? {
             Some(guard) => Some(guard),
@@ -353,6 +425,9 @@ fn apply_pending_restore_with_optional_paths(
         pending.app_version,
         pending.latest_migration
     );
+    if restore_source_changed {
+        persist_restore_source_changed(data_dir)?;
+    }
 
     // Safety snapshot of the current live data, then swap staged files in.
     let backup_dir = data_dir.join(SAFETY_DIR).join(safe_timestamp());
@@ -423,6 +498,7 @@ fn apply_pending_restore_with_optional_paths(
     );
     Ok(RestoreApplied::Applied {
         safety_snapshot: Some(backup_dir),
+        restore_source_changed,
     })
 }
 
@@ -565,12 +641,14 @@ fn write_pending_marker(
     data_dir: &Path,
     staging_root: &Path,
     manifest: &BackupManifest,
+    restore_source_changed: bool,
 ) -> Result<(), AppCommandError> {
     let pending = PendingRestore {
         staging_dir: staging_root.to_string_lossy().into_owned(),
         created_at: Utc::now().to_rfc3339(),
         app_version: manifest.app_version.clone(),
         latest_migration: manifest.latest_migration.clone(),
+        restore_source_changed,
     };
     let json = serde_json::to_vec_pretty(&pending).map_err(|e| {
         AppCommandError::task_execution_failed("Serialize restore marker")
@@ -595,6 +673,20 @@ fn write_pending_marker(
     };
     f.write_all(&json).map_err(AppCommandError::io)?;
     Ok(())
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+fn persist_restore_source_changed(data_dir: &Path) -> std::io::Result<()> {
+    let mut marker = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(data_dir.join(RESTORE_SOURCE_CHANGED_MARKER))?;
+    marker.write_all(b"restore_source_changed")?;
+    marker.sync_all()
 }
 
 fn already_pending_error() -> AppCommandError {

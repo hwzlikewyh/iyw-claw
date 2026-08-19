@@ -1,6 +1,7 @@
 "use client"
 
-import { CircleAlert, X, Trash2 } from "lucide-react"
+import { useState } from "react"
+import { ChevronRight, CircleAlert, X, Trash2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import {
   useAlertContext,
@@ -15,15 +16,11 @@ import {
 import { useAcpActions } from "@/contexts/acp-connections-context"
 import { openUrl } from "@/lib/platform"
 import { openSettingsWindow } from "@/lib/api"
-import { AGENT_LABELS, type AgentType } from "@/lib/types"
-
-const KNOWN_AGENT_TYPES = new Set<AgentType>(
-  Object.keys(AGENT_LABELS) as AgentType[]
-)
+import { isAgentType, type AgentType } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 function parseAgentType(value: unknown): AgentType | null {
-  if (typeof value !== "string") return null
-  return KNOWN_AGENT_TYPES.has(value as AgentType) ? (value as AgentType) : null
+  return isAgentType(value) ? value : null
 }
 
 function parseOpenAgentsSettingsPayload(payload: string): {
@@ -110,6 +107,32 @@ function AlertActionButton({ action }: { action: AlertAction }) {
   )
 }
 
+function AlertEvidence({ text }: { text: string }) {
+  const t = useTranslations("Folder.statusBar.alerts")
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex items-center gap-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronRight
+          className={cn("size-2.5 transition-transform", open && "rotate-90")}
+        />
+        {t("details")}
+      </button>
+      {open && (
+        <pre className="mt-1 max-h-40 select-text overflow-y-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+          {text}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 export function StatusBarAlerts() {
   const t = useTranslations("Folder.statusBar.alerts")
   const { alerts, hasAlerts, dismissAlert, clearAll } = useAlertContext()
@@ -153,6 +176,7 @@ export function StatusBarAlerts() {
                       {alert.detail}
                     </div>
                   )}
+                  {alert.evidence && <AlertEvidence text={alert.evidence} />}
                   {alert.actions && alert.actions.length > 0 && (
                     <div className="flex items-center gap-1 mt-1">
                       {alert.actions.map((action, i) => (

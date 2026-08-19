@@ -62,6 +62,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::acp::automation_tools::ScheduledTaskRequest;
 use crate::acp::question::QuestionSpec;
 
+#[path = "backend.rs"]
+pub mod backend;
+
 pub const COMPANION_PROTOCOL_VERSION: u32 = 5;
 
 const fn default_companion_protocol_version() -> u32 {
@@ -213,6 +216,17 @@ pub struct BrokerMemoryProposalRequest {
     pub signal: crate::user_memory::UserMemoryCandidateSignal,
 }
 
+/// Read-only memory recall request. The listener derives scope and identity
+/// from the launch token; the companion supplies only a bounded query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerMemoryRecallRequest {
+    pub token: String,
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
 /// Register files produced by the current task. The listener resolves the
 /// conversation from the authenticated companion token and owns validation
 /// and persistence.
@@ -348,6 +362,7 @@ pub enum BrokerMessage {
     SessionInfo(BrokerSessionRequest),
     MemoryAppend(BrokerMemoryAppendRequest),
     MemoryProposal(BrokerMemoryProposalRequest),
+    MemoryRecall(BrokerMemoryRecallRequest),
     Artifacts(BrokerArtifactsRequest),
     ImageAnalysis(BrokerImageAnalysisRequest),
     Channel(BrokerChannelRequest),
@@ -422,7 +437,10 @@ where
 /// response, drop the connection. The three public helpers below differ only
 /// in which message they build, so the connect/write/read is shared here.
 #[cfg(unix)]
-async fn message_round_trip(socket_path: &str, msg: &BrokerMessage) -> io::Result<BrokerResponse> {
+pub(super) async fn message_round_trip(
+    socket_path: &str,
+    msg: &BrokerMessage,
+) -> io::Result<BrokerResponse> {
     use tokio::net::UnixStream;
     let mut stream = UnixStream::connect(socket_path).await?;
     write_frame(&mut stream, msg).await?;
@@ -431,7 +449,10 @@ async fn message_round_trip(socket_path: &str, msg: &BrokerMessage) -> io::Resul
 
 /// Windows path uses named pipes; the address format is `\\.\pipe\<name>`.
 #[cfg(windows)]
-async fn message_round_trip(socket_path: &str, msg: &BrokerMessage) -> io::Result<BrokerResponse> {
+pub(super) async fn message_round_trip(
+    socket_path: &str,
+    msg: &BrokerMessage,
+) -> io::Result<BrokerResponse> {
     let mut stream = open_named_pipe_with_retry(socket_path)
         .await
         .map_err(|e| io::Error::other(format!("open pipe: {e}")))?;
@@ -553,6 +574,15 @@ pub async fn client_memory_proposal_round_trip(
         "proposal",
     )
     .await
+}
+
+/// Query the host-owned current memory view through the authenticated
+/// listener. This route is read-only and has its own capability gate.
+pub async fn client_memory_recall_round_trip(
+    socket_path: &str,
+    req: &BrokerMemoryRecallRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(socket_path, &BrokerMessage::MemoryRecall(req.clone())).await
 }
 
 /// Register task output files and read back per-file accepted/rejected results.

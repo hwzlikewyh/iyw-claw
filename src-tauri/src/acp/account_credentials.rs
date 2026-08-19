@@ -208,6 +208,7 @@ pub(crate) fn write_agent_credentials_at_profile(
         // Grok's auth.json is an opaque login cache. Gateway credentials are
         // injected through XAI_API_KEY at process launch instead of rewriting it.
         AgentType::Grok => Ok(()),
+        AgentType::Cursor | AgentType::DeepSeek | AgentType::Custom(_) => Ok(()),
     }
 }
 

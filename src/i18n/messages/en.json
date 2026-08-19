@@ -1033,12 +1033,40 @@
         "pendingActivation": "Installed {name} {version}; it will activate for the next new Agent connection"
       }
     },
+    "capabilities": {
+      "clientTitle": "Client permissions",
+      "agentTitle": "Agent host permissions",
+      "fileUpload": "File upload",
+      "host_execution": "Host execution",
+      "host_read": "Read files",
+      "host_write": "Write files",
+      "terminal": "Terminal",
+      "mcp": "MCP tools",
+      "runtimeMismatch": "Not synchronized",
+      "managedDenied": "Managed off",
+      "platformUnavailable": "Agent platform identity is unavailable.",
+      "saveFailed": "Could not save capability preference"
+    },
     "configManagement": "Config Management",
     "envVars": "Environment Variables",
     "nativeJsonConfig": "Native JSON Config",
     "modelHintDefault": "Leave empty to use system default model.",
     "generalConfigDescriptionClaude": "Supports quick configuration for API URL, API Key and Claude models, and syncs with native JSON config.",
     "generalConfigDescriptionDefault": "Supports important config input (API URL, API Key, Model) and native JSON config management.",
+    "deepseek": {
+      "configManagement": "DeepSeek Harness Config",
+      "configDescription": "Configure the DeepSeek API endpoint and credential used by the managed ACP runtime.",
+      "baseUrlLabel": "Base URL",
+      "baseUrlHint": "Use an HTTP(S) endpoint without credentials, query, or fragment.",
+      "baseUrlInvalid": "Enter a valid HTTP(S) URL without credentials, query, or fragment.",
+      "apiKeyLabel": "API Key",
+      "apiKeyHint": "Stored in the managed Agent environment and never included in logs.",
+      "providerLabel": "Provider route",
+      "providerHint": "Optional route identifier used by DeepSeek Harness.",
+      "providerInvalid": "Use up to 64 letters, numbers, dots, dashes, or underscores; start with a letter or number.",
+      "modelLabel": "Model",
+      "modelHint": "Optional model name. Leave empty to use the provider default."
+    },
     "overview": {
       "managedBySdk": "Connected through Agent SDK",
       "enabled": "Enabled",
@@ -1211,6 +1239,7 @@
       "saveHermesConfig": "Save Hermes Config",
       "saveCodeBuddyConfig": "Save CodeBuddy Config",
       "saveKimiCodeConfig": "Save Kimi Code Config",
+      "saveDeepSeekConfig": "Save DeepSeek Config",
       "customInstall": "Custom install",
       "saveKimiCodeRawConfig": "Save config.toml"
     },
@@ -1536,6 +1565,8 @@
       "saveCodeBuddyFailed": "Failed to save CodeBuddy config",
       "kimiCodeSaved": "Kimi Code config saved",
       "saveKimiCodeFailed": "Failed to save Kimi Code config",
+      "deepseekSaved": "DeepSeek config saved",
+      "saveDeepSeekFailed": "Failed to save DeepSeek config",
       "modelProviderRequired": "Please select a model provider before saving.",
       "affectedRunningSessions": "{count, plural, one {# running session needs to reconnect to apply the change} other {# running sessions need to reconnect to apply the change}}",
       "providerConnected": "Connected {providerId}",
@@ -1791,6 +1822,13 @@
       "reloaded": "Conversation reloaded",
       "reload": "Reload",
       "activeConversationIndicator": "Active conversation",
+      "pointsGate": {
+        "insufficientTitle": "Insufficient credits",
+        "insufficientDescription": "Your account does not have enough credits. Add credits and try again.",
+        "unknownTitle": "Unable to verify credits",
+        "unknownDescription": "Your account credits are temporarily unavailable. Try again later.",
+        "dismiss": "Got it"
+      },
       "newConversation": "New Conversation",
       "closeConversation": "Close Conversation",
       "copyText": "Copy Text",
@@ -1917,7 +1955,8 @@
       },
       "alerts": {
         "title": "Alerts",
-        "empty": "No alerts"
+        "empty": "No alerts",
+        "details": "Details"
       },
       "stats": {
         "conversations": "{count} conversations",
@@ -2648,6 +2687,9 @@
           "turnFailedUnknown": "{agent} ended the turn with an unrecognized stop reason.",
           "grokModelSwitchIncompatibleAgent": "{agent} can't switch to that model in an existing conversation. Start a new session to use it.",
           "turnFailedEmpty": "{agent} ended the turn without producing any response. Please check the agent's configuration.",
+          "turnFailedEmptyProtocol": "{agent} produced output that iyw-claw could not parse. The agent version may not match the protocol.",
+          "turnFailedEmptyMetadata": "{agent} sent only status updates this turn and no reply.",
+          "detailsInAlerts": "Open Alerts in the status bar and expand Details to inspect the agent output.",
           "compactionNotApplied": "{agent} ended the compact request without writing a new compacted summary. Compaction was not applied; check the agent logs and try again."
         },
         "unableReadAgentConfig": "Unable to read Agent config: {message}",
@@ -2691,10 +2733,14 @@
       "chatInput": {
         "connecting": "Connecting...",
         "agentResponding": "{agent} is responding...",
+        "startingKernel": "Starting the {agent} runtime...",
+        "waitingForAgent": "Waiting for {agent} to respond...",
+        "agentGenerating": "{agent} is generating...",
         "sendMessage": "Send a message..."
       },
       "messageInput": {
         "askAnything": "Ask anything...",
+        "conversationStarting": "Starting conversation...",
         "removeAttachmentAria": "Remove {name}",
         "attachFiles": "Attach files",
         "attachLocalUpload": "Upload local file",
@@ -2826,6 +2872,10 @@
               }
             },
             "reasoning": {
+              "none": {
+                "name": "No reasoning",
+                "description": "Do not use additional reasoning."
+              },
               "off": {
                 "name": "Off",
                 "description": "Disable extra reasoning."
@@ -2847,7 +2897,7 @@
                 "description": "Use deeper reasoning for complex tasks."
               },
               "xhigh": {
-                "name": "Extra high",
+                "name": "Maximum",
                 "description": "Use maximum reasoning depth."
               }
             },
@@ -2972,7 +3022,8 @@
       },
       "agentSelector": {
         "noEnabledAgents": "No enabled agents",
-        "openAgentsSettings": "Open Agents settings"
+        "openAgentsSettings": "Open Agents settings",
+        "moreAgents": "More agents ({count})"
       },
       "subAgentOverlay": {
         "title": "Sub-agents",
@@ -2998,6 +3049,7 @@
       },
       "permissionDialog": {
         "subtitle": "Agent requests permission to continue this turn.",
+        "queuedCount": "+{count} waiting",
         "kindFallbackTool": "tool",
         "command": "Command",
         "cwd": "CWD: {cwd}",
@@ -3342,6 +3394,12 @@
           "submitted": "Plan submitted",
           "switched": "Switched mode"
         },
+        "contextCompaction": {
+          "compacting": "Compacting context",
+          "compacted": "Context compacted",
+          "compactedTokens": "Context compacted: {before} → {after} tokens",
+          "failed": "Context compaction failed"
+        },
         "backgroundTask": {
           "title": "Background task",
           "titleWithId": "Background task · {id}",
@@ -3459,6 +3517,26 @@
         "opWait": "Fetching sub-agent result",
         "opClose": "Closing sub-agent",
         "opResume": "Resuming sub-agent"
+      },
+      "sessionFailure": {
+        "category": {
+          "connection": "Connection issue",
+          "access": "Access issue",
+          "limit": "Limit reached",
+          "request": "Request rejected",
+          "service": "Service issue",
+          "unknown": "Session issue"
+        },
+        "action": {
+          "retry": "Retry",
+          "login": "Sign in",
+          "newSession": "New session"
+        },
+        "recovered": "Recovered",
+        "retryUnavailable": "No previous message to resend.",
+        "toggleDetails": "Toggle details",
+        "dismiss": "Dismiss",
+        "moreIncidents": "+{count} more"
       },
       "backgroundTasks": {
         "running": "{count, plural, one {# background task running} other {# background tasks running}}",
@@ -3647,6 +3725,158 @@
     "connect": "Connect",
     "disconnect": "Disconnect",
     "test": "Test Connection",
+    "market": {
+      "title": "Chat Channels",
+      "description": "Manage external message entry points, connection state, and Agent replies.",
+      "views": {
+        "connected": "Connected {count}",
+        "market": "Channel Market"
+      },
+      "search": "Search channels",
+      "filters": {
+        "all": "All connection modes",
+        "scan": "QR sign-in",
+        "stream": "Persistent connection",
+        "callback": "Callback"
+      },
+      "tags": {
+        "recommended": "Recommended",
+        "noPublic": "No public callback",
+        "httpsRequired": "Public HTTPS required"
+      },
+      "cards": {
+        "weixin": {
+          "name": "WeChat",
+          "kind": "Personal WeChat · iLink",
+          "description": "Sign in by QR code for private chats. No developer credentials; ordinary group chats are not supported.",
+          "action": "Scan to connect"
+        },
+        "wecom_ai_bot": {
+          "name": "WeCom Smart Robot",
+          "kind": "WebSocket connection",
+          "description": "Use a Bot ID and Secret for robot conversations. QR authorization is not supported.",
+          "action": "View guide and configure"
+        },
+        "wecom_agent": {
+          "name": "WeCom Self-built App",
+          "kind": "Encrypted callback + app messages",
+          "description": "Use CorpID, AgentID, and an app Secret for internal app conversations and proactive notifications.",
+          "action": "Check requirements"
+        },
+        "lark": {
+          "name": "Lark (Feishu)",
+          "kind": "Self-built app · persistent connection",
+          "description": "Use App ID and App Secret to receive events and reply over a persistent connection.",
+          "action": "View guide and configure"
+        },
+        "dingtalk": {
+          "name": "DingTalk",
+          "kind": "App robot · Stream",
+          "description": "Use Client ID and Client Secret to send and receive through Stream mode.",
+          "action": "View guide and configure"
+        }
+      },
+      "footerNote": "WeChat opens QR sign-in immediately. Other channels show the relevant guide and verify credentials before appearing as connected.",
+      "continueDraft": "Continue · {stage}",
+      "states": {
+        "pending_auth": "Awaiting authorization",
+        "pending_callback": "Awaiting callback",
+        "ready": "Ready"
+      },
+      "abandonDraft": "Abandon setup",
+      "abandonTitle": "Abandon channel setup",
+      "abandonDescription": "This deletes the draft and its secured credential. This cannot be undone.",
+      "noConnected": "No channels connected. Open Channel Market to get started.",
+      "callbackVerified": "Callback verified",
+      "callbackPending": "Awaiting callback",
+      "inboundVerified": "Message received",
+      "weixinReauthRequired": "The saved WeChat login could not be verified. Scan again.",
+      "status": {
+        "connected": "Outbound credential ready",
+        "connecting": "Connecting",
+        "disconnected": "Disconnected",
+        "error": "Connection error"
+      },
+      "toggleChannel": "Enable or disable channel",
+      "moreActions": "More actions",
+      "keepDraft": "Exit and keep draft",
+      "enableChannel": "Finish and enable",
+      "finishSetup": "Finish channel setup",
+      "defaultUserId": "Default recipient UserID (optional)",
+      "defaultUserIdPlaceholder": "For example, zhangsan",
+      "defaultUserIdHint": "Used for daily reports and proactive notifications. Inbound messages always reply to their sender.",
+      "configureTitle": "Configure {channel}",
+      "openAdmin": "Open platform admin",
+      "verifyCredential": "Verify and continue",
+      "larkFieldsRequired": "Enter the App ID and default Chat ID.",
+      "regenerate": "Regenerate",
+      "show": "Show",
+      "hide": "Hide",
+      "copy": "Copy",
+      "continue": "Continue",
+      "draftNames": {
+        "weixin": "Pending WeChat setup",
+        "wecom_ai_bot": "Pending WeCom robot setup",
+        "wecom_agent": "Pending WeCom app setup",
+        "lark": "Pending Lark setup",
+        "dingtalk": "Pending DingTalk setup"
+      },
+      "guides": {
+        "wecom_ai_bot": {
+          "title": "Get the Bot ID and Secret",
+          "one": "Open Smart Robots in WeCom admin and create a robot.",
+          "two": "Copy the Bot ID from robot details, then reveal or reset the Secret.",
+          "three": "Confirm message permission before saving. This uses WebSocket and needs no public callback."
+        },
+        "lark": {
+          "title": "Create a Lark self-built app",
+          "one": "Create an enterprise app in Lark Open Platform and obtain its App ID and App Secret.",
+          "two": "Enable bot capabilities and message event permissions, then publish an app version.",
+          "three": "Enter a default Chat ID for proactive notices. Inbound messages reply to their actual chat."
+        },
+        "dingtalk": {
+          "title": "Create a DingTalk app robot",
+          "one": "Create an internal app in DingTalk Open Platform and add a robot.",
+          "two": "Copy the Client ID and Client Secret from app credentials.",
+          "three": "Enable Stream mode. No public callback URL is required."
+        }
+      },
+      "wecomAgent": {
+        "title": "Connect a WeCom self-built app",
+        "webRunning": "The built-in web service is running. A reverse proxy or tunnel must still provide public HTTPS.",
+        "webNotRunning": "The built-in web service was not detected. Start it in Web Service settings on desktop; on server deployments, confirm this API stays online.",
+        "externalUrl": "Public HTTPS address",
+        "externalUrlHint": "Enter the public base address only, without the callback path, query, or fragment.",
+        "conditionConfirm": "I confirmed this address forwards to the current iyw-claw instance and can receive callbacks while the app is running.",
+        "parametersRequired": "Enter a valid public HTTPS address, CorpID, numeric AgentID, and app Secret.",
+        "corpId": "CorpID (Enterprise ID)",
+        "agentId": "AgentID (App ID)",
+        "appSecret": "App Secret",
+        "callbackUrl": "Callback URL",
+        "callbackVerified": "WeCom completed GET signature verification and decryption. The callback is verified.",
+        "waitingCallback": "Waiting for WeCom callback verification. Save the XML API-receive settings in WeCom admin.",
+        "callbackPollFailed": "Callback verification status is temporarily unavailable. Retrying.",
+        "credentialsRetained": "The saved callback credentials are still active and are not shown again. Continue waiting for verification, or explicitly regenerate them.",
+        "regenerateTitle": "Replace callback credentials?",
+        "regenerateDescription": "The existing callback URL, Token, and EncodingAESKey will stop working. You must enter the App Secret again and update the WeCom admin settings.",
+        "regenerateAction": "Replace credentials",
+        "manualLoopRequired": "Full loop requires a real WeCom message",
+        "reportUserRequired": "Enter a default recipient UserID before enabling daily reports.",
+        "steps": {
+          "1": "1 Requirements",
+          "2": "2 App credentials",
+          "3": "3 Callback",
+          "4": "4 Enable"
+        },
+        "guideTitle": "Where to find each value",
+        "guide": {
+          "corp": "My Enterprise → Enterprise Info → Enterprise ID. Copy it as CorpID.",
+          "agent": "App Management → Self-built → target app. Find AgentID and ask an admin to reveal the Secret.",
+          "callback": "Target app → Receive Messages → API receive settings. Enter the URL, Token, and EncodingAESKey shown here and select XML."
+        },
+        "scopeWarning": "A self-built app handles app conversations only; it cannot read arbitrary enterprise group chats. Members must be in the app visibility scope."
+      }
+    },
     "tabs": {
       "channels": "Channels",
       "commands": "Commands",

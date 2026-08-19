@@ -98,8 +98,8 @@ import {
   automationUpdate,
 } from "@/lib/api"
 import { onTransportReconnect, subscribe } from "@/lib/platform"
+import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { cn } from "@/lib/utils"
-import { AGENT_LABELS } from "@/lib/types"
 import type { Automation, AutomationDraft, AutomationRun } from "@/lib/types"
 import { useConversationAutomationDraft } from "./use-conversation-automation-draft"
 
@@ -117,7 +117,7 @@ function automationAgentLabel(
   agentType: Automation["agent_type"],
   storedLabel?: string
 ): string {
-  const fallback = AGENT_LABELS[agentType] ?? agentType
+  const fallback = getAgentDisplayName(agentType)
   if (!storedLabel?.trim()) return fallback
   const compact = (value: string) => value.toLowerCase().replace(/[\s_-]+/g, "")
   return compact(storedLabel) === compact(agentType) ? fallback : storedLabel

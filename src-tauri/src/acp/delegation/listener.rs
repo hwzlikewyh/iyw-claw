@@ -15,29 +15,35 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{watch, RwLock};
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::acp::audio_transcription::AudioTranscriptionAccess;
-use crate::acp::automation_tools::{AutomationAgentService, LIST_SCHEDULED_TASK_PROJECTS_TOOL};
+use crate::acp::automation_tools::{
+    AutomationAgentService, ScheduledTaskOperation, ScheduledTaskRequest,
+    LIST_SCHEDULED_TASK_PROJECTS_TOOL,
+};
 use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
+use crate::acp::delegation::mutation_gate::{MutationGate, MutationLease};
 use crate::acp::delegation::transport::{
     read_frame, write_frame, BrokerArtifactsRequest, BrokerAskRequest,
     BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerBrowserRequest,
     BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
     BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
     BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerMemoryProposalResult,
-    BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
-    COMPANION_PROTOCOL_VERSION,
+    BrokerMemoryRecallRequest, BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest,
+    BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
 use crate::acp::image_analysis::{ImageAnalysisAccess, ANALYZE_IMAGE_TOOL};
-use crate::acp::question::{QuestionOutcome, SessionQuestionAccess};
+use crate::acp::question::{QuestionOutcome, RegisteredQuestion, SessionQuestionAccess};
 use crate::acp::session_info::{SessionInfo, SessionInfoAccess};
 use crate::models::AgentType;
 use crate::user_memory::{
     AgentMemoryAppend, AgentMemoryProposal, CandidateObservationSource, UserMemoryAppendResult,
-    UserMemoryProposalResult, UserMemoryService, APPEND_USER_MEMORY_TOOL, PROPOSE_USER_MEMORY_TOOL,
+    UserMemoryProposalResult, UserMemoryRecallRequest, UserMemoryService, APPEND_USER_MEMORY_TOOL,
+    MEMORY_RECALL_TOOL, PROPOSE_USER_MEMORY_TOOL,
 };
 use serde_json::Value;
 
@@ -82,6 +88,9 @@ pub trait TaskArtifactAccess: Send + Sync {
 pub struct TokenEntry {
     pub parent_connection_id: String,
     pub working_dir: PathBuf,
+    /// Normalized host-derived workspace identity for read scope. The model
+    /// cannot provide or override this value in a recall request.
+    pub memory_workspace_key: String,
     /// Agent identity captured when the companion token was minted. Memory
     /// append requests never accept an Agent type from the LLM.
     pub agent_type: AgentType,
@@ -90,12 +99,16 @@ pub struct TokenEntry {
     pub memory_write_enabled: bool,
     /// Independent launch-snapshot authorization for conservative proposals.
     pub memory_proposal_enabled: bool,
+    /// Independent launch-snapshot authorization for read-only recall.
+    pub memory_recall_enabled: bool,
     /// Stable hash-derived provenance id; raw launch tokens are never persisted.
     pub opaque_source_id: String,
     /// Read-only authority for the current accepted turn nonce.
     pub memory_turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
     /// Cancels in-flight channel mutations when the launch token is revoked.
     pub cancellation: tokio_util::sync::CancellationToken,
+    /// Serializes irreversible work against token revocation.
+    pub mutation_gate: Arc<MutationGate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +131,7 @@ struct CompanionReadyCandidate {
     tools: Vec<String>,
     append_required: bool,
     proposal_required: bool,
+    recall_required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,10 +173,17 @@ impl TokenRegistry {
     }
 
     pub async fn revoke(&self, token: &str) {
-        if let Some(registered) = self.inner.write().await.remove(token) {
-            registered.entry.cancellation.cancel();
-            registered.entry.memory_turn_tracker.complete_turn();
-        }
+        let entry = self
+            .inner
+            .read()
+            .await
+            .get(token)
+            .map(|registered| registered.entry.clone());
+        let Some(entry) = entry else {
+            return;
+        };
+        entry.cancellation.cancel();
+        self.retire_token(token.to_string(), entry).await;
     }
 
     pub async fn lookup(&self, token: &str) -> Option<TokenEntry> {
@@ -170,34 +191,72 @@ impl TokenRegistry {
             .read()
             .await
             .get(token)
+            .filter(|registered| !registered.entry.cancellation.is_cancelled())
             .map(effective_token_entry)
+    }
+
+    /// Re-resolve the token and acquire the gate immediately before the
+    /// irreversible domain call. A revoke either advances the gate generation
+    /// first, or waits for the returned lease to leave the commit section.
+    pub async fn acquire_mutation_commit(
+        &self,
+        token: &str,
+        expected: &TokenEntry,
+    ) -> Option<MutationLease> {
+        let current = self.lookup(token).await?;
+        if !Arc::ptr_eq(&current.mutation_gate, &expected.mutation_gate) {
+            return None;
+        }
+        current.mutation_gate.acquire(&current.cancellation).await
     }
 
     /// Drop every token whose `parent_connection_id` matches. Used on parent
     /// connection teardown so a leaked token can't be reused.
     pub async fn revoke_by_parent(&self, parent_connection_id: &str) {
-        let mut map = self.inner.write().await;
-        map.retain(|_, registered| {
-            if registered.entry.parent_connection_id == parent_connection_id {
-                registered.entry.cancellation.cancel();
-                registered.entry.memory_turn_tracker.complete_turn();
-                false
-            } else {
-                true
-            }
-        });
+        let entries = {
+            let entries = self.inner.read().await;
+            entries
+                .iter()
+                .filter(|(_, registered)| {
+                    registered.entry.parent_connection_id == parent_connection_id
+                })
+                .map(|(token, registered)| (token.clone(), registered.entry.clone()))
+                .collect::<Vec<_>>()
+        };
+        // Cancel every matching token before awaiting any mutation barrier. If
+        // the outer shutdown budget interrupts the loop, all remaining entries
+        // are already fail-closed and can be retried on the next pass.
+        for (_, entry) in &entries {
+            entry.cancellation.cancel();
+        }
+        for (token, entry) in entries {
+            self.retire_token(token, entry).await;
+        }
     }
 
     pub async fn record_companion_ready(&self, request: BrokerCompanionReadyRequest) -> bool {
-        let registered = self.inner.read().await.get(&request.token).map(|entry| {
-            (
-                entry.ready.clone(),
-                entry.entry.parent_connection_id.clone(),
-                entry.entry.memory_write_enabled,
-                entry.entry.memory_proposal_enabled,
-            )
-        });
-        let Some((ready, parent_connection_id, append_required, proposal_required)) = registered
+        let registered = self
+            .inner
+            .read()
+            .await
+            .get(&request.token)
+            .filter(|entry| !entry.entry.cancellation.is_cancelled())
+            .map(|entry| {
+                (
+                    entry.ready.clone(),
+                    entry.entry.parent_connection_id.clone(),
+                    entry.entry.memory_write_enabled,
+                    entry.entry.memory_proposal_enabled,
+                    entry.entry.memory_recall_enabled,
+                )
+            });
+        let Some((
+            ready,
+            parent_connection_id,
+            append_required,
+            proposal_required,
+            recall_required,
+        )) = registered
         else {
             tracing::warn!("rejected companion readiness report with unknown token");
             return false;
@@ -210,6 +269,7 @@ impl TokenRegistry {
             tools: bounded_companion_tools(request.tools),
             append_required,
             proposal_required,
+            recall_required,
         }
         .publish()
     }
@@ -224,6 +284,7 @@ impl TokenRegistry {
             .read()
             .await
             .get(token)
+            .filter(|registered| !registered.entry.cancellation.is_cancelled())
             .map(|registered| registered.ready.subscribe())?;
         if let Some(outcome) = companion_ready_outcome(&receiver.borrow()) {
             return outcome;
@@ -262,6 +323,22 @@ impl TokenRegistry {
             _ => None,
         };
         outcome
+    }
+
+    async fn retire_token(&self, token: String, entry: TokenEntry) {
+        entry.cancellation.cancel();
+        entry.memory_turn_tracker.deactivate_turn();
+        if let Some(registered) = self.inner.read().await.get(&token) {
+            disable_pending_ready(&registered.ready);
+        }
+        entry.mutation_gate.close().await;
+        let mut entries = self.inner.write().await;
+        let same_entry = entries.get(&token).is_some_and(|registered| {
+            Arc::ptr_eq(&registered.entry.mutation_gate, &entry.mutation_gate)
+        });
+        if same_entry {
+            entries.remove(&token);
+        }
     }
 
     pub fn listener_ready(&self) -> bool {
@@ -326,10 +403,13 @@ impl CompanionReadyCandidate {
                 .tools
                 .iter()
                 .any(|tool| tool == PROPOSE_USER_MEMORY_TOOL);
+        let missing_recall =
+            self.recall_required && !self.tools.iter().any(|tool| tool == MEMORY_RECALL_TOOL);
         if missing_image_analysis
             || missing_project_listing
             || missing_append
             || missing_proposal
+            || missing_recall
             || !missing_channel_tools.is_empty()
         {
             tracing::warn!(
@@ -338,6 +418,8 @@ impl CompanionReadyCandidate {
                 detected_version = %self.version,
                 append_required = self.append_required,
                 proposal_required = self.proposal_required,
+                recall_required = self.recall_required,
+                missing_recall,
                 missing_image_analysis,
                 missing_project_listing,
                 missing_channel_tools = ?missing_channel_tools,
@@ -401,10 +483,13 @@ fn effective_token_entry(registered: &RegisteredToken) -> TokenEntry {
                 .tools
                 .iter()
                 .any(|tool| tool == PROPOSE_USER_MEMORY_TOOL);
+            entry.memory_recall_enabled &=
+                report.tools.iter().any(|tool| tool == MEMORY_RECALL_TOOL);
         }
         CompanionReadyState::Pending | CompanionReadyState::Disabled => {
             entry.memory_write_enabled = false;
             entry.memory_proposal_enabled = false;
+            entry.memory_recall_enabled = false;
         }
     }
     entry
@@ -469,6 +554,28 @@ fn browser_unavailable(code: &str) -> Value {
             "effectMayHaveOccurred": false,
         }
     })
+}
+
+fn browser_operation_mutates(tool: &str) -> bool {
+    matches!(
+        tool,
+        "browser_open"
+            | "browser_click"
+            | "browser_fill"
+            | "browser_press"
+            | "browser_scroll"
+            | "browser_screenshot"
+            | "browser_close_tab"
+    )
+}
+
+fn automation_operation_mutates(operation: ScheduledTaskOperation) -> bool {
+    matches!(
+        operation,
+        ScheduledTaskOperation::Create
+            | ScheduledTaskOperation::Update
+            | ScheduledTaskOperation::Delete
+    )
 }
 
 fn log_memory_proposal_result(
@@ -613,19 +720,30 @@ impl DelegationListener {
     /// logged and the loop continues — a single bad connection can't bring
     /// down the listener.
     #[cfg(unix)]
-    pub async fn run(self: Arc<Self>, socket_path: PathBuf) -> std::io::Result<()> {
+    pub async fn run(
+        self: Arc<Self>,
+        socket_path: PathBuf,
+        shutdown: CancellationToken,
+    ) -> std::io::Result<()> {
         let _ = tokio::fs::remove_file(&socket_path).await;
         if let Some(parent) = socket_path.parent() {
             let _ = tokio::fs::create_dir_all(parent).await;
         }
         let listener = tokio::net::UnixListener::bind(&socket_path)?;
         let _readiness = ListenerReadinessGuard::new(self.tokens.clone());
+        let mut connections = JoinSet::new();
         tracing::info!("[delegation] listening on UDS {}", socket_path.display());
         loop {
-            match listener.accept().await {
+            while connections.try_join_next().is_some() {}
+            tokio::select! {
+                _ = shutdown.cancelled() => {
+                    abort_connections(&mut connections).await;
+                    return Ok(());
+                }
+                accepted = listener.accept() => match accepted {
                 Ok((mut conn, _)) => {
                     let me = Arc::clone(&self);
-                    tokio::spawn(async move {
+                    connections.spawn(async move {
                         if let Err(e) = me.serve_one(&mut conn).await {
                             Self::log_connection_failure(&e);
                         }
@@ -635,6 +753,7 @@ impl DelegationListener {
                     tracing::error!("[delegation] accept failed: {e}");
                     // Brief backoff so a persistent accept error doesn't pin a core.
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
                 }
             }
         }
@@ -646,28 +765,42 @@ impl DelegationListener {
     /// This keeps a pipe instance available at all times, so clients calling
     /// `ClientOptions::open()` between connections don't see `NotFound`.
     #[cfg(windows)]
-    pub async fn run(self: Arc<Self>, socket_path: PathBuf) -> std::io::Result<()> {
+    pub async fn run(
+        self: Arc<Self>,
+        socket_path: PathBuf,
+        shutdown: CancellationToken,
+    ) -> std::io::Result<()> {
         use tokio::net::windows::named_pipe::ServerOptions;
         let path_str = socket_path.to_string_lossy().to_string();
         let mut server = ServerOptions::new()
             .first_pipe_instance(true)
             .create(&path_str)?;
         let _readiness = ListenerReadinessGuard::new(self.tokens.clone());
+        let mut connections = JoinSet::new();
         tracing::info!("[delegation] listening on named pipe {path_str}");
         loop {
-            if let Err(e) = server.connect().await {
+            while connections.try_join_next().is_some() {}
+            let connected = tokio::select! {
+                _ = shutdown.cancelled() => {
+                    abort_connections(&mut connections).await;
+                    return Ok(());
+                }
+                result = server.connect() => match result {
+                    Ok(()) => server,
+                    Err(e) => {
                 tracing::error!("[delegation] connect failed: {e}");
                 // Re-create the instance so the next iteration has a fresh
                 // listener; a failed connect leaves the current one unusable.
                 server = ServerOptions::new().create(&path_str)?;
                 continue;
-            }
-            let connected = server;
+                    }
+                }
+            };
             // Re-bind BEFORE serving the current client, so a client that
             // opens during this turn finds a server instance to connect to.
             server = ServerOptions::new().create(&path_str)?;
             let me = Arc::clone(&self);
-            tokio::spawn(async move {
+            connections.spawn(async move {
                 let mut conn = connected;
                 if let Err(e) = me.serve_one(&mut conn).await {
                     Self::log_connection_failure(&e);
@@ -683,141 +816,40 @@ impl DelegationListener {
         C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
     {
         let msg: BrokerMessage = read_frame(conn).await?;
-        let resp = match msg {
+        match msg {
+            BrokerMessage::Status(req) => return self.serve_status(conn, req).await,
+            BrokerMessage::Feedback(req) => return self.serve_feedback(conn, req).await,
+            BrokerMessage::Ask(req) => return self.serve_ask(conn, req).await,
+            BrokerMessage::Channel(req) => return self.serve_channel(conn, req).await,
+            BrokerMessage::Browser(req) => return self.serve_browser(conn, req).await,
+            BrokerMessage::AudioTranscription(req) => {
+                return self.serve_audio_transcription(conn, req).await
+            }
+            BrokerMessage::AudioTranscriptionQuery(req) => {
+                return self.serve_audio_transcription_query(conn, req).await
+            }
+            immediate => {
+                let response = self.process_immediate(immediate).await?;
+                write_frame(conn, &response).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn process_immediate(&self, message: BrokerMessage) -> std::io::Result<BrokerResponse> {
+        Ok(match message {
             BrokerMessage::Call(req) => report_response(self.process(req).await)?,
-            BrokerMessage::Status(req) => {
-                // A status long-poll — especially `wait_ms = 0` (block until
-                // terminal) — can park for the whole lifetime of the child.
-                // Race it against peer-close on this one-shot connection so a
-                // companion that cancels and drops the request socket doesn't
-                // leave this task parked until the task happens to finish. A
-                // status query has no side effects (unlike a delegation), so
-                // abandoning the wait is safe and there's nothing to cancel
-                // broker-side. The companion never writes a second frame on
-                // this socket, so the probe read only resolves on EOF/error.
-                let status_fut = self.process_status(req);
-                tokio::pin!(status_fut);
-                let mut probe = [0u8; 1];
-                let reports = tokio::select! {
-                    biased;
-                    reports = &mut status_fut => reports,
-                    _ = conn.read(&mut probe) => return Ok(()),
-                };
-                reports_response(reports)?
-            }
             BrokerMessage::CancelTask(req) => report_response(self.process_cancel_task(req).await)?,
-            BrokerMessage::Feedback(req) => {
-                // at-least-once delivery: READ pending notes (no mutation),
-                // WRITE the response, and COMMIT them delivered ONLY on a
-                // successful write. A dropped/failed write skips the commit, so
-                // the notes stay pending for the agent's next check.
-                match self.feedback_target(&req).await {
-                    None => {
-                        // Invalid token: return an empty envelope (no leak of
-                        // whether any feedback exists), nothing to commit.
-                        write_frame(conn, &feedback_response(&[])?).await?;
-                    }
-                    Some(parent_conn_id) => {
-                        let pending = self.feedback.read_pending_feedback(&parent_conn_id).await;
-                        // Read-only: the response carries the note ids
-                        // (`_commit_ids`); delivery is committed LATER, by the
-                        // companion's `CommitFeedback` once it actually returns
-                        // the result to the agent. So a cancel that suppresses
-                        // the agent-facing response leaves the notes pending.
-                        write_frame(conn, &feedback_response(&pending)?).await?;
-                    }
-                }
-                return Ok(());
-            }
             BrokerMessage::CommitFeedback(req) => {
-                self.process_commit_feedback(req).await;
-                // Empty ack so the companion can confirm the listener saw it.
-                BrokerResponse {
-                    outcome: Value::Null,
+                if !self.process_commit_feedback(req).await {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "feedback delivery commit rejected",
+                    ));
                 }
-            }
-            BrokerMessage::Ask(req) => {
-                // Register the question (broadcasting the card) and park until
-                // the user answers — racing peer-close exactly like `Status`.
-                // The companion holds this connection open for the whole wait
-                // and never writes a second frame, so the probe read only
-                // resolves on EOF/error; a canceled tool call drops the
-                // companion's future, closing this socket, which we observe and
-                // tear the pending question down. An invalid token, a gone
-                // connection, or a connection that already has a pending ask
-                // (one-at-a-time) yields a `declined` outcome (the LLM proceeds
-                // with its own judgment) rather than hanging.
-                let Some(parent_conn_id) = self.ask_target(&req).await else {
-                    write_frame(conn, &ask_declined_response()?).await?;
-                    return Ok(());
-                };
-                let Some(reg) = self
-                    .questions
-                    .register_question(&parent_conn_id, req.questions)
-                    .await
-                else {
-                    write_frame(conn, &ask_declined_response()?).await?;
-                    return Ok(());
-                };
-                let question_id = reg.question_id;
-                let mut answer_rx = reg.answer_rx;
-                // Close the teardown race: `ask_target` validated the token, but the
-                // parent connection may have been revoked + swept
-                // (`cancel_questions_by_parent`) in the window before the insert
-                // above — the sweep would have missed this just-registered entry,
-                // leaving it parked until peer-close. The token is revoked before
-                // the sweep, so a re-check that now finds it gone means teardown is
-                // underway: cancel immediately so the ask can't linger.
-                if self.tokens.lookup(&req.token).await.is_none() {
-                    self.questions
-                        .cancel_question(&parent_conn_id, &question_id)
-                        .await;
-                    write_frame(conn, &ask_declined_response()?).await?;
-                    return Ok(());
-                }
-                let mut probe = [0u8; 1];
-                let wait_started = std::time::Instant::now();
-                let timeout = tokio::time::sleep(ASK_USER_QUESTION_TIMEOUT);
-                tokio::pin!(timeout);
-                let (outcome, timed_out) = tokio::select! {
-                    biased;
-                    ans = &mut answer_rx => (ans.ok(), false),
-                    _ = conn.read(&mut probe) => {
-                        self.questions
-                            .cancel_question(&parent_conn_id, &question_id)
-                            .await;
-                        return Ok(());
-                    },
-                    _ = &mut timeout => (None, true),
-                };
-                if timed_out {
-                    tracing::warn!(
-                        parent_connection_id = %parent_conn_id,
-                        question_id = %question_id,
-                        timeout_seconds = ASK_USER_QUESTION_TIMEOUT.as_secs(),
-                        elapsed_ms = wait_started.elapsed().as_millis(),
-                        "[delegation] ask_user_question timed out without an answer"
-                    );
-                    self.questions
-                        .cancel_question(&parent_conn_id, &question_id)
-                        .await;
-                    write_frame(conn, &ask_declined_response()?).await?;
-                    return Ok(());
-                }
-                let resp = match outcome {
-                    Some(o) => ask_response(&o)?,
-                    // Sender dropped without sending (connection teardown drain):
-                    // surface a declined outcome so the tool returns cleanly.
-                    None => ask_declined_response()?,
-                };
-                write_frame(conn, &resp).await?;
-                return Ok(());
+                empty_response()
             }
             BrokerMessage::SessionInfo(req) => {
-                // Read-only resolution (DB + a bounded transcript parse). No
-                // peer-close race needed: unlike Status/Ask this never blocks on
-                // a long-poll or a human — the bounded parse always completes —
-                // and there is nothing to tear down on cancel.
                 session_response(self.process_session_info(req).await)?
             }
             BrokerMessage::MemoryAppend(req) => {
@@ -826,82 +858,183 @@ impl DelegationListener {
             BrokerMessage::MemoryProposal(req) => {
                 memory_proposal_response(self.process_memory_proposal(req).await)?
             }
+            BrokerMessage::MemoryRecall(req) => {
+                memory_recall_response(self.process_memory_recall(req).await)?
+            }
             BrokerMessage::Artifacts(req) => BrokerResponse {
                 outcome: self.process_artifacts(req).await,
             },
             BrokerMessage::ImageAnalysis(req) => BrokerResponse {
                 outcome: self.process_image_analysis(req).await,
             },
-            BrokerMessage::Channel(req) => {
-                self.serve_channel(conn, req).await?;
-                return Ok(());
-            }
-            BrokerMessage::Browser(req) => {
-                let cancellation = CancellationToken::new();
-                let operation = self.process_browser(req, cancellation.clone());
-                tokio::pin!(operation);
-                let mut probe = [0u8; 1];
-                let outcome = tokio::select! {
-                    biased;
-                    outcome = &mut operation => Some(outcome),
-                    _ = conn.read(&mut probe) => None,
-                };
-                let Some(outcome) = outcome else {
-                    cancellation.cancel();
-                    let _ = operation.await;
-                    return Ok(());
-                };
-                BrokerResponse { outcome }
-            }
-            BrokerMessage::AudioTranscription(req) => {
-                // Upload and bounded polling may take minutes. The companion
-                // closes this one-shot socket when MCP cancellation wins, which
-                // drops the in-flight HTTP work and file stream promptly.
-                let transcription = self.process_audio_transcription(req);
-                tokio::pin!(transcription);
-                let mut probe = [0u8; 1];
-                let outcome = tokio::select! {
-                    biased;
-                    outcome = &mut transcription => outcome,
-                    _ = conn.read(&mut probe) => return Ok(()),
-                };
-                BrokerResponse { outcome }
-            }
-            BrokerMessage::AudioTranscriptionQuery(req) => {
-                let query = self.process_audio_transcription_query(req);
-                tokio::pin!(query);
-                let mut probe = [0u8; 1];
-                let outcome = tokio::select! {
-                    biased;
-                    outcome = &mut query => outcome,
-                    _ = conn.read(&mut probe) => return Ok(()),
-                };
-                BrokerResponse { outcome }
-            }
             BrokerMessage::Automation(req) => BrokerResponse {
-                outcome: self
-                    .automation
-                    .execute(req)
-                    .await
-                    .unwrap_or_else(|error| serde_json::json!({ "error": error })),
+                outcome: self.process_automation(req).await,
             },
             BrokerMessage::CompanionReady(req) => {
                 self.tokens.record_companion_ready(req).await;
-                BrokerResponse {
-                    outcome: Value::Null,
-                }
+                empty_response()
             }
             BrokerMessage::Cancel(cancel) => {
                 self.process_cancel(cancel).await;
-                // Empty ack — the companion only uses this to detect the
-                // listener has at least seen the cancel before dropping.
-                BrokerResponse {
-                    outcome: Value::Null,
-                }
+                empty_response()
             }
+            _ => unreachable!("streaming broker messages are handled by serve_one"),
+        })
+    }
+
+    async fn serve_status<C>(&self, conn: &mut C, req: BrokerStatusRequest) -> std::io::Result<()>
+    where
+        C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
+    {
+        let status = self.process_status(req);
+        tokio::pin!(status);
+        let mut probe = [0u8; 1];
+        let reports = tokio::select! {
+            biased;
+            reports = &mut status => reports,
+            _ = conn.read(&mut probe) => return Ok(()),
         };
-        write_frame(conn, &resp).await?;
-        Ok(())
+        write_frame(conn, &reports_response(reports)?).await
+    }
+
+    async fn serve_feedback<C>(
+        &self,
+        conn: &mut C,
+        req: BrokerFeedbackRequest,
+    ) -> std::io::Result<()>
+    where
+        C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
+    {
+        let pending = match self.feedback_target(&req).await {
+            Some(parent) => self.feedback.read_pending_feedback(&parent).await,
+            None => Vec::new(),
+        };
+        write_frame(conn, &feedback_response(&pending)?).await
+    }
+
+    async fn register_ask(&self, req: BrokerAskRequest) -> Option<(String, RegisteredQuestion)> {
+        let parent = self.ask_target(&req).await?;
+        let registered = self
+            .questions
+            .register_question(&parent, req.questions)
+            .await?;
+        if self.tokens.lookup(&req.token).await.is_some() {
+            return Some((parent, registered));
+        }
+        self.questions
+            .cancel_question(&parent, &registered.question_id)
+            .await;
+        None
+    }
+
+    async fn serve_ask<C>(&self, conn: &mut C, req: BrokerAskRequest) -> std::io::Result<()>
+    where
+        C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
+    {
+        let Some((parent, registered)) = self.register_ask(req).await else {
+            return write_frame(conn, &ask_declined_response()?).await;
+        };
+        self.wait_for_ask(conn, parent, registered).await
+    }
+
+    async fn wait_for_ask<C>(
+        &self,
+        conn: &mut C,
+        parent: String,
+        registered: RegisteredQuestion,
+    ) -> std::io::Result<()>
+    where
+        C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
+    {
+        let question_id = registered.question_id;
+        let mut answer_rx = registered.answer_rx;
+        let mut probe = [0u8; 1];
+        let wait_started = std::time::Instant::now();
+        let timeout = tokio::time::sleep(ASK_USER_QUESTION_TIMEOUT);
+        tokio::pin!(timeout);
+        let (outcome, timed_out) = tokio::select! {
+            biased;
+            answer = &mut answer_rx => (answer.ok(), false),
+            _ = conn.read(&mut probe) => {
+                self.questions.cancel_question(&parent, &question_id).await;
+                return Ok(());
+            },
+            _ = &mut timeout => (None, true),
+        };
+        if timed_out {
+            tracing::warn!(
+                parent_connection_id = %parent,
+                question_id = %question_id,
+                timeout_seconds = ASK_USER_QUESTION_TIMEOUT.as_secs(),
+                elapsed_ms = wait_started.elapsed().as_millis(),
+                "[delegation] ask_user_question timed out without an answer"
+            );
+            self.questions.cancel_question(&parent, &question_id).await;
+        }
+        let response = match outcome.filter(|_| !timed_out) {
+            Some(outcome) => ask_response(&outcome)?,
+            None => ask_declined_response()?,
+        };
+        write_frame(conn, &response).await
+    }
+
+    async fn serve_browser<C>(&self, conn: &mut C, req: BrokerBrowserRequest) -> std::io::Result<()>
+    where
+        C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
+    {
+        let cancellation = CancellationToken::new();
+        let operation = self.process_browser(req, cancellation.clone());
+        tokio::pin!(operation);
+        let mut probe = [0u8; 1];
+        let outcome = tokio::select! {
+            biased;
+            outcome = &mut operation => Some(outcome),
+            _ = conn.read(&mut probe) => None,
+        };
+        let Some(outcome) = outcome else {
+            cancellation.cancel();
+            let _ = operation.await;
+            return Ok(());
+        };
+        write_frame(conn, &BrokerResponse { outcome }).await
+    }
+
+    async fn serve_audio_transcription<C>(
+        &self,
+        conn: &mut C,
+        req: BrokerAudioTranscriptionRequest,
+    ) -> std::io::Result<()>
+    where
+        C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
+    {
+        let operation = self.process_audio_transcription(req);
+        tokio::pin!(operation);
+        let mut probe = [0u8; 1];
+        let outcome = tokio::select! {
+            biased;
+            outcome = &mut operation => outcome,
+            _ = conn.read(&mut probe) => return Ok(()),
+        };
+        write_frame(conn, &BrokerResponse { outcome }).await
+    }
+
+    async fn serve_audio_transcription_query<C>(
+        &self,
+        conn: &mut C,
+        req: BrokerAudioTranscriptionQueryRequest,
+    ) -> std::io::Result<()>
+    where
+        C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
+    {
+        let operation = self.process_audio_transcription_query(req);
+        tokio::pin!(operation);
+        let mut probe = [0u8; 1];
+        let outcome = tokio::select! {
+            biased;
+            outcome = &mut operation => outcome,
+            _ = conn.read(&mut probe) => return Ok(()),
+        };
+        write_frame(conn, &BrokerResponse { outcome }).await
     }
 
     /// Validate the token, resolve the caller's parent connection/conversation,
@@ -948,6 +1081,13 @@ impl DelegationListener {
             .parent_lookup
             .current_conversation_id(&entry.parent_connection_id)
             .await;
+        let Some(_mutation) = self
+            .tokens
+            .acquire_mutation_commit(&req.token, &entry)
+            .await
+        else {
+            return unknown_report(&req.task_id);
+        };
         self.broker
             .cancel_task_by_id(
                 &entry.parent_connection_id,
@@ -959,6 +1099,16 @@ impl DelegationListener {
 
     async fn process_image_analysis(&self, req: BrokerImageAnalysisRequest) -> Value {
         let Some(entry) = self.tokens.lookup(&req.token).await else {
+            return serde_json::json!({
+                "error": "The image analysis session is unavailable.",
+                "code": "image_analysis_session_missing",
+            });
+        };
+        let Some(_mutation) = self
+            .tokens
+            .acquire_mutation_commit(&req.token, &entry)
+            .await
+        else {
             return serde_json::json!({
                 "error": "The image analysis session is unavailable.",
                 "code": "image_analysis_session_missing",
@@ -998,6 +1148,21 @@ impl DelegationListener {
             session_cancellation.cancelled().await;
             bridged.cancel();
         });
+        let _mutation = if browser_operation_mutates(&req.tool) {
+            match self
+                .tokens
+                .acquire_mutation_commit(&req.token, &entry)
+                .await
+            {
+                Some(lease) => Some(lease),
+                None => {
+                    bridge.abort();
+                    return browser_unavailable("BROWSER_SESSION_UNAVAILABLE");
+                }
+            }
+        } else {
+            None
+        };
         let outcome = browser
             .execute_agent_tool(crate::browser::BrowserAgentToolCall {
                 identity: crate::browser::BrowserAgentIdentity {
@@ -1018,6 +1183,13 @@ impl DelegationListener {
         let Some(entry) = self.tokens.lookup(&req.token).await else {
             return self.audio_session_missing();
         };
+        let Some(_mutation) = self
+            .tokens
+            .acquire_mutation_commit(&req.token, &entry)
+            .await
+        else {
+            return self.audio_session_missing();
+        };
         self.audio_transcription
             .transcribe(&entry.working_dir, req)
             .await
@@ -1031,6 +1203,29 @@ impl DelegationListener {
             return self.audio_session_missing();
         }
         self.audio_transcription.query(req).await
+    }
+
+    async fn process_automation(&self, mut req: ScheduledTaskRequest) -> Value {
+        let _mutation = match req.session_token.take() {
+            Some(token) => {
+                let Some(entry) = self.tokens.lookup(&token).await else {
+                    return serde_json::json!({ "error": "INVALID_SESSION" });
+                };
+                if automation_operation_mutates(req.operation) {
+                    match self.tokens.acquire_mutation_commit(&token, &entry).await {
+                        Some(lease) => Some(lease),
+                        None => return serde_json::json!({ "error": "INVALID_SESSION" }),
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+        self.automation
+            .execute(req)
+            .await
+            .unwrap_or_else(|error| serde_json::json!({ "error": error }))
     }
 
     /// Keep an invalid launch token indistinguishable from a disconnected host
@@ -1061,28 +1256,41 @@ impl DelegationListener {
     /// Mark the named feedback notes delivered, after the companion confirms it
     /// returned them to the agent. Token-scoped to the parent connection. Unknown
     /// tokens are dropped (no LLM on the receiving end to react).
-    async fn process_commit_feedback(&self, req: BrokerCommitFeedbackRequest) {
+    async fn process_commit_feedback(&self, req: BrokerCommitFeedbackRequest) -> bool {
         let Some(entry) = self.tokens.lookup(&req.token).await else {
-            return;
+            return false;
+        };
+        let Some(_mutation) = self
+            .tokens
+            .acquire_mutation_commit(&req.token, &entry)
+            .await
+        else {
+            return false;
         };
         self.feedback
             .commit_feedback_delivered(&entry.parent_connection_id, req.ids)
             .await;
+        true
     }
 
     /// Validate token + dispatch cancel to the broker. Unknown tokens and
     /// parent-mismatched cancels are silently dropped — there's no LLM on
     /// the receiving end of this method to react to errors.
     async fn process_cancel(&self, cancel: BrokerCancelRequest) {
-        let Some(_entry) = self.tokens.lookup(&cancel.token).await else {
+        let Some(entry) = self.tokens.lookup(&cancel.token).await else {
             return;
         };
         let reason = cancel
             .reason
             .unwrap_or_else(|| "mcp client canceled".into());
         self.broker
-            .cancel_by_external_handle(&cancel.external_handle, reason)
+            .cancel_by_external_handle(&entry.parent_connection_id, &cancel.external_handle, reason)
             .await;
+        if entry.cancellation.is_cancelled() {
+            self.broker
+                .drop_pending_tool_calls_for_parent(&entry.parent_connection_id)
+                .await;
+        }
     }
 
     /// Validate the token and resolve the `get_session_info` target. An invalid
@@ -1120,10 +1328,21 @@ impl DelegationListener {
             log_memory_unavailable("append", "unknown_token", content_chars);
             return Err("User memory update is unavailable for this session.".into());
         };
+        entry
+            .memory_turn_tracker
+            .record_call(crate::acp::memory_turn::MemoryCapabilityCall::Append);
         if !entry.memory_write_enabled {
             log_memory_unavailable("append", "capability_disabled", content_chars);
             return Err("User memory update is unavailable for this session.".into());
         }
+        let Some(_mutation) = self
+            .tokens
+            .acquire_mutation_commit(&req.token, &entry)
+            .await
+        else {
+            log_memory_unavailable("append", "authority_revoked", content_chars);
+            return Err("User memory update is unavailable for this session.".into());
+        };
         let result = self
             .user_memory
             .append_agent_memory_authorized(AgentMemoryAppend {
@@ -1147,6 +1366,9 @@ impl DelegationListener {
             log_memory_unavailable("proposal", "unknown_token", content_chars);
             unavailable()
         })?;
+        entry
+            .memory_turn_tracker
+            .record_call(crate::acp::memory_turn::MemoryCapabilityCall::Propose);
         if !entry.memory_proposal_enabled {
             log_memory_unavailable("proposal", "capability_disabled", content_chars);
             return Err(unavailable());
@@ -1155,6 +1377,14 @@ impl DelegationListener {
             log_memory_unavailable("proposal", "turn_inactive", content_chars);
             unavailable()
         })?;
+        let _mutation = self
+            .tokens
+            .acquire_mutation_commit(&req.token, &entry)
+            .await
+            .ok_or_else(|| {
+                log_memory_unavailable("proposal", "authority_revoked", content_chars);
+                unavailable()
+            })?;
         let turn_tracker = entry.memory_turn_tracker.clone();
         let result = self
             .user_memory
@@ -1181,6 +1411,38 @@ impl DelegationListener {
         })
     }
 
+    /// Authenticate the independent read capability and query the host-owned
+    /// current view. Scope comes only from the launch token; the request has no
+    /// path, workspace, conversation, or provider selector.
+    async fn process_memory_recall(
+        &self,
+        req: BrokerMemoryRecallRequest,
+    ) -> Result<crate::user_memory::UserMemoryRecallResult, String> {
+        let entry = self.tokens.lookup(&req.token).await.ok_or_else(|| {
+            log_memory_unavailable("recall", "unknown_token", req.query.chars().count());
+            "User memory recall is unavailable for this session.".to_string()
+        })?;
+        entry
+            .memory_turn_tracker
+            .record_call(crate::acp::memory_turn::MemoryCapabilityCall::Recall);
+        if !entry.memory_recall_enabled {
+            log_memory_unavailable("recall", "capability_disabled", req.query.chars().count());
+            return Err("User memory recall is unavailable for this session.".to_string());
+        }
+        self.user_memory
+            .recall(
+                UserMemoryRecallRequest {
+                    query: req.query,
+                    limit: req.limit,
+                },
+                crate::user_memory::UserMemoryRecallScope::from_workspace_key(
+                    entry.memory_workspace_key,
+                ),
+            )
+            .await
+            .map_err(|error| error.message)
+    }
+
     async fn process_artifacts(&self, req: BrokerArtifactsRequest) -> Value {
         let Some(entry) = self.tokens.lookup(&req.token).await else {
             return serde_json::json!({
@@ -1204,6 +1466,19 @@ impl DelegationListener {
                 })).collect::<Vec<_>>()
             });
         };
+        let Some(_mutation) = self
+            .tokens
+            .acquire_mutation_commit(&req.token, &entry)
+            .await
+        else {
+            return serde_json::json!({
+                "accepted": [],
+                "rejected": req.files.into_iter().map(|path| serde_json::json!({
+                    "path": path,
+                    "reason": "invalid_session"
+                })).collect::<Vec<_>>()
+            });
+        };
         self.artifacts
             .register_task_artifacts(conversation_id, &entry.working_dir, req.files)
             .await
@@ -1213,7 +1488,7 @@ impl DelegationListener {
         //    "canceled" since the LLM can't usefully react to either —
         //    the parent has either been torn down or is impersonating.
         let entry = match self.tokens.lookup(&req.token).await {
-            Some(e) => e,
+            Some(entry) => entry,
             None => return cancel("invalid token"),
         };
         if entry.parent_connection_id != req.parent_connection_id {
@@ -1268,12 +1543,30 @@ impl DelegationListener {
             requested_working_dir,
             external_handle: req.external_handle,
         };
+        let Some(_mutation) = self
+            .tokens
+            .acquire_mutation_commit(&req.token, &entry)
+            .await
+        else {
+            return cancel("authority revoked before delegation commit");
+        };
         self.broker.start_delegation(delegation_req).await
     }
 }
 
+async fn abort_connections(connections: &mut JoinSet<()>) {
+    connections.abort_all();
+    while connections.join_next().await.is_some() {}
+}
+
 /// Serialize a [`DelegationTaskReport`] into a [`BrokerResponse`] for the wire.
 /// Used by the `Call` / `CancelTask` arms, which each resolve to one report.
+fn empty_response() -> BrokerResponse {
+    BrokerResponse {
+        outcome: Value::Null,
+    }
+}
+
 fn report_response(report: DelegationTaskReport) -> std::io::Result<BrokerResponse> {
     Ok(BrokerResponse {
         outcome: serde_json::to_value(&report).map_err(|e| {
@@ -1362,6 +1655,18 @@ fn memory_proposal_response(
     Ok(BrokerResponse { outcome })
 }
 
+fn memory_recall_response(
+    result: Result<crate::user_memory::UserMemoryRecallResult, String>,
+) -> std::io::Result<BrokerResponse> {
+    let outcome = match result {
+        Ok(result) => serde_json::to_value(result).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {error}"))
+        })?,
+        Err(message) => memory_failure_outcome("memory_recall_failed", message),
+    };
+    Ok(BrokerResponse { outcome })
+}
+
 fn memory_failure_outcome(default_code: &str, message: String) -> Value {
     let unavailable = message.contains("unavailable for this session");
     serde_json::json!({
@@ -1439,7 +1744,8 @@ fn invalid_agent_type(raw: &str) -> DelegationTaskReport {
 }
 
 fn parse_agent_type(raw: &str) -> Option<AgentType> {
-    serde_json::from_value(serde_json::Value::String(raw.to_string())).ok()
+    let agent_type = serde_json::from_value(serde_json::Value::String(raw.to_string())).ok()?;
+    crate::acp::registry::is_executable_identity(agent_type).then_some(agent_type)
 }
 
 /// Default socket path for the running process, scoped to PID so multiple

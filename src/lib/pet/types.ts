@@ -139,6 +139,7 @@ export interface PetPermissionSummary {
   requestId: string
   toolCall: unknown
   options: PermissionOptionInfo[]
+  queued: number
 }
 
 /** One active agent session row. Mirrors Rust `PetSessionEntry`. */

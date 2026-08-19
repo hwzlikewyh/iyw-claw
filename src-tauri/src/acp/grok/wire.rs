@@ -94,6 +94,7 @@ async fn emit_incompatible_switch(state: &Arc<RwLock<SessionState>>, emitter: &E
                 .to_string(),
             agent_type: AgentType::Grok.to_string(),
             code: Some(INCOMPATIBLE_AGENT_ERROR_CODE.to_string()),
+            details: None,
             terminal: false,
         },
     )

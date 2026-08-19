@@ -284,11 +284,15 @@ Function IywClawRestartOldAppIfRequested
   Call IywClawIsNonEmptyFile
   Pop $R0
   StrCmp $R0 "1" 0 restart_old_app_done
-  nsis_tauri_utils::FindProcessCurrentUser "iyw-claw.exe"
+  Call IywClawBuildAccountFilter
+  Push "iyw-claw.exe"
+  Call IywClawFindCurrentUserProcess
   Pop $R0
   StrCmp $R0 "2" 0 restart_old_app_done
   DetailPrint "正在重新启动旧版本 iyw-claw..."
-  nsis_tauri_utils::RunAsUser "$IywClawAppDir\iyw-claw.exe" "$IywClawRestartArgs"
+  ; The helper plugin is unavailable while hooks are parsed. The rollback
+  ; path is best-effort and can launch through the current installer token.
+  Exec '"$IywClawAppDir\iyw-claw.exe" $IywClawRestartArgs'
 
   restart_old_app_done:
 FunctionEnd

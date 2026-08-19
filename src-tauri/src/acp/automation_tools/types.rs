@@ -19,6 +19,9 @@ pub struct ScheduledTaskRequest {
     pub input: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caller_agent_type: Option<String>,
+    /// Present for MCP calls; absent on the intentionally tokenless local CLI route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

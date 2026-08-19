@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
+use crate::acp::capability_policy::CapabilityRevocationMonitor;
 use crate::app_error::AppCommandError;
 use crate::commands::chat_image_upload;
 
@@ -46,11 +47,16 @@ fn log_prepare_failure(stage: &str, image: &EncodedChatImage, error: &AppCommand
 pub(crate) async fn prepare_chat_image_core(
     conn: &sea_orm::DatabaseConnection,
     request: PrepareChatImageRequest,
+    monitor: &CapabilityRevocationMonitor,
 ) -> Result<PreparedChatImage, AppCommandError> {
     let started = Instant::now();
     let name = display_name(&request);
-    let mut prepared = encode_chat_image_path(request.path).await?;
+    monitor.require_current().await?;
+    let mut prepared = monitor
+        .run_until_revoked(encode_chat_image_path(request.path))
+        .await??;
     prepared.name = name;
+    monitor.require_current().await?;
     let staged = stage_chat_image_bytes_core(
         &request.data_dir,
         StageChatImageBytes {
@@ -66,12 +72,22 @@ pub(crate) async fn prepare_chat_image_core(
         log_prepare_failure("local_storage", &prepared, &error);
         error
     })?;
-    let mut result = chat_image_upload::upload_prepared(conn, &prepared)
-        .await
-        .map_err(|error| {
+    if let Err(error) = monitor.require_current().await {
+        remove_staged_image(&staged.path).await;
+        return Err(error);
+    }
+    let mut result = match chat_image_upload::upload_prepared(conn, &prepared).await {
+        Ok(result) => result,
+        Err(error) => {
             log_prepare_failure("tos_upload", &prepared, &error);
-            error
-        })?;
+            remove_staged_image(&staged.path).await;
+            return Err(error);
+        }
+    };
+    if let Err(error) = monitor.require_current().await {
+        remove_staged_image(&staged.path).await;
+        return Err(error);
+    }
     result.local_path = Some(staged.path);
     tracing::info!(
         target: "chat.image",
@@ -86,6 +102,14 @@ pub(crate) async fn prepare_chat_image_core(
         "prepared, stored, and uploaded chat image"
     );
     Ok(result)
+}
+
+async fn remove_staged_image(path: &str) {
+    let path = PathBuf::from(path);
+    let _ = tokio::fs::remove_file(&path).await;
+    if let Some(parent) = path.parent() {
+        let _ = tokio::fs::remove_dir(parent).await;
+    }
 }
 
 #[cfg(feature = "tauri-runtime")]

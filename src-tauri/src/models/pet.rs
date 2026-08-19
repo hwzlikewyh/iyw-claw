@@ -258,6 +258,7 @@ pub struct PetPermissionSummary {
     pub request_id: String,
     pub tool_call: serde_json::Value,
     pub options: Vec<crate::acp::types::PermissionOptionInfo>,
+    pub queued: u32,
 }
 
 impl From<&crate::acp::session_state::PendingPermissionState> for PetPermissionSummary {
@@ -266,6 +267,7 @@ impl From<&crate::acp::session_state::PendingPermissionState> for PetPermissionS
             request_id: p.request_id.clone(),
             tool_call: p.tool_call.clone(),
             options: p.options.clone(),
+            queued: p.queued,
         }
     }
 }

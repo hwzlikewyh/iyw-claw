@@ -81,7 +81,9 @@ async fn run_diagnostic(
 
     let readiness = evaluate_readiness(db, manager, &model).await;
 
-    let roundtrip = if kind == "full" {
+    let roundtrip = if kind == "full" && model.channel_type == "wecom_agent" {
+        Some(wecom_agent_roundtrip(&readiness, &diagnostic_id))
+    } else if kind == "full" {
         Some(run_roundtrip(db, manager, channel_id, &diagnostic_id).await)
     } else {
         None
@@ -96,6 +98,24 @@ async fn run_diagnostic(
         readiness,
         roundtrip,
     })
+}
+
+fn wecom_agent_roundtrip(
+    readiness: &ChannelReadinessReport,
+    diagnostic_id: &str,
+) -> RoundtripResult {
+    let detail = if readiness.inbound_verified {
+        "企微回调已收到真实消息；请从应用会话发送新消息验证本轮主动回复".to_string()
+    } else {
+        "企微自建应用不发送虚拟 UserID 探针；请先从应用会话发送一条真实消息".to_string()
+    };
+    RoundtripResult {
+        probe_trace_id: format!("{diagnostic_id}:real-inbound-required"),
+        enqueued: false,
+        outbound_count: 0,
+        verified: false,
+        details: vec![detail],
+    }
 }
 
 /// Enqueue a synthetic inbound with the diagnostic trace id and wait for an

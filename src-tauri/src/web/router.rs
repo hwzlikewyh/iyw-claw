@@ -756,6 +756,26 @@ pub fn build_router(
             "/agent_version_center_rollback_agent",
             post(handlers::agent_version_center::rollback_agent),
         )
+        .route(
+            "/capability_policy_snapshot",
+            post(handlers::capability_policy::snapshot),
+        )
+        .route(
+            "/capability_policy_refresh",
+            post(handlers::capability_policy::refresh),
+        )
+        .route(
+            "/capability_preference_list",
+            post(handlers::capability_policy::list_preferences),
+        )
+        .route(
+            "/capability_preference_set",
+            post(handlers::capability_policy::set_preference),
+        )
+        .route(
+            "/capability_policy_decision",
+            post(handlers::capability_policy::decision),
+        )
         .route("/acp_connect", post(handlers::acp::acp_connect))
         .route("/acp_disconnect", post(handlers::acp::acp_disconnect))
         .route(
@@ -1445,6 +1465,12 @@ pub fn build_router(
     // The login page needs to read the user's preferred language before
     // authenticating so it can render in their chosen locale.
     let public_api = Router::new()
+        .route(
+            "/wecom_agent_callback/{channel_id}/{callback_path}",
+            get(handlers::wecom_agent_callback::verify_callback)
+                .post(handlers::wecom_agent_callback::receive_callback)
+                .layer(DefaultBodyLimit::max(64 * 1024)),
+        )
         .route(
             "/get_system_language_settings",
             post(handlers::system_settings::get_system_language_settings),

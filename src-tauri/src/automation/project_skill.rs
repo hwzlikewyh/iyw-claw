@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+use crate::acp::types::AgentSkillScope;
 use crate::db::service::folder_service;
 use crate::db::AppDatabase;
 use crate::models::{AgentType, AutomationConfig, AutomationInfo};
@@ -59,12 +60,14 @@ async fn resolve_target(
         .map_err(|error| error.to_string())?
         .ok_or_else(|| format!("automation folder {folder_id} is missing"))?;
     let agent_type = parse_agent_type(&automation.agent_type)?;
-    let skill_root = crate::commands::acp::skill_storage_spec(agent_type)
-        .and_then(|spec| spec.project_rel_dirs.first().copied())
-        .unwrap_or(".agents/skills");
+    let skill_root = crate::commands::acp::preferred_scope_skill_dir(
+        agent_type,
+        AgentSkillScope::Project,
+        Some(&folder.path),
+    )
+    .unwrap_or_else(|_| PathBuf::from(&folder.path).join(".agents/skills"));
     Ok(SkillTarget {
-        path: PathBuf::from(folder.path)
-            .join(skill_root)
+        path: skill_root
             .join(format!("automation-{}", automation.id))
             .join("SKILL.md"),
         marker: source_marker(automation),

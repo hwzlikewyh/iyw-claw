@@ -16,6 +16,7 @@ import {
   useConversationRuntimeStore,
 } from "@/stores/conversation-runtime-store"
 import { ContentPartsRenderer } from "./content-parts-renderer"
+import { ContextCompactionCard } from "./context-compaction-card"
 import {
   createMessageTurnAdapter,
   groupGoalRuns,
@@ -25,9 +26,11 @@ import {
   type AdaptedContentPart,
   type AdaptedMessage,
   type MessageTurnAdapter,
+  type ToolCallState,
   type UserImageDisplay,
   type UserResourceDisplay,
 } from "@/lib/adapters/ai-elements-adapter"
+import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { TurnStats } from "./turn-stats"
 import { LiveTurnStats } from "./live-turn-stats"
 import { UserResourceLinks } from "./user-resource-links"
@@ -149,6 +152,12 @@ type ThreadRenderItem =
     }
   | {
       key: string
+      kind: "compaction"
+      meta: Record<string, unknown> | null
+      state: ToolCallState
+    }
+  | {
+      key: string
       kind: "history"
     }
 
@@ -262,6 +271,24 @@ function isEmptyTurnItem(item: ThreadRenderItem): boolean {
   if (g.resources.length > 0) return false
   if (g.images.length > 0) return false
   return true
+}
+
+function compactionOnlyItem(
+  group: ResolvedMessageGroup
+): { meta: Record<string, unknown> | null; state: ToolCallState } | null {
+  if (group.role !== "assistant") return null
+  if (group.resources.length > 0 || group.images.length > 0) return null
+
+  const meaningful = group.parts.filter(
+    (part) => !(part.type === "text" && part.text.trim().length === 0)
+  )
+  if (meaningful.length !== 1) return null
+
+  const only = meaningful[0]
+  if (only.type !== "tool-call" || !isContextCompactionMeta(only.meta)) {
+    return null
+  }
+  return { meta: only.meta ?? null, state: only.state }
 }
 
 /**
@@ -694,12 +721,17 @@ export function MessageListView({
         }
         groupCache.set(msg, group)
       }
+      // Include phase so a turn that briefly coexists across phases (e.g.
+      // a streaming turn that has just been promoted to localTurns while the
+      // liveMessage is still attached) doesn't collide with itself in the
+      // virtualized list. Index disambiguates further within a phase.
+      const key = `${phase}-${msg.id}-${i}`
+      const compaction = compactionOnlyItem(group)
+      if (compaction) {
+        return { key, kind: "compaction" as const, ...compaction }
+      }
       return {
-        // Include phase so a turn that briefly coexists across phases (e.g.
-        // a streaming turn that has just been promoted to localTurns while the
-        // liveMessage is still attached) doesn't collide with itself in the
-        // virtualized list. Index disambiguates further within a phase.
-        key: `${phase}-${msg.id}-${i}`,
+        key,
         kind: "turn" as const,
         group,
         phase,
@@ -798,6 +830,12 @@ export function MessageListView({
         }
         case "typing":
           return <PendingTypingIndicator />
+        case "compaction":
+          return (
+            <div className="px-1 py-2">
+              <ContextCompactionCard state={item.state} meta={item.meta} />
+            </div>
+          )
         case "history":
           return (
             <div className="flex justify-center">

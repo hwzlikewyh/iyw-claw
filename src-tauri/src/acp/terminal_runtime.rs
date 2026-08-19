@@ -375,7 +375,14 @@ impl TerminalRuntime {
         direct.args(&request.args);
         self.configure_command(&mut direct, &request);
 
-        let mut child = match direct.spawn() {
+        // Unix can reject a newly written executable with ETXTBSY while a
+        // short-lived writer still has it open. Keep non-Unix spawn unchanged.
+        #[cfg(unix)]
+        let spawned = crate::process::spawn_retrying_exec_busy(|| direct.spawn()).await;
+        #[cfg(not(unix))]
+        let spawned = direct.spawn();
+
+        let mut child = match spawned {
             Ok(child) => child,
             Err(err)
                 if err.kind() == std::io::ErrorKind::NotFound

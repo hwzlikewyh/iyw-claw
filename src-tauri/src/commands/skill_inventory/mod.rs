@@ -199,9 +199,18 @@ async fn apply_activation_policies(
     skills: &mut [LogicalSkillInventoryItem],
 ) -> Result<(), AcpError> {
     let workspace_key = workspace_key(workspace_path);
-    let policies = skill_activation_policy_service::list_for_workspace(conn, &workspace_key)
+    let mut policies = skill_activation_policy_service::list_for_workspace(conn, &workspace_key)
         .await
         .map_err(|error| AcpError::protocol(error.to_string()))?;
+    let deepseek_key =
+        workspace_key_for_agent(crate::models::agent::AgentType::DeepSeek, workspace_path);
+    if deepseek_key != workspace_key {
+        policies.extend(
+            skill_activation_policy_service::list_for_workspace(conn, &deepseek_key)
+                .await
+                .map_err(|error| AcpError::protocol(error.to_string()))?,
+        );
+    }
     for policy in policies {
         let Ok(agent_type) = serde_json::from_str(&policy.agent_type) else {
             continue;
@@ -243,6 +252,17 @@ pub(crate) fn workspace_key(workspace_path: Option<&str>) -> String {
         .to_string_lossy()
         .replace('\\', "/")
         .to_ascii_lowercase()
+}
+
+pub(crate) fn workspace_key_for_agent(
+    agent_type: crate::models::agent::AgentType,
+    workspace_path: Option<&str>,
+) -> String {
+    let Some(path) = workspace_path.filter(|value| !value.trim().is_empty()) else {
+        return String::new();
+    };
+    let base = crate::commands::acp::skill_workspace_base(agent_type, path);
+    workspace_key(Some(base.to_string_lossy().as_ref()))
 }
 
 #[cfg(feature = "tauri-runtime")]

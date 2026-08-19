@@ -18,7 +18,9 @@ use std::time::Duration;
 use sea_orm::DatabaseConnection;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::acp::delegation::broker::{DelegationBroker, DelegationMatchKey};
+use crate::acp::delegation::broker::{
+    delegation_ack_task_id, DelegationBroker, DelegationMatchKey,
+};
 use crate::acp::delegation::types::{DelegationError, DelegationOutcome, DelegationSuccess};
 use crate::acp::internal_bus::InternalEventBus;
 use crate::acp::manager::ConnectionManager;
@@ -736,9 +738,13 @@ fn find_delegation_args(
 ///   is a near-zero false-positive shape check that catches any host that
 ///   mangles the title beyond recognition, including ones that wrap their
 ///   tool-call args.
-fn is_delegation_invocation(title: &str, raw_input: Option<&str>) -> bool {
+fn title_identifies_delegation(title: &str) -> bool {
     let normalized_title = title.to_ascii_lowercase().replace([' ', '-'], "_");
-    if normalized_title.contains("delegate_to_agent") {
+    normalized_title.contains("delegate_to_agent")
+}
+
+fn is_delegation_invocation(title: &str, raw_input: Option<&str>) -> bool {
+    if title_identifies_delegation(title) {
         return true;
     }
     if let Some(raw) = raw_input {
@@ -800,6 +806,43 @@ fn is_terminal_tool_call_status(status: Option<&str>) -> bool {
     matches!(status, Some("completed" | "failed"))
 }
 
+struct TerminalToolCall<'a> {
+    tool_call_id: &'a str,
+    content: Option<&'a str>,
+    raw_output: Option<&'a str>,
+    status: &'a str,
+}
+
+fn terminal_tool_call_fields(event: &AcpEvent) -> Option<TerminalToolCall<'_>> {
+    match event {
+        AcpEvent::ToolCall {
+            tool_call_id,
+            status,
+            content,
+            raw_output,
+            ..
+        } if is_terminal_tool_call_status(Some(status)) => Some(TerminalToolCall {
+            tool_call_id,
+            content: content.as_deref(),
+            raw_output: raw_output.as_deref(),
+            status,
+        }),
+        AcpEvent::ToolCallUpdate {
+            tool_call_id,
+            status,
+            content,
+            raw_output,
+            ..
+        } if is_terminal_tool_call_status(status.as_deref()) => Some(TerminalToolCall {
+            tool_call_id,
+            content: content.as_deref(),
+            raw_output: raw_output.as_deref(),
+            status: status.as_deref().unwrap_or_default(),
+        }),
+        _ => None,
+    }
+}
+
 /// Synchronously register a parent-side `delegate_to_agent` tool_call_id with
 /// the broker, straight off the in-process bus — i.e. NOT via the
 /// per-connection worker.
@@ -836,55 +879,48 @@ fn is_terminal_tool_call_status(status: Option<&str>) -> bool {
 ///
 /// A TERMINAL tool-call event (status `completed`/`failed`, via EITHER
 /// `ToolCall` or `ToolCallUpdate` — some hosts ship status flips on the
-/// non-update variant, see `register_pending_tool_call`'s dedupe doc) is handled
-/// the opposite way: instead of registering, it tombstones any still-pending
-/// entry for that `tool_call_id` via
-/// [`DelegationBroker::tombstone_pending_tool_call`], so a `delegate_to_agent`
-/// that went terminal without its MCP round-trip ever arriving can't leave a
-/// stale keyed entry for a later same-key delegation to mis-claim.
+/// non-update variant) is resolved atomically by the broker. A complete running
+/// ack in `content` / `raw_output` may claim only the same parent's binding whose
+/// `call_id` exactly equals its validated UUID `task_id`; title, args, FIFO, and
+/// arrival order never select a terminal late binding. Otherwise the real id is
+/// only tombstoned when it was already pending, and is never newly queued.
 async fn register_delegation_tool_call_from_event(
     broker: &DelegationBroker,
     envelope: &EventEnvelope,
 ) {
-    // Terminal tool-call event (completed/failed) → tombstone by id, don't
-    // register. Read BOTH variants, symmetric with the registration path below:
-    // some hosts ship status flips on the non-update `ToolCall` variant, not
-    // only `ToolCallUpdate` (`register_pending_tool_call`'s dedupe doc). Keyed on
-    // `tool_call_id` membership rather than `is_delegation_invocation`: a bare
-    // terminal update may carry `title: None` / `raw_input: None`, leaving no
-    // derivable key, so we let the broker no-op when the id isn't a pending
-    // delegation. This removes a STALE keyed entry (the call failed / the turn
-    // was interrupted / its round-trip never reached the broker) so a later
-    // identical (agent_type, task, working_dir) call can't claim its dead id and
-    // bind to the wrong card.
-    let terminal: Option<(&String, &str)> = match &envelope.payload {
-        AcpEvent::ToolCall {
-            tool_call_id,
-            status,
-            ..
-        } if is_terminal_tool_call_status(Some(status)) => Some((tool_call_id, status.as_str())),
-        AcpEvent::ToolCallUpdate {
-            tool_call_id,
-            status,
-            ..
-        } if is_terminal_tool_call_status(status.as_deref()) => {
-            Some((tool_call_id, status.as_deref().unwrap_or("")))
-        }
-        _ => None,
-    };
-    if let Some((tool_call_id, status)) = terminal {
-        let removed = broker
-            .tombstone_pending_tool_call(&envelope.connection_id, tool_call_id)
-            .await;
-        if removed {
-            tracing::info!(
-                "[delegation] tombstoned stale parent tool_call_id={tool_call_id} on conn={} (terminal status={status})",
-                envelope.connection_id
-            );
-        }
+    if let Some(tool_call) = terminal_tool_call_fields(&envelope.payload) {
+        resolve_terminal_delegation_tool_call(broker, &envelope.connection_id, tool_call).await;
         return;
     }
+    register_nonterminal_delegation_tool_call(broker, envelope).await;
+}
 
+async fn resolve_terminal_delegation_tool_call(
+    broker: &DelegationBroker,
+    parent_connection_id: &str,
+    tool_call: TerminalToolCall<'_>,
+) {
+    let task_id = delegation_ack_task_id(tool_call.content, tool_call.raw_output);
+    let tombstoned = broker
+        .resolve_terminal_tool_call_by_task_id(
+            parent_connection_id,
+            tool_call.tool_call_id,
+            task_id.as_deref(),
+        )
+        .await;
+    if tombstoned {
+        let tool_call_id = tool_call.tool_call_id;
+        let status = tool_call.status;
+        tracing::info!(
+            "[delegation] tombstoned stale parent tool_call_id={tool_call_id} on conn={parent_connection_id} (terminal status={status})"
+        );
+    }
+}
+
+async fn register_nonterminal_delegation_tool_call(
+    broker: &DelegationBroker,
+    envelope: &EventEnvelope,
+) {
     let (tool_call_id, title, raw_input): (&String, &str, Option<&str>) = match &envelope.payload {
         AcpEvent::ToolCall {
             tool_call_id,

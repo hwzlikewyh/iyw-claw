@@ -323,9 +323,13 @@ pub fn validate_specs(specs: &[QuestionSpec]) -> Result<(), String> {
                 "questions[{qi}] `header` exceeds {MAX_HEADER_CHARS} characters"
             ));
         }
-        if q.options.len() < MIN_OPTIONS || q.options.len() > MAX_OPTIONS {
+        // MCP `ask_user_question` still enforces MIN_OPTIONS in
+        // `parse_questions`. Typed ACP elicitation forms may instead contain a
+        // plain string/number field, represented by an empty option list so
+        // the card renders only its built-in free-text input.
+        if q.options.len() > MAX_OPTIONS {
             return Err(format!(
-                "questions[{qi}] must have between {MIN_OPTIONS} and {MAX_OPTIONS} options"
+                "questions[{qi}] must have at most {MAX_OPTIONS} options"
             ));
         }
         let mut seen_labels = std::collections::HashSet::new();

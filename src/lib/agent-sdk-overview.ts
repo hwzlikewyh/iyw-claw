@@ -1,10 +1,18 @@
-import type { AcpAgentInfo, AgentType, CheckStatus } from "@/lib/types"
+import { isCustomAgentType } from "@/lib/types"
+import type {
+  AcpAgentInfo,
+  AgentType,
+  BuiltinAgentType,
+  CheckStatus,
+} from "@/lib/types"
+
+type ProfiledBuiltinAgentType = Exclude<BuiltinAgentType, "cursor" | "deepseek">
 
 type AgentProfileMessageKey =
-  | `profiles.${AgentType}.description`
-  | `profiles.${AgentType}.strengths.primary`
-  | `profiles.${AgentType}.strengths.secondary`
-  | `profiles.${AgentType}.strengths.tertiary`
+  | `profiles.${ProfiledBuiltinAgentType}.description`
+  | `profiles.${ProfiledBuiltinAgentType}.strengths.primary`
+  | `profiles.${ProfiledBuiltinAgentType}.strengths.secondary`
+  | `profiles.${ProfiledBuiltinAgentType}.strengths.tertiary`
 
 interface AgentProfileMessageKeys {
   description: AgentProfileMessageKey
@@ -15,7 +23,7 @@ interface AgentProfileMessageKeys {
   ]
 }
 
-function profile(agentType: AgentType): AgentProfileMessageKeys {
+function profile(agentType: ProfiledBuiltinAgentType): AgentProfileMessageKeys {
   return {
     description: `profiles.${agentType}.description`,
     strengths: [
@@ -26,9 +34,8 @@ function profile(agentType: AgentType): AgentProfileMessageKeys {
   }
 }
 
-export const AGENT_PROFILE_MESSAGE_KEYS: Record<
-  AgentType,
-  AgentProfileMessageKeys
+export const AGENT_PROFILE_MESSAGE_KEYS: Partial<
+  Record<BuiltinAgentType, AgentProfileMessageKeys>
 > = {
   claude_code: profile("claude_code"),
   codex: profile("codex"),
@@ -41,6 +48,13 @@ export const AGENT_PROFILE_MESSAGE_KEYS: Record<
   kimi_code: profile("kimi_code"),
   pi: profile("pi"),
   grok: profile("grok"),
+}
+
+export function getAgentProfileMessageKeys(
+  agentType: AgentType
+): AgentProfileMessageKeys | null {
+  if (isCustomAgentType(agentType)) return null
+  return AGENT_PROFILE_MESSAGE_KEYS[agentType] ?? null
 }
 
 export type AgentVersionState =

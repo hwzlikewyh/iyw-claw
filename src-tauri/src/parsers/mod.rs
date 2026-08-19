@@ -1,9 +1,12 @@
+pub mod acp_transcript;
 pub mod claude;
 pub(crate) mod claude_background;
 pub(crate) mod claude_tail;
 pub mod cline;
 pub mod codebuddy;
 pub mod codex;
+pub mod deepseek;
+mod factory;
 pub mod gemini;
 pub mod grok;
 pub mod hermes;
@@ -13,6 +16,8 @@ pub mod opencode;
 pub mod pi;
 pub(crate) mod profile_paths;
 mod summary_cache;
+
+pub use factory::{history_parsers, parser_for_agent};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -134,6 +139,16 @@ pub fn external_transcript_sources() -> Vec<ExternalSource> {
         ExternalSource {
             agent: "grok",
             root: grok::resolve_grok_home_dir().join("sessions"),
+            is_file: false,
+            include_top: None,
+        },
+        ExternalSource {
+            // DeepSeek Harness keeps one append-only log directory per
+            // session under `~/.dsh/sessions` (relocatable through
+            // `DSH_HOME` / `DEEPSEEK_ACP_SESSIONS_ROOT`). The root already
+            // excludes the sibling credentials/config files.
+            agent: "deepseek",
+            root: deepseek::resolve_deepseek_sessions_root(),
             is_file: false,
             include_top: None,
         },

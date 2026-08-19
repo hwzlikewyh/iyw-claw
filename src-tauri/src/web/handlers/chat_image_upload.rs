@@ -5,6 +5,7 @@ use axum::extract::{Extension, Multipart};
 use axum::Json;
 use tokio::io::AsyncWriteExt;
 
+use crate::acp::capability_policy::{monitor_file_upload, CapabilityRevocationMonitor};
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::chat_image::{
@@ -25,6 +26,12 @@ struct UploadedImage {
     size: u64,
     session_id: Option<String>,
     chat_dir: Option<String>,
+}
+
+struct ImageStaging<'a> {
+    tmp_dir: &'a Path,
+    staging_name: &'a str,
+    monitor: &'a CapabilityRevocationMonitor,
 }
 
 fn is_supported_mime(mime_type: &str) -> bool {
@@ -55,16 +62,20 @@ async fn prepare_upload_dirs(uploads_root: &Path, tmp_dir: &Path) -> Result<(), 
 
 async fn write_image_field(
     field: &mut axum::extract::multipart::Field<'_>,
-    tmp_dir: &Path,
-    staging_name: &str,
+    staging: &ImageStaging<'_>,
 ) -> Result<u64, AppCommandError> {
-    let mut output = upload_jail::create_staging_file(tmp_dir, staging_name)
+    let mut output = upload_jail::create_staging_file(staging.tmp_dir, staging.staging_name)
         .await
         .map_err(AppCommandError::io)?;
     let mut written = 0_u64;
-    while let Some(chunk) = field.chunk().await.map_err(|error| {
-        AppCommandError::io_error("Unable to read image upload").with_detail(error.to_string())
-    })? {
+    while let Some(chunk) = staging
+        .monitor
+        .run_until_revoked(field.chunk())
+        .await?
+        .map_err(|error| {
+            AppCommandError::io_error("Unable to read image upload").with_detail(error.to_string())
+        })?
+    {
         written = written.saturating_add(chunk.len() as u64);
         if written > CHAT_IMAGE_SOURCE_MAX_BYTES {
             return Err(AppCommandError::invalid_input(
@@ -85,32 +96,44 @@ async fn write_image_field(
 
 async fn stream_image(
     multipart: &mut Multipart,
-    tmp_dir: &Path,
-    staging_name: &str,
+    staging: &ImageStaging<'_>,
 ) -> Result<UploadedImage, AppCommandError> {
     let mut file_name: Option<String> = None;
     let mut size = 0;
     let mut session_id = None;
     let mut chat_dir = None;
-    while let Some(mut field) = multipart.next_field().await.map_err(|error| {
-        AppCommandError::invalid_input("Invalid image upload").with_detail(error.to_string())
-    })? {
+    while let Some(mut field) = staging
+        .monitor
+        .run_until_revoked(multipart.next_field())
+        .await?
+        .map_err(|error| {
+            AppCommandError::invalid_input("Invalid image upload").with_detail(error.to_string())
+        })?
+    {
         match field.name().unwrap_or("") {
             "session_id" | "sessionId" => {
-                let value = field.text().await.map_err(|error| {
-                    AppCommandError::invalid_input("Invalid session id")
-                        .with_detail(error.to_string())
-                })?;
+                let value = staging
+                    .monitor
+                    .run_until_revoked(field.text())
+                    .await?
+                    .map_err(|error| {
+                        AppCommandError::invalid_input("Invalid session id")
+                            .with_detail(error.to_string())
+                    })?;
                 if value.chars().count() > MAX_SESSION_ID_CHARS {
                     return Err(AppCommandError::invalid_input("Session id is too long"));
                 }
                 session_id = (!value.trim().is_empty()).then_some(value);
             }
             "chat_dir" | "chatDir" => {
-                let value = field.text().await.map_err(|error| {
-                    AppCommandError::invalid_input("Invalid Chat directory")
-                        .with_detail(error.to_string())
-                })?;
+                let value = staging
+                    .monitor
+                    .run_until_revoked(field.text())
+                    .await?
+                    .map_err(|error| {
+                        AppCommandError::invalid_input("Invalid Chat directory")
+                            .with_detail(error.to_string())
+                    })?;
                 if value.chars().count() > MAX_CHAT_DIR_CHARS {
                     return Err(AppCommandError::invalid_input(
                         "Chat directory path is too long",
@@ -126,7 +149,7 @@ async fn stream_image(
                     ));
                 }
                 file_name = Some(field.file_name().unwrap_or("image").to_string());
-                size = write_image_field(&mut field, tmp_dir, staging_name).await?;
+                size = write_image_field(&mut field, staging).await?;
             }
             "file" => {
                 return Err(AppCommandError::invalid_input(
@@ -134,7 +157,7 @@ async fn stream_image(
                 ));
             }
             _ => {
-                let _ = field.bytes().await;
+                let _ = staging.monitor.run_until_revoked(field.bytes()).await?;
             }
         }
     }
@@ -152,13 +175,20 @@ pub async fn upload_chat_image(
     Extension(state): Extension<Arc<AppState>>,
     mut multipart: Multipart,
 ) -> Result<Json<PreparedChatImage>, AppCommandError> {
+    let monitor = monitor_file_upload(None).await?;
     let uploads_root = iyw_claw_uploads_root();
     let _quota_guard = reserve_upload_bytes(&uploads_root, CHAT_IMAGE_SOURCE_MAX_BYTES).await?;
     let tmp_dir = uploads_root.join(IMAGE_UPLOAD_TMP_DIR);
     prepare_upload_dirs(&uploads_root, &tmp_dir).await?;
     let staging_name = format!("{}.part", uuid::Uuid::new_v4().simple());
+    let staging = ImageStaging {
+        tmp_dir: &tmp_dir,
+        staging_name: &staging_name,
+        monitor: &monitor,
+    };
     let result = async {
-        let uploaded = stream_image(&mut multipart, &tmp_dir, &staging_name).await?;
+        let uploaded = stream_image(&mut multipart, &staging).await?;
+        monitor.require_current().await?;
         let staged_path = tmp_dir.join(&staging_name);
         let display_name = sanitize_upload_filename(&uploaded.raw_name);
         let prepared = prepare_chat_image_core(
@@ -170,6 +200,7 @@ pub async fn upload_chat_image(
                 session_id: uploaded.session_id,
                 display_name: Some(display_name),
             },
+            &monitor,
         )
         .await;
         upload_jail::remove_staging_best_effort(&tmp_dir, &staging_name).await;

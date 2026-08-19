@@ -10,6 +10,7 @@ pub mod automation;
 pub mod browser;
 pub mod chat_channel;
 pub mod commands;
+mod context_governor;
 pub mod db;
 pub mod desktop_bootstrap;
 #[cfg(feature = "tauri-runtime")]
@@ -70,13 +71,14 @@ mod tauri_app {
         agent_storage as agent_storage_commands, agent_version_center_tauri,
         app_update as app_update_commands, automation as automation_commands,
         automation_draft as automation_draft_commands, backup, browser as browser_commands,
-        chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
-        chat_image as chat_image_commands, conversations, delegation as delegation_commands,
-        display_assets as display_asset_commands, experts as experts_commands,
-        feedback as feedback_commands, file_io, folder_commands, folders, idle_agent_settings,
-        internet_tools as internet_tools_commands, iyw_account as iyw_account_commands,
-        logging as logging_commands, managed_skills as managed_skills_commands,
-        mcp as mcp_commands, model_provider as model_provider_commands, notification,
+        capability_policy_tauri, chat_attachments as chat_attachment_commands,
+        chat_channel as chat_channel_commands, chat_image as chat_image_commands, conversations,
+        delegation as delegation_commands, display_assets as display_asset_commands,
+        experts as experts_commands, feedback as feedback_commands, file_io, folder_commands,
+        folders, idle_agent_settings, internet_tools as internet_tools_commands,
+        iyw_account as iyw_account_commands, logging as logging_commands,
+        managed_skills as managed_skills_commands, mcp as mcp_commands,
+        model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, performance as performance_commands,
         question as question_commands, quick_messages as quick_messages_commands,
         realtime_voice as realtime_voice_commands,
@@ -442,10 +444,10 @@ mod tauri_app {
                     .as_ref()
                     .ok()
                     .map(|resolved| resolved.path.as_path());
-                let database =
+                let database_initialization =
                     crate::logging::emergency::run_stage("database-initialize", || {
                         tauri::async_runtime::block_on(
-                            db::init_database_with_user_memory_root(
+                            db::init_database_with_restore_state(
                                 &effective_data_dir,
                                 app_version,
                                 user_memory_restore_root,
@@ -453,6 +455,8 @@ mod tauri_app {
                         )
                     })
                     .map_err(|e| e.to_string())?;
+                let database = database_initialization.database;
+                let restore_memory = database_initialization.restore_memory;
 
                 // Eagerly generate and persist installation_id on first launch
                 // so every subsequent network call has a non-empty
@@ -521,6 +525,14 @@ mod tauri_app {
                     ),
                 );
                 app.manage(catalog);
+                let (capability_policy, capability_policy_refresh) =
+                    tauri::async_runtime::block_on(
+                        crate::app_state::build_capability_policy_stack(
+                            app.state::<db::AppDatabase>().conn.clone(),
+                        ),
+                    );
+                app.manage(capability_policy);
+                app.manage(capability_policy_refresh);
                 {
                     let catalog = app
                         .state::<crate::acp::version_center::CatalogStore>()
@@ -553,6 +565,12 @@ mod tauri_app {
                         tracing::warn!("[user-memory] legacy migration unavailable: {error}")
                     }
                 }
+                restore_memory.schedule_index_refresh(|| {
+                    let user_memory_refresh = user_memory.clone();
+                    tauri::async_runtime::spawn(async move {
+                        user_memory_refresh.schedule_index_refresh();
+                    });
+                });
                 app.state::<ConnectionManager>()
                     .install_user_memory(user_memory.clone());
                 app.state::<ConnectionManager>()
@@ -560,6 +578,11 @@ mod tauri_app {
                         app.state::<db::AppDatabase>().conn.clone(),
                         effective_data_dir.clone(),
                     );
+                app.state::<ConnectionManager>().install_capability_policy(
+                    app.state::<crate::acp::capability_policy::CapabilityPolicyStore>()
+                        .inner()
+                        .clone(),
+                );
                 app.manage(user_memory);
 
                 // Restore and apply saved system proxy settings before any network operation.
@@ -644,7 +667,6 @@ mod tauri_app {
                 let system_skills_data_dir = effective_data_dir.clone();
                 let system_skills_emitter =
                     crate::web::event_bridge::EventEmitter::Tauri(app.handle().clone());
-                let runtime_prewarm_manager = app.state::<ConnectionManager>().clone_ref();
                 tauri::async_runtime::spawn(async move {
                     let report = crate::commands::experts::ensure_central_experts_installed().await;
                     if !report.errors.is_empty() {
@@ -706,21 +728,6 @@ mod tauri_app {
                             tracing::warn!("[internet-tools] startup bootstrap failed: {error}");
                         }
                     }
-                    let prewarm_started = std::time::Instant::now();
-                    match runtime_prewarm_manager.prewarm_codex_runtime().await {
-                        Ok(true) => tracing::info!(
-                            elapsed_ms = prewarm_started.elapsed().as_millis(),
-                            "[ACP][startup] Codex runtime Host prewarmed"
-                        ),
-                        Ok(false) => tracing::info!(
-                            "[ACP][startup] Codex runtime Host prewarm disabled"
-                        ),
-                        Err(error) => tracing::info!(
-                            elapsed_ms = prewarm_started.elapsed().as_millis(),
-                            error = %error,
-                            "[ACP][startup] Codex runtime Host prewarm deferred"
-                        ),
-                    }
                 });
 
                 // Reclaim orphaned chat scratch dirs (pre-send drafts that never
@@ -745,28 +752,6 @@ mod tauri_app {
                                 tracing::error!("[conversations] chat-dir GC failed: {err}")
                             }
                         }
-                    });
-                }
-
-                // Start chat channel background tasks
-                {
-                    let ccm = app.state::<ChatChannelManager>();
-                    let broadcaster =
-                        app.state::<std::sync::Arc<web::event_bridge::WebEventBroadcaster>>();
-                    let db_conn = app.state::<db::AppDatabase>().conn.clone();
-                    let data_dir = effective_data_dir.clone();
-                    let ccm_ref = ccm.clone_ref();
-                    let br = broadcaster.inner().clone();
-                    let bus = app
-                        .state::<std::sync::Arc<crate::acp::InternalEventBus>>()
-                        .inner()
-                        .clone();
-                    let cm = app.state::<ConnectionManager>().clone_ref();
-                    let emitter = web::event_bridge::EventEmitter::Tauri(app.handle().clone());
-                    tauri::async_runtime::spawn(async move {
-                        ccm_ref
-                            .start_background(br, bus, db_conn, data_dir, cm, emitter)
-                            .await;
                     });
                 }
 
@@ -914,13 +899,81 @@ mod tauri_app {
                             },
                         ),
                     );
-                    tauri::async_runtime::spawn(async move {
-                        if let Err(e) = listener.run(socket_path).await {
-                            tracing::info!("[delegation] listener exited: {e}");
+                    match tauri::async_runtime::block_on(
+                        crate::acp::builtin_mcp::BuiltinMcpService::start(listener.clone()),
+                    ) {
+                        Ok(service) => {
+                            cm_state.install_builtin_mcp(service.client());
+                            app.manage(service);
                         }
-                    });
+                        Err(error) => tracing::error!(
+                            error = %error,
+                            "[builtin_mcp] failed to start process HTTP MCP service; HTTP route unavailable and connection policy will decide fallback"
+                        ),
+                    }
+                    match tauri::async_runtime::block_on(
+                        crate::acp::delegation::listener_service::DelegationListenerService::start(
+                            listener,
+                            socket_path,
+                        ),
+                    ) {
+                        Ok(service) => {
+                            app.manage(service);
+                        }
+                        Err(error) => tracing::error!(
+                            error = %error,
+                            transport = "legacy",
+                            companion_features = "unavailable",
+                            "[delegation] failed to start legacy listener; legacy MCP companion is unavailable"
+                        ),
+                    }
                     broker
                 };
+
+                // Prewarm can spawn a Codex runtime Host, so schedule it only
+                // after built-in HTTP MCP is ready or startup explicitly fell
+                // back to the legacy listener path.
+                let runtime_prewarm_manager = app.state::<ConnectionManager>().clone_ref();
+                tauri::async_runtime::spawn(async move {
+                    let prewarm_started = std::time::Instant::now();
+                    match runtime_prewarm_manager.prewarm_codex_runtime().await {
+                        Ok(true) => tracing::info!(
+                            elapsed_ms = prewarm_started.elapsed().as_millis(),
+                            "[ACP][startup] Codex runtime Host prewarmed"
+                        ),
+                        Ok(false) => tracing::info!(
+                            "[ACP][startup] Codex runtime Host prewarm disabled"
+                        ),
+                        Err(error) => tracing::info!(
+                            elapsed_ms = prewarm_started.elapsed().as_millis(),
+                            error = %error,
+                            "[ACP][startup] Codex runtime Host prewarm deferred"
+                        ),
+                    }
+                });
+
+                // Start chat channel tasks only after the built-in MCP service
+                // has either become ready or explicitly fallen back to legacy.
+                {
+                    let ccm = app.state::<ChatChannelManager>();
+                    let broadcaster =
+                        app.state::<std::sync::Arc<web::event_bridge::WebEventBroadcaster>>();
+                    let db_conn = app.state::<db::AppDatabase>().conn.clone();
+                    let data_dir = effective_data_dir.clone();
+                    let ccm_ref = ccm.clone_ref();
+                    let br = broadcaster.inner().clone();
+                    let bus = app
+                        .state::<std::sync::Arc<crate::acp::InternalEventBus>>()
+                        .inner()
+                        .clone();
+                    let cm = app.state::<ConnectionManager>().clone_ref();
+                    let emitter = web::event_bridge::EventEmitter::Tauri(app.handle().clone());
+                    tauri::async_runtime::spawn(async move {
+                        ccm_ref
+                            .start_background(br, bus, db_conn, data_dir, cm, emitter)
+                            .await;
+                    });
+                }
 
                 // Spawn the LifecycleSubscriber: persists cross-connection DB state
                 // (external session ids, Agent titles, and turn outcomes) off the emit
@@ -1453,6 +1506,11 @@ mod tauri_app {
                 agent_version_center_tauri::agent_version_center_install_agent,
                 agent_version_center_tauri::agent_version_center_switch_agent,
                 agent_version_center_tauri::agent_version_center_rollback_agent,
+                capability_policy_tauri::capability_policy_snapshot,
+                capability_policy_tauri::capability_policy_refresh,
+                capability_policy_tauri::capability_preference_list,
+                capability_policy_tauri::capability_preference_set,
+                capability_policy_tauri::capability_policy_decision,
                 acp_commands::acp_get_agent_status,
                 acp_commands::acp_clear_binary_cache,
                 acp_commands::acp_download_agent_binary,

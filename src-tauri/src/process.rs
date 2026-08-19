@@ -5,11 +5,19 @@ mod managed_git;
 mod managed_node;
 use std::process::Command;
 
+#[cfg(unix)]
+use std::time::Duration;
+
 #[cfg(windows)]
 use std::path::Path;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[cfg(unix)]
+const EXEC_BUSY_RETRY_BUDGET: Duration = Duration::from_secs(1);
+#[cfg(unix)]
+const EXEC_BUSY_MAX_BACKOFF: Duration = Duration::from_millis(25);
 
 pub fn configure_std_command(command: &mut Command) -> &mut Command {
     #[cfg(windows)]
@@ -123,6 +131,46 @@ where
     let mut command = tokio::process::Command::new(normalized_program(program));
     configure_tokio_command(&mut command);
     command
+}
+
+#[cfg(unix)]
+fn is_exec_busy(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::ExecutableFileBusy
+        || error.raw_os_error() == Some(libc::ETXTBSY)
+}
+
+/// Retry a Unix spawn while the executable is transiently open for writing.
+#[cfg(unix)]
+pub async fn spawn_retrying_exec_busy<T, F>(attempt: F) -> std::io::Result<T>
+where
+    F: FnMut() -> std::io::Result<T>,
+{
+    spawn_retrying_exec_busy_within(EXEC_BUSY_RETRY_BUDGET, attempt).await
+}
+
+#[cfg(unix)]
+async fn spawn_retrying_exec_busy_within<T, F>(
+    budget: Duration,
+    mut attempt: F,
+) -> std::io::Result<T>
+where
+    F: FnMut() -> std::io::Result<T>,
+{
+    let deadline = tokio::time::Instant::now() + budget;
+    let mut backoff = Duration::from_millis(1);
+    loop {
+        match attempt() {
+            Err(error) if is_exec_busy(&error) => {
+                let now = tokio::time::Instant::now();
+                if now >= deadline {
+                    return Err(error);
+                }
+                tokio::time::sleep(backoff.min(deadline - now)).await;
+                backoff = (backoff * 2).min(EXEC_BUSY_MAX_BACKOFF);
+            }
+            outcome => return outcome,
+        }
+    }
 }
 
 /// If `node` is not already in PATH, detect common Node.js version manager

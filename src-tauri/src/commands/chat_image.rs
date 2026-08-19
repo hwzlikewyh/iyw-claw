@@ -272,6 +272,7 @@ pub async fn prepare_chat_image(
     chat_dir: Option<String>,
     session_id: Option<String>,
 ) -> Result<PreparedChatImage, AppCommandError> {
+    let monitor = crate::acp::capability_policy::monitor_file_upload(None).await?;
     prepare_chat_image_core(
         &db.conn,
         PrepareChatImageRequest {
@@ -281,6 +282,7 @@ pub async fn prepare_chat_image(
             session_id,
             display_name: None,
         },
+        &monitor,
     )
     .await
 }

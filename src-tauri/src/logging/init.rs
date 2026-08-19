@@ -21,6 +21,7 @@ use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_appender::rolling::Rotation;
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter, Registry};
 
+use crate::logging::budget::{self, BudgetedWriter};
 use crate::logging::hub::LogHub;
 use crate::logging::layer::BufferEmitLayer;
 use crate::logging::{LogLevel, LogSettings, LOGGING_LEVEL_KEY};
@@ -78,9 +79,8 @@ fn is_valid_target(target: &str) -> bool {
         .all(|seg| !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
 }
 
-/// Build a reload handle not attached to any installed subscriber, for tests
-/// that construct a detached [`crate::logging::hub::LogHub`] without touching
-/// the process-global subscriber.
+/// Extension shared by the rolling appender and cross-restart budget discovery.
+const LOG_FILE_SUFFIX: &str = "log";
 
 /// Defense-in-depth file cap for rotated daily files. Time-based cleanup is
 /// handled by [`crate::logging::retention`]; operators may keep fewer files but
@@ -128,7 +128,7 @@ fn init_file_writer(dir: &Path, prefix: &str) -> Option<(NonBlocking, WorkerGuar
     let appender = match tracing_appender::rolling::Builder::new()
         .rotation(Rotation::DAILY)
         .filename_prefix(prefix)
-        .filename_suffix("log")
+        .filename_suffix(LOG_FILE_SUFFIX)
         .max_log_files(file_retention())
         .build(dir)
     {
@@ -141,7 +141,14 @@ fn init_file_writer(dir: &Path, prefix: &str) -> Option<(NonBlocking, WorkerGuar
             return None;
         }
     };
-    Some(tracing_appender::non_blocking(appender))
+    let (day, already_written) = budget::resume_point(dir, prefix, LOG_FILE_SUFFIX);
+    let budgeted = BudgetedWriter::resuming(
+        appender,
+        budget::configured_max_bytes_per_day(),
+        day,
+        already_written,
+    );
+    Some(tracing_appender::non_blocking(budgeted))
 }
 
 /// Build and install the subscriber. `file_dir` is `None` for `iyw-claw-mcp`
