@@ -165,9 +165,10 @@ pub async fn get_system_rendering_settings() -> Result<SystemRenderingSettings, 
 pub async fn update_system_rendering_settings(
     settings: SystemRenderingSettings,
 ) -> Result<SystemRenderingSettings, AppCommandError> {
-    let mut prefs = preferences::load();
-    prefs.disable_hardware_acceleration = settings.disable_hardware_acceleration;
-    preferences::save(&prefs).map_err(|err| {
+    preferences::update(|prefs| {
+        prefs.disable_hardware_acceleration = settings.disable_hardware_acceleration;
+    })
+    .map_err(|err| {
         AppCommandError::io_error("Failed to persist rendering settings")
             .with_detail(err.to_string())
     })?;

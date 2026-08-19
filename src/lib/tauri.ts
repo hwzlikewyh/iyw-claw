@@ -469,6 +469,44 @@ export async function updateSystemRenderingSettings(
   return invoke("update_system_rendering_settings", { settings })
 }
 
+export type CloseAction = "tray" | "exit"
+
+export interface MainCloseRequestPayload {
+  canHideToTray: boolean
+}
+
+export const MAIN_CLOSE_REQUESTED_EVENT = "app://main-close-requested"
+
+export async function enableAutostart(): Promise<void> {
+  const { enable } = await import("@tauri-apps/plugin-autostart")
+  await enable()
+}
+
+export async function disableAutostart(): Promise<void> {
+  const { disable } = await import("@tauri-apps/plugin-autostart")
+  await disable()
+}
+
+export async function isAutostartEnabled(): Promise<boolean> {
+  const { isEnabled } = await import("@tauri-apps/plugin-autostart")
+  return isEnabled()
+}
+
+export async function completeMainClose(
+  action: CloseAction,
+  remember: boolean
+): Promise<void> {
+  return invoke("complete_main_close", { action, remember })
+}
+
+export async function getPendingMainCloseRequest(): Promise<MainCloseRequestPayload | null> {
+  return invoke("get_pending_main_close_request")
+}
+
+export async function cancelMainClose(): Promise<void> {
+  return invoke("cancel_main_close")
+}
+
 // --- Version Control ---
 
 export async function detectGit(): Promise<GitDetectResult> {

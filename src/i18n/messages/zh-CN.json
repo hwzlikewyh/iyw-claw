@@ -1644,7 +1644,21 @@
     "restartRequired": "已保存，重启应用后生效。",
     "restartNow": "立即重启",
     "restartFailed": "重启失败：{message}",
-    "loadFailed": "加载失败：{message}"
+    "loadFailed": "加载失败：{message}",
+    "autostartTitle": "启动",
+    "autostartDescription": "选择登录电脑后是否自动启动原助理。",
+    "autostartLabel": "开机自启动",
+    "autostartHint": "在后台启动原助理，并可从系统托盘中唤回。",
+    "autostartSaveFailed": "更新启动设置失败：{message}"
+  },
+  "MainCloseDialog": {
+    "title": "关闭原助理",
+    "description": "选择关闭主窗口时要执行的操作。",
+    "remember": "记住此选择",
+    "cancel": "取消",
+    "exit": "退出应用",
+    "tray": "隐藏到托盘",
+    "actionFailed": "应用此选择失败：{message}"
   },
   "LoginPage": {
     "documentTitle": "登录 - 原助理",

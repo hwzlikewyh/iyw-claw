@@ -14,6 +14,7 @@ import { OverlayScrollbarsInit } from "@/components/overlay-scrollbars-init"
 import { ClipboardFallbackInit } from "@/components/clipboard-fallback-init"
 import { WebConnectionGuard } from "@/components/connection/web-connection-guard"
 import { WindowResizeGrips } from "@/components/layout/window-resize-grips"
+import { MainCloseDialog } from "@/components/layout/main-close-dialog"
 import { DevtoolsShortcut } from "@/components/devtools-shortcut"
 import { TauriContextMenuPolicy } from "@/components/tauri-context-menu-policy"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -80,6 +81,7 @@ export default async function RootLayout({
                 <WindowResizeGrips />
                 <DevtoolsShortcut />
                 <TauriContextMenuPolicy />
+                <MainCloseDialog />
                 <Suspense fallback={null}>
                   <DesktopRouteRestoreTracker />
                 </Suspense>
