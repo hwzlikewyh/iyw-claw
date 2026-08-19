@@ -164,6 +164,9 @@ Function IywClawBeginAppTransaction
   Call IywClawValidateTransactionPaths
   Pop $R0
   StrCmp $R0 "1" 0 begin_transaction_failed
+  ; ResolveInstallRoot 会把 NSIS 工作目录切到 app。重命名或删除 app 前必须
+  ; 回到逻辑根目录，否则 Windows 会拒绝替换当前工作目录。
+  SetOutPath "$IywClawRoot"
   Call IywClawReconcileHistoricalBackup
   Pop $R0
   StrCmp $R0 "1" 0 begin_transaction_failed
@@ -248,6 +251,7 @@ Function IywClawRollbackAppTransaction
   Call IywClawValidateTransactionPaths
   Pop $R0
   StrCmp $R0 "1" 0 rollback_failed
+  SetOutPath "$IywClawRoot"
   DetailPrint "安装失败，正在恢复旧 app..."
   RMDir /r "$IywClawAppDir"
   IfFileExists "$IywClawAppDir\*.*" rollback_failed 0
