@@ -10,11 +10,11 @@ import {
   getSystemRenderingSettings,
   updateSystemRenderingSettings,
 } from "@/lib/api"
-import { isDesktop } from "@/lib/platform"
-import { getActiveRemoteConnectionId } from "@/lib/transport"
+import { isLocalDesktop } from "@/lib/platform"
 import { usePlatform } from "@/hooks/use-platform"
 import { relaunchApp } from "@/lib/updater"
 import { toErrorMessage } from "@/lib/app-error"
+import { AutostartSettingsSection } from "@/components/settings/autostart-settings-section"
 import { DelegationSettingsSection } from "@/components/settings/delegation-settings"
 import {
   SettingsPageLayout,
@@ -35,8 +35,8 @@ export function GeneralSettings() {
   // are only meaningful when the active transport is the local Tauri shell —
   // remote workspace windows route every API call to a remote web server,
   // which deliberately does not expose this endpoint.
-  const renderingSettingsLoadable =
-    isDesktop() && getActiveRemoteConnectionId() === null
+  const localDesktop = isLocalDesktop()
+  const renderingSettingsLoadable = localDesktop
   const renderingSectionVisible = renderingSettingsLoadable && isWindows
 
   const [loading, setLoading] = useState(true)
@@ -135,6 +135,8 @@ export function GeneralSettings() {
           {t("loadFailed", { message: loadError })}
         </div>
       )}
+
+      {localDesktop && <AutostartSettingsSection />}
 
       {renderingSectionVisible && (
         <section className="overflow-hidden rounded-xl border bg-card">

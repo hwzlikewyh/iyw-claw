@@ -1644,7 +1644,21 @@
     "restartRequired": "Saved. Restart the app for the change to take effect.",
     "restartNow": "Restart now",
     "restartFailed": "Failed to restart: {message}",
-    "loadFailed": "Load failed: {message}"
+    "loadFailed": "Load failed: {message}",
+    "autostartTitle": "Startup",
+    "autostartDescription": "Choose whether 原助理 starts automatically when you sign in to your computer.",
+    "autostartLabel": "Launch at startup",
+    "autostartHint": "Start 原助理 in the background and keep it available from the system tray.",
+    "autostartSaveFailed": "Failed to update startup setting: {message}"
+  },
+  "MainCloseDialog": {
+    "title": "Close 原助理",
+    "description": "Choose what should happen when you close the main window.",
+    "remember": "Remember this choice",
+    "cancel": "Cancel",
+    "exit": "Exit application",
+    "tray": "Hide to tray",
+    "actionFailed": "Could not apply this choice: {message}"
   },
   "LoginPage": {
     "documentTitle": "Login - 原助理",

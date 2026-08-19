@@ -32,6 +32,8 @@ mod conversation_history_cache_prune;
 pub(crate) mod conversation_title;
 pub mod conversations;
 pub mod delegation;
+#[cfg(feature = "tauri-runtime")]
+pub mod desktop;
 pub mod display_assets;
 pub mod experts;
 pub mod feedback;
