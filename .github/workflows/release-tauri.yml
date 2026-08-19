@@ -9,6 +9,9 @@ on:
       release_tag:
         required: true
         type: string
+      source_ref:
+        required: true
+        type: string
       release_body:
         required: true
         type: string
@@ -23,6 +26,7 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.name }}
+    timeout-minutes: 120
     permissions:
       contents: write
     strategy:
@@ -51,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ inputs.source_ref }}
           fetch-depth: 0
 
       - name: Checkout release tooling
@@ -220,7 +224,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
-          tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
+          tauriScript: pnpm exec tauri
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm
           includeUpdaterJson: false
           retryAttempts: 2
@@ -243,7 +247,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
-          tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
+          tauriScript: pnpm exec tauri
           # steps.signing.outputs.config_arg is either empty (unsigned) or
           # `--config <abs path to generated overlay>`.
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles nsis ${{ matrix.target == 'i686-pc-windows-msvc' && '--config src-tauri/tauri.windows-x86.conf.json' || '' }} ${{ steps.signing.outputs.config_arg }}
@@ -302,7 +306,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
-          tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
+          tauriScript: pnpm exec tauri
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm,appimage
           includeUpdaterJson: false
           retryAttempts: 2
@@ -321,7 +325,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
-          tauriScript: pnpm dlx @tauri-apps/cli@2.10.1
+          tauriScript: pnpm exec tauri
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg
           includeUpdaterJson: false
           retryAttempts: 2

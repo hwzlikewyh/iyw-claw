@@ -6,6 +6,9 @@ on:
       release_tag:
         required: true
         type: string
+      source_ref:
+        required: true
+        type: string
 
 env:
   RUST_BACKTRACE: short
@@ -40,7 +43,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ inputs.source_ref }}
 
       - name: Checkout release tooling
         uses: actions/checkout@v4
@@ -187,7 +190,7 @@ jobs:
         run: |
           set -euo pipefail
           archive="dist/${{ matrix.artifact }}.tar.gz"
-          pnpm dlx @tauri-apps/cli@2.10.1 signer sign "$archive"
+          pnpm exec tauri signer sign "$archive"
           test -f "$archive.sig"
           (
             cd dist
@@ -202,7 +205,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           $archive = "dist/${{ matrix.artifact }}.zip"
-          pnpm dlx @tauri-apps/cli@2.10.1 signer sign $archive
+          pnpm exec tauri signer sign $archive
           if (-not (Test-Path "$archive.sig")) {
             throw "signature not produced for $archive"
           }
