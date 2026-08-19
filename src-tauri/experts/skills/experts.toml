@@ -70,8 +70,8 @@ en = "IYW Capability Gateway"
 "zh-CN" = "爱原物能力网关"
 
 [expert.description]
-en = "Discovers and invokes IYW capabilities through stable capability ids."
-"zh-CN" = "通过稳定能力 ID 发现并调用爱原物能力。"
+en = "Proactively discovers matching IYW host capabilities, then reads and invokes them by stable id."
+"zh-CN" = "主动发现匹配的爱原物宿主能力，并通过稳定 ID 读取和调用。"
 
 [[expert]]
 id = "wecom-unified"

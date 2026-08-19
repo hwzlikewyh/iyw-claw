@@ -1,6 +1,12 @@
 ---
 name: lixiao-workflows
 description: Authenticate to Lixiao (励销) and call its captured enterprise search, company detail, permission, contact, phone, unlock, product, exhibition, intellectual-property, and recruitment APIs through a bundled Python CLI. Use when Codex needs to log in to 励销, persist a reusable local session, inspect available captured operations, search enterprise data, or automate the workflows documented by the Lixiao browser traffic.
+routing:
+  capability: Lixiao enterprise data and captured API workflows
+  coreTriggers: [login to Lixiao or query its enterprise data]
+  exclusions: [generic company research outside Lixiao]
+  aliases: [励销, Lixiao enterprise search]
+  invocation: Read SKILL.md and use only the bundled CLI and captured operations.
 ---
 
 # Lixiao Workflows

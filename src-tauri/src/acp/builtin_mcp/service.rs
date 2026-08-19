@@ -79,6 +79,8 @@ pub struct BuiltinMcpService {
 
 impl BuiltinMcpService {
     pub async fn start(listener: Arc<DelegationListener>) -> io::Result<Arc<Self>> {
+        super::capability::CapabilityCatalog::load()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let advertised_tools = embedded_tool_names()?;
         let tcp = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         crate::web::socket_inherit::mark_listener_non_inheritable(&tcp)?;

@@ -1,6 +1,12 @@
 ---
 name: open-computer-use
 description: Use when operating or troubleshooting the Open Computer Use MCP service from iyw-claw or a standalone Agent runtime on macOS, Linux, or Windows.
+routing:
+  capability: operate or troubleshoot Open Computer Use MCP
+  coreTriggers: [Open Computer Use setup operation or failure]
+  exclusions: [ordinary browser or shell automation]
+  aliases: [OCU, computer use MCP]
+  invocation: Read SKILL.md and follow the platform-specific MCP procedure.
 ---
 
 # Open Computer Use

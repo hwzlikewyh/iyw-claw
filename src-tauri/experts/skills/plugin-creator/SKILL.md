@@ -1,6 +1,12 @@
 ---
 name: plugin-creator
 description: Create and scaffold portable plugin directories for Codex and Claude Code with dual native manifests, an IYW component manifest, optional plugin folders/files, valid defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add shared skills or MCP connectors, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow.
+routing:
+  capability: create or update portable Codex and Claude plugins
+  coreTriggers: [create a plugin or add plugin skills and MCP connectors]
+  exclusions: [create only a standalone Skill]
+  aliases: [plugin scaffold, portable plugin]
+  invocation: Read SKILL.md and use its manifest and reinstall workflow.
 ---
 
 # Plugin Creator

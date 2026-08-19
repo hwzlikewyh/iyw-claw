@@ -100,6 +100,10 @@ impl BuiltinMcpHandler {
             arguments,
             delivery_ack,
         } = invocation;
+        let rewrite_delegation_guidance = matches!(
+            tool_name.as_str(),
+            "delegate_to_agent" | "get_delegation_status" | "cancel_delegation"
+        );
         let cancellation_policy = CallCancellationPolicy::for_call(&tool_name, &arguments);
         let delivery_ack_committed = if let Some(receipt) = delivery_ack.as_deref() {
             ensure_active(&authority, &request_cancel)?;
@@ -147,15 +151,20 @@ impl BuiltinMcpHandler {
             cancellation_policy
         };
         ensure_active_after_call(&authority, &request_cancel_after_call, final_policy)?;
-        map_spawn_result(result, delivery, &self.receipts, authority.connection_id()).map_err(
-            |error| {
-                post_ack_error(
-                    delivery_ack_committed,
-                    error,
-                    "MCP result unavailable after delivery acknowledgement",
-                )
-            },
+        map_spawn_result(
+            result,
+            delivery,
+            &self.receipts,
+            authority.connection_id(),
+            rewrite_delegation_guidance,
         )
+        .map_err(|error| {
+            post_ack_error(
+                delivery_ack_committed,
+                error,
+                "MCP result unavailable after delivery acknowledgement",
+            )
+        })
     }
 
     fn bridge(&self, authority: &SessionContext, broker_token: &str) -> CompanionBridge {
@@ -243,18 +252,27 @@ fn map_spawn_result(
     delivery: Option<RelayDelivery>,
     receipts: &DeliveryReceiptRegistry,
     parent_connection_id: &str,
+    rewrite_delegation_guidance: bool,
 ) -> Result<CallToolResult, ErrorData> {
     let Some(response) = result.response else {
         return Err(ErrorData::invalid_request("MCP request cancelled", None));
     };
     if let Some(error) = response.error {
-        return Err(map_json_rpc_error(error.code, error.message, error.data));
+        return Err(map_json_rpc_error(
+            error.code,
+            error.message,
+            error.data,
+            rewrite_delegation_guidance,
+        ));
     }
     let value = response
         .result
         .ok_or_else(|| ErrorData::internal_error("missing MCP tool result", None))?;
-    let mut mapped = serde_json::from_value(value)
+    let mut mapped: CallToolResult = serde_json::from_value(value)
         .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+    if rewrite_delegation_guidance {
+        super::capability_response::rewrite_result(&mut mapped);
+    }
     if let Some(callback) = result.after_relay {
         if !receipts.attach(&mut mapped, delivery, parent_connection_id, callback) {
             tracing::warn!(
@@ -270,7 +288,17 @@ fn map_spawn_result(
     Ok(mapped)
 }
 
-fn map_json_rpc_error(code: i64, message: String, data: Option<Value>) -> ErrorData {
+fn map_json_rpc_error(
+    code: i64,
+    message: String,
+    data: Option<Value>,
+    rewrite_delegation_guidance: bool,
+) -> ErrorData {
+    let (message, data) = if rewrite_delegation_guidance {
+        super::capability_response::rewrite_error(message, data)
+    } else {
+        (message, data)
+    };
     match code {
         -32601 => ErrorData::invalid_request(message, data),
         -32602 => ErrorData::invalid_params(message, data),

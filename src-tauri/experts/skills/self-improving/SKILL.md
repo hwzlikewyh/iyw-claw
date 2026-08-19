@@ -1,6 +1,12 @@
 ---
 name: self-improving
 description: MUST use proactively whenever the user explicitly asks to remember something; states a first-person durable preference, fact, long-term goal, or recurring constraint; corrects reusable Agent behavior; repeats a durable signal in the visible context; or when the Agent should record a non-user operational reflection after significant work. Route volunteered non-sensitive information through review-first layered memory. Do not trigger persistence from silence, behavior, tone, inferred traits, secrets, third-party information, or one-time instructions.
+routing:
+  capability: durable memory and learning
+  coreTriggers: [explicit remember request or reusable correction]
+  exclusions: [secrets, inference, third-party data, one-time task]
+  aliases: [remember, learning]
+  invocation: Read SKILL.md and apply its safety and persistence rules.
 ---
 
 # Self Improving

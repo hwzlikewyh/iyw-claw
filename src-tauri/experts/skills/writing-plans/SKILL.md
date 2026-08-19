@@ -1,6 +1,12 @@
 ---
 name: writing-plans
 description: Use when you have a spec or requirements for a multi-step task, before touching code
+routing:
+  capability: write a detailed implementation plan
+  coreTriggers: [an approved spec needs a multi-step implementation plan]
+  exclusions: [single-step work or an unapproved design]
+  aliases: [implementation plan, write plan]
+  invocation: Read SKILL.md and produce an executable file-by-file plan.
 ---
 
 # Writing Plans

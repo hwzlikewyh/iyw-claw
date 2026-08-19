@@ -47,9 +47,10 @@ shadows.
 
 The CLI decodes `b64_json` into the requested output files. A process exit code
 of zero is necessary but not sufficient: confirm every expected file exists and
-is a supported image before displaying each local file with `show_image`
-(namespaced: `mcp__iyw-claw-mcp__show_image`). Final public HTTPS URLs from
-other workflows use Markdown image syntax instead.
+is a supported image, then follow the parent Skill's display workflow. Use only
+a directly visible `show_image` tool or the complete IYW Capability Gateway
+trio; never construct a namespace. Final public HTTPS URLs from other workflows
+use Markdown image syntax instead.
 
 Do not expose response metadata that identifies internal providers, channels,
 models selected by the service, token values, or request headers.

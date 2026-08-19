@@ -1,6 +1,12 @@
 ---
 name: executing-plans
 description: Use when you have a written implementation plan to execute in a separate session with review checkpoints
+routing:
+  capability: execute an approved implementation plan
+  coreTriggers: [a written plan is ready for execution]
+  exclusions: [requirements are still being designed, no written plan exists]
+  aliases: [execute plan, implementation session]
+  invocation: Read the plan first and execute it in reviewed batches.
 ---
 
 # Executing Plans

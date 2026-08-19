@@ -1,6 +1,12 @@
 ---
 name: imagegen
 description: Use when an Agent needs GPT Image-specific generation parameters or image editing through the IYW Fusion API; route ordinary text-to-image requests through iyw-image-workflows first.
+routing:
+  capability: GPT Image generation and editing through IYW Fusion
+  coreTriggers: [GPT Image-specific parameters or edits are required]
+  exclusions: [ordinary text-to-image requests]
+  aliases: [GPT Image, image generation]
+  invocation: Read SKILL.md and use only its documented CLI and parameters.
 ---
 
 # Image Generation

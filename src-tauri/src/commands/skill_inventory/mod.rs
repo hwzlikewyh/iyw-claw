@@ -307,6 +307,19 @@ fn inventory_revision(skills: &[LogicalSkillInventoryItem]) -> String {
         hasher.update(skill.skill_id.as_bytes());
         hasher.update(format!("{:?}", skill.scope).as_bytes());
         hasher.update(format!("{:?}", skill.status).as_bytes());
+        hasher.update(format!("{:?}", skill.routing_status).as_bytes());
+        if let Some(routing) = &skill.routing {
+            hasher.update(routing.capability.as_bytes());
+            hasher.update(routing.invocation.as_bytes());
+            for value in routing
+                .core_triggers
+                .iter()
+                .chain(&routing.exclusions)
+                .chain(&routing.aliases)
+            {
+                hasher.update(value.as_bytes());
+            }
+        }
         hasher.update([u8::from(skill.plugin_available)]);
         for observation in &skill.observations {
             hasher.update(observation.canonical_path.as_bytes());

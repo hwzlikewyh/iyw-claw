@@ -1958,6 +1958,9 @@ export interface AgentSkillItem {
   layout: AgentSkillLayout
   path: string
   description: string | null
+  routing: SkillRoutingCard | null
+  routing_status: SkillRoutingStatus
+  routing_error: string | null
   enabled: boolean
   copy_mode: boolean
   read_only: boolean
@@ -1966,6 +1969,16 @@ export interface AgentSkillItem {
   official: boolean
   /** True when iyw-claw Skill Market manages this skill's source directory. */
   market_managed?: boolean
+}
+
+export type SkillRoutingStatus = "valid" | "missing" | "invalid"
+
+export interface SkillRoutingCard {
+  capability: string
+  coreTriggers: string[]
+  exclusions: string[]
+  aliases: string[]
+  invocation: string
 }
 
 export interface AgentSkillFile {
@@ -2016,6 +2029,9 @@ export interface SkillObservation {
   skillId: string
   name: string
   description: string | null
+  routing: SkillRoutingCard | null
+  routingStatus: SkillRoutingStatus
+  routingError: string | null
   scope: AgentSkillScope
   layout: AgentSkillLayout
   canonicalPath: string
@@ -2048,6 +2064,9 @@ export interface LogicalSkillInventoryItem {
   scope: AgentSkillScope
   name: string
   description: string | null
+  routing: SkillRoutingCard | null
+  routingStatus: SkillRoutingStatus
+  routingError: string | null
   routingDescriptionChars: number
   routingDescriptionOverLimit: boolean
   status: SkillInventoryStatus

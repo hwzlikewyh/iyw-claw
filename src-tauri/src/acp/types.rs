@@ -668,6 +668,11 @@ pub struct AgentSkillItem {
     /// Best-effort `description:` extracted from the SKILL.md YAML
     /// frontmatter. `None` when there is no frontmatter or no key.
     pub description: Option<String>,
+    /// Structured routing metadata parsed from SKILL.md. Agents use this
+    /// compact card for discovery, then read the full Skill before execution.
+    pub routing: Option<crate::acp::skill_routing::SkillRoutingCard>,
+    pub routing_status: crate::acp::skill_routing::SkillRoutingStatus,
+    pub routing_error: Option<String>,
     /// False when iyw-claw has moved the skill into the per-directory disabled
     /// store so agents no longer discover it automatically.
     pub enabled: bool,

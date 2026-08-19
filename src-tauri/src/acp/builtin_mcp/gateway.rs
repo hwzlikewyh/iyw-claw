@@ -4,7 +4,8 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::capability::{tool_name_for_capability_id, CapabilityCatalog, ResolvedCapability};
+use super::capability::{CapabilityCatalog, ResolveError, ResolvedCapability};
+use super::capability_registry::tool_name_for_capability_id;
 use super::features::FeatureSnapshot;
 
 pub(super) const SEARCH_TOOL: &str = "search_iyw_capabilities";
@@ -125,6 +126,7 @@ fn search(
         .map_err(|error| ErrorData::invalid_params(error.to_string(), None))?;
     Ok(GatewayAction::Return(CallToolResult::structured(json!({
         "capabilities": capabilities,
+        "catalog_digest": catalog.digest(),
     }))))
 }
 
@@ -140,6 +142,7 @@ fn read(
         .ok_or_else(unknown_capability)?;
     Ok(GatewayAction::Return(CallToolResult::structured(json!({
         "capability": detail,
+        "catalog_digest": catalog.digest(),
     }))))
 }
 
@@ -153,7 +156,7 @@ fn invoke(
     let arguments = Value::Object(params.arguments);
     let mut resolved = catalog
         .resolve(features, capability_id, arguments)
-        .ok_or_else(unknown_capability)?;
+        .map_err(resolve_error)?;
     resolved.delivery_ack = parse_delivery_ack(params.delivery_ack)?;
     Ok(GatewayAction::Invoke(resolved))
 }
@@ -226,7 +229,11 @@ fn bare_gateway_name(name: &str) -> Option<&'static str> {
 }
 
 fn unknown_capability() -> ErrorData {
-    ErrorData::invalid_params("unknown or unavailable capability id", None)
+    ErrorData::invalid_params("unknown capability id", None)
+}
+
+fn resolve_error(error: ResolveError) -> ErrorData {
+    ErrorData::invalid_params(error.to_string(), None)
 }
 
 #[derive(Deserialize)]
@@ -253,7 +260,7 @@ struct InvokeParams {
 fn search_tool() -> Value {
     json!({
         "name": SEARCH_TOOL,
-        "description": "Search the current session's IYW capability catalog. Always call this first with concise English goal keywords; translate non-English intent. Use only returned stable ids, then read the selected id before invoking it.",
+        "description": "Proactively search the current session's IYW capability catalog when a concrete goal needs host-side state or action, especially delegation, submitting feedback or user questions, session state, image or media work, task artifacts, persistent memory, channels, or automation. Search once before claiming such a step is unavailable or asking the user to do it manually when no direct tool fits. A user-requested exact visible direct tool takes precedence only for the subgoal it fully satisfies; apply discovery independently to remaining host-side subgoals. Ask for a missing primary object before search. Use two to five discriminating English action/object keywords; do not search greetings, ordinary questions, current-turn-only context, every turn, or merely to enumerate capabilities. Read at most two plausible candidates per result set. An empty result, no plausible candidate, or two non-matches permits the single search retry.",
         "inputSchema": {
             "type": "object",
             "required": ["query"],
@@ -269,7 +276,7 @@ fn search_tool() -> Value {
 fn read_tool() -> Value {
     json!({
         "name": READ_TOOL,
-        "description": "Read the full description and input schema for one stable capability id returned by search_iyw_capabilities. Read before invoking; never guess arguments.",
+        "description": "Read the full description and current input schema for one exact stable capability id returned by this session's search. Read before invoking and obey the returned schema. Ask for missing referenced objects or required inputs; never guess ids, paths, URLs, field names, or arguments.",
         "inputSchema": {
             "type": "object",
             "required": ["capability_id"],
@@ -284,7 +291,7 @@ fn read_tool() -> Value {
 fn invoke_tool() -> Value {
     json!({
         "name": INVOKE_TOOL,
-        "description": "Invoke an available IYW capability using an exact stable id returned by this session's search. Supply arguments exactly as described by read_iyw_capability. If a prior response returned iyw_delivery_receipt and a later real invocation is needed, echo it only as top-level delivery_ack; never put it in arguments or fabricate an invocation just to acknowledge it.",
+        "description": "Invoke an available IYW capability using an exact stable id returned by this session's search. Supply arguments exactly as described by read_iyw_capability. If the id becomes unavailable or routing fails, do not retry under a guessed id or namespace. If a prior response returned iyw_delivery_receipt and a later real invocation is needed, echo it only as top-level delivery_ack; never put it in arguments or fabricate an invocation just to acknowledge it.",
         "inputSchema": {
             "type": "object",
             "required": ["capability_id", "arguments"],
