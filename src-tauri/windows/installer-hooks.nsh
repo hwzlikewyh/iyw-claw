@@ -37,6 +37,15 @@ Function IywClawRestoreLogicalInstallRoot
   ; installation root so bundled command-line tools never inherit a Chinese
   ; executable path. Users can still choose another directory in the installer.
   iyw_set_default_install_root:
+    ; NSIS passes a disposable CI install root through /D=. Preserve it when
+    ; present; only interactive installs should receive the product default.
+    ClearErrors
+    ${GetOptions} $CMDLINE "/D=" $R8
+    IfErrors iyw_set_product_default_root 0
+    StrCpy $INSTDIR "$R8"
+    Goto iyw_guiinit_done
+
+  iyw_set_product_default_root:
     GetFullPathName $INSTDIR "$LOCALAPPDATA\iywclaw"
 
   iyw_guiinit_done:
