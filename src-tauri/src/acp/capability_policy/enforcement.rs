@@ -11,12 +11,9 @@ use super::{
 };
 use crate::acp::runtime_host_policy;
 use crate::app_error::AppCommandError;
-use crate::db::service::{agent_setting_service, capability_preference_service};
+use crate::db::service::agent_setting_service;
 use crate::models::agent::AgentType;
 
-const AGENT_SUBJECT_KIND: &str = "agent";
-const CLIENT_SUBJECT_KIND: &str = "client";
-const CLIENT_SUBJECT_ID: &str = "global";
 #[derive(Clone)]
 pub struct CapabilityEnforcer {
     pub(super) conn: DatabaseConnection,
@@ -91,19 +88,13 @@ impl CapabilityEnforcer {
         capability: Capability,
         runtime_verified: bool,
     ) -> Result<CapabilityDecision, AppCommandError> {
-        let local_enabled = capability_preference_service::get_enabled(
-            &self.conn,
-            CLIENT_SUBJECT_KIND,
-            CLIENT_SUBJECT_ID,
-            capability.key(),
-        )
-        .await
-        .map_err(AppCommandError::from)?;
         let request = CapabilityRequest {
             subject: PolicySubject::Client,
             capability,
             compiled_support: capability.compiled_support(),
-            local_enabled,
+            // Capability preferences are policy metadata only; local execution
+            // is always enabled and the remote policy remains authoritative.
+            local_enabled: true,
             runtime_verified,
         };
         Ok(evaluate(&request, &self.store.view().await, Utc::now()))
@@ -139,9 +130,7 @@ impl CapabilityEnforcer {
         runtime_verified: bool,
     ) -> Result<CapabilityRequest, AppCommandError> {
         let platform_id = self.platform_id(agent_type).await?;
-        let local_enabled = self
-            .agent_local_enabled(agent_type, &platform_id, capability)
-            .await?;
+        let local_enabled = self.agent_local_enabled(agent_type, capability).await?;
         Ok(CapabilityRequest {
             subject: PolicySubject::Agent(AgentSubject {
                 platform_id,
@@ -170,7 +159,6 @@ impl CapabilityEnforcer {
     async fn agent_local_enabled(
         &self,
         agent_type: AgentType,
-        platform_id: &str,
         capability: Capability,
     ) -> Result<bool, AppCommandError> {
         if capability == Capability::AgentLaunch {
@@ -182,29 +170,9 @@ impl CapabilityEnforcer {
                 .map(|value| value.enabled)
                 .unwrap_or_else(|| agent_setting_service::default_enabled(agent_type)));
         }
-        let enabled = self.agent_preference(platform_id, capability).await?;
-        if capability.requires_host_execution() {
-            return Ok(enabled
-                && self
-                    .agent_preference(platform_id, Capability::HostExecution)
-                    .await?);
-        }
-        Ok(enabled)
-    }
-
-    async fn agent_preference(
-        &self,
-        platform_id: &str,
-        capability: Capability,
-    ) -> Result<bool, AppCommandError> {
-        capability_preference_service::get_enabled(
-            &self.conn,
-            AGENT_SUBJECT_KIND,
-            platform_id,
-            capability.key(),
-        )
-        .await
-        .map_err(AppCommandError::from)
+        // Capability preferences are policy metadata only; local execution
+        // is always enabled and the remote policy remains authoritative.
+        Ok(true)
     }
 }
 

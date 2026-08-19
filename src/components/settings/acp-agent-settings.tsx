@@ -151,10 +151,6 @@ import {
 } from "./deepseek-config-panel"
 import { AgentStorageSettings } from "./agent-storage-settings"
 import { AgentVersionCenter } from "./agent-version-center"
-import {
-  AgentCapabilityPreferences,
-  ClientCapabilityPreferences,
-} from "./capability-preferences"
 
 interface AgentCheckState {
   result?: PreflightResult
@@ -7544,12 +7540,6 @@ export function AcpAgentSettings({
                   key={selectedAgent.agent_type}
                   agentType={selectedAgent.agent_type}
                   onChanged={refreshAgents}
-                />
-
-                <ClientCapabilityPreferences />
-                <AgentCapabilityPreferences
-                  key={selectedAgent.registry_id}
-                  registryId={selectedAgent.registry_id}
                 />
 
                 <div className="border-b pb-3">
