@@ -63,13 +63,7 @@ pub(super) async fn ensure_component(
 ) -> RuntimeComponentReport {
     let started = Instant::now();
     tracing::info!(phase = "begin", "runtime component bootstrap started");
-    let report = if !cfg!(windows) {
-        tracing::info!(outcome = "skipped", reason = "windows_only");
-        RuntimeComponentReport {
-            status: RuntimeComponentStatus::Skipped,
-            detail: Some("managed runtime bootstrap is currently Windows-only".to_string()),
-        }
-    } else if let Some(report) = ready_component(tool_id) {
+    let report = if let Some(report) = ready_component(tool_id) {
         tracing::info!(outcome = "ready", decision = "already_installed");
         report
     } else {

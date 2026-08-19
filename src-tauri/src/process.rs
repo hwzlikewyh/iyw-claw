@@ -26,6 +26,7 @@ pub fn configure_std_command(command: &mut Command) -> &mut Command {
         command.creation_flags(CREATE_NO_WINDOW);
     }
     set_utf8_env(command);
+    set_managed_path_env(command);
     command
 }
 
@@ -46,6 +47,7 @@ pub fn configure_tokio_command(
         command.creation_flags(CREATE_NO_WINDOW);
     }
     set_utf8_env(command);
+    set_managed_path_env(command);
     command
 }
 
@@ -65,19 +67,46 @@ fn set_utf8_env<C: SetEnv>(command: &mut C) {
     command.env("LC_ALL", "C.UTF-8");
 }
 
+fn set_managed_path_env<C: SetEnv>(command: &mut C) {
+    let mut paths = ["node", "git"]
+        .into_iter()
+        .filter_map(crate::acp::version_center::managed_tool_executable)
+        .filter_map(|path| path.parent().map(ToOwned::to_owned))
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        return;
+    }
+    if let Some(current) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&current));
+    }
+    paths.dedup();
+    if let Ok(value) = std::env::join_paths(paths) {
+        command.env_os("PATH", &value);
+    }
+}
+
 /// Abstraction over the `.env()` method shared by std and tokio Command types.
 trait SetEnv {
     fn env(&mut self, key: &str, val: &str) -> &mut Self;
+    fn env_os(&mut self, key: &str, val: &OsStr) -> &mut Self;
 }
 
 impl SetEnv for Command {
     fn env(&mut self, key: &str, val: &str) -> &mut Self {
         Command::env(self, key, val)
     }
+
+    fn env_os(&mut self, key: &str, val: &OsStr) -> &mut Self {
+        Command::env(self, key, val)
+    }
 }
 
 impl SetEnv for tokio::process::Command {
     fn env(&mut self, key: &str, val: &str) -> &mut Self {
+        tokio::process::Command::env(self, key, val)
+    }
+
+    fn env_os(&mut self, key: &str, val: &OsStr) -> &mut Self {
         tokio::process::Command::env(self, key, val)
     }
 }
@@ -192,7 +221,6 @@ where
 /// * In Docker / systemd services: typically a no-op — `which("node")`
 ///   succeeds because `node` is installed to a standard PATH directory.
 pub fn ensure_node_in_path() {
-    #[cfg(windows)]
     if let Ok(executable) = std::env::current_exe() {
         if let Some(bin_dir) = managed_node::managed_node_bin_dir(&executable) {
             prepend_to_path(&bin_dir);

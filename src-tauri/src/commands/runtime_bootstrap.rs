@@ -23,6 +23,8 @@ use crate::web::event_bridge::EventEmitter;
 
 #[cfg(feature = "tauri-runtime")]
 use crate::acp::manager::ConnectionManager;
+#[cfg(feature = "tauri-runtime")]
+use tauri::Manager as _;
 
 mod fallback;
 mod managed;
@@ -158,12 +160,6 @@ pub async fn runtime_bootstrap_managed_core(
     )
     .await;
 
-    if node.status == RuntimeComponentStatus::Installed
-        || git.status == RuntimeComponentStatus::Installed
-        || uv.status == RuntimeComponentStatus::Installed
-    {
-        crate::process::ensure_managed_tools_in_path();
-    }
     let failed = node.status == RuntimeComponentStatus::Failed
         || git.status == RuntimeComponentStatus::Failed
         || uv.status == RuntimeComponentStatus::Failed;
@@ -206,10 +202,31 @@ pub async fn runtime_bootstrap(
         phase = "command_enter",
         "runtime bootstrap command entered"
     );
+    let resource_dir = app.path().resource_dir().ok();
     let emitter = EventEmitter::Tauri(app);
     let conn = db.conn.clone();
     let data_dir = crate::system_skills::data_dir_from_env();
     let defer_while_active = connection_manager.has_live_agent_sessions().await;
+    if !defer_while_active {
+        if let Some(resource_dir) = resource_dir.as_deref() {
+            if let Err(error) = crate::acp::version_center::import_runtime_seed_exclusive(
+                crate::acp::version_center::RuntimeSeedImport {
+                    conn: &conn,
+                    data_dir: &data_dir,
+                    resource_dir,
+                    task_id: &task_id,
+                    emitter: &emitter,
+                },
+            )
+            .await
+            {
+                tracing::warn!(
+                    error_code = ?error.code,
+                    "[runtime-seed] seed manifest rejected; continuing with Version Center"
+                );
+            }
+        }
+    }
     tracing::info!(
         task_id = %task_id,
         phase = "session_probe_complete",
@@ -262,6 +279,7 @@ pub async fn bootstrap_initialize(
     connection_manager: tauri::State<'_, ConnectionManager>,
 ) -> Result<crate::acp::version_center::InitStatusReport, String> {
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
+    let resource_dir = app.path().resource_dir().ok();
     let emitter = EventEmitter::Tauri(app);
     let conn = db.conn.clone();
     let data_dir = crate::system_skills::data_dir_from_env();
@@ -270,6 +288,7 @@ pub async fn bootstrap_initialize(
     crate::acp::version_center::bootstrap_initialize(
         &conn,
         &data_dir,
+        resource_dir.as_deref(),
         &channel,
         defer_while_active,
         &task_id,

@@ -8,7 +8,7 @@ use crate::acp::error::AcpError;
 use crate::acp::npm_runtime;
 use crate::acp::registry;
 use crate::acp::version_center::fallback::{self, AgentFallbackReason};
-use crate::acp::version_center::inventory::{self, ORIGIN_MANAGED, STATUS_ACTIVE};
+use crate::acp::version_center::inventory::{self, is_verified_origin, STATUS_ACTIVE};
 use crate::models::agent::AgentType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,7 +150,7 @@ async fn validate_managed_node_inventory(
             installation.version == active_version
                 && installation.status == STATUS_ACTIVE
                 && installation.verified
-                && installation.origin == ORIGIN_MANAGED
+                && is_verified_origin(&installation.origin)
         })
         .ok_or_else(|| managed_node_requirement_error(agent_type, required, active_version))?;
     let installed = semver::Version::parse(&active.version)

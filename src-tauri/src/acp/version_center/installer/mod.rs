@@ -10,6 +10,7 @@ mod bootstrap_commit;
 mod bootstrap_component;
 mod bootstrap_download;
 mod bootstrap_finalize;
+mod bootstrap_reconcile;
 mod component;
 mod download;
 mod init;
@@ -20,6 +21,9 @@ mod preflight;
 mod resumable;
 mod runtime;
 mod runtime_bundle;
+mod runtime_seed;
+mod runtime_seed_files;
+mod runtime_seed_manifest;
 mod signature;
 mod state;
 mod tools;
@@ -37,4 +41,5 @@ pub(crate) use runtime::{runtime_dir, write_current_pointer};
 pub(crate) use runtime_bundle::{
     install_runtime_bundle, InstalledRuntimeBundle, RuntimeBundleInstallError, RuntimeBundleRequest,
 };
+pub(crate) use runtime_seed::{import_runtime_seed_exclusive, RuntimeSeedImport};
 pub use tools::{install_managed_tool, ManagedToolInstallResult};

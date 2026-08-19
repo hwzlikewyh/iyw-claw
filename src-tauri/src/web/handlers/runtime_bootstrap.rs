@@ -72,6 +72,7 @@ pub async fn bootstrap_initialize(
     let report = vc_bootstrap_initialize(
         &state.db.conn,
         &state.data_dir,
+        None,
         &channel,
         defer_while_active,
         &params.task_id,

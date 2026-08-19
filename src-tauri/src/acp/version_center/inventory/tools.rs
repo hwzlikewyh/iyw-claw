@@ -6,8 +6,8 @@ use sea_orm::{
 
 use crate::acp::error::AcpError;
 use crate::acp::version_center::inventory::{
-    database_error, ManagedToolInstallation, ManagedToolSetting, ReadyToolInstallation,
-    ORIGIN_MANAGED, STATUS_ACTIVE, STATUS_READY,
+    database_error, is_verified_origin, ManagedToolInstallation, ManagedToolSetting,
+    ReadyToolInstallation, ORIGIN_MANAGED, STATUS_ACTIVE, STATUS_READY,
 };
 use crate::db::entities::{managed_tool_installation, managed_tool_setting};
 
@@ -57,10 +57,21 @@ pub async fn activate_tool(
     policy: &str,
     revision: u64,
 ) -> Result<(), AcpError> {
+    activate_tool_with_origin(conn, tool_id, version, policy, revision, ORIGIN_MANAGED).await
+}
+
+pub async fn activate_tool_with_origin(
+    conn: &DatabaseConnection,
+    tool_id: &str,
+    version: &str,
+    policy: &str,
+    revision: u64,
+    origin: &str,
+) -> Result<(), AcpError> {
     ensure_setting(conn, tool_id).await?;
     let transaction = conn.begin().await.map_err(database_error)?;
     mark_inactive(&transaction, tool_id).await?;
-    mark_active(&transaction, tool_id, version).await?;
+    mark_active(&transaction, tool_id, version, origin).await?;
     update_pointer(&transaction, tool_id, version, policy, revision).await?;
     transaction.commit().await.map_err(database_error)
 }
@@ -94,9 +105,9 @@ async fn update_ready(
     active.status = Set(STATUS_READY.to_string());
     active.artifact_id = Set(input.artifact_id.map(ToString::to_string));
     active.expected_sha256 = Set(input.expected_sha256.map(ToString::to_string));
-    active.verified = Set(input.origin == ORIGIN_MANAGED);
+    active.verified = Set(is_verified_origin(input.origin));
     active.failure_code = Set(None);
-    active.verified_at = Set((input.origin == ORIGIN_MANAGED).then_some(now));
+    active.verified_at = Set(is_verified_origin(input.origin).then_some(now));
     active.updated_at = Set(now);
     active.update(conn).await.map_err(database_error)?;
     Ok(())
@@ -118,10 +129,10 @@ async fn insert_ready(
         status: Set(STATUS_READY.to_string()),
         artifact_id: Set(input.artifact_id.map(ToString::to_string)),
         expected_sha256: Set(input.expected_sha256.map(ToString::to_string)),
-        verified: Set(input.origin == ORIGIN_MANAGED),
+        verified: Set(is_verified_origin(input.origin)),
         failure_code: Set(None),
         installed_at: Set(Some(now)),
-        verified_at: Set((input.origin == ORIGIN_MANAGED).then_some(now)),
+        verified_at: Set(is_verified_origin(input.origin).then_some(now)),
         activated_at: Set(None),
         last_successful_use_at: Set(None),
         created_at: Set(now),
@@ -183,6 +194,7 @@ async fn mark_active<C: sea_orm::ConnectionTrait>(
     conn: &C,
     tool_id: &str,
     version: &str,
+    origin: &str,
 ) -> Result<(), AcpError> {
     let result = managed_tool_installation::Entity::update_many()
         .col_expr(
@@ -195,7 +207,7 @@ async fn mark_active<C: sea_orm::ConnectionTrait>(
         )
         .filter(managed_tool_installation::Column::ToolId.eq(tool_id))
         .filter(managed_tool_installation::Column::Version.eq(version))
-        .filter(managed_tool_installation::Column::Origin.eq(ORIGIN_MANAGED))
+        .filter(managed_tool_installation::Column::Origin.eq(origin))
         .filter(managed_tool_installation::Column::Verified.eq(true))
         .exec(conn)
         .await

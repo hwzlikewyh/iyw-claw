@@ -10,6 +10,11 @@ struct ManagedNodeState {
 }
 
 pub(super) fn managed_node_bin_dir(executable: &Path) -> Option<PathBuf> {
+    if let Some(candidate) = crate::acp::version_center::managed_tool_executable("node")
+        .and_then(|path| path.parent().map(ToOwned::to_owned))
+    {
+        return Some(candidate);
+    }
     if let Some(install_root) = std::env::var_os(crate::desktop_bootstrap::INSTALL_ROOT_ENV) {
         if let Some(candidate) = managed_node_bin_dir_from_data_root(Path::new(&install_root)) {
             return Some(candidate);
@@ -37,22 +42,30 @@ pub(super) fn managed_node_bin_dir_from_data_root(data_root: &Path) -> Option<Pa
 fn managed_node_bin_dir_from_node_root(node_root: &Path) -> Option<PathBuf> {
     let raw = std::fs::read_to_string(node_root.join("current.json")).ok()?;
     let state: ManagedNodeState = serde_json::from_str(&raw).ok()?;
-    if !valid_version(&state.version)
-        || !matches!(state.platform.as_str(), "win-x64" | "win-arm64" | "win-x86")
-    {
+    if !valid_version(&state.version) || state.platform != current_platform_dir() {
         return None;
     }
 
     let candidate = node_root.join(state.version).join(state.platform);
+    let bin_dir = if cfg!(windows) {
+        candidate.clone()
+    } else {
+        candidate.join("bin")
+    };
     let canonical_root = std::fs::canonicalize(node_root).ok()?;
-    let canonical_candidate = std::fs::canonicalize(&candidate).ok()?;
-    if !canonical_candidate.starts_with(canonical_root)
-        || !canonical_candidate.join("node.exe").is_file()
-        || !canonical_candidate.join("npm.cmd").is_file()
+    let canonical_bin = std::fs::canonicalize(&bin_dir).ok()?;
+    let (node, npm) = if cfg!(windows) {
+        ("node.exe", "npm.cmd")
+    } else {
+        ("node", "npm")
+    };
+    if !canonical_bin.starts_with(canonical_root)
+        || !canonical_bin.join(node).is_file()
+        || !canonical_bin.join(npm).is_file()
     {
         return None;
     }
-    Some(candidate)
+    Some(bin_dir)
 }
 
 fn valid_version(value: &str) -> bool {
@@ -63,4 +76,17 @@ fn valid_version(value: &str) -> bool {
         && value
             .split('.')
             .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+}
+
+fn current_platform_dir() -> &'static str {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => "win-x64",
+        ("windows", "aarch64") => "win-arm64",
+        ("windows", "x86") => "win-x86",
+        ("macos", "x86_64") => "darwin-x64",
+        ("macos", "aarch64") => "darwin-arm64",
+        ("linux", "x86_64") => "linux-x64",
+        ("linux", "aarch64") => "linux-arm64",
+        _ => "unknown",
+    }
 }
