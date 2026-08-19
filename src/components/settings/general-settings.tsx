@@ -16,9 +16,6 @@ import { usePlatform } from "@/hooks/use-platform"
 import { relaunchApp } from "@/lib/updater"
 import { toErrorMessage } from "@/lib/app-error"
 import { DelegationSettingsSection } from "@/components/settings/delegation-settings"
-import { SessionFeedbackSettingsSection } from "@/components/settings/session-feedback-settings"
-import { AskQuestionSettingsSection } from "@/components/settings/ask-question-settings"
-import { SessionInfoSettingsSection } from "@/components/settings/session-info-settings"
 import {
   SettingsPageLayout,
   SettingsPageHeader,
@@ -185,12 +182,6 @@ export function GeneralSettings() {
       )}
 
       <DelegationSettingsSection />
-
-      <SessionFeedbackSettingsSection />
-
-      <AskQuestionSettingsSection />
-
-      <SessionInfoSettingsSection />
     </SettingsPageLayout>
   )
 }
