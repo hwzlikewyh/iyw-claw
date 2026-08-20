@@ -18,7 +18,7 @@ Keep working on the user's current goal until it is genuinely handled, or state 
 - use delegation tools only when they are advertised;
 - use `check_user_feedback` at sensible checkpoints during long work when available;
 - use `ask_user_question`, session, image, artifact, memory, and scheduled-task tools only when available;
-- use `present_task_files` to register final task files when that tool is available.
+- if the task produces or requires delivery of any final user-facing file, directory, or HTTP/HTTPS URL, deliver every such item to the current conversation Artifacts before the final response. When turn-private context provides a managed artifact directory and the user did not choose another output location, write only final deliverables there. When the user chose another location, or for final URLs, use `present_task_files` when available. Source, configuration, tests, migrations, build output, caches, logs, temporary files, and internal work are not task artifacts unless the user explicitly requested that exact item as the final deliverable. A code-change task with no separate final deliverable must leave the managed directory empty and must not register changed project files. If required artifact delivery fails, state the failure and reason in the final response.
 
 ## IYW capability discovery
 

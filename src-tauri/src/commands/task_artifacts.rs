@@ -31,6 +31,17 @@ impl DbTaskArtifactAccess {
     }
 }
 
+pub(crate) fn emit_task_artifacts_changed(emitter: &EventEmitter, conversation_id: i32) {
+    emit_event(
+        emitter,
+        TASK_ARTIFACT_CHANGED_EVENT,
+        TaskArtifactChange {
+            conversation_id,
+            change: "upserted",
+        },
+    );
+}
+
 #[async_trait]
 impl TaskArtifactAccess for DbTaskArtifactAccess {
     async fn register_task_artifacts(
@@ -54,14 +65,7 @@ impl TaskArtifactAccess for DbTaskArtifactAccess {
                     .and_then(Value::as_array)
                     .map_or(0, Vec::len);
                 if accepted > 0 {
-                    emit_event(
-                        &self.emitter,
-                        TASK_ARTIFACT_CHANGED_EVENT,
-                        TaskArtifactChange {
-                            conversation_id,
-                            change: "upserted",
-                        },
-                    );
+                    emit_task_artifacts_changed(&self.emitter, conversation_id);
                 }
                 tracing::info!(
                     conversation_id,

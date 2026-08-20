@@ -455,7 +455,7 @@
   },
   {
     "name": "present_task_files",
-    "description": "Call this after creating task deliverables and before the final response. Register every produced file, directory, or HTTP/HTTPS URL so iyw-claw can show and preview it in the workspace Artifacts panel. Accepts working-directory-relative paths, absolute paths, and web URLs.",
+    "description": "Before the final response, add every final user-facing file, directory, or HTTP/HTTPS URL produced by this task to the current conversation Artifacts. This does not write directly to the workspace-wide All Artifacts aggregate. Do not register source, configuration, tests, migrations, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that exact item as the final deliverable. Accepts working-directory-relative paths, absolute paths, and web URLs.",
     "inputSchema": {
       "type": "object",
       "required": ["files"],
@@ -469,7 +469,7 @@
             "minLength": 1,
             "maxLength": 4096
           },
-          "description": "Files, directories, or HTTP/HTTPS URLs produced by this task. Relative paths resolve from the current working directory; absolute paths and web URLs are accepted."
+          "description": "Final user-facing files, directories, or HTTP/HTTPS URLs to add to the current conversation Artifacts. Relative paths resolve from the current working directory; absolute paths and web URLs are accepted."
         }
       },
       "additionalProperties": false

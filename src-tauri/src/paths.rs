@@ -15,6 +15,7 @@ const PETS_DIR_NAME: &str = "pets";
 const UPLOADS_DIR_NAME: &str = "uploads";
 const LOGS_DIR_NAME: &str = "logs";
 const ACP_TRANSCRIPTS_DIR_NAME: &str = "acp-transcripts";
+const TASK_ARTIFACTS_DIR_NAME: &str = "task-artifacts";
 const LOG_DIR_ENV: &str = "IYW_CLAW_LOG_DIR";
 pub const USER_MEMORY_DIR_ENV: &str = "IYW_CLAW_USER_MEMORY_DIR";
 
@@ -216,6 +217,15 @@ pub fn iyw_claw_acp_transcripts_root() -> PathBuf {
         return PathBuf::from(data).join(ACP_TRANSCRIPTS_DIR_NAME);
     }
     iyw_claw_user_dir().join(ACP_TRANSCRIPTS_DIR_NAME)
+}
+
+/// Host-managed final deliverables, isolated by conversation and ACP turn.
+pub fn iyw_claw_task_artifacts_root() -> PathBuf {
+    let data_root = std::env::var_os("IYW_CLAW_DATA_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(iyw_claw_user_dir);
+    crate::git_credential::absolutize(&data_root).join(TASK_ARTIFACTS_DIR_NAME)
 }
 
 /// Root used by codex-acp for optional adapter-side diagnostics. These files
