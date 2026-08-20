@@ -228,6 +228,7 @@ fn mutation_may_outlive_request(tool_name: &str, arguments: &Value) -> bool {
             | "cancel_delegation"
             | "present_task_files"
             | "transcribe_audio"
+            | "transcribe_audio_flash"
             | "show_image"
             | "analyze_image"
             | "append_user_memory"

@@ -629,16 +629,75 @@
   },
   {
     "name": "transcribe_audio",
-    "description": "Transcribe a workspace-relative audio file in MP3, WAV/WAVE, OGG/OGA/Opus, MP4/M4A/M4B, or raw PCM format. The host uploads the file directly to managed storage, submits an asynchronous transcription job, and waits briefly for a result. Returns the transcript when ready, otherwise the jobId and status. Do not pass an absolute path, URL, bucket key, provider, or credentials.",
+    "description": "Transcribe audio asynchronously. Provide exactly one of path (workspace-relative file), url (HTTPS), or data (Base64/Data URI). Data requires fileName and raw Base64 also requires mimeType. The host downloads or decodes the source, converts unsupported formats with ffmpeg, uploads it to managed storage, and returns the transcript or job status.",
     "inputSchema": {
       "type": "object",
-      "required": ["path"],
+      "oneOf": [
+        { "required": ["path"] },
+        { "required": ["url"] },
+        { "required": ["data", "fileName"] }
+      ],
       "properties": {
         "path": {
           "type": "string",
           "minLength": 1,
-          "description": "Supported audio file path relative to the current workspace."
+          "description": "Audio file path relative to the current workspace."
         },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "HTTPS audio URL downloaded by the host."
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 25165824,
+          "description": "Base64 audio data or a data:<mime>;base64,... URI."
+        },
+        "fileName": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Safe file name required with data."
+        },
+        "mimeType": {
+          "type": "string",
+          "description": "MIME type required for raw Base64 data."
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 35,
+          "description": "Optional BCP-47 language tag. Defaults to zh-CN."
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "punctuation": { "type": "boolean", "default": true },
+            "wordTimestamps": { "type": "boolean", "default": true },
+            "speakerDiarization": { "type": "boolean", "default": false },
+            "channelSplit": { "type": "boolean", "default": false }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "transcribe_audio_flash",
+    "description": "Transcribe audio with Volcengine's synchronous flash model. Provide exactly one of path (workspace-relative file), url (HTTPS), or data (Base64/Data URI). Data requires fileName and raw Base64 also requires mimeType. The host downloads or decodes the source, converts it to an upstream-supported WAV when needed, uploads it to managed storage, and returns the completed transcript.",
+    "inputSchema": {
+      "type": "object",
+      "oneOf": [
+        { "required": ["path"] },
+        { "required": ["url"] },
+        { "required": ["data", "fileName"] }
+      ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "data": { "type": "string", "minLength": 1, "maxLength": 25165824 },
+        "fileName": { "type": "string", "maxLength": 255 },
+        "mimeType": { "type": "string" },
         "language": {
           "type": "string",
           "maxLength": 35,
