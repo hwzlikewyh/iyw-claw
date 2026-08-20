@@ -133,7 +133,7 @@ jobs:
       - name: Install and measure each package on this runner
         shell: pwsh
         env:
-          BENCHMARK_RUNS: ${{ inputs.runs || 3 }}
+          BENCHMARK_RUNS: ${{ github.event.inputs.runs || '3' }}
         run: |
           $arguments = @(
             "src-tauri/scripts/benchmark-nsis-install.mjs",
@@ -145,15 +145,31 @@ jobs:
             $arguments += "--require-no-duplicate-bundle"
           }
           foreach ($mode in @("lzma", "zlib", "none")) {
-            $installer = Get-ChildItem -LiteralPath (Join-Path "artifacts\nsis-compression" $mode) -Filter "*-setup.exe" |
-              Select-Object -First 1
-            if ($null -eq $installer) { throw "copied installer missing for $mode" }
+            $installers = @(Get-ChildItem -LiteralPath (Join-Path "artifacts\nsis-compression" $mode) -Filter "*-setup.exe" -File)
+            if ($installers.Count -ne 1) { throw "expected one copied installer for $mode, found $($installers.Count)" }
+            $installer = $installers[0]
             $arguments += @("--variant", "$mode=$($installer.FullName)")
           }
           node @arguments
           if ($LASTEXITCODE -ne 0) { throw "NSIS install benchmark failed" }
 
+      - name: Smoke installed zlib embedded assets
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem -LiteralPath "artifacts\nsis-compression\zlib" -Filter "*-setup.exe" -File)
+          if ($installers.Count -ne 1) { throw "expected one zlib installer, found $($installers.Count)" }
+          $arguments = @(
+            "src-tauri/scripts/smoke-nsis-static-assets.mjs",
+            "--installer", $installers[0].FullName,
+            "--static-root", "out",
+            "--source-sha", $env:SOURCE_SHA,
+            "--output", "artifacts/nsis-static-smoke"
+          )
+          node @arguments
+          if ($LASTEXITCODE -ne 0) { throw "installed zlib static asset smoke failed" }
+
       - name: Upload benchmark artifacts
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: nsis-compression-benchmark-${{ github.run_id }}
@@ -162,9 +178,19 @@ jobs:
           retention-days: 14
 
       - name: Upload install measurements
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: nsis-install-measurements-${{ github.run_id }}
           path: artifacts/nsis-install
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload installed static asset smoke
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsis-static-asset-smoke-${{ github.run_id }}
+          path: artifacts/nsis-static-smoke
+          if-no-files-found: warn
           retention-days: 14
