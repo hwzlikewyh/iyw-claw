@@ -1,6 +1,9 @@
 name: Benchmark Windows NSIS Compression
 
 on:
+  push:
+    branches:
+      - "bench/windows-installer-compression-*"
   workflow_dispatch:
     inputs:
       source_ref:
@@ -37,7 +40,7 @@ jobs:
       - name: Checkout benchmark source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ inputs.source_ref || github.sha }}
           fetch-depth: 1
 
       - name: Record source revision
@@ -115,7 +118,7 @@ jobs:
       - name: Install and measure each package on this runner
         shell: pwsh
         env:
-          BENCHMARK_RUNS: ${{ inputs.runs }}
+          BENCHMARK_RUNS: ${{ inputs.runs || 3 }}
         run: |
           $arguments = @(
             "src-tauri/scripts/benchmark-nsis-install.mjs",
@@ -123,7 +126,7 @@ jobs:
             "--source-sha", $env:SOURCE_SHA,
             "--output", "artifacts/nsis-install"
           )
-          if ("${{ inputs.expect_no_duplicate_bundle }}" -eq "true") {
+          if ("${{ github.event_name == 'push' || inputs.expect_no_duplicate_bundle }}" -eq "true") {
             $arguments += "--require-no-duplicate-bundle"
           }
           foreach ($mode in @("lzma", "zlib", "none")) {
