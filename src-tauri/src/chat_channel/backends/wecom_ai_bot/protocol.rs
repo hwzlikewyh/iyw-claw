@@ -153,6 +153,7 @@ fn build_command(
                 "chatid": chat_id,
                 "sender_id": sender_id,
                 "chattype": chattype.clone(),
+                "chat_type": chattype.clone(),
             })),
         },
         metadata: json!({ "chattype": chattype, "msgtype": "text" }),
@@ -176,6 +177,7 @@ async fn send_busy(
         None => proactive_frame(
             chatid.unwrap_or_default(),
             crate::chat_channel::backends::DISPATCHER_BUSY_TEXT,
+            target_chat_type(target).unwrap_or(1),
         ),
     };
     write_json(write, frame).await
@@ -185,12 +187,25 @@ pub(crate) fn reply_frame(req_id: &str, text: &str) -> Value {
     json!({ "cmd": "aibot_respond_msg", "headers": { "req_id": req_id }, "body": { "msgtype": "markdown", "markdown": { "content": text } } })
 }
 
-pub(crate) fn proactive_frame(chatid: &str, text: &str) -> Value {
-    json!({ "cmd": "aibot_send_msg", "headers": { "req_id": request_id("aibot_send_msg") }, "body": { "chatid": chatid, "msgtype": "markdown", "markdown": { "content": text } } })
+pub(crate) fn proactive_frame(chatid: &str, text: &str, chat_type: u8) -> Value {
+    json!({ "cmd": "aibot_send_msg", "headers": { "req_id": request_id("aibot_send_msg") }, "body": { "chatid": chatid, "chat_type": chat_type, "msgtype": "markdown", "markdown": { "content": text } } })
 }
 
 pub(crate) fn target_payload<'a>(target: &'a ChannelMessageTarget, key: &str) -> Option<&'a str> {
     target.provider_payload.as_ref()?.get(key)?.as_str()
+}
+
+pub(crate) fn target_chat_type(target: &ChannelMessageTarget) -> Option<u8> {
+    let value = target
+        .provider_payload
+        .as_ref()?
+        .get("chat_type")
+        .or_else(|| target.provider_payload.as_ref()?.get("chattype"))?;
+    let parsed = value
+        .as_u64()
+        .and_then(|value| u8::try_from(value).ok())
+        .or_else(|| value.as_str().and_then(|value| value.parse().ok()))?;
+    Some(if parsed == 2 { 2 } else { 1 })
 }
 
 pub(crate) fn ping_frame() -> Value {

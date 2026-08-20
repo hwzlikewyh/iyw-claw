@@ -9,7 +9,9 @@ use super::{protocol, OutboundRequest, State};
 use crate::chat_channel::error::ChatChannelError;
 use crate::chat_channel::types::*;
 
-pub(crate) use protocol::{proactive_frame, reply_frame, target_payload, verify_connection};
+pub(crate) use protocol::{
+    proactive_frame, reply_frame, target_chat_type, target_payload, verify_connection,
+};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_SILENT_INTERVALS: u32 = 3;

@@ -8,6 +8,7 @@ import {
   Pencil,
   Play,
   RefreshCw,
+  ScanLine,
   Square,
   Trash2,
   Zap,
@@ -49,14 +50,14 @@ export function ChannelConnectedList({
   readiness,
   onReload,
   onEdit,
-  onWeixinAuth,
+  onQrAuth,
 }: {
   channels: ChatChannelInfo[]
   statuses: ChannelStatusInfo[]
   readiness: ChannelReadinessReport[]
   onReload: () => Promise<void>
   onEdit: (channel: ChatChannelInfo) => void
-  onWeixinAuth: (channel: ChatChannelInfo) => void
+  onQrAuth: (channel: ChatChannelInfo) => void
 }) {
   const t = useTranslations("ChatChannelSettings")
   const [loadingId, setLoadingId] = useState<number | null>(null)
@@ -71,7 +72,7 @@ export function ChannelConnectedList({
       await action()
       await onReload()
     } catch (error) {
-      if (channel.channel_type === "weixin") onWeixinAuth(channel)
+      if (channel.channel_type === "weixin") onQrAuth(channel)
       else toast.error(toErrorMessage(error))
     } finally {
       setLoadingId(null)
@@ -221,6 +222,12 @@ export function ChannelConnectedList({
                       <Zap />
                       {t("test")}
                     </DropdownMenuItem>
+                    {supportsUnifiedQr(channel.channel_type) && (
+                      <DropdownMenuItem onSelect={() => onQrAuth(channel)}>
+                        <ScanLine />
+                        {t("qr.reconnect")}
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem
                       disabled={
                         !channel.enabled ||
@@ -288,4 +295,8 @@ function typeLabel(type: ChannelType) {
   if (type === "wecom_ai_bot") return "wecomAiBot"
   if (type === "wecom_agent") return "wecomAgent"
   return type
+}
+
+function supportsUnifiedQr(type: ChannelType) {
+  return ["weixin", "wecom_ai_bot", "dingtalk", "lark"].includes(type)
 }

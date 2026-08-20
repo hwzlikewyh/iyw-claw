@@ -373,7 +373,11 @@ pub async fn disconnect_chat_channel_core(
 
 /// Test connection without starting the full pipeline. Per-channel credential
 /// gate (WeCom never requires a channel token — IYW-CHANNEL-003).
-pub async fn test_chat_channel_core(db: &AppDatabase, id: i32) -> Result<(), AppCommandError> {
+pub async fn test_chat_channel_core(
+    db: &AppDatabase,
+    manager: &ChatChannelManager,
+    id: i32,
+) -> Result<(), AppCommandError> {
     let model = chat_channel_service::get_by_id(&db.conn, id)
         .await
         .map_err(AppCommandError::from)?
@@ -388,6 +392,14 @@ pub async fn test_chat_channel_core(db: &AppDatabase, id: i32) -> Result<(), App
             model.channel_type
         ))
     })?;
+
+    if channel_type == ChannelType::WecomAiBot && manager.is_connected(id).await {
+        tracing::info!(
+            channel_id = id,
+            "[WeComAiBot] skipped connection probe because the live subscription is connected"
+        );
+        return Ok(());
+    }
 
     let config: serde_json::Value = serde_json::from_str(&model.config_json).map_err(|e| {
         AppCommandError::configuration_invalid("Invalid config JSON").with_detail(e.to_string())
@@ -737,8 +749,33 @@ pub fn delete_chat_natural_router_api_key_core() -> Result<(), AppCommandError> 
 // WeChat QR code auth
 // ---------------------------------------------------------------------------
 
-pub async fn weixin_get_qrcode_core() -> Result<WeixinQrcodeInfo, AppCommandError> {
-    crate::chat_channel::backends::weixin::weixin_get_qrcode()
+pub async fn start_chat_channel_qr_core(
+    db: &AppDatabase,
+    channel_id: i32,
+    channel_type: Option<&str>,
+    variant: Option<&str>,
+) -> Result<crate::chat_channel::qrcode_onboarding::QrStartResponse, AppCommandError> {
+    crate::chat_channel::qrcode_onboarding::start(db, channel_id, channel_type, variant).await
+}
+
+pub async fn poll_chat_channel_qr_core(
+    db: &AppDatabase,
+    manager: &ChatChannelManager,
+    session_id: &str,
+    verify_code: Option<&str>,
+) -> Result<crate::chat_channel::qrcode_onboarding::QrPollResponse, AppCommandError> {
+    crate::chat_channel::qrcode_onboarding::poll(db, manager, session_id, verify_code).await
+}
+
+pub async fn cancel_chat_channel_qr_core(
+    session_id: &str,
+) -> Result<crate::chat_channel::qrcode_onboarding::QrPollResponse, AppCommandError> {
+    crate::chat_channel::qrcode_onboarding::cancel(session_id).await
+}
+
+pub async fn weixin_get_qrcode_core(db: &AppDatabase) -> Result<WeixinQrcodeInfo, AppCommandError> {
+    let local_tokens = crate::chat_channel::qrcode_onboarding::recent_weixin_tokens(db).await?;
+    crate::chat_channel::backends::weixin::weixin_get_qrcode(&local_tokens)
         .await
         .map_err(AppCommandError::from)
 }
@@ -748,8 +785,9 @@ pub async fn weixin_check_qrcode_core(
     manager: &ChatChannelManager,
     channel_id: i32,
     qrcode: &str,
+    verify_code: Option<&str>,
 ) -> Result<WeixinQrcodeStatusPublic, AppCommandError> {
-    let result = crate::chat_channel::backends::weixin::weixin_check_qrcode(qrcode)
+    let result = crate::chat_channel::backends::weixin::weixin_check_qrcode(qrcode, verify_code)
         .await
         .map_err(AppCommandError::from)?;
 
@@ -993,9 +1031,10 @@ pub async fn disconnect_chat_channel(
 #[tauri::command]
 pub async fn test_chat_channel(
     db: tauri::State<'_, AppDatabase>,
+    manager: tauri::State<'_, ChatChannelManager>,
     id: i32,
 ) -> Result<(), AppCommandError> {
-    test_chat_channel_core(&db, id).await
+    test_chat_channel_core(&db, &manager, id).await
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -1145,8 +1184,40 @@ pub async fn delete_chat_natural_router_api_key() -> Result<(), AppCommandError>
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn weixin_get_qrcode() -> Result<WeixinQrcodeInfo, AppCommandError> {
-    weixin_get_qrcode_core().await
+pub async fn start_chat_channel_qr(
+    db: tauri::State<'_, AppDatabase>,
+    channel_id: i32,
+    channel_type: Option<String>,
+    variant: Option<String>,
+) -> Result<crate::chat_channel::qrcode_onboarding::QrStartResponse, AppCommandError> {
+    start_chat_channel_qr_core(&db, channel_id, channel_type.as_deref(), variant.as_deref()).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn poll_chat_channel_qr(
+    db: tauri::State<'_, AppDatabase>,
+    manager: tauri::State<'_, ChatChannelManager>,
+    session_id: String,
+    verify_code: Option<String>,
+) -> Result<crate::chat_channel::qrcode_onboarding::QrPollResponse, AppCommandError> {
+    poll_chat_channel_qr_core(&db, &manager, &session_id, verify_code.as_deref()).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn cancel_chat_channel_qr(
+    session_id: String,
+) -> Result<crate::chat_channel::qrcode_onboarding::QrPollResponse, AppCommandError> {
+    cancel_chat_channel_qr_core(&session_id).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn weixin_get_qrcode(
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<WeixinQrcodeInfo, AppCommandError> {
+    weixin_get_qrcode_core(&db).await
 }
 
 // ── WeCom (企业微信 / wecom-cli) auth ──
@@ -1173,6 +1244,7 @@ pub async fn weixin_check_qrcode(
     manager: tauri::State<'_, ChatChannelManager>,
     channel_id: i32,
     qrcode: String,
+    verify_code: Option<String>,
 ) -> Result<WeixinQrcodeStatusPublic, AppCommandError> {
-    weixin_check_qrcode_core(&db, &manager, channel_id, &qrcode).await
+    weixin_check_qrcode_core(&db, &manager, channel_id, &qrcode, verify_code.as_deref()).await
 }

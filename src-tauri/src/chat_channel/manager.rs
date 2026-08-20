@@ -358,6 +358,9 @@ impl ChatChannelManager {
                 .backend
                 .clone()
         };
+        if backend.status().await == ChannelConnectionStatus::Connected {
+            return Ok(());
+        }
         backend.test_connection().await
     }
 

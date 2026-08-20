@@ -3739,11 +3739,50 @@
     "weixinQrcodeExpired": "二维码已过期。",
     "weixinRefreshQrcode": "刷新二维码",
     "weixinWaitingScan": "等待扫码...",
+    "weixinScannedWaitingConfirm": "已扫码，等待微信确认...",
+    "weixinVerifyCodePlaceholder": "输入验证码",
+    "weixinSubmitVerifyCode": "继续",
+    "weixinVerifyCodeBlocked": "验证码尝试次数过多，请重新扫码。",
+    "weixinAlreadyBound": "该微信账号已绑定到其他会话。",
     "weixinPollError": "连接不稳定，正在重试...",
     "weixinReconnectNotice": "因 iLink 协议限制，每次重新连接后需先主动向机器人发送一条消息，事件触发才会生效。",
     "connect": "连接",
     "disconnect": "断开",
     "test": "测试连接",
+    "qr": {
+      "title": "扫码接入{channel}",
+      "start": "扫码接入",
+      "reconnect": "重新扫码授权",
+      "manualDivider": "或手动填写参数",
+      "larkRegion": "服务区域",
+      "regions": {
+        "feishu": "飞书（中国）",
+        "lark": "Lark（国际）"
+      },
+      "descriptions": {
+        "weixin": "使用微信扫描二维码并确认登录。",
+        "wecom_ai_bot": "使用企业微信扫描二维码并确认机器人授权。",
+        "dingtalk": "使用钉钉扫描二维码并确认应用授权。",
+        "lark": "使用所选区域的飞书或 Lark 客户端扫描二维码。"
+      },
+      "verifyCodePlaceholder": "输入验证码",
+      "continue": "继续",
+      "refresh": "重新生成",
+      "status": {
+        "loading": "正在生成二维码...",
+        "waiting": "等待扫码...",
+        "scanned": "已扫码，等待确认...",
+        "connecting": "授权成功，正在建立连接...",
+        "connected": "渠道已连接。",
+        "expired": "二维码已过期。",
+        "denied": "授权已拒绝，请重新生成二维码。",
+        "cancelled": "扫码会话已取消。",
+        "error": "扫码接入失败，请重新生成二维码。",
+        "verify_code_required": "需要验证码才能继续。",
+        "verify_code_blocked": "验证码尝试次数过多，请重新扫码。",
+        "already_bound": "该账号已绑定到其他会话。"
+      }
+    },
     "market": {
       "title": "消息渠道",
       "description": "管理外部消息入口、连接状态与 Agent 回复。",
@@ -3760,7 +3799,7 @@
       },
       "tags": {
         "recommended": "推荐",
-        "noPublic": "免公网回调",
+        "qrAvailable": "支持扫码",
         "httpsRequired": "需公网 HTTPS"
       },
       "cards": {
@@ -3773,8 +3812,8 @@
         "wecom_ai_bot": {
           "name": "企业微信智能机器人",
           "kind": "WebSocket 长连接",
-          "description": "使用 Bot ID 与 Secret 接入机器人会话，不支持扫码授权。",
-          "action": "查看教程并配置"
+          "description": "扫码授权并自动保存 Bot ID 与 Secret，也可手动填写参数。",
+          "action": "扫码或手动接入"
         },
         "wecom_agent": {
           "name": "企业微信自建应用",
@@ -3785,17 +3824,17 @@
         "lark": {
           "name": "飞书",
           "kind": "自建应用 · 长连接",
-          "description": "使用 App ID 与 App Secret，通过长连接接收事件并回复消息。",
-          "action": "查看教程并配置"
+          "description": "支持飞书与 Lark 扫码授权，也可使用 App ID 与 App Secret 手动接入。",
+          "action": "扫码或手动接入"
         },
         "dingtalk": {
           "name": "钉钉",
           "kind": "应用机器人 · Stream",
-          "description": "使用 Client ID 与 Client Secret，通过 Stream 模式收发消息。",
-          "action": "查看教程并配置"
+          "description": "扫码授权并自动保存应用凭据，通过 Stream 模式收发消息。",
+          "action": "扫码或手动接入"
         }
       },
-      "footerNote": "微信会立即进入扫码；其他渠道先展示对应教程并校验参数，完成前不会出现在已接入列表。",
+      "footerNote": "微信、企微智能机器人、飞书/Lark 和钉钉支持统一扫码接入；企业管理员仍可手动填写平台参数。",
       "continueDraft": "继续配置 · {stage}",
       "states": {
         "pending_auth": "等待授权",

@@ -185,7 +185,7 @@ pub async fn test_chat_channel(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ChannelIdParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    cc_commands::test_chat_channel_core(&state.db, params.id).await?;
+    cc_commands::test_chat_channel_core(&state.db, &state.chat_channel_manager, params.id).await?;
     Ok(Json(()))
 }
 
@@ -369,8 +369,69 @@ pub async fn delete_chat_natural_router_api_key() -> Result<Json<()>, AppCommand
 // WeChat QR code auth
 // ---------------------------------------------------------------------------
 
-pub async fn weixin_get_qrcode() -> Result<Json<WeixinQrcodeInfo>, AppCommandError> {
-    let result = cc_commands::weixin_get_qrcode_core().await?;
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartChatChannelQrParams {
+    pub channel_id: i32,
+    pub channel_type: Option<String>,
+    pub variant: Option<String>,
+}
+
+pub async fn start_chat_channel_qr(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<StartChatChannelQrParams>,
+) -> Result<Json<crate::chat_channel::qrcode_onboarding::QrStartResponse>, AppCommandError> {
+    Ok(Json(
+        cc_commands::start_chat_channel_qr_core(
+            &state.db,
+            params.channel_id,
+            params.channel_type.as_deref(),
+            params.variant.as_deref(),
+        )
+        .await?,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PollChatChannelQrParams {
+    pub session_id: String,
+    pub verify_code: Option<String>,
+}
+
+pub async fn poll_chat_channel_qr(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<PollChatChannelQrParams>,
+) -> Result<Json<crate::chat_channel::qrcode_onboarding::QrPollResponse>, AppCommandError> {
+    Ok(Json(
+        cc_commands::poll_chat_channel_qr_core(
+            &state.db,
+            &state.chat_channel_manager,
+            &params.session_id,
+            params.verify_code.as_deref(),
+        )
+        .await?,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelChatChannelQrParams {
+    pub session_id: String,
+}
+
+pub async fn cancel_chat_channel_qr(
+    Json(params): Json<CancelChatChannelQrParams>,
+) -> Result<Json<crate::chat_channel::qrcode_onboarding::QrPollResponse>, AppCommandError> {
+    Ok(Json(
+        cc_commands::cancel_chat_channel_qr_core(&params.session_id).await?,
+    ))
+}
+
+pub async fn weixin_get_qrcode(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<WeixinQrcodeInfo>, AppCommandError> {
+    let result = cc_commands::weixin_get_qrcode_core(&state.db).await?;
     Ok(Json(result))
 }
 
@@ -395,6 +456,7 @@ pub async fn wecom_start_auth() -> Result<Json<cc_commands::WecomAuthStart>, App
 pub struct WeixinCheckQrcodeParams {
     pub channel_id: i32,
     pub qrcode: String,
+    pub verify_code: Option<String>,
 }
 
 pub async fn weixin_check_qrcode(
@@ -406,6 +468,7 @@ pub async fn weixin_check_qrcode(
         &state.chat_channel_manager,
         params.channel_id,
         &params.qrcode,
+        params.verify_code.as_deref(),
     )
     .await?;
     Ok(Json(result))

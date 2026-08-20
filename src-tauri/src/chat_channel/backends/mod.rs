@@ -54,9 +54,9 @@ pub fn create_backend(
             let cfg: LarkConfig = serde_json::from_value(config.clone()).map_err(|e| {
                 ChatChannelError::ConfigurationInvalid(format!("Invalid Lark config: {e}"))
             })?;
-            if cfg.app_id.is_empty() || cfg.chat_id.is_empty() {
+            if cfg.app_id.trim().is_empty() {
                 return Err(ChatChannelError::ConfigurationInvalid(
-                    "app_id and chat_id are required".into(),
+                    "app_id is required".into(),
                 ));
             }
             Ok(Box::new(lark::LarkBackend::new(
@@ -64,6 +64,7 @@ pub fn create_backend(
                 cfg.app_id,
                 token,
                 cfg.chat_id,
+                cfg.lark_region,
             )))
         }
         ChannelType::WecomAiBot => {

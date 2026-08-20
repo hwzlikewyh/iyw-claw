@@ -32,20 +32,20 @@ interface MarketCard {
   type: MarketType
   icon: ComponentType<{ className?: string }>
   mode: Exclude<AccessMode, "all">
-  tag: "recommended" | "noPublic" | "httpsRequired"
+  tag: "recommended" | "qrAvailable" | "httpsRequired"
 }
 
 const CARDS: MarketCard[] = [
   { type: "weixin", icon: MessageCircle, mode: "scan", tag: "recommended" },
-  { type: "wecom_ai_bot", icon: Bot, mode: "stream", tag: "noPublic" },
+  { type: "wecom_ai_bot", icon: Bot, mode: "scan", tag: "qrAvailable" },
   {
     type: "wecom_agent",
     icon: Building2,
     mode: "callback",
     tag: "httpsRequired",
   },
-  { type: "lark", icon: Bird, mode: "stream", tag: "noPublic" },
-  { type: "dingtalk", icon: RadioTower, mode: "stream", tag: "noPublic" },
+  { type: "lark", icon: Bird, mode: "scan", tag: "qrAvailable" },
+  { type: "dingtalk", icon: RadioTower, mode: "scan", tag: "qrAvailable" },
 ]
 
 export function ChannelMarket({
@@ -160,7 +160,7 @@ export function ChannelMarket({
                 ) : (
                   <Button
                     variant={
-                      card.type === "weixin" || card.type === "wecom_agent"
+                      card.mode === "scan" || card.type === "wecom_agent"
                         ? "default"
                         : "outline"
                     }

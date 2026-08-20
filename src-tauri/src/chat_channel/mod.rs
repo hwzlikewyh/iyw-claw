@@ -17,6 +17,7 @@ pub mod message_formatter;
 pub mod natural_router;
 pub mod natural_router_config;
 pub(crate) mod operation_lock;
+pub mod qrcode_onboarding;
 pub mod readiness;
 mod readiness_types;
 pub mod reconcile;

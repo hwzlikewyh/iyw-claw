@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 pub use super::channel_config_types::{
-    DingtalkConfig, LarkConfig, WecomAiBotConfig, WecomConfig, WeixinConfig,
+    DingtalkConfig, LarkConfig, LarkRegion, WecomAiBotConfig, WecomConfig, WeixinConfig,
 };
 pub use super::wecom_agent_types::{WecomAgentConfig, WecomAgentSecrets};
 
