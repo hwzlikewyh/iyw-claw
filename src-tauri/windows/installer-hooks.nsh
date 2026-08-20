@@ -1,31 +1,12 @@
 ; Capture source paths while NSIS includes this file.
 !define IYW_CLAW_INSTALL_REGISTRY_KEY "Software\iywclaw\iyw-claw"
-!define IYW_CLAW_INSTALL_TEST_REGISTRY_KEY "Software\iywclaw\iyw-claw-installer-test"
 !define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
 Var IywClawRoot
 Var IywClawInstallRegistryKey
-Var IywClawInstallerTestMode
 
 !include "${__FILEDIR__}\installer-process-control.nsh"
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
-
-!macro IywClawDefineInstallerModeFunction Prefix
-Function ${Prefix}IywClawConfigureInstallerMode
-  StrCpy $IywClawInstallRegistryKey "${IYW_CLAW_INSTALL_REGISTRY_KEY}"
-  StrCpy $IywClawInstallerTestMode "0"
-  ClearErrors
-  ${GetOptions} $CMDLINE "/IYW_CLAW_TEST_MODE=" $R6
-  IfErrors iyw_installer_mode_done
-  StrCmp $R6 "1" 0 iyw_installer_mode_done
-  StrCpy $IywClawInstallRegistryKey "${IYW_CLAW_INSTALL_TEST_REGISTRY_KEY}"
-  StrCpy $IywClawInstallerTestMode "1"
-
-  iyw_installer_mode_done:
-FunctionEnd
-!macroend
-
-!insertmacro IywClawDefineInstallerModeFunction ""
-!insertmacro IywClawDefineInstallerModeFunction "un."
+!include "${__FILEDIR__}\installer-test-mode.nsh"
 
 Function IywClawIsMainProcessRunning
   ; 仅检查安装器当前用户，其他登录会话不能改变本次恢复策略。
@@ -43,6 +24,10 @@ FunctionEnd
 
 Function IywClawRestoreLogicalInstallRoot
   Call IywClawConfigureInstallerMode
+  StrCmp $IywClawInstallerTestMode "invalid" 0 +3
+  DetailPrint "测试模式参数无效，安装已取消。"
+  SetErrorLevel 2
+  Quit
   ; Older installers persisted root\app as MUI's default directory while the
   ; product-specific InstallRoot value already held the user-selected root.
   ; Correct only the directory-page value; POSTINSTALL persists it after the
@@ -117,6 +102,14 @@ Function IywClawResolveInstallRoot
   iyw_validate_root:
     StrCmp $IywClawRoot "" iyw_invalid_root 0
     GetFullPathName $IywClawRoot "$IywClawRoot"
+    StrCmp $IywClawInstallerTestMode "1" 0 iyw_root_scope_validated
+    Call IywClawValidateTestRoot
+    Pop $R0
+    StrCmp $R0 "1" iyw_root_scope_validated 0
+    DetailPrint "测试安装目录必须位于绑定的临时 smoke 根目录。"
+    Abort
+
+  iyw_root_scope_validated:
     CreateDirectory "$IywClawRoot"
     ClearErrors
     FileOpen $R0 "$IywClawRoot\.iyw-claw-install-probe" w
@@ -152,7 +145,26 @@ FunctionEnd
 
 !macro NSIS_HOOK_PREINSTALL
   Call IywClawConfigureInstallerMode
+  StrCmp $IywClawInstallerTestMode "invalid" iyw_invalid_install_test_mode 0
+  StrCmp $IywClawInstallerTestMode "1" 0 iyw_test_root_prevalidated
+  ; 在 ResolveInstallRoot 创建目录或写入注册表前，先约束 /D 到本轮测试根。
+  StrCpy $IywClawRoot "$INSTDIR"
+  Call IywClawValidateTestRoot
+  Pop $R0
+  StrCmp $R0 "1" iyw_test_root_prevalidated 0
+  DetailPrint "测试安装目录必须位于绑定的临时 smoke 根目录。"
+  Abort
+
+  iyw_test_root_prevalidated:
   Call IywClawResolveInstallRoot
+  StrCmp $IywClawInstallerTestMode "1" 0 iyw_test_root_validated
+  Call IywClawValidateTestRoot
+  Pop $R0
+  StrCmp $R0 "1" iyw_test_root_validated 0
+  DetailPrint "测试安装目录必须位于绑定的临时 smoke 根目录。"
+  Abort
+
+  iyw_test_root_validated:
   !if "${ARCH}" == "x64"
     StrCpy $IywClawRequireBrowser "1"
   !else
@@ -184,6 +196,13 @@ FunctionEnd
       Abort
 
   iyw_app_transaction_ready:
+  Goto iyw_preinstall_done
+
+  iyw_invalid_install_test_mode:
+    DetailPrint "测试模式参数无效，安装尚未修改任何文件。"
+    Abort
+
+  iyw_preinstall_done:
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -209,6 +228,17 @@ FunctionEnd
 
 !macro NSIS_HOOK_PREUNINSTALL
   Call un.IywClawConfigureInstallerMode
+  StrCmp $IywClawInstallerTestMode "invalid" iyw_invalid_uninstall_test_mode 0
+  StrCmp $IywClawInstallerTestMode "1" 0 iyw_uninstall_test_root_validated
+  ReadRegStr $IywClawRoot SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
+  StrCmp $IywClawRoot "" iyw_invalid_uninstall_test_mode 0
+  Call un.IywClawValidateTestRoot
+  Pop $R0
+  StrCmp $R0 "1" iyw_uninstall_test_root_validated 0
+  DetailPrint "测试卸载目录必须位于绑定的临时 smoke 根目录。"
+  Abort
+
+  iyw_uninstall_test_root_validated:
   StrCmp $IywClawInstallerTestMode "1" iyw_uninstall_processes_stopped 0
   Call un.IywClawStopKnownProcesses
   Pop $R0
@@ -262,6 +292,13 @@ FunctionEnd
     DetailPrint "用户配置、本地数据、Skill 与受管库存已保留。"
 
   iyw_uninstall_done:
+  Goto iyw_preuninstall_done
+
+  iyw_invalid_uninstall_test_mode:
+    DetailPrint "测试模式参数无效，卸载尚未修改任何文件。"
+    Abort
+
+  iyw_preuninstall_done:
 !macroend
 
 Function .onInstFailed

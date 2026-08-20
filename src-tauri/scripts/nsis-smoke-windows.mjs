@@ -6,10 +6,13 @@ import { basename, join, resolve, sep } from "node:path"
 const COMMAND_MAX_BUFFER = 4 * 1024 * 1024
 const COMMAND_TIMEOUT_MS = 120_000
 const PRODUCT_REGISTRY_KEY = "HKCU\\Software\\iywclaw\\iyw-claw"
-const TEST_REGISTRY_KEY = "HKCU\\Software\\iywclaw\\iyw-claw-installer-test"
 const REGISTRY_EXISTS_EXIT_CODE = 10
+const REMOVE_MAX_RETRIES = 10
+const REMOVE_RETRY_DELAY_MS = 200
+const TEST_REGISTRY_KEY_PREFIX =
+  "HKCU\\Software\\iywclaw\\iyw-claw-installer-test"
 const TEMP_PREFIX = "iyw-claw-nsis-smoke-"
-export const INSTALLER_TEST_MODE_ARG = "/IYW_CLAW_TEST_MODE=1"
+const TEST_ID_PATTERN = /^[0-9a-f]{32}$/i
 
 function fail(message) {
   throw new Error(message)
@@ -42,14 +45,9 @@ function registryExists(key) {
   const path = registryPowerShellPath(key)
   const script = [
     "$ErrorActionPreference = 'Stop'",
-    "try {",
     `  $path = '${path}'`,
     `  if (Test-Path -LiteralPath $path) { exit ${REGISTRY_EXISTS_EXIT_CODE} }`,
     "  exit 0",
-    "} catch {",
-    "  [Console]::Error.WriteLine($_.Exception.Message)",
-    "  exit 20",
-    "}",
   ].join("; ")
   const result = runCommand("powershell.exe", [
     "-NoLogo",
@@ -63,40 +61,9 @@ function registryExists(key) {
   fail(commandDiagnostic("registry query failed", result))
 }
 
-function registryInstallRoot(key) {
-  const path = registryPowerShellPath(key)
-  const script = [
-    "$ErrorActionPreference = 'Stop'",
-    "try {",
-    `  $path = '${path}'`,
-    "  if (-not (Test-Path -LiteralPath $path)) { exit 0 }",
-    "  $value = (Get-ItemProperty -LiteralPath $path -Name InstallRoot -ErrorAction SilentlyContinue).InstallRoot",
-    "  if ($null -ne $value) { [Console]::Out.Write([string]$value) }",
-    "  exit 0",
-    "} catch {",
-    "  [Console]::Error.WriteLine($_.Exception.Message)",
-    "  exit 20",
-    "}",
-  ].join("; ")
-  const result = runCommand("powershell.exe", [
-    "-NoLogo",
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
-    script,
-  ])
-  if (result.status !== 0) {
-    fail(commandDiagnostic("registry root query failed", result))
-  }
-  const value = result.stdout.trim()
-  return value || null
-}
-
 function listBlockedProcesses() {
   const result = runCommand("tasklist.exe", ["/FO", "CSV", "/NH"])
-  if (result.status !== 0) {
-    fail(commandDiagnostic("tasklist failed", result))
-  }
+  if (result.status !== 0) fail(commandDiagnostic("tasklist failed", result))
   const names = result.stdout
     .split(/\r?\n/)
     .map((line) => /^"([^"]+)"/.exec(line)?.[1]?.toLowerCase())
@@ -111,24 +78,52 @@ function listBlockedProcesses() {
 
 export function assertCleanInstallState() {
   const productRegistryExists = registryExists(PRODUCT_REGISTRY_KEY)
-  const testRegistryExists = registryExists(TEST_REGISTRY_KEY)
   const processes = [...new Set(listBlockedProcesses())]
-  if (!productRegistryExists && !testRegistryExists && processes.length === 0)
-    return
+  if (!productRegistryExists && processes.length === 0) return
   const details = []
   if (productRegistryExists)
     details.push(`existing registry key ${PRODUCT_REGISTRY_KEY}`)
-  if (testRegistryExists)
-    details.push(`stale test registry key ${TEST_REGISTRY_KEY}`)
-  if (processes.length > 0) {
+  if (processes.length > 0)
     details.push(`running processes ${processes.join(", ")}`)
-  }
-  const prefix = "refusing to disturb an existing iyw-claw installation: "
-  fail(`${prefix}${details.join("; ")}`)
+  fail(`refusing to run installer smoke: ${details.join("; ")}`)
 }
 
 export function terminateProcessTree(pid) {
   return runCommand("taskkill.exe", ["/PID", String(pid), "/T", "/F"])
+}
+
+function safeSmokeRoot(root, testId) {
+  testRegistryKey(testId)
+  const resolvedRoot = resolve(root)
+  const resolvedTemp = `${resolve(tmpdir())}${sep}`
+  return (
+    resolvedRoot.startsWith(resolvedTemp) &&
+    basename(resolvedRoot) === `${TEMP_PREFIX}${testId}`
+  )
+}
+
+function pathInside(root, candidate) {
+  const resolvedRoot = resolve(root)
+    .replace(/[\\/]+$/, "")
+    .toLowerCase()
+  const resolvedCandidate = resolve(candidate)
+    .replace(/[\\/]+$/, "")
+    .toLowerCase()
+  return (
+    resolvedCandidate === resolvedRoot ||
+    resolvedCandidate.startsWith(`${resolvedRoot}${sep}`)
+  )
+}
+
+function testRegistryKey(testId) {
+  if (!TEST_ID_PATTERN.test(testId))
+    fail(`invalid installer test id: ${testId}`)
+  return `${TEST_REGISTRY_KEY_PREFIX}\\${testId}`
+}
+
+export function installerTestArgs(testId) {
+  testRegistryKey(testId)
+  return [`/IYW_CLAW_TEST_MODE=${testId}`]
 }
 
 function walkFiles(root) {
@@ -145,115 +140,80 @@ function walkFiles(root) {
   return files
 }
 
-function safeSmokeRoot(root) {
-  const resolvedRoot = resolve(root)
-  const resolvedTemp = `${resolve(tmpdir())}${sep}`
-  return (
-    resolvedRoot.startsWith(resolvedTemp) &&
-    basename(resolvedRoot).startsWith(TEMP_PREFIX)
-  )
-}
-
-function samePath(left, right) {
-  const normalize = (value) =>
-    resolve(value)
-      .replace(/[\\/]+$/, "")
-      .toLowerCase()
-  return normalize(left) === normalize(right)
-}
-
-function pathInside(root, candidate) {
-  const resolvedRoot = resolve(root)
-    .replace(/[\\/]+$/, "")
-    .toLowerCase()
-  const resolvedCandidate = resolve(candidate)
-    .replace(/[\\/]+$/, "")
-    .toLowerCase()
-  return (
-    resolvedCandidate === resolvedRoot ||
-    resolvedCandidate.startsWith(`${resolvedRoot}${sep}`)
-  )
-}
-
-function registryOwnedBy(root) {
-  const currentRoot = registryInstallRoot(TEST_REGISTRY_KEY)
-  return currentRoot !== null && samePath(currentRoot, root)
-}
-
-function runUninstaller(installRoot, warnings) {
-  if (!existsSync(installRoot)) return
-  if (!registryOwnedBy(installRoot)) {
-    warnings.push("registry ownership changed; skipped uninstaller")
-    return
-  }
-  const processes = [...new Set(listBlockedProcesses())]
-  if (processes.length > 0) {
-    warnings.push(
-      `running processes appeared; skipped uninstaller: ${processes.join(", ")}`
-    )
-    return
-  }
-  const uninstaller = walkFiles(installRoot).find(
+function runUninstaller(options, warnings) {
+  if (!existsSync(options.installRoot)) return
+  const uninstaller = walkFiles(options.installRoot).find(
     (path) => basename(path).toLowerCase() === "uninstall.exe"
   )
   if (!uninstaller) {
-    warnings.push("uninstaller missing from installed product")
+    warnings.push("uninstaller missing from installed test package")
     return
   }
-  const result = runCommand(uninstaller, ["/S", INSTALLER_TEST_MODE_ARG])
+  const result = runCommand(uninstaller, [
+    "/S",
+    ...installerTestArgs(options.testId),
+  ])
   if (result.status !== 0) {
-    warnings.push(commandDiagnostic("uninstaller failed", result))
+    warnings.push(commandDiagnostic("test uninstaller failed", result))
   }
 }
 
-function removeTestRegistryKey(expectedRoot, warnings) {
-  if (!registryExists(TEST_REGISTRY_KEY)) return
-  if (!registryOwnedBy(expectedRoot)) {
-    warnings.push("registry ownership changed; skipped registry delete")
+function escapePowerShellLiteral(value) {
+  return `'${value.replaceAll("'", "''")}'`
+}
+
+function removeOwnedTestRegistryKey(options, warnings) {
+  const key = testRegistryKey(options.testId)
+  const path = registryPowerShellPath(key)
+  const expectedRoot = resolve(options.installRoot).replace(/[\\/]+$/, "")
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    `  $path = ${escapePowerShellLiteral(path)}`,
+    `  $expectedRoot = ${escapePowerShellLiteral(expectedRoot)}`,
+    "  if (-not (Test-Path -LiteralPath $path)) { exit 0 }",
+    "  $actualRoot = (Get-ItemProperty -LiteralPath $path -Name InstallRoot -ErrorAction SilentlyContinue).InstallRoot",
+    "  if ($null -eq $actualRoot -or -not [string]::Equals([string]$actualRoot, $expectedRoot, [System.StringComparison]::OrdinalIgnoreCase)) { exit 10 }",
+    "  Remove-Item -LiteralPath $path -Recurse -Force",
+    "  if (Test-Path -LiteralPath $path) { exit 20 }",
+  ].join("; ")
+  const result = runCommand("powershell.exe", [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    script,
+  ])
+  if (result.status === 0) return
+  if (result.status === 10) {
+    warnings.push("test registry ownership changed; skipped registry delete")
     return
   }
-  const result = runCommand("reg.exe", ["delete", TEST_REGISTRY_KEY, "/f"])
-  if (result.status !== 0) {
-    warnings.push(commandDiagnostic("registry delete failed", result))
-  }
-  if (registryExists(TEST_REGISTRY_KEY)) {
-    const remainingRoot = registryInstallRoot(TEST_REGISTRY_KEY)
-    if (!remainingRoot || !samePath(remainingRoot, expectedRoot)) {
-      warnings.push("registry key changed or remains after cleanup")
-    } else {
-      warnings.push("product registry key remains")
-    }
-  }
+  warnings.push(commandDiagnostic("test registry cleanup failed", result))
 }
 
 export function cleanupInstall(options) {
-  if (!safeSmokeRoot(options.smokeRoot)) {
+  if (!safeSmokeRoot(options.smokeRoot, options.testId)) {
     fail(`refusing to clean unexpected smoke root: ${options.smokeRoot}`)
   }
   if (!pathInside(options.smokeRoot, options.installRoot)) {
     fail(`refusing to clean unexpected install root: ${options.installRoot}`)
   }
   const warnings = []
-  const registryRoot = registryInstallRoot(TEST_REGISTRY_KEY)
-  const ownsRegistry =
-    registryRoot !== null && samePath(registryRoot, options.installRoot)
-  if (registryRoot && !ownsRegistry) {
-    warnings.push(
-      `registry ownership mismatch; expected ${options.installRoot}, found ${registryRoot}`
-    )
-  }
   try {
-    if (ownsRegistry) runUninstaller(options.installRoot, warnings)
-    else if (!registryRoot)
-      warnings.push("product registry key missing; skipped uninstaller")
+    runUninstaller(options, warnings)
   } catch (error) {
-    warnings.push(`uninstaller cleanup failed: ${error.message}`)
+    warnings.push(`test uninstaller cleanup failed: ${error.message}`)
   }
   try {
-    if (ownsRegistry) removeTestRegistryKey(options.installRoot, warnings)
+    removeOwnedTestRegistryKey(options, warnings)
   } catch (error) {
     warnings.push(`registry cleanup failed: ${error.message}`)
   }
-  rmSync(options.smokeRoot, { force: true, recursive: true })
+  rmSync(options.smokeRoot, {
+    force: true,
+    maxRetries: REMOVE_MAX_RETRIES,
+    recursive: true,
+    retryDelay: REMOVE_RETRY_DELAY_MS,
+  })
   return warnings
 }

@@ -5,7 +5,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   writeFileSync,
 } from "node:fs"
@@ -78,12 +77,13 @@ function sha256(bytes) {
 }
 
 function createContext(args) {
-  const smokeRoot = mkdtempSync(join(tmpdir(), TEMP_PREFIX))
-  const installRoot = join(smokeRoot, "product")
+  const testId = randomUUID().replaceAll("-", "")
+  const smokeRoot = join(tmpdir(), `${TEMP_PREFIX}${testId}`)
+  const installRoot = smokeRoot
   const stateRoot = join(smokeRoot, "state")
   const dataDir = join(stateRoot, "data")
   const logDir = join(stateRoot, "logs")
-  mkdirSync(installRoot, { recursive: true })
+  mkdirSync(smokeRoot)
   mkdirSync(args.output, { recursive: true })
   return {
     args,
@@ -100,6 +100,7 @@ function createContext(args) {
     },
     smokeRoot,
     stateRoot,
+    testId,
   }
 }
 
@@ -119,6 +120,7 @@ async function executeSmoke(context) {
     installer: args.installer,
     installRoot: context.installRoot,
     logPath: join(args.output, "installer.log"),
+    testId: context.testId,
   })
   const appDir = resolveInstalledApp(context.installRoot)
   const executable = join(appDir, "iyw-claw.exe")

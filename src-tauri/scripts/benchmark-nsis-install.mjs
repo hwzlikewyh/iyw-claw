@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import {
   existsSync,
   lstatSync,
-  mkdtempSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -18,7 +17,7 @@ import { tmpdir } from "node:os"
 import {
   assertCleanInstallState,
   cleanupInstall,
-  INSTALLER_TEST_MODE_ARG,
+  installerTestArgs,
 } from "./nsis-smoke-windows.mjs"
 
 const MAX_RUNS = 6
@@ -126,16 +125,16 @@ function executableInventory(app, files) {
 
 function runInstall(variant, round, output, requireNoDuplicateBundle) {
   assertCleanInstallState()
-  const root = mkdtempSync(
-    join(tmpdir(), `iyw-claw-nsis-smoke-benchmark-${variant.name}-`)
-  )
+  const testId = randomUUID().replaceAll("-", "")
+  const root = join(tmpdir(), `iyw-claw-nsis-smoke-${testId}`)
+  mkdirSync(root)
   let failure
   let result
   try {
     const started = performance.now()
     execFileSync(
       variant.installer,
-      ["/S", INSTALLER_TEST_MODE_ARG, `/D=${root}`],
+      ["/S", ...installerTestArgs(testId), `/D=${root}`],
       { stdio: "ignore" }
     )
     const elapsedMs = Math.round(performance.now() - started)
@@ -160,7 +159,11 @@ function runInstall(variant, round, output, requireNoDuplicateBundle) {
     failure = error
   } finally {
     try {
-      const warnings = cleanupInstall({ smokeRoot: root, installRoot: root })
+      const warnings = cleanupInstall({
+        smokeRoot: root,
+        installRoot: root,
+        testId,
+      })
       if (warnings.length > 0) {
         const cleanupFailure = new Error(
           `${variant.name} round ${round} cleanup failed: ${warnings.join("; ")}`

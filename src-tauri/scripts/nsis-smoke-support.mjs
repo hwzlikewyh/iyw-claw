@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite"
 
 import {
   commandDiagnostic,
-  INSTALLER_TEST_MODE_ARG,
+  installerTestArgs,
   terminateProcessTree,
 } from "./nsis-smoke-windows.mjs"
 
@@ -151,7 +151,7 @@ function runWithLog(file, args, logPath) {
 export function installPackage(options) {
   runWithLog(
     options.installer,
-    ["/S", INSTALLER_TEST_MODE_ARG, `/D=${options.installRoot}`],
+    ["/S", ...installerTestArgs(options.testId), `/D=${options.installRoot}`],
     options.logPath
   )
 }
