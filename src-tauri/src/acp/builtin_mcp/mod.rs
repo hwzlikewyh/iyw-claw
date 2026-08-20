@@ -13,6 +13,7 @@ mod gateway;
 mod handler;
 mod http;
 mod lease;
+mod policy;
 mod receipt;
 mod runtime;
 mod service;

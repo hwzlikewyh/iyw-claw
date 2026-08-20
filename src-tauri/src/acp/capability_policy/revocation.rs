@@ -1,23 +1,18 @@
 use std::future::Future;
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
 
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::enforcement::denied;
-use super::{Capability, CapabilityEnforcer, DenialCode};
+use super::{Capability, CapabilityEnforcer};
 use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
-
-const REVOCATION_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 pub struct CapabilityRevocationMonitor {
     enforcer: CapabilityEnforcer,
     agent_type: Option<AgentType>,
     capability: Capability,
     runtime_verified: bool,
-    cancel_target: Option<CancellationToken>,
     revoked: CancellationToken,
     denial: Arc<StdMutex<Option<AppCommandError>>>,
     stop: CancellationToken,
@@ -35,7 +30,6 @@ impl CapabilityRevocationMonitor {
         let revoked = CancellationToken::new();
         let denial = Arc::new(StdMutex::new(None));
         let stop = CancellationToken::new();
-        let changes = enforcer.store.subscribe_changes();
         let task = tokio::spawn(run_monitor(
             enforcer.clone(),
             agent_type,
@@ -45,14 +39,13 @@ impl CapabilityRevocationMonitor {
             revoked.clone(),
             Arc::clone(&denial),
             stop.clone(),
-            changes,
+            enforcer.store.subscribe_changes(),
         ));
         Self {
             enforcer,
             agent_type,
             capability,
             runtime_verified,
-            cancel_target,
             revoked,
             denial,
             stop,
@@ -73,7 +66,7 @@ impl CapabilityRevocationMonitor {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
-            .unwrap_or_else(|| denied(DenialCode::RemotePolicyDenied)))
+            .unwrap_or_else(operation_cancelled))
     }
 
     pub async fn require_current(&self) -> Result<(), AppCommandError> {
@@ -85,33 +78,35 @@ impl CapabilityRevocationMonitor {
             self.runtime_verified,
         )
         .await;
-        if let Err(error) = result {
-            record_revocation(
-                self.capability,
-                error.clone(),
-                &self.cancel_target,
-                &self.revoked,
-                &self.denial,
+        if let Err(error) = &result {
+            if !is_immediate_local_denial(error) {
+                tracing::info!(
+                    capability = self.capability.key(),
+                    denial_code = error.detail.as_deref().unwrap_or("remote_policy_denied"),
+                    "[capability-policy] Remote denial deferred for active operation lease"
+                );
+                return Ok(());
+            }
+            tracing::warn!(
+                capability = self.capability.key(),
+                denial_code = error.detail.as_deref().unwrap_or("capability_denied"),
+                "[capability-policy] New operation denied at capability boundary"
             );
-            return Err(error);
         }
-        self.error_if_revoked()
+        result
     }
 
     pub async fn run_until_revoked<T>(
         &self,
         future: impl Future<Output = T>,
     ) -> Result<T, AppCommandError> {
+        self.require_current().await?;
         tokio::select! {
-            biased;
-            _ = self.revoked.cancelled() => {
-                self.error_if_revoked()?;
-                Err(denied(DenialCode::RemotePolicyDenied))
-            }
             output = future => {
                 self.require_current().await?;
                 Ok(output)
             }
+            _ = self.revoked.cancelled() => self.error_if_revoked().map(|_| unreachable!()),
         }
     }
 }
@@ -135,6 +130,13 @@ async fn run_monitor(
     mut changes: tokio::sync::watch::Receiver<u64>,
 ) {
     loop {
+        let error = require_capability(&enforcer, agent_type, capability, runtime_verified).await;
+        if let Err(error) = error {
+            if is_immediate_local_denial(&error) {
+                record_local_revocation(capability, error, &cancel_target, &revoked, &denial);
+                return;
+            }
+        }
         tokio::select! {
             _ = stop.cancelled() => return,
             result = changes.changed() => {
@@ -142,14 +144,7 @@ async fn run_monitor(
                     return;
                 }
             }
-            _ = tokio::time::sleep(REVOCATION_POLL_INTERVAL) => {}
         }
-        let result = require_capability(&enforcer, agent_type, capability, runtime_verified).await;
-        let Err(error) = result else {
-            continue;
-        };
-        record_revocation(capability, error, &cancel_target, &revoked, &denial);
-        return;
     }
 }
 
@@ -169,26 +164,40 @@ async fn require_capability(
     }
 }
 
-fn record_revocation(
+fn is_immediate_local_denial(error: &AppCommandError) -> bool {
+    matches!(
+        error.detail.as_deref(),
+        Some(
+            "compiled_support_disabled"
+                | "local_preference_disabled"
+                | "runtime_unverified"
+                | "subject_capability_mismatch"
+        )
+    )
+}
+
+fn record_local_revocation(
     capability: Capability,
     error: AppCommandError,
     cancel_target: &Option<CancellationToken>,
     revoked: &CancellationToken,
     denial: &Arc<StdMutex<Option<AppCommandError>>>,
 ) {
-    let first_revocation = !revoked.is_cancelled();
     *denial
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.clone());
     revoked.cancel();
-    if let Some(target) = cancel_target.as_ref() {
+    if let Some(target) = cancel_target {
         target.cancel();
     }
-    if first_revocation {
-        tracing::warn!(
-            capability = capability.key(),
-            denial_code = error.detail.as_deref().unwrap_or("remote_policy_denied"),
-            "[capability-policy] Active operation revoked"
-        );
-    }
+    tracing::warn!(
+        capability = capability.key(),
+        denial_code = error.detail.as_deref().unwrap_or("local_capability_denied"),
+        "[capability-policy] Active operation stopped by local capability state"
+    );
+}
+
+fn operation_cancelled() -> AppCommandError {
+    AppCommandError::permission_denied("Operation lifecycle ended")
+        .with_detail("operation_cancelled")
 }

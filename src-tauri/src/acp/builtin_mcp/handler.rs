@@ -70,6 +70,7 @@ impl BuiltinMcpHandler {
     ) -> Result<CallToolResult, ErrorData> {
         let (authority, delivery) = Self::authenticated(&context.extensions)?;
         ensure_active(&authority, &context.ct)?;
+        super::policy::require_call(&authority).await?;
         let action = gateway::dispatch(
             request.name.as_ref(),
             request.arguments,

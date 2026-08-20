@@ -23,9 +23,9 @@ use crate::commands::idle_agent_settings::{
 /// keepalives renew separate short leases, so they protect a live surface
 /// without corrupting LRU.
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 1800;
-/// Default prompt-stall threshold (10 minutes without a single agent event
-/// while `Prompting`). Long enough for slow model turns and silent tool runs;
-/// short enough that a hung upstream doesn't spin "generating" for hours.
+/// Default prompt-stall observation threshold (10 minutes without a single
+/// agent event while `Prompting`). Silence is logged once per turn generation
+/// for diagnosis, but never cancels the active turn.
 /// Override via `IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS` (`0` disables).
 pub const DEFAULT_PROMPT_STALL_TIMEOUT_SECS: u64 = 600;
 /// Sweep cadence — runs once per minute. Each tick is a brief lock on the
@@ -120,9 +120,11 @@ pub async fn idle_sweep_task(
             }
         }
         if let Some(stall_timeout) = stall_timeout {
-            let n = manager.sweep_stalled_prompts(&db, stall_timeout).await;
+            let n = manager.observe_stalled_prompts(stall_timeout).await;
             if n > 0 {
-                tracing::info!("[ACP] stall sweep cancelled {n} hung prompt(s)");
+                tracing::info!(
+                    "[ACP] stall observer recorded {n} silent prompt(s) without cancellation"
+                );
             }
         }
     }
