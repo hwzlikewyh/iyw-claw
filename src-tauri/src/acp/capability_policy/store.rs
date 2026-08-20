@@ -109,8 +109,6 @@ impl CapabilityPolicyStore {
         }
         state.source = PolicySnapshotSource::Remote;
         let view = view_from_state(&state);
-        drop(state);
-        self.notify_change();
         Ok(view)
     }
 
@@ -124,8 +122,6 @@ impl CapabilityPolicyStore {
                 PolicySnapshotSource::Missing
             };
         }
-        drop(state);
-        self.notify_change();
     }
 
     pub async fn record_revision_rollback(&self) {
@@ -136,8 +132,6 @@ impl CapabilityPolicyStore {
         } else {
             PolicySnapshotSource::Missing
         };
-        drop(state);
-        self.notify_change();
     }
 
     pub(super) fn subscribe_changes(&self) -> watch::Receiver<u64> {

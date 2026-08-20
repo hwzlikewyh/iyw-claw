@@ -36,9 +36,9 @@ pub enum DecisionSource {
     NoTrustedPolicy,
 }
 
-// Remote capability enforcement is temporarily disabled while the local
-// desktop and Agent capability path is the product default.
-const REMOTE_POLICY_ENFORCEMENT_ENABLED: bool = false;
+// Remote policy is authoritative only after a snapshot passes validation.
+// Transport/freshness failures continue using the last trusted snapshot.
+const REMOTE_POLICY_ENFORCEMENT_ENABLED: bool = true;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -120,23 +120,21 @@ fn evaluate_remote(
     now: DateTime<Utc>,
 ) -> CapabilityDecision {
     let Some(snapshot) = view.snapshot.as_ref() else {
-        return deny(view, DenialCode::RemotePolicyMissing);
+        return allow_without_trusted_policy();
     };
     if agent_policy_is_unknown(request, snapshot) {
         return deny(view, DenialCode::RemotePolicyUnknownAgent);
     }
-    if view.source == PolicySnapshotSource::RevisionRollback {
-        return evaluate_legacy_fallback(request, snapshot, view, DenialCode::RemotePolicyRollback);
-    }
-    if snapshot.expires_at <= now {
-        return evaluate_legacy_fallback(request, snapshot, view, DenialCode::RemotePolicyExpired);
-    }
     let Some(remote_allowed) = remote_allowed(request, snapshot) else {
         return deny(view, DenialCode::RemotePolicyUnknownAgent);
     };
-    remote_allowed
-        .then(|| allow(view))
-        .unwrap_or_else(|| deny(view, DenialCode::RemotePolicyDenied))
+    if !remote_allowed {
+        return deny(view, DenialCode::RemotePolicyDenied);
+    }
+    if snapshot.expires_at <= now || view.source == PolicySnapshotSource::RevisionRollback {
+        return allow_last_trusted(snapshot);
+    }
+    allow(view)
 }
 
 fn agent_policy_is_unknown(
@@ -149,37 +147,14 @@ fn agent_policy_is_unknown(
     )
 }
 
-fn evaluate_legacy_fallback(
-    request: &CapabilityRequest,
-    snapshot: &CapabilityPolicySnapshot,
-    view: &PolicySnapshotView,
-    code: DenialCode,
-) -> CapabilityDecision {
-    if legacy_launch_is_allowed(request, snapshot) {
-        return CapabilityDecision {
-            enabled: true,
-            source: DecisionSource::LegacyLastTrusted,
-            revision: Some(snapshot.revision),
-            expires_at: Some(snapshot.expires_at),
-            denial_code: None,
-        };
+fn allow_last_trusted(snapshot: &CapabilityPolicySnapshot) -> CapabilityDecision {
+    CapabilityDecision {
+        enabled: true,
+        source: DecisionSource::LegacyLastTrusted,
+        revision: Some(snapshot.revision),
+        expires_at: Some(snapshot.expires_at),
+        denial_code: None,
     }
-    deny(view, code)
-}
-
-fn legacy_launch_is_allowed(
-    request: &CapabilityRequest,
-    snapshot: &CapabilityPolicySnapshot,
-) -> bool {
-    let PolicySubject::Agent(agent) = &request.subject else {
-        return false;
-    };
-    agent.is_existing_agent
-        && request.capability == Capability::AgentLaunch
-        && !request.capability.is_sensitive()
-        && snapshot
-            .agent(&agent.platform_id)
-            .is_some_and(|policy| policy.agent_allowed)
 }
 
 fn remote_allowed(
@@ -235,6 +210,16 @@ fn allow_local() -> CapabilityDecision {
     CapabilityDecision {
         enabled: true,
         source: DecisionSource::LocalDefault,
+        revision: None,
+        expires_at: None,
+        denial_code: None,
+    }
+}
+
+fn allow_without_trusted_policy() -> CapabilityDecision {
+    CapabilityDecision {
+        enabled: true,
+        source: DecisionSource::NoTrustedPolicy,
         revision: None,
         expires_at: None,
         denial_code: None,

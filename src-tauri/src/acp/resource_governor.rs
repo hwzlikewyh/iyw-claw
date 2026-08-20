@@ -1,5 +1,11 @@
 //! Resource policy for idle ACP connections.
 
+mod pressure;
+
+pub use pressure::{
+    classify_pressure, is_hard_emergency, memory_reserve_thresholds, MemoryPressureTracker,
+};
+
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -11,17 +17,9 @@ use crate::acp::types::ConnectionStatus;
 use crate::models::agent::AgentType;
 
 const MIB: u64 = 1024 * 1024;
-const GIB: u64 = 1024 * MIB;
 const MIN_AGENT_BUDGET: u64 = 512 * MIB;
 const MAX_AGENT_BUDGET: u64 = 1536 * MIB;
 const AGENT_BUDGET_PERCENT: u64 = 5;
-const SHRINKING_TARGET_PERCENT: u64 = 35;
-const SHRINKING_TARGET_BYTES: u64 = 8 * GIB;
-const SHRINKING_MAX_PERCENT: u64 = 50;
-const SHRINKING_MAX_BYTES: u64 = 12 * GIB;
-const EMERGENCY_TARGET_PERCENT: u64 = 25;
-const EMERGENCY_TARGET_BYTES: u64 = 5 * GIB;
-const EMERGENCY_MAX_BYTES: u64 = 8 * GIB;
 const SHRINK_IDLE_KEEP: usize = 1;
 const COMPLETION_GRACE: i64 = 90;
 
@@ -114,27 +112,6 @@ impl ResourceSnapshot {
     }
 }
 
-pub fn memory_reserve_thresholds(total: u64) -> MemoryReserveThresholds {
-    if total == 0 {
-        return MemoryReserveThresholds {
-            shrinking_bytes: 0,
-            emergency_bytes: 0,
-        };
-    }
-    let shrinking_bytes = (total.saturating_mul(SHRINKING_TARGET_PERCENT) / 100)
-        .max(SHRINKING_TARGET_BYTES)
-        .min(total.saturating_mul(SHRINKING_MAX_PERCENT) / 100)
-        .min(SHRINKING_MAX_BYTES);
-    let emergency_bytes = (total.saturating_mul(EMERGENCY_TARGET_PERCENT) / 100)
-        .max(EMERGENCY_TARGET_BYTES)
-        .min(total.saturating_mul(3) / 8)
-        .min(EMERGENCY_MAX_BYTES);
-    MemoryReserveThresholds {
-        shrinking_bytes,
-        emergency_bytes,
-    }
-}
-
 pub fn system_memory_snapshot(total: u64, available: u64) -> SystemMemorySnapshot {
     let thresholds = memory_reserve_thresholds(total);
     SystemMemorySnapshot {
@@ -144,20 +121,6 @@ pub fn system_memory_snapshot(total: u64, available: u64) -> SystemMemorySnapsho
         shrinking_reserve_bytes: thresholds.shrinking_bytes,
         emergency_reserve_bytes: thresholds.emergency_bytes,
     }
-}
-
-pub fn classify_pressure(total: u64, available: u64) -> MemoryPressure {
-    if total == 0 {
-        return MemoryPressure::Unknown;
-    }
-    let thresholds = memory_reserve_thresholds(total);
-    if available < thresholds.emergency_bytes {
-        return MemoryPressure::Emergency;
-    }
-    if available < thresholds.shrinking_bytes {
-        return MemoryPressure::Shrinking;
-    }
-    MemoryPressure::Comfortable
 }
 
 pub fn idle_keep_limit(pressure: MemoryPressure) -> Option<usize> {

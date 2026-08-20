@@ -25,7 +25,7 @@ use crate::acp::feedback::{
     bounded_feedback_batch, FeedbackItem, FeedbackStatus, PendingFeedback, SessionFeedbackAccess,
     MAX_FEEDBACK_CHARS, MAX_FEEDBACK_RESPONSE_BYTES,
 };
-use crate::acp::prompt_stall::{assess_prompt_stall, PromptStallInput};
+use crate::acp::prompt_stall::{assess_prompt_stall, PromptStallAssessment, PromptStallInput};
 use crate::acp::question::{
     build_outcome, QuestionAnswer, QuestionOutcome, QuestionSpec, RegisteredQuestion,
     SessionQuestionAccess,
@@ -353,6 +353,8 @@ pub struct ConnectionManager {
     version_center_data_dir: Arc<std::sync::OnceLock<PathBuf>>,
     capability_policy:
         Arc<std::sync::OnceLock<crate::acp::capability_policy::CapabilityPolicyStore>>,
+    memory_pressure_tracker: Arc<Mutex<crate::acp::resource_governor::MemoryPressureTracker>>,
+    stalled_prompt_observations: Arc<Mutex<HashSet<(String, i64)>>>,
     agent_activation_locks: Arc<Mutex<HashMap<AgentType, Arc<Mutex<()>>>>>,
     /// Per-agent-type serialization for `probe_agent_options`. Without
     /// this, rapid agent-tab clicks in the settings UI would fan out one
@@ -382,6 +384,8 @@ struct PendingQuestionEntry {
     questions: Vec<QuestionSpec>,
     sender: tokio::sync::oneshot::Sender<QuestionOutcome>,
 }
+
+type StalledPromptObservation = (String, i64, Option<u32>, PromptStallAssessment);
 
 pub(crate) struct PendingChannelConfirmationEntry {
     pub parent_connection_id: String,
@@ -413,6 +417,8 @@ impl ConnectionManager {
             version_center_db: Arc::new(std::sync::OnceLock::new()),
             version_center_data_dir: Arc::new(std::sync::OnceLock::new()),
             capability_policy: Arc::new(std::sync::OnceLock::new()),
+            memory_pressure_tracker: Arc::new(Mutex::new(Default::default())),
+            stalled_prompt_observations: Arc::new(Mutex::new(HashSet::new())),
             agent_activation_locks: Arc::new(Mutex::new(HashMap::new())),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
@@ -436,6 +442,8 @@ impl ConnectionManager {
             version_center_db: self.version_center_db.clone(),
             version_center_data_dir: self.version_center_data_dir.clone(),
             capability_policy: self.capability_policy.clone(),
+            memory_pressure_tracker: self.memory_pressure_tracker.clone(),
+            stalled_prompt_observations: self.stalled_prompt_observations.clone(),
             agent_activation_locks: self.agent_activation_locks.clone(),
             probe_locks: self.probe_locks.clone(),
             pending_questions: self.pending_questions.clone(),
@@ -604,6 +612,20 @@ impl ConnectionManager {
     }
 
     pub async fn prewarm_codex_runtime(&self) -> Result<bool, AcpError> {
+        let resources = crate::acp::resource_governor::ResourceSnapshot::capture();
+        if matches!(
+            resources.memory.pressure,
+            crate::acp::resource_governor::MemoryPressure::Shrinking
+                | crate::acp::resource_governor::MemoryPressure::Emergency
+        ) {
+            tracing::info!(
+                pressure = resources.memory.pressure.as_str(),
+                available_bytes = resources.memory.available_bytes,
+                total_bytes = resources.memory.total_bytes,
+                "[ACP] skipping runtime prewarm under memory pressure"
+            );
+            return Ok(false);
+        }
         let version_center_db = self
             .version_center_db
             .get()
@@ -763,7 +785,6 @@ impl ConnectionManager {
         // spawning a fresh process — this is what makes a browser refresh
         // mid-turn re-attach to the existing live state rather than orphan it.
         let working_dir_path = working_dir.as_ref().map(PathBuf::from);
-        self.require_agent_launch_policy(agent_type, true).await?;
 
         // Acquire a per-(agent, working_dir, session_id) async mutex so two
         // concurrent connects for the same logical session can't both miss
@@ -1024,7 +1045,28 @@ impl ConnectionManager {
     /// Active work, pending input, and unreliable sessions are excluded.
     pub async fn sweep_excess_idle(&self, max_keep: Option<usize>) -> usize {
         let now = chrono::Utc::now();
-        let resources = crate::acp::resource_governor::ResourceSnapshot::capture();
+        let mut resources = crate::acp::resource_governor::ResourceSnapshot::capture();
+        let (previous_pressure, pressure) = {
+            let mut tracker = self.memory_pressure_tracker.lock().await;
+            let previous = tracker.current();
+            let pressure = tracker.observe(
+                resources.memory.total_bytes,
+                resources.memory.available_bytes,
+            );
+            (previous, pressure)
+        };
+        resources.memory.pressure = pressure;
+        if pressure != previous_pressure
+            && pressure != crate::acp::resource_governor::MemoryPressure::Unknown
+        {
+            tracing::info!(
+                previous = previous_pressure.as_str(),
+                current = pressure.as_str(),
+                available_bytes = resources.memory.available_bytes,
+                total_bytes = resources.memory.total_bytes,
+                "[ACP] memory pressure state changed"
+            );
+        }
         let pressure_limit =
             crate::acp::resource_governor::idle_keep_limit(resources.memory.pressure);
         let keep_limit = match (max_keep, pressure_limit) {
@@ -1034,9 +1076,9 @@ impl ConnectionManager {
         };
         let private_budget =
             crate::acp::resource_governor::idle_private_budget(resources.memory.total_bytes);
-        let allow_recent_activity = matches!(
-            resources.memory.pressure,
-            crate::acp::resource_governor::MemoryPressure::Emergency
+        let allow_recent_activity = crate::acp::resource_governor::is_hard_emergency(
+            resources.memory.total_bytes,
+            resources.memory.available_bytes,
         );
         let to_disconnect: Vec<String> = {
             let connections = self.connections.lock().await;
@@ -1115,94 +1157,79 @@ impl ConnectionManager {
         disconnected
     }
 
-    /// Cancel prompting connections whose agent has gone silent. A hung
-    /// upstream stream (gateway outage, dead network) otherwise leaves the
-    /// conversation spinning "generating" forever: the idle sweep skips
-    /// `Prompting` connections, and frontend keepalives refresh
-    /// `last_activity_at` while the tab is open. Detection therefore keys on
-    /// `last_agent_event_at`, which only events bump. A live foreground tool
-    /// extends the deadline from its monotonic start time and declared timeout.
-    /// Connections parked on a user gate (permission / question) or with live
-    /// background work are deliberately waiting and never qualify.
-    pub async fn sweep_stalled_prompts(
-        &self,
-        db: &DatabaseConnection,
-        stall_timeout: Duration,
-    ) -> usize {
-        let now = chrono::Utc::now();
-        let monotonic_now = Instant::now();
-        let victims = {
-            let connections = self.connections.lock().await;
-            let mut victims = Vec::new();
-            for (id, conn) in connections.iter() {
-                let Ok(state) = conn.state.try_read() else {
-                    continue;
-                };
-                if state.status != ConnectionStatus::Prompting {
-                    continue;
-                }
-                if state.pending_permission.is_some() || state.pending_question.is_some() {
-                    continue;
-                }
-                if state.has_active_background_work(now) {
-                    continue;
-                }
-                let assessment = assess_prompt_stall(PromptStallInput {
-                    now,
-                    monotonic_now,
-                    last_agent_event_at: state.last_agent_event_at,
-                    base_timeout: stall_timeout,
-                    active_tool_calls: &state.active_tool_calls,
-                });
-                if !assessment.stalled {
-                    continue;
-                }
-                victims.push((
-                    id.clone(),
-                    state.agent_type.to_string(),
-                    conn.state.clone(),
-                    conn.emitter.clone(),
-                    assessment,
-                ));
+    /// Observe prompting connections whose agent has gone silent. Silence is
+    /// diagnostic evidence, not proof that the operation is dead: a model,
+    /// tool, or upstream can remain valid without emitting ACP events. This
+    /// watchdog therefore never owns cancellation. Confirmed process/transport
+    /// failures are settled by their lifecycle paths; the user can still stop.
+    pub async fn observe_stalled_prompts(&self, stall_timeout: Duration) -> usize {
+        let observations = self
+            .collect_stalled_prompt_observations(stall_timeout)
+            .await;
+        let active_keys = observations
+            .iter()
+            .map(|(id, generation, _, _)| (id.clone(), *generation))
+            .collect::<HashSet<_>>();
+        let mut observed = self.stalled_prompt_observations.lock().await;
+        observed.retain(|key| active_keys.contains(key));
+        let mut newly_observed = 0;
+        for (id, turn_generation, agent_pid, assessment) in observations {
+            if !observed.insert((id.clone(), turn_generation)) {
+                continue;
             }
-            victims
-        };
-
-        let mut cancelled = 0;
-        for (id, agent_type, state_arc, emitter, assessment) in victims {
+            newly_observed += 1;
             tracing::warn!(
                 connection_id = %id,
+                turn_generation,
+                agent_pid = ?agent_pid,
                 effective_timeout_secs = assessment.effective_timeout.as_secs(),
                 active_foreground_tools = assessment.active_tool_count,
                 timeout_source = assessment.timeout_source.as_str(),
                 longest_tool_runtime_secs = assessment.longest_tool_runtime.as_secs(),
                 silent_for_secs = assessment.silent_for.as_secs(),
-                "[ACP] prompt stalled (no agent events), cancelling connection"
+                action = "observe_only",
+                "[ACP] prompt is silent; retaining active turn until independent failure evidence"
             );
-            // Surface a classifiable error first ("timed out" maps to the
-            // localized request-timeout copy), then cancel — which flips the
-            // conversation row off "in progress" so the spinner stops.
-            emit_with_state(
-                &state_arc,
-                &emitter,
-                AcpEvent::Error {
-                    message: format!(
-                        "generation timed out: no response from the agent for {}s (stall threshold {}s)",
-                        assessment.silent_for.as_secs(),
-                        assessment.effective_timeout.as_secs()
-                    ),
-                    agent_type,
-                    code: Some("prompt_stall_timeout".to_string()),
-                    details: None,
-                    terminal: false,
-                },
-            )
-            .await;
-            if self.cancel(db, &id).await.is_ok() {
-                cancelled += 1;
+        }
+        newly_observed
+    }
+
+    async fn collect_stalled_prompt_observations(
+        &self,
+        stall_timeout: Duration,
+    ) -> Vec<StalledPromptObservation> {
+        let now = chrono::Utc::now();
+        let monotonic_now = Instant::now();
+        let connections = self.connections.lock().await;
+        let mut observations = Vec::new();
+        for (id, conn) in connections.iter() {
+            let Ok(state) = conn.state.try_read() else {
+                continue;
+            };
+            if state.status != ConnectionStatus::Prompting
+                || state.pending_permission.is_some()
+                || state.pending_question.is_some()
+                || state.has_active_background_work(now)
+            {
+                continue;
+            }
+            let assessment = assess_prompt_stall(PromptStallInput {
+                now,
+                monotonic_now,
+                last_agent_event_at: state.last_agent_event_at,
+                base_timeout: stall_timeout,
+                active_tool_calls: &state.active_tool_calls,
+            });
+            if assessment.stalled {
+                observations.push((
+                    id.clone(),
+                    state.turn_generation,
+                    state.agent_pid,
+                    assessment,
+                ));
             }
         }
-        cancelled
+        observations
     }
 
     /// Compare each running connection's spawn-time config fingerprint against a
@@ -1348,6 +1375,7 @@ impl ConnectionManager {
             .map_err(AcpError::from_capability_error)?;
         let (cmd_tx, state_arc) = self.wait_for_connection_launch(conn_id).await?;
         let agent_type = state_arc.read().await.agent_type;
+        self.require_agent_launch_policy(agent_type, true).await?;
         self.validate_agent_image_inputs(agent_type, &state_arc, &blocks)
             .await?;
         let artifact_context =
