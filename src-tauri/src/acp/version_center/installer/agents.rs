@@ -7,15 +7,12 @@ use crate::acp::error::AcpError;
 use crate::acp::registry;
 use crate::acp::version_center::capability::{self, RUNTIME};
 use crate::acp::version_center::client::AgentPlatformClient;
-use crate::acp::version_center::inventory::{self, ReadyAgentInstallation};
 use crate::acp::version_center::types::{AgentOffer, ResolveAgentRequest};
 use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
 
-use super::agent_activation::activate_or_defer;
 use super::agent_archive_install::{install_resolved_archive, ResolvedBinaryInstall};
 use super::agent_download::download_archive;
-use super::official_binary::install_official_binary;
 use super::resumable::cleanup_resumable_files;
 
 pub(crate) struct ManagedBinaryAgentRequest<'a, F: Fn(&str) + Send + Sync> {
@@ -69,13 +66,9 @@ where
         defer_while_active: request.defer_while_active,
         reason: request.reason,
     };
-    let offer = match resolve_offer(&context, request.requested_version).await {
-        Ok(offer) => offer,
-        Err(error) if context.reason == "manual" && fallback_allowed(&error, true) => {
-            return install_official_binary_agent(&context, request.requested_version).await;
-        }
-        Err(error) => return Err(app_error(error)),
-    };
+    let offer = resolve_offer(&context, request.requested_version)
+        .await
+        .map_err(app_error)?;
     let workspace = prepare_workspace(&context).await?;
     let result = install_resolved_binary(&context, &offer, &workspace).await;
     cleanup_workspace(&workspace).await;
@@ -139,9 +132,6 @@ async fn install_resolved_binary<F: Fn(&str) + Send + Sync>(
             })
             .await
         }
-        Err(error) if context.reason == "manual" && error.is_unavailable() => {
-            install_official_binary_agent(context, &offer.version).await
-        }
         Err(error) => Err(error.into_error()),
     };
     result
@@ -151,46 +141,6 @@ async fn cleanup_workspace(workspace: &InstallWorkspace) {
     let _ = tokio::fs::remove_file(&workspace.archive).await;
     cleanup_resumable_files(&workspace.archive).await;
     let _ = tokio::fs::remove_dir_all(&workspace.stage).await;
-}
-
-async fn install_official_binary_agent<F: Fn(&str) + Send + Sync>(
-    context: &BinaryInstallContext<'_, F>,
-    version: &str,
-) -> Result<String, AcpError> {
-    install_official_binary(
-        context.paths,
-        context.agent_type,
-        version,
-        context.on_progress,
-    )
-    .await?;
-    inventory::record_agent_ready(
-        context.conn,
-        ReadyAgentInstallation {
-            agent_type: context.agent_type,
-            registry_id: registry::registry_id_for(context.agent_type),
-            version,
-            delivery_kind: "binary",
-            artifact_id: None,
-            source_key: Some("official_url_fallback"),
-            expected_sha256: None,
-        },
-    )
-    .await?;
-    activate_or_defer(
-        context.conn,
-        context.agent_type,
-        version,
-        "manual",
-        0,
-        context.defer_while_active,
-    )
-    .await?;
-    Ok(version.to_string())
-}
-
-fn fallback_allowed(error: &AppCommandError, allow_policy_missing: bool) -> bool {
-    crate::acp::version_center::fallback::allowed(error, allow_policy_missing)
 }
 
 async fn resolve_offer(
