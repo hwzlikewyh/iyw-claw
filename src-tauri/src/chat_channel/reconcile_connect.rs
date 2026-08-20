@@ -35,13 +35,32 @@ pub(super) async fn reconcile_connect(
     if channel_type == ChannelType::WecomAgent {
         super::backends::wecom_agent::ensure_ready_config(&config)?;
     }
-    if let Err(message) = credential_ready(db, model).await {
+    let data_dir = manager.data_dir().await;
+    if channel_type == ChannelType::Wecom {
+        let data_dir = data_dir.as_deref().ok_or_else(|| {
+            ChatChannelError::ConfigurationInvalid(
+                "应用数据目录尚未初始化，无法准备企业微信 CLI".into(),
+            )
+        })?;
+        crate::wecom_ai::ensure_cli(data_dir)
+            .await
+            .map_err(|error| ChatChannelError::ConnectionFailed(error.to_string()))?;
+    }
+    if let Err(message) = credential_ready(db, manager, model).await {
         return Err(ChatChannelError::AuthenticationFailed(message));
     }
 
     let token = channel_token(model.id, channel_type);
     let previous = manager.take_backend(model.id).await;
-    let result = build_backend(db, manager, model, channel_type, config, token).await;
+    let request = backends::CreateBackendRequest {
+        channel_id: model.id,
+        channel_type,
+        config: &config,
+        token,
+        database: db.clone(),
+        data_dir,
+    };
+    let result = build_backend(manager, model, request).await;
     if let Err(error) = result {
         restore_previous(manager, model, channel_type, previous).await;
         return Err(error);
@@ -57,14 +76,12 @@ fn channel_token(channel_id: i32, channel_type: ChannelType) -> String {
 }
 
 async fn build_backend(
-    db: &DatabaseConnection,
     manager: &ChatChannelManager,
     model: &chat_channel::Model,
-    channel_type: ChannelType,
-    config: serde_json::Value,
-    token: String,
+    request: backends::CreateBackendRequest<'_>,
 ) -> Result<(), ChatChannelError> {
-    let backend = backends::create_backend(model.id, channel_type, &config, token, db.clone())
+    let channel_type = request.channel_type;
+    let backend = backends::create_backend(request)
         .map_err(|error| ChatChannelError::ConfigurationInvalid(error.to_string()))?;
     manager
         .upsert_channel(

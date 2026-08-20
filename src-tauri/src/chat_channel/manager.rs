@@ -37,6 +37,7 @@ struct Inner {
     runtime_rx: Mutex<Option<mpsc::Receiver<ChannelRuntimeEvent>>>,
     next_generation: AtomicU64,
     broadcaster: Mutex<Option<Arc<WebEventBroadcaster>>>,
+    data_dir: Mutex<Option<PathBuf>>,
 }
 
 pub struct ChatChannelManager {
@@ -62,6 +63,7 @@ impl ChatChannelManager {
                 runtime_rx: Mutex::new(Some(runtime_rx)),
                 next_generation: AtomicU64::new(0),
                 broadcaster: Mutex::new(None),
+                data_dir: Mutex::new(None),
             }),
         }
     }
@@ -75,6 +77,14 @@ impl ChatChannelManager {
 
     pub fn command_sender(&self) -> mpsc::Sender<IncomingCommand> {
         self.inner.command_tx.clone()
+    }
+
+    pub async fn set_data_dir(&self, data_dir: PathBuf) {
+        *self.inner.data_dir.lock().await = Some(data_dir);
+    }
+
+    pub async fn data_dir(&self) -> Option<PathBuf> {
+        self.inner.data_dir.lock().await.clone()
     }
 
     /// Take the command receiver (can only be called once, at startup).
@@ -437,6 +447,7 @@ impl ChatChannelManager {
         conn_mgr: ConnectionManager,
         emitter: EventEmitter,
     ) {
+        self.set_data_dir(data_dir.clone()).await;
         // Store broadcaster for status event emission
         *self.inner.broadcaster.lock().await = Some(broadcaster.clone());
 

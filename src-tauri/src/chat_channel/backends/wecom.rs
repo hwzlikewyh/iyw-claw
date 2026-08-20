@@ -17,6 +17,7 @@
 //! learned from direct chats plus a short-lived record of texts we sent.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -33,8 +34,6 @@ mod cli_error;
 mod poll_runtime;
 
 pub const WECOM_CHAT_THREAD_KIND: &str = "wecom_chat";
-pub const WECOM_CLI_PACKAGE: &str = "@wecom/cli@0.1.9";
-
 const CLI_TIMEOUT: Duration = Duration::from_secs(60);
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 5;
 /// Re-read this much history behind the last successful poll so a message
@@ -65,6 +64,7 @@ struct State {
     recently_sent: Mutex<VecDeque<(String, Instant)>>,
     /// chat_id → chat_type resolved by probing (1 direct, 2 group).
     chat_types: Mutex<HashMap<String, u8>>,
+    data_dir: PathBuf,
 }
 
 struct SeenKeys {
@@ -96,7 +96,7 @@ impl SeenKeys {
 }
 
 impl WecomBackend {
-    pub fn new(channel_id: i32, config: WecomConfig) -> Self {
+    pub fn new(channel_id: i32, config: WecomConfig, data_dir: PathBuf) -> Self {
         Self {
             channel_id,
             config,
@@ -108,6 +108,7 @@ impl WecomBackend {
                 self_userids: Mutex::new(HashSet::new()),
                 recently_sent: Mutex::new(VecDeque::new()),
                 chat_types: Mutex::new(HashMap::new()),
+                data_dir,
             }),
         }
     }
@@ -140,7 +141,11 @@ impl WecomBackend {
                 "msgtype": "text",
                 "text": {"content": chunk},
             });
-            run_cli_json(&["msg", "send_message", &payload.to_string()]).await?;
+            run_cli_json(
+                &self.state.data_dir,
+                &["msg", "send_message", &payload.to_string()],
+            )
+            .await?;
             let mut sent = self.state.recently_sent.lock().await;
             sent.push_back((chunk.to_string(), Instant::now()));
             while sent.len() > 64 {
@@ -182,9 +187,9 @@ impl ChatChannelBackend for WecomBackend {
         runtime_tx: mpsc::Sender<ChannelRuntimeEvent>,
         generation: u64,
     ) -> Result<(), ChatChannelError> {
-        ensure_cli_installed().await?;
-        ensure_authorized().await?;
-        probe_message_access().await?;
+        ensure_cli_ready(&self.state.data_dir).await?;
+        ensure_authorized(&self.state.data_dir).await?;
+        probe_message_access(&self.state.data_dir).await?;
 
         let (stop_tx, stop_rx) = watch::channel(false);
         {
@@ -256,22 +261,26 @@ impl ChatChannelBackend for WecomBackend {
     }
 
     async fn test_connection(&self) -> Result<(), ChatChannelError> {
-        ensure_cli_installed().await?;
-        ensure_authorized().await?;
-        probe_message_access().await
+        ensure_cli_ready(&self.state.data_dir).await?;
+        ensure_authorized(&self.state.data_dir).await?;
+        probe_message_access(&self.state.data_dir).await
     }
 }
 
 // ── Polling ──
 
-async fn probe_message_access() -> Result<(), ChatChannelError> {
+async fn probe_message_access(data_dir: &Path) -> Result<(), ChatChannelError> {
     let end = Local::now();
     let begin = end - ChronoDuration::seconds(1);
     let payload = serde_json::json!({
         "begin_time": begin.format(WECOM_TIME_FORMAT).to_string(),
         "end_time": end.format(WECOM_TIME_FORMAT).to_string(),
     });
-    run_cli_json(&["msg", "get_msg_chat_list", &payload.to_string()]).await?;
+    run_cli_json(
+        data_dir,
+        &["msg", "get_msg_chat_list", &payload.to_string()],
+    )
+    .await?;
     Ok(())
 }
 
@@ -295,7 +304,11 @@ async fn poll_once(
         if let Some(cursor) = cursor.as_deref() {
             payload["cursor"] = serde_json::Value::String(cursor.to_string());
         }
-        let response = run_cli_json(&["msg", "get_msg_chat_list", &payload.to_string()]).await?;
+        let response = run_cli_json(
+            &state.data_dir,
+            &["msg", "get_msg_chat_list", &payload.to_string()],
+        )
+        .await?;
         if let Some(list) = response.get("chats").and_then(|value| value.as_array()) {
             for chat in list {
                 if let Some(chat_id) = chat.get("chat_id").and_then(|value| value.as_str()) {
@@ -338,7 +351,7 @@ async fn poll_once(
 
 /// Send the bounded-queue busy notice back to the originating chat so an
 /// inbound message is never silently dropped.
-async fn send_busy_to_chat(chat_type: u8, chatid: &str) {
+async fn send_busy_to_chat(state: &State, chat_type: u8, chatid: &str) {
     if chatid.trim().is_empty() {
         return;
     }
@@ -348,7 +361,12 @@ async fn send_busy_to_chat(chat_type: u8, chatid: &str) {
         "msgtype": "text",
         "text": {"content": super::DISPATCHER_BUSY_TEXT},
     });
-    if let Err(error) = run_cli_json(&["msg", "send_message", &payload.to_string()]).await {
+    if let Err(error) = run_cli_json(
+        &state.data_dir,
+        &["msg", "send_message", &payload.to_string()],
+    )
+    .await
+    {
         tracing::warn!(error = %error, "[WeCom] busy reply failed");
     }
 }
@@ -407,7 +425,7 @@ async fn poll_chat(
             thread_kind: Some(WECOM_CHAT_THREAD_KIND.to_string()),
             provider_payload: Some(serde_json::json!({"chat_type": chat_type})),
         };
-        let sender_name = fetch_user_display_name(sender).await;
+        let sender_name = fetch_user_display_name(&state.data_dir, sender).await;
         // Provider message id: prefer the platform's own id when present,
         // else fall back to the deterministic composite key.
         let provider_message_id = message
@@ -440,7 +458,7 @@ async fn poll_chat(
             match error {
                 mpsc::error::TrySendError::Full(_) => {
                     tracing::warn!(channel_id, "[WeCom] dispatcher queue full; replying busy");
-                    send_busy_to_chat(chat_type, chat_id).await;
+                    send_busy_to_chat(state, chat_type, chat_id).await;
                 }
                 mpsc::error::TrySendError::Closed(_) => {
                     tracing::error!("[WeCom] command channel closed; dropping inbound");
@@ -469,7 +487,7 @@ async fn fetch_chat_messages(
 
     let mut last_error = ChatChannelError::ConnectionFailed("no chat type candidate".into());
     for &chat_type in candidates {
-        match fetch_messages_once(chat_id, chat_type, begin, end).await {
+        match fetch_messages_once(&state.data_dir, chat_id, chat_type, begin, end).await {
             Ok(messages) => {
                 state
                     .chat_types
@@ -485,6 +503,7 @@ async fn fetch_chat_messages(
 }
 
 async fn fetch_messages_once(
+    data_dir: &Path,
     chat_id: &str,
     chat_type: u8,
     begin: &str,
@@ -502,7 +521,8 @@ async fn fetch_messages_once(
         if let Some(cursor) = cursor.as_deref() {
             payload["cursor"] = serde_json::Value::String(cursor.to_string());
         }
-        let response = run_cli_json(&["msg", "get_message", &payload.to_string()]).await?;
+        let response =
+            run_cli_json(data_dir, &["msg", "get_message", &payload.to_string()]).await?;
         if let Some(list) = response.get("messages").and_then(|value| value.as_array()) {
             messages.extend(list.iter().cloned());
         }
@@ -558,9 +578,13 @@ fn split_utf8_chunks(text: &str, max_bytes: usize) -> Vec<&str> {
 /// Best-effort: call `wecom-cli contact get_member_info` to resolve a userid
 /// into a human-readable display name. Returns `None` on any error so the
 /// caller can fall back to the raw userid without surfacing failures.
-async fn fetch_user_display_name(userid: &str) -> Option<String> {
+async fn fetch_user_display_name(data_dir: &Path, userid: &str) -> Option<String> {
     let payload = serde_json::json!({"userid": userid});
-    let result = run_cli_json(&["contact", "get_member_info", &payload.to_string()]).await;
+    let result = run_cli_json(
+        data_dir,
+        &["contact", "get_member_info", &payload.to_string()],
+    )
+    .await;
     match result {
         Ok(json) => json
             .get("name")
@@ -576,8 +600,9 @@ async fn fetch_user_display_name(userid: &str) -> Option<String> {
 
 // ── wecom-cli process helpers (also used by the command layer) ──
 
-async fn run_cli_raw(args: &[&str]) -> Result<String, ChatChannelError> {
-    let mut command = crate::process::tokio_command("wecom-cli");
+async fn run_cli_raw(data_dir: &Path, args: &[&str]) -> Result<String, ChatChannelError> {
+    let mut command = crate::wecom_ai::managed_command(data_dir)
+        .map_err(|error| ChatChannelError::ConnectionFailed(error.to_string()))?;
     command.args(args);
     command.stdin(std::process::Stdio::null());
     let output = tokio::time::timeout(CLI_TIMEOUT, command.output())
@@ -599,8 +624,11 @@ async fn run_cli_raw(args: &[&str]) -> Result<String, ChatChannelError> {
     Ok(stdout)
 }
 
-async fn run_cli_json(args: &[&str]) -> Result<serde_json::Value, ChatChannelError> {
-    let stdout = run_cli_raw(args).await?;
+async fn run_cli_json(
+    data_dir: &Path,
+    args: &[&str],
+) -> Result<serde_json::Value, ChatChannelError> {
+    let stdout = run_cli_raw(data_dir, args).await?;
     let json_start = stdout.find('{').ok_or_else(|| {
         ChatChannelError::ConnectionFailed("wecom-cli returned no JSON".to_string())
     })?;
@@ -619,61 +647,17 @@ async fn run_cli_json(args: &[&str]) -> Result<serde_json::Value, ChatChannelErr
     Ok(value)
 }
 
-pub fn cli_installed() -> bool {
-    which::which("wecom-cli").is_ok()
-}
-
-/// Install `@wecom/cli` through the managed npm, mirror registry first —
-/// consistent with the app-wide mainland-China acceleration policy.
-pub async fn install_cli() -> Result<(), ChatChannelError> {
-    for registry in ["https://registry.npmmirror.com", ""] {
-        let mut command = crate::process::tokio_command("npm");
-        command.args(["install", "-g", WECOM_CLI_PACKAGE]);
-        if !registry.is_empty() {
-            command.arg(format!("--registry={registry}"));
-        }
-        command.stdin(std::process::Stdio::null());
-        let result = tokio::time::timeout(Duration::from_secs(300), command.output()).await;
-        match result {
-            Ok(Ok(output)) if output.status.success() && cli_installed() => return Ok(()),
-            Ok(Ok(output)) => {
-                tracing::warn!(
-                    "[WeCom] npm install via {} failed: {}",
-                    if registry.is_empty() {
-                        "default registry"
-                    } else {
-                        registry
-                    },
-                    String::from_utf8_lossy(&output.stderr).trim()
-                );
-            }
-            Ok(Err(error)) => {
-                return Err(ChatChannelError::ConnectionFailed(format!(
-                    "failed to run npm (is the Node.js runtime installed?): {error}"
-                )));
-            }
-            Err(_) => {
-                tracing::warn!("[WeCom] npm install timed out via {registry}");
-            }
-        }
-    }
-    Err(ChatChannelError::ConnectionFailed(
-        "failed to install @wecom/cli from both mirror and official registries".into(),
-    ))
-}
-
-async fn ensure_cli_installed() -> Result<(), ChatChannelError> {
-    if cli_installed() {
-        return Ok(());
-    }
-    tracing::info!("[WeCom] wecom-cli not found, installing {WECOM_CLI_PACKAGE}...");
-    install_cli().await
+async fn ensure_cli_ready(data_dir: &Path) -> Result<(), ChatChannelError> {
+    crate::wecom_ai::ensure_cli(data_dir)
+        .await
+        .map(|_| ())
+        .map_err(|error| ChatChannelError::ConnectionFailed(error.to_string()))
 }
 
 /// `authorized` / `unauthorized` per wecom-cli. Note "unauthorized" contains
 /// "authorized" as a substring — check the negative first.
-pub async fn auth_status() -> Result<bool, ChatChannelError> {
-    let output = run_cli_raw(&["auth", "show", "--auth-status"]).await?;
+pub async fn auth_status(data_dir: &Path) -> Result<bool, ChatChannelError> {
+    let output = run_cli_raw(data_dir, &["auth", "show", "--auth-status"]).await?;
     let normalized = output.to_lowercase();
     if normalized.contains("unauthorized") {
         return Ok(false);
@@ -681,8 +665,8 @@ pub async fn auth_status() -> Result<bool, ChatChannelError> {
     Ok(normalized.contains("authorized"))
 }
 
-async fn ensure_authorized() -> Result<(), ChatChannelError> {
-    if auth_status().await? {
+async fn ensure_authorized(data_dir: &Path) -> Result<(), ChatChannelError> {
+    if auth_status(data_dir).await? {
         return Ok(());
     }
     Err(ChatChannelError::ConfigurationInvalid(
@@ -733,15 +717,16 @@ fn set_auth_process(running: bool, last_error: Option<String>) {
 /// fail and the process aborts (exit 101) within a fraction of a second, long
 /// before the user can scan. An undrained stderr would stall it the same way
 /// once the pipe buffer fills.
-pub async fn start_auth() -> Result<String, ChatChannelError> {
-    ensure_cli_installed().await?;
-    if auth_status().await.unwrap_or(false) {
+pub async fn start_auth(data_dir: &Path) -> Result<String, ChatChannelError> {
+    ensure_cli_ready(data_dir).await?;
+    if auth_status(data_dir).await.unwrap_or(false) {
         return Err(ChatChannelError::ConfigurationInvalid(
             "wecom-cli is already authorized".into(),
         ));
     }
 
-    let mut command = crate::process::tokio_command("wecom-cli");
+    let mut command = crate::wecom_ai::managed_command(data_dir)
+        .map_err(|error| ChatChannelError::ConnectionFailed(error.to_string()))?;
     command.args(wecom_init_args());
     command.stdin(std::process::Stdio::null());
     command.stdout(std::process::Stdio::piped());

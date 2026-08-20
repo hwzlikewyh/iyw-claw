@@ -141,3 +141,23 @@ pub async fn list_enabled(conn: &DatabaseConnection) -> Result<Vec<chat_channel:
         .all(conn)
         .await?)
 }
+
+pub async fn has_enabled_type(
+    conn: &DatabaseConnection,
+    channel_type: &str,
+) -> Result<bool, DbError> {
+    Ok(chat_channel::Entity::find()
+        .filter(chat_channel::Column::ChannelType.eq(channel_type))
+        .filter(chat_channel::Column::Enabled.eq(true))
+        .one(conn)
+        .await?
+        .is_some())
+}
+
+pub async fn has_type(conn: &DatabaseConnection, channel_type: &str) -> Result<bool, DbError> {
+    Ok(chat_channel::Entity::find()
+        .filter(chat_channel::Column::ChannelType.eq(channel_type))
+        .one(conn)
+        .await?
+        .is_some())
+}

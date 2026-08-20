@@ -79,6 +79,9 @@ pub async fn create_chat_channel_core(
     // route there without any heuristics — zero-config for the user.
     let mut info = init_channel_workspace(db, model).await;
     info.target_registration_error = target_registration_error;
+    if parsed_type == ChannelType::Wecom {
+        reconcile_wecom_unified_best_effort(db, "create", Some(info.id)).await;
+    }
 
     // IYW-CHANNEL-001: a newly created enabled channel must connect right away.
     if info.enabled {
@@ -298,12 +301,32 @@ pub(crate) async fn update_chat_channel_core_unlocked(
     let target_registration_error = register_default_target(db, &model, "update").await;
     let mut info = ChatChannelInfo::from(model);
     info.target_registration_error = target_registration_error;
+    if channel_type == ChannelType::Wecom {
+        reconcile_wecom_unified_best_effort(db, "edit", Some(info.id)).await;
+    }
 
     // Reconcile to the desired state after every update (IYW-CHANNEL-002):
     // disable → disconnect, enable → connect, edit → safe reconnect.
     let outcome =
         reconcile_channel_or_log_unlocked(db, manager, info.id, info.enabled, "edit").await;
     Ok(with_reconcile_outcome(info, outcome))
+}
+
+pub(crate) async fn reconcile_wecom_unified_best_effort(
+    db: &AppDatabase,
+    reason: &'static str,
+    channel_id: Option<i32>,
+) {
+    if let Err(error) =
+        crate::commands::managed_skills::reconcile_wecom_unified_core(&db.conn).await
+    {
+        tracing::warn!(
+            channel_id = ?channel_id,
+            reason,
+            error = %error,
+            "[managed-skills] conditional WeCom Skill reconcile failed"
+        );
+    }
 }
 
 fn normalize_daily_report(
@@ -405,7 +428,16 @@ pub async fn test_chat_channel_core(
         AppCommandError::configuration_invalid("Invalid config JSON").with_detail(e.to_string())
     })?;
 
-    if let Err(message) = reconcile::credential_ready(&db.conn, &model).await {
+    if channel_type == ChannelType::Wecom {
+        let data_dir = manager
+            .data_dir()
+            .await
+            .ok_or_else(|| AppCommandError::configuration_missing("应用数据目录尚未初始化"))?;
+        crate::wecom_ai::ensure_cli(&data_dir)
+            .await
+            .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
+    }
+    if let Err(message) = reconcile::credential_ready(&db.conn, manager, &model).await {
         return Err(AppCommandError::configuration_missing(message));
     }
 
@@ -419,11 +451,14 @@ pub async fn test_chat_channel_core(
     };
 
     let backend = crate::chat_channel::backends::create_backend(
-        id,
-        channel_type,
-        &config,
-        token,
-        db.conn.clone(),
+        crate::chat_channel::backends::CreateBackendRequest {
+            channel_id: id,
+            channel_type,
+            config: &config,
+            token,
+            database: db.conn.clone(),
+            data_dir: manager.data_dir().await,
+        },
     )
     .map_err(AppCommandError::from)?;
 
@@ -857,13 +892,15 @@ pub async fn wecom_get_auth_status_core(
     db: &AppDatabase,
     manager: &ChatChannelManager,
 ) -> Result<WecomAuthStatus, AppCommandError> {
-    let cli_installed = crate::chat_channel::backends::wecom::cli_installed();
-    let authorized = if cli_installed {
-        crate::chat_channel::backends::wecom::auth_status()
+    let data_dir = manager.data_dir().await;
+    let cli_installed = data_dir
+        .as_deref()
+        .is_some_and(crate::wecom_ai::cli_is_ready);
+    let authorized = match data_dir.as_deref().filter(|_| cli_installed) {
+        Some(data_dir) => crate::chat_channel::backends::wecom::auth_status(data_dir)
             .await
-            .unwrap_or(false)
-    } else {
-        false
+            .unwrap_or(false),
+        None => false,
     };
     // QR scan completion must trigger the same reconcile entry (app start /
     // create / enable / credential). Idempotent: reconcile skips the rebuild
@@ -896,8 +933,23 @@ pub struct WecomAuthStart {
 /// Install wecom-cli when missing, then launch the QR authorization and hand
 /// the link back for the UI to render. Completion is observed by polling
 /// `wecom_get_auth_status`.
-pub async fn wecom_start_auth_core() -> Result<WecomAuthStart, AppCommandError> {
-    let auth_url = crate::chat_channel::backends::wecom::start_auth()
+pub async fn wecom_start_auth_core(
+    db: &AppDatabase,
+    manager: &ChatChannelManager,
+) -> Result<WecomAuthStart, AppCommandError> {
+    let has_legacy_channel = chat_channel_service::has_type(&db.conn, "wecom")
+        .await
+        .map_err(AppCommandError::from)?;
+    if !has_legacy_channel {
+        return Err(AppCommandError::configuration_missing(
+            "请先创建企业微信渠道，再开始扫码授权",
+        ));
+    }
+    let data_dir = manager
+        .data_dir()
+        .await
+        .ok_or_else(|| AppCommandError::configuration_missing("应用数据目录尚未初始化"))?;
+    let auth_url = crate::chat_channel::backends::wecom::start_auth(&data_dir)
         .await
         .map_err(AppCommandError::from)?;
     Ok(WecomAuthStart { auth_url })
@@ -1233,8 +1285,11 @@ pub async fn wecom_get_auth_status(
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn wecom_start_auth() -> Result<WecomAuthStart, AppCommandError> {
-    wecom_start_auth_core().await
+pub async fn wecom_start_auth(
+    db: tauri::State<'_, AppDatabase>,
+    manager: tauri::State<'_, ChatChannelManager>,
+) -> Result<WecomAuthStart, AppCommandError> {
+    wecom_start_auth_core(&db, &manager).await
 }
 
 #[cfg(feature = "tauri-runtime")]

@@ -123,7 +123,7 @@ pub(crate) async fn reconcile_channel_unlocked(
     // Fast path for idempotent connect/app-start calls. Config and credential
     // changes always rebuild so a live backend cannot keep stale values.
     if manager.is_connected(id).await && !requires_backend_rebuild(reason) {
-        if let Err(message) = credential_ready(db, &model).await {
+        if let Err(message) = credential_ready(db, manager, &model).await {
             let updated = chat_channel_service::update_runtime(
                 db,
                 id,

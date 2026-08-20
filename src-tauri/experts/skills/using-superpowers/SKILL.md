@@ -36,7 +36,9 @@ When multiple skills apply, process skills come first because they set the
 approach; domain skills then carry out the work.
 
 - "Implement this written plan" -> `executing-plans`, when available.
-- "Generate a product image" -> `iyw-image-workflows` first.
+- A user-requested visible Skill or direct tool that fully satisfies a subgoal -> use it first.
+- "Generate or edit an IYW product/material image, upload/review it, or query IYW knowledge" -> `iyw-image-workflows` first; `imagegen` is the explicit/GPT-specific fallback.
+- "Perform a remaining concrete iyw-claw host state or action" -> use the complete unique `iyw-capability-gateway` trio first.
 - "Create or update a skill" -> `writing-skills` or `skill-creator`.
 
 ## Red Flags

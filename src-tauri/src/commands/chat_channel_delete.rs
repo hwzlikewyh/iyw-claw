@@ -9,11 +9,13 @@ pub async fn delete_chat_channel_core(
     id: i32,
 ) -> Result<(), AppCommandError> {
     let _guard = crate::chat_channel::operation_lock::lock_channel(id).await;
-    let desired_enabled = chat_channel_service::get_by_id(&db.conn, id)
+    let current = chat_channel_service::get_by_id(&db.conn, id)
         .await
-        .map_err(AppCommandError::from)?
-        .map(|channel| channel.enabled)
-        .unwrap_or(false);
+        .map_err(AppCommandError::from)?;
+    let desired_enabled = current.as_ref().is_some_and(|channel| channel.enabled);
+    let reconcile_wecom_skill = current
+        .as_ref()
+        .is_some_and(|channel| channel.channel_type == "wecom");
     let token_backup =
         crate::keyring_store::try_get_channel_token(id).map_err(secret_read_error)?;
     let target_backup = chat_channel_target_service::take_secure_targets(&db.conn, id)
@@ -47,6 +49,9 @@ pub async fn delete_chat_channel_core(
             AppCommandError::from(error),
             failures,
         ));
+    }
+    if reconcile_wecom_skill {
+        super::chat_channel::reconcile_wecom_unified_best_effort(db, "delete", Some(id)).await;
     }
     Ok(())
 }

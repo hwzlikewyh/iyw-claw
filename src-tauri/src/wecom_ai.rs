@@ -112,6 +112,12 @@ pub async fn ensure_cli(data_dir: &Path) -> Result<bool, WeComAiError> {
     let paths = CliPaths::new(data_dir);
     create_runtime_directories(&paths).await?;
     let _file_lock = installer::acquire_install_lock(&paths).await?;
+    if migrate_legacy_config_if_empty(&paths.config).map_err(|source| WeComAiError::Io {
+        stage: "migrate legacy CLI configuration",
+        source,
+    })? {
+        tracing::info!("[wecom-ai] migrated legacy CLI configuration");
+    }
     installer::ensure_launcher(&paths)?;
     installer::recover_interrupted_activation(&paths)?;
     if installer::cli_is_valid(&paths) {
@@ -127,6 +133,65 @@ pub async fn ensure_cli(data_dir: &Path) -> Result<bool, WeComAiError> {
         let _ = tokio::fs::remove_dir_all(&staging).await;
     }
     result.map(|()| true)
+}
+
+fn migrate_legacy_config_if_empty(target: &Path) -> Result<bool, std::io::Error> {
+    if std::fs::read_dir(target)?.next().is_some() {
+        return Ok(false);
+    }
+    let Some(source) = dirs::home_dir().map(|home| home.join(".config").join("wecom")) else {
+        return Ok(false);
+    };
+    if !source.is_dir() || source == target {
+        return Ok(false);
+    }
+    let staging = target.with_extension(format!("import-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&staging)?;
+    if let Err(error) = copy_config_entries(&source, &staging) {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    std::fs::remove_dir(target)?;
+    if let Err(error) = std::fs::rename(&staging, target) {
+        let _ = std::fs::create_dir_all(target);
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    Ok(true)
+}
+
+fn copy_config_entries(source: &Path, target: &Path) -> Result<(), std::io::Error> {
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let destination = target.join(entry.file_name());
+        if file_type.is_dir() {
+            std::fs::create_dir_all(&destination)?;
+            copy_config_entries(&entry.path(), &destination)?;
+        } else if file_type.is_file() {
+            std::fs::copy(entry.path(), destination)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn cli_is_ready(data_dir: &Path) -> bool {
+    let paths = CliPaths::new(data_dir);
+    installer::launcher_path(&paths).is_file() && installer::cli_is_valid(&paths)
+}
+
+pub fn managed_command(data_dir: &Path) -> Result<tokio::process::Command, WeComAiError> {
+    let paths = CliPaths::new(data_dir);
+    if !installer::launcher_path(&paths).is_file() {
+        return Err(WeComAiError::Validation("managed launcher is missing"));
+    }
+    if !installer::cli_is_valid(&paths) {
+        return Err(WeComAiError::Validation("managed CLI is invalid"));
+    }
+    let mut command = crate::process::tokio_command(installer::launcher_path(&paths));
+    command.env(CONFIG_DIR_ENV, &paths.config);
+    command.env(MANAGED_COMMAND_ENV, &paths.command);
+    Ok(command)
 }
 
 async fn create_runtime_directories(paths: &CliPaths) -> Result<(), WeComAiError> {

@@ -1,12 +1,13 @@
 ---
 name: iyw-capability-gateway
-description: Use when the current tool list exposes search_iyw_capabilities, read_iyw_capability, and invoke_iyw_capability together, either as bare names or under one shared host namespace, and a concrete user goal needs iyw-claw host-side state or action. Proactively search before declaring such a step unavailable, then read a plausible result before invoking its exact stable id. Do not trigger for ordinary questions, explanations, current-turn context, unrelated turns, or a user-requested visible direct tool that already fulfills the goal. Never guess namespaces, ids, or arguments; if the trio is incomplete, use only visible direct tools.
+short-description: Highest-priority route for remaining concrete iyw-claw host state or action goals when one complete gateway trio is visible. Explicit direct tools still win for subgoals they fully satisfy. Search, read the best stable id, then invoke its exact schema; never guess.
+description: Use when the current tool list exposes one complete and uniquely selectable search_iyw_capabilities, read_iyw_capability, and invoke_iyw_capability trio, and a remaining concrete user goal needs iyw-claw host-side state or action. After an explicitly requested visible Skill or direct tool fully handles its subgoal, treat this gateway as the highest-priority route for remaining host subgoals. Do not trigger for ordinary questions, explanations, current-turn context, unrelated turns, or a direct tool that already fulfills the subgoal. Never guess namespaces, ids, or arguments; if the trio is incomplete or ambiguous, use only visible direct tools.
 routing:
-  capability: iyw-claw host capability routing
-  coreTriggers: [goal needs host-side state or action]
-  exclusions: [incomplete gateway trio, direct tool fully handles subgoal]
+  capability: highest-priority iyw-claw host routing
+  coreTriggers: [remaining goal needs host state or action]
+  exclusions: [trio incomplete or ambiguous, direct tool handles subgoal, ordinary question]
   aliases: [iyw gateway, host capability]
-  invocation: Search, read exact id, invoke its schema; never guess.
+  invocation: After direct tools, search, read exact id, invoke its schema.
 ---
 
 # IYW Capability Gateway
@@ -61,6 +62,10 @@ Direct-tool precedence applies only to the subgoal that tool fully satisfies.
 After using it, apply the gateway activation gate independently to each
 remaining host-side subgoal. Skip gateway discovery for the whole request only
 when direct tools fully satisfy the whole goal.
+
+When the gate passes, this gateway is the highest-priority route for each
+remaining concrete iyw-claw host state or action subgoal. It does not override
+a user-requested visible Skill or direct tool that fully satisfies that subgoal.
 
 If the primary object required by the user's request is absent, such as the
 referenced image, attachment, task, or message body, ask for it before search.
