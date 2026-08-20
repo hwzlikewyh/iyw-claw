@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-nsis-compression-benchmark-${{ github.ref }}
+  group: windows-nsis-compression-benchmark-${{ inputs.source_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -107,6 +107,7 @@ jobs:
             } | ConvertTo-Json -Depth 5 -Compress
             Set-Content -LiteralPath $overlayPath -Value $overlay -Encoding utf8NoBOM
             Write-Host "Bundling compression=$mode"
+            $bundleStartedAt = [DateTime]::UtcNow
             pnpm dlx $env:TAURI_CLI bundle `
               --target $env:TARGET `
               --features tauri-runtime `
@@ -117,6 +118,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "NSIS bundle failed for $mode" }
 
             $installer = Get-ChildItem -LiteralPath $nsisDir -Filter "*-setup.exe" |
+              Where-Object LastWriteTimeUtc -GE $bundleStartedAt |
               Sort-Object LastWriteTimeUtc -Descending |
               Select-Object -First 1
             if ($null -eq $installer) { throw "NSIS installer missing for $mode" }
