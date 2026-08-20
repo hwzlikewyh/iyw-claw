@@ -2,16 +2,18 @@ use sea_orm::DatabaseConnection;
 
 use super::backends;
 use super::error::ChatChannelError;
+use super::manager::ChatChannelManager;
 use super::types::{ChannelType, WecomAgentSecrets};
 use crate::db::entities::chat_channel;
 
 pub async fn credential_ready(
     _db: &DatabaseConnection,
+    manager: &ChatChannelManager,
     model: &chat_channel::Model,
 ) -> Result<(), String> {
     let channel_type = parse_channel_type(model).map_err(|error| error.to_string())?;
     match channel_type {
-        ChannelType::Wecom => legacy_wecom_ready().await,
+        ChannelType::Wecom => legacy_wecom_ready(manager).await,
         ChannelType::WecomAgent => {
             let raw = crate::keyring_store::get_channel_token(model.id)
                 .ok_or_else(|| "缺少企业微信自建应用安全凭证".to_string())?;
@@ -24,11 +26,15 @@ pub async fn credential_ready(
     }
 }
 
-async fn legacy_wecom_ready() -> Result<(), String> {
-    if !backends::wecom::cli_installed() {
+async fn legacy_wecom_ready(manager: &ChatChannelManager) -> Result<(), String> {
+    let data_dir = manager
+        .data_dir()
+        .await
+        .ok_or_else(|| "应用数据目录尚未初始化".to_string())?;
+    if !crate::wecom_ai::cli_is_ready(&data_dir) {
         return Err("wecom-cli 未安装，请先点击授权安装".to_string());
     }
-    match backends::wecom::auth_status().await {
+    match backends::wecom::auth_status(&data_dir).await {
         Ok(true) => Ok(()),
         Ok(false) => Err("企微尚未完成扫码授权，请先在设置中完成授权".to_string()),
         Err(error) => Err(format!("企微授权状态检查失败：{error}")),

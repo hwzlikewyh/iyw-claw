@@ -1,12 +1,12 @@
 ---
 name: imagegen
-description: Use when an Agent needs GPT Image-specific generation parameters or image editing through the IYW Fusion API; route ordinary text-to-image requests through iyw-image-workflows first.
+description: Use when the user explicitly selects imagegen or GPT Image, GPT Image-specific parameters are required, or iyw-image-workflows is unavailable or does not cover the requested raster generation or edit. Route covered IYW image, material, upload, review, and knowledge workflows through iyw-image-workflows first.
 routing:
-  capability: GPT Image generation and editing through IYW Fusion
-  coreTriggers: [GPT Image-specific parameters or edits are required]
-  exclusions: [ordinary text-to-image requests]
+  capability: GPT Image fallback
+  coreTriggers: [explicit imagegen or GPT parameters]
+  exclusions: [covered IYW image workflow, image understanding]
   aliases: [GPT Image, image generation]
-  invocation: Read SKILL.md and use only its documented CLI and parameters.
+  invocation: Defer covered work to iyw-image-workflows; otherwise read SKILL.md.
 ---
 
 # Image Generation
@@ -18,12 +18,15 @@ the IYW Fusion API. Do not use or wait for a built-in `image_gen` tool.
 
 Treat `iyw-image-workflows` as the primary router for image requests:
 
+- Honor a user-requested visible Skill or direct tool when it fully satisfies
+  the current subgoal.
 - Use its verified commerce workflow for upload/review, product variation,
   series extension, multi-image fusion, commerce upscale, and task queries.
 - Use its verified `fission-generate` command first for ordinary text-to-image
   requests.
-- Use this skill's CLI for image editing or when the user explicitly requests
-  GPT Image-specific generation parameters.
+- Use this skill's CLI only when the user explicitly selects imagegen or GPT
+  Image, needs GPT Image-specific parameters, or the primary Skill is
+  unavailable or does not cover the requested raster generation or edit.
 - Never guess an IYW endpoint or commerce payload.
 
 ## Optional Knowledge Context

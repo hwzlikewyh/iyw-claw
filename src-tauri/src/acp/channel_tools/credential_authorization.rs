@@ -154,7 +154,7 @@ async fn request_authorization(
             .await
             .map(|value| (value.qrcode_id, value.qrcode_img_content))
             .map_err(|_| "AUTHORIZATION_START_FAILED".to_string()),
-        "wecom" => chat_channel::wecom_start_auth_core()
+        "wecom" => chat_channel::wecom_start_auth_core(&service.db, &service.manager)
             .await
             .map(|value| (value.auth_url.clone(), value.auth_url))
             .map_err(|_| "AUTHORIZATION_START_FAILED".to_string()),

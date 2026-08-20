@@ -50,7 +50,7 @@ pub async fn evaluate_readiness(
     );
 
     // credential
-    let credential = match reconcile::credential_ready(db, model).await {
+    let credential = match reconcile::credential_ready(db, manager, model).await {
         Ok(()) => (true, None),
         Err(message) => (false, Some(message)),
     };

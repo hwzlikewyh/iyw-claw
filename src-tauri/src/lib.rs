@@ -671,11 +671,6 @@ mod tauri_app {
                 // Install bundled expert skills into the central store
                 // (`~/.iyw-claw/skills/`). Runs in the background and does
                 // not block startup; failures are logged but non-fatal.
-                let wecom_ai_data_dir = effective_data_dir.clone();
-                tauri::async_runtime::spawn(async move {
-                    crate::wecom_ai::ensure_cli_best_effort(&wecom_ai_data_dir, "desktop-startup")
-                        .await;
-                });
                 let managed_distribution_db = db.conn.clone();
                 let system_skills_data_dir = effective_data_dir.clone();
                 let system_skills_emitter =
@@ -717,6 +712,16 @@ mod tauri_app {
                     .await
                     {
                         tracing::warn!("[managed-skills] startup reconcile failed: {error}");
+                    }
+                    if let Err(error) =
+                        crate::commands::managed_skills::reconcile_wecom_unified_core(
+                            &managed_distribution_db,
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            "[managed-skills] startup conditional WeCom reconcile failed: {error}"
+                        );
                     }
                     if let Err(error) = crate::commands::mcp_sync::reconcile_all_managed_mcp(
                         &managed_distribution_db,

@@ -12,7 +12,7 @@ use crate::commands::computer_use;
 use crate::commands::experts::{self, LinkOpResult};
 use crate::commands::internet_tools;
 use crate::commands::office_tools;
-use crate::db::service::{agent_setting_service, app_metadata_service};
+use crate::db::service::{agent_setting_service, app_metadata_service, chat_channel_service};
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
 use crate::models::agent::AgentType;
@@ -28,6 +28,8 @@ pub const INTERNET_TOOLS_OVERRIDES_KEY: &str = "managed_skills.internet_tools.ov
 pub const CODEX_NATIVE_OVERRIDES_KEY: &str = "managed_skills.codex_native.overrides.v1";
 pub const COMPUTER_USE_OVERRIDES_KEY: &str = "managed_skills.computer_use.overrides.v1";
 const DEFAULT_ENABLED_MIGRATION_KEY: &str = "managed_skills.default_enabled.v2";
+const LEGACY_WECOM_CHANNEL_TYPE: &str = "wecom";
+const WECOM_UNIFIED_SKILL_ID: &str = "wecom-unified";
 
 fn policy_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -355,7 +357,34 @@ async fn load_family_state(
     family: ManagedSkillFamily,
 ) -> Result<ManagedSkillFamilyState, AppCommandError> {
     let (default_enabled, overrides) = load_family_policy(conn, family).await?;
-    Ok(build_family_state(family, default_enabled, &overrides))
+    let mut state = build_family_state(family, default_enabled, &overrides);
+    apply_activation_conditions(conn, &mut state).await?;
+    Ok(state)
+}
+
+async fn apply_activation_conditions(
+    conn: &DatabaseConnection,
+    state: &mut ManagedSkillFamilyState,
+) -> Result<(), AppCommandError> {
+    if state.family != ManagedSkillFamily::Experts {
+        return Ok(());
+    }
+    let enabled = enabled_legacy_wecom(conn).await?;
+    if let Some(skill) = state
+        .skills
+        .iter_mut()
+        .find(|skill| skill.skill_id == WECOM_UNIFIED_SKILL_ID)
+    {
+        skill.enabled = enabled;
+    }
+    state.all_enabled = !state.skills.is_empty() && state.skills.iter().all(|skill| skill.enabled);
+    Ok(())
+}
+
+pub async fn enabled_legacy_wecom(conn: &DatabaseConnection) -> Result<bool, AppCommandError> {
+    chat_channel_service::has_enabled_type(conn, LEGACY_WECOM_CHANNEL_TYPE)
+        .await
+        .map_err(AppCommandError::from)
 }
 
 fn migration_agent_types() -> Vec<AgentType> {
@@ -670,12 +699,32 @@ pub async fn reconcile_family_core(
         true
     };
     let agents = agent_eligibility(conn).await?;
-    let skills = family_skill_ids(family)
+    let mut skills = family_skill_ids(family)
         .into_iter()
         .map(|skill_id| (skill_id, enabled))
         .collect::<Vec<_>>();
+    apply_skill_activation_conditions(conn, family, &mut skills).await?;
     let targets = expand_skill_targets(family, &agents, &skills);
-    Ok(reconcile_targets(family, enabled, None, &targets).await)
+    let all_enabled = !skills.is_empty() && skills.iter().all(|(_, enabled)| *enabled);
+    Ok(reconcile_targets(family, all_enabled, None, &targets).await)
+}
+
+async fn apply_skill_activation_conditions(
+    conn: &DatabaseConnection,
+    family: ManagedSkillFamily,
+    skills: &mut [(String, bool)],
+) -> Result<(), AppCommandError> {
+    if family != ManagedSkillFamily::Experts {
+        return Ok(());
+    }
+    let enabled = enabled_legacy_wecom(conn).await?;
+    if let Some((_, desired)) = skills
+        .iter_mut()
+        .find(|(skill_id, _)| skill_id == WECOM_UNIFIED_SKILL_ID)
+    {
+        *desired = enabled;
+    }
+    Ok(())
 }
 
 pub async fn reconcile_persisted_family_core(
@@ -688,6 +737,35 @@ pub async fn reconcile_persisted_family_core(
     let agents = agent_eligibility(conn).await?;
     let targets = expand_skill_targets(family, &agents, &desired_skills(&state));
     Ok(reconcile_targets(family, state.all_enabled, None, &targets).await)
+}
+
+pub async fn reconcile_wecom_unified_core(
+    conn: &DatabaseConnection,
+) -> Result<ManagedSkillSyncReport, AppCommandError> {
+    let _guard = policy_lock().lock().await;
+    ensure_policies_migrated_locked(conn).await?;
+    let enabled = enabled_legacy_wecom(conn).await?;
+    let agents = agent_eligibility(conn).await?;
+    let skill_id = WECOM_UNIFIED_SKILL_ID.to_string();
+    let targets = expand_skill_targets(
+        ManagedSkillFamily::Experts,
+        &agents,
+        &[(skill_id.clone(), enabled)],
+    );
+    let report = reconcile_targets(
+        ManagedSkillFamily::Experts,
+        enabled,
+        Some(skill_id),
+        &targets,
+    )
+    .await;
+    if let Some(detail) = failed_link_detail(&report) {
+        return Err(AppCommandError::task_execution_failed(
+            "Conditional WeCom Skill publication failed",
+        )
+        .with_detail(detail));
+    }
+    Ok(report)
 }
 
 pub async fn set_global_enabled_core(

@@ -5,6 +5,8 @@ pub mod wecom_agent;
 pub mod wecom_ai_bot;
 pub mod weixin;
 
+use std::path::PathBuf;
+
 use sea_orm::DatabaseConnection;
 
 use super::error::ChatChannelError;
@@ -17,13 +19,26 @@ use super::types::*;
 
 /// Factory function to create a backend instance from channel type, config, and token.
 /// Eliminates duplicated match blocks across connect, test, and auto-connect paths.
+pub struct CreateBackendRequest<'a> {
+    pub channel_id: i32,
+    pub channel_type: ChannelType,
+    pub config: &'a serde_json::Value,
+    pub token: String,
+    pub database: DatabaseConnection,
+    pub data_dir: Option<PathBuf>,
+}
+
 pub fn create_backend(
-    channel_id: i32,
-    channel_type: ChannelType,
-    config: &serde_json::Value,
-    token: String,
-    database: DatabaseConnection,
+    request: CreateBackendRequest<'_>,
 ) -> Result<Box<dyn ChatChannelBackend>, ChatChannelError> {
+    let CreateBackendRequest {
+        channel_id,
+        channel_type,
+        config,
+        token,
+        database,
+        data_dir,
+    } = request;
     match channel_type {
         ChannelType::Wecom => {
             let cfg: WecomConfig = serde_json::from_value(config.clone()).map_err(|e| {
@@ -32,7 +47,14 @@ pub fn create_backend(
             // Credentials live in wecom-cli's own store (QR-scan auth), so no
             // token is required here.
             let _ = token;
-            Ok(Box::new(wecom::WecomBackend::new(channel_id, cfg)))
+            let data_dir = data_dir.ok_or_else(|| {
+                ChatChannelError::ConfigurationInvalid(
+                    "应用数据目录尚未初始化，无法准备企业微信 CLI".into(),
+                )
+            })?;
+            Ok(Box::new(wecom::WecomBackend::new(
+                channel_id, cfg, data_dir,
+            )))
         }
         ChannelType::Weixin => {
             let cfg: WeixinConfig = serde_json::from_value(config.clone()).map_err(|e| {

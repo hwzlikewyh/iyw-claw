@@ -447,8 +447,12 @@ pub async fn wecom_get_auth_status(
     ))
 }
 
-pub async fn wecom_start_auth() -> Result<Json<cc_commands::WecomAuthStart>, AppCommandError> {
-    Ok(Json(cc_commands::wecom_start_auth_core().await?))
+pub async fn wecom_start_auth(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<cc_commands::WecomAuthStart>, AppCommandError> {
+    Ok(Json(
+        cc_commands::wecom_start_auth_core(&state.db, &state.chat_channel_manager).await?,
+    ))
 }
 
 #[derive(Deserialize)]

@@ -69,8 +69,8 @@ en = "IYW Capability Gateway"
 "zh-CN" = "爱原物能力网关"
 
 [expert.description]
-en = "Discovers and invokes IYW capabilities through stable capability ids."
-"zh-CN" = "通过稳定能力 ID 发现并调用爱原物能力。"
+en = "Highest-priority route for concrete iyw-claw host state or actions when its complete gateway trio is visible; explicit direct tools still win."
+"zh-CN" = "完整网关三件套可见时，优先路由具体的爱原物宿主状态与动作；用户明确指定的直接工具仍优先。"
 
 [[expert]]
 id = "wecom-unified"
@@ -97,8 +97,8 @@ en = "Image Generation"
 "zh-CN" = "图像生成"
 
 [expert.description]
-en = "Generates or edits raster images through the IYW Fusion API."
-"zh-CN" = "通过爱原物 Fusion API 生成或编辑位图图像。"
+en = "GPT Image-specific raster generation and editing fallback when IYW Image Workflows is not selected or cannot cover the request."
+"zh-CN" = "在用户指定或爱原物图片工作流无法覆盖时，回退执行 GPT Image 专用位图生成与编辑。"
 
 [[expert]]
 id = "plugin-creator"
@@ -153,8 +153,8 @@ en = "IYW Image Workflows"
 "zh-CN" = "爱原物图片工作流"
 
 [expert.description]
-en = "Runs authenticated IYW image, commerce, upload, and review workflows."
-"zh-CN" = "执行已认证的爱原物图片、电商、上传和检测工作流。"
+en = "Primary IYW workflow for image and material generation, editing, upload, review, and knowledge; Image Generation is the GPT-specific fallback."
+"zh-CN" = "爱原物图片、素材、生成、编辑、上传、审查与知识任务的首选工作流；图像生成为 GPT 专用回退。"
 
 [[expert]]
 id = "lixiao-workflows"
