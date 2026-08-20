@@ -2821,6 +2821,10 @@
         "skills": "Skills",
         "taskCommands": {
           "title": "Task style",
+          "enabled": "Enabled",
+          "running": "Running",
+          "replace": "Replace {task}",
+          "remove": "Remove {task}",
           "goal": {
             "label": "Goal task",
             "description": "Keep working toward one goal until it completes or is blocked"

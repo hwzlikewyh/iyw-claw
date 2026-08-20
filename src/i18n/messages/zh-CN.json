@@ -2821,6 +2821,10 @@
         "skills": "技能",
         "taskCommands": {
           "title": "任务方式",
+          "enabled": "已启用",
+          "running": "执行中",
+          "replace": "替换{task}",
+          "remove": "移除{task}",
           "goal": {
             "label": "目标任务",
             "description": "围绕一个目标持续推进，直到完成或受阻"

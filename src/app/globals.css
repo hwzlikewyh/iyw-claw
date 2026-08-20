@@ -1156,6 +1156,27 @@ body {
   }
 }
 
+/* Reasoning closes after its existing one-second settle delay. Only opacity is
+   animated so the virtualized message row can remeasure its height immediately. */
+.iyw-claw-reasoning-content[data-state="closed"] {
+  animation: reasoning-content-fade-out 150ms ease-out;
+}
+
+@keyframes reasoning-content-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iyw-claw-reasoning-content[data-state="closed"] {
+    animation: none;
+  }
+}
+
 /* Welcome-page quick actions: single-row seamless marquee. The motion is driven
    by a JS requestAnimationFrame loop (see quick-actions.tsx) that sets the track
    transform every frame — NOT a CSS animation. A CSS transform animation gets
@@ -1742,6 +1763,29 @@ body {
   cursor: default;
   user-select: none;
   white-space: normal;
+}
+.iyw-claw-composer .iyw-claw-task-reference {
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.iyw-claw-send-button {
+  transition-duration: 120ms;
+}
+.iyw-claw-send-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iyw-claw-send-button {
+    transition: none;
+  }
+  .iyw-claw-send-button:active:not(:disabled) {
+    transform: none;
+  }
 }
 .iyw-claw-composer
   .iyw-claw-reference.ProseMirror-selectednode

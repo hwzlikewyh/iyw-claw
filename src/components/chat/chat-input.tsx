@@ -176,6 +176,7 @@ export const ChatInput = memo(function ChatInput({
         onEphemeralDraftChange={onEphemeralDraftChange}
         isActive={isActive}
         showActiveFlow={showActiveFlow}
+        hasQueuedMessages={(queue?.length ?? 0) > 0}
         onEnqueue={onEnqueue}
         editingItemId={editingItemId}
         editingDraftText={editingDraftText}

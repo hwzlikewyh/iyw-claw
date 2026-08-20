@@ -38,6 +38,7 @@ import {
   ReasoningTrigger,
   ReasoningContent,
 } from "@/components/ai-elements/reasoning"
+import { OnceEntrance } from "@/components/message/message-entrance"
 import { AgentToolCallPart } from "./agent-tool-call"
 import { AskQuestionResultCard } from "./ask-question-result-card"
 import { CollabAgentCard } from "./collab-agent-card"
@@ -2402,16 +2403,30 @@ const ToolResultPart = memo(function ToolResultPart({
 
 const ReasoningPart = memo(function ReasoningPart({
   part,
+  entranceKey,
+  animationEnabled,
 }: {
   part: Extract<AdaptedContentPart, { type: "reasoning" }>
+  entranceKey?: string
+  animationEnabled: boolean
 }) {
   const hasContent = part.content.trim().length > 0
   const expandable = hasContent || part.isStreaming
-  return (
+  const content = (
     <Reasoning isStreaming={part.isStreaming} expandable={expandable}>
       <ReasoningTrigger />
       {expandable && <ReasoningContent>{part.content}</ReasoningContent>}
     </Reasoning>
+  )
+  return entranceKey ? (
+    <OnceEntrance
+      entranceKey={`reasoning:${entranceKey}`}
+      animate={animationEnabled && part.isStreaming}
+    >
+      {content}
+    </OnceEntrance>
+  ) : (
+    content
   )
 })
 
@@ -2520,11 +2535,15 @@ const ToolGroupPart = memo(function ToolGroupPart({
 interface ContentPartsRendererProps {
   parts: AdaptedContentPart[]
   role?: MessageRole
+  entranceKey?: string
+  animationEnabled?: boolean
 }
 
 export const ContentPartsRenderer = memo(function ContentPartsRenderer({
   parts,
   role,
+  entranceKey,
+  animationEnabled = false,
 }: ContentPartsRendererProps) {
   const renderPart = (part: AdaptedContentPart, keyId: string): ReactNode => {
     if (part.type === "text") {
@@ -2572,7 +2591,14 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
     }
 
     if (part.type === "reasoning") {
-      return <ReasoningPart key={`reasoning-${keyId}`} part={part} />
+      return (
+        <ReasoningPart
+          key={`reasoning-${keyId}`}
+          part={part}
+          entranceKey={entranceKey ? `${entranceKey}:${keyId}` : undefined}
+          animationEnabled={animationEnabled}
+        />
+      )
     }
 
     if (part.type === "plan") {

@@ -191,9 +191,14 @@ import {
   isEmbeddedReferenceUri,
 } from "@/components/chat/composer/reference-uri"
 import {
+  applyTaskReference,
   applyExpertReference,
+  clearTaskReference,
+  getTaskReference,
   isComposerChromeClick,
   isComposerEmpty,
+  isTaskReference,
+  normalizeDirectiveReferences,
   restampSkillPrefixes,
   restoreBlocksIntoEditor,
 } from "@/components/chat/composer/composer-commands"
@@ -219,7 +224,10 @@ import {
   ProjectReferenceDialog,
   type ProjectReferenceSelection,
 } from "@/components/chat/project-reference-dialog"
-import { TaskCommandMenu } from "@/components/chat/task-command-menu"
+import {
+  TaskCommandMenu,
+  TaskModeRail,
+} from "@/components/chat/task-command-menu"
 
 /**
  * Payload pushed into the composer from outside (e.g. a welcome-page quick
@@ -322,6 +330,9 @@ interface MessageInputProps {
    *  non-tiled session keeps the plain default border. Independent of
    *  `isActive` (which still drives auto-focus/connect). */
   showActiveFlow?: boolean
+  /** Existing queued drafts may run before a new direct send. In that case the
+   *  composer must not label the newly queued task as the active turn. */
+  hasQueuedMessages?: boolean
   onEnqueue?: (draft: PromptDraft, modeId: string | null) => boolean | void
   /** Id of the queue item being edited — the stable key for (re)hydration, so
    *  switching between two items with identical display text still reloads. */
@@ -811,6 +822,7 @@ export function MessageInput({
   onEphemeralDraftChange,
   isActive = false,
   showActiveFlow = false,
+  hasQueuedMessages = false,
   onEnqueue,
   editingItemId,
   editingDraftText,
@@ -891,6 +903,8 @@ export function MessageInput({
   // The editor owns the content now; this mirror of its empty state drives the
   // send button and `hasSendableContent`.
   const [composerEmpty, setComposerEmpty] = useState(true)
+  const [draftTask, setDraftTask] = useState<ReferenceAttrs | null>(null)
+  const [runningTask, setRunningTask] = useState<ReferenceAttrs | null>(null)
   // Flips true once the RichComposer's async (immediatelyRender:false) editor has
   // mounted, so the hydration effect can use the imperative handle.
   const [composerReady, setComposerReady] = useState(false)
@@ -963,6 +977,7 @@ export function MessageInput({
   const lastDomDropAtRef = useRef(0)
   const disabledRef = useRef(disabled)
   const isPromptingRef = useRef(isPrompting)
+  const sendGenerationRef = useRef(0)
   const hydratedRef = useRef(false)
   // Tracks the last queue-item id hydrated, so a re-edit of the *same* item
   // doesn't clobber the user's in-progress changes — keyed on id, not display
@@ -985,7 +1000,12 @@ export function MessageInput({
   }, [disabled])
 
   useEffect(() => {
+    const wasPrompting = isPromptingRef.current
     isPromptingRef.current = isPrompting
+    if (wasPrompting && !isPrompting) {
+      sendGenerationRef.current += 1
+      setRunningTask(null)
+    }
   }, [isPrompting])
 
   useEffect(() => {
@@ -1208,7 +1228,9 @@ export function MessageInput({
         programmaticResetRef.current = false
       }
       const editor = ed.getEditor()
+      if (editor) normalizeDirectiveReferences(editor)
       setComposerEmpty(editor ? isComposerEmpty(editor) : true)
+      setDraftTask(editor ? getTaskReference(editor) : null)
       setComposerHydrated(true)
     })
     return () => cancelAnimationFrame(raf)
@@ -1243,6 +1265,7 @@ export function MessageInput({
           editorRef.current?.setText(editingDraftText)
         }
         setComposerEmpty(editor ? isComposerEmpty(editor) : true)
+        setDraftTask(editor ? getTaskReference(editor) : null)
         editorRef.current?.focus()
       })
       return () => cancelAnimationFrame(raf)
@@ -1318,6 +1341,8 @@ export function MessageInput({
 
   const handleComposerChange = useCallback(() => {
     syncComposerEmpty()
+    const editor = editorRef.current?.getEditor()
+    setDraftTask(editor ? getTaskReference(editor) : null)
     if (programmaticResetRef.current) return
     composerMutationVersionRef.current += 1
     scheduleDraftSave()
@@ -2370,9 +2395,14 @@ export function MessageInput({
         const tokenLen = match[2].length + match[3].length
         chain = chain.deleteRange({ from: $from.pos - tokenLen, to: $from.pos })
       }
-      chain = chain.insertReference(ref)
-      if (suffix) chain = chain.insertContent(suffix)
-      chain.run()
+      if (isTaskReference(ref)) {
+        chain.run()
+        applyTaskReference(editor, ref)
+      } else {
+        chain = chain.insertReference(ref)
+        if (suffix) chain = chain.insertContent(suffix)
+        chain.run()
+      }
       closeSlashMenu()
     },
     [closeSlashMenu]
@@ -2396,27 +2426,27 @@ export function MessageInput({
   const handleTaskCommandSelect = useCallback((reference: ReferenceAttrs) => {
     const editor = editorRef.current?.getEditor()
     if (!editor) return
-    const { $from } = editor.state.selection
-    const charBefore =
-      $from.parentOffset > 0
-        ? $from.parent.textBetween(
-            $from.parentOffset - 1,
-            $from.parentOffset,
-            undefined,
-            " "
-          )
-        : ""
-    let chain = editor.chain().focus()
-    if (charBefore !== "" && !/\s/.test(charBefore)) {
-      chain = chain.insertContent(" ")
+    applyTaskReference(editor, reference)
+  }, [])
+
+  const handleTaskRemove = useCallback(() => {
+    const editor = editorRef.current?.getEditor()
+    if (editor && getTaskReference(editor)) {
+      clearTaskReference(editor)
+      return
     }
-    chain.insertReference(reference).insertContent(" ").run()
+    setRunningTask(null)
   }, [])
 
   const handleSkillMenuSelect = useCallback(
     (skill: AgentSkillItem) => {
       const editor = editorRef.current?.getEditor()
       if (!editor) return
+      const reference = skillToReference(skill, skillPrefix)
+      if (isTaskReference(reference)) {
+        applyTaskReference(editor, reference)
+        return
+      }
       const { $from } = editor.state.selection
       const charBefore =
         $from.parentOffset > 0
@@ -2430,10 +2460,7 @@ export function MessageInput({
       const needsSpace = charBefore !== "" && !/\s/.test(charBefore)
       let chain = editor.chain().focus()
       if (needsSpace) chain = chain.insertContent(" ")
-      chain
-        .insertReference(skillToReference(skill, skillPrefix))
-        .insertContent(" ")
-        .run()
+      chain.insertReference(reference).insertContent(" ").run()
     },
     [skillPrefix]
   )
@@ -3143,7 +3170,10 @@ export function MessageInput({
     const editor = editorRef.current?.getEditor()
     // The send boundary is authoritative in case the agent changed before the
     // deferred re-stamp effect ran.
-    if (editor) restampSkillPrefixes(editor, skillPrefix)
+    if (editor) {
+      normalizeDirectiveReferences(editor)
+      restampSkillPrefixes(editor, skillPrefix)
+    }
     // Inline badges + prose → text/resource_link blocks (file mentions become
     // first-class ResourceLinks; agent/session/commit/skill stay inline text;
     // embedded badges are dropped here and re-added below from the payload map).
@@ -3239,6 +3269,7 @@ export function MessageInput({
       programmaticResetRef.current = false
     }
     setComposerEmpty(true)
+    setDraftTask(null)
     embeddedPayloadsRef.current.clear()
     closeSlashMenu()
   }, [
@@ -3266,7 +3297,8 @@ export function MessageInput({
   const restoreRejectedSend = useCallback(
     (snapshot: PendingSendSnapshot) => {
       const editor = editorRef.current
-      if (!editor?.getEditor()) return false
+      const restoredEditor = editor?.getEditor()
+      if (!editor || !restoredEditor) return false
       const sameInstance =
         snapshot.composerInstanceId === composerInstanceIdRef.current
       const unchanged = sameInstance
@@ -3288,6 +3320,7 @@ export function MessageInput({
       editor.setDoc(snapshot.doc)
       setAttachments(snapshot.attachments)
       setComposerEmpty(editor.isEmpty())
+      setDraftTask(getTaskReference(restoredEditor))
       editor.focus()
       return true
     },
@@ -3322,6 +3355,8 @@ export function MessageInput({
     }
     const draft = buildDraft()
     if (!draft) return
+    const editor = editorRef.current?.getEditor()
+    const sentTask = editor ? getTaskReference(editor) : null
 
     // Edit mode: save back to queue item
     if (isEditingQueueItem && onSaveQueueEdit) {
@@ -3355,6 +3390,9 @@ export function MessageInput({
       })
     }
     const snapshot = capturePendingSend(draft)
+    const sendGeneration = ++sendGenerationRef.current
+    const trackSentTask = !hasQueuedMessages
+    setRunningTask(null)
     sendPendingRef.current = true
     let result: boolean | void | Promise<boolean>
     try {
@@ -3372,6 +3410,7 @@ export function MessageInput({
     }
     resetComposer()
     if (result === undefined || result === true) {
+      if (trackSentTask) setRunningTask(sentTask)
       sendPendingRef.current = false
       return
     }
@@ -3379,6 +3418,12 @@ export function MessageInput({
     void result
       .then((accepted) => {
         if (accepted === false) rejectPendingSend(snapshot)
+        else if (
+          trackSentTask &&
+          sendGenerationRef.current === sendGeneration
+        ) {
+          setRunningTask(sentTask)
+        }
       })
       .catch((error) => {
         console.error("[MessageInput] send failed before acceptance", { error })
@@ -3402,6 +3447,7 @@ export function MessageInput({
     capturePendingSend,
     rejectPendingSend,
     promptCapabilities.image,
+    hasQueuedMessages,
   ])
 
   const handleVoiceFinal = useCallback((text: string) => {
@@ -3605,6 +3651,7 @@ export function MessageInput({
 
   const hasImageAttachments = imageAttachments.length > 0
   const showDragActive = isDragActive && !disabled
+  const visibleTask = draftTask ?? (isPrompting ? runningTask : null)
 
   const inlineSelectorItems = (
     <>
@@ -3800,7 +3847,7 @@ export function MessageInput({
           hasUnstagedImage
         }
         size="icon"
-        className="h-8 w-8 rounded-r-none"
+        className="iyw-claw-send-button h-8 w-8 rounded-r-none"
         title={t("send")}
       >
         <Send className="size-4" />
@@ -3841,7 +3888,7 @@ export function MessageInput({
         hasUnstagedImage
       }
       size="icon"
-      className="h-8 w-8"
+      className="iyw-claw-send-button h-8 w-8"
       title={t("send")}
     >
       <Send className="size-4" />
@@ -4070,6 +4117,19 @@ export function MessageInput({
                   </>
                 }
               />
+              {visibleTask && (
+                <TaskModeRail
+                  task={visibleTask}
+                  running={
+                    draftTask == null && runningTask != null && isPrompting
+                  }
+                  commands={slashCommands}
+                  skills={visibleEnabledSkills}
+                  skillPrefix={skillPrefix}
+                  onSelect={handleTaskCommandSelect}
+                  onRemove={handleTaskRemove}
+                />
+              )}
               <RichComposer
                 ref={editorRef}
                 placeholder={resolvedPlaceholder}
