@@ -21,7 +21,10 @@ export function BrowserCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const textInputRef = useRef<HTMLTextAreaElement>(null)
   const { subscription, error } = useBrowserFrames(canvasRef, tab, claim)
-  const { canvasProps, textProps } = useBrowserInput(canvasRef, subscription)
+  const { canvasProps, textProps, inputError } = useBrowserInput(
+    canvasRef,
+    subscription
+  )
 
   const focusInput = () => textInputRef.current?.focus({ preventScroll: true })
 
@@ -56,8 +59,8 @@ export function BrowserCanvas({
       ) : !subscription ? (
         <CanvasState icon={LoaderCircle} label={t("connecting")} spin />
       ) : null}
-      {error ? (
-        <div className="absolute inset-x-0 bottom-0 bg-destructive px-3 py-1.5 text-xs text-destructive-foreground">
+      {error || inputError ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-destructive px-3 py-1.5 text-xs text-destructive-foreground">
           {t("streamDisconnected")}
         </div>
       ) : null}
@@ -75,7 +78,7 @@ function CanvasState({
   spin?: boolean
 }) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-background text-muted-foreground">
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background text-muted-foreground">
       <div className="flex items-center gap-2 text-sm">
         <Icon className={`size-4 ${spin ? "animate-spin" : ""}`} />
         <span>{label}</span>

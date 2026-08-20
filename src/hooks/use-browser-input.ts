@@ -7,7 +7,7 @@ import type {
   PointerEvent,
   WheelEvent,
 } from "react"
-import { browserApi } from "@/lib/browser-api"
+import { useBrowserInputTransport } from "./use-browser-input-transport"
 import type {
   BrowserFrameSubscriptionSnapshot,
   BrowserInputEvent,
@@ -27,19 +27,10 @@ export function useBrowserInput(
     x: number
     y: number
   } | null>(null)
-
-  const send = useCallback(
-    (events: BrowserInputEvent[]) => {
-      if (!subscription || events.length === 0) return
-      void browserApi
-        .sendInput(
-          subscription.subscriptionId,
-          subscription.generations,
-          events
-        )
-        .catch(() => {})
-    },
-    [subscription]
+  const { enqueue, releasePressed, inputError } = useBrowserInputTransport(
+    canvasRef,
+    subscription,
+    pressedRef
   )
 
   const flush = useCallback(() => {
@@ -52,8 +43,15 @@ export function useBrowserInput(
     )
     moveRef.current = null
     wheelRef.current = null
-    send(events)
-  }, [send])
+    enqueue(events)
+  }, [enqueue])
+
+  useEffect(() => {
+    return () => {
+      flush()
+      releasePressed()
+    }
+  }, [flush, releasePressed])
 
   const scheduleFlush = useCallback(() => {
     if (rafRef.current !== null) return
@@ -62,27 +60,6 @@ export function useBrowserInput(
       flush()
     })
   }, [flush])
-
-  useEffect(
-    () => () => {
-      flush()
-      const pressed = pressedRef.current
-      pressedRef.current = null
-      if (pressed) {
-        send([
-          {
-            kind: "mouse",
-            eventType: "mouseReleased",
-            x: pressed.x,
-            y: pressed.y,
-            button: pressed.button,
-            clickCount: 1,
-          },
-        ])
-      }
-    },
-    [flush, send]
-  )
 
   const point = useCallback(
     (event: { clientX: number; clientY: number }) => {
@@ -118,19 +95,24 @@ export function useBrowserInput(
   const pointerButton = useCallback(
     (event: PointerEvent<HTMLCanvasElement>, pressed: boolean) => {
       event.preventDefault()
+      if (pressed && pressedRef.current) releasePressed()
       const position = point(event)
+      const active = pressedRef.current
+      if (!pressed && active && active.pointerId !== event.pointerId) return
       const button = pressed
         ? buttonName(event.button)
-        : (pressedRef.current?.button ?? buttonName(event.button))
+        : (active?.button ?? buttonName(event.button))
       if (pressed) {
         pressedRef.current = { pointerId: event.pointerId, button, ...position }
         event.currentTarget.setPointerCapture(event.pointerId)
-      } else if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId)
+      } else {
+        pressedRef.current = null
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId)
+        }
       }
-      if (!pressed) pressedRef.current = null
       flush()
-      send([
+      enqueue([
         {
           kind: "mouse",
           eventType: pressed ? "mousePressed" : "mouseReleased",
@@ -141,7 +123,7 @@ export function useBrowserInput(
         },
       ])
     },
-    [flush, point, send]
+    [enqueue, flush, point, releasePressed]
   )
 
   const onWheel = useCallback(
@@ -171,26 +153,31 @@ export function useBrowserInput(
       if (event.nativeEvent.isComposing || composingRef.current) return
       event.preventDefault()
       flush()
-      send([
+      const printable = event.key.length === 1
+      const emitsChar =
+        printable && !event.ctrlKey && !event.altKey && !event.metaKey
+      const events: BrowserInputEvent[] = [
         {
           kind: "keyboard",
-          eventType: "rawKeyDown",
+          eventType: emitsChar ? "keyDown" : "rawKeyDown",
           key: event.key,
           code: event.code,
-          text: event.key.length === 1 ? event.key : undefined,
           windowsVirtualKeyCode: event.keyCode,
           modifiers: modifiers(event),
         },
-      ])
+      ]
+      if (emitsChar)
+        events.push({ kind: "keyboard", eventType: "char", text: event.key })
+      enqueue(events)
     },
-    [flush, send]
+    [enqueue, flush]
   )
 
   const onKeyUp = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
       if (event.nativeEvent.isComposing || composingRef.current) return
       event.preventDefault()
-      send([
+      enqueue([
         {
           kind: "keyboard",
           eventType: "keyUp",
@@ -201,23 +188,17 @@ export function useBrowserInput(
         },
       ])
     },
-    [send]
+    [enqueue]
   )
 
   const onCompositionEnd = useCallback(
     (event: CompositionEvent<HTMLTextAreaElement>) => {
       composingRef.current = false
       if (!event.data) return
-      send([
-        {
-          kind: "keyboard",
-          eventType: "char",
-          text: event.data,
-        },
-      ])
+      enqueue([{ kind: "keyboard", eventType: "char", text: event.data }])
       event.currentTarget.value = ""
     },
-    [send]
+    [enqueue]
   )
 
   return {
@@ -240,6 +221,7 @@ export function useBrowserInput(
       },
       onCompositionEnd,
     },
+    inputError,
   }
 }
 
