@@ -997,7 +997,7 @@
       "previousRoot": "旧数据仍保留在 {path}，确认无误后请手动删除"
     },
     "title": "Agent SDK 管理",
-    "description": "根据擅长领域选择 Agent，并在一处管理启用状态、版本、连接与模型配置。",
+    "description": "根据擅长领域选择 Agent，并在一处管理启用状态和版本。",
     "agentAliasDescription": "通过 Agent SDK 连接和管理{name}。",
     "loadingAgents": "加载 Agent 列表中...",
     "agentList": "选择 Agent",

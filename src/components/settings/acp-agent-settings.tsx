@@ -4027,6 +4027,7 @@ interface AcpAgentSettingsProps {
 
 const SHOW_AGENT_ENVIRONMENT_SETTINGS = false
 const SHOW_AGENT_STORAGE_SETTINGS = false
+const SHOW_AGENT_CONFIGURATION_SETTINGS = false
 
 const VERSION_STATE_TONE: Record<AgentVersionState, string> = {
   latest: "text-emerald-600 dark:text-emerald-400",
@@ -5024,6 +5025,7 @@ export function AcpAgentSettings({
   const selectedIsSavingConfig = selectedAgent
     ? Boolean(savingConfig[selectedAgent.agent_type])
     : false
+  const selectedAgentInstalled = Boolean(selectedAgent?.installed_version)
   const selectedAgentKind = selectedAgent?.agent_type ?? null
 
   const selectedModelProviders = useMemo(() => {
@@ -7156,6 +7158,8 @@ export function AcpAgentSettings({
             {visibleAgents.map((agent) => {
               const isChecking = Boolean(checking[agent.agent_type])
               const draft = drafts[agent.agent_type] ?? buildAgentDraft(agent)
+              const agentEnabled =
+                Boolean(agent.installed_version) && draft.enabled
               const profile = getAgentProfileMessageKeys(agent.agent_type)
               const versionState = getAgentVersionState(agent)
 
@@ -7214,12 +7218,12 @@ export function AcpAgentSettings({
                               <span
                                 className={cn(
                                   "h-2 w-2 shrink-0 rounded-full",
-                                  draft.enabled
+                                  agentEnabled
                                     ? "bg-emerald-500"
                                     : "bg-muted-foreground/35"
                                 )}
                                 aria-label={t(
-                                  draft.enabled
+                                  agentEnabled
                                     ? "status.agentEnabledAria"
                                     : "status.agentDisabledAria",
                                   { name: agent.name }
@@ -7228,7 +7232,7 @@ export function AcpAgentSettings({
                             </div>
                             <span className="block truncate text-[11px] text-muted-foreground">
                               {t(
-                                draft.enabled
+                                agentEnabled
                                   ? "overview.enabled"
                                   : "overview.disabled"
                               )}
@@ -7315,7 +7319,7 @@ export function AcpAgentSettings({
                   <div className="flex shrink-0 items-center gap-2">
                     <span className="hidden text-xs text-muted-foreground sm:inline">
                       {t(
-                        selectedDraft.enabled
+                        selectedAgentInstalled && selectedDraft.enabled
                           ? "overview.enabled"
                           : "overview.disabled"
                       )}
@@ -7323,28 +7327,34 @@ export function AcpAgentSettings({
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={selectedDraft.enabled}
+                      aria-checked={
+                        selectedAgentInstalled && selectedDraft.enabled
+                      }
                       aria-label={t("status.agentEnabledSwitch", {
                         name: selectedAgent.name,
                       })}
                       title={
-                        selectedDraft.enabled
-                          ? t("actions.clickDisable", {
-                              name: selectedAgent.name,
-                            })
-                          : t("actions.clickEnable", {
-                              name: selectedAgent.name,
-                            })
+                        !selectedAgentInstalled
+                          ? t("overview.noVersion")
+                          : selectedDraft.enabled
+                            ? t("actions.clickDisable", {
+                                name: selectedAgent.name,
+                              })
+                            : t("actions.clickEnable", {
+                                name: selectedAgent.name,
+                              })
                       }
-                      disabled={selectedIsSaving}
+                      disabled={selectedIsSaving || !selectedAgentInstalled}
                       className={cn(
                         "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                        selectedDraft.enabled
+                        selectedAgentInstalled && selectedDraft.enabled
                           ? "bg-primary"
                           : "bg-muted-foreground/30",
-                        selectedIsSaving && "cursor-not-allowed opacity-60"
+                        (selectedIsSaving || !selectedAgentInstalled) &&
+                          "cursor-not-allowed opacity-60"
                       )}
                       onClick={() => {
+                        if (!selectedAgentInstalled) return
                         const nextEnabled = !selectedDraft.enabled
                         const nextDraft = {
                           ...selectedDraft,
@@ -7374,7 +7384,7 @@ export function AcpAgentSettings({
                       <span
                         className={cn(
                           "inline-block h-4 w-4 rounded-full bg-background shadow-sm transition-transform",
-                          selectedDraft.enabled
+                          selectedAgentInstalled && selectedDraft.enabled
                             ? "translate-x-4"
                             : "translate-x-0.5"
                         )}
@@ -7535,7 +7545,13 @@ export function AcpAgentSettings({
                   )}
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div
+                className={cn(
+                  "flex-1 overflow-y-auto p-4 space-y-4",
+                  !SHOW_AGENT_CONFIGURATION_SETTINGS &&
+                    "[&>*:not(:first-child)]:hidden"
+                )}
+              >
                 <AgentVersionCenter
                   key={selectedAgent.agent_type}
                   agentType={selectedAgent.agent_type}

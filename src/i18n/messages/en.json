@@ -997,7 +997,7 @@
       "previousRoot": "Previous data remains at {path}; remove it manually after verification"
     },
     "title": "Agent SDK Management",
-    "description": "Choose an Agent by its strengths, then manage its availability, version, connection, and models in one place.",
+    "description": "Choose an Agent by its strengths, then manage its availability and version in one place.",
     "agentAliasDescription": "Connect and manage {name} through the Agent SDK.",
     "loadingAgents": "Loading agent list...",
     "agentList": "Choose an Agent",
