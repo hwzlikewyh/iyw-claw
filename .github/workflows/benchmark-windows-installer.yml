@@ -132,6 +132,10 @@ jobs:
             Write-Host "Saved $copy ($($installer.Length) bytes)"
           }
 
+      - name: Validate isolated installer test mode
+        shell: pwsh
+        run: node src-tauri/scripts/verify-nsis-test-mode.mjs
+
       - name: Install and measure each package on this runner
         shell: pwsh
         env:

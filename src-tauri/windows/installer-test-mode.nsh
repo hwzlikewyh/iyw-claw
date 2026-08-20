@@ -11,26 +11,26 @@ Function ${Prefix}IywClawIsValidTestId
   StrCpy $R7 "0"
 
   iyw_test_id_character_loop:
-    IntCmp $R7 32 iyw_test_id_character iyw_valid_test_id iyw_invalid_test_id
+    IntCmp $R7 32 iyw_valid_test_id iyw_test_id_character iyw_invalid_test_id
 
   iyw_test_id_character:
     StrCpy $R8 $R6 1 $R7
-    StrCmpS $R8 "0" iyw_test_id_next
-    StrCmpS $R8 "1" iyw_test_id_next
-    StrCmpS $R8 "2" iyw_test_id_next
-    StrCmpS $R8 "3" iyw_test_id_next
-    StrCmpS $R8 "4" iyw_test_id_next
-    StrCmpS $R8 "5" iyw_test_id_next
-    StrCmpS $R8 "6" iyw_test_id_next
-    StrCmpS $R8 "7" iyw_test_id_next
-    StrCmpS $R8 "8" iyw_test_id_next
-    StrCmpS $R8 "9" iyw_test_id_next
-    StrCmpS $R8 "a" iyw_test_id_next
-    StrCmpS $R8 "b" iyw_test_id_next
-    StrCmpS $R8 "c" iyw_test_id_next
-    StrCmpS $R8 "d" iyw_test_id_next
-    StrCmpS $R8 "e" iyw_test_id_next
-    StrCmpS $R8 "f" iyw_test_id_next
+    StrCmp $R8 "0" iyw_test_id_next
+    StrCmp $R8 "1" iyw_test_id_next
+    StrCmp $R8 "2" iyw_test_id_next
+    StrCmp $R8 "3" iyw_test_id_next
+    StrCmp $R8 "4" iyw_test_id_next
+    StrCmp $R8 "5" iyw_test_id_next
+    StrCmp $R8 "6" iyw_test_id_next
+    StrCmp $R8 "7" iyw_test_id_next
+    StrCmp $R8 "8" iyw_test_id_next
+    StrCmp $R8 "9" iyw_test_id_next
+    StrCmp $R8 "a" iyw_test_id_next
+    StrCmp $R8 "b" iyw_test_id_next
+    StrCmp $R8 "c" iyw_test_id_next
+    StrCmp $R8 "d" iyw_test_id_next
+    StrCmp $R8 "e" iyw_test_id_next
+    StrCmp $R8 "f" iyw_test_id_next
     Goto iyw_invalid_test_id
 
   iyw_test_id_next:

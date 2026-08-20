@@ -8,20 +8,6 @@ Var IywClawInstallRegistryKey
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
 !include "${__FILEDIR__}\installer-test-mode.nsh"
 
-Function IywClawIsMainProcessRunning
-  ; 仅检查安装器当前用户，其他登录会话不能改变本次恢复策略。
-  Call IywClawBuildAccountFilter
-  Push "iyw-claw.exe"
-  Call IywClawFindCurrentUserProcess
-  Pop $R5
-  StrCmp $R5 "0" iyw_process_running 0
-  Push "0"
-  Return
-
-  iyw_process_running:
-    Push "1"
-FunctionEnd
-
 Function IywClawRestoreLogicalInstallRoot
   Call IywClawConfigureInstallerMode
   StrCmp $IywClawInstallerTestMode "invalid" 0 +3
@@ -56,6 +42,8 @@ Function IywClawRestoreLogicalInstallRoot
     GetFullPathName $INSTDIR "$LOCALAPPDATA\iywclaw"
 
   iyw_guiinit_done:
+    ; 基准测试安装不得检查或重启生产进程。
+    StrCmp $IywClawInstallerTestMode "1" iyw_guiinit_return 0
     ; A regular installer launch would show Tauri's reinstall choice page.
     ; Relaunch an existing installation in passive update mode so the current
     ; directory is reused and no uninstaller UI is shown.
