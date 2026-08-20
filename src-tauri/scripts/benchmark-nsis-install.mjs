@@ -108,6 +108,50 @@ function resolveInstalledApp(root) {
   return app
 }
 
+function findUninstaller(root) {
+  const stack = [root]
+  while (stack.length > 0) {
+    const directory = stack.pop()
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) {
+        stack.push(path)
+      } else if (
+        entry.isFile() &&
+        entry.name.toLowerCase() === "uninstall.exe"
+      ) {
+        return path
+      }
+    }
+  }
+  return null
+}
+
+function cleanupInstall(root) {
+  const uninstaller = findUninstaller(root)
+  if (uninstaller) {
+    try {
+      execFileSync(uninstaller, ["/S"], { stdio: "ignore" })
+    } catch (error) {
+      console.warn(
+        `[benchmark-nsis-install] uninstaller failed: ${error.message}`
+      )
+    }
+  }
+  // The hosted runner is disposable, but clear the product-specific hook key
+  // so the next compression variant cannot be treated as an upgrade.
+  try {
+    execFileSync(
+      "reg.exe",
+      ["delete", "HKCU\\Software\\iywclaw\\iyw-claw", "/f"],
+      { stdio: "ignore" }
+    )
+  } catch {
+    // The uninstaller normally removes this key; an absent key is fine.
+  }
+  rmSync(root, { force: true, recursive: true })
+}
+
 function executableInventory(app, files) {
   return files
     .filter(({ path }) => path.toLowerCase().endsWith(".exe"))
@@ -146,7 +190,7 @@ function runInstall(variant, round, output, requireNoDuplicateBundle) {
     output.runs.push(result)
     return result
   } finally {
-    rmSync(root, { force: true, recursive: true })
+    cleanupInstall(root)
   }
 }
 
@@ -196,12 +240,7 @@ function main() {
   }
   for (let round = 0; round < orders.length; round += 1) {
     for (const variant of orders[round]) {
-      runInstall(
-        variant,
-        round + 1,
-        output,
-        args.requireNoDuplicateBundle
-      )
+      runInstall(variant, round + 1, output, args.requireNoDuplicateBundle)
     }
   }
   output.variants = args.variants.map((variant) => {
