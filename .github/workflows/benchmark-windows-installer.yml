@@ -25,8 +25,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-nsis-compression-benchmark
-  cancel-in-progress: false
+  group: windows-nsis-compression-benchmark-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   benchmark:
@@ -66,6 +66,12 @@ jobs:
         with:
           targets: ${{ env.TARGET }}
 
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          shared-key: installer-benchmark-${{ env.TARGET }}
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -92,7 +98,14 @@ jobs:
           $nsisDir = "src-tauri\target\$env:TARGET\release\bundle\nsis"
 
           foreach ($mode in @("lzma", "zlib", "none")) {
-            $overlay = '{"bundle":{"createUpdaterArtifacts":false,"windows":{"nsis":{"compression":"' + $mode + '"}}}}'
+            $overlayPath = Join-Path $env:RUNNER_TEMP "tauri-nsis-$mode.conf.json"
+            $overlay = @{
+              bundle = @{
+                createUpdaterArtifacts = $false
+                windows = @{ nsis = @{ compression = $mode } }
+              }
+            } | ConvertTo-Json -Depth 5 -Compress
+            Set-Content -LiteralPath $overlayPath -Value $overlay -Encoding utf8NoBOM
             Write-Host "Bundling compression=$mode"
             pnpm dlx $env:TAURI_CLI bundle `
               --target $env:TARGET `
@@ -100,7 +113,7 @@ jobs:
               --bundles nsis `
               --no-sign `
               --config src-tauri/tauri.ci.conf.json `
-              --config $overlay
+              --config $overlayPath
             if ($LASTEXITCODE -ne 0) { throw "NSIS bundle failed for $mode" }
 
             $installer = Get-ChildItem -LiteralPath $nsisDir -Filter "*-setup.exe" |
