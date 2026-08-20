@@ -16,7 +16,6 @@ mod download;
 mod init;
 mod manifest;
 mod migration;
-mod official_binary;
 mod preflight;
 mod resumable;
 mod runtime;

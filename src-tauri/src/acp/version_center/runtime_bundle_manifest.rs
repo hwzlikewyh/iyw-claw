@@ -9,7 +9,9 @@ use crate::acp::error::AcpError;
 const BUNDLE_SCHEMA_VERSION: u32 = 1;
 const BUNDLE_BUILDER: &str = "managed-component-sync";
 const BUNDLE_MANIFEST_NAME: &str = "iyw-agent-bundle.json";
+const UV_CONSTRAINTS_NAME: &str = "uv-constraints.txt";
 const MAX_BUNDLE_MANIFEST_BYTES: u64 = 1024 * 1024;
+const MAX_UV_CONSTRAINTS_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +24,10 @@ struct BundleManifest {
     arch: String,
     entrypoints: BTreeMap<String, String>,
     components: Vec<BundleComponent>,
+    #[serde(default)]
+    uv_constraints: BTreeMap<String, String>,
+    #[serde(default)]
+    uv_prerelease: String,
     #[serde(default)]
     runtime_requirements: BTreeMap<String, String>,
     created_by: String,
@@ -55,9 +61,71 @@ pub(super) fn validate_bundle_manifest(
     let manifest = read_manifest(root)?;
     validate_identity(&manifest, offer)?;
     validate_components(&manifest, offer)?;
+    validate_uv_constraints(root, &manifest, offer)?;
+    validate_uv_prerelease(&manifest, offer)?;
     validate_runtime_requirements(&manifest, offer)?;
     let entrypoints = validate_entrypoints(root, &manifest.entrypoints, required_commands)?;
     Ok(ValidatedBundle { entrypoints })
+}
+
+fn validate_uv_prerelease(manifest: &BundleManifest, offer: &AgentOffer) -> Result<(), AcpError> {
+    let expected = if offer.registry_id == "fast-agent" && offer.delivery.kind == "uvx" {
+        super::FAST_AGENT_UV_PRERELEASE
+    } else {
+        ""
+    };
+    (manifest.uv_prerelease == expected)
+        .then_some(())
+        .ok_or_else(|| {
+            AcpError::DownloadFailed(
+                "Agent bundle uv prerelease policy does not match the compiled capability".into(),
+            )
+        })
+}
+
+fn validate_uv_constraints(
+    root: &Path,
+    manifest: &BundleManifest,
+    offer: &AgentOffer,
+) -> Result<(), AcpError> {
+    let expected = if offer.registry_id == "minion-code" && offer.delivery.kind == "uvx" {
+        BTreeMap::from([("agent-client-protocol".to_string(), "0.8.1".to_string())])
+    } else {
+        BTreeMap::new()
+    };
+    if manifest.uv_constraints != expected {
+        return Err(AcpError::DownloadFailed(
+            "Agent bundle uv constraints do not match the compiled capability".into(),
+        ));
+    }
+    let path = root.join(UV_CONSTRAINTS_NAME);
+    if expected.is_empty() {
+        return (!path.exists()).then_some(()).ok_or_else(|| {
+            AcpError::DownloadFailed("Agent bundle has unexpected uv constraints".into())
+        });
+    }
+    let metadata = std::fs::metadata(&path).map_err(|error| {
+        AcpError::DownloadFailed(format!(
+            "Agent bundle uv constraints are unavailable: {error}"
+        ))
+    })?;
+    if metadata.len() > MAX_UV_CONSTRAINTS_BYTES {
+        return Err(AcpError::DownloadFailed(
+            "Agent bundle uv constraints are too large".into(),
+        ));
+    }
+    let contents = std::fs::read_to_string(path).map_err(|error| {
+        AcpError::DownloadFailed(format!(
+            "Agent bundle uv constraints are unavailable: {error}"
+        ))
+    })?;
+    let expected_contents = expected
+        .iter()
+        .map(|(package, version)| format!("{package}=={version}\n"))
+        .collect::<String>();
+    (contents == expected_contents)
+        .then_some(())
+        .ok_or_else(|| AcpError::DownloadFailed("Agent bundle uv constraints are invalid".into()))
 }
 
 fn read_manifest(root: &Path) -> Result<BundleManifest, AcpError> {

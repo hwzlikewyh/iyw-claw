@@ -58,6 +58,24 @@ async fn read_verified_archive(request: &ResolvedBinaryInstall<'_>) -> Result<Ve
 
 fn stage_artifact(request: &ResolvedBinaryInstall<'_>, bytes: &[u8]) -> Result<PathBuf, AcpError> {
     let entrypoint = trusted_entrypoint(request.agent_type)?;
+    if request
+        .ticket
+        .file_name
+        .to_ascii_lowercase()
+        .ends_with(".exe")
+    {
+        let output = request.stage.join(&entrypoint);
+        if let Some(parent) = output.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| AcpError::DownloadFailed(error.to_string()))?;
+        }
+        std::fs::write(&output, bytes)
+            .map_err(|error| AcpError::DownloadFailed(error.to_string()))?;
+        return output
+            .is_file()
+            .then_some(entrypoint)
+            .ok_or_else(|| AcpError::DownloadFailed("Agent executable activation failed".into()));
+    }
     extract_archive(bytes, &request.ticket.file_name, request.stage).map_err(app_error)?;
     request
         .stage
@@ -151,15 +169,21 @@ fn trusted_entrypoint(agent_type: AgentType) -> Result<PathBuf, AcpError> {
         AgentDistribution::Binary { cmd, .. } => cmd,
         _ => return Err(AcpError::protocol("Agent is not binary-based")),
     };
-    let entrypoint = Path::new(cmd);
+    let mut entrypoint = Path::new(cmd).to_path_buf();
     let valid = !entrypoint.as_os_str().is_empty()
         && !entrypoint.is_absolute()
         && entrypoint
             .components()
             .all(|component| matches!(component, Component::CurDir | Component::Normal(_)));
-    valid
-        .then(|| entrypoint.to_path_buf())
-        .ok_or_else(|| AcpError::DownloadFailed("Agent executable path is invalid".into()))
+    if !valid {
+        return Err(AcpError::DownloadFailed(
+            "Agent executable path is invalid".into(),
+        ));
+    }
+    if cfg!(windows) && entrypoint.extension().is_none() {
+        entrypoint.set_extension("exe");
+    }
+    Ok(entrypoint)
 }
 
 fn app_error(error: AppCommandError) -> AcpError {

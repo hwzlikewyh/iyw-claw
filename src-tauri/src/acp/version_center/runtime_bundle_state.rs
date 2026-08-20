@@ -8,6 +8,7 @@ use crate::models::agent::AgentType;
 
 const REQUIRED_UVX_DIRECTORIES: [&str; 4] = ["cache", "tools", "bin", "python"];
 const REQUIRED_UVX_FILES: [&str; 2] = ["iyw-agent-bundle.json", "uv.lock"];
+const UV_CONSTRAINTS_FILE: &str = "uv-constraints.txt";
 
 pub(crate) fn uvx_bundle_env(
     paths: &AgentStoragePaths,
@@ -15,7 +16,21 @@ pub(crate) fn uvx_bundle_env(
     version: &str,
 ) -> Option<BTreeMap<&'static str, PathBuf>> {
     let root = uvx_bundle_root(paths, agent_type, version).ok()?;
-    uvx_bundle_ready(&root).then(|| bundle_env(&root))
+    if !uvx_bundle_ready(&root) {
+        return None;
+    }
+    let mut environment = bundle_env(&root);
+    let constraint = root.join(UV_CONSTRAINTS_FILE);
+    if constraint.is_file() {
+        environment.insert("UV_CONSTRAINT", constraint);
+    }
+    if registry::registry_id_for(agent_type) == "fast-agent" {
+        environment.insert(
+            "UV_PRERELEASE",
+            PathBuf::from(super::FAST_AGENT_UV_PRERELEASE),
+        );
+    }
+    Some(environment)
 }
 
 pub(crate) fn activate_uvx_bundle(

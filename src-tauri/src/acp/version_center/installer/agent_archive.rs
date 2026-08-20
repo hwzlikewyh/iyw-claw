@@ -4,7 +4,7 @@ use std::path::Path;
 use crate::app_error::AppCommandError;
 
 const MAX_EXTRACTED_BYTES: u64 = 1024 * 1024 * 1024;
-const MAX_ARCHIVE_ENTRIES: usize = 10_000;
+const MAX_ARCHIVE_ENTRIES: usize = 100_000;
 const MAX_SINGLE_FILE_BYTES: u64 = 512 * 1024 * 1024;
 
 pub(super) fn extract_archive(
@@ -122,11 +122,6 @@ fn extract_tar_entry<R: Read>(
         AppCommandError::invalid_input("Agent TAR entry is unreadable")
             .with_detail(error.to_string())
     })?;
-    if !entry.header().entry_type().is_file() && !entry.header().entry_type().is_dir() {
-        return Err(AppCommandError::invalid_input(
-            "Agent TAR contains an unsafe entry",
-        ));
-    }
     let relative = entry.path().map_err(|error| {
         AppCommandError::invalid_input("Agent TAR path is invalid").with_detail(error.to_string())
     })?;
@@ -137,6 +132,15 @@ fn extract_tar_entry<R: Read>(
     {
         return Err(AppCommandError::invalid_input(
             "Agent TAR contains an unsafe path",
+        ));
+    }
+    let entry_type = entry.header().entry_type();
+    if entry_type.is_symlink() || entry_type.is_hard_link() {
+        return Ok(0);
+    }
+    if !entry_type.is_file() && !entry_type.is_dir() {
+        return Err(AppCommandError::invalid_input(
+            "Agent TAR contains an unsafe entry",
         ));
     }
     let size = entry.header().size().unwrap_or(u64::MAX);

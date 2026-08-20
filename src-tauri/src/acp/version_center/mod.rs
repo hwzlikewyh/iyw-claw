@@ -11,7 +11,6 @@ mod installer;
 mod inventory;
 mod launch_authorization;
 mod npm_install;
-mod official_sources;
 mod runtime_bundle_archive;
 mod runtime_bundle_manifest;
 mod runtime_bundle_state;
@@ -47,11 +46,10 @@ pub use inventory::{
 };
 pub(crate) use launch_authorization::authorize_agent_version_launch;
 pub(crate) use npm_install::{
-    confirm_npm_agent_install, ensure_npm_node_requirement, resolve_npm_agent_install,
-    ManagedNpmInstall,
+    ensure_npm_node_requirement, resolve_npm_agent_install, ManagedNpmInstall,
 };
-pub(crate) use official_sources::{fallback_npm_agent_install, fallback_uvx_agent_install};
 pub(crate) use runtime_bundle_state::{remove_uvx_bundles, uvx_bundle_env};
+pub(crate) const FAST_AGENT_UV_PRERELEASE: &str = "allow";
 pub(crate) use types::ResolveAgentRequest;
 pub use types::{AgentOffer, CatalogSnapshot, DownloadTicket, ToolOffer, VersionHistory};
-pub(crate) use uvx_install::{confirm_uvx_agent_install, resolve_uvx_agent_install};
+pub(crate) use uvx_install::resolve_uvx_agent_install;
