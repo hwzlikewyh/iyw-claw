@@ -160,6 +160,14 @@ incremental = false
 debug = 1
 incremental = false
 
+# Keep unwind semantics for catch_unwind-based recovery while reducing the
+# executable bytes the Windows installer must decompress and write.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
 [dev-dependencies]
 tempfile = "3"
 temp-env = "0.3"

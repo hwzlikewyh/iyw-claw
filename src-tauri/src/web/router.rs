@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{DefaultBodyLimit, Extension},
-    http::{StatusCode, Uri},
+    http::StatusCode,
     middleware::{self, Next},
     response::IntoResponse,
     routing::{any, get, post},
@@ -11,9 +11,9 @@ use axum::{
 
 use crate::web::handlers::files::UPLOAD_MAX_BYTES;
 use tower_http::cors::{Any, CorsLayer};
-use tower_http::services::{ServeDir, ServeFile};
 
 use super::shutdown::ShutdownSignal;
+use super::static_assets::{self, StaticAssetSource};
 use super::{auth, handlers, ws};
 use crate::app_state::AppState;
 use tracing::Instrument;
@@ -21,7 +21,7 @@ use tracing::Instrument;
 pub fn build_router(
     state: Arc<AppState>,
     token: String,
-    static_dir: std::path::PathBuf,
+    static_source: StaticAssetSource,
     shutdown_signal: Arc<ShutdownSignal>,
 ) -> Router {
     let cors = CorsLayer::new()
@@ -1528,49 +1528,8 @@ pub fn build_router(
             auth::require_token(req, next, token_for_ws.clone())
         }));
 
-    // Static file serving.
-    // Next.js static export produces "folder.html" for "/folder" route.
-    // We use a middleware to rewrite "/folder" → "/folder.html" before ServeDir.
-    let fallback =
-        ServeDir::new(&static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
-
-    let static_dir_for_mw = static_dir.clone();
-    let html_rewrite = middleware::from_fn(move |req: axum::extract::Request, next: Next| {
-        let dir = static_dir_for_mw.clone();
-        async move {
-            let path = req.uri().path();
-            // If path has no extension (not a file) and a .html version exists, rewrite
-            if path != "/"
-                && !path.contains('.')
-                && !path.starts_with("/api")
-                && !path.starts_with("/ws")
-            {
-                let html_path = format!("{}.html", path.trim_end_matches('/'));
-                let html_file = dir.join(html_path.trim_start_matches('/'));
-                if html_file.exists() {
-                    // Rebuild URI with .html suffix preserving query string
-                    let new_path = if let Some(q) = req.uri().query() {
-                        format!("{}?{}", html_path, q)
-                    } else {
-                        html_path
-                    };
-                    if let Ok(new_uri) = new_path.parse::<Uri>() {
-                        let (mut parts, body) = req.into_parts();
-                        parts.uri = new_uri;
-                        let req = axum::extract::Request::from_parts(parts, body);
-                        return next.run(req).await;
-                    }
-                }
-            }
-            next.run(req).await
-        }
-    });
-
-    Router::new()
-        .nest("/api", api)
-        .merge(ws_route)
-        .fallback_service(fallback)
-        .layer(html_rewrite)
+    let router = Router::new().nest("/api", api).merge(ws_route);
+    static_assets::mount(router, static_source)
         .layer(cors)
         .layer(Extension(state))
         .layer(Extension(shutdown_signal))

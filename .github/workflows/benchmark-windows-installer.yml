@@ -1,0 +1,152 @@
+name: Benchmark Windows NSIS Compression
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Commit, tag, or branch to benchmark
+        required: true
+        type: string
+      runs:
+        description: Install runs per compression mode
+        required: false
+        default: 3
+        type: number
+      expect_no_duplicate_bundle:
+        description: Fail if resources/bundle is present after install
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-nsis-compression-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: NSIS compression benchmark
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      TARGET: x86_64-pc-windows-msvc
+      TAURI_CLI: "@tauri-apps/cli@2.11.4"
+    steps:
+      - name: Checkout benchmark source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - name: Record source revision
+        shell: pwsh
+        run: |
+          $sha = git rev-parse HEAD
+          "SOURCE_SHA=$sha" >> $env:GITHUB_ENV
+          Write-Host "SOURCE_SHA=$sha"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared application input
+        shell: pwsh
+        run: |
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
+          pnpm tauri:prepare-sidecars --target $env:TARGET
+          if ($LASTEXITCODE -ne 0) { throw "sidecar preparation failed" }
+          pnpm dlx $env:TAURI_CLI build `
+            --target $env:TARGET `
+            --features tauri-runtime `
+            --no-bundle `
+            --no-sign `
+            --config src-tauri/tauri.ci.conf.json
+          if ($LASTEXITCODE -ne 0) { throw "shared release build failed" }
+
+      - name: Bundle all compression modes
+        shell: pwsh
+        run: |
+          $artifactRoot = "artifacts\nsis-compression"
+          New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
+          $nsisDir = "src-tauri\target\$env:TARGET\release\bundle\nsis"
+
+          foreach ($mode in @("lzma", "zlib", "none")) {
+            $overlay = '{"bundle":{"createUpdaterArtifacts":false,"windows":{"nsis":{"compression":"' + $mode + '"}}}}'
+            Write-Host "Bundling compression=$mode"
+            pnpm dlx $env:TAURI_CLI bundle `
+              --target $env:TARGET `
+              --features tauri-runtime `
+              --bundles nsis `
+              --no-sign `
+              --config src-tauri/tauri.ci.conf.json `
+              --config $overlay
+            if ($LASTEXITCODE -ne 0) { throw "NSIS bundle failed for $mode" }
+
+            $installer = Get-ChildItem -LiteralPath $nsisDir -Filter "*-setup.exe" |
+              Sort-Object LastWriteTimeUtc -Descending |
+              Select-Object -First 1
+            if ($null -eq $installer) { throw "NSIS installer missing for $mode" }
+
+            $modeDir = Join-Path $artifactRoot $mode
+            New-Item -ItemType Directory -Force -Path $modeDir | Out-Null
+            $copy = Join-Path $modeDir $installer.Name
+            Copy-Item -LiteralPath $installer.FullName -Destination $copy -Force
+            Write-Host "Saved $copy ($($installer.Length) bytes)"
+          }
+
+      - name: Install and measure each package on this runner
+        shell: pwsh
+        env:
+          BENCHMARK_RUNS: ${{ inputs.runs }}
+        run: |
+          $arguments = @(
+            "src-tauri/scripts/benchmark-nsis-install.mjs",
+            "--runs", $env:BENCHMARK_RUNS,
+            "--source-sha", $env:SOURCE_SHA,
+            "--output", "artifacts/nsis-install"
+          )
+          if ("${{ inputs.expect_no_duplicate_bundle }}" -eq "true") {
+            $arguments += "--require-no-duplicate-bundle"
+          }
+          foreach ($mode in @("lzma", "zlib", "none")) {
+            $installer = Get-ChildItem -LiteralPath (Join-Path "artifacts\nsis-compression" $mode) -Filter "*-setup.exe" |
+              Select-Object -First 1
+            if ($null -eq $installer) { throw "copied installer missing for $mode" }
+            $arguments += @("--variant", "$mode=$($installer.FullName)")
+          }
+          node @arguments
+          if ($LASTEXITCODE -ne 0) { throw "NSIS install benchmark failed" }
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsis-compression-benchmark-${{ github.run_id }}
+          path: artifacts/nsis-compression
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload install measurements
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsis-install-measurements-${{ github.run_id }}
+          path: artifacts/nsis-install
+          if-no-files-found: error
+          retention-days: 14

@@ -28,9 +28,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {
-      "../out": "resources/bundle/"
-    },
     "externalBin": ["binaries/iyw-claw-mcp", "binaries/iyw-claw-mcp-0.1.91"],
     "windows": {
       "webviewInstallMode": {
