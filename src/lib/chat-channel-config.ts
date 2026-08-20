@@ -34,6 +34,7 @@ export function buildChatChannelConfig(
       ...base,
       bot_id: fields.botId,
       default_chatid: fields.chatId,
+      default_chat_type: 1,
     })
   }
   if (channelType === "dingtalk") {
@@ -70,6 +71,7 @@ export function buildChatChannelConfigPatch(
   if (channelType === "wecom_ai_bot") {
     patch.botId = fields.botId
     patch.defaultChatid = fields.chatId
+    patch.defaultChatType = 1
   }
   if (channelType === "dingtalk") {
     patch.clientId = fields.clientId

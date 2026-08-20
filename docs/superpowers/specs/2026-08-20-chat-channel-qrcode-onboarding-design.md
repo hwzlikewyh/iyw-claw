@@ -51,7 +51,7 @@ Streamable HTTP 改造不属于本设计范围。
 - `session_id`：随机 opaque ID，前端可见；
 - `channel_id` 与 provider 类型；
 - provider poll token、开始时间、过期时间和当前状态；
-- 单会话互斥锁、取消标记和一次性终态保护。
+- 单会话互斥锁、`ACTIVE / COMMITTING / CANCELLED` 原子生命周期和一次性终态保护。
 
 provider token 只保存在后端内存，不写数据库、日志或前端响应。进程重启会使未完成
 会话失效，用户重新生成二维码即可；已落库凭据和已建立 runtime 不受影响。
@@ -90,10 +90,11 @@ provider 特有状态只在后端映射：
 
 扫码返回凭据后按以下顺序执行：
 
-1. 写入 keyring；
-2. 以字段 patch 更新现有 `config_json`，不重建和丢失未知字段；
-3. 通过现有 reconcile 启动真实 backend；
-4. 等待该 channel generation 报告 `Connected`。
+1. 持有 channel operation lock 后原子抢占提交权，失败时不写入任何凭据；
+2. 写入 keyring；
+3. 以字段 patch 更新现有 `config_json`，不重建和丢失未知字段；
+4. 通过现有 reconcile 启动真实 backend；
+5. 等待该 channel generation 报告 `Connected`。
 
 任何一步失败都返回可诊断错误。keyring/config 已写入但 runtime 失败时保留凭据，
 将渠道置为 `error`，允许用户重试连接，不自动删除可能仍有效的凭据。
@@ -106,6 +107,7 @@ provider 特有状态只在后端映射：
 - QR 获取使用官方 POST，并传最近的 `local_token_list`；
 - 前端轮询改为递归 `setTimeout`，当前请求结束后才安排下一次；
 - UI/后端覆盖 `wait`、`scaned`、`confirmed`、`expired`、重定向和验证码状态；
+- 二维码重定向 host 缓存设置 10 分钟 TTL 和 256 条容量上限；
 - 保留现有 sender-scoped `context_token` 持久化，并继续使用 target payload 做本轮回复。
 
 ### 企业微信 AI Bot
@@ -149,4 +151,3 @@ provider 特有状态只在后端映射：
 
 真实验收按顺序记录：扫码凭据、transport 连接、入站消息、Agent 调度、即时回复、
 延迟回复和重启恢复。任何未在真实渠道完成的层级都明确标为未验证。
-

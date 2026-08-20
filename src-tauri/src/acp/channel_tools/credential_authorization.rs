@@ -20,7 +20,7 @@ impl ChannelToolService {
         let MutationStart::Started(model) = start else {
             return self.authorization_mutation_return(start).await;
         };
-        let authorization = request_authorization(&channel.channel_type).await;
+        let authorization = request_authorization(self, &channel.channel_type).await;
         let (provider_ref, qr_content) = match authorization {
             Ok(value) => value,
             Err(code) => {
@@ -145,9 +145,12 @@ impl ChannelToolService {
     }
 }
 
-async fn request_authorization(channel_type: &str) -> Result<(String, String), String> {
+async fn request_authorization(
+    service: &ChannelToolService,
+    channel_type: &str,
+) -> Result<(String, String), String> {
     match channel_type {
-        "weixin" => chat_channel::weixin_get_qrcode_core()
+        "weixin" => chat_channel::weixin_get_qrcode_core(&service.db)
             .await
             .map(|value| (value.qrcode_id, value.qrcode_img_content))
             .map_err(|_| "AUTHORIZATION_START_FAILED".to_string()),
@@ -169,6 +172,7 @@ async fn authorization_status(
             &service.manager,
             entry.channel_id,
             &entry.provider_ref,
+            None,
         )
         .await
         .map(|value| value.status)

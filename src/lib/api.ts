@@ -3906,6 +3906,63 @@ export async function deleteChatNaturalRouterApiKey(): Promise<void> {
 
 // ─── WeChat QR Code Auth ───
 
+export type ChatChannelQrStatus =
+  | "waiting"
+  | "scanned"
+  | "connecting"
+  | "connected"
+  | "expired"
+  | "denied"
+  | "cancelled"
+  | "error"
+
+export interface ChatChannelQrStart {
+  sessionId: string
+  channelId: number
+  channelType: import("./types").ChannelType
+  qrContent: string
+  expiresAt: string
+  status: ChatChannelQrStatus
+  retryAfterMs: number
+}
+
+export interface ChatChannelQrPoll {
+  sessionId: string
+  channelId: number
+  status: ChatChannelQrStatus
+  retryAfterMs: number
+  errorCode?: string
+}
+
+export async function startChatChannelQr(params: {
+  channelId: number
+  channelType?: import("./types").ChannelType
+  variant?: "feishu" | "lark"
+}): Promise<ChatChannelQrStart> {
+  return getTransport().call("start_chat_channel_qr", {
+    channelId: params.channelId,
+    channelType: params.channelType,
+    variant: params.variant,
+  })
+}
+
+export async function pollChatChannelQr(
+  sessionId: string,
+  verifyCode?: string
+): Promise<ChatChannelQrPoll> {
+  return getTransport().call(
+    "poll_chat_channel_qr",
+    { sessionId, verifyCode },
+    { timeoutMs: 120_000 }
+  )
+}
+
+export async function cancelChatChannelQr(
+  sessionId: string
+): Promise<ChatChannelQrPoll> {
+  return getTransport().call("cancel_chat_channel_qr", { sessionId })
+}
+
 export async function weixinGetQrcode(): Promise<{
   qrcode_id: string
   qrcode_img_content: string
@@ -3929,11 +3986,16 @@ export async function wecomStartAuth(): Promise<
 
 export async function weixinCheckQrcode(
   channelId: number,
-  qrcode: string
+  qrcode: string,
+  verifyCode?: string
 ): Promise<{
   status: string
 }> {
-  return getTransport().call("weixin_check_qrcode", { channelId, qrcode })
+  return getTransport().call("weixin_check_qrcode", {
+    channelId,
+    qrcode,
+    verifyCode,
+  })
 }
 
 // ---------------------------------------------------------------------------

@@ -38,7 +38,13 @@ pub async fn register_default(
                 chat_id: Some(chat_id),
                 thread_key: None,
                 thread_kind: Some("wecom_ai_bot".to_string()),
-                provider_payload: None,
+                provider_payload: Some(serde_json::json!({
+                    "chat_type": config
+                        .get("default_chat_type")
+                        .and_then(serde_json::Value::as_u64)
+                        .filter(|value| matches!(*value, 1 | 2))
+                        .unwrap_or(1)
+                })),
             })
         }
         "wecom_agent" => {

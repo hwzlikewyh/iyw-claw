@@ -1,5 +1,6 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -16,22 +17,75 @@ use crate::db::service::sender_context_service;
 
 const ILINK_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
 const ILINK_CHANNEL_VERSION: &str = "1.0.2";
+const QR_REQUEST_TIMEOUT: Duration = Duration::from_secs(40);
+const QR_POLL_HOST_TTL: Duration = Duration::from_secs(10 * 60);
+const MAX_QR_POLL_HOSTS: usize = 256;
+const INVALID_ARGUMENT_CODE: i64 = -3;
 /// Maximum number of messages buffered while context_token is expired.
 const MAX_PENDING_MESSAGES: usize = 50;
 
 /// Shared HTTP client for QR code auth requests (avoids re-creating TLS state).
 fn qr_client() -> reqwest::Client {
-    use std::sync::OnceLock;
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
             reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
-                .timeout(Duration::from_secs(15))
+                .timeout(QR_REQUEST_TIMEOUT)
                 .build()
                 .unwrap_or_default()
         })
         .clone()
+}
+
+#[derive(Clone)]
+struct QrPollHost {
+    base_url: String,
+    expires_at: Instant,
+}
+
+fn qr_poll_hosts() -> &'static Mutex<HashMap<String, QrPollHost>> {
+    static HOSTS: OnceLock<Mutex<HashMap<String, QrPollHost>>> = OnceLock::new();
+    HOSTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+async fn remember_qr_poll_host(qrcode: &str, base_url: String) {
+    let mut hosts = qr_poll_hosts().lock().await;
+    prune_qr_poll_hosts(&mut hosts);
+    if !hosts.contains_key(qrcode) && hosts.len() >= MAX_QR_POLL_HOSTS {
+        evict_earliest_qr_poll_host(&mut hosts);
+    }
+    hosts.insert(
+        qrcode.to_string(),
+        QrPollHost {
+            base_url,
+            expires_at: Instant::now() + QR_POLL_HOST_TTL,
+        },
+    );
+}
+
+async fn qr_poll_base_url(qrcode: &str) -> String {
+    let mut hosts = qr_poll_hosts().lock().await;
+    prune_qr_poll_hosts(&mut hosts);
+    hosts
+        .get(qrcode)
+        .map(|entry| entry.base_url.clone())
+        .unwrap_or_else(|| ILINK_BASE_URL.to_string())
+}
+
+fn prune_qr_poll_hosts(hosts: &mut HashMap<String, QrPollHost>) {
+    let now = Instant::now();
+    hosts.retain(|_, entry| entry.expires_at > now);
+}
+
+fn evict_earliest_qr_poll_host(hosts: &mut HashMap<String, QrPollHost>) {
+    let earliest = hosts
+        .iter()
+        .min_by_key(|(_, entry)| entry.expires_at)
+        .map(|(qrcode, _)| qrcode.clone());
+    if let Some(qrcode) = earliest {
+        hosts.remove(&qrcode);
+    }
 }
 
 // ── QR code auth types (public, used by commands) ──
@@ -76,19 +130,18 @@ struct SendRequest<'a> {
 
 // ── QR code auth functions (called before backend exists) ──
 
-pub async fn weixin_get_qrcode() -> Result<WeixinQrcodeInfo, ChatChannelError> {
+pub async fn weixin_get_qrcode(
+    local_token_list: &[String],
+) -> Result<WeixinQrcodeInfo, ChatChannelError> {
     let client = qr_client();
-    let resp = client
-        .get(format!("{ILINK_BASE_URL}/ilink/bot/get_bot_qrcode"))
-        .query(&[("bot_type", "3")])
-        .send()
-        .await
-        .map_err(|e| ChatChannelError::ConnectionFailed(format!("QR code request failed: {e}")))?;
-
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| ChatChannelError::ConnectionFailed(format!("QR code parse failed: {e}")))?;
+    let mut body = request_qrcode(&client, local_token_list).await?;
+    if !local_token_list.is_empty() && response_code(&body) == Some(INVALID_ARGUMENT_CODE) {
+        tracing::info!(
+            local_token_count = local_token_list.len(),
+            "[Weixin] saved QR credentials rejected; retrying without local tokens"
+        );
+        body = request_qrcode(&client, &[]).await?;
+    }
 
     let qrcode_id = body
         .get("qrcode")
@@ -122,10 +175,37 @@ pub async fn weixin_get_qrcode() -> Result<WeixinQrcodeInfo, ChatChannelError> {
         raw_img
     };
 
+    remember_qr_poll_host(&qrcode_id, ILINK_BASE_URL.to_string()).await;
+
     Ok(WeixinQrcodeInfo {
         qrcode_id,
         qrcode_img_content,
     })
+}
+
+async fn request_qrcode(
+    client: &reqwest::Client,
+    local_token_list: &[String],
+) -> Result<serde_json::Value, ChatChannelError> {
+    client
+        .post(format!(
+            "{ILINK_BASE_URL}/ilink/bot/get_bot_qrcode?bot_type=3"
+        ))
+        .json(&serde_json::json!({ "local_token_list": local_token_list }))
+        .send()
+        .await
+        .map_err(|error| ChatChannelError::ConnectionFailed(weixin_qr_request_error(&error)))?
+        .error_for_status()
+        .map_err(|error| ChatChannelError::ConnectionFailed(weixin_qr_request_error(&error)))?
+        .json()
+        .await
+        .map_err(|_| ChatChannelError::ConnectionFailed("QR code response is invalid".into()))
+}
+
+fn response_code(body: &serde_json::Value) -> Option<i64> {
+    body.get("ret")
+        .and_then(serde_json::Value::as_i64)
+        .or_else(|| body.get("errcode").and_then(serde_json::Value::as_i64))
 }
 
 /// Fetch an image from a URL and return it as a `data:<mime>;base64,...` string.
@@ -203,16 +283,24 @@ fn generate_qrcode_data_uri(content: &str) -> Result<String, ChatChannelError> {
     Ok(format!("data:image/png;base64,{b64}"))
 }
 
-pub async fn weixin_check_qrcode(qrcode: &str) -> Result<WeixinQrcodeStatus, ChatChannelError> {
+pub async fn weixin_check_qrcode(
+    qrcode: &str,
+    verify_code: Option<&str>,
+) -> Result<WeixinQrcodeStatus, ChatChannelError> {
     let client = qr_client();
+    let base_url = qr_poll_base_url(qrcode).await;
+    let mut query = vec![("qrcode", qrcode)];
+    if let Some(code) = verify_code.map(str::trim).filter(|code| !code.is_empty()) {
+        query.push(("verify_code", code));
+    }
     let resp = client
-        .get(format!("{ILINK_BASE_URL}/ilink/bot/get_qrcode_status"))
-        .query(&[("qrcode", qrcode)])
+        .get(format!("{base_url}/ilink/bot/get_qrcode_status"))
+        .query(&query)
         .send()
         .await
-        .map_err(|e| {
-            ChatChannelError::ConnectionFailed(format!("QR status request failed: {e}"))
-        })?;
+        .map_err(|e| ChatChannelError::ConnectionFailed(weixin_qr_request_error(&e)))?
+        .error_for_status()
+        .map_err(|e| ChatChannelError::ConnectionFailed(weixin_qr_request_error(&e)))?;
 
     let body: serde_json::Value = resp
         .json()
@@ -234,11 +322,78 @@ pub async fn weixin_check_qrcode(qrcode: &str) -> Result<WeixinQrcodeStatus, Cha
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
+    if status == "scaned_but_redirect" {
+        update_qr_poll_host(qrcode, &body).await;
+    }
+    if matches!(
+        status.as_str(),
+        "confirmed" | "expired" | "binded_redirect" | "verify_code_blocked"
+    ) {
+        qr_poll_hosts().lock().await.remove(qrcode);
+    }
+
     Ok(WeixinQrcodeStatus {
         status,
         bot_token,
         base_url,
     })
+}
+
+pub async fn weixin_forget_qrcode(qrcode: &str) {
+    qr_poll_hosts().lock().await.remove(qrcode);
+}
+
+fn weixin_qr_request_error(error: &reqwest::Error) -> String {
+    if error.is_timeout() {
+        return "QR status request timed out".to_string();
+    }
+    if let Some(status) = error.status() {
+        return format!("QR status request returned HTTP {status}");
+    }
+    "QR status request failed".to_string()
+}
+
+async fn update_qr_poll_host(qrcode: &str, body: &serde_json::Value) {
+    let Some(host) = body
+        .get("redirect_host")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|host| !host.is_empty())
+    else {
+        return;
+    };
+    let Some(base_url) = trusted_qr_poll_base_url(host) else {
+        tracing::warn!("[Weixin] ignored untrusted QR poll redirect host");
+        return;
+    };
+    remember_qr_poll_host(qrcode, base_url).await;
+}
+
+fn trusted_qr_poll_base_url(raw_host: &str) -> Option<String> {
+    let candidate = if raw_host.contains("://") {
+        raw_host.to_string()
+    } else {
+        format!("https://{raw_host}")
+    };
+    let parsed = reqwest::Url::parse(&candidate).ok()?;
+    let host = parsed
+        .host_str()?
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    let trusted_host = host == "ilinkai.weixin.qq.com" || host.ends_with(".weixin.qq.com");
+    let default_path = parsed.path().is_empty() || parsed.path() == "/";
+    if parsed.scheme() != "https"
+        || !trusted_host
+        || parsed.port_or_known_default() != Some(443)
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || !default_path
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return None;
+    }
+    Some(format!("https://{host}"))
 }
 
 // ── Backend implementation ──

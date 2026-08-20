@@ -12,6 +12,7 @@ export interface ChannelStoredConfig {
   default_user_id?: string
   default_agent_type?: AgentType
   app_id?: string
+  lark_region?: "feishu" | "lark"
   bot_id?: string
   client_id?: string
   chat_id?: string

@@ -129,7 +129,18 @@ impl WecomAiBotBackend {
                 "WeCom AI Bot target chat is empty".to_string(),
             ));
         }
-        Ok(runtime::proactive_frame(chatid, text))
+        Ok(runtime::proactive_frame(
+            chatid,
+            text,
+            normalize_chat_type(self.config.default_chat_type),
+        ))
+    }
+}
+
+fn normalize_chat_type(chat_type: u8) -> u8 {
+    match chat_type {
+        2 => 2,
+        _ => 1,
     }
 }
 
@@ -195,7 +206,18 @@ impl ChatChannelBackend for WecomAiBotBackend {
             .or_else(|| runtime::target_payload(target, "chatid"));
         let frame = match req_id {
             Some(req_id) if !req_id.is_empty() => runtime::reply_frame(req_id, &text),
-            _ => self.proactive_frame(chatid.unwrap_or_default(), &text)?,
+            _ => {
+                let chatid = chatid.unwrap_or_default();
+                if chatid.trim().is_empty() {
+                    return Err(ChatChannelError::ConfigurationInvalid(
+                        "WeCom AI Bot target chat is empty".to_string(),
+                    ));
+                }
+                let chat_type = runtime::target_chat_type(target)
+                    .map(normalize_chat_type)
+                    .unwrap_or_else(|| normalize_chat_type(self.config.default_chat_type));
+                runtime::proactive_frame(chatid, &text, chat_type)
+            }
         };
         self.send_frame(frame).await
     }

@@ -15,7 +15,7 @@ import {
   testChatChannel,
 } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
-import { isSetupDraft } from "@/lib/chat-channel-setup"
+import { isSetupDraft, parseChannelConfig } from "@/lib/chat-channel-setup"
 import { subscribe } from "@/lib/platform"
 import type {
   ChatChannelInfo,
@@ -30,6 +30,7 @@ import { AbandonChannelDraftDialog } from "./abandon-channel-draft-dialog"
 import { ChannelConnectedList } from "./channel-connected-list"
 import { ChannelFinalizeDialog } from "./channel-finalize-dialog"
 import { ChannelMarket, type MarketType } from "./channel-market"
+import { ChatChannelQrcodeDialog } from "./chat-channel-qrcode-dialog"
 import { ChannelViewHeader, type ChannelView } from "./channel-view-header"
 import { EditChatChannelDialog } from "./edit-chat-channel-dialog"
 import { WecomAgentSetupDialog } from "./wecom-agent-setup-dialog"
@@ -54,6 +55,9 @@ export function ChannelListTab() {
   const [finalizeChannel, setFinalizeChannel] =
     useState<ChatChannelInfo | null>(null)
   const [editTarget, setEditTarget] = useState<ChatChannelInfo | null>(null)
+  const [qrReauthTarget, setQrReauthTarget] = useState<ChatChannelInfo | null>(
+    null
+  )
   const [abandonTarget, setAbandonTarget] = useState<ChatChannelInfo | null>(
     null
   )
@@ -118,7 +122,7 @@ export function ChannelListTab() {
     () => channels.filter((channel) => !isSetupDraft(channel)),
     [channels]
   )
-  const startWeixin = async (draft?: ChatChannelInfo, forceScan = false) => {
+  const startWeixin = async (draft?: ChatChannelInfo) => {
     try {
       const channel =
         draft ??
@@ -132,7 +136,7 @@ export function ChannelListTab() {
           enabled: false,
           dailyReportEnabled: false,
         }))
-      if (!forceScan && (await getChatChannelHasToken(channel.id))) {
+      if (await getChatChannelHasToken(channel.id)) {
         try {
           await testChatChannel(channel.id)
           setFinalizeChannel(channel)
@@ -227,7 +231,7 @@ export function ChannelListTab() {
           readiness={readiness}
           onReload={loadChannels}
           onEdit={handleEdit}
-          onWeixinAuth={(channel) => void startWeixin(channel, true)}
+          onQrAuth={setQrReauthTarget}
         />
       ) : (
         <ChannelMarket
@@ -272,6 +276,19 @@ export function ChannelListTab() {
           }}
         />
       )}
+      {qrReauthTarget && isUnifiedQrChannel(qrReauthTarget.channel_type) && (
+        <ChatChannelQrcodeDialog
+          open
+          channelId={qrReauthTarget.id}
+          channelType={qrReauthTarget.channel_type}
+          variant={larkRegion(qrReauthTarget)}
+          onOpenChange={(open) => !open && setQrReauthTarget(null)}
+          onAuthSuccess={() => {
+            setQrReauthTarget(null)
+            void loadChannels()
+          }}
+        />
+      )}
       {finalizeChannel && (
         <ChannelFinalizeDialog
           open
@@ -295,4 +312,15 @@ export function ChannelListTab() {
       />
     </div>
   )
+}
+
+type UnifiedQrChannel = "weixin" | "wecom_ai_bot" | "dingtalk" | "lark"
+
+function isUnifiedQrChannel(type: string): type is UnifiedQrChannel {
+  return ["weixin", "wecom_ai_bot", "dingtalk", "lark"].includes(type)
+}
+
+function larkRegion(channel: ChatChannelInfo) {
+  if (channel.channel_type !== "lark") return undefined
+  return parseChannelConfig(channel).lark_region === "lark" ? "lark" : "feishu"
 }

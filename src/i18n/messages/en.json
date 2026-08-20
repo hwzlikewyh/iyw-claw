@@ -3725,11 +3725,50 @@
     "weixinQrcodeExpired": "QR code expired.",
     "weixinRefreshQrcode": "Refresh",
     "weixinWaitingScan": "Waiting for scan...",
+    "weixinScannedWaitingConfirm": "Scanned. Waiting for confirmation...",
+    "weixinVerifyCodePlaceholder": "Enter the verification code",
+    "weixinSubmitVerifyCode": "Continue",
+    "weixinVerifyCodeBlocked": "Too many verification attempts. Scan a fresh QR code.",
+    "weixinAlreadyBound": "This WeChat account is already bound to another session.",
     "weixinPollError": "Connection unstable, retrying...",
     "weixinReconnectNotice": "Due to iLink protocol limitations, after each reconnection you must send a message to the bot before event triggers take effect.",
     "connect": "Connect",
     "disconnect": "Disconnect",
     "test": "Test Connection",
+    "qr": {
+      "title": "Connect {channel} by QR code",
+      "start": "Scan to connect",
+      "reconnect": "Reauthorize by QR code",
+      "manualDivider": "or enter credentials manually",
+      "larkRegion": "Service region",
+      "regions": {
+        "feishu": "Feishu (China)",
+        "lark": "Lark (Global)"
+      },
+      "descriptions": {
+        "weixin": "Scan with WeChat and confirm the sign-in.",
+        "wecom_ai_bot": "Scan with WeCom and confirm robot authorization.",
+        "dingtalk": "Scan with DingTalk and confirm app authorization.",
+        "lark": "Scan with the Feishu or Lark client for the selected region."
+      },
+      "verifyCodePlaceholder": "Enter verification code",
+      "continue": "Continue",
+      "refresh": "Generate another code",
+      "status": {
+        "loading": "Generating QR code...",
+        "waiting": "Waiting for scan...",
+        "scanned": "Scanned. Waiting for confirmation...",
+        "connecting": "Authorized. Establishing the connection...",
+        "connected": "Channel connected.",
+        "expired": "QR code expired.",
+        "denied": "Authorization was denied. Generate another code.",
+        "cancelled": "QR session cancelled.",
+        "error": "QR connection failed. Generate another code.",
+        "verify_code_required": "A verification code is required to continue.",
+        "verify_code_blocked": "Too many verification attempts. Scan a fresh code.",
+        "already_bound": "This account is already bound to another session."
+      }
+    },
     "market": {
       "title": "Chat Channels",
       "description": "Manage external message entry points, connection state, and Agent replies.",
@@ -3746,7 +3785,7 @@
       },
       "tags": {
         "recommended": "Recommended",
-        "noPublic": "No public callback",
+        "qrAvailable": "QR available",
         "httpsRequired": "Public HTTPS required"
       },
       "cards": {
@@ -3759,8 +3798,8 @@
         "wecom_ai_bot": {
           "name": "WeCom Smart Robot",
           "kind": "WebSocket connection",
-          "description": "Use a Bot ID and Secret for robot conversations. QR authorization is not supported.",
-          "action": "View guide and configure"
+          "description": "Authorize by QR code and save the Bot ID and Secret automatically, or enter them manually.",
+          "action": "Scan or configure manually"
         },
         "wecom_agent": {
           "name": "WeCom Self-built App",
@@ -3771,17 +3810,17 @@
         "lark": {
           "name": "Lark (Feishu)",
           "kind": "Self-built app · persistent connection",
-          "description": "Use App ID and App Secret to receive events and reply over a persistent connection.",
-          "action": "View guide and configure"
+          "description": "Authorize Feishu or Lark by QR code, or enter an App ID and App Secret manually.",
+          "action": "Scan or configure manually"
         },
         "dingtalk": {
           "name": "DingTalk",
           "kind": "App robot · Stream",
-          "description": "Use Client ID and Client Secret to send and receive through Stream mode.",
-          "action": "View guide and configure"
+          "description": "Authorize by QR code and save app credentials automatically for Stream messaging.",
+          "action": "Scan or configure manually"
         }
       },
-      "footerNote": "WeChat opens QR sign-in immediately. Other channels show the relevant guide and verify credentials before appearing as connected.",
+      "footerNote": "WeChat, WeCom Smart Robot, Feishu/Lark, and DingTalk share one QR connection flow. Administrators can still enter platform credentials manually.",
       "continueDraft": "Continue · {stage}",
       "states": {
         "pending_auth": "Awaiting authorization",

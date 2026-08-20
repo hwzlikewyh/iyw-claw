@@ -14,7 +14,6 @@ use crate::chat_channel::error::ChatChannelError;
 use crate::chat_channel::traits::ChatChannelBackend;
 use crate::chat_channel::types::*;
 
-const FEISHU_BASE_URL: &str = "https://open.feishu.cn";
 const TOKEN_REFRESH_MARGIN_SECS: u64 = 300;
 const LARK_MAX_FILE_BYTES: u64 = 30 * 1024 * 1024;
 
@@ -153,6 +152,7 @@ pub struct LarkBackend {
     app_id: String,
     app_secret: String,
     chat_id: String,
+    api_base_url: &'static str,
     channel_id: i32,
     client: reqwest::Client,
     token_cache: Arc<RwLock<Option<TokenCache>>>,
@@ -161,11 +161,18 @@ pub struct LarkBackend {
 }
 
 impl LarkBackend {
-    pub fn new(channel_id: i32, app_id: String, app_secret: String, chat_id: String) -> Self {
+    pub fn new(
+        channel_id: i32,
+        app_id: String,
+        app_secret: String,
+        chat_id: String,
+        region: LarkRegion,
+    ) -> Self {
         Self {
             app_id,
             app_secret,
             chat_id,
+            api_base_url: region.api_base_url(),
             channel_id,
             client: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
@@ -192,7 +199,7 @@ impl LarkBackend {
             .client
             .post(format!(
                 "{}/open-apis/auth/v3/tenant_access_token/internal",
-                FEISHU_BASE_URL
+                self.api_base_url
             ))
             .json(&serde_json::json!({
                 "app_id": self.app_id,
@@ -255,7 +262,7 @@ impl LarkBackend {
             .client
             .post(format!(
                 "{}/open-apis/im/v1/messages?receive_id_type=chat_id",
-                FEISHU_BASE_URL
+                self.api_base_url
             ))
             .header("Authorization", format!("Bearer {}", token))
             .json(&SendMessageRequest {
@@ -295,7 +302,7 @@ impl LarkBackend {
             .part("file", part);
         let response = self
             .client
-            .post(format!("{FEISHU_BASE_URL}/open-apis/im/v1/files"))
+            .post(format!("{}/open-apis/im/v1/files", self.api_base_url))
             .header("Authorization", format!("Bearer {token}"))
             .multipart(form)
             .send()
@@ -326,7 +333,13 @@ impl LarkBackend {
         // A channel is not connected until the provider accepts the WebSocket
         // handshake. Do that work before returning from `start` so callers do
         // not mistake a spawned reconnect task for a live transport.
-        let ws_url = fetch_ws_url(&self.client, &self.app_id, &self.app_secret).await?;
+        let ws_url = fetch_ws_url(
+            &self.client,
+            self.api_base_url,
+            &self.app_id,
+            &self.app_secret,
+        )
+        .await?;
         let (initial_stream, _) =
             tokio_tungstenite::connect_async(&ws_url)
                 .await
@@ -345,6 +358,7 @@ impl LarkBackend {
         let status = self.status.clone();
         let app_id = self.app_id.clone();
         let app_secret = self.app_secret.clone();
+        let api_base_url = self.api_base_url;
         let client = self.client.clone();
         *status.lock().await = ChannelConnectionStatus::Connected;
         tracing::info!(
@@ -368,7 +382,7 @@ impl LarkBackend {
                     Some(stream) => stream,
                     None => {
                         let ws_url_result = tokio::select! {
-                            result = fetch_ws_url(&client, &app_id, &app_secret) => Some(result),
+                            result = fetch_ws_url(&client, api_base_url, &app_id, &app_secret) => Some(result),
                             _ = shutdown_rx.changed() => None,
                         };
                         let ws_url = match ws_url_result {
@@ -750,7 +764,7 @@ async fn handle_lark_event(
             callback_data: None,
             target: ChannelMessageTarget {
                 channel_id,
-                chat_id: Some(chat_id),
+                chat_id: Some(chat_id.clone()),
                 thread_key: None,
                 thread_kind: Some("lark_chat".to_string()),
                 provider_payload: None,
@@ -766,7 +780,7 @@ async fn handle_lark_event(
                 mpsc::error::TrySendError::Full(_) => {
                     tracing::warn!("[Lark] dispatcher queue full; replying busy");
                     let _ = sender
-                        .send_lark_message("text", super::DISPATCHER_BUSY_TEXT)
+                        .send_lark_message_to(&chat_id, "text", super::DISPATCHER_BUSY_TEXT)
                         .await;
                 }
                 mpsc::error::TrySendError::Closed(_) => {
@@ -796,11 +810,12 @@ fn strip_lark_mentions(text: &str, event: &serde_json::Value) -> String {
 /// Fetch a fresh WebSocket endpoint URL from Feishu.
 async fn fetch_ws_url(
     client: &reqwest::Client,
+    api_base_url: &str,
     app_id: &str,
     app_secret: &str,
 ) -> Result<String, ChatChannelError> {
     let resp = client
-        .post(format!("{}/callback/ws/endpoint", FEISHU_BASE_URL))
+        .post(format!("{api_base_url}/callback/ws/endpoint"))
         .json(&serde_json::json!({
             "AppID": app_id,
             "AppSecret": app_secret,
@@ -937,7 +952,13 @@ impl ChatChannelBackend for LarkBackend {
 
     async fn test_connection(&self) -> Result<(), ChatChannelError> {
         self.get_tenant_access_token().await?;
-        let ws_url = fetch_ws_url(&self.client, &self.app_id, &self.app_secret).await?;
+        let ws_url = fetch_ws_url(
+            &self.client,
+            self.api_base_url,
+            &self.app_id,
+            &self.app_secret,
+        )
+        .await?;
         let (mut stream, _) = tokio_tungstenite::connect_async(&ws_url)
             .await
             .map_err(|error| {

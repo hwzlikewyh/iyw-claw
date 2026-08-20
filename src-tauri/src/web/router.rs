@@ -1340,6 +1340,18 @@ pub fn build_router(
             post(handlers::chat_channel::delete_chat_natural_router_api_key),
         )
         .route(
+            "/start_chat_channel_qr",
+            post(handlers::chat_channel::start_chat_channel_qr),
+        )
+        .route(
+            "/poll_chat_channel_qr",
+            post(handlers::chat_channel::poll_chat_channel_qr),
+        )
+        .route(
+            "/cancel_chat_channel_qr",
+            post(handlers::chat_channel::cancel_chat_channel_qr),
+        )
+        .route(
             "/weixin_get_qrcode",
             post(handlers::chat_channel::weixin_get_qrcode),
         )
