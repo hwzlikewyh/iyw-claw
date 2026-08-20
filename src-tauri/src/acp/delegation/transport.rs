@@ -65,7 +65,7 @@ use crate::acp::question::QuestionSpec;
 #[path = "backend.rs"]
 pub mod backend;
 
-pub const COMPANION_PROTOCOL_VERSION: u32 = 5;
+pub const COMPANION_PROTOCOL_VERSION: u32 = 6;
 
 const fn default_companion_protocol_version() -> u32 {
     COMPANION_PROTOCOL_VERSION
@@ -301,12 +301,29 @@ const fn default_true() -> bool {
     true
 }
 
-/// Submit one workspace-relative audio file through the authenticated host.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AudioTranscriptionSource {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+}
+
+/// Submit one audio source through the authenticated host.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BrokerAudioTranscriptionRequest {
     pub token: String,
-    pub path: String,
+    pub source: AudioTranscriptionSource,
+    #[serde(default)]
+    pub flash: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
     #[serde(default)]
