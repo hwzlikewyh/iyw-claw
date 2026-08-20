@@ -173,9 +173,9 @@ impl AgentBrowserCli {
             env("AGENT_BROWSER_IDLE_TIMEOUT_MS", "0"),
             env("AGENT_BROWSER_NO_AUTO_DIALOG", "1"),
             env("AGENT_BROWSER_CONTENT_BOUNDARIES", "1"),
-            env("AGENT_BROWSER_STREAM_QUALITY", "60"),
-            env("AGENT_BROWSER_STREAM_MAX_WIDTH", "1600"),
-            env("AGENT_BROWSER_STREAM_MAX_HEIGHT", "1000"),
+            env("AGENT_BROWSER_STREAM_QUALITY", "85"),
+            env("AGENT_BROWSER_STREAM_MAX_WIDTH", "4096"),
+            env("AGENT_BROWSER_STREAM_MAX_HEIGHT", "2560"),
             env("AGENT_BROWSER_PROFILE", self.profile_path.as_os_str()),
             env(
                 "AGENT_BROWSER_EXECUTABLE_PATH",
