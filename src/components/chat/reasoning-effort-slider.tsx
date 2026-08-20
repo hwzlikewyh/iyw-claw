@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Brain } from "lucide-react"
+import { BrainCircuit } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import {
@@ -113,7 +113,7 @@ export function ReasoningEffortSlider({
       >
         {/* Header */}
         <div className="mb-3 flex items-center gap-1.5">
-          <Brain className="size-3.5 shrink-0 text-muted-foreground" />
+          <BrainCircuit className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="text-xs font-medium text-foreground">
             {option.name}
           </span>

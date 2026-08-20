@@ -79,6 +79,10 @@ import { unescapeComposerText } from "@/lib/composer-copy-text"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { UserMemoryMessageActions } from "@/components/message/user-memory-message-actions"
 import { CurrentReplyArtifacts } from "@/components/message/current-reply-artifacts"
+import {
+  CompletionEntrance,
+  MessageEntrance,
+} from "@/components/message/message-entrance"
 
 interface MessageListViewProps {
   conversationId: number
@@ -149,6 +153,7 @@ type ThreadRenderItem =
   | {
       key: string
       kind: "typing"
+      sourceId: string
     }
   | {
       key: string
@@ -476,6 +481,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   previousUserIndex = null,
   isResponseComplete = true,
   showCurrentReplyArtifacts = false,
+  animationEnabled = false,
 }: {
   group: ResolvedMessageGroup
   conversationId: number
@@ -486,6 +492,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   previousUserIndex?: number | null
   isResponseComplete?: boolean
   showCurrentReplyArtifacts?: boolean
+  animationEnabled?: boolean
 }) {
   if (group.role === "system") {
     return <CollapsibleSystemMessage group={group} />
@@ -515,12 +522,22 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               />
             )}
             <MessageContent>
-              <ContentPartsRenderer parts={group.parts} role={group.role} />
+              <ContentPartsRenderer
+                parts={group.parts}
+                role={group.role}
+                entranceKey={`${conversationId}:${group.id}`}
+                animationEnabled={animationEnabled}
+              />
             </MessageContent>
           </div>
         ) : (
           <MessageContent>
-            <ContentPartsRenderer parts={group.parts} role={group.role} />
+            <ContentPartsRenderer
+              parts={group.parts}
+              role={group.role}
+              entranceKey={`${conversationId}:${group.id}`}
+              animationEnabled={animationEnabled}
+            />
           </MessageContent>
         )}
         {group.role === "user" && group.resources.length > 0 ? (
@@ -531,24 +548,34 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
           align={group.role === "user" ? "end" : "start"}
         />
       </Message>
-      {showStats && group.role === "assistant" && (
-        <TurnStats
-          usage={group.usage}
-          duration_ms={group.duration_ms}
-          model={group.model}
-          models={group.models}
-          previousUserIndex={previousUserIndex}
-          isResponseComplete={isResponseComplete}
-          copyText={extractTextFromParts(group.parts)}
-          completedAt={group.completed_at}
-        />
-      )}
-      {showCurrentReplyArtifacts && group.role === "assistant" && (
-        <CurrentReplyArtifacts
-          conversationId={conversationId}
-          parts={group.parts}
-        />
-      )}
+      {group.role === "assistant" &&
+        (showStats || showCurrentReplyArtifacts) && (
+          <CompletionEntrance
+            conversationId={conversationId}
+            messageId={group.id}
+            enabled={animationEnabled}
+            complete={isResponseComplete}
+          >
+            {showStats && (
+              <TurnStats
+                usage={group.usage}
+                duration_ms={group.duration_ms}
+                model={group.model}
+                models={group.models}
+                previousUserIndex={previousUserIndex}
+                isResponseComplete={isResponseComplete}
+                copyText={extractTextFromParts(group.parts)}
+                completedAt={group.completed_at}
+              />
+            )}
+            {showCurrentReplyArtifacts && (
+              <CurrentReplyArtifacts
+                conversationId={conversationId}
+                parts={group.parts}
+              />
+            )}
+          </CompletionEntrance>
+        )}
     </div>
   )
 })
@@ -624,6 +651,12 @@ export function MessageListView({
   const session = useConversationRuntimeStore(
     (s) => s.byConversationId.get(conversationId) ?? null
   )
+  const [animationScope, setAnimationScope] = useState<number | null>(null)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setAnimationScope(conversationId))
+    return () => cancelAnimationFrame(frame)
+  }, [conversationId])
+  const animationEnabled = animationScope === conversationId && isActive
   const liveMessage = session?.liveMessage ?? null
   const { loadEarlierHistory } = useConversationRuntimeActions()
   const timelineTurns = useConversationRuntimeStore((s) =>
@@ -780,7 +813,13 @@ export function MessageListView({
       lastPhase === "optimistic" &&
       (connStatus === "prompting" || sessionSyncState === "awaiting_persist")
     ) {
-      items.push({ key: "pending-typing", kind: "typing" })
+      const sourceId =
+        timelineTurns[timelineTurns.length - 1]?.turn.id ?? "turn"
+      items.push({
+        key: `pending-typing-${sourceId}`,
+        kind: "typing",
+        sourceId,
+      })
     }
 
     if ((session?.detail?.history_start ?? 0) > 0) {
@@ -811,25 +850,44 @@ export function MessageListView({
         case "turn": {
           const pt = item.isRoleTransition ? 16 : 0
           return (
-            <div style={pt > 0 ? { paddingTop: pt } : undefined}>
-              <HistoricalMessageGroup
-                group={item.group}
-                conversationId={conversationId}
-                agentType={agentType}
-                enableUserMemoryActions={enableUserMemoryActions}
-                dimmed={item.phase === "optimistic"}
-                showStats={item.showStats}
-                previousUserIndex={item.previousUserIndex}
-                isResponseComplete={item.phase === "persisted"}
-                showCurrentReplyArtifacts={
-                  item === lastAssistantItem && item.phase === "persisted"
-                }
-              />
-            </div>
+            <MessageEntrance
+              conversationId={conversationId}
+              messageId={item.group.id}
+              role={item.group.role}
+              phase={item.phase}
+              enabled={animationEnabled}
+            >
+              <div style={pt > 0 ? { paddingTop: pt } : undefined}>
+                <HistoricalMessageGroup
+                  group={item.group}
+                  conversationId={conversationId}
+                  agentType={agentType}
+                  enableUserMemoryActions={enableUserMemoryActions}
+                  dimmed={item.phase === "optimistic"}
+                  showStats={item.showStats}
+                  previousUserIndex={item.previousUserIndex}
+                  isResponseComplete={item.phase === "persisted"}
+                  showCurrentReplyArtifacts={
+                    item === lastAssistantItem && item.phase === "persisted"
+                  }
+                  animationEnabled={animationEnabled}
+                />
+              </div>
+            </MessageEntrance>
           )
         }
         case "typing":
-          return <PendingTypingIndicator />
+          return (
+            <MessageEntrance
+              conversationId={conversationId}
+              messageId={`typing-${item.sourceId}`}
+              role="assistant"
+              phase="streaming"
+              enabled={animationEnabled}
+            >
+              <PendingTypingIndicator />
+            </MessageEntrance>
+          )
         case "compaction":
           return (
             <div className="px-1 py-2">
@@ -860,6 +918,7 @@ export function MessageListView({
     },
     [
       agentType,
+      animationEnabled,
       conversationId,
       detailLoading,
       enableUserMemoryActions,

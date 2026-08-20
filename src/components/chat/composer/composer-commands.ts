@@ -34,6 +34,108 @@ export function isComposerEmpty(editor: Editor): boolean {
 const NON_CHROME_SELECTOR =
   '.ProseMirror, button, a, input, textarea, select, [role="button"], [role="combobox"], [role="menuitem"], [data-reference-badge], [contenteditable]'
 
+function normalizedReferenceId(attrs: ReferenceAttrs): string {
+  return attrs.id
+    .trim()
+    .replace(/^[/$]+/, "")
+    .toLowerCase()
+}
+
+export function isTaskReference(attrs: ReferenceAttrs): boolean {
+  const id = normalizedReferenceId(attrs)
+  return attrs.refType === "skill" && (id === "goal" || id === "loop")
+}
+
+function isExpertReference(attrs: ReferenceAttrs): boolean {
+  return attrs.refType === "skill" && attrs.meta?.scope === "expert"
+}
+
+function latestDirectiveReferences(editor: Editor): {
+  task: ReferenceAttrs | null
+  expert: ReferenceAttrs | null
+} {
+  let task: ReferenceAttrs | null = null
+  let expert: ReferenceAttrs | null = null
+  editor.state.doc.descendants((node) => {
+    if (node.type.name !== "reference") return true
+    const attrs = node.attrs as ReferenceAttrs
+    if (isTaskReference(attrs)) task = attrs
+    if (isExpertReference(attrs)) expert = attrs
+    return true
+  })
+  return { task, expert }
+}
+
+export function getTaskReference(editor: Editor): ReferenceAttrs | null {
+  return latestDirectiveReferences(editor).task
+}
+
+function directiveRanges(editor: Editor) {
+  const ranges: { from: number; to: number }[] = []
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name !== "reference") return true
+    const attrs = node.attrs as ReferenceAttrs
+    if (!isTaskReference(attrs) && !isExpertReference(attrs)) return true
+    const after = editor.state.doc.resolve(pos + node.nodeSize).nodeAfter
+    const trailingSpace = after?.isText && after.text?.startsWith(" ") ? 1 : 0
+    ranges.push({ from: pos, to: pos + node.nodeSize + trailingSpace })
+    return true
+  })
+  return ranges
+}
+
+function applyDirectiveReferences(
+  editor: Editor,
+  task: ReferenceAttrs | null,
+  expert: ReferenceAttrs | null,
+  focus = true
+): void {
+  const content = [task, expert].flatMap((attrs) =>
+    attrs
+      ? [
+          { type: "reference", attrs },
+          { type: "text", text: " " },
+        ]
+      : []
+  )
+  let chain = editor.chain()
+  if (focus) chain = chain.focus()
+  for (const range of directiveRanges(editor).reverse()) {
+    chain = chain.deleteRange(range)
+  }
+  if (content.length === 0) {
+    if (focus) chain = chain.setTextSelection(1)
+    chain.run()
+    return
+  }
+  const first = editor.state.doc.firstChild
+  if (!first || first.type.name !== "paragraph") {
+    chain.insertContentAt(0, { type: "paragraph", content }).run()
+    return
+  }
+  chain = chain.insertContentAt(1, content)
+  if (focus) chain = chain.setTextSelection(1 + content.length)
+  chain.run()
+}
+
+export function applyTaskReference(
+  editor: Editor,
+  attrs: ReferenceAttrs
+): void {
+  const { expert } = latestDirectiveReferences(editor)
+  applyDirectiveReferences(editor, attrs, expert)
+}
+
+export function clearTaskReference(editor: Editor): void {
+  const { expert } = latestDirectiveReferences(editor)
+  applyDirectiveReferences(editor, null, expert)
+}
+
+export function normalizeDirectiveReferences(editor: Editor): void {
+  const { task, expert } = latestDirectiveReferences(editor)
+  if (task || expert) applyDirectiveReferences(editor, task, expert, false)
+}
+
 /**
  * Whether a mousedown `target` landed on the message input's empty chrome — its
  * padding, the blank space below a short message, or the gaps in the action bar
@@ -46,59 +148,19 @@ export function isComposerChromeClick(target: EventTarget | null): boolean {
 }
 
 /**
- * Insert an expert as the leading inline badge of the message — experts are
- * whole-turn directives the agent inspects first, so the badge goes at the very
- * front (and serializes to `${prefix}${id}` as the first token), never at the
- * caret. `attrs` is an expert reference (refType `skill`, `meta.scope === "expert"`).
+ * Insert an expert as a leading whole-turn directive. A selected task stays
+ * first; the expert is normalized immediately after it. Without a task the
+ * expert remains the first inline badge.
  *
- * The badge must be the FIRST inline node of the FIRST block. Inserting at
- * position 1 only achieves that when the first block is a paragraph; for a
- * heading/list/quote/code block the Markdown marker (`# `, `- `, `> `, …) would
- * serialize before it, so a fresh paragraph is prepended instead. When the first
- * block already opens with an expert badge (from a prior pick), it is replaced
- * rather than stacked — the agent only honors the first directive.
+ * Task and expert references are each unique. Existing copies are removed from
+ * the document before the normalized directive pair is inserted.
  */
 export function applyExpertReference(
   editor: Editor,
   attrs: ReferenceAttrs
 ): void {
-  const badge = [
-    { type: "reference", attrs },
-    { type: "text", text: " " },
-  ]
-  const first = editor.state.doc.firstChild
-
-  // First block isn't a paragraph: prepend a fresh one so the badge is the very
-  // first inline content (cursor lands just after the badge + its space, pos 3).
-  if (!first || first.type.name !== "paragraph") {
-    editor
-      .chain()
-      .focus()
-      .insertContentAt(0, { type: "paragraph", content: badge })
-      .setTextSelection(3)
-      .run()
-    return
-  }
-
-  // Paragraph: replace an existing leading expert badge (atom at pos 1) if any,
-  // taking one following space with it so the replacement doesn't stack spaces.
-  // `meta.scope === "expert"` is the unambiguous marker — only expert references
-  // carry it (commands/skills don't), so no extra id allow-list is needed (and
-  // an allow-list would false-negative on agent-linked experts → stacking).
-  const firstChild = first.firstChild
-  const isExpertBadge =
-    firstChild?.type.name === "reference" &&
-    firstChild.attrs.refType === "skill" &&
-    firstChild.attrs.meta?.scope === "expert"
-
-  let chain = editor.chain().focus()
-  if (isExpertBadge) {
-    const afterBadge = first.maybeChild(1)
-    const trailingSpace =
-      afterBadge?.isText && afterBadge.text?.startsWith(" ") ? 1 : 0
-    chain = chain.deleteRange({ from: 1, to: 2 + trailingSpace })
-  }
-  chain.insertContentAt(1, badge).setTextSelection(3).run()
+  const { task } = latestDirectiveReferences(editor)
+  applyDirectiveReferences(editor, task, attrs)
 }
 
 export function restampSkillPrefixes(
@@ -155,5 +217,6 @@ export function restoreBlocksIntoEditor(
         : chain.insertReference(segment.attrs)
   }
   chain.focus("end").run()
+  normalizeDirectiveReferences(editor)
   return attachments
 }
