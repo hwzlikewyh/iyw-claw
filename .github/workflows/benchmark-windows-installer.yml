@@ -100,6 +100,8 @@ jobs:
           foreach ($mode in @("lzma", "zlib", "none")) {
             $overlayPath = Join-Path $env:RUNNER_TEMP "tauri-nsis-$mode.conf.json"
             $overlay = @{
+              identifier = "app.iywclaw.installer-benchmark"
+              productName = "iyw-claw-installer-benchmark"
               bundle = @{
                 createUpdaterArtifacts = $false
                 windows = @{ nsis = @{ compression = $mode } }
@@ -169,7 +171,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "installed zlib static asset smoke failed" }
 
       - name: Upload benchmark artifacts
-        if: ${{ always() }}
+        if: ${{ always() && hashFiles('artifacts/nsis-compression/**') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: nsis-compression-benchmark-${{ github.run_id }}
@@ -178,7 +180,7 @@ jobs:
           retention-days: 14
 
       - name: Upload install measurements
-        if: ${{ always() }}
+        if: ${{ always() && hashFiles('artifacts/nsis-install/**') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: nsis-install-measurements-${{ github.run_id }}

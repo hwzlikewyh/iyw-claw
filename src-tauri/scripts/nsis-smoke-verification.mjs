@@ -91,7 +91,7 @@ function discoverStaticTargets(root) {
       "application/javascript",
     ]),
     fileTarget("next-css", css, ["text/css"]),
-    fileTarget("woff2-font", font, ["font/woff2"]),
+    fileTarget("woff2-font", font, ["font/woff2", "application/font-woff"]),
     fileTarget("monaco-worker", worker, [
       "text/javascript",
       "application/javascript",

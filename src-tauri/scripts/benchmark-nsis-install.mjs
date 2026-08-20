@@ -9,12 +9,17 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  rmSync,
   writeFileSync,
 } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import { performance } from "node:perf_hooks"
 import { tmpdir } from "node:os"
+
+import {
+  assertCleanInstallState,
+  cleanupInstall,
+  INSTALLER_TEST_MODE_ARG,
+} from "./nsis-smoke-windows.mjs"
 
 const MAX_RUNS = 6
 
@@ -108,50 +113,6 @@ function resolveInstalledApp(root) {
   return app
 }
 
-function findUninstaller(root) {
-  const stack = [root]
-  while (stack.length > 0) {
-    const directory = stack.pop()
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name)
-      if (entry.isDirectory()) {
-        stack.push(path)
-      } else if (
-        entry.isFile() &&
-        entry.name.toLowerCase() === "uninstall.exe"
-      ) {
-        return path
-      }
-    }
-  }
-  return null
-}
-
-function cleanupInstall(root) {
-  const uninstaller = findUninstaller(root)
-  if (uninstaller) {
-    try {
-      execFileSync(uninstaller, ["/S"], { stdio: "ignore" })
-    } catch (error) {
-      console.warn(
-        `[benchmark-nsis-install] uninstaller failed: ${error.message}`
-      )
-    }
-  }
-  // The hosted runner is disposable, but clear the product-specific hook key
-  // so the next compression variant cannot be treated as an upgrade.
-  try {
-    execFileSync(
-      "reg.exe",
-      ["delete", "HKCU\\Software\\iywclaw\\iyw-claw", "/f"],
-      { stdio: "ignore" }
-    )
-  } catch {
-    // The uninstaller normally removes this key; an absent key is fine.
-  }
-  rmSync(root, { force: true, recursive: true })
-}
-
 function executableInventory(app, files) {
   return files
     .filter(({ path }) => path.toLowerCase().endsWith(".exe"))
@@ -164,12 +125,19 @@ function executableInventory(app, files) {
 }
 
 function runInstall(variant, round, output, requireNoDuplicateBundle) {
-  const root = mkdtempSync(join(tmpdir(), `iyw-claw-nsis-${variant.name}-`))
+  assertCleanInstallState()
+  const root = mkdtempSync(
+    join(tmpdir(), `iyw-claw-nsis-smoke-benchmark-${variant.name}-`)
+  )
+  let failure
+  let result
   try {
     const started = performance.now()
-    execFileSync(variant.installer, ["/S", `/D=${root}`], {
-      stdio: "ignore",
-    })
+    execFileSync(
+      variant.installer,
+      ["/S", INSTALLER_TEST_MODE_ARG, `/D=${root}`],
+      { stdio: "ignore" }
+    )
     const elapsedMs = Math.round(performance.now() - started)
     const app = resolveInstalledApp(root)
     const tree = collectTree(app)
@@ -177,7 +145,7 @@ function runInstall(variant, round, output, requireNoDuplicateBundle) {
     if (duplicateBundle && requireNoDuplicateBundle)
       fail(`${variant.name}: duplicate resources/bundle remains`)
     const mainExecutable = join(app, "iyw-claw.exe")
-    const result = {
+    result = {
       compression: variant.name,
       elapsedMs,
       executables: executableInventory(app, tree.files),
@@ -188,10 +156,27 @@ function runInstall(variant, round, output, requireNoDuplicateBundle) {
       mainExeSha256: sha256(mainExecutable),
     }
     output.runs.push(result)
-    return result
+  } catch (error) {
+    failure = error
   } finally {
-    cleanupInstall(root)
+    try {
+      const warnings = cleanupInstall({ smokeRoot: root, installRoot: root })
+      if (warnings.length > 0) {
+        const cleanupFailure = new Error(
+          `${variant.name} round ${round} cleanup failed: ${warnings.join("; ")}`
+        )
+        failure = failure
+          ? new Error(`${failure.message}; ${cleanupFailure.message}`)
+          : cleanupFailure
+      }
+    } catch (error) {
+      failure = failure
+        ? new Error(`${failure.message}; cleanup failed: ${error.message}`)
+        : error
+    }
   }
+  if (failure) throw failure
+  return result
 }
 
 function median(values) {
@@ -227,6 +212,7 @@ function main() {
   if (process.platform !== "win32")
     fail("NSIS install benchmark requires Windows")
   const args = parseArgs(process.argv.slice(2))
+  assertCleanInstallState()
   const output = {
     sourceSha: args.sourceSha,
     runs: [],

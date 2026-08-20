@@ -1,10 +1,31 @@
 ; Capture source paths while NSIS includes this file.
 !define IYW_CLAW_INSTALL_REGISTRY_KEY "Software\iywclaw\iyw-claw"
+!define IYW_CLAW_INSTALL_TEST_REGISTRY_KEY "Software\iywclaw\iyw-claw-installer-test"
 !define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
 Var IywClawRoot
+Var IywClawInstallRegistryKey
+Var IywClawInstallerTestMode
 
 !include "${__FILEDIR__}\installer-process-control.nsh"
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
+
+!macro IywClawDefineInstallerModeFunction Prefix
+Function ${Prefix}IywClawConfigureInstallerMode
+  StrCpy $IywClawInstallRegistryKey "${IYW_CLAW_INSTALL_REGISTRY_KEY}"
+  StrCpy $IywClawInstallerTestMode "0"
+  ClearErrors
+  ${GetOptions} $CMDLINE "/IYW_CLAW_TEST_MODE=" $R6
+  IfErrors iyw_installer_mode_done
+  StrCmp $R6 "1" 0 iyw_installer_mode_done
+  StrCpy $IywClawInstallRegistryKey "${IYW_CLAW_INSTALL_TEST_REGISTRY_KEY}"
+  StrCpy $IywClawInstallerTestMode "1"
+
+  iyw_installer_mode_done:
+FunctionEnd
+!macroend
+
+!insertmacro IywClawDefineInstallerModeFunction ""
+!insertmacro IywClawDefineInstallerModeFunction "un."
 
 Function IywClawIsMainProcessRunning
   ; 仅检查安装器当前用户，其他登录会话不能改变本次恢复策略。
@@ -21,11 +42,12 @@ Function IywClawIsMainProcessRunning
 FunctionEnd
 
 Function IywClawRestoreLogicalInstallRoot
+  Call IywClawConfigureInstallerMode
   ; Older installers persisted root\app as MUI's default directory while the
   ; product-specific InstallRoot value already held the user-selected root.
   ; Correct only the directory-page value; POSTINSTALL persists it after the
   ; old uninstaller has finished using its internal root\app working directory.
-  ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
+  ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
   StrCmp $R8 "" iyw_set_default_install_root 0
   GetFullPathName $R9 "$R8\app"
   GetFullPathName $R7 "$INSTDIR"
@@ -55,7 +77,7 @@ Function IywClawRestoreLogicalInstallRoot
     ClearErrors
     ${GetOptions} $CMDLINE "/UPDATE" $R6
     IfErrors 0 iyw_guiinit_return
-    ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
+    ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
     StrCmp $R8 "" iyw_guiinit_return 0
 
     Call IywClawIsMainProcessRunning
@@ -78,7 +100,7 @@ Function IywClawRestoreLogicalInstallRoot
 FunctionEnd
 
 Function IywClawResolveInstallRoot
-  ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
+  ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
   StrCmp $R8 "" iyw_use_selected_root 0
 
   GetFullPathName $R9 "$R8\app"
@@ -118,7 +140,7 @@ Function IywClawResolveInstallRoot
 
     StrCpy $INSTDIR "$IywClawRoot\app"
     SetOutPath "$INSTDIR"
-    WriteRegStr SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot" "$IywClawRoot"
+    WriteRegStr SHCTX "$IywClawInstallRegistryKey" "InstallRoot" "$IywClawRoot"
     DetailPrint "安装目录：$IywClawRoot"
     Return
 
@@ -129,6 +151,7 @@ Function IywClawResolveInstallRoot
 FunctionEnd
 
 !macro NSIS_HOOK_PREINSTALL
+  Call IywClawConfigureInstallerMode
   Call IywClawResolveInstallRoot
   !if "${ARCH}" == "x64"
     StrCpy $IywClawRequireBrowser "1"
@@ -136,6 +159,7 @@ FunctionEnd
     StrCpy $IywClawRequireBrowser "0"
   !endif
   Call IywClawConfigureAppTransaction
+  StrCmp $IywClawInstallerTestMode "1" iyw_begin_app_transaction 0
   Call IywClawStopKnownProcesses
   Pop $R0
   StrCmp $R0 "0" iyw_begin_app_transaction 0
@@ -172,7 +196,7 @@ FunctionEnd
   ; Tauri persists the internal app directory as the next installer location.
   ; Expose the logical root in the directory page while keeping binaries
   ; isolated below root\app.
-  WriteRegStr SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "" "$IywClawRoot"
+  WriteRegStr SHCTX "$IywClawInstallRegistryKey" "" "$IywClawRoot"
 
   ${If} $UpdateMode = 1
     DetailPrint "已保留运行环境、受管组件、配置、数据和日志。"
@@ -184,6 +208,8 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  Call un.IywClawConfigureInstallerMode
+  StrCmp $IywClawInstallerTestMode "1" iyw_uninstall_processes_stopped 0
   Call un.IywClawStopKnownProcesses
   Pop $R0
   StrCmp $R0 "0" iyw_uninstall_processes_stopped 0
@@ -201,7 +227,7 @@ FunctionEnd
     Goto iyw_uninstall_done
   ${EndIf}
 
-  ReadRegStr $IywClawRoot SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
+  ReadRegStr $IywClawRoot SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
   StrCmp $IywClawRoot "" iyw_uninstall_done 0
   GetFullPathName $IywClawRoot "$IywClawRoot"
 
@@ -213,7 +239,7 @@ FunctionEnd
     StrCmp $R8 "" iyw_uninstall_done 0
     DetailPrint "彻底删除模式：正在移除全部安装内容..."
     RMDir /r "$R8"
-    DeleteRegKey SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}"
+    DeleteRegKey SHCTX "$IywClawInstallRegistryKey"
     Goto iyw_uninstall_done
   ${EndIf}
 
@@ -232,7 +258,7 @@ FunctionEnd
     RMDir /r "$IywClawRoot\runtime"
     RMDir /r "$IywClawRoot\staging"
     RMDir /r "$IywClawRoot\logs"
-    DeleteRegKey SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}"
+    DeleteRegKey SHCTX "$IywClawInstallRegistryKey"
     DetailPrint "用户配置、本地数据、Skill 与受管库存已保留。"
 
   iyw_uninstall_done:
