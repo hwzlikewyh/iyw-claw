@@ -166,7 +166,9 @@ fn normalize_asset_path(path: &str) -> Option<String> {
     let decoded = urlencoding::decode(path).ok()?;
     // Tauri dev reads from frontendDist with filesystem joins, so reject
     // components that could escape the asset root on either path style.
-    if decoded.contains('\\') || decoded.chars().any(char::is_control) {
+    // AssetResolver decodes once more. Reject a residual escape marker so a
+    // double-encoded separator or `..` cannot change the validated structure.
+    if decoded.contains('%') || decoded.contains('\\') || decoded.chars().any(char::is_control) {
         return None;
     }
 
