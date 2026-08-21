@@ -10,10 +10,12 @@ Var IywClawInstallRegistryKey
 
 Function IywClawRestoreLogicalInstallRoot
   Call IywClawConfigureInstallerMode
-  StrCmp $IywClawInstallerTestMode "invalid" 0 +3
+  StrCmp $IywClawInstallerTestMode "invalid" 0 iyw_installer_mode_valid
   DetailPrint "测试模式参数无效，安装已取消。"
   SetErrorLevel 2
   Quit
+
+  iyw_installer_mode_valid:
   ; Older installers persisted root\app as MUI's default directory while the
   ; product-specific InstallRoot value already held the user-selected root.
   ; Correct only the directory-page value; POSTINSTALL persists it after the
