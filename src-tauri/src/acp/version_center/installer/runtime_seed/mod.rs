@@ -67,6 +67,7 @@ pub(super) fn log_component_error(component: &str, phase: &str, error: &AppComma
         component,
         phase,
         error_code = ?error.code,
+        error_detail = error.detail.as_deref().unwrap_or(""),
         "[runtime-seed] bundled component rejected; continuing with Version Center"
     );
 }

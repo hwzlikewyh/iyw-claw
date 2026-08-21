@@ -105,8 +105,13 @@ fn is_host_owned_runtime_env(key: &str) -> bool {
 }
 
 pub(crate) fn minimum_node_version(agent_type: AgentType) -> Option<&'static str> {
-    let definition = definition_for_agent(agent_type)?;
-    (definition.version_floor.runtime == RuntimeKind::Node)
-        .then_some(definition.version_floor.minimum_runtime_version)
-        .flatten()
+    if let Some(definition) = definition_for_agent(agent_type) {
+        return (definition.version_floor.runtime == RuntimeKind::Node)
+            .then_some(definition.version_floor.minimum_runtime_version)
+            .flatten();
+    }
+    match crate::acp::registry::get_agent_meta(agent_type).distribution {
+        crate::acp::registry::AgentDistribution::Npx { node_required, .. } => node_required,
+        _ => None,
+    }
 }
