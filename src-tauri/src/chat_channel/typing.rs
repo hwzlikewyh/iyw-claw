@@ -22,7 +22,7 @@ struct TypingLease {
     owner_connection_id: String,
     target: ChannelMessageTarget,
     paused: bool,
-    cancel: CancellationToken,
+    refresh_cancel: CancellationToken,
 }
 
 #[derive(Clone, Default)]
@@ -48,7 +48,7 @@ impl TypingController {
         let cancel = CancellationToken::new();
         let old_cancel = {
             let mut leases = self.leases.lock().await;
-            let old_cancel = leases.get(&key).map(|lease| lease.cancel.clone());
+            let old_cancel = leases.get(&key).map(|lease| lease.refresh_cancel.clone());
             leases.insert(
                 key.clone(),
                 TypingLease {
@@ -56,7 +56,7 @@ impl TypingController {
                     owner_connection_id,
                     target: target.clone(),
                     paused: false,
-                    cancel: cancel.clone(),
+                    refresh_cancel: cancel.clone(),
                 },
             );
             old_cancel
@@ -68,7 +68,7 @@ impl TypingController {
         let controller = self.clone();
         tokio::spawn(async move {
             controller
-                .run(manager, key, generation, target, cancel)
+                .run(manager, key, generation, target, cancel, "start")
                 .await;
         });
     }
@@ -81,7 +81,7 @@ impl TypingController {
         owner_connection_id: &str,
     ) {
         let key = key(channel_id, route_key);
-        let (generation, target) = {
+        let (generation, target, refresh_cancel) = {
             let mut leases = self.leases.lock().await;
             let Some(lease) = leases.get_mut(&key) else {
                 return;
@@ -93,8 +93,13 @@ impl TypingController {
                 return;
             }
             lease.paused = true;
-            (lease.generation, lease.target.clone())
+            (
+                lease.generation,
+                lease.target.clone(),
+                lease.refresh_cancel.clone(),
+            )
         };
+        refresh_cancel.cancel();
         self.set_paused_status(manager, &key, generation, &target)
             .await;
     }
@@ -107,6 +112,7 @@ impl TypingController {
         owner_connection_id: &str,
     ) {
         let key = key(channel_id, route_key);
+        let cancel = CancellationToken::new();
         let (generation, target) = {
             let mut leases = self.leases.lock().await;
             let Some(lease) = leases.get_mut(&key) else {
@@ -119,10 +125,16 @@ impl TypingController {
                 return;
             }
             lease.paused = false;
+            lease.refresh_cancel = cancel.clone();
             (lease.generation, lease.target.clone())
         };
-        self.set_active_status(manager, &key, generation, &target, "resume")
-            .await;
+        let controller = self.clone();
+        let manager = manager.clone_ref();
+        tokio::spawn(async move {
+            controller
+                .run(manager, key, generation, target, cancel, "resume")
+                .await;
+        });
     }
 
     pub async fn stop(
@@ -144,7 +156,7 @@ impl TypingController {
             leases.remove(&key)
         };
         let Some(lease) = lease else { return };
-        lease.cancel.cancel();
+        lease.refresh_cancel.cancel();
         self.set_stopped_status(manager, &key, lease.generation, &lease.target, "stop")
             .await;
     }
@@ -162,7 +174,7 @@ impl TypingController {
                 .collect::<Vec<_>>()
         };
         for (key, lease) in leases {
-            lease.cancel.cancel();
+            lease.refresh_cancel.cancel();
             self.set_stopped_status(
                 manager,
                 &key,
@@ -181,8 +193,9 @@ impl TypingController {
         generation: u64,
         target: ChannelMessageTarget,
         cancel: CancellationToken,
+        initial_phase: &'static str,
     ) {
-        self.set_active_status(&manager, &key, generation, &target, "start")
+        self.set_active_status(&manager, &key, generation, &target, initial_phase)
             .await;
         let mut interval = tokio::time::interval(REFRESH_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -191,11 +204,6 @@ impl TypingController {
             tokio::select! {
                 _ = cancel.cancelled() => return,
                 _ = interval.tick() => {
-                    match self.is_paused(&key, generation).await {
-                        None => return,
-                        Some(true) => continue,
-                        Some(false) => {}
-                    }
                     self.set_active_status(&manager, &key, generation, &target, "refresh").await;
                 }
             }
@@ -208,15 +216,6 @@ impl TypingController {
             .await
             .get(key)
             .is_some_and(|lease| lease.generation == generation && !lease.paused)
-    }
-
-    async fn is_paused(&self, key: &TypingKey, generation: u64) -> Option<bool> {
-        self.leases
-            .lock()
-            .await
-            .get(key)
-            .filter(|lease| lease.generation == generation)
-            .map(|lease| lease.paused)
     }
 
     async fn set_active_status(

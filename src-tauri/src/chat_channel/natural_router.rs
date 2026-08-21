@@ -5,11 +5,11 @@ use tokio::sync::Mutex;
 
 use super::i18n::Lang;
 use super::session_bridge::SessionBridge;
+use super::session_topic_access;
+use super::types::ChannelMessageTarget;
 use crate::db::entities::conversation;
 use crate::db::service::conversation_binding_service::ConversationRoute;
-use crate::db::service::{
-    conversation_binding_service, conversation_service, folder_service, sender_context_service,
-};
+use crate::db::service::{conversation_service, folder_service, sender_context_service};
 use crate::models::agent::AgentType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +45,7 @@ pub async fn route_natural_message(
     bridge: &Arc<Mutex<SessionBridge>>,
     channel_id: i32,
     sender_id: &str,
+    target: &ChannelMessageTarget,
     route: &ConversationRoute,
     text: &str,
     lang: Lang,
@@ -57,9 +58,22 @@ pub async fn route_natural_message(
     }
 
     let normalized = normalize(trimmed);
-    let sender_has_session = has_active_session(bridge, channel_id, &route.route_key).await;
+    let access = session_topic_access::command_route_access(
+        db,
+        bridge,
+        channel_id,
+        sender_id,
+        target,
+        &route.route_key,
+    )
+    .await;
+    let authorized_conversation_id =
+        session_topic_access::authorized_conversation_id(db, channel_id, sender_id, target, route)
+            .await
+            .ok()
+            .flatten();
 
-    if has_pending_permission(bridge, channel_id, &route.route_key).await {
+    if access.permission_pending {
         if is_denial(&normalized) {
             return NaturalRouteDecision::DenyPermission;
         }
@@ -88,14 +102,14 @@ pub async fn route_natural_message(
         return NaturalRouteDecision::ResumeConversation { conversation_id };
     }
 
-    if sender_has_session {
+    if access.has_session {
         if is_cancel_session(&normalized) {
             return NaturalRouteDecision::CancelSession;
         }
         return NaturalRouteDecision::ContinueSession;
     }
 
-    if route_has_conversation(db, channel_id, &route.route_key).await {
+    if route_has_conversation(db, authorized_conversation_id).await {
         if is_cancel_session(&normalized) {
             return NaturalRouteDecision::CancelSession;
         }
@@ -103,7 +117,7 @@ pub async fn route_natural_message(
     }
 
     if let Some((folder_id, agent_type)) =
-        deleted_binding_defaults(db, channel_id, &route.route_key).await
+        deleted_binding_defaults(db, authorized_conversation_id).await
     {
         return NaturalRouteDecision::StartTask {
             task: trimmed.to_string(),
@@ -327,52 +341,22 @@ async fn channel_dedicated_folder(db: &DatabaseConnection, channel_id: i32) -> O
         .map(|v| v as i32)
 }
 
-async fn has_active_session(
-    bridge: &Arc<Mutex<SessionBridge>>,
-    channel_id: i32,
-    route_key: &str,
-) -> bool {
-    let guard = bridge.lock().await;
-    guard.find_by_route(channel_id, route_key).is_some()
-}
-
-async fn has_pending_permission(
-    bridge: &Arc<Mutex<SessionBridge>>,
-    channel_id: i32,
-    route_key: &str,
-) -> bool {
-    let guard = bridge.lock().await;
-    guard
-        .find_by_route(channel_id, route_key)
-        .and_then(|s| s.permission_pending.as_ref())
-        .is_some()
-}
-
-async fn route_has_conversation(db: &DatabaseConnection, channel_id: i32, route_key: &str) -> bool {
-    let binding = conversation_binding_service::find_by_route(db, channel_id, route_key)
-        .await
-        .ok()
-        .flatten();
-    match binding {
-        Some(binding) => conversation_service::get_by_id(db, binding.conversation_id)
+async fn route_has_conversation(db: &DatabaseConnection, conversation_id: Option<i32>) -> bool {
+    match conversation_id {
+        Some(conversation_id) => conversation_service::get_by_id(db, conversation_id)
             .await
-            .ok()
-            .is_some(),
+            .is_ok(),
         None => false,
     }
 }
 
 async fn deleted_binding_defaults(
     db: &DatabaseConnection,
-    channel_id: i32,
-    route_key: &str,
+    conversation_id: Option<i32>,
 ) -> Option<(i32, AgentType)> {
     use sea_orm::EntityTrait;
 
-    let binding = conversation_binding_service::find_by_route(db, channel_id, route_key)
-        .await
-        .ok()??;
-    let row = conversation::Entity::find_by_id(binding.conversation_id)
+    let row = conversation::Entity::find_by_id(conversation_id?)
         .one(db)
         .await
         .ok()??;

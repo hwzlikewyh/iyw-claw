@@ -170,6 +170,7 @@ fn parse_incoming(channel_id: i32, frame: &serde_json::Value) -> Option<Incoming
             provider_payload: Some(serde_json::json!({
                 "session_webhook": webhook,
                 "session_webhook_expired_time": expires,
+                "chat_type": conversation_type,
             })),
         },
         metadata: serde_json::json!({ "chat_type": conversation_type }),
@@ -258,11 +259,14 @@ fn parse_data(value: &serde_json::Value) -> Option<serde_json::Value> {
 }
 
 fn field(value: &serde_json::Value, key: &str) -> Option<String> {
+    let value = value.get(key)?;
+    if let Some(value) = value.as_str().filter(|value| !value.is_empty()) {
+        return Some(value.to_string());
+    }
     value
-        .get(key)?
-        .as_str()
+        .as_i64()
+        .map(|value| value.to_string())
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
 }
 
 pub(super) fn webhook_expired(payload: &serde_json::Value) -> bool {

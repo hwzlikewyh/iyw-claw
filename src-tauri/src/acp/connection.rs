@@ -1227,6 +1227,7 @@ pub(crate) async fn spawn_agent_connection(
         owner_window_label.clone(),
         None, // folder_id 由后续 prompt handler 在首次 send 时绑定 (Phase 2)
     );
+    initial_state.requested_external_id = session_id.clone();
     initial_state.current_model = preferred_config_values
         .get("model")
         .map(|model| model.trim())

@@ -380,8 +380,10 @@ async fn dispatch_command(
             .await,
         ),
         "sessions" => DispatchResponse::current(
-            session_commands::handle_sessions(db, channel_id, sender_id, target, lang, prefix)
-                .await,
+            session_commands::handle_sessions(
+                db, channel_id, sender_id, target, route, lang, prefix,
+            )
+            .await,
             target,
         ),
         "resume" => DispatchResponse::current(
@@ -410,6 +412,7 @@ async fn dispatch_command(
                 db,
                 channel_id,
                 sender_id,
+                target,
                 &route.route_key,
                 manager,
                 conn_mgr,
@@ -481,9 +484,10 @@ async fn dispatch_natural_message(
     lang: Lang,
     trace_id: &str,
 ) -> DispatchResponse {
-    let decision =
-        natural_router::route_natural_message(db, bridge, channel_id, sender_id, route, text, lang)
-            .await;
+    let decision = natural_router::route_natural_message(
+        db, bridge, channel_id, sender_id, target, route, text, lang,
+    )
+    .await;
     tracing::info!(
         channel_id,
         decision = natural_route_name(&decision),
@@ -548,6 +552,7 @@ async fn dispatch_natural_message(
                 db,
                 channel_id,
                 sender_id,
+                target,
                 &route.route_key,
                 manager,
                 conn_mgr,

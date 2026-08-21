@@ -7,7 +7,7 @@ use sea_orm::{
 use sha2::{Digest, Sha256};
 
 use crate::chat_channel::types::ChannelMessageTarget;
-use crate::db::entities::chat_channel_conversation_binding;
+use crate::db::entities::{chat_channel_conversation_binding, conversation};
 use crate::db::error::DbError;
 
 const ROUTE_VERSION: &str = "v1";
@@ -110,8 +110,36 @@ fn is_group_chat(target: &ChannelMessageTarget, metadata: &serde_json::Value) ->
 }
 
 fn chat_type_value(value: &serde_json::Value) -> Option<bool> {
-    let raw = value.get("chat_type").or_else(|| value.get("chattype"))?;
+    const TYPE_KEYS: [&str; 5] = [
+        "chat_type",
+        "chattype",
+        "conversation_type",
+        "conversationType",
+        "chatType",
+    ];
+    for key in TYPE_KEYS {
+        if let Some(result) = raw_chat_type(value.get(key)) {
+            return Some(result);
+        }
+    }
+    for key in ["message", "event", "conversation"] {
+        if let Some(result) = value.get(key).and_then(chat_type_value) {
+            return Some(result);
+        }
+    }
+    None
+}
+
+fn raw_chat_type(raw: Option<&serde_json::Value>) -> Option<bool> {
+    let raw = raw?;
     if let Some(number) = raw.as_i64() {
+        return match number {
+            2 => Some(true),
+            1 => Some(false),
+            _ => None,
+        };
+    }
+    if let Some(number) = raw.as_u64() {
         return match number {
             2 => Some(true),
             1 => Some(false),
@@ -174,6 +202,97 @@ pub async fn bind(
     conversation_id: i32,
 ) -> Result<chat_channel_conversation_binding::Model, DbError> {
     let txn = conn.begin().await?;
+    upsert_route(&txn, channel_id, route, conversation_id).await?;
+    let saved = find_by_route(&txn, channel_id, &route.route_key)
+        .await?
+        .ok_or_else(|| DbError::Migration("conversation binding upsert disappeared".into()))?;
+    txn.commit().await?;
+    Ok(saved)
+}
+
+/// Atomically persists an Agent session id and, for channel sessions, the
+/// durable route that owns it. A stale CAS returns `false` without changing
+/// either row; failures after the CAS roll the session-id update back too.
+pub async fn persist_session_start(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+    expected_external_id: Option<&str>,
+    external_id: &str,
+    route: Option<(i32, &ConversationRoute)>,
+) -> Result<bool, DbError> {
+    let txn = conn.begin().await?;
+    let outcome: Result<bool, DbError> = async {
+        if !update_external_id_if_matches(&txn, conversation_id, expected_external_id, external_id)
+            .await?
+        {
+            return Ok(false);
+        }
+        if let Some((channel_id, route)) = route {
+            upsert_route(&txn, channel_id, route, conversation_id).await?;
+        }
+        Ok(true)
+    }
+    .await;
+
+    match outcome {
+        Ok(true) => {
+            txn.commit().await?;
+            Ok(true)
+        }
+        Ok(false) => {
+            txn.rollback().await?;
+            Ok(false)
+        }
+        Err(error) => {
+            if let Err(rollback_error) = txn.rollback().await {
+                tracing::error!(
+                    operation_error = %error,
+                    rollback_error = %rollback_error,
+                    "failed to roll back channel session-start persistence"
+                );
+                return Err(rollback_error.into());
+            }
+            Err(error)
+        }
+    }
+}
+
+async fn update_external_id_if_matches<C: ConnectionTrait>(
+    conn: &C,
+    conversation_id: i32,
+    expected_external_id: Option<&str>,
+    external_id: &str,
+) -> Result<bool, DbError> {
+    use sea_orm::sea_query::Expr;
+
+    let expected = match expected_external_id {
+        Some(value) => sea_orm::Condition::any()
+            .add(conversation::Column::ExternalId.eq(value))
+            .add(conversation::Column::ExternalId.eq(external_id)),
+        None => sea_orm::Condition::any()
+            .add(conversation::Column::ExternalId.is_null())
+            .add(conversation::Column::ExternalId.eq(external_id)),
+    };
+    let result = conversation::Entity::update_many()
+        .col_expr(
+            conversation::Column::ExternalId,
+            Expr::value(external_id.to_string()),
+        )
+        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(conversation::Column::Id.eq(conversation_id))
+        .filter(conversation::Column::DeletedAt.is_null())
+        .filter(expected)
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
+async fn upsert_route<C: ConnectionTrait>(
+    conn: &C,
+    channel_id: i32,
+    route: &ConversationRoute,
+    conversation_id: i32,
+) -> Result<(), DbError> {
     let now = Utc::now();
     chat_channel_conversation_binding::Entity::insert(
         chat_channel_conversation_binding::ActiveModel {
@@ -198,13 +317,9 @@ pub async fn bind(
         ])
         .to_owned(),
     )
-    .exec(&txn)
+    .exec(conn)
     .await?;
-    let saved = find_by_route(&txn, channel_id, &route.route_key)
-        .await?
-        .ok_or_else(|| DbError::Migration("conversation binding upsert disappeared".into()))?;
-    txn.commit().await?;
-    Ok(saved)
+    Ok(())
 }
 
 /// Roll back a candidate binding only while the route still points at that

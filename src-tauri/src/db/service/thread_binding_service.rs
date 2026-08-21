@@ -57,6 +57,16 @@ pub async fn get_by_target(
         .await?)
 }
 
+pub async fn get_owned_by_target(
+    conn: &DatabaseConnection,
+    target: &ChannelMessageTarget,
+    sender_id: &str,
+) -> Result<Option<chat_channel_thread_binding::Model>, DbError> {
+    Ok(get_by_target(conn, target)
+        .await?
+        .filter(|binding| binding.created_by_sender_id == sender_id))
+}
+
 pub async fn list_by_conversation(
     conn: &DatabaseConnection,
     conversation_id: i32,

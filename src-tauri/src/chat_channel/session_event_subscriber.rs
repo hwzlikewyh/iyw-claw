@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use super::i18n::Lang;
-use super::session_bridge::{ActiveSession, PendingPermission, SessionBridge};
+use super::session_bridge::{ActiveSession, PendingPermission, RouteActivation, SessionBridge};
 use super::session_commands;
 use super::session_topic;
 use crate::acp::internal_bus::InternalEventBus;
@@ -32,6 +32,39 @@ const MESSAGE_LANGUAGE_KEY: &str = "chat_message_language";
 /// most this many times, then surfaced as an explicit failure instead of
 /// retrying forever.
 const MAX_KICKOFF_RETRIES: u32 = 3;
+
+#[derive(Clone, Copy)]
+struct SessionStartRequest<'a> {
+    bridge: &'a Arc<Mutex<SessionBridge>>,
+    manager: &'a ChatChannelManager,
+    conn_mgr: &'a ConnectionManager,
+    db: &'a DatabaseConnection,
+    connection_id: &'a str,
+    session_id: &'a str,
+    event_seq: Option<u64>,
+}
+
+struct SessionStartContext {
+    conversation_id: i32,
+    channel_id: i32,
+    expected_external_id: Option<String>,
+    route: Option<conversation_binding_service::ConversationRoute>,
+    activate_route: bool,
+}
+
+enum SessionStartPersistence {
+    Missing,
+    Superseded,
+    Rejected {
+        session: ActiveSession,
+        error: String,
+    },
+    BindFailed {
+        session: ActiveSession,
+        error: String,
+    },
+    Complete(Vec<ActiveSession>),
+}
 
 pub fn spawn_session_event_subscriber(
     bus: Arc<InternalEventBus>,
@@ -109,9 +142,16 @@ async fn handle_acp_envelope(
 
     match &envelope.payload {
         AcpEvent::SessionStarted { session_id } => {
-            if !complete_session_start(bridge, manager, conn_mgr, db, connection_id, session_id)
-                .await
-            {
+            let request = SessionStartRequest {
+                bridge,
+                manager,
+                conn_mgr,
+                db,
+                connection_id,
+                session_id,
+                event_seq: Some(envelope.seq),
+            };
+            if !complete_session_start(request).await {
                 return;
             }
             send_pending_prompt(bridge, manager, conn_mgr, db, connection_id).await;
@@ -573,10 +613,15 @@ async fn handle_acp_envelope(
                     connection_id,
                 )
                 .await;
+                promote_fallback_session(bridge, manager, conn_mgr, db, &session).await;
             }
         }
 
-        AcpEvent::SessionLoadFailed { message, .. } => {
+        AcpEvent::SessionLoadFailed {
+            message,
+            session_id,
+            ..
+        } => {
             let session = bridge.lock().await.remove(connection_id);
             let Some(session) = session else { return };
             let lang = get_lang(db).await;
@@ -590,6 +635,7 @@ async fn handle_acp_envelope(
                 connection_id,
                 session,
                 message,
+                Some(session_id),
                 lang,
             )
             .await;
@@ -622,6 +668,7 @@ async fn handle_acp_envelope(
                     connection_id,
                 )
                 .await;
+                promote_fallback_session(bridge, manager, conn_mgr, db, &session).await;
             }
         }
 
@@ -676,6 +723,7 @@ async fn handle_session_load_failure(
     connection_id: &str,
     session: ActiveSession,
     message: &str,
+    expected_external_id: Option<&str>,
     lang: Lang,
 ) {
     let channel_id = session.channel_id;
@@ -684,7 +732,41 @@ async fn handle_session_load_failure(
         .typing_controller()
         .stop(manager, channel_id, &session.route_key, connection_id)
         .await;
-    let _ = conversation_service::clear_external_id(db, session.conversation_id).await;
+    let external_id_cleared = if let Some(expected_external_id) = expected_external_id {
+        match conversation_service::clear_external_id_if_matches(
+            db,
+            session.conversation_id,
+            expected_external_id,
+        )
+        .await
+        {
+            Ok(cleared) => {
+                tracing::info!(
+                    connection_id,
+                    conversation_id = session.conversation_id,
+                    cleared,
+                    "[SessionEventSub] recovery failure external id CAS completed"
+                );
+                cleared
+            }
+            Err(error) => {
+                tracing::warn!(
+                    connection_id,
+                    conversation_id = session.conversation_id,
+                    error = %error,
+                    "[SessionEventSub] recovery failure external id CAS failed"
+                );
+                false
+            }
+        }
+    } else {
+        tracing::warn!(
+            connection_id,
+            conversation_id = session.conversation_id,
+            "[SessionEventSub] recovery failure missing expected external id"
+        );
+        false
+    };
     session_topic::clear_route_if_connection(
         db,
         channel_id,
@@ -693,11 +775,22 @@ async fn handle_session_load_failure(
         connection_id,
     )
     .await;
+    if !external_id_cleared {
+        tracing::info!(
+            connection_id,
+            conversation_id = session.conversation_id,
+            "[SessionEventSub] stale recovery failure ignored"
+        );
+        return;
+    }
     let retrying = session.recovery_prompt.is_some();
     let body = session_load_failure_message(lang, message, retrying);
     let _ = manager
         .send_to_target(&target, &RichMessage::error(body))
         .await;
+    if promote_fallback_session(bridge, manager, conn_mgr, db, &session).await {
+        return;
+    }
     if let Some(prompt) = session.recovery_prompt.clone() {
         retry_failed_session_load(
             db, manager, conn_mgr, emitter, bridge, data_dir, session, prompt, lang,
@@ -726,6 +819,7 @@ pub(super) async fn catch_up_session_load_failure(
     let Some(session) = bridge.lock().await.remove(connection_id) else {
         return true;
     };
+    let expected_external_id = session.restoring_external_id.clone();
     let lang = get_lang(db).await;
     let message = match lang {
         Lang::ZhCn | Lang::ZhTw => "原 Agent 会话不可恢复",
@@ -741,6 +835,7 @@ pub(super) async fn catch_up_session_load_failure(
         connection_id,
         session,
         message,
+        expected_external_id.as_deref(),
         lang,
     )
     .await;
@@ -888,78 +983,289 @@ async fn session_route_target(
     })
 }
 
-async fn complete_session_start(
+async fn promote_fallback_session(
     bridge: &Arc<Mutex<SessionBridge>>,
     manager: &ChatChannelManager,
     conn_mgr: &ConnectionManager,
     db: &DatabaseConnection,
-    connection_id: &str,
-    session_id: &str,
+    failed: &ActiveSession,
 ) -> bool {
-    let start = {
-        let guard = bridge.lock().await;
-        guard.get(connection_id).map(|session| {
-            (
-                session.conversation_id,
-                session.channel_id,
-                session.sender_id.clone(),
-                session.target.clone(),
-                session.bind_on_start.then(|| {
-                    crate::db::service::conversation_binding_service::ConversationRoute {
-                        route_key: session.route_key.clone(),
-                        target_id: session.target_id.clone(),
-                    }
-                }),
+    let candidate = {
+        let mut guard = bridge.lock().await;
+        let Some(candidate) = guard.fallback_candidate(failed) else {
+            return false;
+        };
+        if !guard.is_latest_route_registration(&candidate.connection_id) {
+            return false;
+        }
+        let route = conversation_binding_service::ConversationRoute {
+            route_key: candidate.route_key.clone(),
+            target_id: candidate.target_id.clone(),
+        };
+        let persisted = conversation_binding_service::persist_session_start(
+            db,
+            candidate.conversation_id,
+            Some(&candidate.session_id),
+            &candidate.session_id,
+            Some((candidate.channel_id, &route)),
+        )
+        .await;
+        if persisted.as_ref().ok().copied() != Some(true) {
+            tracing::warn!(
+                connection_id = %candidate.connection_id,
+                conversation_id = candidate.conversation_id,
+                result = ?persisted,
+                "[ChatChannel] fallback generation persistence rejected"
+            );
+            return false;
+        }
+        let route_restored = if candidate.target.is_telegram_forum_topic() {
+            let title = conversation_service::get_by_id(db, candidate.conversation_id)
+                .await
+                .ok()
+                .and_then(|conversation| conversation.title);
+            session_topic::bind_target(
+                db,
+                &candidate.target,
+                candidate.conversation_id,
+                Some(candidate.connection_id.clone()),
+                &candidate.sender_id,
+                title,
             )
-        })
+            .await
+            .map(|_| ())
+        } else {
+            sender_context_service::update_session(
+                db,
+                candidate.channel_id,
+                &candidate.sender_id,
+                Some(candidate.conversation_id),
+                Some(candidate.connection_id.clone()),
+            )
+            .await
+            .map(|_| ())
+        };
+        if let Err(error) = route_restored {
+            tracing::error!(
+                connection_id = %candidate.connection_id,
+                conversation_id = candidate.conversation_id,
+                error = %error,
+                "[ChatChannel] fallback generation route restore failed"
+            );
+            return false;
+        }
+        guard.activate_fallback(&candidate).then_some(candidate)
     };
-    let Some((conversation_id, channel_id, sender_id, target, route)) = start else {
+    let Some(candidate) = candidate else {
         return false;
     };
-    let _ =
-        conversation_service::update_external_id(db, conversation_id, session_id.to_string()).await;
-    let Some(route) = route else { return true };
-    if conversation_binding_service::bind(db, channel_id, &route, conversation_id)
-        .await
-        .is_ok()
-    {
-        let replaced = bridge.lock().await.activate_route(connection_id);
-        for session in replaced {
-            manager
-                .typing_controller()
-                .stop(
-                    manager,
-                    session.channel_id,
-                    &session.route_key,
-                    &session.connection_id,
-                )
-                .await;
-            let _ = conn_mgr.disconnect(&session.connection_id).await;
+    tracing::info!(
+        connection_id = %candidate.connection_id,
+        conversation_id = candidate.conversation_id,
+        "[ChatChannel] promoted prior started route generation"
+    );
+    send_pending_prompt(bridge, manager, conn_mgr, db, &candidate.connection_id).await;
+    true
+}
+
+async fn complete_session_start(request: SessionStartRequest<'_>) -> bool {
+    match persist_session_start(request).await {
+        SessionStartPersistence::Missing | SessionStartPersistence::Superseded => false,
+        SessionStartPersistence::Complete(replaced) => {
+            disconnect_replaced_sessions(request, replaced).await;
+            true
         }
-        return true;
+        SessionStartPersistence::Rejected { session, error } => {
+            tracing::warn!(
+                connection_id = request.connection_id,
+                conversation_id = session.conversation_id,
+                error,
+                "[ChatChannel] rejected stale SessionStarted persistence"
+            );
+            disconnect_rejected_session(request, session).await;
+            false
+        }
+        SessionStartPersistence::BindFailed { session, error } => {
+            fail_session_bind(request, session, &error).await;
+            false
+        }
     }
+}
+
+async fn persist_session_start(request: SessionStartRequest<'_>) -> SessionStartPersistence {
+    let expected_external_id = session_started_expected_id(request).await;
+    let mut guard = request.bridge.lock().await;
+    let Some(session) = guard.get(request.connection_id) else {
+        return SessionStartPersistence::Missing;
+    };
+    let context = session_start_context(session, expected_external_id);
+    let updated = conversation_binding_service::persist_session_start(
+        request.db,
+        context.conversation_id,
+        context.expected_external_id.as_deref(),
+        request.session_id,
+        context
+            .route
+            .as_ref()
+            .map(|route| (context.channel_id, route)),
+    )
+    .await;
+    match updated {
+        Ok(true) => {}
+        Ok(false) => return rejected_start(&mut guard, request.connection_id, "CAS rejected"),
+        Err(error) => return rejected_start(&mut guard, request.connection_id, &error.to_string()),
+    }
+    if let Some(session) = guard.get_mut(request.connection_id) {
+        session.expected_external_id = Some(request.session_id.to_string());
+        session.observed_session_id = Some(request.session_id.to_string());
+    }
+    if !guard.is_latest_route_registration(request.connection_id) {
+        return SessionStartPersistence::Superseded;
+    }
+    if !context.activate_route {
+        return SessionStartPersistence::Complete(Vec::new());
+    }
+    match guard.activate_route(request.connection_id) {
+        RouteActivation::Missing => SessionStartPersistence::Missing,
+        RouteActivation::Superseded => SessionStartPersistence::Superseded,
+        RouteActivation::Activated(replaced) => SessionStartPersistence::Complete(replaced),
+    }
+}
+
+fn session_start_context(
+    session: &ActiveSession,
+    expected_external_id: Option<String>,
+) -> SessionStartContext {
+    SessionStartContext {
+        conversation_id: session.conversation_id,
+        channel_id: session.channel_id,
+        expected_external_id: expected_external_id.or_else(|| session.expected_external_id.clone()),
+        activate_route: session.bind_on_start,
+        route: session
+            .bind_on_start
+            .then(|| conversation_binding_service::ConversationRoute {
+                route_key: session.route_key.clone(),
+                target_id: session.target_id.clone(),
+            }),
+    }
+}
+
+async fn session_started_expected_id(request: SessionStartRequest<'_>) -> Option<String> {
+    let state = request.conn_mgr.get_state(request.connection_id).await?;
+    let state = state.read().await;
+    let transition = request
+        .event_seq
+        .and_then(|seq| state.session_started_transition(seq))
+        .or_else(|| state.latest_session_started_transition())
+        .filter(|transition| transition.session_id == request.session_id);
+    transition
+        .map(|transition| transition.expected_external_id.clone())
+        .unwrap_or_else(|| state.requested_external_id.clone())
+}
+
+fn rejected_start(
+    guard: &mut SessionBridge,
+    connection_id: &str,
+    error: &str,
+) -> SessionStartPersistence {
+    guard
+        .remove(connection_id)
+        .map(|session| SessionStartPersistence::Rejected {
+            session,
+            error: error.to_string(),
+        })
+        .unwrap_or(SessionStartPersistence::Missing)
+}
+
+fn bind_failed(
+    guard: &mut SessionBridge,
+    connection_id: &str,
+    error: &str,
+) -> SessionStartPersistence {
+    guard
+        .remove(connection_id)
+        .map(|session| SessionStartPersistence::BindFailed {
+            session,
+            error: error.to_string(),
+        })
+        .unwrap_or(SessionStartPersistence::Missing)
+}
+
+async fn disconnect_replaced_sessions(
+    request: SessionStartRequest<'_>,
+    sessions: Vec<ActiveSession>,
+) {
+    for session in sessions {
+        request
+            .manager
+            .typing_controller()
+            .stop(
+                request.manager,
+                session.channel_id,
+                &session.route_key,
+                &session.connection_id,
+            )
+            .await;
+        let _ = request.conn_mgr.disconnect(&session.connection_id).await;
+    }
+}
+
+async fn disconnect_rejected_session(request: SessionStartRequest<'_>, session: ActiveSession) {
+    request
+        .manager
+        .typing_controller()
+        .stop(
+            request.manager,
+            session.channel_id,
+            &session.route_key,
+            &session.connection_id,
+        )
+        .await;
+    let _ = request.conn_mgr.disconnect(&session.connection_id).await;
+    session_topic::clear_route_if_connection(
+        request.db,
+        session.channel_id,
+        &session.sender_id,
+        &session.target,
+        &session.connection_id,
+    )
+    .await;
+    promote_fallback_session(
+        request.bridge,
+        request.manager,
+        request.conn_mgr,
+        request.db,
+        &session,
+    )
+    .await;
+}
+
+async fn fail_session_bind(request: SessionStartRequest<'_>, session: ActiveSession, error: &str) {
+    let target = session.target.clone();
     tracing::error!(
-        channel_id,
-        conversation_id,
+        channel_id = session.channel_id,
+        conversation_id = session.conversation_id,
+        error,
         "[ChatChannel] conversation bind failed"
     );
-    bridge.lock().await.remove(connection_id);
-    let _ = conn_mgr.cancel(db, connection_id).await;
+    let _ = request
+        .conn_mgr
+        .cancel(request.db, request.connection_id)
+        .await;
     let _ = conversation_service::update_status(
-        db,
-        conversation_id,
+        request.db,
+        session.conversation_id,
         crate::db::entities::conversation::ConversationStatus::Cancelled,
     )
     .await;
-    session_topic::clear_route_if_connection(db, channel_id, &sender_id, &target, connection_id)
-        .await;
-    let _ = manager
+    disconnect_rejected_session(request, session).await;
+    let _ = request
+        .manager
         .send_to_target(
             &target,
             &RichMessage::error("新对话绑定失败，原对话绑定已保留。"),
         )
         .await;
-    false
 }
 
 pub(super) async fn catch_up_session_start(
@@ -976,7 +1282,16 @@ pub(super) async fn catch_up_session_start(
     let Some(external_id) = external_id else {
         return;
     };
-    if complete_session_start(bridge, manager, conn_mgr, db, connection_id, &external_id).await {
+    let request = SessionStartRequest {
+        bridge,
+        manager,
+        conn_mgr,
+        db,
+        connection_id,
+        session_id: &external_id,
+        event_seq: None,
+    };
+    if complete_session_start(request).await {
         send_pending_prompt(bridge, manager, conn_mgr, db, connection_id).await;
     }
 }

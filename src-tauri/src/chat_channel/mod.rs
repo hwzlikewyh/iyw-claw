@@ -33,6 +33,7 @@ pub mod session_event_subscriber;
 mod session_picker;
 mod session_runtime;
 mod session_topic;
+mod session_topic_access;
 mod session_topic_messages;
 pub mod target_registry;
 #[allow(dead_code)]

@@ -771,7 +771,7 @@ async fn handle_lark_event(
                 chat_id: Some(chat_id.clone()),
                 thread_key: None,
                 thread_kind: Some("lark_chat".to_string()),
-                provider_payload: None,
+                provider_payload: Some(serde_json::json!({ "chat_type": chat_type })),
             },
             metadata: serde_json::json!({ "chat_type": chat_type }),
             message_trace_id: super::super::dedupe::new_message_trace_id(channel_id),

@@ -258,6 +258,39 @@ pub async fn update_external_id(
     Ok(())
 }
 
+/// Persist an Agent session id only while the row still contains the value
+/// this connection was launched to resume. Repeating the same write is allowed
+/// so multiple subscribers can consume one `SessionStarted` event safely.
+pub async fn update_external_id_if_matches(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+    expected_external_id: Option<&str>,
+    external_id: &str,
+) -> Result<bool, DbError> {
+    use sea_orm::sea_query::Expr;
+
+    let expected = match expected_external_id {
+        Some(value) => sea_orm::Condition::any()
+            .add(conversation::Column::ExternalId.eq(value))
+            .add(conversation::Column::ExternalId.eq(external_id)),
+        None => sea_orm::Condition::any()
+            .add(conversation::Column::ExternalId.is_null())
+            .add(conversation::Column::ExternalId.eq(external_id)),
+    };
+    let result = conversation::Entity::update_many()
+        .col_expr(
+            conversation::Column::ExternalId,
+            Expr::value(external_id.to_string()),
+        )
+        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(conversation::Column::Id.eq(conversation_id))
+        .filter(conversation::Column::DeletedAt.is_null())
+        .filter(expected)
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
 pub async fn clear_external_id(
     conn: &DatabaseConnection,
     conversation_id: i32,
@@ -275,6 +308,33 @@ pub async fn clear_external_id(
         .exec(conn)
         .await?;
     Ok(())
+}
+
+/// Clear an external Agent session id only when it is still the expected one.
+///
+/// Recovery failures can arrive after a newer connection has already stored a
+/// replacement session id. Keeping the expected id in the predicate makes the
+/// cleanup compare-and-swap safe and prevents a late failure from disconnecting
+/// the newer session at the database layer.
+pub async fn clear_external_id_if_matches(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+    expected_external_id: &str,
+) -> Result<bool, DbError> {
+    use sea_orm::sea_query::Expr;
+
+    let result = conversation::Entity::update_many()
+        .col_expr(
+            conversation::Column::ExternalId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(conversation::Column::Id.eq(conversation_id))
+        .filter(conversation::Column::ExternalId.eq(expected_external_id))
+        .filter(conversation::Column::DeletedAt.is_null())
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected > 0)
 }
 
 /// Persist the model name used in a conversation. Called by the lifecycle

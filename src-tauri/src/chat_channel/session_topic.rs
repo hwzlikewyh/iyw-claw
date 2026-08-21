@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 use super::i18n;
 use super::session_bridge::{ActiveSession, SessionBridge};
 use super::session_commands::FollowupRequest;
+use super::session_event_subscriber;
 use super::session_runtime;
 use super::session_topic_messages;
 use super::types::{ChannelMessageTarget, RichMessage};
@@ -33,15 +34,26 @@ pub(super) async fn has_active_session(
 }
 
 pub(super) async fn command_session_ref(
-    _db: &DatabaseConnection,
+    db: &DatabaseConnection,
     bridge: &Arc<Mutex<SessionBridge>>,
     channel_id: i32,
-    _sender_id: &str,
+    sender_id: &str,
+    target: &ChannelMessageTarget,
     route_key: &str,
 ) -> Result<Option<CommandSessionRef>, crate::db::error::DbError> {
+    if target.channel_id != channel_id {
+        return Ok(None);
+    }
+    if target.is_telegram_forum_topic() {
+        return super::session_topic_access::active_owned_binding_ref(
+            db, bridge, target, sender_id,
+        )
+        .await;
+    }
     let guard = bridge.lock().await;
     Ok(guard
         .find_by_route(channel_id, route_key)
+        .filter(|session| session.sender_id == sender_id && session.target.matches_thread(target))
         .map(|session| CommandSessionRef {
             connection_id: session.connection_id.clone(),
             conversation_id: Some(session.conversation_id),
@@ -98,7 +110,13 @@ pub(super) async fn clear_route_if_connection(
 }
 
 pub(super) async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
-    let binding = match thread_binding_service::get_by_target(req.db, req.target).await {
+    let binding = match thread_binding_service::get_owned_by_target(
+        req.db,
+        req.target,
+        req.sender_id,
+    )
+    .await
+    {
         Ok(Some(binding)) => binding,
         Ok(None) => {
             return RichMessage::info(session_topic_messages::no_session(req.lang, req.prefix))
@@ -110,7 +128,9 @@ pub(super) async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
             ))
         }
     };
-    if let Some(reference) = active_binding_ref(req.bridge, req.target, &binding).await {
+    if let Some(reference) =
+        super::session_topic_access::active_binding_ref(req.bridge, req.target, &binding).await
+    {
         return send_to_session(req, reference).await;
     }
     if binding.connection_id.is_some() {
@@ -124,26 +144,6 @@ pub(super) async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
         }
     }
     resume_binding(req, binding).await
-}
-
-async fn active_binding_ref(
-    bridge: &Arc<Mutex<SessionBridge>>,
-    target: &ChannelMessageTarget,
-    binding: &chat_channel_thread_binding::Model,
-) -> Option<CommandSessionRef> {
-    let guard = bridge.lock().await;
-    if let Some(session) = guard.find_by_target(target) {
-        return Some(CommandSessionRef {
-            connection_id: session.connection_id.clone(),
-            conversation_id: Some(session.conversation_id),
-        });
-    }
-    binding.connection_id.as_ref().and_then(|connection_id| {
-        guard.get(connection_id).map(|_| CommandSessionRef {
-            connection_id: connection_id.clone(),
-            conversation_id: Some(binding.conversation_id),
-        })
-    })
 }
 
 async fn send_to_session(req: FollowupRequest<'_>, reference: CommandSessionRef) -> RichMessage {
@@ -206,6 +206,7 @@ async fn resume_binding(
             ))
         }
     };
+    let restoring_external = conversation.external_id.is_some();
     register_session(req.bridge, req, &conversation, &connection_id).await;
     if bind_target(
         req.db,
@@ -222,6 +223,31 @@ async fn resume_binding(
         return RichMessage::error("Failed to bind Telegram topic");
     }
     remember_topic_preferences(req, conversation.folder_id, conversation.agent_type).await;
+    session_event_subscriber::catch_up_session_start(
+        req.bridge,
+        req.manager,
+        req.conn_mgr,
+        req.db,
+        &connection_id,
+    )
+    .await;
+    if restoring_external
+        && session_event_subscriber::catch_up_session_load_failure(
+            req.bridge,
+            req.manager,
+            req.conn_mgr,
+            req.db,
+            req.emitter,
+            req.data_dir,
+            &connection_id,
+        )
+        .await
+    {
+        return RichMessage::info("");
+    }
+    if req.bridge.lock().await.get(&connection_id).is_none() {
+        return RichMessage::info("");
+    }
     if session_runtime::send_prompt_linked(
         req.db,
         req.conn_mgr,
@@ -255,6 +281,10 @@ async fn register_session(
             bind_on_start: false,
             conversation_id: conversation.id,
             connection_id: connection_id.to_string(),
+            registration_generation: 0,
+            restoring_external_id: conversation.external_id.clone(),
+            expected_external_id: conversation.external_id.clone(),
+            observed_session_id: None,
             agent_type: conversation.agent_type,
             content_buffer: String::new(),
             tool_calls: Vec::new(),
@@ -262,7 +292,10 @@ async fn register_session(
             delegation_rendered: Default::default(),
             last_flushed: Instant::now(),
             pending_prompt: None,
-            recovery_prompt: None,
+            recovery_prompt: conversation
+                .external_id
+                .as_ref()
+                .map(|_| req.text.to_string()),
             pending_prompt_attempts: 0,
             trace_id: req.trace_id.map(|s| s.to_string()),
             permission_pending: None,

@@ -79,6 +79,19 @@ pub async fn handle_post_action(
         previous_binding,
     } = action;
     let session_registered = bridge.lock().await.get(&connection_id).is_some();
+    if session_registered {
+        let is_latest = bridge
+            .lock()
+            .await
+            .is_latest_route_registration(&connection_id);
+        if !is_latest {
+            tracing::debug!(
+                connection_id = %connection_id,
+                "[ChatChannel] skipped post-action for superseded route"
+            );
+            return None;
+        }
+    }
     if !session_registered {
         let candidate_owns_route =
             conversation_binding_service::find_by_route(db, channel_id, &route_key)

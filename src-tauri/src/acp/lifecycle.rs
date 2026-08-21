@@ -295,9 +295,49 @@ pub(crate) async fn handle_event(
             else {
                 return Ok(());
             };
-            let conversation_id = state_arc.read().await.conversation_id;
+            let (conversation_id, transition, channel_owned) = {
+                let state = state_arc.read().await;
+                (
+                    state.conversation_id,
+                    state.session_started_transition(envelope.seq).cloned(),
+                    state.owner_window_label.starts_with("chat_channel:"),
+                )
+            };
+            let Some(transition) = transition else {
+                tracing::warn!(
+                    connection_id = %envelope.connection_id,
+                    event_seq = envelope.seq,
+                    session_id,
+                    "[lifecycle] SessionStarted transition was evicted before persistence"
+                );
+                return Ok(());
+            };
+            // Channel sessions commit the external id and durable route in one
+            // transaction in `session_event_subscriber`.
+            if channel_owned {
+                return Ok(());
+            }
             if let Some(cid) = conversation_id {
-                conversation_service::update_external_id(db_conn, cid, session_id.clone()).await?;
+                let updated = conversation_service::update_external_id_if_matches(
+                    db_conn,
+                    cid,
+                    transition.expected_external_id.as_deref(),
+                    session_id,
+                )
+                .await?;
+                if !updated {
+                    tracing::warn!(
+                        connection_id = %envelope.connection_id,
+                        conversation_id = cid,
+                        expected_external_id = transition
+                            .expected_external_id
+                            .as_deref()
+                            .unwrap_or(""),
+                        session_id,
+                        "[lifecycle] ignored stale SessionStarted persistence"
+                    );
+                    return Ok(());
+                }
                 // The external_id just landed on the row. The create-time
                 // sidebar upsert carried `external_id: null` (no session yet),
                 // so re-broadcast the full summary on `conversation://changed`

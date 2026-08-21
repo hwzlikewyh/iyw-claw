@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 
 use super::channel_context;
@@ -19,8 +19,9 @@ use super::session_picker::{chat_selectable_agents, is_chat_selectable_agent, pa
 pub use super::session_picker::{handle_agent_picker, handle_callback, handle_folder_picker};
 use super::session_runtime;
 use super::session_topic;
+use super::session_topic_access;
 use super::session_topic_messages;
-use super::types::{ChannelMessageTarget, MessageLevel, RichMessage};
+use super::types::{ChannelMessageTarget, RichMessage};
 use crate::acp::manager::ConnectionManager;
 use crate::acp::types::PromptInputBlock;
 use crate::commands::conversation_title::{self, ConversationTitleContext};
@@ -285,6 +286,20 @@ pub async fn handle_task(
             target,
         );
     }
+    let target_available = session_topic_access::target_available_to_sender(db, target, sender_id)
+        .await
+        .unwrap_or(false);
+    if !target_available {
+        tracing::warn!(
+            channel_id,
+            route_key = %route.route_key,
+            "[ChatChannel] rejected task replacement from non-owner"
+        );
+        return CommandMessageResult::current(
+            RichMessage::info(session_topic_messages::active_session(lang, prefix)),
+            target,
+        );
+    }
     if !replace_existing
         && session_topic::has_active_session(db, bridge, channel_id, &route.route_key).await
     {
@@ -512,6 +527,10 @@ pub async fn handle_task(
             bind_on_start: true,
             conversation_id: conv.id,
             connection_id: connection_id.clone(),
+            registration_generation: 0,
+            restoring_external_id: None,
+            expected_external_id: None,
+            observed_session_id: None,
             agent_type,
             content_buffer: String::new(),
             tool_calls: Vec::new(),
@@ -561,88 +580,42 @@ pub async fn handle_sessions(
     channel_id: i32,
     sender_id: &str,
     target: &ChannelMessageTarget,
+    route: &ConversationRoute,
     lang: Lang,
     prefix: &str,
 ) -> RichMessage {
-    let ctx = match sender_context_service::get_or_create(db, channel_id, sender_id).await {
-        Ok(c) => c,
-        Err(e) => {
-            return RichMessage::error(format!("{}{e}", i18n::failed_to_load_context_label(lang)));
-        }
-    };
-
-    let topic_conversation_id = if target.is_telegram_forum_topic() {
-        crate::db::service::thread_binding_service::get_by_target(db, target)
-            .await
-            .ok()
-            .flatten()
-            .map(|binding| binding.conversation_id)
-    } else {
-        None
-    };
-
-    let folder_id = match ctx.current_folder_id {
-        Some(id) => id,
-        None => {
-            return RichMessage::info(i18n::no_folder_selected(lang, prefix));
-        }
-    };
-
-    let folder = match folder_service::get_folder_by_id(db, folder_id).await {
-        Ok(Some(f)) => f,
-        _ => {
-            return RichMessage::info(i18n::folder_not_found(lang));
-        }
-    };
-
-    let convs = match conversation_service::list_by_folder(
-        db,
-        folder_id,
-        None,
-        None,
-        None,
-        Some("in_progress".to_string()),
+    let conversation_id = match session_topic_access::authorized_conversation_id(
+        db, channel_id, sender_id, target, route,
     )
     .await
     {
-        Ok(c) => c,
-        Err(e) => {
-            return RichMessage::error(format!("{}{e}", i18n::failed_to_list_sessions_label(lang)));
+        Ok(Some(conversation_id)) => conversation_id,
+        Ok(None) => {
+            return RichMessage::info(session_topic_messages::no_session(lang, prefix));
+        }
+        Err(error) => {
+            return RichMessage::error(format!(
+                "{}{error}",
+                i18n::failed_to_load_context_label(lang)
+            ));
         }
     };
-
-    if convs.is_empty() {
-        return RichMessage::info(i18n::no_active_sessions_in_folder(lang)).with_title(format!(
-            "{} - {}",
-            i18n::sessions_title(lang),
-            folder.name
-        ));
-    }
-
-    let mut body = String::new();
-    for (i, c) in convs.iter().take(10).enumerate() {
-        let title = c.title.as_deref().unwrap_or("(untitled)");
-        let current = topic_conversation_id
-            .or(ctx.current_conversation_id)
-            .is_some_and(|id| id == c.id);
-        let marker = if current { " [*]" } else { "" };
-        body.push_str(&format!(
-            "{}. [{}] {} (#{}){}  \n",
-            i + 1,
-            c.agent_type,
-            title,
-            c.id,
-            marker,
-        ));
-    }
-
-    body.push_str(&format!("\n{}", i18n::sessions_resume_hint(lang, prefix)));
-
-    RichMessage::info(body.trim_end()).with_title(format!(
-        "{} - {}",
-        i18n::sessions_title(lang),
-        folder.name
-    ))
+    let conversation = match conversation_service::get_by_id(db, conversation_id).await {
+        Ok(conversation) => conversation,
+        Err(_) => return RichMessage::info(session_topic_messages::no_session(lang, prefix)),
+    };
+    let title = conversation
+        .title
+        .as_deref()
+        .unwrap_or(i18n::untitled(lang));
+    let body = format!(
+        "1. [{}] {} (#{}) [*]\n\n{}",
+        conversation.agent_type,
+        title,
+        conversation.id,
+        i18n::sessions_resume_hint(lang, prefix)
+    );
+    RichMessage::info(body).with_title(i18n::sessions_title(lang))
 }
 
 // ── /resume ──
@@ -666,13 +639,13 @@ pub async fn handle_resume(
     replace_existing: bool,
 ) -> RichMessage {
     if args.is_empty() {
-        return list_recent_sessions(db, lang, prefix).await;
+        return handle_sessions(db, channel_id, sender_id, target, route, lang, prefix).await;
     }
 
     let conversation_id: i32 = match args.parse() {
-        Ok(id) => id,
-        Err(_) => {
-            return list_recent_sessions(db, lang, prefix).await;
+        Ok(id) if id > 0 => id,
+        _ => {
+            return handle_sessions(db, channel_id, sender_id, target, route, lang, prefix).await;
         }
     };
 
@@ -686,6 +659,37 @@ pub async fn handle_resume(
             return RichMessage::info(i18n::conversation_not_found(lang));
         }
     };
+    let authorized = match route_authorizes_conversation(
+        db,
+        channel_id,
+        sender_id,
+        target,
+        route,
+        conversation_id,
+    )
+    .await
+    {
+        Ok(authorized) => authorized,
+        Err(error) => {
+            tracing::warn!(
+                channel_id,
+                conversation_id,
+                error = %error,
+                "[ChatChannel] resume authorization lookup failed"
+            );
+            false
+        }
+    };
+    if !authorized {
+        tracing::warn!(
+            channel_id,
+            conversation_id,
+            route_key = %route.route_key,
+            target_id = %route.target_id,
+            "[ChatChannel] rejected resume for unbound conversation"
+        );
+        return RichMessage::info(i18n::conversation_not_found(lang));
+    }
     let restoring_external = conv.external_id.is_some();
 
     if !replace_existing
@@ -752,6 +756,10 @@ pub async fn handle_resume(
             bind_on_start: true,
             conversation_id: conv.id,
             connection_id: connection_id.clone(),
+            registration_generation: 0,
+            restoring_external_id: conv.external_id.clone(),
+            expected_external_id: conv.external_id.clone(),
+            observed_session_id: None,
             agent_type: conv.agent_type,
             content_buffer: String::new(),
             tool_calls: Vec::new(),
@@ -802,6 +810,7 @@ pub async fn handle_cancel(
     db: &DatabaseConnection,
     channel_id: i32,
     sender_id: &str,
+    target: &ChannelMessageTarget,
     route_key: &str,
     manager: &ChatChannelManager,
     conn_mgr: &ConnectionManager,
@@ -809,7 +818,7 @@ pub async fn handle_cancel(
     lang: Lang,
 ) -> RichMessage {
     let session_ref = match session_topic::command_session_ref(
-        db, bridge, channel_id, sender_id, route_key,
+        db, bridge, channel_id, sender_id, target, route_key,
     )
     .await
     {
@@ -848,7 +857,7 @@ pub async fn handle_permission_response(
     lang: Lang,
 ) -> RichMessage {
     let session_ref = match session_topic::command_session_ref(
-        db, bridge, channel_id, sender_id, route_key,
+        db, bridge, channel_id, sender_id, target, route_key,
     )
     .await
     {
@@ -933,25 +942,52 @@ pub async fn handle_permission_response(
 // ── follow-up (non-command text) ──
 
 pub async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
-    let active_connection = req
-        .bridge
-        .lock()
-        .await
-        .find_by_route(req.channel_id, &req.route.route_key)
-        .map(|session| session.connection_id.clone());
-    if let Some(connection_id) = active_connection {
-        return send_followup_prompt(
-            req.db,
-            req.channel_id,
-            req.sender_id,
-            req.conn_mgr,
-            req.bridge,
-            &connection_id,
-            req.text,
-            req.lang,
-            req.trace_id,
-        )
-        .await;
+    let active_session = {
+        let guard = req.bridge.lock().await;
+        guard
+            .find_by_route(req.channel_id, &req.route.route_key)
+            .map(|session| {
+                (
+                    session.connection_id.clone(),
+                    session.conversation_id,
+                    session.sender_id == req.sender_id
+                        && session.target.matches_thread(req.target)
+                        && session.target_id == req.route.target_id,
+                )
+            })
+    };
+    if let Some((connection_id, conversation_id, active_matches_target)) = active_session {
+        let active_is_authorized = active_matches_target
+            && route_authorizes_conversation(
+                req.db,
+                req.channel_id,
+                req.sender_id,
+                req.target,
+                req.route,
+                conversation_id,
+            )
+            .await
+            .unwrap_or(false);
+        if active_is_authorized {
+            return send_followup_prompt(
+                req.db,
+                req.channel_id,
+                req.sender_id,
+                req.conn_mgr,
+                req.bridge,
+                &connection_id,
+                req.text,
+                req.lang,
+                req.trace_id,
+            )
+            .await;
+        }
+        tracing::warn!(
+            channel_id = req.channel_id,
+            conversation_id,
+            route_key = %req.route.route_key,
+            "[ChatChannel] ignored active session without route authorization"
+        );
     }
 
     let binding = match crate::db::service::conversation_binding_service::find_by_route(
@@ -971,7 +1007,7 @@ pub async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
             return RichMessage::error(i18n::failed_to_load_context_label(req.lang));
         }
     };
-    if let Some(binding) = binding {
+    if let Some(binding) = binding.filter(|binding| binding.target_id == req.route.target_id) {
         tracing::info!(
             "[ChatChannel] follow-up resuming conversation={} channel={} sender={}",
             binding.conversation_id,
@@ -1078,6 +1114,23 @@ async fn send_followup_prompt(
     RichMessage::info("")
 }
 
+/// A conversation can be resumed only through the durable route or topic
+/// binding owned by the current message source.
+async fn route_authorizes_conversation(
+    db: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+    target: &ChannelMessageTarget,
+    route: &ConversationRoute,
+    conversation_id: i32,
+) -> Result<bool, crate::db::error::DbError> {
+    Ok(
+        session_topic_access::authorized_conversation_id(db, channel_id, sender_id, target, route)
+            .await?
+            == Some(conversation_id),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn resume_conversation_for_followup(
     db: &DatabaseConnection,
@@ -1099,6 +1152,19 @@ pub(super) async fn resume_conversation_for_followup(
         Ok(c) => c,
         Err(_) => return RichMessage::info(i18n::conversation_not_found(lang)),
     };
+    if !route_authorizes_conversation(db, channel_id, sender_id, target, route, conversation_id)
+        .await
+        .unwrap_or(false)
+    {
+        tracing::warn!(
+            channel_id,
+            conversation_id,
+            route_key = %route.route_key,
+            target_id = %route.target_id,
+            "[ChatChannel] rejected follow-up for unbound conversation"
+        );
+        return RichMessage::info(i18n::conversation_not_found(lang));
+    }
 
     let folder = match folder_service::get_folder_by_id(db, conv.folder_id).await {
         Ok(Some(f)) => f,
@@ -1137,7 +1203,8 @@ pub(super) async fn resume_conversation_for_followup(
             }
         };
 
-    let had_external_id = conv.external_id.is_some();
+    let expected_external_id = conv.external_id.clone();
+    let had_external_id = expected_external_id.is_some();
     let live_connection = match conv.external_id.as_deref() {
         Some(external_id) => {
             conn_mgr
@@ -1159,87 +1226,32 @@ pub(super) async fn resume_conversation_for_followup(
         live_connection.is_some()
     );
 
-    let (connection_id, send_now, recovered_with_recap) = match live_connection {
-        Some(id) => (id, true, false),
-        None => {
-            let runtime_env = match session_runtime::build_runtime_env(
-                db,
-                conv.agent_type,
-                conv.external_id.as_deref(),
-                data_dir,
-            )
-            .await
-            {
-                Ok(runtime_env) => runtime_env,
-                Err(error) => {
-                    tracing::warn!("[ChatChannel] failed to build runtime settings: {error}");
-                    return RichMessage::error(i18n::failed_to_start_agent_label(lang));
-                }
-            };
-            let owner_label = session_runtime::owner_label(channel_id, sender_id, target);
-            let id = match conn_mgr
-                .spawn_agent(
+    let (connection_id, send_now, recovered_with_recap, connection_expected_external_id) =
+        match live_connection {
+            Some(id) => (id, true, false, expected_external_id.clone()),
+            None => {
+                let runtime_env = match session_runtime::build_runtime_env(
+                    db,
                     conv.agent_type,
-                    Some(folder.path.clone()),
-                    conv.external_id.clone(),
-                    runtime_env,
-                    owner_label,
-                    emitter.clone(),
-                    None,
-                    BTreeMap::new(),
+                    conv.external_id.as_deref(),
+                    data_dir,
                 )
                 .await
-            {
-                Ok(id) => id,
-                Err(e) => {
-                    tracing::warn!("[ChatChannel] failed to resume conversation: {e}");
-                    return RichMessage::error(i18n::failed_to_start_agent_label(lang));
-                }
-            };
-            if had_external_id && connection_recovery_failed(conn_mgr, &id).await {
-                let _ = conn_mgr.disconnect(&id).await;
-                let _ = conversation_service::clear_external_id(db, conv.id).await;
-                let recap = get_conversation_context_primer_core(
-                    ContextPrimerSource {
-                        conn: db,
-                        manager: conn_mgr,
-                        chat_channel_manager: manager,
-                        emitter,
-                    },
-                    conv.id,
-                )
-                .await
-                .ok()
-                .map(|primer| primer.text);
-                let fallback_text = recap
-                    .as_deref()
-                    .map(|recap| format!("{recap}\n\n{text}"))
-                    .unwrap_or_else(|| text.to_string());
-                prompt =
-                    match channel_context::attach(db, channel_id, &route.target_id, &fallback_text)
-                        .await
-                    {
-                        Ok(prompt) => prompt,
-                        Err(_) => {
-                            return RichMessage::error(i18n::failed_to_start_agent_label(lang));
-                        }
-                    };
-                let runtime_env =
-                    match session_runtime::build_runtime_env(db, conv.agent_type, None, data_dir)
-                        .await
-                    {
-                        Ok(runtime_env) => runtime_env,
-                        Err(_) => {
-                            return RichMessage::error(i18n::failed_to_start_agent_label(lang));
-                        }
-                    };
-                let fallback_id = match conn_mgr
+                {
+                    Ok(runtime_env) => runtime_env,
+                    Err(error) => {
+                        tracing::warn!("[ChatChannel] failed to build runtime settings: {error}");
+                        return RichMessage::error(i18n::failed_to_start_agent_label(lang));
+                    }
+                };
+                let owner_label = session_runtime::owner_label(channel_id, sender_id, target);
+                let id = match conn_mgr
                     .spawn_agent(
                         conv.agent_type,
                         Some(folder.path.clone()),
-                        None,
+                        conv.external_id.clone(),
                         runtime_env,
-                        session_runtime::owner_label(channel_id, sender_id, target),
+                        owner_label,
                         emitter.clone(),
                         None,
                         BTreeMap::new(),
@@ -1247,16 +1259,110 @@ pub(super) async fn resume_conversation_for_followup(
                     .await
                 {
                     Ok(id) => id,
-                    Err(_) => {
+                    Err(e) => {
+                        tracing::warn!("[ChatChannel] failed to resume conversation: {e}");
                         return RichMessage::error(i18n::failed_to_start_agent_label(lang));
                     }
                 };
-                (fallback_id, false, true)
-            } else {
-                (id, had_external_id, false)
+                if had_external_id && connection_recovery_failed(conn_mgr, &id).await {
+                    let _ = conn_mgr.disconnect(&id).await;
+                    if let Some(expected_external_id) = expected_external_id.as_deref() {
+                        let cleared = match conversation_service::clear_external_id_if_matches(
+                            db,
+                            conv.id,
+                            expected_external_id,
+                        )
+                        .await
+                        {
+                            Ok(cleared) => cleared,
+                            Err(error) => {
+                                tracing::warn!(
+                                    conversation_id = conv.id,
+                                    error = %error,
+                                    "[ChatChannel] recovery fallback external id CAS failed"
+                                );
+                                false
+                            }
+                        };
+                        tracing::info!(
+                            conversation_id = conv.id,
+                            cleared,
+                            "[ChatChannel] recovery fallback external id CAS completed"
+                        );
+                        if !cleared {
+                            tracing::info!(
+                                conversation_id = conv.id,
+                                "[ChatChannel] stale recovery fallback ignored"
+                            );
+                            return RichMessage::info("");
+                        }
+                    }
+                    let recap = get_conversation_context_primer_core(
+                        ContextPrimerSource {
+                            conn: db,
+                            manager: conn_mgr,
+                            chat_channel_manager: manager,
+                            emitter,
+                        },
+                        conv.id,
+                    )
+                    .await
+                    .ok()
+                    .map(|primer| primer.text);
+                    let fallback_text = recap
+                        .as_deref()
+                        .map(|recap| format!("{recap}\n\n{text}"))
+                        .unwrap_or_else(|| text.to_string());
+                    prompt = match channel_context::attach(
+                        db,
+                        channel_id,
+                        &route.target_id,
+                        &fallback_text,
+                    )
+                    .await
+                    {
+                        Ok(prompt) => prompt,
+                        Err(_) => {
+                            return RichMessage::error(i18n::failed_to_start_agent_label(lang));
+                        }
+                    };
+                    let runtime_env = match session_runtime::build_runtime_env(
+                        db,
+                        conv.agent_type,
+                        None,
+                        data_dir,
+                    )
+                    .await
+                    {
+                        Ok(runtime_env) => runtime_env,
+                        Err(_) => {
+                            return RichMessage::error(i18n::failed_to_start_agent_label(lang));
+                        }
+                    };
+                    let fallback_id = match conn_mgr
+                        .spawn_agent(
+                            conv.agent_type,
+                            Some(folder.path.clone()),
+                            None,
+                            runtime_env,
+                            session_runtime::owner_label(channel_id, sender_id, target),
+                            emitter.clone(),
+                            None,
+                            BTreeMap::new(),
+                        )
+                        .await
+                    {
+                        Ok(id) => id,
+                        Err(_) => {
+                            return RichMessage::error(i18n::failed_to_start_agent_label(lang));
+                        }
+                    };
+                    (fallback_id, false, true, None)
+                } else {
+                    (id, had_external_id, false, expected_external_id.clone())
+                }
             }
-        }
-    };
+        };
 
     tracing::info!(
         "[ChatChannel] follow-up resume ready connection={} conversation={} \
@@ -1288,6 +1394,7 @@ pub(super) async fn resume_conversation_for_followup(
         route,
         conv.id,
         connection_id.clone(),
+        connection_expected_external_id,
         conv.agent_type,
         pending_prompt,
         recovery_prompt,
@@ -1355,6 +1462,7 @@ async fn register_active_session(
     route: &ConversationRoute,
     conversation_id: i32,
     connection_id: String,
+    restoring_external_id: Option<String>,
     agent_type: AgentType,
     pending_prompt: Option<String>,
     recovery_prompt: Option<String>,
@@ -1369,6 +1477,10 @@ async fn register_active_session(
         bind_on_start: false,
         conversation_id,
         connection_id: connection_id.clone(),
+        registration_generation: 0,
+        restoring_external_id: restoring_external_id.clone(),
+        expected_external_id: restoring_external_id.clone(),
+        observed_session_id: None,
         agent_type,
         content_buffer: String::new(),
         tool_calls: Vec::new(),
@@ -1409,45 +1521,6 @@ async fn remember_sender_session(
         Some(agent_type_to_string(agent_type)),
     )
     .await;
-}
-
-// ── /resume (list recent) ──
-
-async fn list_recent_sessions(db: &DatabaseConnection, lang: Lang, prefix: &str) -> RichMessage {
-    let recent = match conversation::Entity::find()
-        .filter(conversation::Column::DeletedAt.is_null())
-        .order_by_desc(conversation::Column::CreatedAt)
-        .limit(10)
-        .all(db)
-        .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            return RichMessage {
-                title: Some(i18n::query_failed_title(lang).to_string()),
-                body: e.to_string(),
-                fields: Vec::new(),
-                level: MessageLevel::Error,
-            };
-        }
-    };
-
-    if recent.is_empty() {
-        return RichMessage::info(i18n::no_conversations_found(lang))
-            .with_title(i18n::recent_conversations_title(lang));
-    }
-
-    let mut body = String::new();
-    for conv in &recent {
-        let title = conv.title.as_deref().unwrap_or(i18n::untitled(lang));
-        let agent = &conv.agent_type;
-        let time = conv.created_at.format("%m-%d %H:%M");
-        body.push_str(&format!("#{} [{}] {} ({})\n", conv.id, agent, title, time,));
-    }
-
-    body.push_str(&format!("\n{}", i18n::recent_resume_hint(lang, prefix)));
-
-    RichMessage::info(body.trim_end()).with_title(i18n::recent_conversations_title(lang))
 }
 
 // ── Helpers ──

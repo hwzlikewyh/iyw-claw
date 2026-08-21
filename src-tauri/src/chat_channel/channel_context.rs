@@ -2,7 +2,7 @@ use sea_orm::DatabaseConnection;
 
 use super::types::ChannelType;
 use crate::db::error::DbError;
-use crate::db::service::chat_channel_service;
+use crate::db::service::{chat_channel_service, chat_channel_target_service};
 
 pub async fn attach(
     db: &DatabaseConnection,
@@ -22,6 +22,9 @@ pub async fn trusted_context(
     let channel = chat_channel_service::get_by_id(db, channel_id)
         .await?
         .ok_or_else(|| DbError::NotFound(format!("chat channel {channel_id}")))?;
+    chat_channel_target_service::find_by_target_id(db, channel_id, target_id)
+        .await?
+        .ok_or_else(|| DbError::NotFound(format!("channel target {target_id}")))?;
     let channel_type: ChannelType = serde_json::from_value(serde_json::Value::String(
         channel.channel_type.clone(),
     ))

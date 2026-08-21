@@ -1839,14 +1839,34 @@ impl ConnectionManager {
             // dependence on broadcaster eventual consistency. The chat_channel
             // reverse-order path (link before SessionStarted) is unaffected and
             // continues to be handled by the lifecycle subscriber.
-            let (cid_opt, eid_opt) = {
+            let (cid_opt, eid_opt, expected_external_id, channel_owned) = {
                 let s = state_arc.read().await;
-                (s.conversation_id, s.external_id.clone())
+                (
+                    s.conversation_id,
+                    s.external_id.clone(),
+                    s.requested_external_id.clone(),
+                    s.owner_window_label.starts_with("chat_channel:"),
+                )
             };
-            if let (Some(cid), Some(eid)) = (cid_opt, eid_opt) {
-                conversation_service::update_external_id(&db.conn, cid, eid)
-                    .await
-                    .map_err(|e| AcpError::protocol(e.to_string()))?;
+            if channel_owned {
+                tracing::debug!(
+                    connection_id = %conn_id,
+                    "[manager] channel session external id is persisted with its route"
+                );
+            } else if let (Some(cid), Some(eid)) = (cid_opt, eid_opt) {
+                let updated = conversation_service::update_external_id_if_matches(
+                    &db.conn,
+                    cid,
+                    expected_external_id.as_deref(),
+                    &eid,
+                )
+                .await
+                .map_err(|e| AcpError::protocol(e.to_string()))?;
+                if !updated {
+                    return Err(AcpError::protocol(
+                        "conversation session was replaced by a newer connection".to_string(),
+                    ));
+                }
                 // SessionStarted arrived BEFORE this link, so the lifecycle
                 // subscriber skipped its broadcast (no conversation_id then).
                 // Now that external_id is persisted, converge every client's

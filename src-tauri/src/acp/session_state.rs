@@ -1,7 +1,7 @@
 //! 会话级状态结构。后端权威：流式累积、in-flight tool calls、待处理 permission 等
 //! 全部住在这里。Phase 2 的 snapshot 端点直接从此处读取 live 部分。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
@@ -254,6 +254,17 @@ pub struct TurnHarvestCapture {
     pub stop_reason: String,
 }
 
+/// CAS 基线随 ACP `SessionStarted` 转换滚动保存。
+///
+/// 一个连接可能因为 fork 多次收到 `SessionStarted`；订阅者通常晚于
+/// ACP 状态更新，不能再用连接启动时的 external id 推断当前事件的期望值。
+#[derive(Debug, Clone)]
+pub struct SessionStartedTransition {
+    pub event_seq: u64,
+    pub expected_external_id: Option<String>,
+    pub session_id: String,
+}
+
 /// 后端权威的会话状态。每个 AgentConnection 持有一个 Arc<RwLock<SessionState>>。
 ///
 /// 字段范围：仅当前 turn 的 in-flight 数据 + 元信息 + 协商出的能力。
@@ -263,8 +274,13 @@ pub struct SessionState {
     // 身份
     pub connection_id: String,
     pub conversation_id: Option<i32>,
+    /// External session id requested when this connection was spawned.
+    /// Immutable for the connection lifetime and used as the expected value
+    /// when persisting a later `SessionStarted` event.
+    pub requested_external_id: Option<String>,
     pub external_id: Option<String>,
     pub external_id_changed_at: Option<std::time::SystemTime>,
+    pub(crate) session_started_transitions: VecDeque<SessionStartedTransition>,
     /// Agent 最近一次上报的原生标题。事件序号用于绑定补写时排除更晚到达的候选。
     pub(crate) agent_title_candidate: Option<AgentTitleCandidate>,
     pub agent_type: AgentType,
@@ -597,8 +613,10 @@ impl SessionState {
         Self {
             connection_id,
             conversation_id: None,
+            requested_external_id: None,
             external_id: None,
             external_id_changed_at: None,
+            session_started_transitions: VecDeque::new(),
             agent_title_candidate: None,
             agent_type,
             working_dir,
@@ -708,11 +726,35 @@ impl SessionState {
         rx
     }
 
+    pub fn session_started_transition(&self, event_seq: u64) -> Option<&SessionStartedTransition> {
+        self.session_started_transitions
+            .iter()
+            .find(|transition| transition.event_seq == event_seq)
+    }
+
+    pub fn latest_session_started_transition(&self) -> Option<&SessionStartedTransition> {
+        self.session_started_transitions.back()
+    }
+
     /// 单一分发器：把一个 AcpEvent 应用到 self。注意此方法**不**自增 event_seq——
     /// seq 由 emit_with_state 在外层管理（这样 apply_event 可独立单元测试）。
     pub fn apply_event(&mut self, payload: &AcpEvent) {
         match payload {
             AcpEvent::SessionStarted { session_id } => {
+                let expected_external_id = self
+                    .external_id
+                    .clone()
+                    .or_else(|| self.requested_external_id.clone());
+                self.session_started_transitions
+                    .push_back(SessionStartedTransition {
+                        event_seq: self.event_seq.saturating_add(1),
+                        expected_external_id,
+                        session_id: session_id.clone(),
+                    });
+                const MAX_SESSION_STARTED_TRANSITIONS: usize = 64;
+                while self.session_started_transitions.len() > MAX_SESSION_STARTED_TRANSITIONS {
+                    self.session_started_transitions.pop_front();
+                }
                 if self.external_id.as_deref() != Some(session_id.as_str()) {
                     self.external_id_changed_at = Some(std::time::SystemTime::now());
                 }
