@@ -122,9 +122,9 @@ jobs:
           name: ${{ inputs.frontend_artifact }}
           path: out
 
-      # Must run BEFORE sidecar staging: prepare-sidecars.mjs signs the freshly
-      # built first-party MCP sidecar in place. The pinned third-party browser
-      # controller intentionally remains byte-for-byte identical to upstream.
+      # Must run BEFORE sidecar staging so the optional third-party browser
+      # controller and the Tauri build inherit the same signing configuration.
+      # The built-in MCP runs in the main process and has no sidecar binary.
       # Exports via $GITHUB_ENV so the staging and build steps below inherit the
       # configuration without repeating it.
       - name: Configure Windows Authenticode signing

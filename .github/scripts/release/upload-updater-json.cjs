@@ -1,6 +1,6 @@
 const UPDATER_FILENAME = "latest.json"
 const LEGACY_MCP_ASSET_PATTERN = /^iyw-claw-mcp(?:-|\.|$)/i
-
+const replaceReleaseAsset = require("./replace-release-asset.cjs")
 // Match installers by suffix: the product name is non-ASCII ("原助理") and
 // gets sanitized away in uploaded asset names, so never match on the prefix.
 const PLATFORM_PATTERNS = [
@@ -10,7 +10,13 @@ const PLATFORM_PATTERNS = [
   { platform: "darwin-aarch64", pattern: /aarch64\.app\.tar\.gz$/ },
   { platform: "linux-x86_64", pattern: /amd64\.AppImage$/ },
 ]
-
+const SERVER_ARCHIVES = [
+  "iyw-claw-server-linux-x64.tar.gz",
+  "iyw-claw-server-linux-arm64.tar.gz",
+  "iyw-claw-server-windows-x64.zip",
+  "iyw-claw-server-windows-x86.zip",
+]
+const SERVER_SUFFIXES = ["", ".sig", ".sha256"]
 async function fetchAssetText({ github, owner, repo, assetId }) {
   const response = await github.request(
     "GET /repos/{owner}/{repo}/releases/assets/{asset_id}",
@@ -65,6 +71,16 @@ function findSingleNamedAsset({ assets, name, required, label = name }) {
   return matches[0]
 }
 
+function assertServerAssetsReady(assets) {
+  for (const archive of SERVER_ARCHIVES) {
+    for (const suffix of SERVER_SUFFIXES) {
+      const name = `${archive}${suffix}`
+      const asset = findSingleNamedAsset({ assets, name, required: true })
+      assertAssetReady(asset, name)
+    }
+  }
+}
+
 async function listReleaseAssets({ github, owner, repo, releaseId }) {
   return github.paginate(github.rest.repos.listReleaseAssets, {
     owner,
@@ -91,7 +107,9 @@ async function resolveUpdaterPlatform({
   const installer = installers[0]
   const installerError = assetReadinessError(installer)
   if (installerError) {
-    return { error: `${platform}: installer ${installer.name} ${installerError}` }
+    return {
+      error: `${platform}: installer ${installer.name} ${installerError}`,
+    }
   }
   const signatures = assets.filter(
     (asset) => asset.name === `${installer.name}.sig`
@@ -184,40 +202,34 @@ async function replaceUpdaterAsset({
     name: UPDATER_FILENAME,
     required: false,
   })
-  if (existing) {
-    await github.rest.repos.deleteReleaseAsset({
-      owner,
-      repo,
-      asset_id: existing.id,
-    })
-  }
-  const response = await github.rest.repos.uploadReleaseAsset({
-    owner,
-    repo,
-    release_id: releaseId,
-    name: UPDATER_FILENAME,
-    data,
-    headers: {
-      "content-type": "application/json",
-      "content-length": Buffer.byteLength(data),
-    },
-  })
-  assertAssetReady(response.data, `Uploaded ${UPDATER_FILENAME}`)
-
-  const refreshedAssets = await listReleaseAssets({
+  return replaceReleaseAsset({
     github,
     owner,
     repo,
     releaseId,
-  })
-  const uploaded = findSingleNamedAsset({
-    assets: refreshedAssets,
     name: UPDATER_FILENAME,
-    required: true,
-    label: `uploaded ${UPDATER_FILENAME}`,
+    data,
+    existing,
+    assertReady: assertAssetReady,
+    verifyReplacement: async (candidateId) => {
+      const refreshedAssets = await listReleaseAssets({
+        github,
+        owner,
+        repo,
+        releaseId,
+      })
+      const uploaded = findSingleNamedAsset({
+        assets: refreshedAssets,
+        name: UPDATER_FILENAME,
+        required: true,
+        label: `uploaded ${UPDATER_FILENAME}`,
+      })
+      if (uploaded.id !== candidateId) {
+        throw new Error(`Uploaded ${UPDATER_FILENAME} identity changed`)
+      }
+      assertAssetReady(uploaded, `Uploaded ${UPDATER_FILENAME}`)
+    },
   })
-  assertAssetReady(uploaded, `Uploaded ${UPDATER_FILENAME}`)
-  return Boolean(existing)
 }
 
 async function assertPublishableReleaseAssets({
@@ -229,6 +241,8 @@ async function assertPublishableReleaseAssets({
   const { owner, repo } = context.repo
   const assets = await listReleaseAssets({ github, owner, repo, releaseId })
   assertNoLegacyMcpAssets(assets)
+  replaceReleaseAsset.assertNoReplacementResidue(assets, UPDATER_FILENAME)
+  assertServerAssetsReady(assets)
   await resolveUpdaterPlatforms({ github, owner, repo, assets, core })
   const updater = findSingleNamedAsset({
     assets,
@@ -252,7 +266,6 @@ async function uploadUpdaterJson({
     encodeURIComponent(tag)
 
   const assets = await listReleaseAssets({ github, owner, repo, releaseId })
-
   assertNoLegacyMcpAssets(assets)
   const resolvedPlatforms = await resolveUpdaterPlatforms({
     github,
