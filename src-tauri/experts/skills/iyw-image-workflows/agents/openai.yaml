@@ -1,7 +1,7 @@
 interface:
   display_name: "IYW 图片工作流"
   short_description: "IYW 图片搜索、图片工具、分身生图和上传检测"
-  default_prompt: "使用 $iyw-image-workflows 检索 IYW 知识库、图片、报告、趋势或 IP 资料，或执行图片工具、分身生图和上传检测；普通有图请求使用已封装的 tool variation，它调用 g_tools_generate_image 并固定 toolName；趋势或主题且有基准图片时优先 tool extend，明确失败后只回退一次 tool variation，无基准图片仍用 fission-generate；用户要求智能搜索驱动设计时，先搜索并推荐趋势或主题，生成前询问系列产品、4/6 宫格系列套组或单品/系列企划案，优先推荐系列；每主题单页用 modelChannel 2 的 variation，多页按顺序用 modelChannel 2 的 mix，种子作品再用 modelChannel 2 的 extend 做系列延伸；成组版式先用一个任务直出完整合成图，只有明确失败或视觉确认布局不符才生成分图并 compose-layout，无法视觉检查时不增加任务；分身生图默认单平台并优先通道四，明确要求多平台比稿时才传 --compare-platforms。"
+  default_prompt: "使用 $iyw-image-workflows 检索 IYW 知识库、图片、报告、趋势或 IP 资料，或执行图片工具、分身生图和上传检测；普通有图请求使用已封装的 tool variation，它调用 g_tools_generate_image 并固定 toolName；趋势或主题且有基准图片时优先 tool extend，明确失败后只回退一次 tool variation，无基准图片仍用 fission-generate；用户要求智能搜索驱动设计时，先搜索并推荐趋势或主题，生成前询问系列产品、4/6 宫格系列套组或单品/系列企划案，优先推荐系列；每主题单页用 modelChannel 2 的 variation，多页按顺序用 modelChannel 2 的 mix，种子作品再用 modelChannel 2 的 extend 做系列延伸；成组版式先用一个任务直出完整合成图，只有明确失败或视觉确认布局不符才生成分图并 compose-layout，无法视觉检查时不增加任务；分身生图默认单平台并优先通道四，明确要求多平台比稿时才传 --compare-platforms；用户要求放入成果区时，优先使用实际可见的 present_task_files 或完整唯一网关按真实 schema 注册所有最终 URL/文件，注册不可用或失败时明确报告未完成，不要下载到工作区根目录冒充成果区。"
 
 policy:
   allow_implicit_invocation: true
