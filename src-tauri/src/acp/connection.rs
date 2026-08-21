@@ -882,6 +882,16 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                     merged_env.insert("APP_SERVER_LOGS".to_string(), dir);
                 }
             }
+            if agent_type == AgentType::Codex {
+                // Codex app-server exposes this process-level switch for
+                // remote control. iyw-claw does not use remote control, and
+                // leaving the default preference unresolved makes an
+                // unauthenticated worker retry once per second.
+                merged_env.insert("REMOTE_CONTROL".to_string(), "false".to_string());
+                tracing::debug!(
+                    "[ACP] Codex Remote Control disabled for managed process"
+                );
+            }
             let mut parts: Vec<String> = Vec::new();
             for (k, v) in &merged_env {
                 parts.push(format!("{k}={v}"));
