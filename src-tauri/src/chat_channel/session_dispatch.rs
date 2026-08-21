@@ -80,15 +80,12 @@ pub async fn handle_post_action(
     } = action;
     let session_registered = bridge.lock().await.get(&connection_id).is_some();
     if !session_registered {
-        let candidate_owns_route = conversation_binding_service::find_by_route(
-            db,
-            channel_id,
-            &route_key,
-        )
-        .await
-        .ok()
-        .flatten()
-        .is_some_and(|binding| binding.conversation_id == conversation_id);
+        let candidate_owns_route =
+            conversation_binding_service::find_by_route(db, channel_id, &route_key)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|binding| binding.conversation_id == conversation_id);
         if !candidate_owns_route {
             return None;
         }
