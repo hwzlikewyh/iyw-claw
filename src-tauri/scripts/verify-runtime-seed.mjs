@@ -1,15 +1,12 @@
 import { createHash } from "node:crypto"
-import { execFile } from "node:child_process"
 import { createReadStream } from "node:fs"
 import { lstat, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, relative, resolve, sep } from "node:path"
-import { promisify } from "node:util"
+import { basename, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseTarget, targetInfo } from "./runtime-seed-config.mjs"
-import { safeRelativePath } from "./runtime-seed-files.mjs"
+import { archiveTar, safeRelativePath } from "./runtime-seed-files.mjs"
 
-const execFileAsync = promisify(execFile)
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const SEED_ROOT = join(ROOT, "src-tauri", "resources", "runtime-seed")
 const OVERLAY_PATH = join(ROOT, "src-tauri", "tauri.runtime-seed.conf.json")
@@ -100,10 +97,11 @@ function expectedDirectories(files) {
 }
 
 async function inspectArchive(archive, files) {
-  const options = { windowsHide: true, maxBuffer: 50 * 1024 * 1024 }
+  const options = { maxBuffer: 50 * 1024 * 1024 }
+  const archiveName = basename(archive)
   const [{ stdout: names }, { stdout: details }] = await Promise.all([
-    execFileAsync("tar", ["-tf", archive], options),
-    execFileAsync("tar", ["-tvf", archive], options),
+    archiveTar(archive, ["-tf", archiveName], options),
+    archiveTar(archive, ["-tvf", archiveName], options),
   ])
   const paths = names.split(/\r?\n/).filter(Boolean)
   const types = details.split(/\r?\n/).filter(Boolean)
@@ -136,8 +134,7 @@ async function inspectArchive(archive, files) {
 async function extractedFileManifest(archive) {
   const destination = await mkdtemp(join(tmpdir(), "iyw-seed-verify-"))
   try {
-    await execFileAsync("tar", ["-xf", archive, "-C", destination], {
-      windowsHide: true,
+    await archiveTar(archive, ["-xf", basename(archive), "-C", destination], {
       maxBuffer: 20 * 1024 * 1024,
     })
     return await listFiles(destination)

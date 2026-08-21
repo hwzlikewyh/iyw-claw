@@ -786,9 +786,7 @@ pub(crate) async fn do_start_web_server_tauri(
             .unwrap_or_else(|| {
                 Arc::new(crate::workspace_transfer::WorkspaceTransferManager::new_from_env())
             }),
-        // Reuse the live broker / token registry / socket path from the
-        // Tauri-managed state so HTTP-side delegation commands target the
-        // same listener the desktop process is already running.
+        // Reuse the live broker and token registry from Tauri-managed state.
         delegation_broker: app
             .state::<Arc<crate::acp::delegation::broker::DelegationBroker>>()
             .inner()
@@ -796,10 +794,6 @@ pub(crate) async fn do_start_web_server_tauri(
         delegation_tokens: app
             .state::<Arc<crate::acp::delegation::listener::TokenRegistry>>()
             .inner()
-            .clone(),
-        delegation_socket_path: app
-            .state::<crate::commands::delegation::DelegationSocketPath>()
-            .0
             .clone(),
         // Reuse the same live-feedback config handle the desktop MCP injection
         // reads, so HTTP-side feedback settings target the identical flag.

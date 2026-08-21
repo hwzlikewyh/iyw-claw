@@ -50,55 +50,112 @@ interface ArtifactLoadArgs {
 interface ArtifactLoadTracker {
   snapshotKey: string | null
   foregroundKey: string | null
+  inFlight: Map<string, ArtifactLoadFlight>
+}
+
+interface ArtifactLoadFlight {
+  promise: Promise<void>
+  requestId: number
+  refreshQueued: boolean
+}
+
+interface ArtifactLoadRequest {
+  filters: TaskArtifactFilters
+  requestBackground: boolean
+  queueIfBusy: boolean
+  requestIdRef: { current: number }
+  setState: Dispatch<SetStateAction<TaskArtifactState>>
+  loadFailed: string
+  trackerRef: { current: ArtifactLoadTracker }
 }
 
 export function useTaskArtifacts(filters: TaskArtifactFilters) {
   const { state, load, cancel } = useArtifactLoader(filters)
   useInitialArtifactLoad(load, cancel)
-  const backgroundRefresh = useCallback(
-    () => void load(state.items.length > 0),
-    [load, state.items.length]
-  )
+  const backgroundRefresh = useCallback(() => void load(true, true), [load])
   useTaskArtifactUpdates(backgroundRefresh)
-  const refresh = useCallback(
-    () => load(state.items.length > 0),
-    [load, state.items.length]
-  )
+  const refresh = useCallback(() => load(true, true), [load])
   return { ...state, refresh }
 }
 
 function useArtifactLoader(filters: TaskArtifactFilters) {
   const t = useTranslations("Folder.taskArtifacts")
+  const loadFailed = t("loadFailed")
+  const { conversationId, folderId, scope } = filters
   const [state, setState] = useState(INITIAL_TASK_ARTIFACT_STATE)
   const requestIdRef = useRef(0)
   const trackerRef = useRef<ArtifactLoadTracker>({
     snapshotKey: null,
     foregroundKey: null,
+    inFlight: new Map(),
   })
   const load = useCallback(
-    (requestBackground = false) => {
-      const filterKey = taskArtifactFilterKey(filters)
-      const background = resolveBackgroundLoad(
+    (requestBackground = false, queueIfBusy = false) =>
+      startArtifactLoad({
+        filters: { conversationId, folderId, scope },
         requestBackground,
-        filterKey,
-        trackerRef
-      )
-      const requestId = ++requestIdRef.current
-      return performTaskArtifactLoad({
-        filters,
-        filterKey,
-        background,
-        requestId,
+        queueIfBusy,
         requestIdRef,
         setState,
-        loadFailed: t("loadFailed"),
+        loadFailed,
         trackerRef,
-      })
-    },
-    [filters, t]
+      }),
+    [conversationId, folderId, loadFailed, scope]
   )
   const cancel = useArtifactCancel(requestIdRef)
   return { state, load, cancel }
+}
+
+function startArtifactLoad(request: ArtifactLoadRequest): Promise<void> {
+  const { filters, queueIfBusy, requestIdRef, trackerRef } = request
+  const filterKey = taskArtifactFilterKey(filters)
+  const active = trackerRef.current.inFlight.get(filterKey)
+  if (active?.requestId === requestIdRef.current) {
+    if (queueIfBusy) active.refreshQueued = true
+    return active.promise
+  }
+  const background = resolveBackgroundLoad(
+    request.requestBackground,
+    filterKey,
+    trackerRef
+  )
+  const requestId = ++requestIdRef.current
+  const rawPromise = performTaskArtifactLoad({
+    ...request,
+    filterKey,
+    background,
+    requestId,
+  })
+  const flight: ArtifactLoadFlight = {
+    promise: rawPromise,
+    requestId,
+    refreshQueued: false,
+  }
+  flight.promise = rawPromise.finally(() =>
+    finishArtifactLoad(request, filterKey, flight)
+  )
+  trackerRef.current.inFlight.set(filterKey, flight)
+  return flight.promise
+}
+
+function finishArtifactLoad(
+  request: ArtifactLoadRequest,
+  filterKey: string,
+  flight: ArtifactLoadFlight
+) {
+  const { inFlight } = request.trackerRef.current
+  if (inFlight.get(filterKey) !== flight) return
+  inFlight.delete(filterKey)
+  if (
+    flight.refreshQueued &&
+    flight.requestId === request.requestIdRef.current
+  ) {
+    void startArtifactLoad({
+      ...request,
+      requestBackground: true,
+      queueIfBusy: false,
+    })
+  }
 }
 
 function resolveBackgroundLoad(
@@ -162,7 +219,7 @@ function taskArtifactFilterKey(filters: TaskArtifactFilters): string {
 }
 
 function useInitialArtifactLoad(
-  load: (background?: boolean) => Promise<void>,
+  load: (background?: boolean, queueIfBusy?: boolean) => Promise<void>,
   cancel: () => void
 ) {
   useEffect(() => {

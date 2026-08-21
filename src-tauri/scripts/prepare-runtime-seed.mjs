@@ -43,11 +43,9 @@ async function packageVersion() {
   return packageJson.version
 }
 
-function codexNpmInvocation(staging, info) {
+function codexNpmInvocation(info) {
   const args = [
     "ci",
-    "--prefix",
-    staging,
     "--include=optional",
     "--omit=dev",
     "--ignore-scripts",
@@ -101,13 +99,13 @@ async function prepareCodex(componentRoot, info, cacheDir) {
         copyFile(join(CODEX_LOCK_ROOT, name), join(staging, name))
       )
     )
-    const npm = codexNpmInvocation(staging, info)
+    const npm = codexNpmInvocation(info)
     const env = {
       ...process.env,
       npm_config_cache: join(cacheDir, "npm"),
     }
     await execFileAsync(npm[0], npm[1], {
-      cwd: ROOT,
+      cwd: staging,
       env,
       windowsHide: true,
       maxBuffer: 20 * 1024 * 1024,
