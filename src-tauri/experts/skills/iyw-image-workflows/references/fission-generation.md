@@ -66,7 +66,9 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 只保留 `images[].image` 中的 HTTPS URL，并按 batch 任务顺序、任务内图片顺序返回。
 
 等待超时时返回已有状态和原 task ID。继续使用 `fission-task-wait` 查询，不要创建
-替代 batch。最终回复直接嵌入远程图片，不要为了展示而下载。
+替代 batch。对话内展示直接按 `SKILL.md` 的 Markdown 优先规则嵌入远程图片，不要为了
+展示而下载；用户要求放入成果区时，另按 `SKILL.md` 的 `present_task_files`/完整网关
+注册规则处理，不能用下载到工作区根目录代替成果区注册。
 
 所有请求只发送 `token` 请求头。示例流量中的 `securitykey` 不是 CLI 契约，不得
 发送。不得在命令、payload、日志或回复中写入 token。
