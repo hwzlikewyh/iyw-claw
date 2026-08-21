@@ -5165,6 +5165,20 @@ fn safe_error_detail(value: &str) -> String {
     normalized.chars().take(MAX_CHARS).collect()
 }
 
+fn is_prompt_transport_error(error: &sacp::Error) -> bool {
+    if !matches!(error.code, sacp::schema::ErrorCode::InternalError) {
+        return false;
+    }
+    error
+        .data
+        .as_ref()
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|detail| {
+            (detail.starts_with("response to `session/prompt` never received:")
+                || detail.starts_with("failed to send outgoing request `session/prompt"))
+        })
+}
+
 fn prompt_error_kind(detail: &str) -> &'static str {
     if detail.starts_with("stream disconnected before completion:") {
         "stream_disconnected"
@@ -5801,7 +5815,49 @@ async fn run_conversation_loop<'a>(
                                         tool_call_failure_stats(&snapshot)
                                     };
                                     prompt_log.failed(&error, tool_call_count, &tool_stats);
-                                    return Err(error);
+                                    if is_prompt_transport_error(&error) {
+                                        return Err(error);
+                                    }
+                                    let detail = safe_error_detail(&error.to_string());
+                                    tracing::warn!(
+                                        connection_id = conn_id,
+                                        session_id = %sid.0,
+                                        agent_type = %agent_type,
+                                        error_kind = "acp_prompt_request_failed",
+                                        error = %detail,
+                                        tool_call_count,
+                                        "[ACP] prompt RPC failed; keeping connection alive"
+                                    );
+                                    emit_with_state(
+                                        state,
+                                        emitter,
+                                        AcpEvent::Error {
+                                            message: detail.clone(),
+                                            agent_type: agent_type.to_string(),
+                                            code: Some("acp_prompt_request_failed".into()),
+                                            details: Some(detail),
+                                            terminal: false,
+                                        },
+                                    )
+                                    .await;
+                                    terminal_runtime
+                                        .release_all_for_session(sid.0.as_ref())
+                                        .await;
+                                    tracked_terminal_tool_calls.clear();
+                                    PermissionRuntime::new(state, emitter, perms)
+                                        .drain_then_emit(
+                                            "prompt_error",
+                                            AcpEvent::TurnComplete {
+                                                session_id: sid.0.to_string(),
+                                                stop_reason: "prompt_error".into(),
+                                                agent_type: agent_type.to_string(),
+                                            },
+                                        )
+                                        .await;
+                                    if let Some(inj) = delegation_injection {
+                                        inj.broker.cancel_by_parent_turn(conn_id).await;
+                                    }
+                                    break;
                                 }
                             };
                             // AIR terminal failures use the prompt response as
