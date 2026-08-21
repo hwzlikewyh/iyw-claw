@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Weak,
 };
 use std::time::{Duration, Instant};
 
@@ -325,10 +325,9 @@ pub struct ConnectionManager {
     /// Per-(agent, working_dir, session_id) async mutex. Held across the
     /// dedup-lookup + spawn + SessionStarted-wait critical section so two
     /// concurrent `spawn_agent` calls for the same logical session can't
-    /// both miss dedup during the handshake window. Entries persist for
-    /// process lifetime — bounded by the number of distinct sessions ever
-    /// connected.
-    spawn_locks: Arc<Mutex<HashMap<SpawnDedupKey, Arc<Mutex<()>>>>>,
+    /// both miss dedup during the handshake window. Weak entries are pruned on
+    /// lookup once no active/waiting spawn still owns the per-session lock.
+    spawn_locks: Arc<Mutex<HashMap<SpawnDedupKey, Weak<Mutex<()>>>>>,
     /// Bound on how long `spawn_agent` waits for the agent's handshake
     /// before releasing the dedup lock. Configurable per-instance for
     /// tests; in production initialized from env via
@@ -808,10 +807,14 @@ impl ConnectionManager {
             };
             let mu = {
                 let mut locks = self.spawn_locks.lock().await;
-                locks
-                    .entry(key)
-                    .or_insert_with(|| Arc::new(Mutex::new(())))
-                    .clone()
+                locks.retain(|_, lock| lock.strong_count() > 0);
+                if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
+                    lock
+                } else {
+                    let lock = Arc::new(Mutex::new(()));
+                    locks.insert(key, Arc::downgrade(&lock));
+                    lock
+                }
             };
             Some(mu.lock_owned().await)
         } else {

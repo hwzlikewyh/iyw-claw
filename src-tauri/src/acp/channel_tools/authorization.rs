@@ -5,6 +5,7 @@ use chrono::{DateTime, Duration, Utc};
 use tokio::sync::Mutex;
 
 const AUTHORIZATION_TTL_MINUTES: i64 = 10;
+const MAX_ACTIVE_AUTHORIZATIONS: usize = 64;
 
 #[derive(Clone)]
 pub struct AuthorizationRegistry {
@@ -37,8 +38,20 @@ impl AuthorizationRegistry {
         qr_content: String,
     ) -> (String, DateTime<Utc>) {
         let authorization_id = format!("ca_{}", uuid::Uuid::new_v4().simple());
-        let expires_at = Utc::now() + Duration::minutes(AUTHORIZATION_TTL_MINUTES);
-        self.inner.lock().await.insert(
+        let now = Utc::now();
+        let expires_at = now + Duration::minutes(AUTHORIZATION_TTL_MINUTES);
+        let mut entries = self.inner.lock().await;
+        entries.retain(|_, entry| entry.expires_at > now);
+        if entries.len() >= MAX_ACTIVE_AUTHORIZATIONS {
+            if let Some(oldest) = entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.expires_at)
+                .map(|(id, _)| id.clone())
+            {
+                entries.remove(&oldest);
+            }
+        }
+        entries.insert(
             authorization_id.clone(),
             AuthorizationEntry {
                 channel_id,

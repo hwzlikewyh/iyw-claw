@@ -48,6 +48,9 @@ export function BrowserProvider({
   const [busy, setBusy] = useState(false)
   const mountedRef = useRef(true)
   const acceptedRevisionRef = useRef(0)
+  const refreshPromiseRef = useRef<Promise<BrowserStateSnapshot | null> | null>(
+    null
+  )
 
   const acceptState = useCallback((next: BrowserStateSnapshot) => {
     if (!mountedRef.current || next.stateRevision < acceptedRevisionRef.current)
@@ -59,14 +62,24 @@ export function BrowserProvider({
 
   const refresh = useCallback(async () => {
     if (!isDesktop()) return null
-    try {
-      const next = await browserApi.state()
-      acceptState(next)
-      return next
-    } catch (cause) {
-      setError(normalizeError(cause))
-      return null
-    }
+    if (refreshPromiseRef.current) return refreshPromiseRef.current
+    const request = browserApi
+      .state()
+      .then((next) => {
+        acceptState(next)
+        return next
+      })
+      .catch((cause) => {
+        if (mountedRef.current) setError(normalizeError(cause))
+        return null
+      })
+      .finally(() => {
+        if (refreshPromiseRef.current === request) {
+          refreshPromiseRef.current = null
+        }
+      })
+    refreshPromiseRef.current = request
+    return request
   }, [acceptState])
 
   const run = useCallback(
@@ -145,8 +158,33 @@ export function BrowserProvider({
 
   useEffect(() => {
     if (!isOpen || !isDesktop()) return
-    const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS)
-    return () => window.clearInterval(timer)
+    let cancelled = false
+    let polling = false
+    let timer: number | null = null
+    const schedule = (delay: number) => {
+      if (cancelled || document.visibilityState !== "visible") return
+      timer = window.setTimeout(poll, delay)
+    }
+    const poll = async () => {
+      timer = null
+      if (cancelled || polling || document.visibilityState !== "visible") return
+      polling = true
+      await refresh()
+      polling = false
+      schedule(POLL_INTERVAL_MS)
+    }
+    const handleVisibilityChange = () => {
+      if (timer !== null) window.clearTimeout(timer)
+      timer = null
+      if (document.visibilityState === "visible") void poll()
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    schedule(POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      if (timer !== null) window.clearTimeout(timer)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
   }, [isOpen, refresh])
 
   const value = useMemo<BrowserContextValue>(

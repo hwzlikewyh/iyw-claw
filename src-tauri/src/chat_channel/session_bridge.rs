@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
 use tokio::sync::Mutex as AsyncMutex;
@@ -67,7 +67,7 @@ pub struct SessionBridge {
     sessions: HashMap<String, ActiveSession>,
     registrations: HashMap<String, u64>,
     next_registration: u64,
-    route_gates: HashMap<(i32, String), Arc<AsyncMutex<()>>>,
+    route_gates: HashMap<(i32, String), Weak<AsyncMutex<()>>>,
 }
 
 pub enum RouteActivation {
@@ -94,10 +94,14 @@ impl SessionBridge {
     }
 
     pub fn route_gate(&mut self, channel_id: i32, route_key: &str) -> Arc<AsyncMutex<()>> {
-        self.route_gates
-            .entry((channel_id, route_key.to_string()))
-            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
-            .clone()
+        self.route_gates.retain(|_, gate| gate.strong_count() > 0);
+        let key = (channel_id, route_key.to_string());
+        if let Some(gate) = self.route_gates.get(&key).and_then(Weak::upgrade) {
+            return gate;
+        }
+        let gate = Arc::new(AsyncMutex::new(()));
+        self.route_gates.insert(key, Arc::downgrade(&gate));
+        gate
     }
 
     pub async fn acquire_route_gate(

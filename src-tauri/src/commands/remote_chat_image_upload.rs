@@ -22,7 +22,7 @@ pub use upload_state::{cleanup_stale_uploads, RemoteChatImageUploadState};
 use upload_state::{
     create_upload_staging_file, ensure_upload_root, image_mime_for_name, monitor_upload_revocation,
     remove_upload_file, validate_upload_file, BeginUploadStaging, UploadEntry, UploadRevocation,
-    UPLOAD_DIR,
+    MAX_ACTIVE_UPLOADS, UPLOAD_DIR,
 };
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,6 +97,11 @@ pub async fn remote_chat_image_upload_begin(
     let monitor = monitor_file_upload(None).await?;
     let (file_name, mime_type) = validate_descriptor(&file_name, &mime_type, expected_bytes)?;
     let mut uploads = state.uploads.lock().await;
+    if uploads.len() >= MAX_ACTIVE_UPLOADS {
+        return Err(AppCommandError::task_execution_failed(
+            "Too many image uploads are already in progress",
+        ));
+    }
     let root = upload_root(&app)?;
     let root_was_present = ensure_upload_root(&monitor, &root).await?;
     let upload_id = Uuid::new_v4();

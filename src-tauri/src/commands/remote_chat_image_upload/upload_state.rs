@@ -12,6 +12,8 @@ use crate::app_error::AppCommandError;
 
 pub(super) const UPLOAD_DIR: &str = ".remote-chat-image-upload";
 const STALE_UPLOAD_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+pub(super) const ACTIVE_UPLOAD_TTL: Duration = Duration::from_secs(30 * 60);
+pub(super) const MAX_ACTIVE_UPLOADS: usize = 32;
 
 pub(super) struct UploadEntry {
     pub(super) path: PathBuf,
@@ -177,19 +179,27 @@ pub(super) async fn validate_upload_file(entry: &UploadEntry) -> Result<(), AppC
 
 pub(super) fn monitor_upload_revocation(watch: UploadRevocation) {
     tokio::spawn(async move {
-        tokio::select! {
-            _ = watch.finished.cancelled() => {}
-            _ = watch.revoked.cancelled() => {
-                let removed = watch.uploads.lock().await.remove(&watch.upload_id);
-                if let Some(entry) = removed {
-                    entry.finished.cancel();
-                    remove_upload_file(watch.upload_id, &watch.path).await;
-                    tracing::warn!(
-                        target: "chat.image",
-                        upload_id = %watch.upload_id,
-                        "revoked chunked image upload and removed staging file"
-                    );
-                }
+        let expired = tokio::select! {
+            _ = watch.finished.cancelled() => return,
+            _ = watch.revoked.cancelled() => false,
+            _ = tokio::time::sleep(ACTIVE_UPLOAD_TTL) => true,
+        };
+        let removed = watch.uploads.lock().await.remove(&watch.upload_id);
+        if let Some(entry) = removed {
+            entry.finished.cancel();
+            remove_upload_file(watch.upload_id, &watch.path).await;
+            if expired {
+                tracing::warn!(
+                    target: "chat.image",
+                    upload_id = %watch.upload_id,
+                    "expired abandoned image upload and removed staging file"
+                );
+            } else {
+                tracing::warn!(
+                    target: "chat.image",
+                    upload_id = %watch.upload_id,
+                    "revoked chunked image upload and removed staging file"
+                );
             }
         }
     });

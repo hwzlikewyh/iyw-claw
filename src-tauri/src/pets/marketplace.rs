@@ -16,7 +16,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Cursor, Read};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -50,17 +50,20 @@ const MAX_MANIFEST_ENTRY_BYTES: usize = 64 * 1024;
 /// full uncompress.
 const MAX_SPRITESHEET_ENTRY_BYTES: usize = 16 * 1024 * 1024;
 
-/// Per-pet-id locks serializing concurrent `install(...)` calls. Keys are
-/// pet ids; entries are kept indefinitely (each is a small `Arc<Mutex<()>>`
-/// — bounded by the number of distinct pets a user ever installs).
-static INSTALL_LOCKS: LazyLock<AsyncMutex<HashMap<String, Arc<AsyncMutex<()>>>>> =
+/// Per-pet-id locks serializing concurrent `install(...)` calls. Weak entries
+/// disappear after the last active/waiting install releases its lock.
+static INSTALL_LOCKS: LazyLock<AsyncMutex<HashMap<String, Weak<AsyncMutex<()>>>>> =
     LazyLock::new(|| AsyncMutex::new(HashMap::new()));
 
 async fn acquire_install_lock(id: &str) -> Arc<AsyncMutex<()>> {
     let mut map = INSTALL_LOCKS.lock().await;
-    map.entry(id.to_string())
-        .or_insert_with(|| Arc::new(AsyncMutex::new(())))
-        .clone()
+    map.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = map.get(id).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(AsyncMutex::new(()));
+    map.insert(id.to_string(), Arc::downgrade(&lock));
+    lock
 }
 
 static MARKETPLACE_HTTP_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {

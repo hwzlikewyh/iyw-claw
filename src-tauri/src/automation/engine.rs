@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
 use chrono::Utc;
@@ -80,9 +80,9 @@ pub struct AutomationEngine {
     /// Per-automation fire lock. Serializes the overlap-check + run-row insert (and
     /// the whole launch) so a manual run-now, a scheduled fire, and a double-click
     /// can't all pass `has_active_run` and start duplicate concurrent runs.
-    automation_locks: Arc<Mutex<HashMap<i32, Arc<Mutex<()>>>>>,
+    automation_locks: Arc<Mutex<HashMap<i32, Weak<Mutex<()>>>>>,
     /// Serializes git checkout for `shared_in_root` runs on the same root folder.
-    root_locks: Arc<Mutex<HashMap<i32, Arc<Mutex<()>>>>>,
+    root_locks: Arc<Mutex<HashMap<i32, Weak<Mutex<()>>>>>,
     /// Held for the engine's lifetime: an exclusive advisory lock on the DB's
     /// sidecar lock file. The engine is only ever built while holding this lock
     /// (see [`build_engine`]), so its mere existence proves this process is the
@@ -658,18 +658,24 @@ impl AutomationEngine {
 
     async fn root_lock(&self, root_folder_id: i32) -> Arc<Mutex<()>> {
         let mut locks = self.root_locks.lock().await;
-        locks
-            .entry(root_folder_id)
-            .or_insert_with(|| Arc::new(Mutex::new(())))
-            .clone()
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(&root_folder_id).and_then(Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(Mutex::new(()));
+        locks.insert(root_folder_id, Arc::downgrade(&lock));
+        lock
     }
 
     async fn fire_lock(&self, automation_id: i32) -> Arc<Mutex<()>> {
         let mut locks = self.automation_locks.lock().await;
-        locks
-            .entry(automation_id)
-            .or_insert_with(|| Arc::new(Mutex::new(())))
-            .clone()
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(&automation_id).and_then(Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(Mutex::new(()));
+        locks.insert(automation_id, Arc::downgrade(&lock));
+        lock
     }
 
     // ── completion ────────────────────────────────────────────────────────────

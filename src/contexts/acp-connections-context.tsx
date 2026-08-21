@@ -1091,7 +1091,24 @@ function applyStreamingAction(
 const OUT_OF_TURN_TOOL_CALL_CAP = 8
 const OVERLAY_FOLD_THRESHOLD = 60
 const OVERLAY_FOLD_MIN_INTERVAL_MS = 30_000
+const STREAM_FLUSH_VISIBLE_MS = 16
+const STREAM_FLUSH_HIDDEN_MS = 250
+const STREAM_BATCH_VISIBLE_CAP = 256
+const STREAM_BATCH_HIDDEN_CAP = 1_024
+const TOOL_UPDATE_HIDDEN_FLUSH_MS = 250
+const TOOL_UPDATE_BATCH_CAP = 256
+const OVERLAY_FOLD_CACHE_CAP = 1_024
 const overlayFoldRefetchAt = new Map<number, number>()
+
+function rememberOverlayFoldRefetch(conversationId: number, now: number) {
+  overlayFoldRefetchAt.delete(conversationId)
+  overlayFoldRefetchAt.set(conversationId, now)
+  while (overlayFoldRefetchAt.size > OVERLAY_FOLD_CACHE_CAP) {
+    const oldest = overlayFoldRefetchAt.keys().next().value
+    if (oldest === undefined) break
+    overlayFoldRefetchAt.delete(oldest)
+  }
+}
 
 function recordOutOfTurnToolCall(
   existing: ReadonlyMap<string, ToolCallInfo> | null,
@@ -2947,7 +2964,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   )
 
   const flushStreamingQueue = useCallback(() => {
-    flushTimerRef.current = null
+    if (flushTimerRef.current !== null) {
+      clearTimeout(flushTimerRef.current)
+      flushTimerRef.current = null
+    }
     const queued = streamingQueueRef.current
     if (queued.length === 0) return
     streamingQueueRef.current = []
@@ -2975,8 +2995,20 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
 
   const enqueueStreamingAction = useCallback(
     (action: StreamingAction) => {
-      streamingQueueRef.current.push(action)
-      if (streamingQueueRef.current.length >= 256) {
+      const hidden = document.visibilityState !== "visible"
+      const queue = streamingQueueRef.current
+      const previous = queue[queue.length - 1]
+      if (
+        hidden &&
+        previous?.contextKey === action.contextKey &&
+        previous.type === action.type
+      ) {
+        previous.text += action.text
+      } else {
+        queue.push(action)
+      }
+      const cap = hidden ? STREAM_BATCH_HIDDEN_CAP : STREAM_BATCH_VISIBLE_CAP
+      if (queue.length >= cap) {
         if (flushTimerRef.current !== null) {
           clearTimeout(flushTimerRef.current)
           flushTimerRef.current = null
@@ -2985,7 +3017,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         return
       }
       if (flushTimerRef.current === null) {
-        flushTimerRef.current = setTimeout(flushStreamingQueue, 16)
+        const delay = hidden ? STREAM_FLUSH_HIDDEN_MS : STREAM_FLUSH_VISIBLE_MS
+        flushTimerRef.current = setTimeout(flushStreamingQueue, delay)
       }
     },
     [flushStreamingQueue]
@@ -3066,33 +3099,54 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     }>
   >([])
   const toolCallUpdateRafId = useRef<number | null>(null)
+  const toolCallUpdateTimerId = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
 
-  const flushPendingToolCallUpdates = useCallback(() => {
-    if (pendingToolCallUpdates.current.length === 0) return
+  const clearToolCallUpdateSchedule = useCallback(() => {
     if (toolCallUpdateRafId.current !== null) {
       cancelAnimationFrame(toolCallUpdateRafId.current)
       toolCallUpdateRafId.current = null
     }
+    if (toolCallUpdateTimerId.current !== null) {
+      clearTimeout(toolCallUpdateTimerId.current)
+      toolCallUpdateTimerId.current = null
+    }
+  }, [])
+
+  const flushPendingToolCallUpdates = useCallback(() => {
+    clearToolCallUpdateSchedule()
+    if (pendingToolCallUpdates.current.length === 0) return
     const batch = pendingToolCallUpdates.current
     pendingToolCallUpdates.current = []
     dispatch({ type: "BATCH_TOOL_CALL_UPDATES", actions: batch })
-  }, [dispatch])
+  }, [clearToolCallUpdateSchedule, dispatch])
 
   const scheduleToolCallUpdateFlush = useCallback(() => {
-    if (toolCallUpdateRafId.current !== null) return
-    toolCallUpdateRafId.current = requestAnimationFrame(() => {
-      toolCallUpdateRafId.current = null
+    if (
+      toolCallUpdateRafId.current !== null ||
+      toolCallUpdateTimerId.current !== null
+    )
+      return
+    if (document.visibilityState === "visible") {
+      toolCallUpdateRafId.current = requestAnimationFrame(() => {
+        toolCallUpdateRafId.current = null
+        flushPendingToolCallUpdates()
+      })
+      return
+    }
+    toolCallUpdateTimerId.current = setTimeout(() => {
+      toolCallUpdateTimerId.current = null
       flushPendingToolCallUpdates()
-    })
+    }, TOOL_UPDATE_HIDDEN_FLUSH_MS)
   }, [flushPendingToolCallUpdates])
 
   useEffect(() => {
     return () => {
-      if (toolCallUpdateRafId.current !== null) {
-        cancelAnimationFrame(toolCallUpdateRafId.current)
-      }
+      clearToolCallUpdateSchedule()
+      pendingToolCallUpdates.current = []
     }
-  }, [])
+  }, [clearToolCallUpdateSchedule])
 
   const handleMappedEvent = useCallback(
     (contextKey: string, e: EventEnvelope) => {
@@ -3164,7 +3218,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             meta: (e.meta as ToolCallMeta) ?? null,
             images: e.images ?? null,
           })
-          scheduleToolCallUpdateFlush()
+          if (pendingToolCallUpdates.current.length >= TOOL_UPDATE_BATCH_CAP) {
+            flushPendingToolCallUpdates()
+          } else {
+            scheduleToolCallUpdateFlush()
+          }
           break
         case "permission_resolved":
           // Backend signals a permission was answered (this window's local
@@ -3256,7 +3314,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
               !session.detailLoading &&
               now - lastFold > OVERLAY_FOLD_MIN_INTERVAL_MS
             ) {
-              overlayFoldRefetchAt.set(conversationId, now)
+              rememberOverlayFoldRefetch(conversationId, now)
               runtime.actions.refetchDetail(conversationId, {
                 preserveLive:
                   storeRef.current.connections.get(contextKey)?.status ===
@@ -3961,6 +4019,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         clearTimeout(flushTimerRef.current)
         flushTimerRef.current = null
       }
+      streamingQueueRef.current = []
       unlisten?.()
     }
   }, [
@@ -3972,6 +4031,13 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        flushStreamingQueue()
+        flushPendingToolCallUpdates()
+      } else if (pendingToolCallUpdates.current.length > 0) {
+        clearToolCallUpdateSchedule()
+        scheduleToolCallUpdateFlush()
+      }
       const contextKey = storeRef.current.activeKey
       if (!contextKey) return
       lastActivityRef.current.set(contextKey, Date.now())
@@ -3985,7 +4051,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [])
+  }, [
+    clearToolCallUpdateSchedule,
+    flushPendingToolCallUpdates,
+    flushStreamingQueue,
+    scheduleToolCallUpdateFlush,
+  ])
 
   // Renew short leases only for surfaces this renderer is actually showing.
   useEffect(() => {

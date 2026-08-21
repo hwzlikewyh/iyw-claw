@@ -177,6 +177,11 @@ const DEFAULT_COMPLETED_CACHE_CAP_BYTES: usize = 512 * 1024 * 1024;
 /// (`DEFAULT_COMPLETED_CACHE_CAP_BYTES`), the newest result always fits and is
 /// never the eviction victim in `insert_completed`.
 const COMPLETED_TEXT_CAP: usize = 256 * 1024;
+/// Metadata-only failures do not consume the byte budget, so keep a separate
+/// hard entry bound. At the default byte cap this equals the maximum number of
+/// full-sized results and therefore does not reduce the normal retention window.
+const MAX_COMPLETED_TASKS_PER_PARENT: usize = 2_048;
+const MAX_COMPLETED_TASKS_TOTAL: usize = 2_048;
 
 /// Cap on the inline `text_preview` carried by the `DelegationCompleted` event
 /// and the terminal meta, so the parent card can render the result inline
@@ -382,8 +387,8 @@ struct PendingInner {
     running: HashMap<String, RunningTask>,
     /// Terminal results retained for `get_delegation_status` / `cancel_delegation`,
     /// keyed by `task_id`. Bounded by the per-parent byte valve
-    /// (`completed_cap_bytes` over `completed_bytes`, FIFO-evicted via
-    /// `completed_order`) and dropped per-parent on connection teardown.
+    /// (`completed_cap_bytes` over `completed_bytes`, plus hard entry bounds,
+    /// FIFO-evicted via `completed_order`) and dropped on connection teardown.
     /// Evicted/unknown tasks fall back to the DB status lookup.
     completed: HashMap<String, CompletedTask>,
     /// Per-parent FIFO index over `completed` for byte-valve eviction and
@@ -713,6 +718,7 @@ impl PendingInner {
             .or_default()
             .push_back(call_id.to_string());
         self.evict_completed_over_cap(&parent);
+        self.evict_completed_over_global_cap();
     }
 
     fn clear_late_binding_state(&mut self, call_id: &str) {
@@ -727,28 +733,51 @@ impl PendingInner {
     /// [`COMPLETED_TEXT_CAP`] (256 KiB), far below any MB-scale budget, so the
     /// LLM's immediate `get_delegation_status` always hits.
     fn evict_completed_over_cap(&mut self, parent: &str) {
-        let cap = self.completed_cap_bytes;
-        if cap == 0 {
-            return;
-        }
         loop {
-            if self.completed_bytes.get(parent).copied().unwrap_or(0) <= cap {
+            let bytes = self.completed_bytes.get(parent).copied().unwrap_or(0);
+            let entries = self.completed_order.get(parent).map_or(0, VecDeque::len);
+            let over_bytes = self.completed_cap_bytes != 0 && bytes > self.completed_cap_bytes;
+            if !over_bytes && entries <= MAX_COMPLETED_TASKS_PER_PARENT {
                 break;
             }
-            let evicted = match self.completed_order.get_mut(parent) {
-                Some(order) if order.len() > 1 => order.pop_front(),
-                _ => None,
-            };
-            let Some(evicted) = evicted else {
+            if !self.evict_oldest_completed(parent) {
                 break;
-            };
-            if let Some(removed) = self.completed.remove(&evicted) {
-                let freed = removed.text.as_ref().map_or(0, |t| t.len());
-                if let Some(slot) = self.completed_bytes.get_mut(parent) {
-                    *slot = slot.saturating_sub(freed);
-                }
             }
         }
+    }
+
+    fn evict_completed_over_global_cap(&mut self) {
+        while self.completed.len() > MAX_COMPLETED_TASKS_TOTAL {
+            let parent = self
+                .completed_order
+                .iter()
+                .filter(|(_, order)| order.len() > 1)
+                .max_by_key(|(_, order)| order.len())
+                .map(|(parent, _)| parent.clone());
+            let Some(parent) = parent else {
+                break;
+            };
+            if !self.evict_oldest_completed(&parent) {
+                break;
+            }
+        }
+    }
+
+    fn evict_oldest_completed(&mut self, parent: &str) -> bool {
+        let evicted = match self.completed_order.get_mut(parent) {
+            Some(order) if order.len() > 1 => order.pop_front(),
+            _ => None,
+        };
+        let Some(evicted) = evicted else {
+            return false;
+        };
+        if let Some(removed) = self.completed.remove(&evicted) {
+            let freed = removed.text.as_ref().map_or(0, |text| text.len());
+            if let Some(bytes) = self.completed_bytes.get_mut(parent) {
+                *bytes = bytes.saturating_sub(freed);
+            }
+        }
+        true
     }
 
     /// Re-apply the current `completed_cap_bytes` to EVERY parent. Called by
@@ -757,13 +786,11 @@ impl PendingInner {
     /// would otherwise strand them until a parent's next completion (which may
     /// never arrive).
     fn enforce_completed_cap_all_parents(&mut self) {
-        if self.completed_cap_bytes == 0 {
-            return;
-        }
         let parents: Vec<String> = self.completed_bytes.keys().cloned().collect();
         for parent in parents {
             self.evict_completed_over_cap(&parent);
         }
+        self.evict_completed_over_global_cap();
     }
 
     /// Forget every completed result for a parent. Called on connection

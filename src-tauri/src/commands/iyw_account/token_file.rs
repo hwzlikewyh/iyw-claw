@@ -13,8 +13,12 @@ pub(super) fn sync(token: Option<&IywAccountToken>) -> Result<(), AppCommandErro
     let action = if token.is_some() { "write" } else { "remove" };
     tracing::debug!(action, path = %path.display(), "Syncing iyw account token file");
     match sync_at(&path, token) {
-        Ok(()) => {
+        Ok(true) => {
             tracing::info!(action, path = %path.display(), "Synchronized iyw account token file");
+            Ok(())
+        }
+        Ok(false) => {
+            tracing::debug!(action, path = %path.display(), "iyw account token file is already current");
             Ok(())
         }
         Err(error) => {
@@ -30,14 +34,14 @@ pub(super) fn sync(token: Option<&IywAccountToken>) -> Result<(), AppCommandErro
     }
 }
 
-fn sync_at(path: &Path, token: Option<&IywAccountToken>) -> Result<(), AppCommandError> {
+fn sync_at(path: &Path, token: Option<&IywAccountToken>) -> Result<bool, AppCommandError> {
     match token {
         Some(token) => save_to(path, token),
         None => remove_at(path),
     }
 }
 
-fn save_to(path: &Path, token: &IywAccountToken) -> Result<(), AppCommandError> {
+fn save_to(path: &Path, token: &IywAccountToken) -> Result<bool, AppCommandError> {
     let mut bytes = serde_json::to_vec_pretty(token).map_err(|error| {
         AppCommandError::configuration_invalid("Failed to serialize iyw account token")
             .with_detail(error.to_string())
@@ -45,8 +49,7 @@ fn save_to(path: &Path, token: &IywAccountToken) -> Result<(), AppCommandError> 
     bytes.push(b'\n');
     match fs::read(path) {
         Ok(existing) if existing == bytes => {
-            tracing::debug!(path = %path.display(), "iyw account token file is already current");
-            return Ok(());
+            return Ok(false);
         }
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -69,13 +72,13 @@ fn save_to(path: &Path, token: &IywAccountToken) -> Result<(), AppCommandError> 
     if result.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
-    result
+    result.map(|()| true)
 }
 
-fn remove_at(path: &Path) -> Result<(), AppCommandError> {
+fn remove_at(path: &Path) -> Result<bool, AppCommandError> {
     match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(AppCommandError::io(error)),
     }
 }
