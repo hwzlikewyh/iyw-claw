@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Gauge, Loader2, Save } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
@@ -8,7 +8,6 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  type AgentConcurrencyInfo,
   type AgentConcurrencySettings,
   getAgentConcurrencySettings,
   setAgentConcurrencySettings,
@@ -22,17 +21,6 @@ function normalizeLimit(value: string): number {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return MAX_LIMIT
   return Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, Math.round(parsed)))
-}
-
-function groupAgents(settings: AgentConcurrencySettings | null) {
-  const groups = new Map<string, AgentConcurrencyInfo[]>()
-  for (const agent of settings?.agents ?? []) {
-    groups.set(agent.enforcement, [
-      ...(groups.get(agent.enforcement) ?? []),
-      agent,
-    ])
-  }
-  return groups
 }
 
 function useConcurrencySettings() {
@@ -56,8 +44,6 @@ function useConcurrencySettings() {
       .finally(() => setLoading(false))
   }, [])
 
-  const groups = useMemo(() => groupAgents(settings), [settings])
-
   const save = useCallback(async () => {
     if (!settings) return
     setSaving(true)
@@ -77,7 +63,6 @@ function useConcurrencySettings() {
   }, [limit, settings, t])
 
   return {
-    groups,
     limit,
     loading,
     loadError,
@@ -141,34 +126,6 @@ function LimitEditor(props: LimitEditorProps) {
   )
 }
 
-function EnforcementSummary({
-  groups,
-}: {
-  groups: Map<string, AgentConcurrencyInfo[]>
-}) {
-  const t = useTranslations("AcpAgentSettings.concurrency")
-  return (
-    <div className="grid gap-2 border-t pt-3 text-xs md:grid-cols-2">
-      {(["native_and_host", "host"] as const).map((enforcement) => {
-        const agents = groups.get(enforcement) ?? []
-        if (agents.length === 0) return null
-        const label =
-          enforcement === "native_and_host"
-            ? t("enforcement.native_and_host")
-            : t("enforcement.host")
-        return (
-          <p key={enforcement} className="min-w-0">
-            <span className="font-medium">{label}</span>
-            <span className="ml-2 break-words text-muted-foreground">
-              {agents.map((agent) => agent.name).join(", ")}
-            </span>
-          </p>
-        )
-      })}
-    </div>
-  )
-}
-
 export function AgentConcurrencySettingsSection() {
   const t = useTranslations("AcpAgentSettings.concurrency")
   const state = useConcurrencySettings()
@@ -197,7 +154,6 @@ export function AgentConcurrencySettingsSection() {
         onLimitChange={state.setLimit}
         onSave={state.save}
       />
-      {state.settings ? <EnforcementSummary groups={state.groups} /> : null}
     </section>
   )
 }
