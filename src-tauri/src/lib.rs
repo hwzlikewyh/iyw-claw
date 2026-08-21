@@ -73,12 +73,12 @@ mod tauri_app {
         automation_draft as automation_draft_commands, backup, browser as browser_commands,
         capability_policy_tauri, chat_attachments as chat_attachment_commands,
         chat_channel as chat_channel_commands, chat_image as chat_image_commands, conversations,
-        delegation as delegation_commands, display_assets as display_asset_commands,
-        experts as experts_commands, feedback as feedback_commands, file_io, folder_commands,
-        folders, idle_agent_settings, internet_tools as internet_tools_commands,
-        iyw_account as iyw_account_commands, logging as logging_commands,
-        managed_skills as managed_skills_commands, mcp as mcp_commands,
-        model_provider as model_provider_commands, notification,
+        delegation as delegation_commands, desktop as desktop_commands,
+        display_assets as display_asset_commands, experts as experts_commands,
+        feedback as feedback_commands, file_io, folder_commands, folders, idle_agent_settings,
+        internet_tools as internet_tools_commands, iyw_account as iyw_account_commands,
+        logging as logging_commands, managed_skills as managed_skills_commands,
+        mcp as mcp_commands, model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, performance as performance_commands,
         question as question_commands, quick_messages as quick_messages_commands,
         realtime_voice as realtime_voice_commands,
@@ -95,7 +95,7 @@ mod tauri_app {
     };
     use crate::terminal::manager::TerminalManager;
     use crate::{db, git_credential, network, paths, process, web};
-    use tauri::Manager;
+    use tauri::{Emitter, Manager};
 
     const INSTALLER_RESTORE_ARG: &str = "--restore-installer-session";
 
@@ -261,30 +261,43 @@ mod tauri_app {
         // development. Debug desktop builds use an isolated SQLite file, but
         // they still share other `app.iywclaw` data-dir artifacts with release.
         #[cfg(not(debug_assertions))]
-        let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let from_autostart = desktop_commands::args_request_autostart(args);
             tracing::info!(
                 target: "iyw_claw_startup",
                 main_window_present = app.get_webview_window("main").is_some(),
+                from_autostart,
                 "second desktop launch forwarded to running instance"
             );
-            windows::show_main_window(app);
+            if !from_autostart {
+                windows::show_main_window(app);
+            }
         }));
+
+        let builder = builder.plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--from-autostart"]),
+        ));
 
         let build_stage = crate::logging::emergency::StartupStage::new("tauri-build");
         let app = builder
-            // Persist every window flag EXCEPT decorations. Decorations are a
+            // Persist every window flag EXCEPT decorations and visibility.
+            // Decorations are a
             // per-platform decision made by `apply_platform_window_style`
             // (undecorated on Windows/Linux so the app draws its own chrome),
             // not a user preference. Restoring a stale `decorated: true` saved
             // by an older build would call `set_decorations(true)` after the
             // window is built and re-add the native title bar on top of the
-            // app's own toolbar — the Linux "double title bar".
+            // app's own toolbar — the Linux "double title bar". Visibility is
+            // launch intent, so restoring it must not override an autostart
+            // launch that deliberately creates the main window hidden.
             .plugin(
                 tauri_plugin_window_state::Builder::new()
                     .with_filter(|label| !label.starts_with("browser-"))
                     .with_state_flags(
                         tauri_plugin_window_state::StateFlags::all()
-                            & !tauri_plugin_window_state::StateFlags::DECORATIONS,
+                            & !tauri_plugin_window_state::StateFlags::DECORATIONS
+                            & !tauri_plugin_window_state::StateFlags::VISIBLE,
                     )
                     .build(),
             )
@@ -1100,16 +1113,25 @@ mod tauri_app {
                 crate::logging::emergency::run_stage("main-window-create", || {
                     if app.get_webview_window("main").is_none() {
                         let url = main_window_entry_url(restore_installer_session);
+                        let hide_for_autostart = desktop_commands::should_hide_on_autostart();
+                        tracing::info!(
+                            target: "iyw_claw_startup",
+                            hide_for_autostart,
+                            "resolved initial main window visibility"
+                        );
                         let builder = tauri::WebviewWindowBuilder::new(app, "main", url)
                             .title("iyw-claw")
                             .inner_size(1260.0, 860.0)
-                            .min_inner_size(400.0, 600.0);
+                            .min_inner_size(400.0, 600.0)
+                            .visible(!hide_for_autostart);
                         let window = windows::apply_platform_window_style(builder).build()?;
                         windows::post_window_setup(&window);
                     }
                     Ok::<(), tauri::Error>(())
                 })?;
-                windows::consume_pending_main_window_show(app.handle());
+                if !desktop_commands::should_hide_on_autostart() {
+                    windows::consume_pending_main_window_show(app.handle());
+                }
 
                 crate::logging::emergency::write_event(
                     "startup_ready",
@@ -1217,29 +1239,25 @@ mod tauri_app {
 
                 if label == "main" {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // The close button does one of two things, depending
-                        // on whether the platform can keep the workspace
-                        // recoverable while it's hidden:
-                        //
-                        //   * tray usable (macOS, Windows + tray): WeChat-style
-                        //     hide. App keeps running, tray brings it back.
-                        //   * tray not usable (Linux, tray install failed):
-                        //     force a real app exit. Letting only `main`
-                        //     close would orphan the desktop pet and other
-                        //     aux windows in a process with no workspace and
-                        //     no way to bring it back — `pet` runs with
-                        //     `skip_taskbar(true)`, and the single-instance
-                        //     callback's `show_main_window` is a no-op once
-                        //     main is destroyed.
-                        //
-                        // 真正退出时统一清理入口已标记 quitting；其他关闭请求继续
-                        // 走隐藏到托盘或显式退出分支。
                         if !crate::desktop_shutdown::is_quitting() {
                             api.prevent_close();
-                            if windows::can_hide_to_tray() {
-                                let _ = window.hide();
-                            } else {
-                                window.app_handle().exit(0);
+                            match desktop_commands::handle_main_close_request(window.app_handle()) {
+                                desktop_commands::CloseRequestOutcome::Prompt(payload) => {
+                                    if let Err(error) = window.app_handle().emit_to(
+                                        "main",
+                                        desktop_commands::MAIN_CLOSE_REQUESTED_EVENT,
+                                        payload,
+                                    ) {
+                                        tracing::error!(
+                                            error = %error,
+                                            "[window] failed to show close behavior prompt"
+                                        );
+                                        desktop_commands::cancel_main_close();
+                                        window.app_handle().exit(0);
+                                    }
+                                }
+                                desktop_commands::CloseRequestOutcome::Ignored => {}
+                                desktop_commands::CloseRequestOutcome::Completed => {}
                             }
                             return;
                         }
@@ -1428,6 +1446,9 @@ mod tauri_app {
                 system_settings::update_system_language_settings,
                 system_settings::get_system_rendering_settings,
                 system_settings::update_system_rendering_settings,
+                desktop_commands::get_pending_main_close_request,
+                desktop_commands::complete_main_close,
+                desktop_commands::cancel_main_close,
                 performance_commands::get_performance_stats,
                 performance_commands::end_agent_runtime_session,
                 idle_agent_settings::get_idle_agent_settings,

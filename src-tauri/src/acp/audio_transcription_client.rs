@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use reqwest::header::{HeaderName, HeaderValue, CONTENT_LENGTH};
 use reqwest::{Method, RequestBuilder, Url};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio_util::io::ReaderStream;
 
@@ -38,89 +38,13 @@ struct UploadTarget {
 struct FusionEnvelope {
     code: i32,
     data: Value,
+    #[serde(default)]
+    message: String,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum TranscriptionStatus {
-    Queued,
-    Processing,
-    Succeeded,
-    Failed,
-    Expired,
-    Cancelled,
-}
-
-impl TranscriptionStatus {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Processing => "processing",
-            Self::Succeeded => "succeeded",
-            Self::Failed => "failed",
-            Self::Expired => "expired",
-            Self::Cancelled => "cancelled",
-        }
-    }
-
-    pub(crate) fn is_terminal(self) -> bool {
-        matches!(
-            self,
-            Self::Succeeded | Self::Failed | Self::Expired | Self::Cancelled
-        )
-    }
-
-    pub(crate) fn is_error(self) -> bool {
-        matches!(self, Self::Failed | Self::Expired | Self::Cancelled)
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct JobResult {
-    pub(crate) job_id: String,
-    pub(crate) status: TranscriptionStatus,
-    #[serde(default)]
-    pub(crate) transcript: Option<Transcript>,
-    #[serde(default)]
-    pub(crate) error_code: Option<String>,
-    #[serde(default)]
-    pub(crate) error_message: Option<String>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Transcript {
-    pub(crate) text: String,
-    #[serde(default)]
-    pub(crate) language: Option<String>,
-    #[serde(default)]
-    pub(crate) duration_ms: Option<u64>,
-    #[serde(default)]
-    pub(crate) segments: Vec<TranscriptSegment>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TranscriptSegment {
-    pub(crate) start_ms: u64,
-    pub(crate) end_ms: u64,
-    pub(crate) text: String,
-    #[serde(default)]
-    pub(crate) speaker: Option<String>,
-    #[serde(default)]
-    pub(crate) channel: Option<i64>,
-    #[serde(default)]
-    pub(crate) words: Vec<TranscriptWord>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TranscriptWord {
-    pub(crate) start_ms: u64,
-    pub(crate) end_ms: u64,
-    pub(crate) text: String,
-}
+#[path = "audio_transcription_types.rs"]
+mod types;
+pub(crate) use types::{JobResult, Transcript};
 
 pub(crate) async fn initialize(
     conn: &sea_orm::DatabaseConnection,
@@ -214,6 +138,30 @@ pub(crate) async fn query(
     parse_job(data)
 }
 
+pub(crate) async fn flash(
+    conn: &sea_orm::DatabaseConnection,
+    ticket: UploadTicket,
+    language: &str,
+    options: AudioTranscriptionOptions,
+) -> Result<Transcript, AudioToolFailure> {
+    let data = post(
+        conn,
+        "/v1/voice/transcriptions/flash",
+        json!({
+            "fileUrl": ticket.file_url,
+            "language": language,
+            "options": options,
+        }),
+    )
+    .await?;
+    let transcript = serde_json::from_value::<Transcript>(data)
+        .map_err(|_| AudioToolFailure::invalid_response())?;
+    if transcript.text.trim().is_empty() {
+        return Err(AudioToolFailure::invalid_response());
+    }
+    Ok(transcript)
+}
+
 async fn post(
     conn: &sea_orm::DatabaseConnection,
     path: &str,
@@ -239,12 +187,19 @@ async fn send_gateway(request: RequestBuilder) -> Result<Value, AudioToolFailure
         .map_err(|_| AudioToolFailure::invalid_response())?;
     if !status.is_success() {
         tracing::warn!(status = %status, "[AudioTranscription] Fusion request rejected");
-        return Err(AudioToolFailure::request_failed());
+        return Err(AudioToolFailure::gateway(None));
     }
     if envelope.code == 1 {
         Ok(envelope.data)
     } else {
-        Err(AudioToolFailure::request_failed())
+        let code = envelope.data.get("errorCode").and_then(Value::as_str);
+        tracing::warn!(
+            business_code = envelope.code,
+            error_code = code.unwrap_or("unknown"),
+            message_present = !envelope.message.trim().is_empty(),
+            "[AudioTranscription] Fusion business request rejected"
+        );
+        Err(AudioToolFailure::gateway(code))
     }
 }
 

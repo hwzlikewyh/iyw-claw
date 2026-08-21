@@ -10,7 +10,7 @@
 //! `check_user_feedback` (pull the user's mid-turn steering notes),
 //! `ask_user_question` (block on a multiple-choice card), and `get_session_info`
 //! (resolve a referenced session by id), `show_image`, `analyze_image`,
-//! `transcribe_audio`, `query_audio_transcription`,
+//! `transcribe_audio`, `transcribe_audio_flash`, `query_audio_transcription`,
 //! `append_user_memory`, `propose_user_memory`, and scheduled-task CRUD — whose schemas are embedded at compile
 //! time from [`TOOL_SCHEMA_JSON`] and gated by the `--features` groups (delegation
 //! / feedback / ask / sessions / images / memory / memory-proposal). Only `delegate_to_agent` registers a broker-side
@@ -252,7 +252,7 @@ impl CompanionFeatures {
             "ask_user_question" => self.ask,
             "get_session_info" => self.sessions,
             "show_image" | "analyze_image" => self.images,
-            "transcribe_audio" | "query_audio_transcription" => true,
+            "transcribe_audio" | "transcribe_audio_flash" | "query_audio_transcription" => true,
             "append_user_memory" => self.memory,
             "propose_user_memory" => self.memory_proposal,
             "memory_recall" => self.memory_recall,
@@ -722,9 +722,11 @@ enum ToolFamily {
 
 fn tool_family(name: &str) -> ToolFamily {
     match name {
-        "show_image" | "analyze_image" | "transcribe_audio" | "query_audio_transcription" => {
-            ToolFamily::Media
-        }
+        "show_image"
+        | "analyze_image"
+        | "transcribe_audio"
+        | "transcribe_audio_flash"
+        | "query_audio_transcription" => ToolFamily::Media,
         "list_scheduled_task_projects"
         | "list_scheduled_tasks"
         | "create_scheduled_task"
@@ -778,6 +780,17 @@ async fn dispatch_media_tool(bridge: CompanionBridge, call: ToolInvocation) -> L
                 context,
                 backend,
                 AudioToolCall::Transcribe,
+            )
+            .await
+        }
+        "transcribe_audio_flash" => {
+            register_and_spawn_audio(
+                inflight,
+                call.id,
+                call.arguments,
+                context,
+                backend,
+                AudioToolCall::Flash,
             )
             .await
         }
@@ -1329,6 +1342,7 @@ async fn execute_image_analysis_call(
 #[derive(Clone, Copy)]
 enum AudioToolCall {
     Transcribe,
+    Flash,
     Query,
 }
 
@@ -1384,7 +1398,15 @@ async fn execute_audio_call(
     call: AudioToolCall,
 ) -> JsonRpcResponse {
     let result = match call {
-        AudioToolCall::Transcribe => execute_audio_transcription(arguments, ctx, backend).await,
+        AudioToolCall::Transcribe | AudioToolCall::Flash => {
+            execute_audio_transcription(
+                arguments,
+                ctx,
+                backend,
+                matches!(call, AudioToolCall::Flash),
+            )
+            .await
+        }
         AudioToolCall::Query => execute_audio_query(arguments, ctx, backend).await,
     };
     ok(response_id, result)
@@ -1394,14 +1416,17 @@ async fn execute_audio_transcription(
     arguments: Value,
     ctx: CompanionContext,
     backend: DelegationBackend,
+    flash: bool,
 ) -> Value {
     let input = match crate::acp::delegation::audio_tool::prepare_transcribe(arguments) {
         Ok(input) => input,
         Err(result) => return result,
     };
+    let source = input.source();
     let request = BrokerAudioTranscriptionRequest {
         token: ctx.token,
-        path: input.path,
+        source,
+        flash,
         language: input.language,
         options: input.options,
     };
@@ -1452,17 +1477,12 @@ fn render_audio_result(outcome: Value) -> Value {
     if outcome.get("isError").and_then(Value::as_bool) == Some(true) {
         let code = structured
             .get("code")
+            .or_else(|| structured.get("errorCode"))
             .and_then(Value::as_str)
             .unwrap_or("audio_transcription_failed");
         let (code, message) = safe_audio_error(code);
         return crate::acp::delegation::audio_tool::error_result(code, message);
     }
-    let Some(job_id) = structured.get("jobId").and_then(Value::as_str) else {
-        return crate::acp::delegation::audio_tool::error_result(
-            "audio_transcription_invalid_response",
-            "The audio transcription host returned an invalid result.",
-        );
-    };
     let Some(status) = structured.get("status").and_then(Value::as_str) else {
         return crate::acp::delegation::audio_tool::error_result(
             "audio_transcription_invalid_response",
@@ -1470,12 +1490,22 @@ fn render_audio_result(outcome: Value) -> Value {
         );
     };
     let transcript = structured.get("transcript").cloned().unwrap_or(Value::Null);
+    let job_id = structured.get("jobId").and_then(Value::as_str);
     let text = transcript
         .get("text")
         .and_then(Value::as_str)
         .filter(|text| !text.trim().is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| format!("Transcription job {job_id} is {status}."));
+        .unwrap_or_else(|| match job_id {
+            Some(job_id) => format!("Transcription job {job_id} is {status}."),
+            None => format!("Transcription is {status}."),
+        });
+    if job_id.is_none() && transcript.is_null() {
+        return crate::acp::delegation::audio_tool::error_result(
+            "audio_transcription_invalid_response",
+            "The audio transcription host returned an invalid result.",
+        );
+    }
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": false,
@@ -1492,6 +1522,26 @@ fn safe_audio_error(code: &str) -> (&'static str, &'static str) {
         "audio_transcription_invalid_path" => (
             "audio_transcription_invalid_path",
             "Audio path must be a readable workspace-relative audio file.",
+        ),
+        "audio_transcription_invalid_source" => (
+            "audio_transcription_invalid_source",
+            "Provide exactly one readable audio path, HTTPS URL, or data source.",
+        ),
+        "audio_transcription_invalid_url" => (
+            "audio_transcription_invalid_url",
+            "Audio URLs must use HTTPS and resolve to a public address.",
+        ),
+        "audio_transcription_invalid_data" => (
+            "audio_transcription_invalid_data",
+            "The audio data is not valid Base64 or a supported Data URI.",
+        ),
+        "audio_transcription_too_large" => (
+            "audio_transcription_too_large",
+            "The audio source exceeds the selected transcription size limit.",
+        ),
+        "audio_transcription_duration_exceeded" => (
+            "audio_transcription_duration_exceeded",
+            "Flash transcription accepts audio up to two hours long.",
         ),
         "audio_transcription_invalid_arguments" => (
             "audio_transcription_invalid_arguments",
@@ -1512,6 +1562,34 @@ fn safe_audio_error(code: &str) -> (&'static str, &'static str) {
         "audio_transcription_upload_failed" => (
             "audio_transcription_upload_failed",
             "The audio file could not be uploaded.",
+        ),
+        "audio_transcription_download_failed" => (
+            "audio_transcription_download_failed",
+            "The audio URL could not be downloaded.",
+        ),
+        "audio_transcription_converter_unavailable" => (
+            "audio_transcription_converter_unavailable",
+            "ffmpeg is required to convert this audio format but is not available.",
+        ),
+        "audio_transcription_conversion_failed" => (
+            "audio_transcription_conversion_failed",
+            "The audio source could not be converted to a supported format.",
+        ),
+        "audio_transcription_provider_unavailable" => (
+            "audio_transcription_provider_unavailable",
+            "The transcription provider is not configured or temporarily unavailable.",
+        ),
+        "audio_transcription_option_unsupported" => (
+            "audio_transcription_option_unsupported",
+            "The selected transcription mode does not support these options.",
+        ),
+        "audio_transcription_upload_invalid" => (
+            "audio_transcription_upload_invalid",
+            "The managed audio upload is unavailable for this account.",
+        ),
+        "audio_transcription_provider_failed" | "VOICE_TRANSCRIPTION_FAILED" => (
+            "audio_transcription_provider_failed",
+            "The upstream transcription provider could not process the audio.",
         ),
         "audio_transcription_request_failed" => (
             "audio_transcription_request_failed",

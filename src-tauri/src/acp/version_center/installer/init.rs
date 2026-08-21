@@ -21,19 +21,18 @@ use serde::Serialize;
 use super::bootstrap_commit::mark_component_failed;
 use super::bootstrap_component::prepare_tool_components;
 use super::bootstrap_finalize::commit_prepared_components;
+use super::bootstrap_reconcile::reconcile_active_components;
 use super::manifest::{
     active_versions, digest_managed_root, read_manifest, read_pending_activations,
     PendingActivation,
 };
 use super::migration::{migration_receipt, run_legacy_migration};
 use super::resumable::DownloadProgress;
-use super::state::{acquire_writer_lock, read_state, write_state, BootstrapState, InitPhase};
+use super::state::{acquire_writer_lock, read_state, write_state, InitPhase};
 use crate::app_error::AppCommandError;
 use crate::web::event_bridge::{emit_event, EventEmitter};
 
 pub const BOOTSTRAP_INIT_EVENT: &str = "app://bootstrap-init";
-const TOOL_COMPONENTS: [&str; 3] = ["node", "git", "uv"];
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapInitEvent {
@@ -114,6 +113,7 @@ pub async fn bootstrap_init_status(data_dir: &Path) -> Result<InitStatusReport, 
 pub async fn bootstrap_initialize(
     conn: &DatabaseConnection,
     data_dir: &Path,
+    resource_dir: Option<&Path>,
     channel: &str,
     defer_while_active: bool,
     task_id: &str,
@@ -136,8 +136,29 @@ pub async fn bootstrap_initialize(
     // 一次性旧目录迁移（幂等 receipt）。
     let _migrated = run_legacy_migration(data_dir).await?.receipt_written;
 
+    if !defer_while_active {
+        if let Some(resource_dir) = resource_dir {
+            if let Err(error) =
+                super::runtime_seed::import_runtime_seed(super::runtime_seed::RuntimeSeedImport {
+                    conn,
+                    data_dir,
+                    resource_dir,
+                    task_id,
+                    emitter,
+                })
+                .await
+            {
+                tracing::warn!(
+                    error_code = ?error.code,
+                    "[runtime-seed] seed manifest rejected; continuing with Version Center"
+                );
+            }
+        }
+    }
+
     let mut state = read_state(data_dir).await?;
-    if state.phase == InitPhase::Ready && components_all_ready(&state) {
+    let mut manifest = read_manifest(data_dir).await?;
+    if reconcile_active_components(data_dir, &mut state, &manifest).await? {
         return bootstrap_init_status(data_dir).await;
     }
 
@@ -145,7 +166,6 @@ pub async fn bootstrap_initialize(
     write_state(data_dir, &state).await?;
     emit_init_event(emitter, task_id, "resolving", None, "");
 
-    let mut manifest = read_manifest(data_dir).await?;
     let active = active_versions(&manifest);
 
     // 准备阶段不写 inventory、manifest 或 active pointer，可以并行 resolve、
@@ -249,14 +269,6 @@ pub(super) fn emit_init_progress(
             message: String::new(),
         },
     );
-}
-
-fn components_all_ready(state: &BootstrapState) -> bool {
-    TOOL_COMPONENTS.iter().all(|tool_id| {
-        state
-            .component(tool_id)
-            .is_some_and(|checkpoint| checkpoint.installed && checkpoint.active)
-    })
 }
 
 fn phase_label(phase: InitPhase) -> &'static str {

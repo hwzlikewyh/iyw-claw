@@ -34,6 +34,7 @@ pub(crate) use installer::{
     pending_agent_activation_version, persisted_activation_revision, runtime_dir,
     write_current_pointer, ManagedBinaryAgentRequest,
 };
+pub(crate) use installer::{import_runtime_seed_exclusive, RuntimeSeedImport};
 pub(crate) use installer::{
     install_runtime_bundle, InstalledRuntimeBundle, RuntimeBundleInstallError, RuntimeBundleRequest,
 };

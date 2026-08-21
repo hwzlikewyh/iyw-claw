@@ -1,6 +1,6 @@
 "use client"
 
-import { Circle, Flame, Zap } from "lucide-react"
+import { Circle, Gauge, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface SessionConfigValueIconProps {
@@ -49,28 +49,10 @@ export function SessionConfigValueIcon({
 
   if (!isReasoningConfig(id)) return null
 
-  if (normalizedValue === "xhigh" || normalizedValue === "extra-high") {
-    return (
-      <Flame
-        aria-hidden="true"
-        className={cn("size-4 text-muted-foreground", className)}
-      />
-    )
-  }
-
-  const sizeClass =
-    normalizedValue === "high"
-      ? "size-3"
-      : normalizedValue === "medium"
-        ? "size-2.5"
-        : normalizedValue === "low"
-          ? "size-2"
-          : "size-1.5"
-
   return (
-    <Circle
+    <Gauge
       aria-hidden="true"
-      className={cn(sizeClass, "fill-current text-muted-foreground", className)}
+      className={cn("size-4 text-muted-foreground", className)}
     />
   )
 }

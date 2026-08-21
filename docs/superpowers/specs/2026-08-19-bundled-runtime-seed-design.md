@@ -64,20 +64,17 @@ NSIS、DMG 和 Linux 包分别实现解压、校验和迁移。跨平台脚本�
 runtime-seed/
   manifest.json
   components/
-    node/<version>/<platform>/...
-    git/<version>/<platform>/...
-    uv/<version>/<platform>/uv
-    codex-acp/<version>/<platform>/npm-prefix/...
-  licenses/
-    node.txt
-    git.txt
-    uv.txt
-    codex-acp.txt
+    node-<target>.tar.gz
+    git-<target>.tar.gz
+    uv-<target>.tar.gz
+    codex-acp-<target>.tar.gz
 ```
 
 Windows x86 构建不生成 `runtime-seed`，保持当前逻辑。
 
-`manifest.json` 至少包含 schema 版本、Claw 版本、target、arch、每个组件的版本、来源、包类型、相对入口、文件列表、总大小和 SHA-256。所有路径必须是相对路径，禁止 `..`、绝对路径和符号链接越界。
+`manifest.json` 至少包含 schema 版本、Claw 版本、target、arch、每个组件的版本、归档相对路径、归档大小和 SHA-256，以及解包后的入口、文件列表、总大小和组件摘要。所有路径必须是相对路径，禁止 `..`、绝对路径、符号链接、硬链接、重复路径和未声明文件。
+
+组件分别归档是升级性能边界：安装器只需落盘少量只读归档；应用启动时先比较受管库存版本，只有缺失或落后的组件才读取并解包自己的归档。环境版本没有变化时不创建 staging、不读取归档内容，也不覆盖现有 runtime。
 
 ### 版本与覆盖规则
 
@@ -86,10 +83,11 @@ Windows x86 构建不生成 `runtime-seed`，保持当前逻辑。
 3. 没有有效 active 版本，或 active 版本低于种子版本时，按组件导入种子。
 4. 每个组件独立校验、激活和记录；Node、uv、Git 任一失败不阻塞其它组件，但 Codex 激活必须同时满足 Node 版本要求和 npm prefix 完整性。
 5. 版本中心远端 offer 始终可以提供更高版本；远端激活成功后不被旧种子降级。
+6. 应用更新但四个 active 组件均满足种子版本时，种子导入阶段必须零解包、零覆盖；只有版本发生变化的组件进入 staging。
 
 ### 启动与回退
 
-种子导入采用 `staging -> verify -> atomic activate -> inventory commit`，沿用现有 runtime installer 的临时目录、文件同步、回滚和 trash 机制。导入只在进程启动阶段或显式 runtime bootstrap 操作中执行，不在请求热路径执行。
+种子导入采用 `version gate -> archive verify -> staging extract -> file verify -> atomic activate -> inventory commit`，沿用现有 runtime installer 的临时目录、文件同步、回滚和 trash 机制。每个组件独立执行；导入只在进程启动阶段或显式 runtime bootstrap 操作中执行，不在请求热路径执行。
 
 启动探测顺序：
 

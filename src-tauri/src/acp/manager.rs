@@ -1378,6 +1378,9 @@ impl ConnectionManager {
         self.require_agent_launch_policy(agent_type, true).await?;
         self.validate_agent_image_inputs(agent_type, &state_arc, &blocks)
             .await?;
+        let artifact_context =
+            crate::acp::task_artifact_delivery::prepare_turn_context(&state_arc, conn_id).await;
+        let private_context = combine_prompt_context(private_context, artifact_context);
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.

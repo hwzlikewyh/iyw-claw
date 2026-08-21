@@ -1,5 +1,6 @@
 import {
   Archive,
+  BookOpenCheck,
   Bot,
   Command,
   File,
@@ -8,9 +9,12 @@ import {
   FileSpreadsheet,
   FileText,
   Folder,
+  Focus,
   GitCommit,
   Hash,
   MessageSquare,
+  RefreshCw,
+  Sparkles,
 } from "lucide-react"
 import type { ReactNode } from "react"
 
@@ -19,6 +23,7 @@ import { isAgentType } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 import type { ReferenceAttrs } from "../types"
+import { isTaskReference } from "../composer-commands"
 
 const ICON_CLASS = "size-3.5 shrink-0"
 
@@ -125,10 +130,23 @@ export function ReferenceIcon({
       icon = <GitCommit className={ICON_CLASS} />
       break
     case "skill":
-      // Commands, skills and experts all use the command glyph — they aren't
-      // visually distinguished (the `meta.scope` distinction is kept only for
-      // the editor's expert-replace logic, not the icon).
-      icon = <Command className={ICON_CLASS} />
+      if (isTaskReference(data)) {
+        icon =
+          data.id
+            .trim()
+            .replace(/^[/$]+/, "")
+            .toLowerCase() === "loop" ? (
+            <RefreshCw className={ICON_CLASS} />
+          ) : (
+            <Focus className={ICON_CLASS} />
+          )
+      } else if (meta?.scope === "expert") {
+        icon = <Sparkles className={ICON_CLASS} />
+      } else if (meta?.scope != null) {
+        icon = <BookOpenCheck className={ICON_CLASS} />
+      } else {
+        icon = <Command className={ICON_CLASS} />
+      }
       break
     default:
       return null
@@ -145,26 +163,39 @@ export function ReferenceIcon({
 }
 
 /**
- * Per-kind text color (light + dark) — no background or border, so the badge
- * reads as a colored inline token that sits cleanly on the user-message bubble
- * (`bg-secondary`). `text-*` colors the label and, since the icon strokes with
- * `currentColor`, the icon too. Commands/skills/experts share one color (they
- * aren't distinguished). Light shades are `-700` so they clear WCAG AA contrast
- * on the near-white bubble; dark shades are `-400` for the near-black one.
+ * Per-kind low-saturation surface treatment. The border keeps inline references
+ * legible on both user and assistant message backgrounds without turning them
+ * into large pills.
  */
 function badgeColorClass(data: ReferenceAttrs): string {
   switch (data.refType) {
     case "file":
-      return "text-blue-700 dark:text-blue-400"
+      return "border-border/70 bg-muted/45 text-foreground/80"
     case "agent":
-      return "text-violet-700 dark:text-violet-400"
+      return "border-cyan-500/25 bg-cyan-500/[0.07] text-cyan-800 dark:text-cyan-300"
     case "session":
-      return "text-emerald-700 dark:text-emerald-400"
+      return "border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-800 dark:text-emerald-300"
     case "commit":
-      return "text-amber-700 dark:text-amber-400"
+      return "border-amber-500/25 bg-amber-500/[0.07] text-amber-800 dark:text-amber-300"
     case "skill":
-      return "text-rose-700 dark:text-rose-400"
+      if (isTaskReference(data)) {
+        return "border-sky-500/25 bg-sky-500/[0.07] text-sky-800 dark:text-sky-300"
+      }
+      if (data.meta?.scope === "expert") {
+        return "border-amber-500/25 bg-amber-500/[0.07] text-amber-800 dark:text-amber-300"
+      }
+      if (data.meta?.scope != null) {
+        return "border-violet-500/25 bg-violet-500/[0.07] text-violet-800 dark:text-violet-300"
+      }
+      return "border-border/70 bg-muted/45 text-foreground/80"
   }
+}
+
+function referenceCategory(data: ReferenceAttrs): string {
+  if (data.refType !== "skill") return data.refType
+  if (isTaskReference(data)) return "task"
+  if (data.meta?.scope === "expert") return "expert"
+  return data.meta?.scope != null ? "skill" : "command"
 }
 
 export interface ReferenceBadgeProps {
@@ -190,9 +221,9 @@ export function ReferenceBadge({ data, className }: ReferenceBadgeProps) {
       // bare span's aria-label is not), and collapses the decorative icon —
       // including AgentIcon's titled <svg> — into that one name.
       role="img"
-      aria-label={`${data.refType}: ${label}`}
+      aria-label={`${referenceCategory(data)}: ${label}`}
       className={cn(
-        "inline-flex max-w-[18rem] items-center gap-0.5 align-middle text-[0.85em] font-medium leading-snug",
+        "inline-flex max-w-[18rem] items-center gap-1 rounded-[4px] border px-1.5 py-0.5 align-middle text-[0.82em] font-medium leading-none",
         badgeColorClass(data),
         className
       )}

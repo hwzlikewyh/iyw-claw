@@ -200,6 +200,42 @@ function verifyInstalledSidecars(
     logFile,
     sha256,
   })
+  verifyInstalledRuntimeSeed(appDirectory, target)
+}
+
+function verifyInstalledRuntimeSeed(appDirectory, target) {
+  const seedRoot = join(appDirectory, "runtime-seed")
+  if (target === "i686-pc-windows-msvc") {
+    if (existsSync(seedRoot))
+      die(`Windows x86 must not install runtime seed: ${seedRoot}`)
+    return
+  }
+  const manifestPath = join(seedRoot, "manifest.json")
+  requireNonEmptyFile(manifestPath, "installed runtime seed manifest")
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
+  if (
+    manifest.schemaVersion !== 2 ||
+    manifest.target !== target ||
+    manifest.components?.length !== 4
+  ) {
+    die(`installed runtime seed does not match ${target}: ${manifestPath}`)
+  }
+  for (const component of manifest.components) {
+    const archive = resolve(seedRoot, component.archive ?? "")
+    if (!archive.startsWith(`${resolve(seedRoot)}\\`))
+      die(`installed runtime seed archive escaped resource root: ${archive}`)
+    requireNonEmptyFile(archive, `installed ${component.id} runtime seed`)
+    const metadata = lstatSync(archive)
+    if (
+      metadata.size !== component.archiveSize ||
+      sha256(archive) !== component.archiveSha256
+    ) {
+      die(`installed runtime seed archive is invalid: ${archive}`)
+    }
+  }
+  log(
+    `installed runtime seed verified: target=${target} components=${manifest.components.map((item) => item.id).join(",")}`
+  )
 }
 
 function stagedHashes(target, version) {

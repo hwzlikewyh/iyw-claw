@@ -407,6 +407,19 @@ pub(crate) async fn handle_event(
                     }
                 }
             }
+            if stop_reason == "end_turn" {
+                crate::acp::task_artifact_delivery::deliver_completed_turn(
+                    crate::acp::task_artifact_delivery::CompletedTurnDelivery {
+                        db: db_conn,
+                        state: &state_arc,
+                        emitter: &emitter,
+                        connection_id: &envelope.connection_id,
+                        conversation_id: cid,
+                        turn_generation,
+                    },
+                )
+                .await;
+            }
 
             // If this conversation was spawned by a delegation, resolve the
             // pending broker call. The broker maps the outcome onto the

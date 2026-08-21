@@ -15,7 +15,8 @@ use super::manifest::{
 use super::preflight::{ensure_disk_headroom, InstallEstimate};
 use super::resumable::{download_resumable, DownloadProgress};
 use super::runtime::{
-    read_current_pointer, restore_current_pointer, runtime_dir, staging_dir, write_current_pointer,
+    active_tool_is_healthy, read_current_pointer, restore_current_pointer, runtime_dir,
+    staging_dir, write_current_pointer,
 };
 use super::signature::verify_tool_signature;
 use crate::acp::version_center::capability::{self, RUNTIME};
@@ -93,6 +94,28 @@ pub async fn install_managed_tool(
     capability::validate_node_offer_for_active_deepseek(conn, &offer)
         .await
         .map_err(AppCommandError::invalid_input)?;
+    if should_keep_active(ActiveOfferCheck {
+        data_dir,
+        tool_id,
+        active: current_version,
+        offered: &offer.version,
+        automatic: requested_version.is_none(),
+    })
+    .await
+    {
+        tracing::info!(
+            tool_id,
+            active_version = current_version,
+            offered_version = %offer.version,
+            "[agent-version-center] active tool satisfies offer; skipping install"
+        );
+        return Ok(ManagedToolInstallResult {
+            tool_id: tool_id.to_string(),
+            version: current_version.to_string(),
+            catalog_revision: offer.revision,
+            deferred: false,
+        });
+    }
     install_offer(
         conn,
         data_dir,
@@ -154,9 +177,6 @@ async fn install_offer_inner(
     task_id: Option<&str>,
     emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
-    tokio::fs::create_dir_all(stage)
-        .await
-        .map_err(AppCommandError::io)?;
     let final_dir = runtime_dir(data_dir, &offer.tool_id, &offer.version)?;
     let expected_marker = managed_marker(offer);
 
@@ -212,6 +232,10 @@ async fn install_offer_inner(
             deferred: true,
         });
     }
+
+    tokio::fs::create_dir_all(stage)
+        .await
+        .map_err(AppCommandError::io)?;
 
     let ticket = AgentPlatformClient::download_tool(
         conn,
@@ -460,6 +484,27 @@ async fn install_offer_inner(
         catalog_revision: confirmed.revision,
         deferred: false,
     })
+}
+
+struct ActiveOfferCheck<'a> {
+    data_dir: &'a Path,
+    tool_id: &'a str,
+    active: &'a str,
+    offered: &'a str,
+    automatic: bool,
+}
+
+async fn should_keep_active(check: ActiveOfferCheck<'_>) -> bool {
+    if check.active.is_empty() || (!check.automatic && check.active != check.offered) {
+        return false;
+    }
+    let satisfies = check.active == check.offered
+        || check.automatic
+            && semver::Version::parse(check.active)
+                .ok()
+                .zip(semver::Version::parse(check.offered).ok())
+                .is_some_and(|(active, offered)| active >= offered);
+    satisfies && active_tool_is_healthy(check.data_dir, check.tool_id, check.active).await
 }
 
 fn managed_marker(offer: &ToolOffer) -> OwnershipMarker {

@@ -1,7 +1,7 @@
 {
   "name": "iyw-claw",
   "private": true,
-  "version": "0.1.91",
+  "version": "0.1.92",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "dev": "next dev --turbopack",
@@ -27,6 +27,9 @@
     "server:build": "cd src-tauri && cargo build --release --bin iyw-claw-server --no-default-features --features server-runtime",
     "server:dev": "cd src-tauri && cargo run --bin iyw-claw-server --no-default-features --features server-runtime",
     "tauri:prepare-sidecars": "node src-tauri/scripts/prepare-sidecars.mjs",
+    "tauri:prepare-runtime-seed": "node src-tauri/scripts/prepare-runtime-seed.mjs",
+    "tauri:verify-runtime-seed": "node src-tauri/scripts/verify-runtime-seed.mjs",
+    "tauri:verify-bundle-size": "node src-tauri/scripts/verify-desktop-bundle-size.mjs",
     "tauri:verify-sidecars": "node src-tauri/scripts/verify-sidecar-bundle.mjs",
     "tauri:before-dev": "pnpm tauri:prepare-sidecars && pnpm dev",
     "tauri:before-build": "pnpm build && pnpm tauri:prepare-sidecars",
@@ -46,6 +49,7 @@
     "@streamdown/math": "^1.0.2",
     "@streamdown/mermaid": "^1.0.2",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.1",

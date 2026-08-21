@@ -8,16 +8,26 @@
 use std::fs;
 use std::io;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
 const PREFERENCES_FILE_NAME: &str = "preferences.json";
 const APP_DIR_NAME: &str = ".iyw-claw";
+static PREFERENCES_LOCK: Mutex<()> = Mutex::new(());
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloseBehavior {
+    Tray,
+    Exit,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct AppPreferences {
     pub disable_hardware_acceleration: bool,
+    pub close_behavior: Option<CloseBehavior>,
 }
 
 pub fn preferences_file_path() -> Option<PathBuf> {
@@ -28,6 +38,24 @@ pub fn preferences_file_path() -> Option<PathBuf> {
 /// returns `Default::default()`. Errors are intentionally swallowed because
 /// this is called on the startup hot-path; callers log if needed.
 pub fn load() -> AppPreferences {
+    let _guard = lock_preferences();
+    load_unlocked()
+}
+
+pub fn update(mutator: impl FnOnce(&mut AppPreferences)) -> io::Result<()> {
+    let _guard = lock_preferences();
+    let mut prefs = load_unlocked();
+    mutator(&mut prefs);
+    save_unlocked(&prefs)
+}
+
+fn lock_preferences() -> MutexGuard<'static, ()> {
+    PREFERENCES_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn load_unlocked() -> AppPreferences {
     let Some(path) = preferences_file_path() else {
         return AppPreferences::default();
     };
@@ -41,7 +69,7 @@ pub fn load() -> AppPreferences {
     }
 }
 
-pub fn save(prefs: &AppPreferences) -> io::Result<()> {
+fn save_unlocked(prefs: &AppPreferences) -> io::Result<()> {
     let path = preferences_file_path()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "home directory unavailable"))?;
     if let Some(parent) = path.parent() {

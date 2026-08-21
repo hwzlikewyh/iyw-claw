@@ -61,6 +61,12 @@ src-tauri/binaries/
 src-tauri/resources/runtime/downloads/
 src-tauri/resources/runtime/npm/
 
+# Platform-specific bundled runtime seed generated immediately before Tauri build.
+src-tauri/resources/runtime-seed/
+src-tauri/resources/runtime-seed-staging-*/
+.runtime-seed-cache/
+src-tauri/tauri.runtime-seed.conf.json
+
 # pnpm local store (pnpm 11+)
 .pnpm-store/
 
