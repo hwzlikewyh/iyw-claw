@@ -775,13 +775,31 @@ async fn handle_session_load_failure(
         connection_id,
     )
     .await;
-    if !external_id_cleared {
+    let failed_route_is_current = {
+        let guard = bridge.lock().await;
+        guard.is_failed_route_generation(&session)
+    };
+    let already_cleared = if external_id_cleared || !failed_route_is_current {
+        false
+    } else {
+        conversation_service::get_by_id(db, session.conversation_id)
+            .await
+            .is_ok_and(|conversation| conversation.external_id.is_none())
+    };
+    if !external_id_cleared && !already_cleared {
         tracing::info!(
             connection_id,
             conversation_id = session.conversation_id,
             "[SessionEventSub] stale recovery failure ignored"
         );
         return;
+    }
+    if already_cleared {
+        tracing::info!(
+            connection_id,
+            conversation_id = session.conversation_id,
+            "[SessionEventSub] continuing recovery failure after prior external id cleanup"
+        );
     }
     let retrying = session.recovery_prompt.is_some();
     let body = session_load_failure_message(lang, message, retrying);
@@ -990,6 +1008,22 @@ async fn promote_fallback_session(
     db: &DatabaseConnection,
     failed: &ActiveSession,
 ) -> bool {
+    let stored_external_id = conversation_service::get_by_id(db, failed.conversation_id)
+        .await
+        .ok()
+        .and_then(|conversation| conversation.external_id);
+    let expected_external_id = match stored_external_id.as_deref() {
+        Some(value) if failed.observed_session_id.as_deref() == Some(value) => Some(value),
+        None => None,
+        _ => {
+            tracing::info!(
+                connection_id = %failed.connection_id,
+                conversation_id = failed.conversation_id,
+                "[ChatChannel] stale fallback generation ignored"
+            );
+            return false;
+        }
+    };
     let candidate = {
         let mut guard = bridge.lock().await;
         let Some(candidate) = guard.fallback_candidate(failed) else {
@@ -1005,7 +1039,7 @@ async fn promote_fallback_session(
         let persisted = conversation_binding_service::persist_session_start(
             db,
             candidate.conversation_id,
-            Some(&candidate.session_id),
+            expected_external_id,
             &candidate.session_id,
             Some((candidate.channel_id, &route)),
         )

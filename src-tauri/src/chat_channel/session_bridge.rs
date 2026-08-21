@@ -1,5 +1,8 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Instant;
+
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::acp::types::PermissionOptionInfo;
 use crate::chat_channel::types::{ChannelMessageTarget, SentMessageId};
@@ -64,6 +67,7 @@ pub struct SessionBridge {
     sessions: HashMap<String, ActiveSession>,
     registrations: HashMap<String, u64>,
     next_registration: u64,
+    route_gates: HashMap<(i32, String), Arc<AsyncMutex<()>>>,
 }
 
 pub enum RouteActivation {
@@ -89,13 +93,60 @@ impl SessionBridge {
         Self::default()
     }
 
-    pub fn register(&mut self, connection_id: String, session: ActiveSession) {
+    pub fn route_gate(&mut self, channel_id: i32, route_key: &str) -> Arc<AsyncMutex<()>> {
+        self.route_gates
+            .entry((channel_id, route_key.to_string()))
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
+    }
+
+    pub async fn acquire_route_gate(
+        bridge: &Arc<AsyncMutex<Self>>,
+        channel_id: i32,
+        route_key: &str,
+    ) -> tokio::sync::OwnedMutexGuard<()> {
+        let gate = {
+            let mut guard = bridge.lock().await;
+            guard.route_gate(channel_id, route_key)
+        };
+        gate.lock_owned().await
+    }
+
+    pub async fn register_serialized(
+        bridge: &Arc<AsyncMutex<Self>>,
+        connection_id: String,
+        session: ActiveSession,
+    ) -> u64 {
+        let _gate_guard =
+            Self::acquire_route_gate(bridge, session.channel_id, &session.route_key).await;
+        let mut guard = bridge.lock().await;
+        guard.register(connection_id, session)
+    }
+
+    fn register(&mut self, connection_id: String, session: ActiveSession) -> u64 {
         self.next_registration = self.next_registration.saturating_add(1);
         let mut session = session;
         session.registration_generation = self.next_registration;
         self.registrations
             .insert(connection_id.clone(), self.next_registration);
         self.sessions.insert(connection_id, session);
+        self.next_registration
+    }
+
+    pub fn is_latest_route_generation(&self, connection_id: &str, generation: u64) -> bool {
+        self.sessions
+            .get(connection_id)
+            .is_some_and(|session| session.registration_generation == generation)
+            && self.is_latest_route_registration(connection_id)
+    }
+
+    pub fn is_failed_route_generation(&self, failed: &ActiveSession) -> bool {
+        self.sessions
+            .values()
+            .filter(|session| {
+                session.channel_id == failed.channel_id && session.route_key == failed.route_key
+            })
+            .all(|session| session.registration_generation <= failed.registration_generation)
     }
 
     pub fn remove(&mut self, connection_id: &str) -> Option<ActiveSession> {

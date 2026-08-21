@@ -517,7 +517,7 @@ pub async fn handle_task(
     }
 
     // Register in bridge (prompt will be sent after SessionStarted event).
-    {
+    let registration_generation = {
         let session = ActiveSession {
             channel_id,
             sender_id: sender_id.to_string(),
@@ -543,8 +543,8 @@ pub async fn handle_task(
             trace_id: trace_id.map(|s| s.to_string()),
             permission_pending: None,
         };
-        bridge.lock().await.register(connection_id.clone(), session);
-    }
+        SessionBridge::register_serialized(bridge, connection_id.clone(), session).await
+    };
     session_event_subscriber::catch_up_session_start(bridge, manager, conn_mgr, db, &connection_id)
         .await;
     if bridge.lock().await.get(&connection_id).is_none() {
@@ -568,6 +568,7 @@ pub async fn handle_task(
             lang,
             trace_id: trace_id.map(|s| s.to_string()),
             route_key: route.route_key.clone(),
+            registration_generation,
             previous_binding,
         }),
     }
@@ -772,7 +773,7 @@ pub async fn handle_resume(
             trace_id: trace_id.map(|s| s.to_string()),
             permission_pending: None,
         };
-        bridge.lock().await.register(connection_id.clone(), session);
+        SessionBridge::register_serialized(bridge, connection_id.clone(), session).await;
     }
     session_event_subscriber::catch_up_session_start(bridge, manager, conn_mgr, db, &connection_id)
         .await;
@@ -1493,7 +1494,7 @@ async fn register_active_session(
         trace_id,
         permission_pending: None,
     };
-    bridge.lock().await.register(connection_id, session);
+    SessionBridge::register_serialized(bridge, connection_id, session).await;
 }
 
 async fn remember_sender_session(

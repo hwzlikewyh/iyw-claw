@@ -44,6 +44,7 @@ pub enum CommandPostAction {
         lang: Lang,
         trace_id: Option<String>,
         route_key: String,
+        registration_generation: u64,
         previous_binding: Option<(String, i32)>,
     },
 }
@@ -76,42 +77,47 @@ pub async fn handle_post_action(
         lang,
         trace_id,
         route_key,
+        registration_generation,
         previous_binding,
     } = action;
-    let session_registered = bridge.lock().await.get(&connection_id).is_some();
-    if session_registered {
-        let is_latest = bridge
-            .lock()
-            .await
-            .is_latest_route_registration(&connection_id);
-        if !is_latest {
+    // Keep registration validation and prompt enqueue atomic with respect to
+    // route replacement. Otherwise a newer generation could register between
+    // the check and `send_prompt_linked`, receiving a kickoff for stale work.
+    let send_result = {
+        let _route_guard = SessionBridge::acquire_route_gate(bridge, channel_id, &route_key).await;
+        let guard = bridge.lock().await;
+        if !guard.is_latest_route_generation(&connection_id, registration_generation) {
             tracing::debug!(
                 connection_id = %connection_id,
-                "[ChatChannel] skipped post-action for superseded route"
+                generation = registration_generation,
+                "[ChatChannel] skipped post-action after route generation changed"
             );
             return None;
         }
-    }
-    if !session_registered {
-        let candidate_owns_route =
-            conversation_binding_service::find_by_route(db, channel_id, &route_key)
-                .await
-                .ok()
-                .flatten()
-                .is_some_and(|binding| binding.conversation_id == conversation_id);
-        if !candidate_owns_route {
+        drop(guard);
+        // This second check is intentionally adjacent to the enqueue call.
+        // The route gate held above prevents a concurrent registration from
+        // changing the generation between this check and the send.
+        let guard = bridge.lock().await;
+        if !guard.is_latest_route_generation(&connection_id, registration_generation) {
+            tracing::debug!(
+                connection_id = %connection_id,
+                generation = registration_generation,
+                "[ChatChannel] skipped post-action at send boundary"
+            );
             return None;
         }
-    }
-    let send_result = session_runtime::send_prompt_linked(
-        db,
-        connection_manager,
-        &connection_id,
-        folder_id,
-        conversation_id,
-        &text,
-    )
-    .await;
+        drop(guard);
+        session_runtime::send_prompt_linked(
+            db,
+            connection_manager,
+            &connection_id,
+            folder_id,
+            conversation_id,
+            &text,
+        )
+        .await
+    };
 
     // Record the kickoff in the message log so the end-to-end trace shows the
     // full chain even when the eventual AI reply fails later.

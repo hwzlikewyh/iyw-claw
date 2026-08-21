@@ -270,7 +270,8 @@ async fn register_session(
     conversation: &crate::models::conversation::DbConversationSummary,
     connection_id: &str,
 ) {
-    bridge.lock().await.register(
+    SessionBridge::register_serialized(
+        bridge,
         connection_id.to_string(),
         ActiveSession {
             channel_id: req.channel_id,
@@ -300,7 +301,8 @@ async fn register_session(
             trace_id: req.trace_id.map(|s| s.to_string()),
             permission_pending: None,
         },
-    );
+    )
+    .await;
 }
 
 async fn remember_topic_preferences(
