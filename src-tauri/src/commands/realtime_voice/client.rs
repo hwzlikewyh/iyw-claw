@@ -2,7 +2,11 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{http::Request, Message},
+    MaybeTlsStream, WebSocketStream,
+};
 
 use crate::app_error::AppCommandError;
 use crate::commands::skill_market::client as fusion_client;
@@ -53,13 +57,11 @@ pub(super) enum GatewayEvent {
 
 pub(super) async fn connect(token: &str) -> Result<VoiceSocket, AppCommandError> {
     let url = websocket_url()?;
-    let (mut socket, response) = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(url.as_str()))
+    let request = websocket_request(&url, token)?;
+    let (mut socket, response) = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(request))
         .await
         .map_err(|_| AppCommandError::network("Realtime voice connection timed out"))?
-        .map_err(|error| {
-            AppCommandError::network("Realtime voice connection failed")
-                .with_detail(error.to_string())
-        })?;
+        .map_err(connection_error)?;
     tracing::info!(
         status = %response.status(),
         "[RealtimeVoice] Fusion WebSocket connected"
@@ -67,6 +69,30 @@ pub(super) async fn connect(token: &str) -> Result<VoiceSocket, AppCommandError>
     send_auth(&mut socket, token).await?;
     wait_for_ready(&mut socket).await?;
     Ok(socket)
+}
+
+fn websocket_request(url: &reqwest::Url, token: &str) -> Result<Request<()>, AppCommandError> {
+    Request::builder()
+        .uri(url.as_str())
+        .header("token", token)
+        .body(())
+        .map_err(|error| {
+            AppCommandError::configuration_invalid("Invalid realtime voice gateway request")
+                .with_detail(error.to_string())
+        })
+}
+
+fn connection_error(error: tokio_tungstenite::tungstenite::Error) -> AppCommandError {
+    if let tokio_tungstenite::tungstenite::Error::Http(response) = &error {
+        let status = response.status();
+        let message = if status.is_success() || status.as_u16() == 400 {
+            "Realtime voice gateway did not accept the WebSocket upgrade"
+        } else {
+            "Realtime voice gateway rejected the WebSocket connection"
+        };
+        return AppCommandError::network(message).with_detail(status.to_string());
+    }
+    AppCommandError::network("Realtime voice connection failed").with_detail(error.to_string())
 }
 
 pub(super) fn parse_event(message: Message) -> Result<Option<GatewayEvent>, String> {
