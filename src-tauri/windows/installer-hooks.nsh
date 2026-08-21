@@ -8,17 +8,6 @@ Var IywClawInstallRegistryKey
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
 !include "${__FILEDIR__}\installer-test-mode.nsh"
 
-Function IywClawIsMainProcessRunning
-  ; 仅检查当前用户、本安装目录且真实路径匹配的主进程。
-  ; 原样返回 helper 状态：1=运行中，0=未运行，其他=查询失败。
-  Pop $R9
-  Push $R9
-  Push "check-main"
-  Call IywClawRunKnownProcessCommandAt
-  Pop $R5
-  Push $R5
-FunctionEnd
-
 Function IywClawRestoreLogicalInstallRoot
   Call IywClawConfigureInstallerMode
   StrCmp $IywClawInstallerTestMode "invalid" 0 +3
@@ -53,46 +42,9 @@ Function IywClawRestoreLogicalInstallRoot
     GetFullPathName $INSTDIR "$LOCALAPPDATA\iyw-claw"
 
   iyw_guiinit_done:
-    ; 基准测试安装不得检查或重启生产进程。
+    ; 测试模式不得检查或重启生产进程；普通手动安装也保持可见界面。
+    ; 应用内 updater 传入的 /P /R /UPDATE 仍由 Tauri 原生安装流程处理。
     StrCmp $IywClawInstallerTestMode "1" iyw_guiinit_return 0
-    ; A regular installer launch would show Tauri's reinstall choice page.
-    ; Relaunch an existing installation in passive update mode so the current
-    ; directory is reused and no uninstaller UI is shown.
-    ClearErrors
-    ${GetOptions} $CMDLINE "/UPDATE" $R6
-    IfErrors 0 iyw_guiinit_return
-    ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
-    StrCmp $R8 "" iyw_guiinit_return 0
-
-    Push "$R8\app"
-    Call IywClawIsMainProcessRunning
-    Pop $R5
-    StrCmp $R5 "1" iyw_relaunch_running_app 0
-    StrCmp $R5 "0" iyw_relaunch_stopped_app iyw_relaunch_query_failed
-
-    iyw_relaunch_stopped_app:
-    ExecWait '"$EXEPATH" /P /UPDATE' $R6
-    Goto iyw_relaunch_finished
-
-    iyw_relaunch_running_app:
-      ; Tauri 的 NSIS 模板在被动安装成功后识别 /R，并把 /ARGS 传给新进程。
-      ; 固定参数只表达本次需要恢复，不承载或拼接用户路由。
-      DetailPrint "检测到正在运行的 iyw-claw，安装完成后将恢复原页面。"
-      ExecWait '"$EXEPATH" /P /R /UPDATE /ARGS --restore-installer-session' $R6
-      Goto iyw_relaunch_finished
-
-    iyw_relaunch_query_failed:
-      DetailPrint "无法确认 iyw-claw 主进程状态，已停止更新。"
-      IfSilent iyw_relaunch_query_failed_quit 0
-      MessageBox MB_OK|MB_ICONSTOP \
-        "无法确认当前用户的 iyw-claw 是否正在运行。为避免不安全替换，本次更新已停止。"
-    iyw_relaunch_query_failed_quit:
-      SetErrorLevel 1
-      Quit
-
-    iyw_relaunch_finished:
-    SetErrorLevel $R6
-    Quit
 
   iyw_guiinit_return:
 FunctionEnd
@@ -233,9 +185,8 @@ FunctionEnd
   ${If} $UpdateMode = 1
     DetailPrint "已保留运行环境、受管组件、配置、数据和日志。"
   ${Else}
-    ; Node.js、Git、uv、Skill 与 Agent CLI 不再随安装包附带：首次启动时由
-    ; 桌面初始化流程按后端版本中心计划下载并原子激活。
-    DetailPrint "首次启动将按托管分发计划初始化运行环境，不会占用安装包体积。"
+    ; 安装包已包含基础运行时种子，首次启动校验后导入，失败才在线回退。
+    DetailPrint "首次启动将校验并导入基础运行时种子，失败后才在线回退。"
   ${EndIf}
 !macroend
 

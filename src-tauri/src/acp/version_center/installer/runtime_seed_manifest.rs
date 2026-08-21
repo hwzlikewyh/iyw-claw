@@ -92,7 +92,7 @@ impl RuntimeSeedManifest {
         let identity_matches = self.schema_version == SCHEMA_VERSION
             && self.created_by == CREATED_BY
             && self.app_version == env!("CARGO_PKG_VERSION")
-            && self.target == capability::current_target()
+            && self.target == capability::current_target_triple()
             && self.arch == capability::current_arch()
             && self.platform == platform_dir_name();
         if !identity_matches {

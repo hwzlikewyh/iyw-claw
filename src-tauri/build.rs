@@ -1,10 +1,17 @@
 fn main() {
+    export_target_triple();
+
     #[cfg(feature = "tauri-runtime")]
     {
         ensure_sidecar_placeholders();
         tauri_build::build();
         link_windows_test_manifest();
     }
+}
+
+fn export_target_triple() {
+    let target = std::env::var("TARGET").expect("Cargo TARGET is unavailable");
+    println!("cargo:rustc-env=IYW_CLAW_TARGET_TRIPLE={target}");
 }
 
 #[cfg(feature = "tauri-runtime")]

@@ -8,6 +8,7 @@ pub const CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const RUNTIME: &str = "desktop";
 pub const TARGET: &str = "windows";
 pub const ARCH: &str = "x86_64";
+pub const TARGET_TRIPLE: &str = env!("IYW_CLAW_TARGET_TRIPLE");
 
 pub const TOOL_IDS: [&str; 3] = ["git", "node", "uv"];
 
@@ -21,6 +22,10 @@ pub fn current_target() -> &'static str {
     } else {
         std::env::consts::OS
     }
+}
+
+pub fn current_target_triple() -> &'static str {
+    TARGET_TRIPLE
 }
 
 pub fn current_arch() -> &'static str {

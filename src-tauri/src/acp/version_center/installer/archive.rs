@@ -1,5 +1,7 @@
+use std::ffi::OsStr;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
+use std::process::Output;
 
 use crate::app_error::AppCommandError;
 
@@ -121,23 +123,65 @@ pub async fn probe_payload(
     for command in versioned {
         let text = probe_version_output(&command, bin_dir.as_deref()).await?;
         if !text.contains(version_core) {
-            return Err(AppCommandError::invalid_input(
-                "Managed tool probe returned an unexpected version",
-            ));
+            return Err(unexpected_version(tool_id, version_core, &text));
         }
     }
-    for command in companions {
-        probe_version_output(&command, bin_dir.as_deref()).await?;
+    if tool_id == "node" {
+        probe_npm_version(root, bin_dir.as_deref()).await?;
+    } else {
+        for command in companions {
+            probe_version_output(&command, bin_dir.as_deref()).await?;
+        }
     }
     Ok(())
+}
+
+async fn probe_npm_version(root: &Path, bin_dir: Option<&Path>) -> Result<(), AppCommandError> {
+    #[cfg(windows)]
+    {
+        return probe_windows_npm(root, bin_dir).await;
+    }
+    #[cfg(not(windows))]
+    {
+        probe_version_output(&root.join(npm_relative_path()), bin_dir)
+            .await
+            .map(|_| ())
+    }
+}
+
+#[cfg(windows)]
+async fn probe_windows_npm(root: &Path, bin_dir: Option<&Path>) -> Result<(), AppCommandError> {
+    let node = root.join(node_relative_path());
+    let cli = root
+        .join("node_modules")
+        .join("npm")
+        .join("bin")
+        .join("npm-cli.js");
+    if !cli.is_file() {
+        return Err(AppCommandError::invalid_input(
+            "Managed Node.js payload is missing npm CLI",
+        ));
+    }
+    run_probe(&node, &[cli.as_os_str(), OsStr::new("--version")], bin_dir)
+        .await
+        .map(|_| ())
 }
 
 async fn probe_version_output(
     command: &Path,
     bin_dir: Option<&Path>,
 ) -> Result<String, AppCommandError> {
-    let mut process = probe_command(command);
-    process.arg("--version");
+    let output = run_probe(command, &[OsStr::new("--version")], bin_dir).await?;
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+async fn run_probe(
+    command: &Path,
+    args: &[&OsStr],
+    bin_dir: Option<&Path>,
+) -> Result<Output, AppCommandError> {
+    let mut process = crate::process::tokio_command(command);
+    process.args(args);
     if let Some(bin_dir) = bin_dir {
         let path = std::env::join_paths(
             std::iter::once(bin_dir.to_path_buf()).chain(
@@ -152,36 +196,49 @@ async fn probe_version_output(
         process.env("PATH", path);
     }
     let output = process.output().await.map_err(|error| {
-        AppCommandError::task_execution_failed("Managed tool probe failed")
-            .with_detail(error.to_string())
+        AppCommandError::task_execution_failed("Managed tool probe failed").with_detail(format!(
+            "command={}; error={error}",
+            command
+                .file_name()
+                .unwrap_or_else(|| OsStr::new("unknown"))
+                .to_string_lossy()
+        ))
     })?;
-    if !output.status.success() {
-        return Err(AppCommandError::invalid_input(
-            "Managed tool probe returned an unexpected version",
-        ));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    ensure_probe_success(command, &output)?;
+    Ok(output)
 }
 
-#[cfg(not(windows))]
-fn probe_command(command: &Path) -> tokio::process::Command {
-    crate::process::tokio_command(command)
+fn ensure_probe_success(command: &Path, output: &Output) -> Result<(), AppCommandError> {
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(
+        AppCommandError::invalid_input("Managed tool probe returned an unexpected version")
+            .with_detail(format!(
+                "command={}; exit_code={:?}; stdout={}; stderr={}",
+                command
+                    .file_name()
+                    .unwrap_or_else(|| OsStr::new("unknown"))
+                    .to_string_lossy(),
+                output.status.code(),
+                summarize_probe_output(&output.stdout),
+                summarize_probe_output(&output.stderr),
+            )),
+    )
 }
 
-#[cfg(windows)]
-fn probe_command(command: &Path) -> tokio::process::Command {
-    if command
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("cmd"))
-    {
-        let shell = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
-        let mut process = crate::process::tokio_command(shell);
-        process
-            .args(["/D", "/S", "/C", "\"%IYW_CLAW_PROBE_COMMAND%\""])
-            .env("IYW_CLAW_PROBE_COMMAND", command);
-        return process;
-    }
-    crate::process::tokio_command(command)
+fn unexpected_version(tool_id: &str, expected: &str, actual: &str) -> AppCommandError {
+    AppCommandError::invalid_input("Managed tool probe returned an unexpected version").with_detail(
+        format!(
+            "tool={tool_id}; expected={expected}; output={}",
+            summarize_probe_output(actual.as_bytes())
+        ),
+    )
+}
+
+fn summarize_probe_output(bytes: &[u8]) -> String {
+    let value = String::from_utf8_lossy(bytes).trim().replace('\n', " ");
+    value.chars().take(512).collect()
 }
 
 fn has_unsafe_link_mode(mode: Option<u32>) -> bool {
