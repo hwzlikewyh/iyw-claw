@@ -4,7 +4,11 @@ import { lstat, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
-import { parseTarget, targetInfo } from "./runtime-seed-config.mjs"
+import {
+  parseTarget,
+  PINNED_NODE_VERSION,
+  targetInfo,
+} from "./runtime-seed-config.mjs"
 import { archiveTar, safeRelativePath } from "./runtime-seed-files.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
@@ -163,6 +167,10 @@ function expectedEntrypoints(id, platform) {
 async function verifyComponent(seedRoot, component, platform) {
   if (COMPONENT_KINDS[component.id] !== component.kind)
     throw new Error(`invalid component kind: ${component.id}`)
+  if (component.id === "node" && component.version !== PINNED_NODE_VERSION)
+    throw new Error(
+      `Node.js seed must stay pinned to ${PINNED_NODE_VERSION}, received ${component.version}`
+    )
   if (
     !safeRelativePath(component.archive) ||
     !component.archive.startsWith("components/") ||

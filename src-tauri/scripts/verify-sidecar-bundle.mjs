@@ -4,16 +4,16 @@ import { execFileSync } from "node:child_process"
 import {
   existsSync,
   lstatSync,
-  mkdtempSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
-  rmSync,
 } from "node:fs"
 import { createHash } from "node:crypto"
 import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
+import { verifyInstalledRuntimeSeed } from "./runtime-seed-bundle-verification.mjs"
 
 import {
   addAgentBrowserHash,
@@ -21,11 +21,17 @@ import {
   verifyInstalledAgentBrowser,
   verifyStagedAgentBrowser,
 } from "./verify-agent-browser-bundle.mjs"
+import {
+  assertCleanInstallState,
+  assertDisposableRunner,
+  cleanupInstall,
+  createSmokeTestId,
+  installerTestArgs,
+} from "./nsis-smoke-windows.mjs"
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SRC_TAURI = resolve(SCRIPT_DIR, "..")
 const REPO_ROOT = resolve(SRC_TAURI, "..")
-const NSIS_INSTALL_PREFIX = "iyw-claw-sidecar-"
 function log(message) {
   console.log(`[verify-sidecar-bundle] ${message}`)
 }
@@ -109,7 +115,9 @@ function rejectLegacyMcpSidecars(directory) {
     /^iyw-claw-mcp(?:-|\.|$)/i.test(name)
   )
   if (legacy.length > 0) {
-    die(`legacy MCP sidecars must be removed before bundling: ${legacy.join(", ")}`)
+    die(
+      `legacy MCP sidecars must be removed before bundling: ${legacy.join(", ")}`
+    )
   }
 }
 
@@ -153,42 +161,7 @@ function verifyInstalledSidecars(appDirectory, target, expectedHashes = null) {
     logFile,
     sha256,
   })
-  verifyInstalledRuntimeSeed(appDirectory, target)
-}
-
-function verifyInstalledRuntimeSeed(appDirectory, target) {
-  const seedRoot = join(appDirectory, "runtime-seed")
-  if (target === "i686-pc-windows-msvc") {
-    if (existsSync(seedRoot))
-      die(`Windows x86 must not install runtime seed: ${seedRoot}`)
-    return
-  }
-  const manifestPath = join(seedRoot, "manifest.json")
-  requireNonEmptyFile(manifestPath, "installed runtime seed manifest")
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
-  if (
-    manifest.schemaVersion !== 2 ||
-    manifest.target !== target ||
-    manifest.components?.length !== 4
-  ) {
-    die(`installed runtime seed does not match ${target}: ${manifestPath}`)
-  }
-  for (const component of manifest.components) {
-    const archive = resolve(seedRoot, component.archive ?? "")
-    if (!archive.startsWith(`${resolve(seedRoot)}\\`))
-      die(`installed runtime seed archive escaped resource root: ${archive}`)
-    requireNonEmptyFile(archive, `installed ${component.id} runtime seed`)
-    const metadata = lstatSync(archive)
-    if (
-      metadata.size !== component.archiveSize ||
-      sha256(archive) !== component.archiveSha256
-    ) {
-      die(`installed runtime seed archive is invalid: ${archive}`)
-    }
-  }
-  log(
-    `installed runtime seed verified: target=${target} components=${manifest.components.map((item) => item.id).join(",")}`
-  )
+  verifyInstalledRuntimeSeed(appDirectory, target, die)
 }
 
 function stagedHashes(target) {
@@ -221,17 +194,44 @@ function logInstallRoot(root) {
   }
 }
 
+function finishNsisCleanup(cleanup, failure) {
+  let warnings = []
+  try {
+    warnings = cleanupInstall(cleanup)
+  } catch (error) {
+    warnings.push(error.message)
+  }
+  if (warnings.length > 0) {
+    const message = `NSIS smoke cleanup failed: ${warnings.join("; ")}`
+    if (failure)
+      throw new Error(`${failure.message}; ${message}`, { cause: failure })
+    die(message)
+  }
+  log(`removed temporary NSIS installation root: ${cleanup.smokeRoot}`)
+  if (failure) throw failure
+}
+
 function verifyNsisInstaller(installer, target, version) {
   if (process.platform !== "win32") die("NSIS verification requires Windows")
+  assertDisposableRunner()
+  assertCleanInstallState()
   logFile("NSIS installer", installer, version)
-  const installRoot = mkdtempSync(join(tmpdir(), NSIS_INSTALL_PREFIX))
+  const testId = createSmokeTestId()
+  const installRoot = join(tmpdir(), `iyw-claw-nsis-smoke-${testId}`)
+  mkdirSync(installRoot)
+  const cleanup = { smokeRoot: installRoot, installRoot, testId }
+  let failure
   try {
     log(`installing NSIS bundle into temporary root: ${installRoot}`)
     try {
-      execFileSync(installer, ["/S", `/D=${installRoot}`], {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      })
+      execFileSync(
+        installer,
+        ["/S", ...installerTestArgs(testId), `/D=${installRoot}`],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        }
+      )
     } catch (error) {
       log(`NSIS installer exit status: ${error.status ?? "unknown"}`)
       if (error.stdout) log(`NSIS stdout: ${String(error.stdout).trim()}`)
@@ -244,18 +244,22 @@ function verifyNsisInstaller(installer, target, version) {
       target,
       stagedHashes(target)
     )
-  } finally {
-    rmSync(installRoot, { force: true, recursive: true })
-    log(`removed temporary NSIS installation root: ${installRoot}`)
+  } catch (error) {
+    failure = error
   }
+  finishNsisCleanup(cleanup, failure)
 }
 
 function main() {
   const args = parseArgs(process.argv.slice(2))
   const target = resolveTarget(args)
   const version = readVersion(args)
+  const verifyNsis = Boolean(
+    args.installer || process.env.IYW_CLAW_VERIFY_NSIS === "1"
+  )
+  if (verifyNsis) assertDisposableRunner()
   if (args.installedApp) {
-    if (args.installer || process.env.IYW_CLAW_VERIFY_NSIS === "1") {
+    if (verifyNsis) {
       die("--installed-app cannot be combined with NSIS verification")
     }
     verifyInstalledSidecars(
@@ -265,7 +269,7 @@ function main() {
     return
   }
   verifyStagedSidecars(target, version)
-  if (args.installer || process.env.IYW_CLAW_VERIFY_NSIS === "1") {
+  if (verifyNsis) {
     verifyNsisInstaller(
       resolveInstallerPath(args, target, version),
       target,

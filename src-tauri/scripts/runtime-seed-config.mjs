@@ -38,28 +38,30 @@ const TARGETS = {
   },
 }
 
+const PINNED_NODE_VERSION = "24.19.0"
+
 const DOWNLOADS = {
   node: {
-    version: "24.19.0",
-    base: "https://nodejs.org/dist/v24.19.0/",
+    version: PINNED_NODE_VERSION,
+    base: `https://nodejs.org/dist/v${PINNED_NODE_VERSION}/`,
     "win-x64": [
-      "node-v24.19.0-win-x64.zip",
+      `node-v${PINNED_NODE_VERSION}-win-x64.zip`,
       "57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73",
     ],
     "darwin-x64": [
-      "node-v24.19.0-darwin-x64.tar.gz",
+      `node-v${PINNED_NODE_VERSION}-darwin-x64.tar.gz`,
       "d1b5e999db158c62fe8f7267a4476b035d8bd93b1a605bac24a3f0dd166e3316",
     ],
     "darwin-arm64": [
-      "node-v24.19.0-darwin-arm64.tar.gz",
+      `node-v${PINNED_NODE_VERSION}-darwin-arm64.tar.gz`,
       "8294b7aa9b03997481c06babf1e8b270c859358f27da57a11509afe537ac381d",
     ],
     "linux-x64": [
-      "node-v24.19.0-linux-x64.tar.gz",
+      `node-v${PINNED_NODE_VERSION}-linux-x64.tar.gz`,
       "f625d97cd707df4ff96254916fbc5ff014f09c09effe5a1e0ca8f6d41a8789d4",
     ],
     "linux-arm64": [
-      "node-v24.19.0-linux-arm64.tar.gz",
+      `node-v${PINNED_NODE_VERSION}-linux-arm64.tar.gz`,
       "d28c8a5bf0a808f0ed434a1dce8c54ae98f0371c0bd86ac58abc613f73e6643f",
     ],
   },
@@ -133,4 +135,4 @@ function parseTarget(argv = process.argv) {
   return index >= 0 ? argv[index + 1] : process.env.TARGET
 }
 
-export { DOWNLOADS, TARGETS, parseTarget, targetInfo }
+export { DOWNLOADS, PINNED_NODE_VERSION, TARGETS, parseTarget, targetInfo }

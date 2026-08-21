@@ -23,6 +23,7 @@ import {
 import { verifyInstalledWeb } from "./nsis-smoke-verification.mjs"
 import {
   assertCleanInstallState,
+  assertDisposableRunner,
   cleanupInstall,
 } from "./nsis-smoke-windows.mjs"
 
@@ -205,6 +206,7 @@ async function finalize(context) {
 async function main() {
   if (process.platform !== "win32")
     fail("installed NSIS smoke requires Windows")
+  assertDisposableRunner()
   const args = parseArgs(process.argv.slice(2))
   assertCleanInstallState()
   const context = createContext(args)

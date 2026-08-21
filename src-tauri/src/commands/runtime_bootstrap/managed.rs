@@ -148,11 +148,17 @@ fn managed_failure(
     emitter: &EventEmitter,
     error: AppCommandError,
 ) -> RuntimeComponentReport {
+    let probe_detail = error
+        .detail
+        .as_deref()
+        .filter(|_| error.message.starts_with("Managed tool probe"))
+        .unwrap_or("");
     tracing::error!(
         tool_id,
         task_id,
         error_code = ?error.code,
         detail_present = error.detail.is_some(),
+        probe_detail,
         error_message = %error.message,
         "[runtime-bootstrap] managed runtime failed"
     );

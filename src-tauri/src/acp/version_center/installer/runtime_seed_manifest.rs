@@ -89,17 +89,7 @@ impl RuntimeSeedManifest {
     }
 
     fn validate(&self) -> Result<(), AppCommandError> {
-        let identity_matches = self.schema_version == SCHEMA_VERSION
-            && self.created_by == CREATED_BY
-            && self.app_version == env!("CARGO_PKG_VERSION")
-            && self.target == capability::current_target_triple()
-            && self.arch == capability::current_arch()
-            && self.platform == platform_dir_name();
-        if !identity_matches {
-            return Err(invalid(
-                "Runtime seed identity does not match this application",
-            ));
-        }
+        self.validate_identity()?;
         let mut ids = BTreeSet::new();
         let mut archives = BTreeSet::new();
         for component in &self.components {
@@ -114,6 +104,38 @@ impl RuntimeSeedManifest {
         complete
             .then_some(())
             .ok_or_else(|| invalid("Runtime seed component set is incomplete"))
+    }
+
+    fn validate_identity(&self) -> Result<(), AppCommandError> {
+        let expected_version = env!("CARGO_PKG_VERSION");
+        let expected_target = capability::current_target_triple();
+        let expected_arch = capability::current_arch();
+        let expected_platform = platform_dir_name();
+        let matches = self.schema_version == SCHEMA_VERSION
+            && self.created_by == CREATED_BY
+            && self.app_version == expected_version
+            && self.target == expected_target
+            && self.arch == expected_arch
+            && self.platform == expected_platform;
+        if !matches {
+            tracing::warn!(
+                expected_version,
+                manifest_version = %self.app_version,
+                expected_target,
+                manifest_target = %self.target,
+                expected_arch,
+                manifest_arch = %self.arch,
+                expected_platform,
+                manifest_platform = %self.platform,
+                "[runtime-seed] manifest identity mismatch"
+            );
+        }
+        matches.then_some(()).ok_or_else(|| {
+            invalid("Runtime seed identity does not match this application").with_detail(format!(
+                "expected_version={expected_version}; manifest_version={}; expected_target={expected_target}; manifest_target={}; expected_arch={expected_arch}; manifest_arch={}; expected_platform={expected_platform}; manifest_platform={}",
+                self.app_version, self.target, self.arch, self.platform
+            ))
+        })
     }
 }
 

@@ -16,6 +16,7 @@ import { tmpdir } from "node:os"
 
 import {
   assertCleanInstallState,
+  assertDisposableRunner,
   cleanupInstall,
   installerTestArgs,
 } from "./nsis-smoke-windows.mjs"
@@ -214,6 +215,7 @@ function writeSummary(result, outputPath) {
 function main() {
   if (process.platform !== "win32")
     fail("NSIS install benchmark requires Windows")
+  assertDisposableRunner()
   const args = parseArgs(process.argv.slice(2))
   assertCleanInstallState()
   const output = {

@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto"
 import { spawnSync } from "node:child_process"
 import { existsSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, join, resolve, sep } from "node:path"
+import { assertNoInstallResidue } from "./nsis-smoke-residue.mjs"
 
 const COMMAND_MAX_BUFFER = 4 * 1024 * 1024
 const COMMAND_TIMEOUT_MS = 120_000
@@ -86,6 +88,19 @@ export function assertCleanInstallState() {
   if (processes.length > 0)
     details.push(`running processes ${processes.join(", ")}`)
   fail(`refusing to run installer smoke: ${details.join("; ")}`)
+}
+
+export function assertDisposableRunner() {
+  if (process.platform !== "win32") fail("NSIS smoke requires a Windows runner")
+  if (process.env.CI !== "true" || process.env.GITHUB_ACTIONS !== "true") {
+    fail(
+      "refusing to run real NSIS installation outside a disposable GitHub Actions runner"
+    )
+  }
+}
+
+export function createSmokeTestId() {
+  return randomUUID().replaceAll("-", "")
 }
 
 export function terminateProcessTree(pid) {
@@ -215,5 +230,10 @@ export function cleanupInstall(options) {
     recursive: true,
     retryDelay: REMOVE_RETRY_DELAY_MS,
   })
+  try {
+    assertNoInstallResidue(options)
+  } catch (error) {
+    warnings.push(error.message)
+  }
   return warnings
 }
