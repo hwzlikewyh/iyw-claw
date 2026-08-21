@@ -15,6 +15,11 @@ use super::{
 pub const APPEND_USER_MEMORY_TOOL: &str = "append_user_memory";
 pub const PROPOSE_USER_MEMORY_TOOL: &str = "propose_user_memory";
 pub const MEMORY_RECALL_TOOL: &str = "memory_recall";
+const CAPABILITY_GATEWAY_TOOLS: [&str; 3] = [
+    "search_iyw_capabilities",
+    "read_iyw_capability",
+    "invoke_iyw_capability",
+];
 
 #[derive(Debug, Clone)]
 pub struct UserMemoryPolicyAccess {
@@ -173,15 +178,17 @@ fn tool_capability(
     if let Some(reason) = health_reason(inputs.companion_health.status) {
         return unavailable(reason);
     }
-    if !inputs
-        .companion_health
-        .advertised_tools
-        .iter()
-        .any(|advertised| advertised == tool)
-    {
+    if !companion_exposes_capability(&inputs.companion_health, tool) {
         return unavailable(UserMemoryCapabilityReason::CompanionToolMissing);
     }
     available(Vec::new())
+}
+
+pub(crate) fn companion_exposes_capability(health: &CompanionHealthSnapshot, tool: &str) -> bool {
+    health.advertised_tools.iter().any(|name| name == tool)
+        || CAPABILITY_GATEWAY_TOOLS
+            .iter()
+            .all(|gateway| health.advertised_tools.iter().any(|name| name == gateway))
 }
 
 fn common_reason(inputs: &UserMemoryCapabilityInputs) -> Option<UserMemoryCapabilityReason> {

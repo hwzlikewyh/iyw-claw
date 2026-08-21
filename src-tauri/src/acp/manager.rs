@@ -334,12 +334,10 @@ pub struct ConnectionManager {
     /// tests; in production initialized from env via
     /// `spawn_handshake_timeout_from_env`.
     spawn_handshake_timeout: Duration,
-    /// Delegation broker + token registry + UDS path installed during app
-    /// bootstrap (`install_delegation`). When present, `spawn_agent` propagates
-    /// the injection to `spawn_agent_connection`, which makes
-    /// `iyw-claw-mcp` appear in the agent's MCP server list during ACP
-    /// init. `Arc<OnceLock>` so the inner `Self` cloned from `clone_ref` sees
-    /// the install too — the lock is set once at startup and never mutated.
+    /// Delegation services installed during app bootstrap (`install_delegation`).
+    /// When present, `spawn_agent` propagates them to `spawn_agent_connection`,
+    /// which issues a per-connection built-in HTTP MCP lease during ACP init.
+    /// `Arc<OnceLock>` ensures inner clones see the one-time installation.
     delegation_injection: Arc<std::sync::OnceLock<crate::acp::connection::DelegationInjection>>,
     /// Ready process-wide HTTP MCP client installed by desktop/server bootstrap.
     /// The lifecycle owner stays at the entrypoint; connection clones can only
@@ -603,6 +601,12 @@ impl ConnectionManager {
 
     fn builtin_mcp_snapshot(&self) -> Option<crate::acp::builtin_mcp::BuiltinMcpClient> {
         self.builtin_mcp.get().cloned()
+    }
+
+    pub(crate) fn builtin_mcp_health_snapshot(
+        &self,
+    ) -> crate::user_memory::CompanionHealthSnapshot {
+        crate::acp::companion_health::builtin_mcp_health(self.builtin_mcp.get())
     }
 
     pub(crate) fn user_memory_host_bridge_available(&self) -> bool {
@@ -2532,7 +2536,7 @@ impl ConnectionManager {
     ///
     /// Used by the delegation-settings UI to enumerate the options the user
     /// can override, with the guarantee that what the UI shows is exactly
-    /// what `iyw-claw-mcp` will pass through to `session/set_config_option`
+    /// what the built-in MCP delegation path passes to `session/set_config_option`
     /// when a delegation actually fires.
     ///
     /// Returns `Ok(snapshot)` even when the agent advertises no options
@@ -2931,7 +2935,7 @@ impl ConnectionManager {
         &self,
         service: &crate::user_memory::UserMemoryService,
     ) -> usize {
-        let health = crate::acp::companion_health::locate_healthy_companion().await;
+        let health = self.builtin_mcp_health_snapshot();
         self.count_stale_user_memory_with_health(service, health)
             .await
     }
@@ -3157,19 +3161,12 @@ impl ConnectionManager {
     }
 
     /// Mark the named notes `Delivered` and broadcast the consumption. Called by
-    /// the listener ONLY after the `check_user_feedback` response was written to
-    /// the companion, so a dropped / failed write leaves the notes pending and
+    /// the listener ONLY after the `check_user_feedback` result was relayed in
+    /// the authenticated MCP response, so a dropped response leaves notes pending and
     /// the agent's next check re-delivers them (at-least-once).
     ///
-    /// Delivery boundary: "delivered" means the response reached the agent's MCP
-    /// companion over the UDS. The one remaining hop (companion → agent stdout)
-    /// can only fail when the agent process is gone/closing — i.e. the turn is
-    /// being torn down, at which point the note is moot (the agent won't act on
-    /// it). A mid-wait cancel is already handled upstream by the listener's
-    /// peer-close race (no commit), and a cancel after the round-trip completes
-    /// cannot suppress the response (the companion's inflight entry is already
-    /// consumed). So this is the right boundary for a best-effort steering
-    /// side-channel; an end-to-end ack would only cover the moot teardown tail.
+    /// Delivery is committed only after the HTTP response body has been relayed.
+    /// A mid-wait cancellation leaves the note pending; a later retry is safe.
     ///
     /// The mark happens under a single write lock; only notes still `Pending`
     /// flip (idempotent — a repeated commit, or a note already consumed by a
@@ -3238,8 +3235,8 @@ impl ConnectionManager {
         conn_id: &str,
         questions: Vec<QuestionSpec>,
     ) -> Option<RegisteredQuestion> {
-        // Defense-in-depth: the companion validates, but the broker socket is
-        // only token-gated, so refuse to broadcast malformed/oversized specs
+        // Defense-in-depth: the MCP gateway validates first, but the broker also
+        // refuses to broadcast malformed or oversized specs
         // (None → the listener declines the ask, as for any other None path).
         if crate::acp::question::validate_specs(&questions).is_err() {
             return None;
@@ -3362,7 +3359,7 @@ impl ConnectionManager {
         Ok(())
     }
 
-    /// Cancel a pending `ask_user_question` — the companion's tool call was
+    /// Cancel a pending `ask_user_question` because its MCP call was
     /// canceled (peer-close) or the connection is tearing down. Removes the
     /// one-shot (dropping the sender unblocks the listener with a declined
     /// outcome) and broadcasts `QuestionResolved` so the card clears. No-op if
@@ -3392,8 +3389,8 @@ impl ConnectionManager {
     /// tearing down. The `run_connection` cleanup guard calls this (alongside
     /// the delegation `DelegationBroker::cancel_by_parent` cascade) so question
     /// entries — and the listener tasks parked on them — are reclaimed
-    /// synchronously on disconnect, instead of lingering until the companion's
-    /// ask socket happens to close. Dropping each entry's sender unblocks its
+    /// synchronously on disconnect instead of lingering until transport cleanup.
+    /// Dropping each entry's sender unblocks its
     /// listener with a declined outcome; the `QuestionResolved` broadcast clears
     /// the card on every client. No-op when nothing is pending for this parent.
     pub async fn cancel_questions_by_parent(&self, conn_id: &str) {

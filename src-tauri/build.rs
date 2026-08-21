@@ -20,8 +20,8 @@ fn link_windows_test_manifest() {
     println!("cargo:rustc-link-arg={dependency}");
 
     // The packaged desktop entry must request elevation on every launch. This
-    // applies only to the Tauri binary; server and MCP targets do not enable
-    // the `tauri-runtime` feature that runs this build-script branch.
+    // applies only to the Tauri binary; the server target does not enable the
+    // `tauri-runtime` feature that runs this build-script branch.
     println!(
         "cargo:rustc-link-arg-bin=iyw-claw=/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
     );
@@ -35,7 +35,7 @@ fn link_windows_test_manifest() {
 /// path, so without a backstop every contributor would hit
 /// `resource path ... doesn't exist` on first compile.
 ///
-/// We write a zero-byte placeholder when the sidecar is missing so
+/// We write a zero-byte placeholder when the browser sidecar is missing so
 /// `cargo check` / clippy / rust-analyzer succeed. Production paths
 /// overwrite the placeholder with the real binary before Tauri bundles it:
 ///   * `pnpm tauri build`  → `beforeBuildCommand` → `prepare-sidecars.mjs`
@@ -59,10 +59,6 @@ fn ensure_sidecar_placeholders() {
         ""
     };
     let dir = PathBuf::from("binaries");
-    let versioned_mcp = format!("iyw-claw-mcp-{}", env!("CARGO_PKG_VERSION"));
-    for name in ["iyw-claw-mcp", versioned_mcp.as_str()] {
-        ensure_sidecar_placeholder(&dir, name, &triple, ext);
-    }
     if triple.contains("windows") {
         ensure_sidecar_placeholder(&dir, "agent-browser", &triple, ext);
     }

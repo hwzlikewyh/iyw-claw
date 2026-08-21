@@ -95,9 +95,6 @@ pub(crate) fn restrict_configured_runtime_env(
 fn is_host_owned_runtime_env(key: &str) -> bool {
     key.eq_ignore_ascii_case("PATH")
         || key == "IYW_CLAW_MANAGED_AGENT_VERSION"
-        || key == "IYW_CLAW_TOOL_BIN"
-        || key == "IYW_CLAW_TOOL_SOCKET"
-        || key == "IYW_CLAW_AGENT_TYPE"
         || key == crate::wecom_ai::CONFIG_DIR_ENV
         || key == crate::wecom_ai::MANAGED_COMMAND_ENV
         || key == "OPENCLAW_RESET_SESSION"

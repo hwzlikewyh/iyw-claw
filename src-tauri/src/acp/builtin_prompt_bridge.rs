@@ -30,6 +30,7 @@ pub struct PromptBridgeLease {
     lock_path: PathBuf,
     state_path: PathBuf,
     connection_id: String,
+    prompt_hash: String,
 }
 
 #[derive(Debug, Default)]
@@ -70,6 +71,47 @@ impl PreparedPromptBridges {
     }
 }
 
+pub(super) fn cleanup_stale(storage: &AgentStoragePaths) -> Result<(), AcpError> {
+    let agents = [
+        AgentType::Gemini,
+        AgentType::Cline,
+        AgentType::OpenCode,
+        AgentType::KimiCode,
+    ];
+    let mut errors = Vec::new();
+    for agent_type in agents {
+        let result = bridge_spec(agent_type, storage).and_then(|spec| {
+            spec.map_or(Ok(()), |spec| {
+                cleanup_stale_spec(storage, &spec).map_err(cleanup_error)
+            })
+        });
+        if let Err(error) = result {
+            errors.push(format!("{agent_type}: {error}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(AcpError::BuiltinPromptBridgeCleanup(errors.join("; ")))
+    }
+}
+
+fn cleanup_stale_spec(storage: &AgentStoragePaths, spec: &BridgeSpec) -> Result<(), AcpError> {
+    let (lock_path, state_path) = bridge_metadata_paths(storage, spec.slug);
+    let lock = acquire_lock(&lock_path)?;
+    let mut state = LeaseState::read(&state_path)?;
+    let previous_count = state.leases.len();
+    state.prune_dead();
+    if state.leases.is_empty() {
+        remove_managed_block(&spec.target, None)?;
+        if previous_count > 0 {
+            state.write(&state_path)?;
+        }
+    }
+    drop(lock);
+    Ok(())
+}
+
 impl Drop for PreparedPromptBridges {
     fn drop(&mut self) {
         if let Err(error) = self.release() {
@@ -94,7 +136,7 @@ impl PromptBridgeLease {
         upsert_managed_block(&spec.target, request.prompt)?;
         if let Err(error) = state.write(&state_path) {
             if !had_live_leases {
-                let _ = remove_managed_block(&spec.target);
+                let _ = remove_managed_block(&spec.target, Some(&request.prompt.hash));
             }
             return Err(error);
         }
@@ -104,6 +146,7 @@ impl PromptBridgeLease {
             lock_path,
             state_path,
             connection_id: request.connection_id.to_string(),
+            prompt_hash: request.prompt.hash.clone(),
         })
     }
 
@@ -114,7 +157,8 @@ impl PromptBridgeLease {
         state.remove_connection(&self.connection_id);
         state.write(&self.state_path).map_err(cleanup_error)?;
         if state.leases.is_empty() {
-            remove_managed_block(&self.spec.target).map_err(cleanup_error)?;
+            remove_managed_block(&self.spec.target, Some(&self.prompt_hash))
+                .map_err(cleanup_error)?;
         }
         drop(lock);
         Ok(())
@@ -152,11 +196,6 @@ fn bridge_spec(
         AgentType::KimiCode => BridgeSpec {
             slug: "kimi-code",
             target: profile()?.join("AGENTS.md"),
-            agent_type,
-        },
-        AgentType::Pi => BridgeSpec {
-            slug: "pi",
-            target: profile()?.join("APPEND_SYSTEM.md"),
             agent_type,
         },
         _ => return Ok(None),

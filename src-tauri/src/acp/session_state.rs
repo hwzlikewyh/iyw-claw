@@ -425,12 +425,6 @@ pub struct SessionState {
     /// See `event_stream` module for size limits.
     pub(crate) recent_events: RecentEventsBuffer,
 
-    /// Per-launch token registered with the delegation broker's
-    /// `TokenRegistry` when `iyw-claw-mcp` is injected at init.
-    /// Revoked when the connection tears down so a leaked binary can't
-    /// keep round-tripping after the parent session ends.
-    pub delegation_token: Option<String>,
-
     /// Shared with the launch token entry so candidate proposals can only use
     /// host-owned provenance from the currently accepted turn.
     pub memory_turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
@@ -440,7 +434,7 @@ pub struct SessionState {
     /// envelope on the first accepted wire prompt.
     pub user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
     /// Immutable launch-time capability vector exposed through live snapshots.
-    /// It remains `not_evaluated` until the companion probe and injection
+    /// It remains `not_evaluated` until built-in MCP readiness and injection
     /// decision have completed.
     pub user_memory_capabilities: crate::user_memory::UserMemoryCapabilities,
     /// Prompt senders wait for this flag so no turn can capture the provisional
@@ -452,7 +446,7 @@ pub struct SessionState {
     pub user_context_injected: bool,
 
     /// Whether the `check_user_feedback` MCP tool was exposed to THIS agent at
-    /// launch (the `feedback` feature was on when its companion was injected).
+    /// launch (the `feedback` feature was on when built-in MCP was injected).
     /// Fixed for the connection's lifetime — tool exposure can't change after
     /// launch. The authoritative gate for both the submit path and the UI: a
     /// session started before the feature was enabled has no tool, so notes
@@ -649,7 +643,6 @@ impl SessionState {
             pending_input_lease_until: None,
             event_stream: Arc::new(ConnectionEventStream::new()),
             recent_events: RecentEventsBuffer::new(),
-            delegation_token: None,
             memory_turn_tracker: Arc::new(crate::acp::memory_turn::MemoryTurnTracker::default()),
             user_memory_context: crate::user_memory::UserMemoryContextSnapshot::pending(
                 crate::user_memory::UserMemoryOrigin::Root,

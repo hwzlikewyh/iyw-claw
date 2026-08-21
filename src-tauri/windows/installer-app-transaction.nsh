@@ -45,46 +45,12 @@ Function IywClawIsNonEmptyFile
     Exch $0
 FunctionEnd
 
-Function IywClawHasVersionedMcp
-  Exch $0
-  Push $1
-  Push $2
-  Push $3
-  StrCpy $3 "0"
-  FindFirst $1 $2 "$0\iyw-claw-mcp-*.exe"
-
-  versioned_mcp_loop:
-    StrCmp $2 "" versioned_mcp_done 0
-    Push "$0\$2"
-    Call IywClawIsNonEmptyFile
-    Pop $3
-    StrCmp $3 "1" versioned_mcp_done 0
-    FindNext $1 $2
-    Goto versioned_mcp_loop
-
-  versioned_mcp_done:
-    FindClose $1
-    StrCpy $0 $3
-    Pop $3
-    Pop $2
-    Pop $1
-    Exch $0
-FunctionEnd
-
 Function IywClawIsAppComplete
   Exch $0
   Push $1
   StrCpy $1 "0"
   Push "$0\iyw-claw.exe"
   Call IywClawIsNonEmptyFile
-  Pop $1
-  StrCmp $1 "1" 0 app_complete_done
-  Push "$0\iyw-claw-mcp.exe"
-  Call IywClawIsNonEmptyFile
-  Pop $1
-  StrCmp $1 "1" 0 app_complete_done
-  Push "$0"
-  Call IywClawHasVersionedMcp
   Pop $1
   StrCmp $1 "1" 0 app_complete_done
   StrCmp $IywClawRequireBrowser "1" 0 app_complete_success
@@ -222,16 +188,47 @@ Function IywClawCommitAppTransaction
   Goto commit_transaction_failed
 
   app_install_valid:
+    Push "$IywClawAppDir"
+    Push "check-legacy-files"
+    Call IywClawRunKnownProcessCommandAt
+    Pop $R0
+    StrCmp $R0 "0" app_legacy_check_complete 0
+    StrCmp $R0 "1" app_legacy_found app_legacy_check_failed
+
+  app_legacy_found:
+    StrCpy $IywClawTransactionError "新 app 仍包含旧 iyw-claw-mcp 文件"
+    Goto commit_transaction_failed
+  app_legacy_check_failed:
+    StrCpy $IywClawTransactionError "无法复核新 app 的旧 MCP 文件"
+    Goto commit_transaction_failed
+
+  app_legacy_check_complete:
     ; 新 app 完整即成为可恢复版本。backup 删除不是原子操作，不能在部分删除后
-    ; 再用它覆盖完整新 app；清理失败时保留余项，由下次安装先行清理。
+    ; 再用它覆盖完整新 app；但残留 backup 仍可能包含旧 MCP，必须阻断成功。
     StrCpy $IywClawTransactionActive "0"
     RMDir /r "$IywClawBackupDir"
-    IfFileExists "$IywClawBackupDir\*.*" backup_cleanup_deferred 0
+    Push "$IywClawBackupDir"
+    Push "check-legacy-files"
+    Call IywClawRunKnownProcessCommandAt
+    Pop $R0
+    StrCmp $R0 "0" backup_legacy_check_complete 0
+    StrCmp $R0 "1" backup_legacy_found backup_legacy_check_failed
+
+  backup_legacy_found:
+    StrCpy $IywClawTransactionError "installer backup 仍包含旧 iyw-claw-mcp 文件"
+    Goto commit_transaction_failed
+  backup_legacy_check_failed:
+    StrCpy $IywClawTransactionError "无法复核 installer backup 的旧 MCP 文件"
+    Goto commit_transaction_failed
+
+  backup_legacy_check_complete:
+    IfFileExists "$IywClawBackupDir\*.*" backup_cleanup_failed 0
+    IfFileExists "$IywClawBackupDir" backup_cleanup_failed 0
     Goto commit_transaction_done
 
-  backup_cleanup_deferred:
-    DetailPrint "新 app 已完整；installer backup 清理未完成，将在下次安装重试。"
-    Goto commit_transaction_done
+  backup_cleanup_failed:
+    StrCpy $IywClawTransactionError "新 app 已完整，但 installer backup 清理未完成"
+    Goto commit_transaction_failed
 
   inactive_transaction:
     StrCpy $IywClawTransactionError "app 事务未启动"
@@ -283,17 +280,16 @@ FunctionEnd
 
 Function IywClawRestartOldAppIfRequested
   StrCmp $IywClawRestartOnFailure "1" 0 restart_old_app_done
-  ; 旧版本可能早于 MCP/browser sidecar 完整性规则；回滚重启只要求主程序可用。
+  ; 旧版本可能早于 browser sidecar 完整性规则；回滚重启只要求主程序可用。
   Push "$IywClawAppDir\iyw-claw.exe"
   Call IywClawIsNonEmptyFile
   Pop $R0
   StrCmp $R0 "1" 0 restart_old_app_done
-  Call IywClawBuildAccountFilter
-  Push "iyw-claw.exe"
-  Call IywClawFindCurrentUserProcess
+  Push "check-main"
+  Call IywClawRunKnownProcessCommand
   Pop $R0
-  ; The process helper returns 0=found, 1=absent, 2=check failed.
-  StrCmp $R0 "1" 0 restart_old_app_done
+  ; The process helper returns 0=absent, 1=found, 2=check failed.
+  StrCmp $R0 "0" 0 restart_old_app_done
   DetailPrint "正在重新启动旧版本 iyw-claw..."
   ; Hooks are parsed before Tauri's additional plugin directory is registered.
   ; ShellExecute keeps this current-user installer flow out of the plugin path

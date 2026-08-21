@@ -4,10 +4,9 @@
  * Verify Authenticode signatures on first-party Windows release executables.
  *
  * A signed build can still emit unsigned files: `signCommand` only covers what
- * the bundler hands it, and the sidecars are signed by prepare-sidecars.mjs on
- * a separate path. Publishing one unsigned .exe re-opens exactly the antivirus
- * problem the certificate was bought to close, so this check is meant to run
- * between building and uploading.
+ * the bundler hands it. Publishing one unsigned first-party .exe re-opens the
+ * antivirus problem the certificate was bought to close, so this check is
+ * meant to run between building and uploading.
  *
  * Usage:
  *   node src-tauri/scripts/verify-signatures.mjs            # verify, report, exit 1 on any unsigned
@@ -70,18 +69,6 @@ export function collectArtifacts(srcTauri = SRC_TAURI) {
           artifacts.push(join(nsis, name))
         }
       }
-    }
-  }
-
-  // First-party sidecars staged for externalBin. agent-browser stays as exact
-  // upstream bytes and is gated separately by a pinned size and SHA-256.
-  const binaries = join(srcTauri, "binaries")
-  if (existsSync(binaries)) {
-    for (const name of readdirSync(binaries)) {
-      if (!name.toLowerCase().endsWith(".exe")) continue
-      if (name.toLowerCase().startsWith("agent-browser-")) continue
-      const file = join(binaries, name)
-      if (statSync(file).size > 0) artifacts.push(file)
     }
   }
 

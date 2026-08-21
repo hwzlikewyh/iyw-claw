@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::acp::builtin_agent_prompt::RenderedBuiltinPrompt;
 use crate::acp::error::AcpError;
+use sha2::{Digest, Sha256};
 
 const BLOCK_START: &str = "<!-- IYW-CLAW BUILTIN PROMPT START";
 const BLOCK_END: &str = "<!-- IYW-CLAW BUILTIN PROMPT END -->";
@@ -13,6 +14,7 @@ struct BlockMetadata {
     leading: usize,
     trailing: usize,
     eol: &'static str,
+    hash: Option<[u8; 32]>,
 }
 
 struct ManagedBlock {
@@ -40,12 +42,16 @@ pub(super) fn upsert_managed_block(
     write(path, &raw, &next)
 }
 
-pub(super) fn remove_managed_block(path: &Path) -> Result<(), AcpError> {
+pub(super) fn remove_managed_block(
+    path: &Path,
+    expected_hash: Option<&str>,
+) -> Result<(), AcpError> {
     ensure_plain_path(path)?;
     let raw = read(path)?;
     let Some(block) = find_managed_block(&raw)? else {
         return Ok(());
     };
+    ensure_block_integrity(&raw, &block, expected_hash)?;
     let (start, end) = removal_bounds(&raw, &block)?;
     let next = format!("{}{}", &raw[..start], &raw[end..]);
     if block.metadata.is_some_and(|value| value.created) && next.is_empty() {
@@ -128,6 +134,7 @@ fn metadata_for_insert(raw: &str, created: bool) -> BlockMetadata {
         leading,
         trailing: 1,
         eol,
+        hash: None,
     }
 }
 
@@ -141,6 +148,7 @@ fn metadata_for_update(raw: &str, block: &ManagedBlock) -> BlockMetadata {
         } else {
             "\n"
         },
+        hash: None,
     })
 }
 
@@ -228,12 +236,74 @@ fn parse_metadata(header: &str) -> Option<BlockMetadata> {
         "crlf" => "\r\n",
         _ => return None,
     };
+    let hash = parse_hash(value("sha256=")?)?;
     Some(BlockMetadata {
         created,
         leading,
         trailing,
         eol,
+        hash: Some(hash),
     })
+}
+
+fn parse_hash(value: &str) -> Option<[u8; 32]> {
+    if value.len() != 64 {
+        return None;
+    }
+    let mut bytes = [0_u8; 32];
+    for (index, slot) in bytes.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    Some(bytes)
+}
+
+fn ensure_block_integrity(
+    raw: &str,
+    block: &ManagedBlock,
+    expected_hash: Option<&str>,
+) -> Result<(), AcpError> {
+    let metadata = block.metadata.ok_or_else(|| {
+        injection_error("managed prompt marker metadata is missing; refusing to delete")
+    })?;
+    let stored_hash = metadata.hash.ok_or_else(|| {
+        injection_error("managed prompt marker hash is missing; refusing to delete")
+    })?;
+    let body_hash = block_body_hash(raw, block, metadata.eol)?;
+    if body_hash != stored_hash {
+        return Err(injection_error(
+            "managed prompt body changed while the Agent was running; refusing to delete",
+        ));
+    }
+    if let Some(expected_hash) = expected_hash {
+        let expected = parse_hash(expected_hash)
+            .ok_or_else(|| injection_error("expected managed prompt hash is invalid"))?;
+        if expected != stored_hash {
+            return Err(injection_error(
+                "managed prompt hash does not belong to this connection; refusing to delete",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn block_body_hash(raw: &str, block: &ManagedBlock, eol: &str) -> Result<[u8; 32], AcpError> {
+    let header_end = raw[block.start..]
+        .find('\n')
+        .map(|offset| block.start + offset)
+        .ok_or_else(|| injection_error("managed prompt header has no body"))?;
+    let body_start = header_end
+        .checked_add(eol.len())
+        .ok_or_else(|| injection_error("managed prompt body start overflowed"))?;
+    let body_end = block
+        .end
+        .checked_sub(BLOCK_END.len())
+        .ok_or_else(|| injection_error("managed prompt body end underflowed"))?;
+    let body = raw
+        .get(body_start..body_end)
+        .and_then(|body| body.strip_suffix(eol))
+        .ok_or_else(|| injection_error("managed prompt body separators changed"))?;
+    let normalized = body.replace("\r\n", "\n");
+    Ok(Sha256::digest(normalized.as_bytes()).into())
 }
 
 fn read(path: &Path) -> Result<String, AcpError> {

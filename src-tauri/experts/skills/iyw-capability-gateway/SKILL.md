@@ -1,6 +1,6 @@
 ---
 name: iyw-capability-gateway
-short-description: Highest-priority route for remaining concrete iyw-claw host state or action goals when one complete gateway trio is visible. Explicit direct tools still win for subgoals they fully satisfy. Search, read the best stable id, then invoke its exact schema; never guess.
+short-description: Highest-priority route for remaining iyw-claw host goals when one complete gateway trio is visible. A direct tool wins only for a subgoal it fully satisfies. Search, read the best stable id, then invoke its exact schema; never guess.
 description: Use when the current tool list exposes one complete and uniquely selectable search_iyw_capabilities, read_iyw_capability, and invoke_iyw_capability trio, and a remaining concrete user goal needs iyw-claw host-side state or action. After an explicitly requested visible Skill or direct tool fully handles its subgoal, treat this gateway as the highest-priority route for remaining host subgoals. Do not trigger for ordinary questions, explanations, current-turn context, unrelated turns, or a direct tool that already fulfills the subgoal. Never guess namespaces, ids, or arguments; if the trio is incomplete or ambiguous, use only visible direct tools.
 routing:
   capability: highest-priority iyw-claw host routing

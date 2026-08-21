@@ -19,7 +19,6 @@
 //! `notifications/cancelled` instead).
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 #[cfg(any(test, feature = "tauri-runtime"))]
 use std::sync::Arc;
 
@@ -52,11 +51,6 @@ pub const DEFAULT_COMPLETED_CACHE_MB: u32 = 512;
 fn default_completed_cache_max_mb() -> u32 {
     DEFAULT_COMPLETED_CACHE_MB
 }
-
-/// Newtype so the Tauri managed-state lookup can distinguish the delegation
-/// UDS path from other `PathBuf`s in the state graph.
-#[derive(Clone)]
-pub struct DelegationSocketPath(pub PathBuf);
 
 /// 有效开关来源，UI 必须如实展示（默认/用户/组织策略/安全关闭）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,8 +110,8 @@ async fn backend_delegation_policy(conn: &DatabaseConnection) -> (Option<bool>, 
 pub struct DelegationSettings {
     pub enabled: bool,
     pub depth_limit: u32,
-    /// Per-agent overrides applied by the delegation broker when iyw-claw-mcp
-    /// spawns a subagent. Missing modes use the product-owned automatic mode;
+    /// Per-agent overrides applied by the delegation broker when the built-in
+    /// MCP dispatcher spawns a subagent. Missing modes use the product-owned automatic mode;
     /// missing config values keep the agent's model and effort defaults.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub agent_defaults: BTreeMap<AgentType, AgentDelegationDefaults>,

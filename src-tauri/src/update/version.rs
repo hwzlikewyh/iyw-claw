@@ -3,8 +3,8 @@
 //! The manifest (`latest.json`) is the same artifact the desktop
 //! `tauri-plugin-updater` consults, so desktop and server modes agree on
 //! "what is the latest version". Server mode additionally downloads the
-//! platform tarball from the deterministic `releases/latest/download/`
-//! path (see `install.rs`).
+//! platform tarball from the deterministic release tag named by the manifest
+//! (see `install.rs`).
 
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -18,10 +18,7 @@ use crate::app_error::AppCommandError;
 pub const UPDATE_MANIFEST_URL: &str =
     "https://github.com/hwzlikewyh/iyw-claw/releases/latest/download/latest.json";
 
-/// Deterministic base for "latest" release assets (server tarballs + their
-/// `.sig` detached signatures). Same channel as the manifest.
-pub const RELEASE_DOWNLOAD_BASE: &str =
-    "https://github.com/hwzlikewyh/iyw-claw/releases/latest/download";
+const RELEASE_DOWNLOAD_ROOT: &str = "https://github.com/hwzlikewyh/iyw-claw/releases/download";
 
 /// Short-timeout client for the small manifest fetch. Proxy env vars are
 /// sampled at build time, so `init_proxy_from_db` must run before the first
@@ -90,6 +87,14 @@ pub async fn fetch_latest_manifest() -> Result<LatestManifest, AppCommandError> 
 
 pub fn trim_v_prefix(v: &str) -> &str {
     v.strip_prefix('v').unwrap_or(v)
+}
+
+pub fn release_download_base(version: &str) -> Result<String, AppCommandError> {
+    let version = semver::Version::parse(trim_v_prefix(version)).map_err(|error| {
+        AppCommandError::network("Update manifest contains an invalid version")
+            .with_detail(error.to_string())
+    })?;
+    Ok(format!("{RELEASE_DOWNLOAD_ROOT}/v{version}"))
 }
 
 /// Strict-then-lenient version comparison. Prefer `semver` (handles
