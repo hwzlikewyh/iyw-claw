@@ -2,8 +2,17 @@
 
 set -euo pipefail
 
-if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$ ]]; then
   echo "::error::Release tag '$RELEASE_TAG' is not a supported semantic version."
+  exit 1
+fi
+
+core_version="${RELEASE_TAG#v}"
+core_version="${core_version%%-*}"
+IFS='.' read -r release_major release_minor release_patch <<< "$core_version"
+if (( release_major == 0 && release_minor < 1 )) \
+   || (( release_major == 0 && release_minor == 1 && release_patch < 93 )); then
+  echo "::error::Release $RELEASE_TAG predates the HTTP-only built-in MCP contract (minimum v0.1.93)."
   exit 1
 fi
 

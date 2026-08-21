@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const SEMVER_PATTERN =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?$/
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)))
 
 function read(path) {
@@ -32,20 +32,7 @@ function jsonWithVersion(path, version) {
 }
 
 function tauriConfigWithVersion(path, version) {
-  const source = jsonWithVersion(path, version)
-  return externalBinConfigWithVersion(path, source, version)
-}
-
-function externalBinConfigWithVersion(path, source, version) {
-  const pattern =
-    /"binaries\/iyw-claw-mcp-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)"/g
-  const matches = [...source.matchAll(pattern)]
-  if (matches.length !== 1) {
-    throw new Error(
-      `${path} expected one versioned iyw-claw-mcp externalBin, found ${matches.length}`
-    )
-  }
-  return source.replace(pattern, `"binaries/iyw-claw-mcp-${version}"`)
+  return jsonWithVersion(path, version)
 }
 
 function replaceVersionLine(block, path, version) {
@@ -105,10 +92,6 @@ const updates = [
     "src-tauri/tauri.conf.json",
     tauriConfigWithVersion("src-tauri/tauri.conf.json", version),
   ],
-  ...["tauri.windows.conf.json", "tauri.windows-x86.conf.json"].map((name) => {
-    const path = `src-tauri/${name}`
-    return [path, externalBinConfigWithVersion(path, read(path), version)]
-  }),
   [
     "src-tauri/Cargo.toml",
     cargoManifestWithVersion("src-tauri/Cargo.toml", version),

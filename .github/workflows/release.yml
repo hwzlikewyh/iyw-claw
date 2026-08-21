@@ -39,6 +39,10 @@ jobs:
         with:
           node-version: 24
 
+      - name: Install Rust stable
+        if: github.event_name == 'workflow_dispatch'
+        uses: dtolnay/rust-toolchain@stable
+
       - id: release
         name: Prepare release version and tag
         shell: bash
@@ -54,8 +58,14 @@ jobs:
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             version="$INPUT_VERSION"
-            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$ ]]; then
               echo "::error::Version '$version' must be semantic version text without a leading v."
+              exit 1
+            fi
+            IFS='.' read -r release_major release_minor release_patch <<< "${version%%-*}"
+            if (( release_major == 0 && release_minor < 1 )) \
+               || (( release_major == 0 && release_minor == 1 && release_patch < 93 )); then
+              echo "::error::Version '$version' predates the HTTP-only built-in MCP contract (minimum 0.1.93)."
               exit 1
             fi
 
@@ -71,6 +81,23 @@ jobs:
             fi
 
             node scripts/set-version.mjs "$version"
+            cargo_version="$(
+              cargo metadata \
+                --manifest-path src-tauri/Cargo.toml \
+                --no-deps \
+                --format-version 1 \
+                | node -e '
+                    const fs = require("node:fs");
+                    const metadata = JSON.parse(fs.readFileSync(0, "utf8"));
+                    const app = metadata.packages.find((item) => item.name === "iyw-claw");
+                    if (!app) process.exit(1);
+                    process.stdout.write(app.version);
+                  '
+            )"
+            if [[ "$cargo_version" != "$version" ]]; then
+              echo "::error::Cargo metadata version '$cargo_version' does not match requested version '$version'."
+              exit 1
+            fi
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
@@ -278,10 +305,19 @@ jobs:
           PRERELEASE: ${{ needs.create-draft-release.outputs.prerelease }}
         with:
           script: |
+            const releaseAssets = require(
+              "./.release-workflow/.github/scripts/release/upload-updater-json.cjs"
+            );
             const { owner, repo } = context.repo;
             const releaseId = Number(process.env.RELEASE_ID);
             const prerelease = process.env.PRERELEASE === "true";
 
+            await releaseAssets.assertPublishableReleaseAssets({
+              github,
+              context,
+              core,
+              releaseId,
+            });
             await github.rest.repos.updateRelease({
               owner,
               repo,
