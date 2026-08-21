@@ -2650,11 +2650,28 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     activeKeyListeners: new Set(),
   })
 
-  // connectionId → contextKey reverse mapping. Used by the legacy global
-  // `acp://event` listener path. Attach-protocol connections (web mode)
-  // bypass this entirely — their events are routed by the per-subscription
-  // handlers registered in `attachSubscriptionsRef`.
-  const reverseMapRef = useRef(new Map<string, string>())
+  // connectionId → contextKeys reverse mapping. Multiple surfaces may watch
+  // one backend connection; removing one surface must not blind the others.
+  const reverseMapRef = useRef(new Map<string, Set<string>>())
+
+  const bindConnectionRoute = useCallback(
+    (connectionId: string, contextKey: string) => {
+      const routes = reverseMapRef.current.get(connectionId)
+      if (routes) routes.add(contextKey)
+      else reverseMapRef.current.set(connectionId, new Set([contextKey]))
+    },
+    []
+  )
+
+  const releaseConnectionRoute = useCallback(
+    (connectionId: string, contextKey: string) => {
+      const routes = reverseMapRef.current.get(connectionId)
+      if (!routes) return
+      routes.delete(contextKey)
+      if (routes.size === 0) reverseMapRef.current.delete(connectionId)
+    },
+    []
+  )
 
   // contextKey → active EventStream subscription handle. Populated only for
   // connections established via the Subscribe-with-Snapshot attach
@@ -4023,6 +4040,50 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const isConnectionLiveOnBackend = useCallback(
+    async (connectionId: string): Promise<boolean> => {
+      try {
+        return await acpTouchConnection(connectionId)
+      } catch {
+        return true
+      }
+    },
+    []
+  )
+
+  const markConnectionGone = useCallback(
+    (contextKey: string, connectionId: string): boolean => {
+      const conn = storeRef.current.connections.get(contextKey)
+      if (!conn || conn.connectionId !== connectionId) return false
+      if (conn.status === "disconnected" || conn.status === "error")
+        return false
+      releaseConnectionRoute(connectionId, contextKey)
+      teardownAttachSubscription(contextKey)
+      pendingUnmappedEventsRef.current.delete(connectionId)
+      dispatch({ type: "STATUS_CHANGED", contextKey, status: "disconnected" })
+      return true
+    },
+    [dispatch, releaseConnectionRoute, teardownAttachSubscription]
+  )
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const keys = new Set<string>()
+      const activeKey = storeRef.current.activeKey
+      if (activeKey) keys.add(activeKey)
+      for (const key of visibleTabKeysRef.current) keys.add(key)
+      for (const contextKey of keys) {
+        const conn = storeRef.current.connections.get(contextKey)
+        if (!conn || conn.isDelegationChild) continue
+        if (conn.status === "disconnected" || conn.status === "error") continue
+        void isConnectionLiveOnBackend(conn.connectionId).then((live) => {
+          if (!live) markConnectionGone(contextKey, conn.connectionId)
+        })
+      }
+    }, CONNECTION_KEEPALIVE_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [isConnectionLiveOnBackend, markConnectionGone])
+
   // Single global event listener
   useEffect(() => {
     let cancelled = false
@@ -4048,59 +4109,54 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       // via `app.emit("acp://event", ...)`. Web / remote-desktop transports
       // skipped this useEffect above and route ACP events solely via the
       // per-connection attach streams.
-      const contextKey = reverseMapRef.current.get(envelope.connection_id)
-      if (!contextKey) {
+      const routes = reverseMapRef.current.get(envelope.connection_id)
+      if (!routes || routes.size === 0) {
         bufferUnmappedEvent(envelope)
         return
       }
 
-      // Seq dedup: skip envelopes already accounted for by a snapshot or a
-      // prior delivery. snapshot.event_seq sets the lower bound; subsequent
-      // envelopes with seq <= lastAppliedSeq are no-op duplicates.
-      const conn = storeRef.current.connections.get(contextKey)
-      if (conn && envelope.seq <= conn.lastAppliedSeq) {
-        return
-      }
-      if (recoveringContextKeysRef.current.has(contextKey)) {
-        queueDesktopRecoveryEvent(contextKey, envelope)
-        return
-      }
-      if (conn && envelope.seq > conn.lastAppliedSeq + 1) {
-        void recoverDesktopEventGap(
-          contextKey,
-          envelope.connection_id,
-          envelope
-        )
-        return
-      }
+      let delivered = false
+      for (const contextKey of Array.from(routes)) {
+        // Seq dedup: skip envelopes already accounted for by a snapshot or a
+        // prior delivery. Each surface owns its own cursor.
+        const conn = storeRef.current.connections.get(contextKey)
+        if (conn && envelope.seq <= conn.lastAppliedSeq) continue
+        if (recoveringContextKeysRef.current.has(contextKey)) {
+          queueDesktopRecoveryEvent(contextKey, envelope)
+          continue
+        }
+        if (conn && envelope.seq > conn.lastAppliedSeq + 1) {
+          void recoverDesktopEventGap(
+            contextKey,
+            envelope.connection_id,
+            envelope
+          )
+          continue
+        }
 
-      // Touch activity on every incoming event
-      lastActivityRef.current.set(contextKey, Date.now())
-      try {
-        handleMappedEvent(contextKey, envelope)
-      } catch (error) {
-        console.error("[acp-context] event handler failed; recovering", {
-          contextKey,
-          connectionId: envelope.connection_id,
-          seq: envelope.seq,
-          type: envelope.type,
-          error,
-        })
-        void recoverDesktopEventGap(
-          contextKey,
-          envelope.connection_id,
-          envelope
-        )
-        return
-      }
+        lastActivityRef.current.set(contextKey, Date.now())
+        try {
+          handleMappedEvent(contextKey, envelope)
+        } catch (error) {
+          console.error("[acp-context] event handler failed; recovering", {
+            contextKey,
+            connectionId: envelope.connection_id,
+            seq: envelope.seq,
+            type: envelope.type,
+            error,
+          })
+          void recoverDesktopEventGap(
+            contextKey,
+            envelope.connection_id,
+            envelope
+          )
+          continue
+        }
 
-      // Advance lastAppliedSeq after the event's effects have dispatched.
-      // EVENT_APPLIED is idempotent (only advances if higher).
-      dispatch({
-        type: "EVENT_APPLIED",
-        contextKey,
-        seq: envelope.seq,
-      })
+        dispatch({ type: "EVENT_APPLIED", contextKey, seq: envelope.seq })
+        delivered = true
+      }
+      if (!delivered) return
 
       // Fan out to JS-level subscribers (e.g. ConversationDetailPanel's
       // background turn_complete handler). Runs AFTER the reducer dispatches
@@ -4207,19 +4263,15 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     // because in the general case a ref's `.current` can be replaced).
     const store = storeRef.current
     return () => {
-      for (const [connectionId, contextKey] of reverseMap) {
-        // Delegation-child entries are not real user-facing
-        // connections — the broker owns their backend lifecycle and
-        // will tear them down when the parent's delegation resolves.
-        // Calling acpDisconnect on them here would race the broker's
-        // own one-shot teardown and emit a benign-but-noisy "unknown
-        // connection" error from the backend.
-        const conn = store.connections.get(contextKey)
-        if (conn?.isDelegationChild) continue
-        // Viewers attach to a connection another client owns — never
-        // acpDisconnect it on our unmount. The attach-sub detach loop below
-        // releases our read-only subscription cleanly.
-        if (conn?.isViewer) continue
+      const disconnected = new Set<string>()
+      for (const [connectionId, contextKeys] of reverseMap) {
+        for (const contextKey of contextKeys) {
+          const conn = store.connections.get(contextKey)
+          if (conn?.isDelegationChild || conn?.isViewer) continue
+          disconnected.add(connectionId)
+        }
+      }
+      for (const connectionId of disconnected) {
         acpDisconnect(connectionId).catch(() => {})
       }
       for (const [, sub] of attachSubs) {
@@ -4323,13 +4375,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           patch.eventSeq
         )
       }
-      reverseMapRef.current.set(connectionId, contextKey)
+      bindConnectionRoute(connectionId, contextKey)
       for (const env of consumeBufferedEvents(connectionId)) {
         applyMappedEnvelope(contextKey, env)
       }
     },
     [
       applyMappedEnvelope,
+      bindConnectionRoute,
       consumeBufferedEvents,
       dispatch,
       seedDelegationsFromSnapshot,
@@ -4442,7 +4495,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             if (!existing.isViewer) {
               await acpDisconnect(existing.connectionId).catch(() => {})
             }
-            reverseMapRef.current.delete(existing.connectionId)
+            releaseConnectionRoute(existing.connectionId, contextKey)
             teardownAttachSubscription(contextKey)
             lastActivityRef.current.delete(contextKey)
             pendingUnmappedEventsRef.current.delete(existing.connectionId)
@@ -4476,7 +4529,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             }
           }
           if (orphanKey && orphanConn) {
-            reverseMapRef.current.set(orphanConn.connectionId, contextKey)
+            bindConnectionRoute(orphanConn.connectionId, contextKey)
+            releaseConnectionRoute(orphanConn.connectionId, orphanKey)
             const lastActivity = lastActivityRef.current.get(orphanKey)
             lastActivityRef.current.delete(orphanKey)
             lastActivityRef.current.set(contextKey, lastActivity ?? Date.now())
@@ -4682,7 +4736,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             )
           }
 
-          reverseMapRef.current.set(connectionId, contextKey)
+          bindConnectionRoute(connectionId, contextKey)
 
           const buffered = consumeBufferedEvents(connectionId)
           if (buffered.length > 0) {
@@ -4760,12 +4814,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     },
     [
       applyMappedEnvelope,
+      bindConnectionRoute,
       buildOpenAgentsSettingsAction,
       connectAsViewer,
       consumeBufferedEvents,
       dispatch,
       isConnectionOwnedLocally,
       resolveConnectBlockState,
+      releaseConnectionRoute,
       runtimeErrorMessages,
       seedDelegationsFromSnapshot,
       setActiveKey,
@@ -4797,20 +4853,20 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         // detachDelegationChild. The owner's own disconnect / the idle sweep
         // governs the connection's real lifetime.
         teardownAttachSubscription(contextKey)
-        reverseMapRef.current.delete(conn.connectionId)
+        releaseConnectionRoute(conn.connectionId, contextKey)
         pendingUnmappedEventsRef.current.delete(conn.connectionId)
         lastActivityRef.current.delete(contextKey)
         dispatch({ type: "CONNECTION_REMOVED", contextKey })
         return
       }
       await acpDisconnect(conn.connectionId)
-      reverseMapRef.current.delete(conn.connectionId)
+      releaseConnectionRoute(conn.connectionId, contextKey)
       teardownAttachSubscription(contextKey)
       lastActivityRef.current.delete(contextKey)
       pendingUnmappedEventsRef.current.delete(conn.connectionId)
       dispatch({ type: "CONNECTION_REMOVED", contextKey })
     },
-    [dispatch, teardownAttachSubscription]
+    [dispatch, releaseConnectionRoute, teardownAttachSubscription]
   )
 
   const reapplyConfig = useCallback(
@@ -4860,15 +4916,16 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       if (!conn.isViewer) {
         promises.push(acpDisconnect(conn.connectionId).catch(() => {}))
       }
-      reverseMapRef.current.delete(conn.connectionId)
+      releaseConnectionRoute(conn.connectionId, contextKey)
       teardownAttachSubscription(contextKey)
       pendingUnmappedEventsRef.current.delete(conn.connectionId)
     }
+    reverseMapRef.current.clear()
     lastActivityRef.current.clear()
     alertedErrorDetailsRef.current.clear()
     await Promise.all(promises)
     dispatch({ type: "REMOVE_ALL" })
-  }, [dispatch, teardownAttachSubscription])
+  }, [dispatch, releaseConnectionRoute, teardownAttachSubscription])
 
   const sendPrompt = useCallback(
     async (
@@ -5057,7 +5114,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       // Tauri desktop: the global acp://event listener routes by
       // reverseMap. Register the identity mapping and drain any
       // envelopes that arrived between the child's spawn and now.
-      reverseMapRef.current.set(connectionId, connectionId)
+      bindConnectionRoute(connectionId, connectionId)
       const buffered = consumeBufferedEvents(connectionId)
       for (const env of buffered) {
         applyMappedEnvelope(connectionId, env)
@@ -5065,6 +5122,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     },
     [
       applyMappedEnvelope,
+      bindConnectionRoute,
       consumeBufferedEvents,
       dispatch,
       setupAttachSubscription,
@@ -5076,12 +5134,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       const existing = storeRef.current.connections.get(connectionId)
       if (!existing || !existing.isDelegationChild) return
       teardownAttachSubscription(connectionId)
-      reverseMapRef.current.delete(connectionId)
+      releaseConnectionRoute(connectionId, connectionId)
       pendingUnmappedEventsRef.current.delete(connectionId)
       lastActivityRef.current.delete(connectionId)
       dispatch({ type: "DELEGATION_CHILD_DETACH", contextKey: connectionId })
     },
-    [dispatch, teardownAttachSubscription]
+    [dispatch, releaseConnectionRoute, teardownAttachSubscription]
   )
 
   const actions = useMemo<AcpActionsValue>(
