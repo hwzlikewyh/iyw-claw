@@ -8,6 +8,7 @@ use std::sync::{
     Arc,
 };
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures::FutureExt;
 use sacp::schema::{
     BlobResourceContents, CancelNotification, ContentBlock, ContentChunk, EmbeddedResource,
@@ -65,6 +66,9 @@ const IYW_CLAW_MCP_SERVER_PREFIX: &str = "iyw-claw-builtin-";
 const IYW_CLAW_MCP_SERVER_MAX_CHARS: usize = 32;
 const LOCAL_FILE_PROMPT_PREFIX: &str =
     "Local file path (use filesystem tools, not MCP resources): ";
+const MAX_INLINE_RESOURCE_WIRE_BYTES: usize = 256 * 1024;
+const MAX_PROMPT_RESOURCE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_RESOURCE_URI_DISPLAY_BYTES: usize = 1024;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -4749,54 +4753,154 @@ fn map_prompt_blocks(
     agent_type: AgentType,
     blocks: Vec<PromptInputBlock>,
 ) -> Result<Vec<ContentBlock>, String> {
-    blocks
+    let mut budget = PromptResourceBudget::default();
+    let mapped = blocks
         .into_iter()
-        .map(|block| match block {
-            PromptInputBlock::Text { text } => Ok(ContentBlock::Text(TextContent::new(text))),
-            PromptInputBlock::Image {
-                data,
-                mime_type,
-                uri,
-                local_path,
-            } => map_image_block(agent_type, data, mime_type, uri, local_path),
-            PromptInputBlock::Resource {
-                uri,
-                mime_type,
-                text,
-                blob,
-            } => {
-                let resource = match (text, blob) {
-                    (Some(text_value), _) => {
-                        let content =
-                            TextResourceContents::new(text_value, uri.clone()).mime_type(mime_type);
-                        EmbeddedResourceResource::TextResourceContents(content)
-                    }
-                    (None, Some(blob_value)) => {
-                        let content =
-                            BlobResourceContents::new(blob_value, uri.clone()).mime_type(mime_type);
-                        EmbeddedResourceResource::BlobResourceContents(content)
-                    }
-                    (None, None) => {
-                        let content =
-                            TextResourceContents::new("", uri.clone()).mime_type(mime_type);
-                        EmbeddedResourceResource::TextResourceContents(content)
-                    }
-                };
-                Ok(ContentBlock::Resource(EmbeddedResource::new(resource)))
-            }
-            PromptInputBlock::ResourceLink {
-                uri,
-                name,
-                mime_type,
-                description,
-            } => {
-                let mut link = ResourceLink::new(name, uri);
-                link.mime_type = mime_type;
-                link.description = description;
-                Ok(ContentBlock::ResourceLink(link))
-            }
-        })
-        .collect()
+        .map(|block| map_prompt_block(agent_type, block, &mut budget))
+        .collect::<Result<Vec<_>, _>>()?;
+    if budget.bounded_count > 0 {
+        tracing::warn!(
+            bounded_count = budget.bounded_count,
+            original_bytes = budget.original_bytes,
+            final_bytes = budget.final_bytes,
+            "[ACP] bounded inline prompt resources"
+        );
+    }
+    Ok(mapped)
+}
+
+fn map_prompt_block(
+    agent_type: AgentType,
+    block: PromptInputBlock,
+    budget: &mut PromptResourceBudget,
+) -> Result<ContentBlock, String> {
+    match block {
+        PromptInputBlock::Text { text } => Ok(ContentBlock::Text(TextContent::new(text))),
+        PromptInputBlock::Image {
+            data,
+            mime_type,
+            uri,
+            local_path,
+        } => map_image_block(agent_type, data, mime_type, uri, local_path),
+        PromptInputBlock::Resource {
+            uri,
+            mime_type,
+            text,
+            blob,
+        } => map_resource_block(uri, mime_type, text, blob, budget),
+        PromptInputBlock::ResourceLink {
+            uri,
+            name,
+            mime_type,
+            description,
+        } => {
+            let mut link = ResourceLink::new(name, uri);
+            link.mime_type = mime_type;
+            link.description = description;
+            Ok(ContentBlock::ResourceLink(link))
+        }
+    }
+}
+
+#[derive(Default)]
+struct PromptResourceBudget {
+    bounded_count: usize,
+    original_bytes: usize,
+    final_bytes: usize,
+}
+
+fn map_resource_block(
+    uri: String,
+    mime_type: Option<String>,
+    text: Option<String>,
+    blob: Option<String>,
+    budget: &mut PromptResourceBudget,
+) -> Result<ContentBlock, String> {
+    let metadata_bytes = uri
+        .len()
+        .saturating_add(mime_type.as_ref().map_or(0, String::len));
+    if metadata_bytes >= MAX_INLINE_RESOURCE_WIRE_BYTES {
+        return Err("ACP inline resource metadata exceeds the wire budget".to_string());
+    }
+    let raw_value_bytes = text
+        .as_ref()
+        .map_or_else(|| blob.as_ref().map_or(0, String::len), String::len);
+    let valid = text.is_some() || blob.as_deref().is_none_or(valid_inline_blob);
+    let original_bytes = metadata_bytes.saturating_add(raw_value_bytes);
+    if valid && raw_value_bytes < MAX_INLINE_RESOURCE_WIRE_BYTES {
+        let original = embedded_resource(uri.clone(), mime_type.clone(), text, blob);
+        let wire_bytes = resource_wire_bytes(&original)?;
+        budget.original_bytes = budget.original_bytes.saturating_add(wire_bytes);
+        if wire_bytes <= MAX_INLINE_RESOURCE_WIRE_BYTES
+            && budget.final_bytes.saturating_add(wire_bytes) <= MAX_PROMPT_RESOURCE_BYTES
+        {
+            budget.final_bytes = budget.final_bytes.saturating_add(wire_bytes);
+            return Ok(original);
+        }
+    } else {
+        budget.original_bytes = budget.original_bytes.saturating_add(original_bytes);
+    }
+    let placeholder = resource_placeholder(&uri, mime_type.as_deref(), raw_value_bytes);
+    let bounded = embedded_resource(uri, mime_type, Some(placeholder), None);
+    let wire_bytes = resource_wire_bytes(&bounded)?;
+    if wire_bytes > MAX_INLINE_RESOURCE_WIRE_BYTES
+        || budget.final_bytes.saturating_add(wire_bytes) > MAX_PROMPT_RESOURCE_BYTES
+    {
+        return Err("ACP inline resource prompt budget is exhausted".to_string());
+    }
+    budget.bounded_count += 1;
+    budget.final_bytes = budget.final_bytes.saturating_add(wire_bytes);
+    Ok(bounded)
+}
+
+fn embedded_resource(
+    uri: String,
+    mime_type: Option<String>,
+    text: Option<String>,
+    blob: Option<String>,
+) -> ContentBlock {
+    let resource = match (text, blob) {
+        (Some(value), _) => EmbeddedResourceResource::TextResourceContents(
+            TextResourceContents::new(value, uri).mime_type(mime_type),
+        ),
+        (None, Some(value)) => EmbeddedResourceResource::BlobResourceContents(
+            BlobResourceContents::new(value, uri).mime_type(mime_type),
+        ),
+        (None, None) => EmbeddedResourceResource::TextResourceContents(
+            TextResourceContents::new("", uri).mime_type(mime_type),
+        ),
+    };
+    ContentBlock::Resource(EmbeddedResource::new(resource))
+}
+
+fn resource_wire_bytes(block: &ContentBlock) -> Result<usize, String> {
+    serde_json::to_vec(block)
+        .map(|encoded| encoded.len().saturating_add(1))
+        .map_err(|error| format!("cannot measure ACP prompt resource: {error}"))
+}
+
+fn valid_inline_blob(value: &str) -> bool {
+    value.len() < MAX_INLINE_RESOURCE_WIRE_BYTES && STANDARD.decode(value.as_bytes()).is_ok()
+}
+
+fn resource_placeholder(uri: &str, mime_type: Option<&str>, bytes: usize) -> String {
+    format!(
+        "[resource omitted: uri={}, mime_type={}, bytes={}]",
+        truncate_utf8(uri, MAX_RESOURCE_URI_DISPLAY_BYTES),
+        mime_type.unwrap_or("unknown"),
+        bytes
+    )
+}
+
+fn truncate_utf8(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &value[..end])
 }
 
 fn is_codex_compaction_prompt(agent_type: AgentType, blocks: &[PromptInputBlock]) -> bool {
