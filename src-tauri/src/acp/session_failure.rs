@@ -84,7 +84,16 @@ pub fn from_air_meta(meta: Option<&Map<String, Value>>) -> Option<SessionFailure
     if version < 1 {
         return None;
     }
-    parse_record(air.get("sessionFailure")?)
+    let record = parse_record(air.get("sessionFailure")?)?;
+    if record.severity.eq_ignore_ascii_case("warning") {
+        tracing::debug!(
+            failure_id = %record.id,
+            category = %record.category,
+            "[ACP] suppressing non-terminal AIR warning from conversation banner"
+        );
+        return None;
+    }
+    Some(record)
 }
 
 /// Validate stable identity while accepting future category/action vocabulary.
