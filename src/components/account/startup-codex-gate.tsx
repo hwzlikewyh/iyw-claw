@@ -71,8 +71,9 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     (state === "runtime" || state === "installing" || state === "error")
   const workspaceReady = authenticated && state === "ready"
 
-  // Flip into the visible "runtime" state on the first event that proves an
-  // actual download/extract is happening for this bootstrap run.
+  // Flip into the visible "runtime" state only after an event proves that
+  // actual transfer/extraction work started. The backend's ready fast path
+  // emits no progress, so an already complete local environment stays hidden.
   useEffect(() => {
     if (!authenticated) return
     let disposed = false
@@ -80,8 +81,8 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     void subscribe<RuntimeBootstrapEvent>(RUNTIME_BOOTSTRAP_EVENT, (event) => {
       if (event.task_id !== runtimeTaskIdRef.current) return
       if (!event.component) return
-      setState((current) => (current === "checking" ? "runtime" : current))
       if (event.kind === "progress" && event.percent != null) {
+        setState((current) => (current === "checking" ? "runtime" : current))
         const component = event.component
         const percent = event.percent
         setRuntimePercents((current) => ({ ...current, [component]: percent }))
@@ -135,9 +136,10 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
         return
       }
 
-      // Node/Git must exist before the Codex npx install below can run.
+      // Node/Git must exist before the Codex npx install below can run. Keep
+      // this call in the invisible checking state: ready components emit no
+      // progress and therefore do not flash a bootstrap dialog.
       step = "runtime"
-      setState("runtime")
       const runtimeReport = await runtimeBootstrap(runtimeTaskIdRef.current)
       const failures = (
         [
@@ -158,7 +160,12 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
         )
       }
       step = "detect"
-      const installed = await acpDetectAgentLocalVersion("codex")
+      // The initial agent inventory already validates the active Codex
+      // directory, command entrypoint, platform and recorded marker. Reuse
+      // that result on the common path; only repair stale metadata when the
+      // inventory could not prove a local installation.
+      const installed =
+        codex.installed_version ?? (await acpDetectAgentLocalVersion("codex"))
       if (installed) {
         await refreshAgents()
         setState("ready")

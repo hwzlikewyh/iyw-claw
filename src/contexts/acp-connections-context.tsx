@@ -630,8 +630,6 @@ const PERMISSION_TOOL_INPUT_KEYS = [
   "payload",
 ] as const
 
-const MAX_DESKTOP_RECOVERY_EVENTS = 512
-
 function asFiniteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value
@@ -2746,8 +2744,6 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const streamingQueueRef = useRef<StreamingAction[]>([])
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingUnmappedEventsRef = useRef(new Map<string, EventEnvelope[]>())
-  const recoveringContextKeysRef = useRef(new Set<string>())
-  const pendingRecoveryEventsRef = useRef(new Map<string, EventEnvelope[]>())
   const listenerReadyRef = useRef(false)
   const listenerReadyWaitersRef = useRef<Array<() => void>>([])
   // Set of refs (not callbacks) so unmount cleanup matches the original
@@ -3818,92 +3814,6 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     []
   )
 
-  const recoverConnectionFromSnapshot = useCallback(
-    async (
-      contextKey: string,
-      connectionId: string
-    ): Promise<number | null> => {
-      try {
-        const snapshot = await acpGetSessionSnapshot(connectionId)
-        if (!snapshot) return null
-        if (
-          storeRef.current.connections.get(contextKey)?.connectionId !==
-          connectionId
-        ) {
-          return null
-        }
-        const patch = denormalizeSnapshot(snapshot)
-        dispatch({ type: "HYDRATE_FROM_SNAPSHOT", contextKey, patch })
-        surfaceSnapshotErrorDetailsRef.current(contextKey, patch)
-        seedDelegationsFromSnapshot(
-          patch.connectionId,
-          patch.activeDelegations,
-          patch.eventSeq
-        )
-        return patch.eventSeq
-      } catch (error) {
-        console.error("[acp-context] event recovery snapshot failed", {
-          contextKey,
-          connectionId,
-          error,
-        })
-        return null
-      }
-    },
-    [dispatch, seedDelegationsFromSnapshot]
-  )
-
-  const queueDesktopRecoveryEvent = useCallback(
-    (contextKey: string, envelope: EventEnvelope) => {
-      const pending = pendingRecoveryEventsRef.current.get(contextKey) ?? []
-      if (pending.length >= MAX_DESKTOP_RECOVERY_EVENTS) pending.shift()
-      pending.push(envelope)
-      pendingRecoveryEventsRef.current.set(contextKey, pending)
-    },
-    []
-  )
-
-  const recoverDesktopEventGap = useCallback(
-    async (contextKey: string, connectionId: string, first: EventEnvelope) => {
-      if (recoveringContextKeysRef.current.has(contextKey)) {
-        queueDesktopRecoveryEvent(contextKey, first)
-        return
-      }
-      recoveringContextKeysRef.current.add(contextKey)
-      queueDesktopRecoveryEvent(contextKey, first)
-      const snapshotSeq = await recoverConnectionFromSnapshot(
-        contextKey,
-        connectionId
-      )
-      const pending = pendingRecoveryEventsRef.current.get(contextKey) ?? []
-      pendingRecoveryEventsRef.current.delete(contextKey)
-      recoveringContextKeysRef.current.delete(contextKey)
-      if (snapshotSeq == null) return
-      pending.sort((a, b) => a.seq - b.seq)
-      for (const envelope of pending) {
-        if (envelope.seq > snapshotSeq) {
-          try {
-            applyMappedEnvelope(contextKey, envelope)
-          } catch (error) {
-            console.error("[acp-context] recovered event handler failed", {
-              contextKey,
-              connectionId,
-              seq: envelope.seq,
-              type: envelope.type,
-              error,
-            })
-            break
-          }
-        }
-      }
-    },
-    [
-      applyMappedEnvelope,
-      queueDesktopRecoveryEvent,
-      recoverConnectionFromSnapshot,
-    ]
-  )
-
   const surfaceSnapshotErrorDetails = useCallback(
     (
       contextKey: string,
@@ -4061,38 +3971,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       if (conn && envelope.seq <= conn.lastAppliedSeq) {
         return
       }
-      if (recoveringContextKeysRef.current.has(contextKey)) {
-        queueDesktopRecoveryEvent(contextKey, envelope)
-        return
-      }
-      if (conn && envelope.seq > conn.lastAppliedSeq + 1) {
-        void recoverDesktopEventGap(
-          contextKey,
-          envelope.connection_id,
-          envelope
-        )
-        return
-      }
 
       // Touch activity on every incoming event
       lastActivityRef.current.set(contextKey, Date.now())
-      try {
-        handleMappedEvent(contextKey, envelope)
-      } catch (error) {
-        console.error("[acp-context] event handler failed; recovering", {
-          contextKey,
-          connectionId: envelope.connection_id,
-          seq: envelope.seq,
-          type: envelope.type,
-          error,
-        })
-        void recoverDesktopEventGap(
-          contextKey,
-          envelope.connection_id,
-          envelope
-        )
-        return
-      }
+      handleMappedEvent(contextKey, envelope)
 
       // Advance lastAppliedSeq after the event's effects have dispatched.
       // EVENT_APPLIED is idempotent (only advances if higher).
@@ -4144,8 +4026,6 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     bufferUnmappedEvent,
     dispatch,
     handleMappedEvent,
-    queueDesktopRecoveryEvent,
-    recoverDesktopEventGap,
     resolveListenerReadyWaiters,
   ])
 

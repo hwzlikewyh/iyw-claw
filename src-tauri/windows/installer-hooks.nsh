@@ -8,6 +8,17 @@ Var IywClawInstallRegistryKey
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
 !include "${__FILEDIR__}\installer-test-mode.nsh"
 
+Function IywClawIsMainProcessRunning
+  ; 仅检查当前用户、本安装目录且真实路径匹配的主进程。
+  ; 原样返回 helper 状态：1=运行中，0=未运行，其他=查询失败。
+  Pop $R9
+  Push $R9
+  Push "check-main"
+  Call IywClawRunKnownProcessCommandAt
+  Pop $R5
+  Push $R5
+FunctionEnd
+
 Function IywClawRestoreLogicalInstallRoot
   Call IywClawConfigureInstallerMode
   StrCmp $IywClawInstallerTestMode "invalid" 0 iyw_installer_mode_valid
@@ -44,9 +55,42 @@ Function IywClawRestoreLogicalInstallRoot
     GetFullPathName $INSTDIR "$LOCALAPPDATA\iyw-claw"
 
   iyw_guiinit_done:
-    ; 测试模式不得检查或重启生产进程；普通手动安装也保持可见界面。
-    ; 应用内 updater 传入的 /P /R /UPDATE 仍由 Tauri 原生安装流程处理。
+    ; 测试模式不得检查或重启生产进程；应用内 updater 已携带 /UPDATE 时
+    ; 继续当前 NSIS 流程，避免递归启动安装器。
     StrCmp $IywClawInstallerTestMode "1" iyw_guiinit_return 0
+    ClearErrors
+    ${GetOptions} $CMDLINE "/UPDATE" $R6
+    IfErrors 0 iyw_guiinit_return
+    ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
+    StrCmp $R8 "" iyw_guiinit_return 0
+
+    Push "$R8\app"
+    Call IywClawIsMainProcessRunning
+    Pop $R5
+    StrCmp $R5 "1" iyw_relaunch_running_app 0
+    StrCmp $R5 "0" iyw_relaunch_stopped_app iyw_relaunch_query_failed
+
+  iyw_relaunch_stopped_app:
+    ExecWait '"$EXEPATH" /P /UPDATE' $R6
+    Goto iyw_relaunch_finished
+
+  iyw_relaunch_running_app:
+    DetailPrint "检测到正在运行的 iyw-claw，安装完成后将恢复原页面。"
+    ExecWait '"$EXEPATH" /P /R /UPDATE /ARGS --restore-installer-session' $R6
+    Goto iyw_relaunch_finished
+
+  iyw_relaunch_query_failed:
+    DetailPrint "无法确认 iyw-claw 主进程状态，已停止更新。"
+    IfSilent iyw_relaunch_query_failed_quit 0
+    MessageBox MB_OK|MB_ICONSTOP \
+      "无法确认当前用户的 iyw-claw 是否正在运行。为避免不安全替换，本次更新已停止。"
+  iyw_relaunch_query_failed_quit:
+    SetErrorLevel 1
+    Quit
+
+  iyw_relaunch_finished:
+    SetErrorLevel $R6
+    Quit
 
   iyw_guiinit_return:
 FunctionEnd

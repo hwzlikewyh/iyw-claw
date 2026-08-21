@@ -81,12 +81,19 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    if ($$owner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($$owner.Sid)) { throw 'Unable to resolve process owner SID' }$\r$\n`
   FileWriteUTF16LE $R0 `    if ([string]::IsNullOrWhiteSpace($$CimProcess.ExecutablePath)) { throw 'Process executable path is unavailable' }$\r$\n`
   FileWriteUTF16LE $R0 `    $$processId = [int]$$CimProcess.ProcessId$\r$\n`
-  FileWriteUTF16LE $R0 `    $$runtime = Get-Process -Id $$processId -ErrorAction Stop$\r$\n`
-  FileWriteUTF16LE $R0 `    if ([string]::IsNullOrWhiteSpace($$runtime.Path)) { throw 'Runtime executable path is unavailable' }$\r$\n`
-  FileWriteUTF16LE $R0 `    $$startTicks = $$runtime.StartTime.ToUniversalTime().Ticks$\r$\n`
   FileWriteUTF16LE $R0 `    $$cimPath = Get-SafeCanonicalPath $$CimProcess.ExecutablePath$\r$\n`
-  FileWriteUTF16LE $R0 `    $$runtimePath = Get-SafeCanonicalPath $$runtime.Path$\r$\n`
-  FileWriteUTF16LE $R0 `    if (-not [string]::Equals($$cimPath, $$runtimePath, [StringComparison]::OrdinalIgnoreCase)) { throw 'CIM and runtime executable identities differ' }$\r$\n`
+  FileWriteUTF16LE $R0 `    $$runtime = Get-Process -Id $$processId -ErrorAction Stop$\r$\n`
+  FileWriteUTF16LE $R0 `    try { $$startTicks = $$runtime.StartTime.ToUniversalTime().Ticks } catch {$\r$\n`
+  FileWriteUTF16LE $R0 `      try {$\r$\n`
+  FileWriteUTF16LE $R0 `        $$creationDate = $$CimProcess.CreationDate$\r$\n`
+  FileWriteUTF16LE $R0 `        if ($$creationDate -is [string]) { $$creationDate = [System.Management.ManagementDateTimeConverter]::ToDateTime($$creationDate) }$\r$\n`
+  FileWriteUTF16LE $R0 `        $$startTicks = ([datetime]$$creationDate).ToUniversalTime().Ticks$\r$\n`
+  FileWriteUTF16LE $R0 `      } catch { throw 'Process start time is unavailable' }$\r$\n`
+  FileWriteUTF16LE $R0 `    }$\r$\n`
+  FileWriteUTF16LE $R0 `    if (-not [string]::IsNullOrWhiteSpace($$runtime.Path)) {$\r$\n`
+  FileWriteUTF16LE $R0 `      $$runtimePath = Get-SafeCanonicalPath $$runtime.Path$\r$\n`
+  FileWriteUTF16LE $R0 `      if (-not [string]::Equals($$cimPath, $$runtimePath, [StringComparison]::OrdinalIgnoreCase)) { throw 'CIM and runtime executable identities differ' }$\r$\n`
+  FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `    $$parentPath = [IO.Path]::GetDirectoryName($$cimPath)$\r$\n`
   FileWriteUTF16LE $R0 `    if ([string]::IsNullOrWhiteSpace($$parentPath)) { throw 'Process executable parent is unavailable' }$\r$\n`
   FileWriteUTF16LE $R0 `    $$parent = Normalize-Directory (Get-SafeCanonicalPath $$parentPath)$\r$\n`
@@ -123,14 +130,24 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `  Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object {$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not (& $$isCandidate $$_.Name)) { return }$\r$\n`
   FileWriteUTF16LE $R0 `    $$candidatePid = [int]$$_.ProcessId$\r$\n`
-  FileWriteUTF16LE $R0 `    try { $$identity = Get-ProcessIdentity $$_ } catch { $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$candidatePid" -ErrorAction Stop); if ($$stillThere.Count -eq 0) { return }; throw }$\r$\n`
+  FileWriteUTF16LE $R0 `    try { $$identity = Get-ProcessIdentity $$_ } catch {$\r$\n`
+  FileWriteUTF16LE $R0 `      $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$candidatePid" -ErrorAction Stop)$\r$\n`
+  FileWriteUTF16LE $R0 `      if ($$stillThere.Count -eq 0) { return }$\r$\n`
+  FileWriteUTF16LE $R0 `      if ($$Action -eq 'check-main' -or $$_.Name -ieq 'iyw-claw.exe') { throw }$\r$\n`
+  FileWriteUTF16LE $R0 `      Write-Warning "Skipping auxiliary process $$_.Name (PID $$candidatePid): identity unavailable"$\r$\n`
+  FileWriteUTF16LE $R0 `      return$\r$\n`
+  FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `    $$sameOwner = [string]::Equals($$identity.OwnerSid, $$currentSid, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
   FileWriteUTF16LE $R0 `    $$sameParent = [string]::Equals($$identity.ParentPath, $$target, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
   FileWriteUTF16LE $R0 `    if ($$sameOwner -and $$sameParent) { $$processSnapshots += $$identity }$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
   FileWriteUTF16LE $R0 `  if ($$Action -eq 'kill') {$\r$\n`
   FileWriteUTF16LE $R0 `    foreach ($$snapshot in $$processSnapshots) {$\r$\n`
-  FileWriteUTF16LE $R0 `      $$liveProcess = Confirm-ProcessIdentity $$snapshot $$target $$currentSid$\r$\n`
+  FileWriteUTF16LE $R0 `      try { $$liveProcess = Confirm-ProcessIdentity $$snapshot $$target $$currentSid } catch {$\r$\n`
+  FileWriteUTF16LE $R0 `        if ($$snapshot.Name -ieq 'iyw-claw.exe') { throw }$\r$\n`
+  FileWriteUTF16LE $R0 `        Write-Warning "Skipping auxiliary process $$snapshot.Name (PID $$snapshot.ProcessId): identity changed"$\r$\n`
+  FileWriteUTF16LE $R0 `        continue$\r$\n`
+  FileWriteUTF16LE $R0 `      }$\r$\n`
   FileWriteUTF16LE $R0 `      if ($$null -ne $$liveProcess) { $$snapshotPid = [int]$$snapshot.ProcessId; try { Stop-Process -InputObject $$liveProcess -Force -ErrorAction Stop } catch { $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$snapshotPid" -ErrorAction Stop); if ($$stillThere.Count -gt 0) { throw } } }$\r$\n`
   FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `    exit 0$\r$\n`
