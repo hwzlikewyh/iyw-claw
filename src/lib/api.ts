@@ -4046,6 +4046,29 @@ export async function deleteModelProvider(id: number): Promise<void> {
 
 // ─── Delegation settings ───────────────────────────────────────────────
 
+export type AgentConcurrencyEnforcement = "native_and_host" | "host"
+
+export interface AgentConcurrencyInfo {
+  agent_type: AgentType
+  name: string
+  enforcement: AgentConcurrencyEnforcement
+}
+
+export interface AgentConcurrencySettings {
+  max_concurrent_subagents: number
+  agents: AgentConcurrencyInfo[]
+}
+
+export async function getAgentConcurrencySettings(): Promise<AgentConcurrencySettings> {
+  return getTransport().call("get_agent_concurrency_settings")
+}
+
+export async function setAgentConcurrencySettings(
+  settings: AgentConcurrencySettings
+): Promise<AgentConcurrencySettings> {
+  return getTransport().call("set_agent_concurrency_settings", { settings })
+}
+
 /** Which surface the effective value of a feature flag came from (mirror of
  *  Rust `DelegationEffectiveSource` / `FeedbackEffectiveSource`). */
 export type EffectiveSource =

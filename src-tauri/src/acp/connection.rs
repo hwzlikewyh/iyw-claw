@@ -4,7 +4,7 @@ use std::future::Future;
 use std::panic::{resume_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
 };
 
@@ -61,6 +61,12 @@ use crate::network::proxy;
 use crate::web::event_bridge::{emit_with_state, EventEmitter};
 
 const DEFAULT_COMMAND_COLOR_ENV: [(&str, &str); 1] = [("CLICOLOR_FORCE", "1")];
+static CLAUDE_MAX_CONCURRENT_SUBAGENTS: AtomicU32 = AtomicU32::new(40);
+
+pub(crate) fn set_claude_max_concurrent_subagents(limit: u32) {
+    CLAUDE_MAX_CONCURRENT_SUBAGENTS.store(limit, Ordering::Relaxed);
+}
+
 const IYW_CLAW_MCP_SERVER_PREFIX: &str = "iyw-claw-builtin-";
 const IYW_CLAW_MCP_SERVER_MAX_CHARS: usize = 32;
 const LOCAL_FILE_PROMPT_PREFIX: &str =
@@ -822,6 +828,14 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
             let mut merged_env = merge_agent_env(env, runtime_env)
                 .into_iter()
                 .collect::<BTreeMap<_, _>>();
+            if agent_type == AgentType::ClaudeCode {
+                merged_env.insert(
+                    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS".into(),
+                    CLAUDE_MAX_CONCURRENT_SUBAGENTS
+                        .load(Ordering::Relaxed)
+                        .to_string(),
+                );
+            }
             let prefix = npm_runtime::private_npm_prefix(&storage, agent_type, version)?;
             let bin_dir = npm_runtime::npm_prefix_bin_dir(&prefix);
             let inherited_path = std::env::var("PATH").unwrap_or_default();

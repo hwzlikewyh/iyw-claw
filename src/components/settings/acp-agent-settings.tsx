@@ -151,6 +151,7 @@ import {
 } from "./deepseek-config-panel"
 import { AgentStorageSettings } from "./agent-storage-settings"
 import { AgentVersionCenter } from "./agent-version-center"
+import { AgentConcurrencySettingsSection } from "./agent-concurrency-settings"
 
 interface AgentCheckState {
   result?: PreflightResult
@@ -7121,6 +7122,8 @@ export function AcpAgentSettings({
           {loadingError}
         </div>
       )}
+
+      <AgentConcurrencySettingsSection />
 
       {SHOW_AGENT_STORAGE_SETTINGS ? (
         <AgentStorageSettings

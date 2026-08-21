@@ -67,18 +67,19 @@ mod tauri_app {
     use crate::acp::manager::ConnectionManager;
     use crate::chat_channel::manager::ChatChannelManager;
     use crate::commands::{
-        acp as acp_commands, agent_input as agent_input_commands,
-        agent_storage as agent_storage_commands, agent_version_center_tauri,
-        app_update as app_update_commands, automation as automation_commands,
-        automation_draft as automation_draft_commands, backup, browser as browser_commands,
-        capability_policy_tauri, chat_attachments as chat_attachment_commands,
-        chat_channel as chat_channel_commands, chat_image as chat_image_commands, conversations,
-        delegation as delegation_commands, desktop as desktop_commands,
-        display_assets as display_asset_commands, experts as experts_commands,
-        feedback as feedback_commands, file_io, folder_commands, folders, idle_agent_settings,
-        internet_tools as internet_tools_commands, iyw_account as iyw_account_commands,
-        logging as logging_commands, managed_skills as managed_skills_commands,
-        mcp as mcp_commands, model_provider as model_provider_commands, notification,
+        acp as acp_commands, agent_concurrency as agent_concurrency_commands,
+        agent_input as agent_input_commands, agent_storage as agent_storage_commands,
+        agent_version_center_tauri, app_update as app_update_commands,
+        automation as automation_commands, automation_draft as automation_draft_commands, backup,
+        browser as browser_commands, capability_policy_tauri,
+        chat_attachments as chat_attachment_commands, chat_channel as chat_channel_commands,
+        chat_image as chat_image_commands, conversations, delegation as delegation_commands,
+        desktop as desktop_commands, display_assets as display_asset_commands,
+        experts as experts_commands, feedback as feedback_commands, file_io, folder_commands,
+        folders, idle_agent_settings, internet_tools as internet_tools_commands,
+        iyw_account as iyw_account_commands, logging as logging_commands,
+        managed_skills as managed_skills_commands, mcp as mcp_commands,
+        model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, performance as performance_commands,
         question as question_commands, quick_messages as quick_messages_commands,
         realtime_voice as realtime_voice_commands,
@@ -816,6 +817,11 @@ mod tauri_app {
                             &broker_for_init,
                         )
                         .await;
+                        agent_concurrency_commands::apply_persisted_config(
+                            &db_for_init,
+                            &broker_for_init,
+                        )
+                        .await;
                         crate::commands::feedback::apply_persisted_feedback_config(
                             &db_for_init,
                             &feedback_for_init,
@@ -1444,6 +1450,8 @@ mod tauri_app {
                 logging_commands::open_logs_dir,
                 delegation_commands::get_delegation_settings,
                 delegation_commands::set_delegation_settings,
+                agent_concurrency_commands::get_agent_concurrency_settings,
+                agent_concurrency_commands::set_agent_concurrency_settings,
                 feedback_commands::get_feedback_settings,
                 feedback_commands::set_feedback_settings,
                 feedback_commands::submit_session_feedback,
