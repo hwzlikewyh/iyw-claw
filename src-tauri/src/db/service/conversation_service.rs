@@ -258,6 +258,25 @@ pub async fn update_external_id(
     Ok(())
 }
 
+pub async fn clear_external_id(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+) -> Result<(), DbError> {
+    use sea_orm::sea_query::Expr;
+
+    conversation::Entity::update_many()
+        .col_expr(
+            conversation::Column::ExternalId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(conversation::Column::Id.eq(conversation_id))
+        .filter(conversation::Column::DeletedAt.is_null())
+        .exec(conn)
+        .await?;
+    Ok(())
+}
+
 /// Persist the model name used in a conversation. Called by the lifecycle
 /// subscriber when `TurnComplete` fires so each conversation row remembers
 /// the model that was active during its turns. `None` clears the field.

@@ -17,6 +17,12 @@ use crate::db::service::sender_context_service;
 
 const ILINK_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
 const ILINK_CHANNEL_VERSION: &str = "1.0.2";
+const ILINK_APP_ID: &str = "bot";
+const ILINK_APP_CLIENT_VERSION: &str = "131584";
+const TYPING_TICKET_TTL: Duration = Duration::from_secs(600);
+const TYPING_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
+const TYPING_START: i64 = 1;
+const TYPING_STOP: i64 = 2;
 const QR_REQUEST_TIMEOUT: Duration = Duration::from_secs(40);
 const QR_POLL_HOST_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_QR_POLL_HOSTS: usize = 256;
@@ -404,6 +410,12 @@ struct WeixinReplyContext {
     expired: bool,
 }
 
+#[derive(Clone)]
+struct TypingTicket {
+    value: String,
+    expires_at: Instant,
+}
+
 pub struct WeixinBackend {
     bot_token: String,
     base_url: String,
@@ -415,6 +427,7 @@ pub struct WeixinBackend {
     reply_context: Arc<Mutex<Option<WeixinReplyContext>>>,
     /// Messages that failed due to expired context_token, resend on next refresh.
     pending_messages: Arc<Mutex<Vec<String>>>,
+    typing_tickets: Arc<Mutex<HashMap<String, TypingTicket>>>,
     /// Stable X-WECHAT-UIN value for this backend instance.
     wechat_uin: String,
 }
@@ -443,6 +456,7 @@ impl WeixinBackend {
             shutdown_tx: Arc::new(Mutex::new(None)),
             reply_context: Arc::new(Mutex::new(None)),
             pending_messages: Arc::new(Mutex::new(Vec::new())),
+            typing_tickets: Arc::new(Mutex::new(HashMap::new())),
             wechat_uin,
         }
     }
@@ -458,6 +472,11 @@ impl WeixinBackend {
         if let Ok(val) = HeaderValue::from_str(wechat_uin) {
             headers.insert("X-WECHAT-UIN", val);
         }
+        headers.insert("iLink-App-Id", HeaderValue::from_static(ILINK_APP_ID));
+        headers.insert(
+            "iLink-App-ClientVersion",
+            HeaderValue::from_static(ILINK_APP_CLIENT_VERSION),
+        );
 
         let bearer = format!("Bearer {bot_token}");
         if let Ok(val) = HeaderValue::from_str(&bearer) {
@@ -662,12 +681,142 @@ impl WeixinBackend {
         .await?;
         Ok(SentMessageId(String::new()))
     }
+
+    async fn context_token_for(
+        &self,
+        target: &ChannelMessageTarget,
+        user_id: &str,
+    ) -> Option<String> {
+        if let Some(token) = target
+            .provider_payload
+            .as_ref()
+            .and_then(|payload| payload.get("context_token"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|token| !token.is_empty())
+        {
+            return Some(token.to_string());
+        }
+        sender_context_service::get_weixin_context_token(&self.database, self.channel_id, user_id)
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn typing_ticket(
+        &self,
+        target: &ChannelMessageTarget,
+        user_id: &str,
+    ) -> Result<String, ChatChannelError> {
+        if let Some(ticket) = self.cached_typing_ticket(user_id).await {
+            return Ok(ticket);
+        }
+        let context_token = self.context_token_for(target, user_id).await;
+        let mut body = serde_json::json!({
+            "ilink_user_id": user_id,
+            "base_info": { "channel_version": ILINK_CHANNEL_VERSION },
+        });
+        if let Some(token) = context_token {
+            body["context_token"] = serde_json::Value::String(token);
+        }
+        let response = self.post_typing_api("getconfig", body).await?;
+        let ticket = response
+            .get("typing_ticket")
+            .and_then(serde_json::Value::as_str)
+            .filter(|ticket| !ticket.is_empty())
+            .ok_or_else(|| ChatChannelError::SendFailed("typing ticket unavailable".into()))?;
+        self.typing_tickets.lock().await.insert(
+            user_id.to_string(),
+            TypingTicket {
+                value: ticket.to_string(),
+                expires_at: Instant::now() + TYPING_TICKET_TTL,
+            },
+        );
+        Ok(ticket.to_string())
+    }
+
+    async fn cached_typing_ticket(&self, user_id: &str) -> Option<String> {
+        let mut tickets = self.typing_tickets.lock().await;
+        let now = Instant::now();
+        tickets.retain(|_, ticket| ticket.expires_at > now);
+        tickets.get(user_id).map(|ticket| ticket.value.clone())
+    }
+
+    async fn post_typing_api(
+        &self,
+        endpoint: &str,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, ChatChannelError> {
+        let response = self
+            .client
+            .post(format!("{}/ilink/bot/{endpoint}", self.base_url))
+            .headers(Self::build_headers(&self.bot_token, &self.wechat_uin))
+            .timeout(TYPING_REQUEST_TIMEOUT)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| ChatChannelError::SendFailed(error.to_string()))?;
+        let status = response.status();
+        let value = response
+            .json::<serde_json::Value>()
+            .await
+            .map_err(|error| ChatChannelError::SendFailed(error.to_string()))?;
+        if !status.is_success() {
+            return Err(ChatChannelError::SendFailed(format!("HTTP {status}")));
+        }
+        let code = value
+            .get("ret")
+            .or_else(|| value.get("errcode"))
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+        if code != 0 {
+            return Err(ChatChannelError::SendFailed(format!(
+                "provider code {code}"
+            )));
+        }
+        Ok(value)
+    }
+
+    async fn send_typing_status(
+        &self,
+        user_id: &str,
+        ticket: &str,
+        status: i64,
+    ) -> Result<(), ChatChannelError> {
+        self.post_typing_api(
+            "sendtyping",
+            serde_json::json!({
+                "ilink_user_id": user_id,
+                "typing_ticket": ticket,
+                "status": status,
+                "base_info": { "channel_version": ILINK_CHANNEL_VERSION },
+            }),
+        )
+        .await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl ChatChannelBackend for WeixinBackend {
     fn channel_type(&self) -> ChannelType {
         ChannelType::Weixin
+    }
+
+    fn supports_typing(&self) -> bool {
+        true
+    }
+
+    async fn set_typing(
+        &self,
+        target: &ChannelMessageTarget,
+        is_typing: bool,
+    ) -> Result<(), ChatChannelError> {
+        let user_id = target.chat_id.as_deref().ok_or_else(|| {
+            ChatChannelError::ConfigurationInvalid("WeChat target user is missing".to_string())
+        })?;
+        let ticket = self.typing_ticket(target, user_id).await?;
+        let status = if is_typing { TYPING_START } else { TYPING_STOP };
+        self.send_typing_status(user_id, &ticket, status).await
     }
 
     async fn start(

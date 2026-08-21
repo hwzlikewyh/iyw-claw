@@ -5,7 +5,11 @@ use tokio::sync::Mutex;
 
 use super::i18n::Lang;
 use super::session_bridge::SessionBridge;
-use crate::db::service::{folder_service, sender_context_service};
+use crate::db::entities::conversation;
+use crate::db::service::conversation_binding_service::ConversationRoute;
+use crate::db::service::{
+    conversation_binding_service, conversation_service, folder_service, sender_context_service,
+};
 use crate::models::agent::AgentType;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,10 +20,15 @@ pub enum NaturalRouteDecision {
     },
     DenyPermission,
     CancelSession,
+    ResumeConversation {
+        conversation_id: i32,
+    },
     StartTask {
         task: String,
         folder_id: i32,
         agent_type: AgentType,
+        replacing_deleted: bool,
+        replace_existing: bool,
     },
     ShowStatus,
     ShowToday,
@@ -36,6 +45,7 @@ pub async fn route_natural_message(
     bridge: &Arc<Mutex<SessionBridge>>,
     channel_id: i32,
     sender_id: &str,
+    route: &ConversationRoute,
     text: &str,
     lang: Lang,
 ) -> NaturalRouteDecision {
@@ -47,9 +57,9 @@ pub async fn route_natural_message(
     }
 
     let normalized = normalize(trimmed);
-    let sender_has_session = has_active_session(bridge, channel_id, sender_id).await;
+    let sender_has_session = has_active_session(bridge, channel_id, &route.route_key).await;
 
-    if has_pending_permission(bridge, channel_id, sender_id).await {
+    if has_pending_permission(bridge, channel_id, &route.route_key).await {
         if is_denial(&normalized) {
             return NaturalRouteDecision::DenyPermission;
         }
@@ -60,6 +70,24 @@ pub async fn route_natural_message(
         }
     }
 
+    if is_new_session(&normalized) {
+        if let Some(mut decision) =
+            start_task_from_available_context(db, channel_id, sender_id, trimmed, &normalized).await
+        {
+            if let NaturalRouteDecision::StartTask {
+                replace_existing, ..
+            } = &mut decision
+            {
+                *replace_existing = true;
+            }
+            return decision;
+        }
+    }
+
+    if let Some(conversation_id) = resume_conversation_id(&normalized) {
+        return NaturalRouteDecision::ResumeConversation { conversation_id };
+    }
+
     if sender_has_session {
         if is_cancel_session(&normalized) {
             return NaturalRouteDecision::CancelSession;
@@ -67,11 +95,23 @@ pub async fn route_natural_message(
         return NaturalRouteDecision::ContinueSession;
     }
 
-    if sender_has_conversation(db, channel_id, sender_id).await {
+    if route_has_conversation(db, channel_id, &route.route_key).await {
         if is_cancel_session(&normalized) {
             return NaturalRouteDecision::CancelSession;
         }
         return NaturalRouteDecision::ContinueSession;
+    }
+
+    if let Some((folder_id, agent_type)) =
+        deleted_binding_defaults(db, channel_id, &route.route_key).await
+    {
+        return NaturalRouteDecision::StartTask {
+            task: trimmed.to_string(),
+            folder_id,
+            agent_type,
+            replacing_deleted: true,
+            replace_existing: false,
+        };
     }
 
     if is_status_query(&normalized) {
@@ -101,6 +141,8 @@ pub async fn route_natural_message(
             task: trimmed.to_string(),
             folder_id,
             agent_type,
+            replacing_deleted: false,
+            replace_existing: false,
         };
     }
 
@@ -288,34 +330,54 @@ async fn channel_dedicated_folder(db: &DatabaseConnection, channel_id: i32) -> O
 async fn has_active_session(
     bridge: &Arc<Mutex<SessionBridge>>,
     channel_id: i32,
-    sender_id: &str,
+    route_key: &str,
 ) -> bool {
     let guard = bridge.lock().await;
-    guard.find_by_sender(channel_id, sender_id).is_some()
+    guard.find_by_route(channel_id, route_key).is_some()
 }
 
 async fn has_pending_permission(
     bridge: &Arc<Mutex<SessionBridge>>,
     channel_id: i32,
-    sender_id: &str,
+    route_key: &str,
 ) -> bool {
     let guard = bridge.lock().await;
     guard
-        .find_by_sender(channel_id, sender_id)
+        .find_by_route(channel_id, route_key)
         .and_then(|s| s.permission_pending.as_ref())
         .is_some()
 }
 
-async fn sender_has_conversation(
-    db: &DatabaseConnection,
-    channel_id: i32,
-    sender_id: &str,
-) -> bool {
-    sender_context_service::get_or_create(db, channel_id, sender_id)
+async fn route_has_conversation(db: &DatabaseConnection, channel_id: i32, route_key: &str) -> bool {
+    let binding = conversation_binding_service::find_by_route(db, channel_id, route_key)
         .await
         .ok()
-        .and_then(|ctx| ctx.current_conversation_id)
-        .is_some()
+        .flatten();
+    match binding {
+        Some(binding) => conversation_service::get_by_id(db, binding.conversation_id)
+            .await
+            .ok()
+            .is_some(),
+        None => false,
+    }
+}
+
+async fn deleted_binding_defaults(
+    db: &DatabaseConnection,
+    channel_id: i32,
+    route_key: &str,
+) -> Option<(i32, AgentType)> {
+    use sea_orm::EntityTrait;
+
+    let binding = conversation_binding_service::find_by_route(db, channel_id, route_key)
+        .await
+        .ok()??;
+    let row = conversation::Entity::find_by_id(binding.conversation_id)
+        .one(db)
+        .await
+        .ok()??;
+    row.deleted_at?;
+    parse_agent_type(&row.agent_type).map(|agent_type| (row.folder_id, agent_type))
 }
 
 async fn no_existing_conversation_message(db: &DatabaseConnection, lang: Lang) -> String {
@@ -432,6 +494,8 @@ async fn start_task_from_available_context(
         task: task.to_string(),
         folder_id,
         agent_type,
+        replacing_deleted: false,
+        replace_existing: false,
     })
 }
 
@@ -452,7 +516,8 @@ fn parse_agent_type(value: &str) -> Option<AgentType> {
 fn normalize(text: &str) -> String {
     format!(
         " {} ",
-        text.to_lowercase().replace(['，', '。', '！', '？'], " ")
+        text.to_lowercase()
+            .replace(['，', '。', '！', '？', ',', '.', '!', '?'], " ")
     )
 }
 
@@ -471,6 +536,59 @@ fn is_cancel_session(normalized: &str) -> bool {
     let chinese_terms = ["取消", "停止", "结束", "终止", "别跑了"];
     english_terms.iter().any(|term| normalized.contains(term))
         || chinese_terms.iter().any(|term| normalized.contains(term))
+}
+
+fn is_new_session(normalized: &str) -> bool {
+    let english_terms = [
+        " new conversation ",
+        " new chat ",
+        " start a new conversation ",
+        " start a new chat ",
+        " start over ",
+    ];
+    let chinese_terms = [
+        "开个新对话",
+        "开一个新对话",
+        "新开个对话",
+        "新开一个对话",
+        "另开个对话",
+        "另开一个对话",
+        "重新开个对话",
+        "重新开一个对话",
+        "开始新对话",
+        "新建一个对话",
+        "新建一个会话",
+        "新开个会话",
+        "新开一个会话",
+        "另开个会话",
+        "另开一个会话",
+    ];
+    english_terms.iter().any(|term| normalized.contains(term))
+        || chinese_terms.iter().any(|term| normalized.contains(term))
+}
+
+fn resume_conversation_id(normalized: &str) -> Option<i32> {
+    let terms = [
+        "恢复对话",
+        "恢复会话",
+        "继续对话",
+        "继续会话",
+        "切回对话",
+        "切回会话",
+        "resume conversation",
+        "resume chat",
+        "switch to conversation",
+        "switch to chat",
+    ];
+    terms.iter().find_map(|term| {
+        let suffix = normalized.split_once(term)?.1;
+        suffix
+            .split(|character: char| !character.is_ascii_digit())
+            .find(|part| !part.is_empty())?
+            .parse::<i32>()
+            .ok()
+            .filter(|id| *id > 0)
+    })
 }
 
 fn is_approve_always(normalized: &str) -> bool {

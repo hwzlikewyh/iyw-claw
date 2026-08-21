@@ -8,6 +8,7 @@ pub use super::automation::Entity as Automation;
 pub use super::automation_run::Entity as AutomationRun;
 pub use super::chat_channel::Entity as ChatChannel;
 pub use super::chat_channel_agent_audit::Entity as ChatChannelAgentAudit;
+pub use super::chat_channel_conversation_binding::Entity as ChatChannelConversationBinding;
 pub use super::chat_channel_message_log::Entity as ChatChannelMessageLog;
 pub use super::chat_channel_sender_context::Entity as ChatChannelSenderContext;
 pub use super::chat_channel_target::Entity as ChatChannelTarget;

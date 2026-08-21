@@ -20,61 +20,32 @@ pub(super) struct CommandSessionRef {
 }
 
 pub(super) async fn has_active_session(
-    db: &DatabaseConnection,
+    _db: &DatabaseConnection,
     bridge: &Arc<Mutex<SessionBridge>>,
-    target: &ChannelMessageTarget,
+    channel_id: i32,
+    route_key: &str,
 ) -> bool {
-    if !target.is_telegram_forum_topic() {
-        return false;
-    }
-    let binding = thread_binding_service::get_by_target(db, target)
+    bridge
+        .lock()
         .await
-        .ok()
-        .flatten();
-    let guard = bridge.lock().await;
-    guard.find_by_target(target).is_some()
-        || binding
-            .and_then(|value| value.connection_id)
-            .is_some_and(|connection_id| guard.get(&connection_id).is_some())
+        .find_by_route(channel_id, route_key)
+        .is_some()
 }
 
 pub(super) async fn command_session_ref(
-    db: &DatabaseConnection,
+    _db: &DatabaseConnection,
     bridge: &Arc<Mutex<SessionBridge>>,
     channel_id: i32,
-    sender_id: &str,
-    target: &ChannelMessageTarget,
+    _sender_id: &str,
+    route_key: &str,
 ) -> Result<Option<CommandSessionRef>, crate::db::error::DbError> {
-    if target.is_telegram_forum_topic() {
-        return topic_session_ref(db, bridge, target).await;
-    }
-    let context = sender_context_service::get_or_create(db, channel_id, sender_id).await?;
-    Ok(context
-        .current_connection_id
-        .map(|connection_id| CommandSessionRef {
-            connection_id,
-            conversation_id: context.current_conversation_id,
-        }))
-}
-
-async fn topic_session_ref(
-    db: &DatabaseConnection,
-    bridge: &Arc<Mutex<SessionBridge>>,
-    target: &ChannelMessageTarget,
-) -> Result<Option<CommandSessionRef>, crate::db::error::DbError> {
-    let binding = thread_binding_service::get_by_target(db, target).await?;
-    if let Some(session) = bridge.lock().await.find_by_target(target) {
-        return Ok(Some(CommandSessionRef {
+    let guard = bridge.lock().await;
+    Ok(guard
+        .find_by_route(channel_id, route_key)
+        .map(|session| CommandSessionRef {
             connection_id: session.connection_id.clone(),
             conversation_id: Some(session.conversation_id),
-        }));
-    }
-    Ok(binding.and_then(|value| {
-        value.connection_id.map(|connection_id| CommandSessionRef {
-            connection_id,
-            conversation_id: Some(value.conversation_id),
-        })
-    }))
+        }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -100,18 +71,29 @@ pub(super) async fn bind_target(
     .await
 }
 
-pub(super) async fn clear_route(
+/// Clear only the route state owned by `connection_id`. This protects a newer
+/// session from a late disconnect/error event emitted by an older connection.
+pub(super) async fn clear_route_if_connection(
     db: &DatabaseConnection,
     channel_id: i32,
     sender_id: &str,
     target: &ChannelMessageTarget,
+    connection_id: &str,
 ) {
     if target.is_telegram_forum_topic() {
         if let Ok(Some(binding)) = thread_binding_service::get_by_target(db, target).await {
-            let _ = thread_binding_service::clear_connection(db, binding.id).await;
+            let _ =
+                thread_binding_service::clear_connection_if_matches(db, binding.id, connection_id)
+                    .await;
         }
     } else {
-        let _ = sender_context_service::clear_session(db, channel_id, sender_id).await;
+        let _ = sender_context_service::clear_connection_if_matches(
+            db,
+            channel_id,
+            sender_id,
+            connection_id,
+        )
+        .await;
     }
 }
 
@@ -132,7 +114,14 @@ pub(super) async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
         return send_to_session(req, reference).await;
     }
     if binding.connection_id.is_some() {
-        let _ = thread_binding_service::clear_connection(req.db, binding.id).await;
+        if let Some(connection_id) = binding.connection_id.as_deref() {
+            let _ = thread_binding_service::clear_connection_if_matches(
+                req.db,
+                binding.id,
+                connection_id,
+            )
+            .await;
+        }
     }
     resume_binding(req, binding).await
 }
@@ -176,7 +165,14 @@ async fn send_to_session(req: FollowupRequest<'_>, reference: CommandSessionRef)
         }
     }
     req.bridge.lock().await.remove(&reference.connection_id);
-    clear_route(req.db, req.channel_id, req.sender_id, req.target).await;
+    clear_route_if_connection(
+        req.db,
+        req.channel_id,
+        req.sender_id,
+        req.target,
+        &reference.connection_id,
+    )
+    .await;
     RichMessage::info("")
 }
 
@@ -254,6 +250,9 @@ async fn register_session(
             channel_id: req.channel_id,
             sender_id: req.sender_id.to_string(),
             target: req.target.clone(),
+            route_key: req.route.route_key.clone(),
+            target_id: req.route.target_id.clone(),
+            bind_on_start: false,
             conversation_id: conversation.id,
             connection_id: connection_id.to_string(),
             agent_type: conversation.agent_type,
@@ -263,6 +262,7 @@ async fn register_session(
             delegation_rendered: Default::default(),
             last_flushed: Instant::now(),
             pending_prompt: None,
+            recovery_prompt: None,
             pending_prompt_attempts: 0,
             trace_id: req.trace_id.map(|s| s.to_string()),
             permission_pending: None,
@@ -291,6 +291,7 @@ async fn remember_topic_preferences(
 
 async fn cleanup_resume(req: FollowupRequest<'_>, connection_id: &str, binding_id: i32) {
     req.bridge.lock().await.remove(connection_id);
-    let _ = thread_binding_service::clear_connection(req.db, binding_id).await;
+    let _ = thread_binding_service::clear_connection_if_matches(req.db, binding_id, connection_id)
+        .await;
     let _ = req.conn_mgr.cancel(req.db, connection_id).await;
 }
