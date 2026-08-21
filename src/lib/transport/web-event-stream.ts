@@ -69,6 +69,8 @@ interface ActiveSub {
    * re-attaching after a reconnect.
    */
   lastAppliedSeq: number | undefined
+  /** Blocks stale live frames while a failed handler is being resynchronized. */
+  recovering: boolean
   handlers: AttachHandlers
 }
 
@@ -93,6 +95,7 @@ export class WebEventStream implements EventStream {
     this.subs.set(subscriptionId, {
       connectionId,
       lastAppliedSeq: options.sinceSeq,
+      recovering: false,
       handlers,
     })
     // If the WS is already open, send the attach frame immediately;
@@ -126,20 +129,38 @@ export class WebEventStream implements EventStream {
 
     switch (frame.type) {
       case "snapshot":
+        if (
+          !safeInvoke("onSnapshot", () =>
+            sub.handlers.onSnapshot(frame.snapshot, frame.event_seq)
+          )
+        ) {
+          this.requestResync(frame.subscription_id, sub)
+          break
+        }
         sub.lastAppliedSeq = frame.event_seq
-        safeInvoke("onSnapshot", () =>
-          sub.handlers.onSnapshot(frame.snapshot, frame.event_seq)
-        )
+        sub.recovering = false
         break
       case "replay":
+        if (
+          !safeInvoke("onReplay", () =>
+            sub.handlers.onReplay(frame.events, frame.high_water_seq)
+          )
+        ) {
+          this.requestResync(frame.subscription_id, sub)
+          break
+        }
         sub.lastAppliedSeq = frame.high_water_seq
-        safeInvoke("onReplay", () =>
-          sub.handlers.onReplay(frame.events, frame.high_water_seq)
-        )
+        sub.recovering = false
         break
       case "event":
+        if (sub.recovering) return
+        if (
+          !safeInvoke("onEvent", () => sub.handlers.onEvent(frame.envelope))
+        ) {
+          this.requestResync(frame.subscription_id, sub)
+          break
+        }
         sub.lastAppliedSeq = frame.envelope.seq
-        safeInvoke("onEvent", () => sub.handlers.onEvent(frame.envelope))
         break
       case "detached":
         // Server unilaterally ended the sub. Remove from local map BEFORE
@@ -185,6 +206,14 @@ export class WebEventStream implements EventStream {
     })
   }
 
+  private requestResync(subscriptionId: string, sub: ActiveSub): void {
+    if (sub.recovering) return
+    sub.recovering = true
+    // Reusing the subscription id makes the server abort the old forwarder
+    // before installing the replay/snapshot response and its replacement.
+    queueMicrotask(() => this.sendAttach(subscriptionId))
+  }
+
   private reattachAll(): void {
     for (const subscriptionId of this.subs.keys()) {
       this.sendAttach(subscriptionId)
@@ -204,10 +233,12 @@ function isAttachFrame(frame: unknown): frame is ServerAttachFrame {
   )
 }
 
-function safeInvoke(name: string, fn: () => void): void {
+function safeInvoke(name: string, fn: () => void): boolean {
   try {
     fn()
+    return true
   } catch (err) {
     console.error(`[WebEventStream] ${name} handler threw:`, err)
+    return false
   }
 }
