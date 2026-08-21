@@ -996,6 +996,22 @@
       "migrationFailed": "无法迁移 Agent 存储",
       "previousRoot": "旧数据仍保留在 {path}，确认无误后请手动删除"
     },
+    "concurrency": {
+      "title": "子 Agent 并发",
+      "description": "统一限制单个会话可同时运行的子 Agent 数量，独立于多智能体协同设置。",
+      "limitLabel": "单会话最大并行子 Agent 数",
+      "limitHint": "可设置 {min}–{max}；保存后对新启动、恢复或重启的 Agent 连接生效。",
+      "save": "保存",
+      "saving": "保存中",
+      "saved": "子 Agent 并发设置已保存",
+      "newSessions": "现有运行进程不热更新；新启动、恢复或重启的 Agent 连接使用新限制。",
+      "loadFailed": "加载并发设置失败：{detail}",
+      "saveFailed": "保存并发设置失败",
+      "enforcement": {
+        "native_and_host": "原生 + 宿主",
+        "host": "宿主"
+      }
+    },
     "title": "Agent SDK 管理",
     "description": "根据擅长领域选择 Agent，并在一处管理启用状态和版本。",
     "agentAliasDescription": "通过 Agent SDK 连接和管理{name}。",

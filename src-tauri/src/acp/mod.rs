@@ -33,7 +33,7 @@ mod builtin_prompt_injection;
 mod builtin_prompt_openclaw;
 pub mod capability_policy;
 pub mod codex_goal;
-mod codex_multi_agent;
+pub(crate) mod codex_multi_agent;
 pub(crate) mod codex_rollout_migration;
 mod codex_rollout_migration_io;
 pub mod companion_health;

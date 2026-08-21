@@ -427,6 +427,11 @@ async fn async_main() -> ExitCode {
     // timeout to apply here.
     iyw_claw_lib::commands::delegation::apply_persisted_config(&state.db.conn, &delegation_broker)
         .await;
+    iyw_claw_lib::commands::agent_concurrency::apply_persisted_config(
+        &state.db.conn,
+        &delegation_broker,
+    )
+    .await;
     // Same for the live-feedback enable flag, so the first HTTP request
     // sees the operator's configured behavior.
     iyw_claw_lib::commands::feedback::apply_persisted_feedback_config(

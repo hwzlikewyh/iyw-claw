@@ -1,4 +1,6 @@
-const MAX_CONCURRENT_THREADS: i64 = 7;
+use std::sync::atomic::{AtomicI64, Ordering};
+
+static MAX_CONCURRENT_THREADS: AtomicI64 = AtomicI64::new(40);
 const MIN_WAIT_TIMEOUT_MS: i64 = 10_000;
 const DEFAULT_WAIT_TIMEOUT_MS: i64 = 30_000;
 const MAX_WAIT_TIMEOUT_MS: i64 = 120_000;
@@ -18,7 +20,7 @@ pub(super) fn patch_toml(root: &mut toml::map::Map<String, toml::Value>) -> Resu
     );
     v2.insert(
         "max_concurrent_threads_per_session".into(),
-        toml::Value::Integer(MAX_CONCURRENT_THREADS),
+        toml::Value::Integer(max_concurrent_threads()),
     );
     v2.insert(
         "min_wait_timeout_ms".into(),
@@ -52,10 +54,18 @@ fn values_match(value: &toml::Value) -> bool {
             .and_then(toml::Value::as_bool)
             == Some(true)
         && value.get("tool_namespace").and_then(toml::Value::as_str) == Some("agents")
-        && integer(value, "max_concurrent_threads_per_session") == Some(MAX_CONCURRENT_THREADS)
+        && integer(value, "max_concurrent_threads_per_session") == Some(max_concurrent_threads())
         && integer(value, "min_wait_timeout_ms") == Some(MIN_WAIT_TIMEOUT_MS)
         && integer(value, "default_wait_timeout_ms") == Some(DEFAULT_WAIT_TIMEOUT_MS)
         && integer(value, "max_wait_timeout_ms") == Some(MAX_WAIT_TIMEOUT_MS)
+}
+
+fn max_concurrent_threads() -> i64 {
+    MAX_CONCURRENT_THREADS.load(Ordering::Relaxed)
+}
+
+pub(crate) fn set_max_concurrent_threads(limit: u32) {
+    MAX_CONCURRENT_THREADS.store(i64::from(limit), Ordering::Relaxed);
 }
 
 fn integer(value: &toml::Value, key: &str) -> Option<i64> {
