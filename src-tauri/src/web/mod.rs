@@ -5,6 +5,7 @@ pub mod port_probe;
 pub mod router;
 pub mod shutdown;
 pub mod socket_inherit;
+pub mod static_assets;
 pub mod ws;
 pub mod ws_attach;
 
@@ -321,33 +322,6 @@ fn classify_bind_error(err: std::io::Error) -> AppCommandError {
     AppCommandError::new(code, key).with_detail(err.to_string())
 }
 
-#[cfg(feature = "tauri-runtime")]
-pub(crate) fn find_static_dir_tauri(app: &tauri::AppHandle) -> PathBuf {
-    use tauri::Manager;
-    // Production: bundle.resources copies out/ into the private desktop bundle.
-    let resource = app.path().resource_dir().ok();
-    if let Some(ref dir) = resource {
-        let bundle = dir.join("resources").join("bundle");
-        if bundle.join("index.html").exists() {
-            tracing::info!(
-                "[WEB] Serving static files from packaged bundle: {}",
-                bundle.display()
-            );
-            return bundle;
-        }
-        // Fallback: files at resource root.
-        if dir.join("index.html").exists() {
-            tracing::info!(
-                "[WEB] Serving static files from resource dir: {}",
-                dir.display()
-            );
-            return dir.clone();
-        }
-    }
-
-    find_static_dir_fallback()
-}
-
 pub(crate) fn find_static_dir_fallback() -> PathBuf {
     // Dev mode: "out/" is at the project root, which is one level above src-tauri/.
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -600,7 +574,7 @@ pub(crate) async fn do_start_web_server_with_state(
     let router = router::build_router(
         app_state.clone(),
         token.clone(),
-        static_dir,
+        static_assets::StaticAssetSource::directory(static_dir),
         shutdown_signal.clone(),
     );
 
@@ -767,8 +741,6 @@ pub(crate) async fn do_start_web_server_tauri(
     // "Web service won't start" loop.
     persist_web_service_config(&db.conn, &token, port_val).await?;
 
-    let static_dir = find_static_dir_tauri(&app);
-
     // Build AppState for the router
     let app_state = Arc::new(AppState {
         db: crate::db::AppDatabase {
@@ -872,7 +844,7 @@ pub(crate) async fn do_start_web_server_tauri(
     let router = router::build_router(
         app_state,
         token.clone(),
-        static_dir,
+        static_assets::StaticAssetSource::tauri(app.clone()),
         shutdown_signal.clone(),
     );
 

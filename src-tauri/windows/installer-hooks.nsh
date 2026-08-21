@@ -2,30 +2,23 @@
 !define IYW_CLAW_INSTALL_REGISTRY_KEY "Software\iywclaw\iyw-claw"
 !define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
 Var IywClawRoot
+Var IywClawInstallRegistryKey
 
 !include "${__FILEDIR__}\installer-process-control.nsh"
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
-
-Function IywClawIsMainProcessRunning
-  ; 仅检查安装器当前用户，其他登录会话不能改变本次恢复策略。
-  Call IywClawBuildAccountFilter
-  Push "iyw-claw.exe"
-  Call IywClawFindCurrentUserProcess
-  Pop $R5
-  StrCmp $R5 "0" iyw_process_running 0
-  Push "0"
-  Return
-
-  iyw_process_running:
-    Push "1"
-FunctionEnd
+!include "${__FILEDIR__}\installer-test-mode.nsh"
 
 Function IywClawRestoreLogicalInstallRoot
+  Call IywClawConfigureInstallerMode
+  StrCmp $IywClawInstallerTestMode "invalid" 0 +3
+  DetailPrint "测试模式参数无效，安装已取消。"
+  SetErrorLevel 2
+  Quit
   ; Older installers persisted root\app as MUI's default directory while the
   ; product-specific InstallRoot value already held the user-selected root.
   ; Correct only the directory-page value; POSTINSTALL persists it after the
   ; old uninstaller has finished using its internal root\app working directory.
-  ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
+  ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
   StrCmp $R8 "" iyw_set_default_install_root 0
   GetFullPathName $R9 "$R8\app"
   GetFullPathName $R7 "$INSTDIR"
@@ -49,13 +42,15 @@ Function IywClawRestoreLogicalInstallRoot
     GetFullPathName $INSTDIR "$LOCALAPPDATA\iywclaw"
 
   iyw_guiinit_done:
+    ; 基准测试安装不得检查或重启生产进程。
+    StrCmp $IywClawInstallerTestMode "1" iyw_guiinit_return 0
     ; A regular installer launch would show Tauri's reinstall choice page.
     ; Relaunch an existing installation in passive update mode so the current
     ; directory is reused and no uninstaller UI is shown.
     ClearErrors
     ${GetOptions} $CMDLINE "/UPDATE" $R6
     IfErrors 0 iyw_guiinit_return
-    ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
+    ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
     StrCmp $R8 "" iyw_guiinit_return 0
 
     Call IywClawIsMainProcessRunning
@@ -78,7 +73,7 @@ Function IywClawRestoreLogicalInstallRoot
 FunctionEnd
 
 Function IywClawResolveInstallRoot
-  ReadRegStr $R8 SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
+  ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
   StrCmp $R8 "" iyw_use_selected_root 0
 
   GetFullPathName $R9 "$R8\app"
@@ -95,6 +90,14 @@ Function IywClawResolveInstallRoot
   iyw_validate_root:
     StrCmp $IywClawRoot "" iyw_invalid_root 0
     GetFullPathName $IywClawRoot "$IywClawRoot"
+    StrCmp $IywClawInstallerTestMode "1" 0 iyw_root_scope_validated
+    Call IywClawValidateTestRoot
+    Pop $R0
+    StrCmp $R0 "1" iyw_root_scope_validated 0
+    DetailPrint "测试安装目录必须位于绑定的临时 smoke 根目录。"
+    Abort
+
+  iyw_root_scope_validated:
     CreateDirectory "$IywClawRoot"
     ClearErrors
     FileOpen $R0 "$IywClawRoot\.iyw-claw-install-probe" w
@@ -118,7 +121,7 @@ Function IywClawResolveInstallRoot
 
     StrCpy $INSTDIR "$IywClawRoot\app"
     SetOutPath "$INSTDIR"
-    WriteRegStr SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot" "$IywClawRoot"
+    WriteRegStr SHCTX "$IywClawInstallRegistryKey" "InstallRoot" "$IywClawRoot"
     DetailPrint "安装目录：$IywClawRoot"
     Return
 
@@ -129,13 +132,34 @@ Function IywClawResolveInstallRoot
 FunctionEnd
 
 !macro NSIS_HOOK_PREINSTALL
+  Call IywClawConfigureInstallerMode
+  StrCmp $IywClawInstallerTestMode "invalid" iyw_invalid_install_test_mode 0
+  StrCmp $IywClawInstallerTestMode "1" 0 iyw_test_root_prevalidated
+  ; 在 ResolveInstallRoot 创建目录或写入注册表前，先约束 /D 到本轮测试根。
+  StrCpy $IywClawRoot "$INSTDIR"
+  Call IywClawValidateTestRoot
+  Pop $R0
+  StrCmp $R0 "1" iyw_test_root_prevalidated 0
+  DetailPrint "测试安装目录必须位于绑定的临时 smoke 根目录。"
+  Abort
+
+  iyw_test_root_prevalidated:
   Call IywClawResolveInstallRoot
+  StrCmp $IywClawInstallerTestMode "1" 0 iyw_test_root_validated
+  Call IywClawValidateTestRoot
+  Pop $R0
+  StrCmp $R0 "1" iyw_test_root_validated 0
+  DetailPrint "测试安装目录必须位于绑定的临时 smoke 根目录。"
+  Abort
+
+  iyw_test_root_validated:
   !if "${ARCH}" == "x64"
     StrCpy $IywClawRequireBrowser "1"
   !else
     StrCpy $IywClawRequireBrowser "0"
   !endif
   Call IywClawConfigureAppTransaction
+  StrCmp $IywClawInstallerTestMode "1" iyw_begin_app_transaction 0
   Call IywClawStopKnownProcesses
   Pop $R0
   StrCmp $R0 "0" iyw_begin_app_transaction 0
@@ -160,6 +184,13 @@ FunctionEnd
       Abort
 
   iyw_app_transaction_ready:
+  Goto iyw_preinstall_done
+
+  iyw_invalid_install_test_mode:
+    DetailPrint "测试模式参数无效，安装尚未修改任何文件。"
+    Abort
+
+  iyw_preinstall_done:
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -172,7 +203,7 @@ FunctionEnd
   ; Tauri persists the internal app directory as the next installer location.
   ; Expose the logical root in the directory page while keeping binaries
   ; isolated below root\app.
-  WriteRegStr SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "" "$IywClawRoot"
+  WriteRegStr SHCTX "$IywClawInstallRegistryKey" "" "$IywClawRoot"
 
   ${If} $UpdateMode = 1
     DetailPrint "已保留运行环境、受管组件、配置、数据和日志。"
@@ -186,6 +217,19 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  Call un.IywClawConfigureInstallerMode
+  StrCmp $IywClawInstallerTestMode "invalid" iyw_invalid_uninstall_test_mode 0
+  StrCmp $IywClawInstallerTestMode "1" 0 iyw_uninstall_test_root_validated
+  ReadRegStr $IywClawRoot SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
+  StrCmp $IywClawRoot "" iyw_invalid_uninstall_test_mode 0
+  Call un.IywClawValidateTestRoot
+  Pop $R0
+  StrCmp $R0 "1" iyw_uninstall_test_root_validated 0
+  DetailPrint "测试卸载目录必须位于绑定的临时 smoke 根目录。"
+  Abort
+
+  iyw_uninstall_test_root_validated:
+  StrCmp $IywClawInstallerTestMode "1" iyw_uninstall_processes_stopped 0
   Call un.IywClawStopKnownProcesses
   Pop $R0
   StrCmp $R0 "0" iyw_uninstall_processes_stopped 0
@@ -203,7 +247,7 @@ FunctionEnd
     Goto iyw_uninstall_done
   ${EndIf}
 
-  ReadRegStr $IywClawRoot SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}" "InstallRoot"
+  ReadRegStr $IywClawRoot SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
   StrCmp $IywClawRoot "" iyw_uninstall_done 0
   GetFullPathName $IywClawRoot "$IywClawRoot"
 
@@ -215,7 +259,7 @@ FunctionEnd
     StrCmp $R8 "" iyw_uninstall_done 0
     DetailPrint "彻底删除模式：正在移除全部安装内容..."
     RMDir /r "$R8"
-    DeleteRegKey SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}"
+    DeleteRegKey SHCTX "$IywClawInstallRegistryKey"
     Goto iyw_uninstall_done
   ${EndIf}
 
@@ -234,10 +278,17 @@ FunctionEnd
     RMDir /r "$IywClawRoot\runtime"
     RMDir /r "$IywClawRoot\staging"
     RMDir /r "$IywClawRoot\logs"
-    DeleteRegKey SHCTX "${IYW_CLAW_INSTALL_REGISTRY_KEY}"
+    DeleteRegKey SHCTX "$IywClawInstallRegistryKey"
     DetailPrint "用户配置、本地数据、Skill 与受管库存已保留。"
 
   iyw_uninstall_done:
+  Goto iyw_preuninstall_done
+
+  iyw_invalid_uninstall_test_mode:
+    DetailPrint "测试模式参数无效，卸载尚未修改任何文件。"
+    Abort
+
+  iyw_preuninstall_done:
 !macroend
 
 Function .onInstFailed

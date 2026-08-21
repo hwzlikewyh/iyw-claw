@@ -731,7 +731,7 @@ async fn async_main() -> ExitCode {
     let router = iyw_claw_lib::web::router::build_router(
         state.clone(),
         token.clone(),
-        static_dir,
+        iyw_claw_lib::web::static_assets::StaticAssetSource::directory(static_dir),
         Arc::clone(&shutdown_signal),
     );
 

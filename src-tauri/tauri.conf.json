@@ -38,6 +38,7 @@
         "silent": true
       },
       "nsis": {
+        "compression": "zlib",
         "languages": ["SimpChinese"],
         "displayLanguageSelector": false,
         "installerIcon": "icons/icon.ico",
