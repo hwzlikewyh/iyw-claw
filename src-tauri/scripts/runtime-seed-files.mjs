@@ -14,7 +14,15 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path"
 import { promisify } from "node:util"
 
 const execFileAsync = promisify(execFile)
@@ -23,6 +31,21 @@ const DEFAULT_GITHUB_MIRRORS = [
   "https://ghfast.top",
   "https://ghproxy.net",
 ]
+
+function tarExecutable() {
+  if (process.platform !== "win32") return "tar"
+  const windowsRoot = process.env.SystemRoot ?? process.env.WINDIR
+  if (!windowsRoot) throw new Error("Windows system root is unavailable")
+  return join(windowsRoot, "System32", "tar.exe")
+}
+
+function archiveTar(archive, args, options = {}) {
+  return execFileAsync(tarExecutable(), args, {
+    cwd: dirname(archive),
+    windowsHide: true,
+    ...options,
+  })
+}
 
 function sha256Bytes(bytes) {
   return createHash("sha256").update(bytes).digest("hex")
@@ -111,14 +134,17 @@ function safeRelativePath(value) {
 }
 
 async function validateArchiveEntries(archive) {
-  const { stdout } = await execFileAsync("tar", ["-tf", archive], {
-    windowsHide: true,
+  const archiveName = basename(archive)
+  const { stdout } = await archiveTar(archive, ["-tf", archiveName], {
     maxBuffer: 50 * 1024 * 1024,
   })
   const seen = new Set()
   for (const raw of stdout.split(/\r?\n/)) {
-    const path = raw.replaceAll("\\", "/").replace(/\/+$/, "")
-    if (!path) continue
+    const normalized = raw.replaceAll("\\", "/")
+    if (!normalized) continue
+    const withoutTrailingSlash = normalized.replace(/\/+$/, "")
+    if (withoutTrailingSlash === ".") continue
+    const path = withoutTrailingSlash.replace(/^(?:\.\/)+/, "")
     if (!safeRelativePath(path) || seen.has(path))
       throw new Error(`archive contains unsafe or duplicate path: ${raw}`)
     seen.add(path)
@@ -129,9 +155,7 @@ async function validateArchiveEntries(archive) {
 async function extractArchive(archive, destination) {
   await validateArchiveEntries(archive)
   await mkdir(destination, { recursive: true })
-  await execFileAsync("tar", ["-xf", archive, "-C", destination], {
-    windowsHide: true,
-  })
+  await archiveTar(archive, ["-xf", basename(archive), "-C", destination])
 }
 
 function normalizedRelative(root, path) {
@@ -244,10 +268,10 @@ async function createComponentArchive(componentRoot, archivePath, files) {
   const listing = join(listingRoot, "files.txt")
   try {
     await writeFile(listing, `${files.map((file) => file.path).join("\n")}\n`)
-    await execFileAsync(
-      "tar",
-      ["-czf", archivePath, "-C", componentRoot, "-T", listing],
-      { windowsHide: true, maxBuffer: 20 * 1024 * 1024 }
+    await archiveTar(
+      archivePath,
+      ["-czf", basename(archivePath), "-C", componentRoot, "-T", listing],
+      { maxBuffer: 20 * 1024 * 1024 }
     )
   } finally {
     await rm(listingRoot, { recursive: true, force: true })
@@ -262,6 +286,7 @@ async function createComponentArchive(componentRoot, archivePath, files) {
 }
 
 export {
+  archiveTar,
   buildFileManifest,
   componentDigest,
   copyTreeMaterialized,
