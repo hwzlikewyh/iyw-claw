@@ -9,7 +9,10 @@ use super::session_runtime;
 use super::types::{ChannelMessageTarget, InteractiveMessage, RichMessage};
 use crate::acp::manager::ConnectionManager;
 use crate::db::entities::conversation;
-use crate::db::service::{conversation_service, sender_context_service, thread_binding_service};
+use crate::db::service::{
+    conversation_binding_service, conversation_service, sender_context_service,
+    thread_binding_service,
+};
 
 pub struct CommandMessageResult {
     pub message: RichMessage,
@@ -40,6 +43,8 @@ pub enum CommandPostAction {
         response_target: ChannelMessageTarget,
         lang: Lang,
         trace_id: Option<String>,
+        route_key: String,
+        previous_binding: Option<(String, i32)>,
     },
 }
 
@@ -70,7 +75,21 @@ pub async fn handle_post_action(
         response_target,
         lang,
         trace_id,
+        route_key,
+        previous_binding,
     } = action;
+    let session_registered = bridge.lock().await.get(&connection_id).is_some();
+    if !session_registered {
+        let candidate_owns_route =
+            conversation_binding_service::find_by_route(db, channel_id, &route_key)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|binding| binding.conversation_id == conversation_id);
+        if !candidate_owns_route {
+            return None;
+        }
+    }
     let send_result = session_runtime::send_prompt_linked(
         db,
         connection_manager,
@@ -119,6 +138,8 @@ pub async fn handle_post_action(
         channel_id,
         &sender_id,
         &response_target,
+        &route_key,
+        previous_binding.as_ref(),
     )
     .await;
     Some((
@@ -137,20 +158,44 @@ async fn cleanup_failed_prompt(
     channel_id: i32,
     sender_id: &str,
     target: &ChannelMessageTarget,
+    route_key: &str,
+    previous_binding: Option<&(String, i32)>,
 ) {
     bridge.lock().await.remove(connection_id);
     if target.is_telegram_forum_topic() {
         if let Ok(Some(binding)) = thread_binding_service::get_by_target(db, target).await {
-            let _ = thread_binding_service::clear_connection(db, binding.id).await;
+            let _ =
+                thread_binding_service::clear_connection_if_matches(db, binding.id, connection_id)
+                    .await;
         }
     } else {
-        let _ = sender_context_service::clear_session(db, channel_id, sender_id).await;
+        let _ = sender_context_service::clear_session_if_connection_matches(
+            db,
+            channel_id,
+            sender_id,
+            connection_id,
+        )
+        .await;
     }
     let _ = connection_manager.cancel(db, connection_id).await;
     let _ = conversation_service::update_status(
         db,
         conversation_id,
         conversation::ConversationStatus::Cancelled,
+    )
+    .await;
+
+    // Roll back only if this failed candidate still owns the route.
+    let previous =
+        previous_binding.map(|(target_id, conversation_id)| (target_id.as_str(), *conversation_id));
+    let _ = conversation_binding_service::rollback_if_current(
+        db,
+        conversation_binding_service::BindingRollback {
+            channel_id,
+            route_key,
+            failed_conversation_id: conversation_id,
+            previous,
+        },
     )
     .await;
 }

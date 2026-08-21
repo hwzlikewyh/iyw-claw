@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -7,16 +8,18 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use super::i18n::Lang;
-use super::session_bridge::{PendingPermission, SessionBridge};
+use super::session_bridge::{ActiveSession, PendingPermission, SessionBridge};
+use super::session_commands;
 use super::session_topic;
 use crate::acp::internal_bus::InternalEventBus;
 use crate::acp::manager::ConnectionManager;
 use crate::acp::types::{AcpEvent, ConnectionStatus, EventEnvelope, PromptInputBlock};
 use crate::chat_channel::types::{MessageLevel, RichMessage};
+use crate::web::event_bridge::EventEmitter;
 
 use crate::db::service::{
     app_metadata_service, chat_channel_message_log_service, chat_channel_target_service,
-    conversation_service, sender_context_service,
+    conversation_binding_service, conversation_service, sender_context_service,
 };
 
 use super::manager::ChatChannelManager;
@@ -36,6 +39,8 @@ pub fn spawn_session_event_subscriber(
     manager: ChatChannelManager,
     conn_mgr: ConnectionManager,
     db_conn: DatabaseConnection,
+    emitter: EventEmitter,
+    data_dir: PathBuf,
 ) -> JoinHandle<()> {
     let mut rx = bus.subscribe();
     let metrics = Arc::clone(bus.metrics());
@@ -62,6 +67,8 @@ pub fn spawn_session_event_subscriber(
                         &manager,
                         &conn_mgr,
                         &db_conn,
+                        &emitter,
+                        &data_dir,
                     )
                     .await;
                 }
@@ -95,66 +102,24 @@ async fn handle_acp_envelope(
     manager: &ChatChannelManager,
     conn_mgr: &ConnectionManager,
     db: &DatabaseConnection,
+    emitter: &EventEmitter,
+    data_dir: &Path,
 ) {
     let connection_id = envelope.connection_id.as_str();
 
     match &envelope.payload {
         AcpEvent::SessionStarted { session_id } => {
-            let mut guard = bridge.lock().await;
-            if let Some(session) = guard.get_mut(connection_id) {
-                let _ = conversation_service::update_external_id(
-                    db,
-                    session.conversation_id,
-                    session_id.clone(),
-                )
-                .await;
+            if !complete_session_start(bridge, manager, conn_mgr, db, connection_id, session_id)
+                .await
+            {
+                return;
+            }
+            send_pending_prompt(bridge, manager, conn_mgr, db, connection_id).await;
+        }
 
-                if let Some(prompt_text) = session.pending_prompt.take() {
-                    // Clone so the prompt can be RESTORED (not dropped) if a turn
-                    // is already in flight — see the TurnInProgress arm below.
-                    let blocks = vec![PromptInputBlock::Text {
-                        text: prompt_text.clone(),
-                    }];
-                    if let Err(e) = conn_mgr.send_prompt(connection_id, blocks).await {
-                        // A turn is already in flight on this shared connection
-                        // (another client raced this kickoff between
-                        // SessionStarted and here). Transient, not a failure —
-                        // RESTORE the pending prompt so the TurnComplete handler
-                        // retries the kickoff once the in-flight turn finishes,
-                        // instead of silently dropping the task's initial prompt.
-                        if matches!(e, crate::acp::error::AcpError::TurnInProgress) {
-                            session.pending_prompt_attempts =
-                                session.pending_prompt_attempts.saturating_add(1);
-                            if session.pending_prompt_attempts >= MAX_KICKOFF_RETRIES {
-                                // Bounded retries exhausted: drop the prompt and
-                                // tell the user instead of blocking forever.
-                                session.pending_prompt = None;
-                                let target = session.target.clone();
-                                let lang = get_lang(db).await;
-                                let fail_msg = match lang {
-                                    Lang::ZhCn | Lang::ZhTw => {
-                                        "任务启动提示连续被占用，已放弃自动重试；请重新发送。"
-                                    }
-                                    _ => "The kickoff prompt was repeatedly blocked; auto-retry stopped. Please resend.",
-                                };
-                                let _ = manager
-                                    .send_to_target(
-                                        &target,
-                                        &RichMessage::error(fail_msg.to_string()),
-                                    )
-                                    .await;
-                            } else {
-                                session.pending_prompt = Some(prompt_text);
-                                tracing::warn!(
-                                    "[SessionEventSub] kickoff deferred; a turn is already in \
-                                     progress, will retry on TurnComplete"
-                                );
-                            }
-                        } else {
-                            tracing::error!("[SessionEventSub] failed to send pending prompt: {e}");
-                        }
-                    }
-                }
+        AcpEvent::UserMessage { .. } => {
+            if let Some(session) = bridge.lock().await.get_mut(connection_id) {
+                session.recovery_prompt = None;
             }
         }
 
@@ -303,7 +268,14 @@ async fn handle_acp_envelope(
                     sent_message_id: None,
                 });
 
+                let route_key = session.route_key.clone();
+
                 drop(guard);
+
+                manager
+                    .typing_controller()
+                    .pause(manager, channel_id, &route_key, connection_id)
+                    .await;
 
                 let lang = get_lang(db).await;
                 let body = permission_confirmation_body(lang).to_string();
@@ -318,6 +290,26 @@ async fn handle_acp_envelope(
                     level: MessageLevel::Warning,
                 };
                 let _ = manager.send_to_target(&target, &msg).await;
+            }
+        }
+
+        AcpEvent::QuestionRequest { .. } | AcpEvent::ChannelConfirmationRequested { .. } => {
+            if let Some((channel_id, route_key)) = session_route(bridge, connection_id).await {
+                manager
+                    .typing_controller()
+                    .pause(manager, channel_id, &route_key, connection_id)
+                    .await;
+            }
+        }
+
+        AcpEvent::PermissionResolved { .. }
+        | AcpEvent::QuestionResolved { .. }
+        | AcpEvent::ChannelConfirmationResolved { .. } => {
+            if let Some((channel_id, route_key)) = session_route(bridge, connection_id).await {
+                manager
+                    .typing_controller()
+                    .resume(manager, channel_id, &route_key, connection_id)
+                    .await;
             }
         }
 
@@ -336,7 +328,13 @@ async fn handle_acp_envelope(
                 // BEFORE dropping the guard so a second TurnComplete can't
                 // double-send it; retry below once the lock is released.
                 let deferred_kickoff = session.pending_prompt.take();
+                let route_key = session.route_key.clone();
                 drop(guard);
+
+                manager
+                    .typing_controller()
+                    .stop(manager, channel_id, &route_key, connection_id)
+                    .await;
 
                 let lang = get_lang(db).await;
                 let body = format_completion(&content, lang);
@@ -514,7 +512,13 @@ async fn handle_acp_envelope(
                 let target = session.target.clone();
                 let conv_id = session.conversation_id;
                 let trace_id = session.trace_id.clone();
+                let route_key = session.route_key.clone();
                 drop(guard);
+
+                manager
+                    .typing_controller()
+                    .stop(manager, channel_id, &route_key, connection_id)
+                    .await;
 
                 tracing::warn!(
                     "[SessionEventSub] terminal ACP error for bridged session \
@@ -561,28 +565,419 @@ async fn handle_acp_envelope(
                     crate::db::entities::conversation::ConversationStatus::Cancelled,
                 )
                 .await;
-                session_topic::clear_route(db, channel_id, &sender_id, &target).await;
+                session_topic::clear_route_if_connection(
+                    db,
+                    channel_id,
+                    &sender_id,
+                    &target,
+                    connection_id,
+                )
+                .await;
             }
         }
 
-        AcpEvent::StatusChanged { status } => {
+        AcpEvent::SessionLoadFailed { message, .. } => {
+            let session = bridge.lock().await.remove(connection_id);
+            let Some(session) = session else { return };
+            let lang = get_lang(db).await;
+            handle_session_load_failure(
+                db,
+                manager,
+                conn_mgr,
+                emitter,
+                bridge,
+                data_dir,
+                connection_id,
+                session,
+                message,
+                lang,
+            )
+            .await;
+        }
+
+        AcpEvent::StatusChanged { status }
             if matches!(
                 status,
                 ConnectionStatus::Disconnected | ConnectionStatus::Error
-            ) {
-                let mut guard = bridge.lock().await;
-                if let Some(session) = guard.remove(connection_id) {
-                    let channel_id = session.channel_id;
-                    let sender_id = session.sender_id.clone();
-                    let target = session.target.clone();
-                    drop(guard);
+            ) =>
+        {
+            let mut guard = bridge.lock().await;
+            if let Some(session) = guard.remove(connection_id) {
+                let channel_id = session.channel_id;
+                let sender_id = session.sender_id.clone();
+                let target = session.target.clone();
+                let route_key = session.route_key.clone();
+                drop(guard);
 
-                    session_topic::clear_route(db, channel_id, &sender_id, &target).await;
-                }
+                manager
+                    .typing_controller()
+                    .stop(manager, channel_id, &route_key, connection_id)
+                    .await;
+
+                session_topic::clear_route_if_connection(
+                    db,
+                    channel_id,
+                    &sender_id,
+                    &target,
+                    connection_id,
+                )
+                .await;
+            }
+        }
+
+        AcpEvent::StatusChanged {
+            status: ConnectionStatus::Prompting,
+        } => {
+            if let Some((channel_id, route_key, target)) =
+                session_route_target(bridge, connection_id).await
+            {
+                manager
+                    .typing_controller()
+                    .start(
+                        manager.clone_ref(),
+                        target,
+                        route_key,
+                        connection_id.to_string(),
+                    )
+                    .await;
+                tracing::debug!(channel_id, "[ChatChannel] typing lease started");
             }
         }
 
         _ => {}
+    }
+}
+
+fn session_load_failure_message(lang: Lang, message: &str, retrying: bool) -> String {
+    match (lang, retrying) {
+        (Lang::ZhCn | Lang::ZhTw, true) => format!(
+            "Agent 无法恢复原会话（{message}）。原对话绑定已保留，正在自动以可见历史摘要继续处理本条消息。"
+        ),
+        (Lang::ZhCn | Lang::ZhTw, false) => format!(
+            "Agent 无法恢复原会话（{message}）。原对话绑定已保留；下一条消息会自动以可见历史摘要继续。"
+        ),
+        (_, true) => format!(
+            "The Agent could not restore the bound session ({message}). The conversation binding is preserved and this message is being retried automatically with a visible history recap."
+        ),
+        (_, false) => format!(
+            "The Agent could not restore the bound session ({message}). The conversation binding is preserved; your next message will continue from a visible history recap."
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_session_load_failure(
+    db: &DatabaseConnection,
+    manager: &ChatChannelManager,
+    conn_mgr: &ConnectionManager,
+    emitter: &EventEmitter,
+    bridge: &Arc<Mutex<SessionBridge>>,
+    data_dir: &Path,
+    connection_id: &str,
+    session: ActiveSession,
+    message: &str,
+    lang: Lang,
+) {
+    let channel_id = session.channel_id;
+    let target = session.target.clone();
+    manager
+        .typing_controller()
+        .stop(manager, channel_id, &session.route_key, connection_id)
+        .await;
+    let _ = conversation_service::clear_external_id(db, session.conversation_id).await;
+    session_topic::clear_route_if_connection(
+        db,
+        channel_id,
+        &session.sender_id,
+        &target,
+        connection_id,
+    )
+    .await;
+    let retrying = session.recovery_prompt.is_some();
+    let body = session_load_failure_message(lang, message, retrying);
+    let _ = manager
+        .send_to_target(&target, &RichMessage::error(body))
+        .await;
+    if let Some(prompt) = session.recovery_prompt.clone() {
+        retry_failed_session_load(
+            db, manager, conn_mgr, emitter, bridge, data_dir, session, prompt, lang,
+        )
+        .await;
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn catch_up_session_load_failure(
+    bridge: &Arc<Mutex<SessionBridge>>,
+    manager: &ChatChannelManager,
+    conn_mgr: &ConnectionManager,
+    db: &DatabaseConnection,
+    emitter: &EventEmitter,
+    data_dir: &Path,
+    connection_id: &str,
+) -> bool {
+    let recovery_failed = match conn_mgr.get_state(connection_id).await {
+        Some(state) => state.read().await.recovery_failed,
+        None => true,
+    };
+    if !recovery_failed {
+        return false;
+    }
+    let Some(session) = bridge.lock().await.remove(connection_id) else {
+        return true;
+    };
+    let lang = get_lang(db).await;
+    let message = match lang {
+        Lang::ZhCn | Lang::ZhTw => "原 Agent 会话不可恢复",
+        _ => "the original Agent session could not be restored",
+    };
+    handle_session_load_failure(
+        db,
+        manager,
+        conn_mgr,
+        emitter,
+        bridge,
+        data_dir,
+        connection_id,
+        session,
+        message,
+        lang,
+    )
+    .await;
+    true
+}
+
+async fn send_pending_prompt(
+    bridge: &Arc<Mutex<SessionBridge>>,
+    manager: &ChatChannelManager,
+    conn_mgr: &ConnectionManager,
+    db: &DatabaseConnection,
+    connection_id: &str,
+) {
+    let pending = {
+        let mut guard = bridge.lock().await;
+        guard.get_mut(connection_id).and_then(|session| {
+            session
+                .pending_prompt
+                .take()
+                .map(|prompt| (prompt, session.target.clone()))
+        })
+    };
+    let Some((prompt, target)) = pending else {
+        return;
+    };
+    let blocks = vec![PromptInputBlock::Text {
+        text: prompt.clone(),
+    }];
+    match conn_mgr.send_prompt(connection_id, blocks).await {
+        Ok(()) => {}
+        Err(crate::acp::error::AcpError::TurnInProgress) => {
+            restore_deferred_prompt(bridge, manager, db, connection_id, prompt, target).await;
+        }
+        Err(error) => {
+            tracing::error!(
+                connection_id,
+                error = %error,
+                "[SessionEventSub] failed to send pending prompt"
+            );
+        }
+    }
+}
+
+async fn restore_deferred_prompt(
+    bridge: &Arc<Mutex<SessionBridge>>,
+    manager: &ChatChannelManager,
+    db: &DatabaseConnection,
+    connection_id: &str,
+    prompt: String,
+    target: crate::chat_channel::types::ChannelMessageTarget,
+) {
+    let exhausted = {
+        let mut guard = bridge.lock().await;
+        let Some(session) = guard.get_mut(connection_id) else {
+            return;
+        };
+        session.pending_prompt_attempts = session.pending_prompt_attempts.saturating_add(1);
+        if session.pending_prompt_attempts >= MAX_KICKOFF_RETRIES {
+            true
+        } else {
+            session.pending_prompt = Some(prompt);
+            false
+        }
+    };
+    if exhausted {
+        let lang = get_lang(db).await;
+        let body = match lang {
+            Lang::ZhCn | Lang::ZhTw => "任务启动提示连续被占用，已放弃自动重试；请重新发送。",
+            _ => "The kickoff prompt was repeatedly blocked; auto-retry stopped. Please resend.",
+        };
+        let _ = manager
+            .send_to_target(&target, &RichMessage::error(body.to_string()))
+            .await;
+    } else {
+        tracing::warn!(
+            connection_id,
+            "[SessionEventSub] kickoff deferred until TurnComplete"
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn retry_failed_session_load(
+    db: &DatabaseConnection,
+    manager: &ChatChannelManager,
+    conn_mgr: &ConnectionManager,
+    emitter: &EventEmitter,
+    bridge: &Arc<Mutex<SessionBridge>>,
+    data_dir: &Path,
+    session: ActiveSession,
+    prompt: String,
+    lang: Lang,
+) {
+    let route = conversation_binding_service::ConversationRoute {
+        route_key: session.route_key,
+        target_id: session.target_id,
+    };
+    let result = Box::pin(session_commands::resume_conversation_for_followup(
+        db,
+        session.channel_id,
+        &session.sender_id,
+        &session.target,
+        &route,
+        session.conversation_id,
+        &prompt,
+        manager,
+        conn_mgr,
+        emitter,
+        bridge,
+        data_dir,
+        lang,
+        session.trace_id.as_deref(),
+    ))
+    .await;
+    if !result.body.trim().is_empty() {
+        let _ = manager.send_to_target(&session.target, &result).await;
+    }
+}
+
+async fn session_route(
+    bridge: &Arc<Mutex<SessionBridge>>,
+    connection_id: &str,
+) -> Option<(i32, String)> {
+    let guard = bridge.lock().await;
+    guard
+        .get(connection_id)
+        .map(|session| (session.channel_id, session.route_key.clone()))
+}
+
+async fn session_route_target(
+    bridge: &Arc<Mutex<SessionBridge>>,
+    connection_id: &str,
+) -> Option<(
+    i32,
+    String,
+    crate::chat_channel::types::ChannelMessageTarget,
+)> {
+    let guard = bridge.lock().await;
+    guard.get(connection_id).map(|session| {
+        (
+            session.channel_id,
+            session.route_key.clone(),
+            session.target.clone(),
+        )
+    })
+}
+
+async fn complete_session_start(
+    bridge: &Arc<Mutex<SessionBridge>>,
+    manager: &ChatChannelManager,
+    conn_mgr: &ConnectionManager,
+    db: &DatabaseConnection,
+    connection_id: &str,
+    session_id: &str,
+) -> bool {
+    let start = {
+        let guard = bridge.lock().await;
+        guard.get(connection_id).map(|session| {
+            (
+                session.conversation_id,
+                session.channel_id,
+                session.sender_id.clone(),
+                session.target.clone(),
+                session.bind_on_start.then(|| {
+                    crate::db::service::conversation_binding_service::ConversationRoute {
+                        route_key: session.route_key.clone(),
+                        target_id: session.target_id.clone(),
+                    }
+                }),
+            )
+        })
+    };
+    let Some((conversation_id, channel_id, sender_id, target, route)) = start else {
+        return false;
+    };
+    let _ =
+        conversation_service::update_external_id(db, conversation_id, session_id.to_string()).await;
+    let Some(route) = route else { return true };
+    if conversation_binding_service::bind(db, channel_id, &route, conversation_id)
+        .await
+        .is_ok()
+    {
+        let replaced = bridge.lock().await.activate_route(connection_id);
+        for session in replaced {
+            manager
+                .typing_controller()
+                .stop(
+                    manager,
+                    session.channel_id,
+                    &session.route_key,
+                    &session.connection_id,
+                )
+                .await;
+            let _ = conn_mgr.disconnect(&session.connection_id).await;
+        }
+        return true;
+    }
+    tracing::error!(
+        channel_id,
+        conversation_id,
+        "[ChatChannel] conversation bind failed"
+    );
+    bridge.lock().await.remove(connection_id);
+    let _ = conn_mgr.cancel(db, connection_id).await;
+    let _ = conversation_service::update_status(
+        db,
+        conversation_id,
+        crate::db::entities::conversation::ConversationStatus::Cancelled,
+    )
+    .await;
+    session_topic::clear_route_if_connection(db, channel_id, &sender_id, &target, connection_id)
+        .await;
+    let _ = manager
+        .send_to_target(
+            &target,
+            &RichMessage::error("新对话绑定失败，原对话绑定已保留。"),
+        )
+        .await;
+    false
+}
+
+pub(super) async fn catch_up_session_start(
+    bridge: &Arc<Mutex<SessionBridge>>,
+    manager: &ChatChannelManager,
+    conn_mgr: &ConnectionManager,
+    db: &DatabaseConnection,
+    connection_id: &str,
+) {
+    let external_id = match conn_mgr.get_state(connection_id).await {
+        Some(state) => state.read().await.external_id.clone(),
+        None => None,
+    };
+    let Some(external_id) = external_id else {
+        return;
+    };
+    if complete_session_start(bridge, manager, conn_mgr, db, connection_id, &external_id).await {
+        send_pending_prompt(bridge, manager, conn_mgr, db, connection_id).await;
     }
 }
 

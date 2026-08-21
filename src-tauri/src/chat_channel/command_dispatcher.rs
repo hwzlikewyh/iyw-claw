@@ -15,8 +15,10 @@ use super::session_bridge::SessionBridge;
 use super::session_commands;
 use super::types::{ChannelMessageTarget, IncomingCommand, RichMessage};
 use crate::acp::manager::ConnectionManager;
+use crate::db::service::conversation_binding_service::ConversationRoute;
 use crate::db::service::{
-    app_metadata_service, chat_channel_message_log_service, sender_context_service,
+    app_metadata_service, chat_channel_message_log_service, conversation_binding_service,
+    sender_context_service,
 };
 use crate::web::event_bridge::EventEmitter;
 
@@ -95,16 +97,46 @@ pub fn spawn_command_dispatcher(
                 .or(cmd.sender_name.as_deref())
                 .unwrap_or("消息会话");
             let registered_target =
-                super::target_registry::register_inbound(&db_conn, &cmd.target, target_label).await;
-            let target_id = match registered_target {
-                Ok(target) => Some(target.target_id),
+                match super::target_registry::register_inbound(&db_conn, &cmd.target, target_label)
+                    .await
+                {
+                    Ok(target) => target,
+                    Err(error) => {
+                        tracing::error!(
+                            channel_id = cmd.channel_id,
+                            error = %error,
+                            "[ChatChannel] failed to register inbound target"
+                        );
+                        let _ = manager
+                            .send_to_target(
+                                &cmd.target,
+                                &RichMessage::error("消息会话登记失败，请稍后重试。"),
+                            )
+                            .await;
+                        continue;
+                    }
+                };
+            let target_id = registered_target.target_id;
+            let route = match conversation_binding_service::registered_route(
+                target_id.clone(),
+                &cmd.target,
+                &cmd.sender_id,
+                &cmd.metadata,
+            ) {
+                Ok(route) => route,
                 Err(error) => {
                     tracing::error!(
                         channel_id = cmd.channel_id,
                         error = %error,
-                        "[ChatChannel] failed to register inbound target"
+                        "[ChatChannel] failed to resolve conversation route"
                     );
-                    None
+                    let _ = manager
+                        .send_to_target(
+                            &cmd.target,
+                            &RichMessage::error("消息会话路由失败，请稍后重试。"),
+                        )
+                        .await;
+                    continue;
                 }
             };
 
@@ -112,7 +144,7 @@ pub fn spawn_command_dispatcher(
             let trace_id = cmd.message_trace_id.clone();
             tracing::info!(
                 channel_id = cmd.channel_id,
-                target_id = target_id.as_deref().unwrap_or("legacy_unknown"),
+                target_id,
                 trace_id,
                 content_chars = text.chars().count(),
                 "[ChatChannel] received command"
@@ -129,7 +161,7 @@ pub fn spawn_command_dispatcher(
                 None,
                 Some(trace_id.clone()),
                 cmd.provider_message_id.clone(),
-                target_id,
+                Some(target_id),
             )
             .await;
 
@@ -148,6 +180,7 @@ pub fn spawn_command_dispatcher(
                 &cmd.sender_id,
                 cmd.sender_name.as_deref(),
                 &cmd.target,
+                &route,
                 cmd.callback_data.as_deref(),
                 config.lang,
                 &trace_id,
@@ -202,6 +235,7 @@ async fn dispatch_command(
     sender_id: &str,
     sender_name: Option<&str>,
     target: &ChannelMessageTarget,
+    route: &ConversationRoute,
     callback_data: Option<&str>,
     lang: Lang,
     trace_id: &str,
@@ -228,6 +262,8 @@ async fn dispatch_command(
                         channel_id,
                         sender_id,
                         target,
+                        route,
+                        manager,
                         conn_mgr,
                         emitter,
                         bridge,
@@ -253,6 +289,7 @@ async fn dispatch_command(
                 sender_id,
                 sender_name,
                 target,
+                route,
                 lang,
                 trace_id,
             )
@@ -328,6 +365,9 @@ async fn dispatch_command(
                 channel_id,
                 sender_id,
                 target,
+                route,
+                false,
+                command == "new",
                 manager,
                 conn_mgr,
                 emitter,
@@ -351,6 +391,7 @@ async fn dispatch_command(
                 channel_id,
                 sender_id,
                 target,
+                route,
                 manager,
                 conn_mgr,
                 emitter,
@@ -359,13 +400,21 @@ async fn dispatch_command(
                 prefix,
                 data_dir,
                 Some(trace_id),
+                true,
             )
             .await,
             target,
         ),
         "cancel" => DispatchResponse::current(
             session_commands::handle_cancel(
-                db, channel_id, sender_id, target, conn_mgr, bridge, lang,
+                db,
+                channel_id,
+                sender_id,
+                &route.route_key,
+                manager,
+                conn_mgr,
+                bridge,
+                lang,
             )
             .await,
             target,
@@ -374,7 +423,16 @@ async fn dispatch_command(
             let always = args.eq_ignore_ascii_case("always");
             DispatchResponse::current(
                 session_commands::handle_permission_response(
-                    true, always, db, channel_id, sender_id, target, conn_mgr, bridge, lang,
+                    true,
+                    always,
+                    db,
+                    channel_id,
+                    sender_id,
+                    target,
+                    &route.route_key,
+                    conn_mgr,
+                    bridge,
+                    lang,
                 )
                 .await,
                 target,
@@ -382,7 +440,16 @@ async fn dispatch_command(
         }
         "deny" => DispatchResponse::current(
             session_commands::handle_permission_response(
-                false, false, db, channel_id, sender_id, target, conn_mgr, bridge, lang,
+                false,
+                false,
+                db,
+                channel_id,
+                sender_id,
+                target,
+                &route.route_key,
+                conn_mgr,
+                bridge,
+                lang,
             )
             .await,
             target,
@@ -410,11 +477,13 @@ async fn dispatch_natural_message(
     sender_id: &str,
     sender_name: Option<&str>,
     target: &ChannelMessageTarget,
+    route: &ConversationRoute,
     lang: Lang,
     trace_id: &str,
 ) -> DispatchResponse {
     let decision =
-        natural_router::route_natural_message(db, bridge, channel_id, sender_id, text, lang).await;
+        natural_router::route_natural_message(db, bridge, channel_id, sender_id, route, text, lang)
+            .await;
     tracing::info!(
         channel_id,
         decision = natural_route_name(&decision),
@@ -429,6 +498,8 @@ async fn dispatch_natural_message(
                 channel_id,
                 sender_id,
                 target,
+                route,
+                manager,
                 conn_mgr,
                 emitter,
                 bridge,
@@ -442,21 +513,67 @@ async fn dispatch_natural_message(
         ),
         NaturalRouteDecision::ApprovePermission { always } => DispatchResponse::current(
             session_commands::handle_permission_response(
-                true, always, db, channel_id, sender_id, target, conn_mgr, bridge, lang,
+                true,
+                always,
+                db,
+                channel_id,
+                sender_id,
+                target,
+                &route.route_key,
+                conn_mgr,
+                bridge,
+                lang,
             )
             .await,
             target,
         ),
         NaturalRouteDecision::DenyPermission => DispatchResponse::current(
             session_commands::handle_permission_response(
-                false, false, db, channel_id, sender_id, target, conn_mgr, bridge, lang,
+                false,
+                false,
+                db,
+                channel_id,
+                sender_id,
+                target,
+                &route.route_key,
+                conn_mgr,
+                bridge,
+                lang,
             )
             .await,
             target,
         ),
         NaturalRouteDecision::CancelSession => DispatchResponse::current(
             session_commands::handle_cancel(
-                db, channel_id, sender_id, target, conn_mgr, bridge, lang,
+                db,
+                channel_id,
+                sender_id,
+                &route.route_key,
+                manager,
+                conn_mgr,
+                bridge,
+                lang,
+            )
+            .await,
+            target,
+        ),
+        NaturalRouteDecision::ResumeConversation { conversation_id } => DispatchResponse::current(
+            session_commands::handle_resume(
+                db,
+                &conversation_id.to_string(),
+                channel_id,
+                sender_id,
+                target,
+                route,
+                manager,
+                conn_mgr,
+                emitter,
+                bridge,
+                lang,
+                prefix,
+                data_dir,
+                Some(trace_id),
+                true,
             )
             .await,
             target,
@@ -465,6 +582,8 @@ async fn dispatch_natural_message(
             task,
             folder_id,
             agent_type,
+            replacing_deleted,
+            replace_existing,
         } => {
             let _ =
                 sender_context_service::update_folder(db, channel_id, sender_id, Some(folder_id))
@@ -488,6 +607,9 @@ async fn dispatch_natural_message(
                     channel_id,
                     sender_id,
                     target,
+                    route,
+                    replacing_deleted,
+                    replace_existing,
                     manager,
                     conn_mgr,
                     emitter,
@@ -527,6 +649,7 @@ fn natural_route_name(decision: &NaturalRouteDecision) -> &'static str {
         NaturalRouteDecision::ApprovePermission { .. } => "approve_permission",
         NaturalRouteDecision::DenyPermission => "deny_permission",
         NaturalRouteDecision::CancelSession => "cancel_session",
+        NaturalRouteDecision::ResumeConversation { .. } => "resume_conversation",
         NaturalRouteDecision::StartTask { .. } => "start_task",
         NaturalRouteDecision::ShowStatus => "show_status",
         NaturalRouteDecision::ShowToday => "show_today",

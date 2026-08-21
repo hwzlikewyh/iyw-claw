@@ -198,7 +198,10 @@ jobs:
           set -euo pipefail
           archive="dist/${{ matrix.artifact }}.tar.gz"
           pnpm dlx @tauri-apps/cli@2.11.4 signer sign "$archive"
-          test -f "$archive.sig"
+          if [ ! -s "$archive.sig" ]; then
+            echo "::error::Signature missing or empty for $archive"
+            exit 1
+          fi
           (
             cd dist
             shasum -a 256 "${{ matrix.artifact }}.tar.gz" > "${{ matrix.artifact }}.tar.gz.sha256"
@@ -213,8 +216,12 @@ jobs:
         run: |
           $archive = "dist/${{ matrix.artifact }}.zip"
           pnpm dlx @tauri-apps/cli@2.11.4 signer sign $archive
-          if (-not (Test-Path "$archive.sig")) {
+          $signature = "$archive.sig"
+          if (-not (Test-Path $signature -PathType Leaf)) {
             throw "signature not produced for $archive"
+          }
+          if ((Get-Item -LiteralPath $signature).Length -le 0) {
+            throw "signature is empty for $archive"
           }
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
           "$hash  ${{ matrix.artifact }}.zip" | Out-File -Encoding ascii "$archive.sha256"

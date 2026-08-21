@@ -41,6 +41,20 @@ pub trait ChatChannelBackend: Send + Sync + 'static {
         self.send_rich_message(message).await
     }
 
+    fn supports_typing(&self) -> bool {
+        false
+    }
+
+    async fn set_typing(
+        &self,
+        _target: &ChannelMessageTarget,
+        _is_typing: bool,
+    ) -> Result<(), ChatChannelError> {
+        Err(ChatChannelError::Unsupported(
+            "typing status is not supported by this channel".to_string(),
+        ))
+    }
+
     fn attachment_capability(&self) -> AttachmentCapability {
         AttachmentCapability::UNSUPPORTED
     }

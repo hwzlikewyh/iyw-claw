@@ -16,6 +16,9 @@ pub struct ActiveSession {
     pub channel_id: i32,
     pub sender_id: String,
     pub target: ChannelMessageTarget,
+    pub route_key: String,
+    pub target_id: String,
+    pub bind_on_start: bool,
     pub conversation_id: i32,
     pub connection_id: String,
     pub agent_type: AgentType,
@@ -33,6 +36,9 @@ pub struct ActiveSession {
     pub delegation_rendered: HashSet<String>,
     pub last_flushed: Instant,
     pub pending_prompt: Option<String>,
+    /// Original user text retained only while an external Agent session is
+    /// being restored. Cleared once the Agent accepts the user message.
+    pub recovery_prompt: Option<String>,
     /// How many times the deferred kickoff has been retried (bounded, then
     /// surfaced as an explicit failure instead of retrying forever).
     pub pending_prompt_attempts: u32,
@@ -68,10 +74,51 @@ impl SessionBridge {
         self.sessions.get_mut(connection_id)
     }
 
+    pub fn activate_route(&mut self, connection_id: &str) -> Vec<ActiveSession> {
+        let Some(current) = self.sessions.get_mut(connection_id) else {
+            return Vec::new();
+        };
+        current.bind_on_start = false;
+        let channel_id = current.channel_id;
+        let route_key = current.route_key.clone();
+        let replaced_ids = self
+            .sessions
+            .iter()
+            .filter_map(|(id, session)| {
+                (id != connection_id
+                    && session.channel_id == channel_id
+                    && session.route_key == route_key)
+                    .then(|| id.clone())
+            })
+            .collect::<Vec<_>>();
+        replaced_ids
+            .iter()
+            .filter_map(|id| self.sessions.remove(id))
+            .collect()
+    }
+
     pub fn find_by_sender(&self, channel_id: i32, sender_id: &str) -> Option<&ActiveSession> {
         self.sessions
             .values()
             .find(|s| s.channel_id == channel_id && s.sender_id == sender_id)
+    }
+
+    pub fn find_by_route(&self, channel_id: i32, route_key: &str) -> Option<&ActiveSession> {
+        self.sessions
+            .values()
+            .filter(|session| session.channel_id == channel_id && session.route_key == route_key)
+            .min_by_key(|session| session.bind_on_start)
+    }
+
+    pub fn find_by_route_mut(
+        &mut self,
+        channel_id: i32,
+        route_key: &str,
+    ) -> Option<&mut ActiveSession> {
+        self.sessions
+            .values_mut()
+            .filter(|session| session.channel_id == channel_id && session.route_key == route_key)
+            .min_by_key(|session| session.bind_on_start)
     }
 
     pub fn find_by_target(&self, target: &ChannelMessageTarget) -> Option<&ActiveSession> {

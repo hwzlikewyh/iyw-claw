@@ -756,6 +756,10 @@ async fn handle_lark_event(
             .and_then(|value| value.as_str())
             .unwrap_or_default()
             .to_string();
+        let chat_type = event
+            .pointer("/event/message/chat_type")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
         let command = IncomingCommand {
             channel_id,
             sender_id,
@@ -769,7 +773,7 @@ async fn handle_lark_event(
                 thread_kind: Some("lark_chat".to_string()),
                 provider_payload: None,
             },
-            metadata: serde_json::json!({}),
+            metadata: serde_json::json!({ "chat_type": chat_type }),
             message_trace_id: super::super::dedupe::new_message_trace_id(channel_id),
             provider_message_id: Some(provider_message_id),
             received_at: chrono::Utc::now(),

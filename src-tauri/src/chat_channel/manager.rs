@@ -12,6 +12,7 @@ use super::error::ChatChannelError;
 use super::session_bridge::SessionBridge;
 use super::traits::ChatChannelBackend;
 use super::types::*;
+use super::typing::TypingController;
 use crate::acp::manager::ConnectionManager;
 use crate::web::event_bridge::{EventEmitter, WebEventBroadcaster};
 
@@ -38,6 +39,7 @@ struct Inner {
     next_generation: AtomicU64,
     broadcaster: Mutex<Option<Arc<WebEventBroadcaster>>>,
     data_dir: Mutex<Option<PathBuf>>,
+    typing: TypingController,
 }
 
 pub struct ChatChannelManager {
@@ -64,6 +66,7 @@ impl ChatChannelManager {
                 next_generation: AtomicU64::new(0),
                 broadcaster: Mutex::new(None),
                 data_dir: Mutex::new(None),
+                typing: TypingController::default(),
             }),
         }
     }
@@ -85,6 +88,14 @@ impl ChatChannelManager {
 
     pub async fn data_dir(&self) -> Option<PathBuf> {
         self.inner.data_dir.lock().await.clone()
+    }
+
+    pub(crate) fn typing_controller(&self) -> TypingController {
+        self.inner.typing.clone()
+    }
+
+    async fn stop_typing_for_channel(&self, channel_id: i32) {
+        self.inner.typing.stop_channel(self, channel_id).await;
     }
 
     /// Take the command receiver (can only be called once, at startup).
@@ -140,6 +151,7 @@ impl ChatChannelManager {
         backend: Arc<dyn ChatChannelBackend>,
     ) -> Result<(), ChatChannelError> {
         let generation = self.next_generation();
+        self.stop_typing_for_channel(id).await;
         let old = self.inner.channels.lock().await.remove(&id);
         if let Some(existing) = old {
             let _ = existing.backend.stop().await;
@@ -152,6 +164,7 @@ impl ChatChannelManager {
     /// Detach the running backend for a channel so the caller can restore it
     /// (last-known-good) if a reconfiguration fails. The backend is stopped.
     pub async fn take_backend(&self, id: i32) -> Option<Arc<dyn ChatChannelBackend>> {
+        self.stop_typing_for_channel(id).await;
         let removed = self.inner.channels.lock().await.remove(&id);
         if let Some(channel) = removed {
             let _ = channel.backend.stop().await;
@@ -170,6 +183,7 @@ impl ChatChannelManager {
         backend: Arc<dyn ChatChannelBackend>,
     ) -> Result<(), ChatChannelError> {
         let generation = self.next_generation();
+        self.stop_typing_for_channel(id).await;
         let old = self.inner.channels.lock().await.remove(&id);
         if let Some(existing) = old {
             let _ = existing.backend.stop().await;
@@ -240,6 +254,7 @@ impl ChatChannelManager {
             .get(&id)
             .map(|channel| (channel.generation, channel.backend.clone()));
         if let Some((generation, backend)) = candidate {
+            self.stop_typing_for_channel(id).await;
             backend.stop().await?;
             let removed = {
                 let mut channels = self.inner.channels.lock().await;
@@ -262,6 +277,10 @@ impl ChatChannelManager {
     }
 
     pub async fn stop_all(&self) {
+        let ids: Vec<i32> = self.inner.channels.lock().await.keys().copied().collect();
+        for id in ids {
+            self.stop_typing_for_channel(id).await;
+        }
         let drained: Vec<ActiveChannel> = {
             let mut channels = self.inner.channels.lock().await;
             channels.drain().map(|(_, ch)| ch).collect()
@@ -479,6 +498,8 @@ impl ChatChannelManager {
             manager_for_session_events,
             conn_mgr.clone_ref(),
             db_conn.clone(),
+            emitter.clone(),
+            data_dir.clone(),
         );
 
         // Spawn command dispatcher

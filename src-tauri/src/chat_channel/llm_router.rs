@@ -323,6 +323,8 @@ pub fn validate_llm_output(
                 task: task.to_string(),
                 folder_id,
                 agent_type,
+                replacing_deleted: false,
+                replace_existing: false,
             })
         }
         LlmRouteAction::ShowStatus => Some(NaturalRouteDecision::ShowStatus),

@@ -1,4 +1,5 @@
 use chrono::Utc;
+use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
     IntoActiveModel, QueryFilter, Set,
@@ -142,6 +143,28 @@ pub async fn clear_connection(
     active.connection_id = Set(None);
     active.updated_at = Set(Utc::now());
     Ok(active.update(conn).await?)
+}
+
+/// Clear a topic connection only when it still points at the failing session.
+pub async fn clear_connection_if_matches(
+    conn: &DatabaseConnection,
+    id: i32,
+    expected_connection_id: &str,
+) -> Result<u64, DbError> {
+    let result = chat_channel_thread_binding::Entity::update_many()
+        .col_expr(
+            chat_channel_thread_binding::Column::ConnectionId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            chat_channel_thread_binding::Column::UpdatedAt,
+            Expr::value(Utc::now()),
+        )
+        .filter(chat_channel_thread_binding::Column::Id.eq(id))
+        .filter(chat_channel_thread_binding::Column::ConnectionId.eq(expected_connection_id))
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected)
 }
 
 async fn require_binding(

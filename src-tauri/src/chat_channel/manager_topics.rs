@@ -11,6 +11,19 @@ use crate::db::entities::chat_channel_thread_binding;
 use crate::db::service::thread_binding_service;
 
 impl ChatChannelManager {
+    pub async fn set_typing(
+        &self,
+        target: &ChannelMessageTarget,
+        is_typing: bool,
+    ) -> Result<bool, ChatChannelError> {
+        let backend = self.backend_for(target.channel_id).await?;
+        if !backend.supports_typing() {
+            return Ok(false);
+        }
+        backend.set_typing(target, is_typing).await?;
+        Ok(true)
+    }
+
     pub async fn attachment_capability(
         &self,
         channel_id: i32,

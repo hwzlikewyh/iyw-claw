@@ -137,7 +137,8 @@ fn parse_incoming(channel_id: i32, frame: &serde_json::Value) -> Option<Incoming
         return None;
     }
     let sender_id = field(&data, "senderStaffId").or_else(|| field(&data, "senderId"))?;
-    let chat_id = if field(&data, "conversationType").as_deref() == Some("2") {
+    let conversation_type = field(&data, "conversationType");
+    let chat_id = if conversation_type.as_deref() == Some("2") {
         field(&data, "conversationId").unwrap_or_else(|| sender_id.clone())
     } else {
         sender_id.clone()
@@ -171,7 +172,7 @@ fn parse_incoming(channel_id: i32, frame: &serde_json::Value) -> Option<Incoming
                 "session_webhook_expired_time": expires,
             })),
         },
-        metadata: serde_json::json!({}),
+        metadata: serde_json::json!({ "chat_type": conversation_type }),
         message_trace_id: super::super::super::dedupe::new_message_trace_id(channel_id),
         provider_message_id: message_id,
         received_at: chrono::Utc::now(),

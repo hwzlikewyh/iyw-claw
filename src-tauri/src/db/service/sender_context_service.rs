@@ -89,6 +89,72 @@ pub async fn clear_session(
     update_session(conn, channel_id, sender_id, None, None).await
 }
 
+pub async fn clear_connection(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+) -> Result<chat_channel_sender_context::Model, DbError> {
+    let model = get_or_create(conn, channel_id, sender_id).await?;
+    let mut active = model.into_active_model();
+    active.current_connection_id = Set(None);
+    active.updated_at = Set(Utc::now());
+    Ok(active.update(conn).await?)
+}
+
+/// Clear a connection only when it is still the one that triggered cleanup.
+/// Late disconnect/error events must not erase a newer session connection.
+pub async fn clear_connection_if_matches(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+    expected_connection_id: &str,
+) -> Result<u64, DbError> {
+    let result = chat_channel_sender_context::Entity::update_many()
+        .col_expr(
+            chat_channel_sender_context::Column::CurrentConnectionId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            chat_channel_sender_context::Column::UpdatedAt,
+            Expr::value(Utc::now()),
+        )
+        .filter(chat_channel_sender_context::Column::ChannelId.eq(channel_id))
+        .filter(chat_channel_sender_context::Column::SenderId.eq(sender_id))
+        .filter(chat_channel_sender_context::Column::CurrentConnectionId.eq(expected_connection_id))
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected)
+}
+
+/// Clear both session fields only when the expected connection still owns the
+/// row. This is used when a just-created kickoff failed before any reply.
+pub async fn clear_session_if_connection_matches(
+    conn: &DatabaseConnection,
+    channel_id: i32,
+    sender_id: &str,
+    expected_connection_id: &str,
+) -> Result<u64, DbError> {
+    let result = chat_channel_sender_context::Entity::update_many()
+        .col_expr(
+            chat_channel_sender_context::Column::CurrentConversationId,
+            Expr::value(Option::<i32>::None),
+        )
+        .col_expr(
+            chat_channel_sender_context::Column::CurrentConnectionId,
+            Expr::value(Option::<String>::None),
+        )
+        .col_expr(
+            chat_channel_sender_context::Column::UpdatedAt,
+            Expr::value(Utc::now()),
+        )
+        .filter(chat_channel_sender_context::Column::ChannelId.eq(channel_id))
+        .filter(chat_channel_sender_context::Column::SenderId.eq(sender_id))
+        .filter(chat_channel_sender_context::Column::CurrentConnectionId.eq(expected_connection_id))
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected)
+}
+
 pub async fn update_auto_approve(
     conn: &DatabaseConnection,
     channel_id: i32,

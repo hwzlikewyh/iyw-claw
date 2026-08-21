@@ -1,6 +1,7 @@
 pub mod attachments;
 pub mod backends;
 mod channel_config_types;
+mod channel_context;
 pub mod command_dispatcher;
 pub mod command_handlers;
 mod command_response;
@@ -38,5 +39,6 @@ pub mod target_registry;
 pub mod tool_detail;
 pub mod traits;
 pub mod types;
+pub(crate) mod typing;
 pub mod webhook;
 mod wecom_agent_types;
