@@ -1,7 +1,22 @@
 use crate::acp::trusted_agents;
 use crate::models::agent::AgentType;
+use serde::{Deserialize, Serialize};
 
 mod builtin_meta;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentConcurrencyEnforcement {
+    NativeAndHost,
+    Host,
+}
+
+pub fn subagent_concurrency_enforcement(agent_type: AgentType) -> SubagentConcurrencyEnforcement {
+    match agent_type {
+        AgentType::Codex | AgentType::ClaudeCode => SubagentConcurrencyEnforcement::NativeAndHost,
+        _ => SubagentConcurrencyEnforcement::Host,
+    }
+}
 
 const TRUSTED_MANAGED_BINARY_PLATFORM: &str = "windows-x86_64";
 

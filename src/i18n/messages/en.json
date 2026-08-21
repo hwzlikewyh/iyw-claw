@@ -996,6 +996,22 @@
       "migrationFailed": "Could not move Agent storage",
       "previousRoot": "Previous data remains at {path}; remove it manually after verification"
     },
+    "concurrency": {
+      "title": "Sub-agent concurrency",
+      "description": "Set one per-session limit for concurrently running sub-agents, independent of multi-agent delegation settings.",
+      "limitLabel": "Maximum parallel sub-agents per session",
+      "limitHint": "Choose {min}–{max}. Changes apply when an Agent connection starts, resumes, or restarts.",
+      "save": "Save",
+      "saving": "Saving",
+      "saved": "Sub-agent concurrency saved",
+      "newSessions": "Running processes are not hot-updated; new, resumed, or restarted Agent connections use this limit.",
+      "loadFailed": "Could not load concurrency settings: {detail}",
+      "saveFailed": "Could not save concurrency settings",
+      "enforcement": {
+        "native_and_host": "Native + host",
+        "host": "Host"
+      }
+    },
     "title": "Agent SDK Management",
     "description": "Choose an Agent by its strengths, then manage its availability and version in one place.",
     "agentAliasDescription": "Connect and manage {name} through the Agent SDK.",

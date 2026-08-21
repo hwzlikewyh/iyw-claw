@@ -112,8 +112,16 @@ pub fn build_router(
             post(handlers::delegation::get_delegation_settings),
         )
         .route(
+            "/get_agent_concurrency_settings",
+            post(handlers::agent_concurrency::get_agent_concurrency_settings),
+        )
+        .route(
             "/set_delegation_settings",
             post(handlers::delegation::set_delegation_settings),
+        )
+        .route(
+            "/set_agent_concurrency_settings",
+            post(handlers::agent_concurrency::set_agent_concurrency_settings),
         )
         .route(
             "/get_feedback_settings",
